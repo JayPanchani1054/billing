@@ -58,7 +58,7 @@ export const PREDEFINED_VOUCHER_TYPES: readonly PredefinedVoucherType[] = [
   { name: 'Credit Note', baseType: 'credit_note', abbreviation: 'C/Note', hotkey: 'Ctrl+F8' },
   { name: 'Debit Note', baseType: 'debit_note', abbreviation: 'D/Note', hotkey: 'Ctrl+F9' },
   { name: 'Sales Order', baseType: 'sales_order', abbreviation: 'S/Ord', hotkey: 'Alt+F5' },
-  { name: 'Purchase Order', baseType: 'purchase_order', abbreviation: 'P/Ord', hotkey: 'Alt+F4' },
+  { name: 'Purchase Order', baseType: 'purchase_order', abbreviation: 'P/Ord', hotkey: 'Alt+F6' },
   { name: 'Delivery Note', baseType: 'delivery_note', abbreviation: 'Dl/Nt', hotkey: 'Alt+F8' },
   { name: 'Receipt Note', baseType: 'receipt_note', abbreviation: 'Rc/Nt', hotkey: 'Alt+F9' },
   { name: 'Rejections In', baseType: 'rejection_in', abbreviation: 'Rej In', hotkey: 'Ctrl+F6' },

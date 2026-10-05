@@ -14,7 +14,10 @@ import { useApiQuery } from './hooks/useApiQuery.ts';
 import { ApiError } from './lib/apiErrors.ts';
 import { clearQueryCache } from './queryClient.ts';
 
-export type AppPhase = 'no-bridge' | 'loading' | 'error' | 'first-run' | 'select-company' | 'login' | 'change-password' | 'workspace';
+import { phaseOf } from './lib/appPhase.ts';
+import type { AppPhase } from './lib/appPhase.ts';
+
+export type { AppPhase };
 
 export interface AppStateValue {
   phase: AppPhase;
@@ -31,17 +34,6 @@ export interface AppStateValue {
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
-
-/** Pure routing decision (exported for tests/readability). */
-export function phaseOf(state: AppState | null, opts: { bridge: boolean; loading: boolean; error: boolean }): AppPhase {
-  if (!opts.bridge) return 'no-bridge';
-  if (!state) return opts.error ? 'error' : 'loading';
-  if (state.firstRun) return 'first-run';
-  if (state.pendingLogin) return 'login';
-  if (!state.company || !state.session) return 'select-company';
-  if (state.session.mustChangePassword) return 'change-password';
-  return 'workspace';
-}
 
 export function AppStateProvider({ children }: { children?: ReactNode }) {
   const bridge = hasBridge();

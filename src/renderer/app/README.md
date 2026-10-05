@@ -1,0 +1,478 @@
+# Bahi shell (`src/renderer/app`) — API for feature modules
+
+The shell is everything around your screens: app state and routing, the company workspace (top
+bar, breadcrumbs, screen stack, action rail, status bar), navigation, global hotkeys, Go To, the
+working date and period, the API client and cache, confirmations, export/print and error handling.
+Feature modules plug in through a `ModuleDef` and build screens with the hooks below.
+
+**Import everything from the barrel:**
+
+```ts
+import { Screen, ReportScreen, useNav, useApiQuery, useApiMutation, usePeriod } from '../../app/index.ts';
+import { Button, DataTable, Field, TextInput } from '../../ui/index.ts';
+```
+
+Read `src/renderer/ui/README.md` for components. Never write raw colours; screens rarely need CSS at all.
+
+---
+
+## 1. Registering a module
+
+`src/renderer/modules/<module>/index.ts` exports a `ModuleDef` (already listed in `modules/index.ts`):
+
+```ts
+import type { ModuleDef } from '../../app/index.ts';
+import { LedgerForm } from './LedgerForm.tsx';
+import { LedgerList } from './LedgerList.tsx';
+
+export const accountsModule: ModuleDef = {
+  id: 'accounts',
+  screens: [
+    { id: 'accounts.ledger.list', title: 'Ledgers', component: LedgerList, access: 'masters.view', goto: true },
+    { id: 'accounts.ledger.form', title: 'Ledger', component: LedgerForm, access: 'masters.create' },
+  ],
+  menu: [
+    { section: 'masters', label: 'Ledgers', screen: 'accounts.ledger.list', order: 20, keywords: ['accounts', 'party'], description: 'Customers, suppliers, banks, expenses' },
+    { section: 'masters', label: 'Create Ledger', screen: 'accounts.ledger.form', order: 21 },
+  ],
+};
+```
+
+**ScreenDef**: `id` (`'<module>.<entity>[.<view>]'`, globally unique), `title` (Title Case), `component`
+(receives `{ params }`), `access?: Permission`, `presentation?: 'full' | 'dialog'`, and (additive)
+`goto?: true` (offer in Go To although no menu item points at it — only for screens that work without
+params), `keywords?`, `feature?: keyof CompanyFeatures` (e.g. `'inventory'`), `gstOnly?`.
+A screen the user may not open is refused with a toast; one whose feature is off says how to turn it on.
+
+**MenuItem**: `section`, `label` (Title Case, short — it gets a Tally accelerator letter), `screen`,
+`params?`, `hotkey?` (display only — global keys belong to the shell, see §9), `keywords?`, `access?`,
+`order?` (lower first), `gstOnly?`, and (additive) `feature?`, `description?` (tooltip on the
+Gateway, second line in Go To). Items inherit their screen's `access/feature/gstOnly`.
+
+Gateway sections, in display order: `masters`, `transactions`, `banking`, `utilities`, `reports`,
+`inventory_reports`, `gst`, `data`, `security`, `company`. Accelerator letters are assigned across the
+whole Gateway in that order, preferring each label's first letter — keep important items early.
+
+### Well-known screen ids (please register these exact ids)
+
+| id | params | used by |
+|---|---|---|
+| `dashboard.home` | `{ embedded: true }` when shown inside the Gateway | Gateway right panel |
+| `vouchers.entry` | `{ baseType: VoucherBaseType, id?: number }` | F4–F9, Ctrl+F8/F9, Alt+F5/F6/F7/F8/F9, F10 picker, Go To vouchers |
+| `accounts.ledger.form` | `{ id?, initialName?, forResult? }` | Gateway quick action, checklist, Go To ledgers (fallback) |
+| `accounts.ledger.list` | — | |
+| `inventory.item.form` | `{ id?, initialName?, forResult? }` | Gateway quick action, Go To items |
+| `reports.ledger` | `{ ledgerId }` | Go To ledgers (preferred when registered) |
+| `reports.daybook`, `reports.balanceSheet`, `reports.profitLoss`, `reports.trialBalance` | — | Gateway quick actions |
+
+Until a screen is registered, opening it shows "This screen isn't available yet" — nothing crashes.
+The company module owns `company.profile`, `company.features` (F11), `company.config` (F12),
+`company.periodLock` (dialog), `company.changePassword` (dialog), `company.about`, `company.shortcuts`.
+
+---
+
+## 2. Screens
+
+A screen is a component `({ params }: ScreenProps<P>) => ReactNode`. The shell wraps it in a hotkey
+scope (active only while it is on top), an error boundary, and handles Esc / focus / breadcrumbs.
+
+### `<Screen>` — forms, lists, settings
+
+```tsx
+<Screen
+  title="Ledger Creation"            // h1 + breadcrumb + window title
+  subtitle="Under Sundry Debtors"
+  icon="ledger"
+  width="form"                      // 'full' (default) | 'form' (≈960px column) | 'narrow'
+  dirty={dirty}                     // Esc / switch company / window close ask before discarding
+  hint="Enter Next field · Ctrl+A Save · Alt+C Create group"   // status bar line
+  actions={[                        // right rail; keys become screen hotkeys while on top
+    { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: save, disabled: !dirty },
+    { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: remove, hidden: !id, group: 'danger' },
+  ]}
+  toolbar={<Button …/>}             // header buttons (optional)
+  loading={q.loading} error={q.error} onRetry={q.refetch}   // skeleton / friendly error + Retry
+  footer={<><Button onClick={() => void nav.back()}>Cancel</Button><Button variant="primary" shortcut="Ctrl+A" onClick={save}>Save</Button></>}
+>
+  …
+</Screen>
+```
+
+### `<ReportScreen>` — reports with period, Export (Alt+E) and Print (Alt+P)
+
+```tsx
+<ReportScreen
+  title="Trial Balance"
+  periodMode="range"               // 'range' (Alt+F2 period chip) | 'asOn' ("As on <to>") | 'none'
+  exportDef={() => ({ columns, rows, totals })}   // built on demand; omit to hide Export/Print
+  filters={<SegmentedControl …/>}
+  actions={[{ key: 'Alt+F5', label: detailed ? 'Condensed' : 'Detailed', onClick: toggle }]}
+  loading={q.loading} refreshing={q.refreshing} error={q.error} onRetry={q.refetch}
+>
+  <DataTable autoFocus … />
+</ReportScreen>
+```
+
+It shows company + title + period (click or Alt+F2 to change), the Export dialog (Excel / CSV /
+PDF — press X, C or P) and Print, toasts "Saved … · Show in folder". Pass `period={…}` to show a
+drilled-down range instead of the global period.
+
+### Dialog screens
+
+Register with `presentation: 'dialog'` and render `<DialogScreen title footer size>`; it is a Modal
+wired to the stack (Esc/× → `nav.back()`, which asks if dirty). Close after success with
+`nav.pop(result)`. Put dialog-only hotkeys (e.g. `Ctrl+A`) in a child component **inside**
+`DialogScreen` so they bind to the dialog's own scope. A dialog screen is remounted (state lost) if a
+full screen is pushed over it — prefer full screens for anything long.
+
+---
+
+## 3. Navigation
+
+```ts
+const nav = useNav();                       // stable identity; safe in deps
+nav.push('accounts.ledger.form', { id: 7 });  // false + toast when refused (missing / no permission / feature off)
+nav.replace('vouchers.entry', { baseType: 'sales' });   // swap the top screen (after save → fresh voucher)
+nav.pop(result?);                            // close the top screen (programmatic: NO dirty prompt)
+await nav.back();                            // what Esc does: asks when dirty; true when popped
+await nav.popTo(index);                      // breadcrumbs; asks if any closed screen is dirty
+await nav.reset();                           // back to the Gateway
+nav.canOpen(id); nav.isRegistered(id); nav.screenDef(id); nav.getStack();
+```
+
+### Create-and-return (Tally Alt+C from a picker)
+
+```tsx
+// In a voucher, the party Picker:
+<Picker … onCreate={async (typed) => {
+  const created = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', { initialName: typed });
+  if (created) setParty(created);          // undefined when the user pressed Esc
+}} />
+```
+
+**Convention for master forms:** accept params `{ id?: number; initialName?: string; forResult?: boolean }`.
+When opened for a result (`params.forResult` / `useScreenResult().forResult`), label the save action
+"Save & return" and, on successful create, call `nav.pop({ id, name })` (or
+`useScreenResult().returnResult({ id, name })`). The value reaches only the `pushForResult` that
+opened that exact stack entry; Esc, breadcrumbs, `reset`, `replace` or closing the company resolve
+it with `undefined`.
+
+```ts
+const { forResult, returnResult, cancel } = useScreenResult<{ id: number; name: string }>();
+```
+
+### Per-screen hooks
+
+| Hook | Purpose |
+|---|---|
+| `useScreenTitle(title)` | runtime title (breadcrumb, window title) — `<Screen>` does this |
+| `useDirty(isDirty)` | unsaved work → Esc/F3/Ctrl+Q/window close ask first; also `bahi.setDirty` |
+| `useScreenActions(items)` | contribute rail actions + register their keys (several components may contribute) |
+| `useStatusHint(text)` | status bar hint while on top |
+| `useScreen()` | `{ entry, index, isTop, visible, def }` |
+| `useScreenResult()` | see above |
+
+**Stack behaviour:** the Gateway is always at the bottom. Lower screens stay mounted and hidden
+(state kept, like Tally) — the 8 most recent; deeper ones unmount and remount when you return.
+Hidden screens keep their queries subscribed, so they refresh in the background after mutations.
+
+**Focus rules:** on push the shell focuses `[data-autofocus]`, else the first editable field, else
+the first grid (give a report's main `DataTable` `autoFocus` anyway), else the first tabbable, else
+the heading. On pop, focus returns to the element that opened the screen. Don't steal focus later.
+
+**Esc:** registered by the shell *outside* your screen's scope, so your handlers run first. Return
+`false` from an `Escape` handler to let the shell go back; consume it to close something local.
+Open pickers/menus/dialogs consume Esc themselves.
+
+---
+
+## 4. Data
+
+```ts
+const profile = await api('company.profile.get');             // typed from core routes (import type only)
+await api('accounts.ledger.save', input);                     // rejects with ApiError(code, message, details)
+const maybe = await apiOptional('x.y.z', input);              // untyped; for routes another module may not have shipped
+if (isMissingRoute(err)) …                                    // code 'UNKNOWN_ROUTE'
+```
+
+`ApiError.code`: `VALIDATION` (details = `FieldIssue[]` → `fieldErrorsOf(err)` gives `{ path: message }`),
+`BUSINESS_RULE`, `NOT_FOUND`, `CONFLICT`, `FORBIDDEN`, `UNAUTHENTICATED`, `LOCKED`, `NO_COMPANY`,
+`UNKNOWN_ROUTE`, `INTERNAL`, plus client-only `BRIDGE_UNAVAILABLE`, `IPC_FAILED`. Show
+`userMessage(err)` — never `String(err)`. UNAUTHENTICATED/NO_COMPANY from company routes refresh the
+app state automatically (session expired → login screen).
+
+### Queries
+
+```ts
+const q = useApiQuery('accounts.ledger.list', { search, limit: 50, offset }, { keepPrevious: true });
+// q.data, q.loading (first load), q.refreshing (refetch with data shown), q.error, q.refetch(), q.isPrevious
+useApiQuery('company.profile.get', {});            // routes without input take {}
+useApiQuery('reports.ledger', { id }, { enabled: id !== null, staleTime: 60_000 });
+```
+
+Cached by route + input (key order doesn't matter), de-duplicated, stale-while-revalidate (default
+staleTime 30 s). The cache is cleared when the company or user changes.
+
+### Mutations
+
+```ts
+const save = useApiMutation('accounts.ledger.save');          // invalidates 'accounts.*' on success
+const del = useApiMutation('vouchers.delete', { invalidates: ['reports', 'gst', 'outstanding'] });
+try { const out = await save.mutate(input); } catch { /* save.error, save.fieldErrors */ }
+invalidate('inventory');   // manual: prefix on '.' boundaries; invalidate() = everything
+```
+
+Mutations of one module often change others' reports — list them in `invalidates`.
+
+### Business-rule warnings (needs confirmation)
+
+A route that may proceed after the user accepts warnings fails with `BUSINESS_RULE` and details
+`{ needsConfirmation: true, warnings: string[] }`, and accepts `acknowledgeWarnings: true` on retry:
+
+```ts
+const saved = await withConfirmation((ack) => save.mutate({ ...input, acknowledgeWarnings: ack || undefined }));
+if (saved === undefined) return;   // user chose "Go back"
+```
+
+### Confirmations
+
+```ts
+const confirm = useConfirm();
+if (!(await confirm({ title: 'Delete voucher Sales/42?', message: '…', confirmLabel: 'Delete', tone: 'danger' }))) return;
+```
+
+### Native
+
+`native('dialog.openFile', {...})`, `useNative('dialog.chooseFolder')` — typed by `NativeActions`.
+Never use `window.print`/`window.open`; use the export helpers or `native('print.*')`.
+
+---
+
+## 5. App state, permissions, company
+
+```ts
+const app = useAppState();     // { phase, state, company, session, can, refresh, applyState }
+const company = useCompany();  // OpenCompanySummary (id, name, gstin, stateCode, booksFrom, fyStartMonth, gstEnabled, features)
+const features = useFeatures();
+const config = useCompanyConfig();   // CompanyConfig (F12) or undefined while loading
+const canPost = useCan('vouchers.create');
+```
+
+After changing company-level data that `app.state` reports (profile name, features), call
+`await app.refresh()`.
+
+---
+
+## 6. Working date (F2) and period (Alt+F2)
+
+```ts
+const { date, setDate, openDialog, isToday } = useWorkingDate();   // default date for new vouchers
+const { period, from, to, label, setPeriod, openDialog } = usePeriod();   // reporting range
+const { booksFrom, fyStartMonth } = useBooks();
+```
+
+Per company: the working date defaults to today (never before the books begin) and is remembered for
+the rest of the day; the period defaults to the current FY to date and is remembered until changed.
+Pass `referenceDate={date}` to `DateInput` so shorthand ("5", "5-10") resolves against it.
+
+---
+
+## 7. Shell services
+
+```ts
+const shell = useShell();
+shell.openVoucher('sales', { partyId });   // permission + feature checks, then push('vouchers.entry', { baseType, … })
+shell.voucherAvailability('sales_order');  // { ok, reason }
+shell.openGoto('hdfc'); shell.openShortcuts(); shell.openVoucherPicker();
+await shell.closeCompany(); await shell.logout(); await shell.quit();
+```
+
+### Go To providers
+
+Add searchable masters/documents (results are merged and fuzzy-ranked with menu items):
+
+```ts
+registerGotoProvider({
+  id: 'ledgers',            // replaces the shell's built-in provider with the same id
+  label: 'Ledgers',
+  minQuery: 2,
+  search: async (q, signal) => (await api('accounts.ledger.picker', { search: q, limit: 8 })).rows.map((l) => ({
+    id: `ledger:${l.id}`, label: l.name, group: 'Ledgers', description: l.groupName,
+    screen: 'reports.ledger', params: { ledgerId: l.id },
+  })),
+});
+```
+
+Register at module import time (top level of your `index.ts`) or in an effect. Failures are silent.
+Built-ins (`ledgers`, `items`, `vouchers`) already call `accounts.ledger.picker`,
+`inventory.item.picker` and `vouchers.list` with `{ search, limit }` when those routes exist and
+accept `Row[] | { rows: Row[] }` with `{ id, name, alias?, groupName? }` (vouchers:
+`{ id, number|voucherNumber, typeName|voucherType, date, partyName? }`).
+
+---
+
+## 8. Export and print
+
+```ts
+const def: TableExportDef = {
+  title: 'Day Book', subtitle: 'All vouchers', company: company.name, period: { from, to },
+  columns: [{ header: 'Date', kind: 'date' }, { header: 'Particulars' }, { header: 'Debit', kind: 'amount' }, { header: 'Balance', kind: 'drcr' }],
+  rows: [['2026-10-05', 'Sharma & Sons', 1180000, -1180000]],   // amounts in PAISE, dates ISO
+  totals: ['', 'Total', 1180000, null],
+  levels: [0],            // optional tree indent per row
+  landscape: false,
+};
+await exportTable(def, 'xlsx' | 'csv');   // 'data.export.table' route; falls back to CSV until it exists
+await printReport(def);                    // OS print dialog
+await savePdf(def);                        // A4 PDF via save dialog
+```
+
+Column kinds: `text | amount | drcr | qty | number | date | percent` (`decimals?`, `width?`). Every
+value is HTML-escaped (`escapeHtml`); the print document is self-contained (no scripts, no external
+resources) with company header, period, repeating table header, totals and "Page x of y".
+`ReportScreen` does all of this for you from `exportDef`.
+
+The data module implements `data.export.table`: input `{ title, subtitle?, company?, period?,
+columns: { header, kind, width?, decimals? }[], rows, totals?, format: 'xlsx' | 'csv' }` →
+`{ bytes: Uint8Array, fileName }`.
+
+---
+
+## 9. Keyboard
+
+### Global keys (reserved — don't bind these in screens)
+
+| Key | Action |
+|---|---|
+| `F2` / `Alt+F2` | Working date / period |
+| `F3` | Switch company (close it, back to the list) |
+| `Ctrl+G`, `Alt+G`, `Ctrl+K` | Go To |
+| `F4` `F5` `F6` `F7` `F8` `F9` | Contra, Payment, Receipt, Journal, Sales, Purchase |
+| `Ctrl+F8` / `Ctrl+F9` | Credit Note / Debit Note |
+| `Alt+F5` / `Alt+F6` | Sales Order / Purchase Order (need Order processing). Alt+F4 stays Windows' "close window". |
+| `Alt+F8` / `Alt+F9` | Delivery Note / Receipt Note |
+| `Alt+F7`, `Ctrl+F7` | Stock Journal, Physical Stock |
+| `Ctrl+F6` / `Ctrl+F5` | Rejections In / Out (need Rejection notes) |
+| `Ctrl+F10` | Memorandum |
+| `F10` | Other vouchers (picker) |
+| `F11` / `F12` | Features / Configuration |
+| `F1`, `Ctrl+H` | Keyboard shortcuts |
+| `Ctrl+Q` | Quit |
+
+Global keys live on the root hotkey layer: they are fenced while any dialog/popover is open, and a
+**screen-level binding of the same key wins** while the screen is on top (e.g. the voucher screen
+may handle `F8` itself to switch the voucher type). The full list renders in the shortcuts overlay
+(`GLOBAL_SHORTCUTS`, `reservedGlobalKeys()`).
+
+### Screen conventions
+
+`Enter`/`Shift+Enter` move between fields (`useEnterAdvance`), `Ctrl+A` accept/save, `Esc` back
+(shell), `Alt+C` create from a picker, `Alt+E` export, `Alt+P` print, `Alt+D` delete, `Ctrl+Enter`
+leaves a textarea. Plain letter keys are free for screen accelerators (ignored while typing).
+Put every action in the rail via `actions` / `useScreenActions` so it is discoverable.
+
+---
+
+## 10. Examples
+
+### List screen
+
+```tsx
+export function LedgerList() {
+  const nav = useNav();
+  const [search, setSearch] = useState('');
+  const debounced = useDebouncedValue(search, 200);
+  const q = useApiQuery('accounts.ledger.list', { search: debounced, limit: 200 }, { keepPrevious: true });
+  const columns = useMemo<Column<LedgerRow>[]>(() => [
+    { key: 'name', header: 'Name', sortable: true },
+    { key: 'groupName', header: 'Under', width: 200 },
+    { key: 'closing', header: 'Closing balance', kind: 'drcr', width: 160 },
+  ], []);
+  return (
+    <Screen title="Ledgers" error={q.error} onRetry={q.refetch}
+      actions={[{ key: 'Alt+C', label: 'Create', icon: 'plus', primary: true, onClick: () => nav.push('accounts.ledger.form') }]}>
+      <Stack gap={3}>
+        <TextInput value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Search ledgers" aria-label="Search ledgers" />
+        <DataTable aria-label="Ledgers" columns={columns} rows={q.data?.rows ?? []} getRowKey={(r) => String(r.id)}
+          loading={q.loading} onRowActivate={(r) => nav.push('accounts.ledger.form', { id: r.id })}
+          empty={<EmptyState title="No ledgers yet" body="Press Alt+C to create one." />} />
+      </Stack>
+    </Screen>
+  );
+}
+```
+
+### Master form (create / alter / create-and-return)
+
+```tsx
+export function LedgerForm({ params }: ScreenProps<{ id?: number; initialName?: string; forResult?: boolean }>) {
+  const nav = useNav();
+  const toast = useToast();
+  const { forResult } = useScreenResult<{ id: number; name: string }>();
+  const existing = useApiQuery('accounts.ledger.get', { id: params.id ?? 0 }, { enabled: params.id !== undefined });
+  const [name, setName] = useState(params.initialName ?? '');
+  const save = useApiMutation('accounts.ledger.save');
+  const dirty = name !== (existing.data?.name ?? params.initialName ?? '');
+  const submit = async () => {
+    try {
+      const out = await save.mutate({ id: params.id, name /* … */ });
+      toast.success(`Ledger “${out.name}” saved`);
+      nav.pop(forResult ? { id: out.id, name: out.name } : undefined);
+    } catch { /* save.fieldErrors shown next to fields */ }
+  };
+  const formRef = useEnterAdvance<HTMLFormElement>({ onComplete: () => void submit() });
+  return (
+    <Screen title={params.id ? 'Ledger Alteration' : 'Ledger Creation'} width="form" dirty={dirty}
+      loading={existing.loading} error={existing.error}
+      actions={[{ key: 'Ctrl+A', label: forResult ? 'Save & return' : 'Save', primary: true, onClick: () => void submit() }]}>
+      <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
+        <Field label="Name" required error={save.fieldErrors.name}>
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+      </form>
+    </Screen>
+  );
+}
+```
+
+### Report
+
+```tsx
+export function TrialBalance() {
+  const { from, to } = usePeriod();
+  const nav = useNav();
+  const q = useApiQuery('reports.trialBalance', { from, to }, { keepPrevious: true });
+  const rows = q.data?.rows ?? [];
+  return (
+    <ReportScreen title="Trial Balance" loading={q.loading} refreshing={q.refreshing} error={q.error} onRetry={q.refetch}
+      exportDef={() => ({
+        columns: [{ header: 'Particulars' }, { header: 'Debit', kind: 'amount' }, { header: 'Credit', kind: 'amount' }],
+        rows: rows.map((r) => [r.name, r.debit, r.credit]), levels: rows.map((r) => r.level),
+      })}>
+      <DataTable aria-label="Trial Balance" autoFocus columns={columns} rows={rows} getRowKey={(r) => r.key}
+        getRowLevel={(r) => r.level} isGroupRow={(r) => r.isGroup} expandable
+        onRowActivate={(r) => r.ledgerId && nav.push('reports.ledger', { ledgerId: r.ledgerId })} />
+    </ReportScreen>
+  );
+}
+```
+
+---
+
+## 11. Files and tests
+
+| File | What |
+|---|---|
+| `App.tsx`, `state.tsx`, `lib/appPhase.ts` | providers, top-level routing (no bridge → first run → login → company list → forced password → workspace) |
+| `Workspace.tsx`, `shell.tsx` | layout, top bar, rail, status bar; global hotkeys, menu commands, session keep-alive |
+| `nav.tsx`, `lib/navStack.ts` | stack, result delivery, per-screen hooks, error boundary, DialogScreen |
+| `api.ts`, `bridge.ts`, `queryClient.ts`, `hooks/*`, `lib/queryCache.ts`, `lib/apiErrors.ts` | API client, cache, errors |
+| `confirm.tsx` | useConfirm, withConfirmation |
+| `working.tsx`, `lib/workingContext.ts` | working date & period |
+| `Gateway.tsx`, `lib/menu.ts`, `wellKnown.ts` | Gateway menu, accelerators, welcome panel |
+| `GotoPalette.tsx`, `gotoProviders.ts`, `lib/goto.ts`, `lib/gotoItems.ts` | Go To |
+| `ShortcutsOverlay.tsx`, `VoucherPicker.tsx`, `lib/shortcuts.ts` | keyboard map, F1, F10 |
+| `Screen.tsx`, `export.ts`, `lib/exportFormat.ts`, `display.ts` | layout patterns, export/print, formatting |
+| `lib/featureCatalog.ts`, `preferences.ts` | F11 feature texts & rules, theme/density |
+
+Pure logic lives in `lib/*.ts` with `node:test` tests: `node --test "src/renderer/app/**/*.test.ts"`.

@@ -11,7 +11,7 @@
  *   useScreenTitle('Ledger Alteration'); useDirty(isDirty); useScreenActions([...]);
  *   const { forResult, returnResult } = useScreenResult<{ id: number; name: string }>();
  */
-import { Component, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Component, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { CompanyFeatures } from '../../shared/settings.ts';
 import { Breadcrumbs, Button, HotkeyScope, Icon, Modal, useHotkeys, useToast } from '../ui/index.ts';
@@ -74,6 +74,9 @@ interface NavInternal {
 
 /** A rail action contributed by a screen (ActionRailItem; `key` is the hotkey). */
 export type ScreenActionItem = ActionRailItem;
+
+/** Separates a screen's entry key from a contributing hook's slot id in the per-screen stores. */
+const SLOT_SEP = '\u0000';
 
 const NavApiContext = createContext<NavApi | null>(null);
 const NavInternalContext = createContext<NavInternal | null>(null);
@@ -165,7 +168,15 @@ export function NavProvider({ modules, children }: { modules: readonly ModuleDef
   };
 
   const dirtyAmong = useCallback(
-    (entries: readonly NavEntry[]): NavEntry[] => entries.filter((e) => stores.dirty.get(e.key) === true),
+    (entries: readonly NavEntry[]): NavEntry[] => {
+      const dirtyScreens = new Set(
+        stores.dirty
+          .entries()
+          .filter(([, v]) => v)
+          .map(([k]) => k.split(SLOT_SEP)[0]),
+      );
+      return entries.filter((e) => dirtyScreens.has(e.key));
+    },
     [stores],
   );
 
@@ -360,7 +371,9 @@ export function useStatusHint(hint: string | null | undefined): void {
  */
 export function useDirty(isDirty: boolean): void {
   const { dirty } = useNavInternal();
-  const key = useOptionalScreen()?.entry.key;
+  const screenKey = useOptionalScreen()?.entry.key;
+  const slot = useId();
+  const key = screenKey ? `${screenKey}${SLOT_SEP}${slot}` : undefined;
   useEffect(() => {
     if (!key) return undefined;
     dirty.set(key, isDirty);
@@ -382,7 +395,10 @@ function actionsSignature(items: readonly ScreenActionItem[]): string {
  */
 export function useScreenActions(items: readonly ScreenActionItem[]): void {
   const { actions } = useNavInternal();
-  const key = useOptionalScreen()?.entry.key;
+  const screenKey = useOptionalScreen()?.entry.key;
+  // Several components of one screen may contribute; each gets its own slot.
+  const slot = useId();
+  const key = screenKey ? `${screenKey}${SLOT_SEP}${slot}` : undefined;
   const sig = actionsSignature(items);
   useLayoutEffect(() => {
     if (!key) return;
@@ -423,18 +439,29 @@ export function useEntryTitle(entry: NavEntry | undefined): string {
 }
 
 /** Rail items of the top screen. */
+function actionsOf(store: KeyedStore<readonly ScreenActionItem[]>, screenKey: string): readonly ScreenActionItem[] {
+  if (!screenKey) return EMPTY;
+  const prefix = `${screenKey}${SLOT_SEP}`;
+  const out: ScreenActionItem[] = [];
+  for (const [k, items] of store.entries()) if (k.startsWith(prefix)) out.push(...items);
+  return out.length ? out : EMPTY;
+}
+
+/** Rail items of the top screen (all contributors, in registration order). */
 export function useTopScreenActions(): { key: string; items: readonly ScreenActionItem[] } {
   const { actions } = useNavInternal();
   const stack = useNavStack();
   const key = stack[stack.length - 1]?.key ?? '';
-  const items = useSyncExternalStore(actions.subscribe, () => actions.get(key));
-  return { key, items: items ?? EMPTY };
+  const version = useSyncExternalStore(actions.subscribe, actions.getVersion);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const items = useMemo(() => actionsOf(actions, key), [actions, key, version]);
+  return { key, items };
 }
 
-/** Latest action items of a screen (call-time lookup for rail clicks). */
+/** Latest action items of a screen (call-time lookup for rail clicks: always the newest handlers). */
 export function useActionLookup(): (screenKey: string) => readonly ScreenActionItem[] {
   const { actions } = useNavInternal();
-  return useCallback((k: string) => actions.get(k) ?? EMPTY, [actions]);
+  return useCallback((k: string) => actionsOf(actions, k), [actions]);
 }
 
 export function useTopScreenHint(): string | undefined {
@@ -488,15 +515,21 @@ export function ScreenStack() {
   );
 }
 
+const FIELD_SELECTOR = 'input:not([type=hidden]):not([readonly]):not([disabled]), textarea:not([readonly]):not([disabled]), select:not([disabled]), [role=combobox]:not([aria-disabled=true])';
+
+/**
+ * Initial focus for a newly opened screen: [data-autofocus] → first editable field → first grid
+ * (reports/lists: arrow keys work at once) → first tabbable → the heading.
+ */
 function focusFirst(container: HTMLElement): void {
-  const auto = container.querySelector<HTMLElement>('[data-autofocus]');
-  if (auto) {
-    auto.focus();
-    return;
-  }
   const tabbables = getTabbables(container);
-  if (tabbables[0]) {
-    tabbables[0].focus();
+  const pick =
+    container.querySelector<HTMLElement>('[data-autofocus]') ??
+    tabbables.find((el) => el.matches(FIELD_SELECTOR)) ??
+    tabbables.find((el) => el.matches('[role=grid], [role=treegrid]')) ??
+    tabbables[0];
+  if (pick) {
+    pick.focus();
     return;
   }
   const heading = container.querySelector<HTMLElement>('h1, h2');

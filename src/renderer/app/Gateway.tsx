@@ -4,7 +4,7 @@
  * panel with quick actions and a getting-started checklist) on the right.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Badge, Button, Card, Checkbox, Icon, Kbd, ProgressBar, Tooltip, useHotkeys, useRovingFocus } from '../ui/index.ts';
+import { Badge, Button, Card, Checkbox, Icon, Kbd, ProgressBar, Tooltip, toAriaKeyShortcut, useHotkeys, useRovingFocus } from '../ui/index.ts';
 import type { IconName } from '../ui/index.ts';
 import { buildGateway, splitAccelerator } from './lib/menu.ts';
 import type { BuiltMenuItem } from './lib/menu.ts';
@@ -13,22 +13,10 @@ import { useShell } from './shell.tsx';
 import { useAppState } from './state.tsx';
 import { formatDate } from '../../shared/dates.ts';
 import { useWorkingDate } from './working.tsx';
+import { WELL_KNOWN_SCREENS } from './wellKnown.ts';
 
-/** Screen ids the welcome panel links to (registered by feature modules; see app/README.md). */
-export const WELL_KNOWN_SCREENS = {
-  dashboard: 'dashboard.home',
-  ledgerForm: 'accounts.ledger.form',
-  ledgerList: 'accounts.ledger.list',
-  itemForm: 'inventory.item.form',
-  voucherEntry: 'vouchers.entry',
-  dayBook: 'reports.daybook',
-  balanceSheet: 'reports.balanceSheet',
-  profitLoss: 'reports.profitLoss',
-  trialBalance: 'reports.trialBalance',
-  companyProfile: 'company.profile',
-  companyFeatures: 'company.features',
-  companyConfig: 'company.config',
-} as const;
+export { WELL_KNOWN_SCREENS };
+
 
 export function GatewayScreen() {
   const nav = useNav();
@@ -71,7 +59,7 @@ export function GatewayScreen() {
                 <ul className="bx-gateway__items">
                   {section.items.map((item) => (
                     <li key={item.id}>
-                      <GatewayItem item={item} onOpen={() => open(item)} />
+                      <GatewayItem item={item} first={item.id === items[0]?.id} onOpen={() => open(item)} />
                     </li>
                   ))}
                 </ul>
@@ -93,17 +81,26 @@ export function GatewayScreen() {
   );
 }
 
-function GatewayItem({ item, onOpen }: { item: BuiltMenuItem; onOpen: () => void }) {
+function ariaKeys(hotkey: string | undefined): string | undefined {
+  if (!hotkey) return undefined;
+  try {
+    return toAriaKeyShortcut(hotkey);
+  } catch {
+    return undefined;
+  }
+}
+
+function GatewayItem({ item, first, onOpen }: { item: BuiltMenuItem; first: boolean; onOpen: () => void }) {
   const [before, key, after] = splitAccelerator(item.label, item.accelIndex);
   const button = (
     <button
       type="button"
       className="bx-gateway__item"
       data-roving-item=""
+      data-autofocus={first ? '' : undefined}
       data-text-value={item.label}
       onClick={onOpen}
-      aria-keyshortcuts={[item.accelerator?.toUpperCase(), item.hotkey].filter(Boolean).join(' ') || undefined}
-      aria-describedby={undefined}
+      aria-keyshortcuts={[item.accelerator?.toUpperCase(), ariaKeys(item.hotkey)].filter(Boolean).join(' ') || undefined}
     >
       <span className="bx-gateway__label">
         {before}

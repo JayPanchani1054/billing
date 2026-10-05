@@ -92,7 +92,7 @@ export function LoginScreen() {
               {error.body}
             </Banner>
           ) : null}
-          <Button type="submit" variant="primary" loading={busy} fullWidth data-enter-target="">
+          <Button type="submit" variant="primary" loading={busy} fullWidth>
             Log in
           </Button>
           <Button variant="link" onClick={() => void otherCompany()} disabled={busy}>

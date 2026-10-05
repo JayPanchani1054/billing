@@ -17,7 +17,7 @@ export function VoucherPicker({ onClose }: { onClose: () => void }) {
   const listId = useId();
   const types = useMemo(() => filterAndRank(PREDEFINED_VOUCHER_TYPES, query, (t) => ({ label: t.name, alias: t.abbreviation, keywords: [t.baseType] })).map((r) => r.item), [query]);
   const isDisabled = (i: number) => !shell.voucherAvailability(types[i].baseType).ok;
-  const nav = useListNavigation({ count: types.length, defaultActiveIndex: 0, isDisabled });
+  const nav = useListNavigation({ count: types.length, defaultActiveIndex: 0, isDisabled, homeEnd: false });
   const { activeIndex, setActiveIndex } = nav;
 
   useEffect(() => {

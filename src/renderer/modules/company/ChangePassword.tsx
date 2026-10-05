@@ -104,7 +104,7 @@ export function ForcedChangePassword() {
       >
         <Stack gap={4}>
           <PasswordFields f={f} />
-          <Button type="submit" variant="primary" loading={f.busy} fullWidth data-enter-target="">
+          <Button type="submit" variant="primary" loading={f.busy} fullWidth>
             Save new password
           </Button>
           <Button variant="link" onClick={() => void logout()}>

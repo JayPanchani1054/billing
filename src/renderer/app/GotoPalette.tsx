@@ -123,7 +123,7 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
   }, [ranked]);
 
   const items = useMemo(() => rows.filter((r) => r.kind === 'item').map((r) => r.ranked as RankedGoto), [rows]);
-  const listNav = useListNavigation({ count: items.length, defaultActiveIndex: 0, pageSize: 8 });
+  const listNav = useListNavigation({ count: items.length, defaultActiveIndex: 0, pageSize: 8, homeEnd: false });
   const { activeIndex, setActiveIndex } = listNav;
 
   useEffect(() => {

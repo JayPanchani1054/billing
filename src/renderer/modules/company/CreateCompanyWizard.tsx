@@ -10,6 +10,7 @@ import { validateGstin } from '../../../shared/gst/gstin.ts';
 import { stateLabel } from '../../../shared/gst/states.ts';
 import type { GstRegistrationType } from '../../../shared/types/company.ts';
 import { api } from '../../app/api.ts';
+import { setNativeDirty } from '../../app/bridge.ts';
 import { useConfirm } from '../../app/confirm.tsx';
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
 import { featureInfo } from '../../app/lib/featureCatalog.ts';
@@ -71,7 +72,10 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const createRef = useRef<HTMLButtonElement | null>(null);
   const stepIndex = WIZARD_STEPS.indexOf(step);
+  const stepRef = useRef(step);
+  stepRef.current = step;
 
   const update = (patch: Partial<CompanyDraft>) => {
     setDraft((d) => ({ ...d, ...patch }));
@@ -96,6 +100,10 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
     const raf = requestAnimationFrame(() => {
       const body = bodyRef.current;
       if (!body) return;
+      if (stepRef.current === 'review' && focusTarget.current === 'first') {
+        createRef.current?.focus();
+        return;
+      }
       const invalid = focusTarget.current === 'error' ? body.querySelector<HTMLElement>('[aria-invalid="true"]') : null;
       const target = invalid ?? getEnterTargets(body)[0];
       target?.focus();
@@ -185,6 +193,12 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
     },
     [draft, step, touched, busy],
   );
+
+  // Closing the window with a half-filled wizard asks first (main's close guard).
+  useEffect(() => {
+    setNativeDirty(touched);
+    return () => setNativeDirty(false);
+  }, [touched]);
 
   const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: next });
   const fy = financialYear(draft.booksFrom || today, draft.fyStartMonth);
@@ -431,7 +445,7 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
             </Button>
           ) : null}
           {step === 'review' ? (
-            <Button variant="primary" icon="check" onClick={() => void create()} loading={busy} shortcut="Ctrl+A" data-enter-target="">
+            <Button ref={createRef} variant="primary" icon="check" onClick={() => void create()} loading={busy} shortcut="Ctrl+A">
               Create company
             </Button>
           ) : (
