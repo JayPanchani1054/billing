@@ -131,3 +131,40 @@ export function sparkline(values: readonly number[], width: number, height: numb
     max,
   };
 }
+
+/**
+ * Bar/column path with a rounded data-end (radius ≤ 4, clamped to the bar) and a square baseline.
+ * Vertical bars: x/width horizontal, grows from `base` to `value` (y coordinates, either direction).
+ */
+export function barPath(x: number, width: number, base: number, value: number, radius = 4): string {
+  const h = Math.abs(base - value);
+  if (width <= 0 || h <= 0) return '';
+  const r = Math.max(0, Math.min(radius, width / 2, h));
+  const up = value < base; // SVG y grows downward → positive values go up
+  const tip = value;
+  const k = up ? 1 : -1; // direction from tip back toward base
+  const x2 = x + width;
+  return [
+    `M${r2(x)} ${r2(base)}`,
+    `V${r2(tip + k * r)}`,
+    `Q${r2(x)} ${r2(tip)} ${r2(x + r)} ${r2(tip)}`,
+    `H${r2(x2 - r)}`,
+    `Q${r2(x2)} ${r2(tip)} ${r2(x2)} ${r2(tip + k * r)}`,
+    `V${r2(base)}`,
+    'Z',
+  ].join(' ');
+}
+
+/** Index of the category band nearest to a pointer x (for crosshair snapping). */
+export function nearestIndex(x: number, centers: readonly number[]): number {
+  let best = -1;
+  let dist = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < centers.length; i++) {
+    const d = Math.abs(centers[i] - x);
+    if (d < dist) {
+      dist = d;
+      best = i;
+    }
+  }
+  return best;
+}

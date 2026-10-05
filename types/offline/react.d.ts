@@ -911,6 +911,7 @@ declare global {
       circle: React.SVGProps<SVGCircleElement>;
       clipPath: React.SVGProps<SVGClipPathElement>;
       defs: React.SVGProps<SVGDefsElement>;
+      desc: React.SVGProps<SVGDescElement>;
       ellipse: React.SVGProps<SVGEllipseElement>;
       g: React.SVGProps<SVGGElement>;
       line: React.SVGProps<SVGLineElement>;

@@ -67,3 +67,15 @@ test('pagination range', () => {
   assert.deepEqual(pageBounds(3, 50, 120), { from: 101, to: 120 });
   assert.deepEqual(pageBounds(1, 50, 0), { from: 0, to: 0 });
 });
+
+test('barPath rounds only the data end and anchors square at the baseline', async () => {
+  const { barPath, nearestIndex } = await import('./chart.ts');
+  assert.equal(barPath(10, 20, 100, 40), 'M10 100 V44 Q10 40 14 40 H26 Q30 40 30 44 V100 Z');
+  // negative value grows downward, rounding at the bottom
+  assert.equal(barPath(10, 20, 100, 160), 'M10 100 V156 Q10 160 14 160 H26 Q30 160 30 156 V100 Z');
+  // radius clamps to tiny bars
+  assert.equal(barPath(0, 4, 10, 9), 'M0 10 V10 Q0 9 1 9 H3 Q4 9 4 10 V10 Z');
+  assert.equal(barPath(0, 10, 10, 10), '');
+  assert.equal(nearestIndex(33, [10, 30, 50]), 1);
+  assert.equal(nearestIndex(0, []), -1);
+});

@@ -108,14 +108,6 @@
   --blue-900: #163157;
   --blue-950: #11233b;
 
-  /* Chart-only hues (data series beyond brand/accent) */
-  --teal-300: #5fc4c0;
-  --teal-500: #1e9a95;
-  --teal-700: #146b68;
-  --plum-300: #c39be0;
-  --plum-500: #9257c2;
-  --plum-700: #6a3a92;
-
   /* ── Typography ────────────────────────────────────────────────────────── */
   --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
@@ -366,17 +358,19 @@
   --on-info-solid: var(--slate-0);
   --info-icon: var(--blue-600);
 
-  /* Charts */
+  /* Charts — categorical slots in FIXED order (never cycled; a 6th+ series folds into "Other").
+     Validated with the dataviz palette checks (lightness band, chroma, adjacent CVD ΔE ≥ 8,
+     normal-vision ΔE ≥ 15, ≥ 3:1 on surface) in light and dark. Status colours are never series. */
   --chart-1: var(--indigo-600);
-  --chart-2: var(--saffron-600);
-  --chart-3: var(--teal-500);
-  --chart-4: var(--plum-500);
-  --chart-5: var(--green-500);
-  --chart-6: var(--slate-500);
+  --chart-2: #e0701b;
+  --chart-3: #1a9e72;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-other: var(--slate-450);
   --chart-grid: var(--slate-150);
   --chart-axis: var(--slate-300);
   --chart-label: var(--slate-500);
-  --chart-area-opacity: 0.12;
+  --chart-area-opacity: 0.1;
 
   /* Elevation */
   --shadow-1: 0 1px 2px rgba(16, 19, 24, 0.06), 0 1px 1px rgba(16, 19, 24, 0.04);
@@ -384,6 +378,7 @@
   --shadow-3: 0 16px 40px rgba(16, 19, 24, 0.16), 0 4px 12px rgba(16, 19, 24, 0.08);
   --shadow-inset: inset 0 1px 2px rgba(16, 19, 24, 0.06);
   --overlay-border: var(--slate-200);
+  --scroll-shadow: rgba(16, 19, 24, 0.16);
 }
 
 /* ==========================================================================
@@ -515,21 +510,22 @@
   --info-icon: var(--blue-400);
 
   --chart-1: var(--indigo-400);
-  --chart-2: var(--saffron-400);
-  --chart-3: var(--teal-300);
-  --chart-4: var(--plum-300);
-  --chart-5: var(--green-300);
-  --chart-6: var(--slate-400);
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-other: var(--slate-450);
   --chart-grid: var(--slate-850);
   --chart-axis: var(--slate-700);
   --chart-label: var(--slate-400);
-  --chart-area-opacity: 0.18;
+  --chart-area-opacity: 0.16;
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
   --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
   --overlay-border: var(--slate-750);
+  --scroll-shadow: rgba(0, 0, 0, 0.55);
 }
 
 /* ==========================================================================
@@ -663,21 +659,22 @@
     --info-icon: var(--blue-400);
 
     --chart-1: var(--indigo-400);
-    --chart-2: var(--saffron-400);
-    --chart-3: var(--teal-300);
-    --chart-4: var(--plum-300);
-    --chart-5: var(--green-300);
-    --chart-6: var(--slate-400);
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-4: #c98500;
+    --chart-5: #d55181;
+    --chart-other: var(--slate-450);
     --chart-grid: var(--slate-850);
     --chart-axis: var(--slate-700);
     --chart-label: var(--slate-400);
-    --chart-area-opacity: 0.18;
+    --chart-area-opacity: 0.16;
 
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
     --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
     --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
     --overlay-border: var(--slate-750);
+    --scroll-shadow: rgba(0, 0, 0, 0.55);
   }
 }
 
