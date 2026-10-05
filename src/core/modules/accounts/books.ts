@@ -15,7 +15,7 @@ import type { GroupCode, GroupNature } from '../../../shared/constants.ts';
 import type { Paise } from '../../../shared/money.ts';
 import { LEDGER_CLASSES, type LedgerBalance, type LedgerClass, type LedgerClassName } from '../../../shared/types/accounts.ts';
 import type { Db } from '../../db/db.ts';
-import { notFound } from '../../lib/errors.ts';
+import { notFound, validation } from '../../lib/errors.ts';
 
 // ───────────────────────────── Books filter ─────────────────────────────
 
@@ -284,6 +284,13 @@ interface PeriodSums {
   cr: number | null;
 }
 
+/** VALIDATION when a period starts after it ends (a reversed range would silently give wrong totals). */
+function assertPeriod(q: BalanceQuery): void {
+  if (q.from !== undefined && q.from > q.to) {
+    throw validation([{ path: 'from', message: 'The period starts after it ends. Check the From and To dates.' }]);
+  }
+}
+
 const PERIOD_SUMS = /* sql */ `
   SUM(CASE WHEN date < :from THEN amount ELSE 0 END) AS before,
   SUM(CASE WHEN date >= :from AND amount > 0 THEN amount ELSE 0 END) AS dr,
@@ -294,6 +301,7 @@ const PERIOD_SUMS = /* sql */ `
  * opening = ledgers.opening_balance + entries dated before `from`.
  */
 export function ledgerBalance(db: Db, ledgerId: number, q: BalanceQuery): LedgerBalance {
+  assertPeriod(q);
   const ob = db.value<number>('SELECT opening_balance FROM ledgers WHERE id = :id', { id: ledgerId });
   if (ob === undefined) throw notFound('Ledger', ledgerId);
   const s = db.get<PeriodSums>(
@@ -357,6 +365,7 @@ const emptyTotals = (): GroupPeriodBalance => ({ opening: 0, debit: 0, credit: 0
  * Σ over primary groups equals `total`; reports reuse this for the Trial Balance.
  */
 export function groupBalances(db: Db, q: BalanceQuery & { tree?: GroupTree }): GroupBalances {
+  assertPeriod(q);
   const tree = q.tree ?? loadGroupTree(db);
   const sums = new Map<number, PeriodSums>();
   for (const r of db.all<PeriodSums & { ledger_id: number }>(

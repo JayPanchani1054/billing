@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { AppError } from '../../lib/errors.ts';
 import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
 import { createGstResolver, resolveItemGstProfile, type ItemGstSource } from './gst.ts';
-import { saveItem } from './items.ts';
+import { getItem, saveItem } from './items.ts';
 import { saveStockGroup } from './masters.ts';
 import { inventoryRoutes } from './routes.ts';
+import { auditRows } from './testkit.ts';
 
 function history(t: TestCompany, type: 'stock_item' | 'stock_group', id: number, from: string, rate: number, extra: { taxability?: string; hsn?: string; cess?: number } = {}): void {
   t.db.run(
@@ -157,6 +159,100 @@ describe('resolveItemGstProfile precedence', () => {
     assert.equal(p.source, 'item_history'); // the fixture records history from books beginning
     const missing = await t.call(inventoryRoutes, 'inventory.item.gstProfile', { itemId: 4242, date: '2026-04-15' });
     assert.equal(missing.ok, false);
+    t.close();
+  });
+});
+
+describe('review regressions — GST details on save', () => {
+  const fails = (code: string, re?: RegExp) => (e: unknown) =>
+    e instanceof AppError && e.code === code && (!re || re.test(e.message));
+
+  it('switching taxability drops or demands the rate instead of keeping a stale one', () => {
+    const t = createTestCompany();
+    const u = t.ids.units.Ltr;
+    // Taxable 18% → exempt: the old rate is dropped (it used to be refused unless cleared explicitly).
+    const milk = saveItem(t.ctx, { name: 'Milk', unitId: u, gstRate: 18, cessRate: 1 }).item;
+    const exempt = saveItem(t.ctx, { id: milk.id, taxability: 'exempt' }).item;
+    assert.deepEqual([exempt.taxability, exempt.gstRate, exempt.cessRate], ['exempt', 0, 0]);
+    // A rate or cess typed together with a non-taxable taxability is still an error.
+    assert.throws(() => saveItem(t.ctx, { id: milk.id, taxability: 'nil_rated', gstRate: 5 }), fails('VALIDATION', /Nil-rated .* no GST/));
+    assert.throws(
+      () => saveItem(t.ctx, { id: milk.id, taxability: 'nil_rated', cessPerUnit: 10 }),
+      (e: unknown) => fails('VALIDATION', /no cess/)(e) && ((e as AppError).details as Array<{ path: string }>)[0].path === 'cessPerUnit',
+    );
+    // Exempt → taxable without a rate: used to become "taxable at 0%" silently.
+    assert.throws(() => saveItem(t.ctx, { id: milk.id, taxability: 'taxable' }), fails('VALIDATION', /Enter the GST rate for taxable/));
+    const back = saveItem(t.ctx, { id: milk.id, taxability: 'taxable', gstRate: 5 }).item;
+    assert.deepEqual([back.taxability, back.gstRate, back.effectiveGst?.rate], ['taxable', 5, 5]);
+    // Same rule for stock groups.
+    const g = saveStockGroup(t.ctx, { name: 'Dairy', taxability: 'nil_rated' });
+    assert.throws(() => saveStockGroup(t.ctx, { id: g.id, name: 'Dairy', taxability: 'taxable' }), fails('VALIDATION', /Enter the GST rate/));
+    t.close();
+  });
+
+  it('a back-dated change only adds history: the current details stay those in force', () => {
+    const t = createTestCompany({ today: '2026-10-05' }); // books from 2026-04-01
+    const u = t.ids.units.Nos;
+    const { item } = saveItem(t.ctx, { name: 'Shirt', unitId: u, gstRate: 12, hsnSac: '6205' });
+    saveItem(t.ctx, { id: item.id, gstRate: 5, gstApplicableFrom: '2026-09-22' });
+    const res = saveItem(t.ctx, { id: item.id, gstRate: 18, gstApplicableFrom: '2026-06-01' });
+    assert.deepEqual(res.item.gstHistory.map((h) => [h.applicableFrom, h.rate]), [
+      ['2026-04-01', 12],
+      ['2026-06-01', 18],
+      ['2026-09-22', 5],
+    ]);
+    // Columns used to show 18% while 5% was in force.
+    assert.equal(res.item.gstRate, 5);
+    assert.equal(res.item.effectiveGst?.rate, 5);
+    assert.match(res.warnings.join(' '), /from 01-Jun-2026 were added .*\(in force from 22-Sep-2026\) are unchanged/);
+    assert.equal(resolveItemGstProfile(t.db, item.id, '2026-07-01')?.rate, 18);
+    // An unrelated alteration afterwards is not mistaken for an undated GST change.
+    assert.equal(saveItem(t.ctx, { id: item.id, mrp: 50000 }).item.mrp, 50000);
+    // Groups follow the same rule.
+    const g = saveStockGroup(t.ctx, { name: 'Apparel', gstRate: 12, hsnSac: '6205' });
+    saveStockGroup(t.ctx, { id: g.id, name: 'Apparel', gstRate: 5, gstApplicableFrom: '2026-09-22' });
+    const g2 = saveStockGroup(t.ctx, { id: g.id, name: 'Apparel', gstRate: 18, gstApplicableFrom: '2026-06-01' });
+    assert.equal(g2.gstRate, 5);
+    assert.deepEqual(g2.gstHistory.map((h) => h.rate), [12, 18, 5]);
+    t.close();
+  });
+
+  it("removes one wrongly dated row with 'inventory.gstHistory.delete' and restores the current details", async () => {
+    const t = createTestCompany({ today: '2026-10-05' });
+    const u = t.ids.units.Nos;
+    const { item } = saveItem(t.ctx, { name: 'Shoes', unitId: u, gstRate: 12, hsnSac: '6403' });
+    saveItem(t.ctx, { id: item.id, gstRate: 18, gstApplicableFrom: '2026-06-01' });
+    const wrong = saveItem(t.ctx, { id: item.id, gstRate: 5, gstApplicableFrom: '2026-09-02' }).item; // meant 22-Sep
+    assert.equal(wrong.gstRate, 5);
+    const rowId = (date: string): number => wrong.gstHistory.find((h) => h.applicableFrom === date)?.id ?? 0;
+
+    // Permission: masters.alter.
+    const denied = await t.call(inventoryRoutes, 'inventory.gstHistory.delete', { id: rowId('2026-09-02') }, { session: t.sessionAs({ role: 'Data Entry' }) });
+    assert.equal(denied.ok ? null : denied.error.code, 'FORBIDDEN');
+
+    await t.callOk(inventoryRoutes, 'inventory.gstHistory.delete', { id: rowId('2026-09-02') });
+    const after = getItem(t.db, item.id, t.today);
+    assert.deepEqual(after.gstHistory.map((h) => [h.applicableFrom, h.rate]), [
+      ['2026-04-01', 12],
+      ['2026-06-01', 18],
+    ]);
+    assert.equal(after.gstRate, 18, 'current details follow the latest remaining row');
+    assert.equal(after.hsnSac, '6403');
+    // Removing an earlier row leaves the current details alone.
+    await t.callOk(inventoryRoutes, 'inventory.gstHistory.delete', { id: rowId('2026-04-01') });
+    assert.equal(getItem(t.db, item.id, t.today).gstRate, 18);
+    const audit = auditRows(t, 'stock_item').filter((a) => /removed/.test(a.entity_label));
+    assert.equal(audit.length, 2);
+    assert.equal(audit[0].action, 'alter');
+    assert.match(audit[0].entity_label, /^Shoes \(GST details from 02-Sep-2026 removed\)$/);
+    assert.ok(audit[0].before_json?.includes('2026-09-02') && !audit[0].after_json?.includes('2026-09-02'));
+    // Unknown ids, and ledger history rows, are not stock history.
+    const ledger = t.addLedger({ name: 'Sales 18%', group: 'SALES_ACCOUNTS', gstRate: 18 });
+    const ledgerRow = Number(t.db.value(`SELECT id FROM gst_rate_history WHERE entity_type = 'ledger' AND entity_id = :id`, { id: ledger }));
+    for (const id of [99999, ledgerRow]) {
+      const r = await t.call(inventoryRoutes, 'inventory.gstHistory.delete', { id });
+      assert.equal(r.ok ? null : r.error.code, 'NOT_FOUND');
+    }
     t.close();
   });
 });

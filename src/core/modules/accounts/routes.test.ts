@@ -21,6 +21,7 @@ describe('accounts routes', () => {
       'accounts.costCentre.list',
       'accounts.costCentre.save',
       'accounts.currency.delete',
+      'accounts.currency.get',
       'accounts.currency.list',
       'accounts.currency.save',
       'accounts.exchangeRate.delete',

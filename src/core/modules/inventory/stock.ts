@@ -10,7 +10,8 @@
  *       AND v.base_type NOT IN ('sales_order','purchase_order','memorandum')
  *       AND ie.date <= :asOf
  * Quantities are signed in the item's base unit (inward +, outward −). An entry without a godown
- * counts in 'Main Location'. Godown filters are exact (sub-godowns are not included).
+ * counts in 'Main Location'. Godown filters are exact unless `includeSubGodowns` is set (then the
+ * godown and every godown under it, like Tally's godown summary of a parent location).
  * Batch names match case-insensitively.
  */
 import { roundTo } from '../../../shared/money.ts';
@@ -32,9 +33,33 @@ function mainGodown(db: Db): number | null {
   return db.value<number>('SELECT id FROM godowns WHERE is_predefined = 1 ORDER BY id LIMIT 1') ?? null;
 }
 
+/** The godown itself, plus all godowns under it when `includeSub`. */
+export function godownSet(db: Db, godownId: number, includeSub: boolean): Set<number> {
+  if (!includeSub) return new Set([godownId]);
+  return new Set(
+    db
+      .all<{ id: number }>(
+        'WITH RECURSIVE t(id) AS (SELECT :id UNION SELECT g.id FROM godowns g JOIN t ON g.parent_id = t.id) SELECT id FROM t',
+        { id: godownId },
+      )
+      .map((r) => r.id),
+  );
+}
+
+/** Bound parameters for the `:gf` / `:gids` godown condition (GODOWN_IN / OPENING_GODOWN_IN). */
+function godownParams(db: Db, godownId: number | null | undefined, includeSub: boolean | undefined): { gf: number; gids: string } {
+  if (godownId === null || godownId === undefined) return { gf: 0, gids: '[]' };
+  return { gf: 1, gids: jsonIds([...godownSet(db, godownId, includeSub === true)]) };
+}
+
+const GODOWN_IN = `(:gf = 0 OR COALESCE(ie.godown_id, :main) IN (SELECT value FROM json_each(:gids)))`;
+const OPENING_GODOWN_IN = `(:gf = 0 OR godown_id IN (SELECT value FROM json_each(:gids)))`;
+
 export interface StockOnHandQuery {
   itemId: number;
   godownId?: number | null;
+  /** With godownId: include its sub-godowns. Default false (exact). */
+  includeSubGodowns?: boolean;
   batchName?: string | null;
   asOf: string;
   /** Leave this voucher out (e.g. the voucher being altered). */
@@ -47,7 +72,7 @@ export interface StockOnHandQuery {
 export function stockOnHand(db: Db, q: StockOnHandQuery): number {
   const params = {
     item: q.itemId,
-    godown: q.godownId ?? null,
+    ...godownParams(db, q.godownId, q.includeSubGodowns),
     batch: q.batchName ?? null,
     asOf: q.asOf,
     today: q.today ?? q.asOf,
@@ -57,11 +82,11 @@ export function stockOnHand(db: Db, q: StockOnHandQuery): number {
   const total = db.value<number>(
     `SELECT
        (SELECT COALESCE(SUM(qty), 0) FROM stock_openings
-         WHERE item_id = :item AND (:godown IS NULL OR godown_id = :godown)
+         WHERE item_id = :item AND ${OPENING_GODOWN_IN}
            AND (:batch IS NULL OR batch_name = :batch COLLATE NOCASE))
      + (SELECT COALESCE(SUM(ie.qty), 0) FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
          WHERE ie.item_id = :item AND ie.date <= :asOf AND ${STOCK_MOVEMENT_FILTER}
-           AND (:godown IS NULL OR COALESCE(ie.godown_id, :main) = :godown)
+           AND ${GODOWN_IN}
            AND (:batch IS NULL OR ie.batch_name = :batch COLLATE NOCASE)
            AND ie.voucher_id IS NOT :exclude)`,
     params,
@@ -72,6 +97,8 @@ export function stockOnHand(db: Db, q: StockOnHandQuery): number {
 export interface BatchQueryOptions {
   today?: string;
   excludeVoucherId?: number | null;
+  /** With a godown: include its sub-godowns. Default false (exact). */
+  includeSubGodowns?: boolean;
 }
 
 /**
@@ -89,12 +116,12 @@ export function batchesFor(
   const rows = db.all<{ batch_name: string; mfg: string | null; exp: string | null; qty: number }>(
     `SELECT batch_name, MIN(mfg_date) AS mfg, MIN(expiry_date) AS exp, SUM(qty) AS qty FROM (
        SELECT batch_name, mfg_date, expiry_date, qty FROM stock_openings
-        WHERE item_id = :item AND batch_name IS NOT NULL AND batch_name <> '' AND (:godown IS NULL OR godown_id = :godown)
+        WHERE item_id = :item AND batch_name IS NOT NULL AND batch_name <> '' AND ${OPENING_GODOWN_IN}
        UNION ALL
        SELECT ie.batch_name, ie.mfg_date, ie.expiry_date, ie.qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
         WHERE ie.item_id = :item AND ie.date <= :asOf AND ${STOCK_MOVEMENT_FILTER}
           AND ie.batch_name IS NOT NULL AND ie.batch_name <> ''
-          AND (:godown IS NULL OR COALESCE(ie.godown_id, :main) = :godown)
+          AND ${GODOWN_IN}
           AND ie.voucher_id IS NOT :exclude
      )
      GROUP BY batch_name COLLATE NOCASE
@@ -102,7 +129,7 @@ export function batchesFor(
      ORDER BY (exp IS NULL), exp, (mfg IS NULL), mfg, batch_name COLLATE NOCASE`,
     {
       item: itemId,
-      godown: godownId ?? null,
+      ...godownParams(db, godownId, opts.includeSubGodowns),
       asOf,
       today: opts.today ?? asOf,
       exclude: opts.excludeVoucherId ?? null,
@@ -118,6 +145,8 @@ export interface StockByItemQuery {
   asOf: string;
   today?: string;
   godownId?: number | null;
+  /** With godownId: include its sub-godowns. Default false (exact). */
+  includeSubGodowns?: boolean;
   /** Restrict to these items (default: all). */
   itemIds?: readonly number[];
   /** Leave this voucher out (e.g. the voucher being altered). */
@@ -130,7 +159,7 @@ export function stockByItem(db: Db, q: StockByItemQuery): Map<number, number> {
   const params = {
     asOf: q.asOf,
     today: q.today ?? q.asOf,
-    godown: q.godownId ?? null,
+    ...godownParams(db, q.godownId, q.includeSubGodowns),
     main: mainGodown(db),
     ids: filterItems ? jsonIds(q.itemIds ?? []) : '[]',
     filter: filterItems ? 1 : 0,
@@ -139,12 +168,12 @@ export function stockByItem(db: Db, q: StockByItemQuery): Map<number, number> {
   const rows = db.all<{ item_id: number; qty: number }>(
     `SELECT item_id, SUM(qty) AS qty FROM (
        SELECT item_id, qty FROM stock_openings
-        WHERE (:godown IS NULL OR godown_id = :godown)
+        WHERE ${OPENING_GODOWN_IN}
           AND (:filter = 0 OR item_id IN (SELECT value FROM json_each(:ids)))
        UNION ALL
        SELECT ie.item_id, ie.qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
         WHERE ie.date <= :asOf AND ${STOCK_MOVEMENT_FILTER}
-          AND (:godown IS NULL OR COALESCE(ie.godown_id, :main) = :godown)
+          AND ${GODOWN_IN}
           AND (:filter = 0 OR ie.item_id IN (SELECT value FROM json_each(:ids)))
           AND ie.voucher_id IS NOT :exclude
      ) GROUP BY item_id`,

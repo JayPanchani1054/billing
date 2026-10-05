@@ -1,10 +1,11 @@
 /**
  * Business guards (F12 › guards: allow | warn | block) evaluated on a posting plan:
- *  - negative stock: per item + godown, closing quantity as of the voucher date
+ *  - negative stock: per item + godown (+ batch when the line has one), closing quantity as of the
+ *    voucher date
  *  - negative cash: Cash-in-Hand ledgers, closing balance as of the voucher date
  *  - credit limit: party balance after the voucher vs ledgers.credit_limit
  *  - duplicate supplier invoice: purchase with the same party + reference no. in the same FY
- * 'warn' → non-blocking warning (save asks for confirmation); 'block' → blocking warning.
+ * 'warn' → level 'confirm' (save asks for confirmation); 'block' → level 'block' (cannot be saved).
  * The voucher being altered is always excluded from the existing balances.
  */
 import { financialYear, formatDate } from '../../../shared/dates.ts';
@@ -20,8 +21,11 @@ export interface GuardEntry {
 }
 
 export interface GuardStockLine {
+  /** 1-based input line number (for the warning path items[lineNo − 1]). */
+  lineNo?: number;
   itemId: number;
   godownId: number;
+  batchName?: string | null;
   qty: number;
   affectsStock: boolean;
 }
@@ -81,33 +85,46 @@ export function ledgerBalanceAsOf(db: Db, ledgerId: number, date: string, today:
 
 export function runGuards(g: GuardInput): VoucherWarning[] {
   const out: VoucherWarning[] = [];
-  const add = (policy: GuardPolicy, w: Omit<VoucherWarning, 'blocking'>): void => {
+  const add = (policy: GuardPolicy, w: Omit<VoucherWarning, 'blocking' | 'level'>): void => {
     if (policy === 'allow') return;
-    out.push({ ...w, blocking: policy === 'block' });
+    const block = policy === 'block';
+    out.push({ ...w, blocking: block, level: block ? 'block' : 'confirm' });
   };
 
-  // ── Negative stock ──
+  // ── Negative stock (per item + godown, and per batch for batch lines) ──
   if (g.policies.negativeStock !== 'allow' && g.inventoryOn) {
-    const net = new Map<string, { itemId: number; godownId: number; qty: number }>();
+    const net = new Map<string, { itemId: number; godownId: number; batchName: string | null; qty: number; lineNo: number | undefined }>();
     for (const l of g.stock) {
       if (!l.affectsStock) continue;
-      const key = `${l.itemId}|${l.godownId}`;
-      const cur = net.get(key) ?? { itemId: l.itemId, godownId: l.godownId, qty: 0 };
+      const batchName = l.batchName ?? null;
+      const key = `${l.itemId}|${l.godownId}|${batchName ?? ''}`;
+      const cur = net.get(key) ?? { itemId: l.itemId, godownId: l.godownId, batchName, qty: 0, lineNo: l.lineNo };
       cur.qty += l.qty;
       net.set(key, cur);
     }
     for (const n of net.values()) {
       if (n.qty >= 0) continue;
-      const available = stockQtyAsOf(g.db, { itemId: n.itemId, godownId: n.godownId, date: g.date, today: g.today, excludeVoucherId: g.excludeVoucherId });
+      const available = stockQtyAsOf(g.db, {
+        itemId: n.itemId,
+        godownId: n.godownId,
+        batchName: n.batchName,
+        byBatch: n.batchName !== null,
+        date: g.date,
+        today: g.today,
+        excludeVoucherId: g.excludeVoucherId,
+      });
       const closing = Math.round((available + n.qty) * 1e6) / 1e6;
       if (closing < 0) {
         const item = g.masters.item(n.itemId);
         const godown = g.masters.godown(n.godownId);
         const dp = Math.max(0, Math.min(6, item.unit_decimals));
-        add(g.policies.negativeStock, {
+        const where = n.batchName !== null ? `${item.name} (batch ${n.batchName}) in ${godown.name}` : `${item.name} in ${godown.name}`;
+        const w: Omit<VoucherWarning, 'blocking' | 'level'> = {
           code: 'negative_stock',
-          message: `Stock of ${item.name} in ${godown.name} will go negative: ${formatQty(available, dp, item.unit_symbol)} available, ${formatQty(-n.qty, dp, item.unit_symbol)} required.`,
-        });
+          message: `Stock of ${where} will go negative: ${formatQty(available, dp, item.unit_symbol)} available, ${formatQty(-n.qty, dp, item.unit_symbol)} required.`,
+        };
+        if (n.lineNo !== undefined) w.path = `items[${n.lineNo - 1}]`;
+        add(g.policies.negativeStock, w);
       }
     }
   }
@@ -144,6 +161,7 @@ export function runGuards(g: GuardInput): VoucherWarning[] {
         add(g.policies.creditLimit, {
           code: 'credit_limit',
           message: `Credit limit of ${money(limit)} for ${L.name} will be exceeded: balance after this voucher is ${money(after)} Dr.`,
+          path: 'partyLedgerId',
         });
       }
     }
@@ -164,6 +182,7 @@ export function runGuards(g: GuardInput): VoucherWarning[] {
       add(g.policies.duplicateSupplierInvoice, {
         code: 'duplicate_reference',
         message: `Supplier invoice ${g.referenceNo} of ${L.name} is already entered in this financial year (Purchase ${dup.number ?? '(no number)'} dated ${formatDate(dup.date)}).`,
+        path: 'referenceNo',
       });
     }
   }

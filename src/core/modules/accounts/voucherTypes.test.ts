@@ -87,8 +87,12 @@ describe('voucher types: numbering rules', () => {
     // Fits exactly: 12 + 4 = 16, with a headroom warning.
     const ok = saveVoucherType(t.ctx, { name: 'Sales B2B', baseType: 'sales', numbering: { prefix: 'INV/2026-27/', width: 4 } });
     assert.match(ok.numberingWarnings.join(' '), /longer than 16 characters after no\. 9,999/);
-    const monthly = saveVoucherType(t.ctx, { id: ok.id, numbering: { restart: 'monthly' } });
-    assert.match(monthly.numberingWarnings.join(' '), /restart yearly instead/);
+    // A monthly restart with a fixed prefix repeats numbers within the financial year → refused for GST documents.
+    expectIssue(() => saveVoucherType(t.ctx, { id: ok.id, numbering: { restart: 'monthly' } }), 'numbering.restart', /unique for the whole financial year/);
+    assert.equal(saveVoucherType(t.ctx, { id: ok.id, numbering: { restart: 'never' } }).numbering.restart, 'never');
+    // Manual numbering may restart monthly (the user types the numbers); it only gets the uniqueness advice.
+    const manual = saveVoucherType(t.ctx, { name: 'Manual Bills', baseType: 'sales', numbering: { method: 'manual', restart: 'monthly' } });
+    assert.match(manual.numberingWarnings.join(' '), /unique within the financial year/);
     t.close();
   });
 

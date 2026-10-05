@@ -49,10 +49,23 @@ const toRate = (r: RateDbRow): ExchangeRateRow => ({
   buying: r.buying,
 });
 
-const CURRENCY_SELECT = `SELECT c.*, (SELECT COUNT(*) FROM ledgers l WHERE l.currency_id = c.id) AS ledger_count FROM currencies c`;
+/** Currencies with their ledger count and latest exchange rate, in one query (no per-row look-ups). */
+const CURRENCY_SELECT = `SELECT c.*,
+       (SELECT COUNT(*) FROM ledgers l WHERE l.currency_id = c.id) AS ledger_count,
+       r.id AS rate_id, r.date AS rate_date, r.standard AS rate_standard, r.selling AS rate_selling, r.buying AS rate_buying
+  FROM currencies c
+  LEFT JOIN exchange_rates r
+    ON r.id = (SELECT r2.id FROM exchange_rates r2 WHERE r2.currency_id = c.id ORDER BY r2.date DESC LIMIT 1)`;
 
-function toCurrency(db: Db, r: CurrencyDbRow): CurrencyRow {
-  const latest = db.get<RateDbRow>('SELECT * FROM exchange_rates WHERE currency_id = :id ORDER BY date DESC LIMIT 1', { id: r.id });
+interface CurrencyListDbRow extends CurrencyDbRow {
+  rate_id: number | null;
+  rate_date: string | null;
+  rate_standard: number | null;
+  rate_selling: number | null;
+  rate_buying: number | null;
+}
+
+function toCurrency(r: CurrencyListDbRow): CurrencyRow {
   return {
     id: r.id,
     guid: r.guid,
@@ -61,7 +74,10 @@ function toCurrency(db: Db, r: CurrencyDbRow): CurrencyRow {
     isoCode: r.iso_code,
     decimalPlaces: r.decimal_places,
     isBase: r.is_base === 1,
-    latestRate: latest ? toRate(latest) : null,
+    latestRate:
+      r.rate_id !== null && r.rate_date !== null
+        ? { id: r.rate_id, currencyId: r.id, date: r.rate_date, standard: r.rate_standard, selling: r.rate_selling, buying: r.rate_buying }
+        : null,
     ledgerCount: r.ledger_count,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -69,14 +85,14 @@ function toCurrency(db: Db, r: CurrencyDbRow): CurrencyRow {
 }
 
 export function listCurrencies(db: Db): ListResult<CurrencyRow> {
-  const rows = db.all<CurrencyDbRow>(`${CURRENCY_SELECT} ORDER BY c.is_base DESC, c.formal_name`).map((r) => toCurrency(db, r));
+  const rows = db.all<CurrencyListDbRow>(`${CURRENCY_SELECT} ORDER BY c.is_base DESC, c.formal_name`).map(toCurrency);
   return { rows, total: rows.length };
 }
 
 export function getCurrency(db: Db, id: number): CurrencyRow {
-  const r = db.get<CurrencyDbRow>(`${CURRENCY_SELECT} WHERE c.id = :id`, { id });
+  const r = db.get<CurrencyListDbRow>(`${CURRENCY_SELECT} WHERE c.id = :id`, { id });
   if (!r) throw notFound('Currency', id);
-  return toCurrency(db, r);
+  return toCurrency(r);
 }
 
 export function saveCurrency(ctx: CompanyCtx, input: CurrencySaveInput): CurrencyRow {
@@ -165,17 +181,23 @@ export function deleteCurrency(ctx: CompanyCtx, id: number): DeleteResult {
 
 // ───────────────────────────── Exchange rates ─────────────────────────────
 
+export const EXCHANGE_RATE_LIST_MAX_LIMIT = 5000;
+
+/** Rates of one currency, newest first, optionally within a date range and paged. */
 export function listExchangeRates(db: Db, input: ExchangeRateListInput): ListResult<ExchangeRateRow> {
   assertRange(input.from, input.to);
   if (db.value('SELECT 1 FROM currencies WHERE id = :id', { id: input.currencyId }) === undefined) throw notFound('Currency', input.currencyId);
+  const where = `currency_id = :id AND (:from IS NULL OR date >= :from) AND (:to IS NULL OR date <= :to)`;
+  const params = { id: input.currencyId, from: input.from ?? null, to: input.to ?? null };
+  const total = db.value<number>(`SELECT COUNT(*) FROM exchange_rates WHERE ${where}`, params) ?? 0;
   const rows = db
-    .all<RateDbRow>(
-      `SELECT * FROM exchange_rates WHERE currency_id = :id AND (:from IS NULL OR date >= :from) AND (:to IS NULL OR date <= :to)
-        ORDER BY date DESC`,
-      { id: input.currencyId, from: input.from ?? null, to: input.to ?? null },
-    )
+    .all<RateDbRow>(`SELECT * FROM exchange_rates WHERE ${where} ORDER BY date DESC LIMIT :limit OFFSET :offset`, {
+      ...params,
+      limit: Math.min(Math.max(1, input.limit ?? EXCHANGE_RATE_LIST_MAX_LIMIT), EXCHANGE_RATE_LIST_MAX_LIMIT),
+      offset: Math.max(0, input.offset ?? 0),
+    })
     .map(toRate);
-  return { rows, total: rows.length };
+  return { rows, total };
 }
 
 /** Latest rate on or before `date` (null when none). For vouchers in foreign currency. */

@@ -132,3 +132,32 @@ describe('bulk quantities and routes', () => {
     t.close();
   });
 });
+
+describe('review regressions — stock routes', () => {
+  it("'inventory.stockOnHand' / 'inventory.batches' leave out the voucher being altered and can roll up sub-godowns", async () => {
+    const t = createTestCompany({ features: { batches: true, multipleGodowns: true } });
+    const store = addGodown(t, 'Store');
+    const rack = addGodown(t, 'Rack', store);
+    const item = t.addStockItem({ name: 'Cream', maintainBatches: true, openingQty: 8, openingRate: 50, batchName: 'C1', godownId: store });
+    purchase(t, '2026-04-02', item, 4, 50, { batchName: 'C2', godownId: rack });
+    const v = sale(t, '2026-04-05', item, 6, 80, { batchName: 'C1', godownId: store });
+    const soh = (input: Record<string, unknown>) =>
+      t.callOk<{ qty: number }>(inventoryRoutes, 'inventory.stockOnHand', { itemId: item, asOf: '2026-04-30', ...input }).then((r) => r.qty);
+    assert.equal(await soh({ godownId: store }), 2);
+    assert.equal(await soh({ godownId: store, excludeVoucherId: v }), 8);
+    assert.equal(await soh({ godownId: store, includeSubGodowns: true }), 6);
+    assert.equal(stockOnHand(t.db, { itemId: item, godownId: store, includeSubGodowns: true, asOf: '2026-04-30' }), 6);
+    const batches = (input: Record<string, unknown>) =>
+      t.callOk<Array<{ batchName: string; qty: number }>>(inventoryRoutes, 'inventory.batches', { itemId: item, asOf: '2026-04-30', ...input });
+    assert.deepEqual((await batches({ godownId: store })).map((b) => [b.batchName, b.qty]), [['C1', 2]]);
+    assert.deepEqual((await batches({ godownId: store, excludeVoucherId: v })).map((b) => [b.batchName, b.qty]), [['C1', 8]]);
+    assert.deepEqual((await batches({ godownId: store, includeSubGodowns: true })).map((b) => [b.batchName, b.qty]), [
+      ['C1', 2],
+      ['C2', 4],
+    ]);
+    assert.equal(stockByItem(t.db, { asOf: '2026-04-30', godownId: store, includeSubGodowns: true }).get(item), 6);
+    const missing = await t.call(inventoryRoutes, 'inventory.stockOnHand', { itemId: item, godownId: 9999, asOf: '2026-04-30' });
+    assert.equal(missing.ok ? null : missing.error.code, 'NOT_FOUND');
+    t.close();
+  });
+});

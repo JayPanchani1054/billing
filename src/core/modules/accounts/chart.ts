@@ -17,11 +17,15 @@ export function chartOfAccounts(db: Db, input: ChartInput, today: string): Chart
   let ledgerCount = 0;
   if (includeLedgers) {
     const rows = db.all<{ id: number; name: string; alias: string | null; group_id: number; reserved_code: LedgerCode | null; is_predefined: number; is_active: number }>(
-      `SELECT id, name, alias, group_id, reserved_code, is_predefined, is_active FROM ledgers ${input.activeOnly ? 'WHERE is_active = 1' : ''} ORDER BY name`,
+      'SELECT id, name, alias, group_id, reserved_code, is_predefined, is_active FROM ledgers ORDER BY name',
     );
     for (const l of rows) {
       const g = tree.byId.get(l.group_id);
       if (!g) continue;
+      const closing = gb.ledgers.get(l.id)?.closing ?? 0;
+      // activeOnly hides inactive ledgers, except one that still carries a balance: hiding it would make
+      // its group's total differ from the sum of the lines shown under it.
+      if (input.activeOnly && l.is_active !== 1 && closing === 0) continue;
       const node: ChartNode = {
         kind: 'ledger',
         id: l.id,
@@ -31,7 +35,7 @@ export function chartOfAccounts(db: Db, input: ChartInput, today: string): Chart
         reservedCode: l.reserved_code,
         isPredefined: l.is_predefined === 1,
         isActive: l.is_active === 1,
-        closing: gb.ledgers.get(l.id)?.closing ?? 0,
+        closing,
         children: [],
       };
       const list = ledgersByGroup.get(l.group_id);

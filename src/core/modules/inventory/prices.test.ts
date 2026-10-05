@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AppError } from '../../lib/errors.ts';
 import { createTestCompany } from '../../testing/fixtures.ts';
-import { getItem } from './items.ts';
+import { deleteItem, getItem } from './items.ts';
 import { deletePriceLevel, getPriceList, listPriceLevels, priceFor, savePriceLevel, savePriceList, slabForQty } from './prices.ts';
 import { auditRows, postStock } from './testkit.ts';
 
@@ -138,6 +138,50 @@ describe('price lists', () => {
     savePriceList(dataEntry, { priceLevelId: lvl.id, applicableFrom: '2026-05-01', rows: [{ itemId: a, qtyFrom: 0, rate: 12 }] });
     assert.equal(priceFor(t.db, { itemId: a, priceLevelId: lvl.id, date: '2026-05-01', qty: 1 }).rate, 12);
     assert.equal(priceFor(t.db, { itemId: a, date: '2026-05-01', qty: 1, side: 'purchase' }).source, 'item_default');
+    t.close();
+  });
+});
+
+describe('review regressions — item price lists', () => {
+  it('item detail shows each level’s latest list on the date, ordered by level name', () => {
+    const t = createTestCompany();
+    const retail = savePriceLevel(t.ctx, { name: 'Retail' });
+    const dealer = savePriceLevel(t.ctx, { name: 'Dealer' });
+    savePriceLevel(t.ctx, { name: 'Export' }); // no list for this item
+    const a = t.addStockItem({ name: 'A' });
+    const other = t.addStockItem({ name: 'Other' });
+    savePriceList(t.ctx, { priceLevelId: retail.id, applicableFrom: '2026-04-01', rows: [{ itemId: a, qtyFrom: 0, qtyTo: 10, rate: 10 }, { itemId: a, qtyFrom: 10, rate: 9 }] });
+    savePriceList(t.ctx, { priceLevelId: retail.id, applicableFrom: '2026-05-01', rows: [{ itemId: a, qtyFrom: 0, rate: 11 }] });
+    savePriceList(t.ctx, { priceLevelId: dealer.id, applicableFrom: '2026-04-15', rows: [{ itemId: a, qtyFrom: 0, rate: 8 }, { itemId: other, qtyFrom: 0, rate: 1 }] });
+    const at = (date: string) => getItem(t.db, a, date).priceLists.map((p) => [p.priceLevelName, p.applicableFrom, p.slabs.map((s) => s.rate)]);
+    assert.deepEqual(at('2026-04-10'), [['Retail', '2026-04-01', [10, 9]]]);
+    assert.deepEqual(at('2026-04-20'), [
+      ['Dealer', '2026-04-15', [8]],
+      ['Retail', '2026-04-01', [10, 9]],
+    ]);
+    assert.deepEqual(at('2026-05-01'), [
+      ['Dealer', '2026-04-15', [8]],
+      ['Retail', '2026-05-01', [11]],
+    ]);
+    t.close();
+  });
+});
+
+describe('review regressions — price list audit', () => {
+  it('keeps deleted items’ price lists in the edit log and does not audit a save that changes nothing', () => {
+    const t = createTestCompany();
+    const lvl = savePriceLevel(t.ctx, { name: 'Retail' });
+    const a = t.addStockItem({ name: 'A' });
+    savePriceList(t.ctx, { priceLevelId: lvl.id, applicableFrom: '2026-04-01', rows: [{ itemId: a, qtyFrom: 0, rate: 10, discountPct: 2 }] });
+    // Clearing a list that does not exist on that date: no change, no audit row.
+    const before = auditRows(t, 'price_list').length;
+    savePriceList(t.ctx, { priceLevelId: lvl.id, applicableFrom: '2026-05-01', rows: [], clearItemIds: [a] });
+    assert.equal(auditRows(t, 'price_list').length, before);
+    deleteItem(t.ctx, a);
+    const del = auditRows(t, 'stock_item').at(-1);
+    assert.equal(del?.action, 'delete');
+    const snap = JSON.parse(del?.before_json ?? '{}') as { priceListRows?: Array<{ level: string; rate: number; discount_pct: number }> };
+    assert.deepEqual(snap.priceListRows?.map((r) => [r.level, r.rate, r.discount_pct]), [['Retail', 10, 2]]);
     t.close();
   });
 });

@@ -24,6 +24,7 @@
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { validation } from '../../lib/errors.ts';
+import { formatMoney } from '../../../shared/format.ts';
 import { stateName } from '../../../shared/gst/index.ts';
 import type {
   Gstr3bAdjustmentKey,
@@ -333,7 +334,7 @@ export function computeGstr3b(db: Db, company: GstCompany, period: ReturnPeriodR
 
   if (a.outwardRcm.taxable !== 0) {
     notes.push(
-      `Outward supplies on which the recipient pays tax (reverse charge): taxable value ₹${(a.outwardRcm.taxable / 100).toFixed(2)} — reported in GSTR-1 table 4B, not in 3.1(a).`,
+      `Outward supplies on which the recipient pays tax (reverse charge): taxable value ${formatMoney(a.outwardRcm.taxable, { symbol: true })} — reported in GSTR-1 table 4B, not in 3.1(a).`,
     );
   }
   if (a.blocked.igst || a.blocked.cgst || a.blocked.sgst || a.blocked.cess) {
@@ -376,7 +377,7 @@ export function buildGstr3bJson(s: Gstr3bSummary): GstJsonFile {
   const fp = s.period.fp as string;
   const nn = (p: number, where: string): number => {
     if (p < 0) {
-      warnings.push(`${where} is negative (₹${(p / 100).toFixed(2)}) and was written as 0 — adjust it on the portal.`);
+      warnings.push(`${where} is negative (${formatMoney(p, { symbol: true })}) and was written as 0 — adjust it on the portal.`);
       return 0;
     }
     return rupees(p);

@@ -235,17 +235,18 @@ export function buildEinvoice(d: GstDoc, company: GstCompany, inv: readonly InvL
     let unitPrice: number;
     const qty = Math.abs(l.qty);
     const idx = l.itemId !== null ? unused.findIndex((x) => x.item_id === l.itemId && x.amount === l.taxable) : -1;
+    unitPrice = qty > 0 ? round3(l.taxable / 100 / qty) : rupees(l.taxable);
     if (idx >= 0) {
       const x = unused.splice(idx, 1)[0];
       const q = Math.abs(x.billed_qty ?? x.qty);
       const g = lineAmount(q, x.rate);
-      if (g >= l.taxable) {
+      // Use the entered rate only when it explains the value (a discount); an apportioned charge
+      // (freight absorbed into the value) makes the value larger than qty × rate.
+      if (g >= l.taxable && q > 0) {
         gross = g;
         disc = g - l.taxable;
+        unitPrice = round3(x.rate);
       }
-      unitPrice = round3(x.rate);
-    } else {
-      unitPrice = qty > 0 ? round3(l.taxable / 100 / qty) : rupees(l.taxable);
     }
     assVal += l.taxable;
     igst += l.igst;

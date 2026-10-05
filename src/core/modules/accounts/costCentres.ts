@@ -222,7 +222,12 @@ export function saveCostCentre(ctx: CompanyCtx, input: CostCentreSaveInput): Cos
     if (!name) issues.add('name', 'Cost centre name is required');
     if (alias && name && alias.toLowerCase() === name.toLowerCase()) alias = null;
 
-    const categoryId = input.categoryId ?? before?.categoryId;
+    // A new centre placed under a parent takes the parent's category when none is given.
+    const parentCategory =
+      !before && input.categoryId === undefined && typeof input.parentId === 'number'
+        ? db.value<number>('SELECT category_id FROM cost_centres WHERE id = :id', { id: input.parentId })
+        : undefined;
+    const categoryId = input.categoryId ?? before?.categoryId ?? parentCategory;
     if (categoryId === undefined) issues.add('categoryId', 'Choose the cost category of this cost centre');
     else if (db.value('SELECT 1 FROM cost_categories WHERE id = :id', { id: categoryId }) === undefined) {
       issues.add('categoryId', 'The selected cost category does not exist');
@@ -272,13 +277,25 @@ export function saveCostCentre(ctx: CompanyCtx, input: CostCentreSaveInput): Cos
         { name, alias, categoryId, parentId, ts, id: centreId },
       );
       if (categoryId !== before.categoryId) {
-        // The whole sub-tree moves with it.
+        // The whole sub-tree moves with it; each moved sub-centre gets its own audit row.
+        const subIds = centreDescendants(db, centreId);
+        const subBefore = centreTree(db).filter((r) => subIds.includes(r.id));
         db.run(
-          `WITH RECURSIVE sub(id) AS (SELECT id FROM cost_centres WHERE parent_id = :id
-                                      UNION SELECT c.id FROM cost_centres c JOIN sub s ON c.parent_id = s.id)
-           UPDATE cost_centres SET category_id = :categoryId, updated_at = :ts WHERE id IN (SELECT id FROM sub)`,
-          { id: centreId, categoryId, ts },
+          `UPDATE cost_centres SET category_id = :categoryId, updated_at = :ts WHERE id IN (SELECT value FROM json_each(:ids))`,
+          { ids: JSON.stringify(subIds), categoryId, ts },
         );
+        const subAfter = new Map(centreTree(db).map((r) => [r.id, r]));
+        for (const b of subBefore) {
+          ctx.audit({
+            action: 'alter',
+            entityType: 'cost_centre',
+            entityId: b.id,
+            entityGuid: b.guid,
+            entityLabel: `${b.name} (moved with '${name ?? before.name}')`,
+            before: b,
+            after: subAfter.get(b.id),
+          });
+        }
       }
     }
     ctx.audit({

@@ -209,8 +209,15 @@ export function checkNumbering(baseType: VoucherBaseType, n: VoucherNumbering, g
     }
   }
   if (gstDoc && gstEnabled) {
-    if (n.restart === 'monthly') {
-      warnings.push('Numbers restart every month, so invoice numbers repeat within the financial year. GST requires them to be unique for the financial year: restart yearly instead.');
+    // The prefix/suffix is fixed text (no month token), so a monthly restart issues INV1 again every month:
+    // duplicate invoice numbers in the same financial year, which GSTR-1 rejects (CGST Rule 46(b)).
+    if (n.restart === 'monthly' && n.method !== 'manual' && n.method !== 'none') {
+      errors.push({
+        path: 'numbering.restart',
+        message:
+          'Numbers would restart every month with the same prefix, so invoice numbers would repeat within the financial year. ' +
+          'GST requires a number to be unique for the whole financial year: restart yearly (or never).',
+      });
     }
     if (n.method === 'manual') warnings.push('Manual numbering: make sure every number is unique within the financial year (GST requirement).');
     if (n.method === 'none') errors.push({ path: 'numbering.method', message: 'GST invoices, credit notes and debit notes must carry a serial number: choose automatic or manual numbering.' });
@@ -447,10 +454,24 @@ function writeVoucherType(ctx: CompanyCtx, input: VoucherTypeSaveInput): number 
       { ...params, id },
     );
     if (baseType !== row.base_type) {
+      // Types based on this one follow its base type; each gets its own audit row.
+      const childIds = descendantsOf(db, id);
+      const childBefore = childIds.map((cid) => loadVt(db, cid)).filter((r): r is VtDbRow => r !== undefined);
       db.run(
         `UPDATE voucher_types SET base_type = :baseType, updated_at = :ts WHERE id IN (SELECT value FROM json_each(:ids))`,
-        { baseType, ts: params.ts, ids: JSON.stringify(descendantsOf(db, id)) },
+        { baseType, ts: params.ts, ids: JSON.stringify(childIds) },
       );
+      for (const c of childBefore) {
+        ctx.audit({
+          action: 'alter',
+          entityType: 'voucher_type',
+          entityId: c.id,
+          entityGuid: c.guid,
+          entityLabel: `${c.name} (follows '${name ?? row.name}')`,
+          before: toDetail(c, gstEnabled),
+          after: getVoucherType(db, c.id),
+        });
+      }
     }
   }
   ctx.audit({

@@ -340,7 +340,7 @@ export function inwardIssues(d: GstDoc, rcmLiability: ReadonlySet<number>): GstI
       issue(
         d,
         'supplier_invoice_missing',
-        tax !== 0 ? 'error' : 'warning',
+        tax !== 0 && !d.referenceNo ? 'error' : 'warning',
         `${label} has no supplier invoice ${!d.referenceNo && !d.referenceDate ? 'number and date' : !d.referenceNo ? 'number' : 'date'}.`,
         imports
           ? 'Enter the bill of entry / supplier invoice number and date in the reference fields: GSTR-2B matching and ITC need them.'

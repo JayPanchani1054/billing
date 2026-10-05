@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AppError } from '../../lib/errors.ts';
 import { createTestCompany } from '../../testing/fixtures.ts';
+import { setPeriodLock } from '../company/service.ts';
 import { bulkCreateItems, deleteItem, getItem, listItems, saveItem } from './items.ts';
 import { saveStockCategory, saveStockGroup } from './masters.ts';
 import { addGodown, auditRows, purchase, sale } from './testkit.ts';
@@ -349,6 +350,80 @@ describe('stock item delete, bulk create and list', () => {
     const page = listItems(t.db, { limit: 1, offset: 1 }, t.today);
     assert.equal(page.rows.length, 1);
     assert.equal(page.total, 3);
+    t.close();
+  });
+});
+
+describe('review regressions — opening stock', () => {
+  it('reports opening values too large for paise totals as a validation error, not an internal one', () => {
+    const t = createTestCompany();
+    const u = t.ids.units.Nos;
+    // qty beyond any real stock
+    assert.throws(
+      () => saveItem(t.ctx, { name: 'X', unitId: u, openings: [{ qty: 1e300, rate: 1e10 }] }),
+      (e: unknown) => fails('VALIDATION', /Opening quantity .* is too large/)(e) && fieldOf(e) === 'openings[0].qty',
+    );
+    // 1e10 × ₹1e10 = 1e22 paise: used to be stored as a REAL in the paise column
+    assert.throws(
+      () => saveItem(t.ctx, { name: 'X', unitId: u, openings: [{ qty: 1e10, rate: 1e10 }] }),
+      (e: unknown) => fails('VALIDATION', /opening value of this row is too large/)(e) && fieldOf(e) === 'openings[0].rate',
+    );
+    assert.throws(
+      () => saveItem(t.ctx, { name: 'X', unitId: u, openings: [{ qty: 1, value: 9e15 }] }),
+      (e: unknown) => fails('VALIDATION', /too large/)(e) && fieldOf(e) === 'openings[0].value',
+    );
+    assert.equal(t.db.value('SELECT COUNT(*) FROM stock_openings'), 0);
+    // The largest accepted value is still a safe integer.
+    const ok = saveItem(t.ctx, { name: 'Big', unitId: u, openings: [{ qty: 1e6, rate: 9e6 }] }).item; // 9e14 paise
+    assert.equal(ok.openings[0].value, 9e14);
+    assert.ok(Number.isSafeInteger(ok.openingTotal.value));
+    t.close();
+  });
+
+  it('asks for batch names only while the Batches feature is on (vouchers ignore batches otherwise)', () => {
+    const off = createTestCompany({ features: { batches: false } });
+    const r = saveItem(off.ctx, { name: 'Med', unitId: off.ids.units.Nos, maintainBatches: true, openings: [{ qty: 5, rate: 10 }] });
+    assert.deepEqual(r.item.openings.map((o) => [o.batchName, o.qty]), [[null, 5]]);
+    assert.match(r.warnings[0], /Batches are turned off/);
+    // Turning batches on for an item with batch-less openings is fine while the feature is off …
+    const plain = saveItem(off.ctx, { name: 'Gauze', unitId: off.ids.units.Nos, openings: [{ qty: 2, rate: 1 }] }).item;
+    assert.equal(saveItem(off.ctx, { id: plain.id, maintainBatches: true }).item.maintainBatches, true);
+    off.close();
+    // … but needs batch names once the feature is on.
+    const on = createTestCompany({ features: { batches: true } });
+    const p2 = saveItem(on.ctx, { name: 'Gauze', unitId: on.ids.units.Nos, openings: [{ qty: 2, rate: 1 }] }).item;
+    assert.throws(() => saveItem(on.ctx, { id: p2.id, maintainBatches: true }), fails('VALIDATION', /batch name/));
+    on.close();
+  });
+
+  it('does not leave batch-wise opening stock on an item that stops maintaining batches', () => {
+    const t = createTestCompany({ features: { batches: true } });
+    const { item } = saveItem(t.ctx, { name: 'Med', unitId: t.ids.units.Nos, maintainBatches: true, openings: [{ qty: 5, rate: 1, batchName: 'B1' }] });
+    assert.throws(
+      () => saveItem(t.ctx, { id: item.id, maintainBatches: false }),
+      (e: unknown) => fails('VALIDATION', /entered batch-wise/)(e) && fieldOf(e) === 'openings',
+    );
+    // Re-entering the opening without batches in the same save is accepted.
+    const after = saveItem(t.ctx, { id: item.id, maintainBatches: false, openings: [{ qty: 5, rate: 1 }] }).item;
+    assert.deepEqual(after.openings.map((o) => o.batchName), [null]);
+    t.close();
+  });
+
+  it('refuses to change opening stock once the books are locked from the books beginning', () => {
+    const t = createTestCompany({ today: '2026-04-15' }); // books from 2026-04-01
+    const u = t.ids.units.Nos;
+    const { item } = saveItem(t.ctx, { name: 'Tile', unitId: u, openings: [{ qty: 10, rate: 40 }] });
+    const bare = saveItem(t.ctx, { name: 'Grout', unitId: u, openings: [{ qty: 1, rate: 5 }] }).item;
+    setPeriodLock(t.ctx, '2026-04-10');
+    const locked = fails('LOCKED', /opening stock of 'Tile' is dated 01-Apr-2026 .* locked up to 10-Apr-2026/);
+    assert.throws(() => saveItem(t.ctx, { id: item.id, openings: [{ qty: 12, rate: 40 }] }), locked);
+    assert.throws(() => saveItem(t.ctx, { id: item.id, openings: [] }), fails('LOCKED'));
+    assert.throws(() => saveItem(t.ctx, { name: 'New', unitId: u, openings: [{ qty: 1, rate: 1 }] }), fails('LOCKED'));
+    assert.throws(() => deleteItem(t.ctx, bare.id), fails('LOCKED'));
+    // Other changes, identical openings and items without opening stock are fine.
+    assert.equal(saveItem(t.ctx, { id: item.id, mrp: 9000, openings: [{ qty: 10, rate: 40 }] }).item.mrp, 9000);
+    const fresh = saveItem(t.ctx, { name: 'Spacer', unitId: u }).item;
+    deleteItem(t.ctx, fresh.id);
     t.close();
   });
 });

@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import type { StockValuationResult, StockValuationRow } from '../../../shared/types/inventory.ts';
 import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
 import { inventoryRoutes } from './routes.ts';
-import { addGodown, purchase, sale, salesReturn, stockJournal } from './testkit.ts';
+import { addGodown, postStock, purchase, sale, salesReturn, stockJournal } from './testkit.ts';
 import { closingStockValue, computeStockValuation, currentUnitCost, openingStockValue } from './valuation.ts';
 
 const APRIL = { from: '2026-04-01', to: '2026-04-30', today: '2026-04-30' };
@@ -181,12 +181,17 @@ describe('last_purchase and std_cost', () => {
     salesReturn(t, '2026-04-12', d, 1, 150); // re-enters at 12000
     const res = computeStockValuation(t.db, APRIL);
     assert.deepEqual(qv(row(res, d)), {
-      opening: [10, 120000],
+      // At the books beginning the opening stock is what the master says: 10 × ₹100 (not 10 × the
+      // standard cost), so the Balance Sheet's opening stock matches the item masters.
+      opening: [10, 100000],
       inward: [21, 242000],
       outward: [15, 180000],
       closing: [16, 192000],
     });
     assert.equal(row(res, d).closing.rate, 120);
+    // From the next day on, opening = previous closing = Q × standard cost (periods chain).
+    const later = computeStockValuation(t.db, { from: '2026-04-02', to: '2026-04-30', today: '2026-04-30' });
+    assert.deepEqual(row(later, d).opening, { qty: 10, value: 120000 });
     t.close();
   });
 });
@@ -316,6 +321,77 @@ describe("'inventory.valuation' route", () => {
     assert.equal(denied.ok ? null : denied.error.code, 'FORBIDDEN');
     const bad = await t.call(inventoryRoutes, 'inventory.valuation', { from: '2026-04-30', to: '2026-04-01' });
     assert.equal(bad.ok ? null : bad.error.message, 'The period end date is before its start date');
+    t.close();
+  });
+});
+
+describe('review regressions — valuation', () => {
+  it('opening stock at the books beginning is what the masters say, for every costing method', () => {
+    const t = createTestCompany({ features: { multipleGodowns: true } });
+    const wh = addGodown(t, 'Warehouse');
+    const main = t.ids.mainGodownId;
+    // Last Purchase with two opening rows at different rates: entered 10 × ₹100 + 5 × ₹110 = 1,55,000 p.
+    const lp = t.addStockItem({ name: 'LP', costingMethod: 'last_purchase', openingQty: 10, openingRate: 100 });
+    t.db.run('INSERT INTO stock_openings (item_id, godown_id, qty, rate, value) VALUES (:id, :g, 5, 110, 55000)', { id: lp, g: wh });
+    // Before: the last row's rate re-priced all 15 units → 15 × 11000 = 1,65,000 (₹100 more than entered).
+    sale(t, '2026-04-05', lp, 3, 150, { godownId: main });
+    // The opening rate is the weighted one: 1,55,000 / 15 = 10,333.33 p → sale 3 × 10,333.33 = 31,000.
+    const res = computeStockValuation(t.db, APRIL);
+    assert.deepEqual(qv(row(res, lp)), { opening: [15, 155000], inward: [0, 0], outward: [3, 31000], closing: [12, 124000] });
+    assert.equal(openingStockValue(t.db, { from: '2026-04-01', today: '2026-04-30' }), 155000);
+    assert.equal(openingStockValue(t.db, { from: '2026-03-01', today: '2026-04-30' }), 155000, 'before books beginning too');
+    // Periods chain: the opening of a later period is the closing of the day before.
+    assert.equal(openingStockValue(t.db, { from: '2026-04-06', today: '2026-04-30' }), closingStockValue(t.db, { asOf: '2026-04-05', today: '2026-04-30' }));
+    t.close();
+  });
+
+  it('values physical stock differences, purchase returns and rejections at cost', () => {
+    const t = createTestCompany();
+    const a = t.addStockItem({ name: 'A', openingQty: 10, openingRate: 100 }); // Q10 V100000
+    purchase(t, '2026-04-02', a, 10, 120); // Q20 V220000 (avg 11000)
+    postStock(t, { baseType: 'physical_stock', date: '2026-04-03', lines: [{ itemId: a, qty: 2, rate: 999 }] }); // gain 2 × 11000 = 22000 → Q22 V242000
+    postStock(t, { baseType: 'physical_stock', date: '2026-04-04', lines: [{ itemId: a, qty: -4, rate: 999 }] }); // loss 4 × 11000 = 44000 → Q18 V198000
+    postStock(t, { baseType: 'debit_note', date: '2026-04-05', lines: [{ itemId: a, qty: -5, rate: 130 }] }); // return 5 × 11000 = 55000 → Q13 V143000
+    postStock(t, { baseType: 'rejection_in', date: '2026-04-06', lines: [{ itemId: a, qty: 2, rate: 150 }] }); // back at cost 22000 → Q15 V165000
+    postStock(t, { baseType: 'rejection_out', date: '2026-04-07', lines: [{ itemId: a, qty: -1, rate: 130 }] }); // 11000 → Q14 V154000
+    const res = computeStockValuation(t.db, APRIL);
+    assert.deepEqual(qv(row(res, a)), {
+      opening: [10, 100000],
+      inward: [14, 164000], // 120000 + 22000 + 22000 — own amounts of the gain / rejection (999, 150) ignored
+      outward: [10, 110000], // 44000 + 55000 + 11000
+      closing: [14, 154000], // 100000 + 164000 − 110000
+    });
+    t.close();
+  });
+
+  it('FIFO takes opening rows from different godowns as separate layers', () => {
+    const t = createTestCompany({ features: { multipleGodowns: true } });
+    const wh = addGodown(t, 'Warehouse');
+    const f = t.addStockItem({ name: 'F', costingMethod: 'fifo', openingQty: 10, openingRate: 100 });
+    t.db.run('INSERT INTO stock_openings (item_id, godown_id, qty, rate, value) VALUES (:id, :g, 5, 110, 55000)', { id: f, g: wh });
+    sale(t, '2026-04-05', f, 12, 150); // 10 × 10000 + 2 × 11000 = 122000
+    const res = computeStockValuation(t.db, APRIL);
+    assert.deepEqual(qv(row(res, f)), { opening: [15, 155000], inward: [0, 0], outward: [12, 122000], closing: [3, 33000] });
+    t.close();
+  });
+
+  it('can roll a parent godown up with its sub-godowns', async () => {
+    const t = createTestCompany({ features: { multipleGodowns: true } });
+    const store = addGodown(t, 'Store');
+    const rack = addGodown(t, 'Rack 1', store);
+    const other = addGodown(t, 'Depot');
+    const g = t.addStockItem({ name: 'G', openingQty: 5, openingRate: 100, godownId: store }); // 50000
+    purchase(t, '2026-04-02', g, 3, 100, { godownId: rack }); // 30000
+    purchase(t, '2026-04-03', g, 2, 100, { godownId: other }); // 20000
+    const exact = computeStockValuation(t.db, { ...APRIL, godownId: store });
+    assert.deepEqual(row(exact, g).closing, { qty: 5, value: 50000, rate: 100 });
+    const rolled = computeStockValuation(t.db, { ...APRIL, godownId: store, includeSubGodowns: true });
+    assert.deepEqual(qv(row(rolled, g)), { opening: [5, 50000], inward: [3, 30000], outward: [0, 0], closing: [8, 80000] });
+    assert.equal(closingStockValue(t.db, { asOf: '2026-04-30', today: '2026-04-30', godownId: store, includeSubGodowns: true }), 80000);
+    const r = await t.callOk<StockValuationResult>(inventoryRoutes, 'inventory.valuation', { ...APRIL, godownId: store, includeSubGodowns: true });
+    assert.equal(r.totals.closingValue, 80000);
+    const missing = await t.call(inventoryRoutes, 'inventory.valuation', { from: '2026-04-01', to: '2026-04-30', godownId: 9999 });
+    assert.equal(missing.ok ? null : missing.error.code, 'NOT_FOUND');
     t.close();
   });
 });

@@ -20,7 +20,15 @@ import {
   saveCostCategory,
   saveCostCentre,
 } from './costCentres.ts';
-import { deleteCurrency, deleteExchangeRate, listCurrencies, listExchangeRates, saveCurrency, saveExchangeRate } from './currencies.ts';
+import {
+  deleteCurrency,
+  deleteExchangeRate,
+  getCurrency,
+  listCurrencies,
+  listExchangeRates,
+  saveCurrency,
+  saveExchangeRate,
+} from './currencies.ts';
 import { deleteGroup, getGroup, listGroups, saveGroup } from './groups.ts';
 import {
   bulkCreateLedgers,
@@ -170,6 +178,11 @@ export const accountsRoutes = {
     access: 'masters.view',
     input: v.none(),
     handler: (ctx) => listCurrencies(ctx.db),
+  }),
+  'accounts.currency.get': companyRoute({
+    access: 'masters.view',
+    input: IdInputSchema,
+    handler: (ctx, { id }) => getCurrency(ctx.db, id),
   }),
   'accounts.currency.save': companyRoute({
     access: 'masters.view', // + masters.create / masters.alter in the service

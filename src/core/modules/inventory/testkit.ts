@@ -59,8 +59,8 @@ export function postStock(t: TestCompany, spec: StockVoucherSpec): number {
       const rate = l.rate ?? 0;
       t.db.run(
         `INSERT INTO inventory_entries (voucher_id, line_no, item_id, godown_id, batch_name, mfg_date, expiry_date, qty, billed_qty,
-                                        rate, amount, is_consumption, date, affects_stock)
-         VALUES (:v, :line, :item, :godown, :batch, :mfg, :exp, :qty, :billed, :rate, :amount, :cons, :date, :affects)`,
+                                        rate, amount, is_consumption, date, affects_stock, is_post_dated)
+         VALUES (:v, :line, :item, :godown, :batch, :mfg, :exp, :qty, :billed, :rate, :amount, :cons, :date, :affects, :pd)`,
         {
           v: voucherId,
           line: i + 1,
@@ -75,7 +75,10 @@ export function postStock(t: TestCompany, spec: StockVoucherSpec): number {
           amount: l.amount ?? lineAmount(Math.abs(l.qty), rate),
           cons: l.isConsumption ?? (spec.baseType === 'stock_journal' && l.qty < 0),
           date: spec.date,
+          // affects_stock stays as given even on optional/cancelled vouchers, so tests prove the stock
+          // filter's own voucher-status conditions; is_post_dated is denormalised like the posting engine.
           affects: l.affectsStock ?? true,
+          pd: spec.postDated ?? false,
         },
       );
     });

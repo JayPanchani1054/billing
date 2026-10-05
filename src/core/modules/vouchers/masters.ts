@@ -32,6 +32,7 @@ export interface LedgerRow {
   address: string | null;
   state_code: string | null;
   pincode: string | null;
+  country: string | null;
   email: string | null;
   mobile: string | null;
   pan: string | null;
@@ -239,9 +240,13 @@ export class Masters {
     for (const r of rows) this.itemCache.set(r.id, r);
   }
 
-  item(id: number): ItemRow {
+  itemOrNull(id: number): ItemRow | null {
     this.preloadItems([id]);
-    const row = this.itemCache.get(id);
+    return this.itemCache.get(id) ?? null;
+  }
+
+  item(id: number): ItemRow {
+    const row = this.itemOrNull(id);
     if (!row) throw notFound('Stock item', id);
     return row;
   }
@@ -269,13 +274,19 @@ export class Masters {
     return this.mainGodown;
   }
 
-  godown(id: number): GodownRow {
+  godownOrNull(id: number): GodownRow | null {
     let g = this.godownCache.get(id);
     if (!g) {
       g = this.db.get<GodownRow>('SELECT id, name FROM godowns WHERE id = :id', { id });
-      if (!g) throw notFound('Godown', id);
+      if (!g) return null;
       this.godownCache.set(id, g);
     }
+    return g;
+  }
+
+  godown(id: number): GodownRow {
+    const g = this.godownOrNull(id);
+    if (!g) throw notFound('Godown', id);
     return g;
   }
 

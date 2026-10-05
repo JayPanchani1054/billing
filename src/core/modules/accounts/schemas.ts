@@ -194,6 +194,8 @@ export const ExchangeRateListInputSchema = v.object({
   currencyId: v.id(),
   from: v.date().optional(),
   to: v.date().optional(),
+  limit: v.int({ min: 1, max: 5000 }).optional(),
+  offset: v.int({ min: 0 }).optional(),
 });
 
 const rate = () => patchNullable(v.number({ min: 0, max: 1e9 }));

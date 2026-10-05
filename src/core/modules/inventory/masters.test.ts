@@ -144,7 +144,7 @@ describe('godowns', () => {
     assert.throws(() => saveGodown(t.ctx, { id: wh.id, name: 'Warehouse', parentId: rack.id }), fails('VALIDATION', /loop/));
     assert.throws(() => deleteGodown(t.ctx, wh.id), fails('BUSINESS_RULE', /sub-godown/));
     const item = t.addStockItem({ name: 'Bolt', openingQty: 5, openingRate: 2, godownId: rack.id });
-    assert.throws(() => deleteGodown(t.ctx, rack.id), fails('BUSINESS_RULE', /opening stock/));
+    assert.throws(() => deleteGodown(t.ctx, rack.id), fails('BUSINESS_RULE', /1 stock item\(s\) with opening stock here/));
     postStock(t, { baseType: 'purchase', date: '2026-04-05', lines: [{ itemId: item, qty: 1, rate: 2, godownId: job.id }] });
     assert.throws(() => deleteGodown(t.ctx, job.id), fails('BUSINESS_RULE', /1 voucher/));
     const spare = saveGodown(t.ctx, { name: 'Spare' });

@@ -193,3 +193,28 @@ describe('item picker', () => {
     t.close();
   });
 });
+
+describe('review regressions — picker search', () => {
+  it('filters by search (names starting with the text first) and limits rows, as the Go To palette asks', async () => {
+    const t = createTestCompany();
+    t.addStockItem({ name: 'Green Apple', openingQty: 4, openingRate: 1 });
+    t.addStockItem({ name: 'Apple', openingQty: 2, openingRate: 1 });
+    t.addStockItem({ name: 'Banana', barcode: '8901234', partNo: 'APL-9' });
+    t.addStockItem({ name: 'Apple Juice', columns: { is_active: 0 } });
+    const names = async (input: Record<string, unknown>) =>
+      (await t.callOk<ItemPickerRow[]>(R, 'inventory.item.picker', input)).map((r) => [r.name, r.stockQty]);
+    // Before: both keys were dropped and every active item came back.
+    assert.deepEqual(await names({ search: 'apple' }), [
+      ['Apple', 2],
+      ['Green Apple', 4],
+    ]);
+    assert.deepEqual(await names({ search: 'APP', limit: 1 }), [['Apple', 2]]);
+    assert.deepEqual(await names({ search: '890123' }), [['Banana', 0]]); // barcode
+    assert.deepEqual(await names({ search: 'apl-' }), [['Banana', 0]]); // part no.
+    assert.deepEqual(await names({ search: '%' }), []); // LIKE wildcards are literal
+    assert.equal((await names({})).length, 3);
+    const badLevel = await t.call(R, 'inventory.item.picker', { priceLevelId: 4242 });
+    assert.equal(code(badLevel), 'NOT_FOUND');
+    t.close();
+  });
+});

@@ -7,6 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { FieldIssue } from '../../../shared/api.ts';
+import { formatDate } from '../../../shared/dates.ts';
 import { formatDrCr } from '../../../shared/format.ts';
 import type { Paise } from '../../../shared/money.ts';
 import type {
@@ -34,6 +35,7 @@ import type { RegistrationType, SupplyKind, Taxability } from '../../../shared/t
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { AppError, notFound, rule } from '../../lib/errors.ts';
+import type { CompanyFeatures } from '../../../shared/settings.ts';
 import { getConfig, getFeatures } from '../company/service.ts';
 import { BOOKS_FILTER, classFromChain, closingBalances, groupChain, ledgerBalance, ledgerClassNames, loadGroupTree, type GroupTree } from './books.ts';
 import { Issues, assertRange, joinWords, likePattern, plural, requirePermission, requireSavePermission } from './common.ts';
@@ -135,7 +137,7 @@ function companyBasics(db: Db): { stateCode: string | null; booksFrom: string } 
 }
 
 function saveContext(db: Db, tree: GroupTree): SaveContext {
-  return { tree, company: companyBasics(db), billWiseFeature: getFeatures(db).billWise };
+  return { tree, company: companyBasics(db), features: getFeatures(db), lockedUpTo: getConfig(db).lockedUpTo };
 }
 
 const INSERT_COLS = LEDGER_COLUMNS.map(([, col]) => col);
@@ -144,7 +146,7 @@ const INSERT_SQL = `INSERT INTO ledgers (guid, ${INSERT_COLS.join(', ')}, create
 const UPDATE_SQL = `UPDATE ledgers SET ${INSERT_COLS.map((c) => `${c} = :${c}`).join(', ')}, updated_at = :ts WHERE id = :id`;
 
 /** GST details define a rate when GST applies and either a rate or a non-taxable taxability is set. */
-const definesRate = (f: LedgerFields): boolean =>
+export const definesRate = (f: Pick<LedgerFields, 'gstApplicable' | 'gstRate' | 'gstTaxability'>): boolean =>
   f.gstApplicable && (f.gstRate !== null || (f.gstTaxability !== null && f.gstTaxability !== 'taxable'));
 
 function gstDetailsChanged(before: LedgerFields | null, after: LedgerFields): boolean {
@@ -157,35 +159,111 @@ function gstDetailsChanged(before: LedgerFields | null, after: LedgerFields): bo
   );
 }
 
+interface HistoryDbRow {
+  applicable_from: string;
+  hsn_sac: string | null;
+  taxability: Taxability;
+  rate: number;
+  cess_rate: number;
+  cess_per_unit: number;
+}
+
+/** The GST fields of a ledger that gst_rate_history stores. */
+const HISTORY_FIELDS = ['gstTaxability', 'gstRate', 'cessRate', 'hsnSac'] as const;
+
+function historyRowOn(db: Db, id: number, date: string): HistoryDbRow | undefined {
+  return db.get<HistoryDbRow>(
+    `SELECT applicable_from, hsn_sac, taxability, rate, cess_rate, cess_per_unit FROM gst_rate_history
+      WHERE entity_type = 'ledger' AND entity_id = :id AND applicable_from <= :date ORDER BY applicable_from DESC LIMIT 1`,
+    { id, date },
+  );
+}
+
+function historyEdgeRow(db: Db, id: number, latest: boolean): HistoryDbRow | undefined {
+  return db.get<HistoryDbRow>(
+    `SELECT applicable_from, hsn_sac, taxability, rate, cess_rate, cess_per_unit FROM gst_rate_history
+      WHERE entity_type = 'ledger' AND entity_id = :id ORDER BY applicable_from ${latest ? 'DESC' : 'ASC'} LIMIT 1`,
+    { id },
+  );
+}
+
+const historyCount = (db: Db, id: number): number =>
+  db.value<number>(`SELECT COUNT(*) FROM gst_rate_history WHERE entity_type = 'ledger' AND entity_id = :id`, { id }) ?? 0;
+
 /**
- * Keep gst_rate_history in step with the ledger's GST details:
- *  - with `applicableFrom`: upsert a row effective from that date (older rows are kept);
- *  - without it: correct the latest row (or create the first one, effective from the books beginning).
- * The ledger's own GST columns always mirror the LATEST history row, so after a back-dated entry they
- * are re-synchronised from it.
+ * Keep gst_rate_history in step with the ledger's GST details. The posting engine reads the history
+ * first (latest row on or before the voucher date), so it must never disagree with the master:
+ *  - GST not applicable, or no rate defined (rate from items): the history no longer applies and is removed.
+ *  - with `applicableFrom`: the row effective from that date is the row in force on that date (or the
+ *    earliest row) with the GST fields given in THIS save applied over it, so a back-dated change of one
+ *    detail never copies today's other details into the past. Later rows are kept. Nothing is written
+ *    when the result equals the details already in force on that date.
+ *  - without it: the latest row is corrected to the master's values (the first row starts at the books
+ *    beginning).
+ * The ledger's own GST columns always mirror the LATEST history row.
  */
-function writeGstHistory(db: Db, id: number, before: LedgerFields | null, after: LedgerFields, applicableFrom: string | undefined, booksFrom: string): void {
-  if (!definesRate(after) || !gstDetailsChanged(before, after)) return;
-  const latestDate = (): string | undefined =>
-    db.value<string>(
-      `SELECT applicable_from FROM gst_rate_history WHERE entity_type = 'ledger' AND entity_id = :id ORDER BY applicable_from DESC LIMIT 1`,
-      { id },
-    );
-  const from = applicableFrom ?? latestDate() ?? booksFrom;
+function writeGstHistory(
+  db: Db,
+  id: number,
+  before: LedgerFields | null,
+  after: LedgerFields,
+  provided: ReadonlySet<keyof LedgerFields>,
+  applicableFrom: string | undefined,
+  booksFrom: string,
+): void {
+  if (!definesRate(after)) {
+    db.run(`DELETE FROM gst_rate_history WHERE entity_type = 'ledger' AND entity_id = :id`, { id });
+    return;
+  }
+  const own = {
+    taxability: after.gstTaxability ?? 'taxable',
+    rate: after.gstRate ?? 0,
+    cess: after.cessRate ?? 0,
+    hsn: after.hsnSac,
+  };
+  let from: string;
+  let row: typeof own;
+  if (applicableFrom === undefined) {
+    if (!gstDetailsChanged(before, after) && historyCount(db, id) > 0) return;
+    from = historyEdgeRow(db, id, true)?.applicable_from ?? booksFrom;
+    row = own;
+  } else {
+    from = applicableFrom;
+    const base = historyRowOn(db, id, from) ?? historyEdgeRow(db, id, false);
+    // Without an earlier rate (first GST details, or a ledger that had none) everything comes from the master.
+    const fresh = !base || !before || !definesRate(before);
+    const given = (k: (typeof HISTORY_FIELDS)[number]): boolean => fresh || provided.has(k);
+    row = {
+      taxability: given('gstTaxability') || !base ? own.taxability : base.taxability,
+      rate: given('gstRate') || !base ? own.rate : base.rate,
+      cess: given('cessRate') || !base ? own.cess : base.cess_rate,
+      hsn: given('hsnSac') || !base ? own.hsn : base.hsn_sac,
+    };
+    if (row.taxability !== 'taxable') {
+      row.rate = 0;
+      row.cess = 0;
+    } else if (base && base.taxability !== 'taxable' && !given('gstRate')) {
+      // Made taxable from this date without a rate: take the ledger's rate, not the 0% of the exempt row.
+      row.rate = own.rate;
+      row.cess = own.cess;
+    }
+    const inForce = historyRowOn(db, id, from);
+    if (inForce && inForce.taxability === row.taxability && inForce.rate === row.rate && inForce.cess_rate === row.cess && inForce.hsn_sac === row.hsn) {
+      return; // already in force on that date
+    }
+  }
   db.run(
     `INSERT INTO gst_rate_history (entity_type, entity_id, applicable_from, hsn_sac, taxability, rate, cess_rate)
      VALUES ('ledger', :id, :from, :hsn, :tax, :rate, :cess)
      ON CONFLICT (entity_type, entity_id, applicable_from)
      DO UPDATE SET hsn_sac = excluded.hsn_sac, taxability = excluded.taxability, rate = excluded.rate, cess_rate = excluded.cess_rate`,
-    { id, from, hsn: after.hsnSac, tax: after.gstTaxability ?? 'taxable', rate: after.gstRate ?? 0, cess: after.cessRate ?? 0 },
+    { id, from, hsn: row.hsn, tax: row.taxability, rate: row.rate, cess: row.cess },
   );
-  if (from !== latestDate()) {
+  const latest = historyEdgeRow(db, id, true);
+  if (latest && (latest.taxability !== own.taxability || latest.rate !== own.rate || latest.cess_rate !== own.cess || latest.hsn_sac !== own.hsn)) {
     db.run(
-      `UPDATE ledgers SET (hsn_sac, gst_taxability, gst_rate, cess_rate) =
-              (SELECT hsn_sac, taxability, rate, cess_rate FROM gst_rate_history
-                WHERE entity_type = 'ledger' AND entity_id = :id ORDER BY applicable_from DESC LIMIT 1)
-        WHERE id = :id`,
-      { id },
+      `UPDATE ledgers SET hsn_sac = :hsn, gst_taxability = :tax, gst_rate = :rate, cess_rate = :cess WHERE id = :id`,
+      { id, hsn: latest.hsn_sac, tax: latest.taxability, rate: latest.rate, cess: latest.cess_rate },
     );
   }
 }
@@ -193,8 +271,54 @@ function writeGstHistory(db: Db, id: number, before: LedgerFields | null, after:
 interface SaveContext {
   tree: GroupTree;
   company: { stateCode: string | null; booksFrom: string };
-  /** Company feature F11 "maintain bill-wise details". */
-  billWiseFeature: boolean;
+  /** Company features (F11) that drive defaults and rules. */
+  features: Pick<CompanyFeatures, 'billWise' | 'gst' | 'inventory' | 'integrateInventory'>;
+  /** Period lock (F12), read once per save / bulk create. */
+  lockedUpTo: string | null;
+}
+
+/**
+ * Tally defaults for a NEW ledger (only for fields the caller did not set):
+ *  - customers/suppliers keep bills when bill-wise details are enabled (F11);
+ *  - sales/purchase ledgers: "Inventory values are affected" when inventory is on, and GST applicable
+ *    (taxable, rate from the items) when the company has GST — like the predefined Sales/Purchase ledgers.
+ */
+function applyCreateDefaults(fields: LedgerFields, provided: ReadonlySet<keyof LedgerFields>, sc: SaveContext): void {
+  const cls = sc.tree.byId.get(fields.groupId)?.cls;
+  if (!cls) return;
+  if (!provided.has('billWise') && sc.features.billWise && cls.isParty) fields.billWise = true;
+  if (cls.isSales || cls.isPurchase) {
+    if (!provided.has('inventoryValuesAffected') && sc.features.inventory) fields.inventoryValuesAffected = true;
+    if (!provided.has('gstApplicable') && sc.features.gst) fields.gstApplicable = true;
+  }
+}
+
+/**
+ * Opening balances and opening bills are as at the books beginning: when the books are locked up to a
+ * date on or after it (period lock), they belong to the locked period and cannot be entered or changed.
+ */
+function assertOpeningUnlocked(
+  sc: SaveContext,
+  f: LedgerFields,
+  existing: LedgerFields | null,
+  newBills: OpeningBillInput[] | null,
+  storedBills: OpeningBill[],
+): void {
+  const { lockedUpTo } = sc;
+  const { booksFrom } = sc.company;
+  if (!lockedUpTo || lockedUpTo < booksFrom) return;
+  const key = (b: { billName: string; billDate: string; dueDate?: string | null; amount: number }): string =>
+    JSON.stringify([b.billName.toLowerCase(), b.billDate, b.dueDate ?? null, b.amount]);
+  const billsChanged =
+    newBills !== null && JSON.stringify(newBills.map(key).sort()) !== JSON.stringify(storedBills.map(key).sort());
+  const balanceChanged = existing ? existing.openingBalance !== f.openingBalance : f.openingBalance !== 0;
+  if (!balanceChanged && !billsChanged) return;
+  throw new AppError(
+    'LOCKED',
+    `Books are locked up to ${formatDate(lockedUpTo)}, which includes the opening balances (as at ${formatDate(booksFrom)}). ` +
+      `Unlock the period to change the opening balance or opening bills of '${f.name}'.`,
+    { lockedUpTo },
+  );
 }
 
 /** Validate and write one ledger (no permission check, caller provides the transaction). Returns its id. */
@@ -204,8 +328,7 @@ function saveLedgerTx(ctx: CompanyCtx, input: LedgerSaveInput, sc: SaveContext):
   if (input.id !== undefined && !row) throw notFound('Ledger', input.id);
   const existing = row ? fieldsFromRow(row) : null;
   const { fields, provided } = mergeLedgerInput(input, existing ?? defaultLedgerFields());
-  // New customers/suppliers keep bills by default when bill-wise details are enabled (F11), as in Tally.
-  if (!row && !provided.has('billWise') && sc.billWiseFeature && sc.tree.byId.get(fields.groupId)?.cls.isParty) fields.billWise = true;
+  if (!row) applyCreateDefaults(fields, provided, sc);
 
   const billsProvided = Array.isArray(input.openingBills);
   const bills: OpeningBillInput[] = billsProvided
@@ -229,10 +352,19 @@ function saveLedgerTx(ctx: CompanyCtx, input: LedgerSaveInput, sc: SaveContext):
       booksFrom: sc.company.booksFrom,
       allowNonStandardRate: input.allowNonStandardRate === true,
       billsProvided,
+      integratedInventory: sc.features.inventory && sc.features.integrateInventory,
     },
     issues,
   );
+  if (input.applicableFrom !== undefined && existing && definesRate(existing) && !definesRate(fields) && !issues.has('gstRate')) {
+    issues.add(
+      'applicableFrom',
+      'Turning GST off or clearing the GST rate removes the rate history of this ledger, so it cannot take an "applicable from" date. ' +
+        'To stop charging GST from a date, set the taxability (Exempt, Nil-rated or Non-GST) from that date instead.',
+    );
+  }
   issues.throwIfAny();
+  assertOpeningUnlocked(sc, fields, existing, billsProvided ? bills : null, row ? loadBills(db, row.id) : []);
 
   const ts = ctx.clock.now().toISOString();
   const before = row ? ledgerSnapshot(db, row.id) : null;
@@ -255,7 +387,7 @@ function saveLedgerTx(ctx: CompanyCtx, input: LedgerSaveInput, sc: SaveContext):
       );
     }
   }
-  writeGstHistory(db, id, existing, fields, input.applicableFrom, sc.company.booksFrom);
+  writeGstHistory(db, id, existing, fields, provided, input.applicableFrom, sc.company.booksFrom);
 
   ctx.audit({
     action: row ? 'alter' : 'create',
@@ -337,6 +469,38 @@ export interface LedgerUsage {
   companyInvoiceBank: boolean;
 }
 
+/** References to ledgers(id) that ledgerUsage() counts by name; any other foreign key is found from the schema. */
+const KNOWN_LEDGER_REFS: ReadonlySet<string> = new Set([
+  'ledger_entries.ledger_id',
+  'bill_allocations.ledger_id',
+  'cost_allocations.ledger_id',
+  'inventory_entries.ledger_id',
+  'gst_lines.ledger_id',
+  'vouchers.party_ledger_id',
+  'bank_statement_lines.ledger_id',
+  'opening_bills.ledger_id',
+]);
+const SQL_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Rows in tables added by other modules that still refer to the ledger through a foreign key, found
+ * from the schema (so a new table is covered without changing this module). Table/column names come
+ * from sqlite_master, never from user input.
+ */
+export function otherLedgerReferences(db: Db, id: number): Array<{ table: string; column: string; count: number }> {
+  const out: Array<{ table: string; column: string; count: number }> = [];
+  const tables = db.all<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`);
+  for (const { name: table } of tables) {
+    if (!SQL_IDENT.test(table)) continue;
+    for (const fk of db.all<{ table: string; from: string }>('SELECT "table", "from" FROM pragma_foreign_key_list(:t)', { t: table })) {
+      if (fk.table !== 'ledgers' || !SQL_IDENT.test(fk.from) || KNOWN_LEDGER_REFS.has(`${table}.${fk.from}`)) continue;
+      const count = db.value<number>(`SELECT COUNT(*) FROM "${table}" WHERE "${fk.from}" = :id`, { id }) ?? 0;
+      if (count > 0) out.push({ table, column: fk.from, count });
+    }
+  }
+  return out;
+}
+
 export function ledgerUsage(db: Db, id: number): LedgerUsage {
   const count = (sql: string): number => db.value<number>(sql, { id }) ?? 0;
   return {
@@ -393,12 +557,14 @@ export function deleteLedger(ctx: CompanyCtx, id: number): DeleteResult {
     if (u.companyInvoiceBank) reasons.push('it is the bank printed on invoices (F12 Configuration)');
     if (u.openingBills > 0) reasons.push(`it has ${plural(u.openingBills, 'opening bill')}`);
     if (row.opening_balance !== 0) reasons.push(`it has an opening balance of ₹ ${formatDrCr(row.opening_balance)}`);
+    const others = otherLedgerReferences(db, id);
+    for (const o of others) reasons.push(`${plural(o.count, 'record')} in ${o.table.replace(/_/g, ' ')} still refer${o.count === 1 ? 's' : ''} to it`);
     if (reasons.length > 0) {
       const hint =
-        u.vouchers > 0
+        u.vouchers > 0 || others.length > 0
           ? ' Mark it inactive instead (Alter ledger → Active: No) so that it no longer appears in new vouchers.'
           : ' Remove these first, then delete the ledger.';
-      throw rule(`Ledger '${row.name}' cannot be deleted: ${joinWords(reasons)}.${hint}`, u);
+      throw rule(`Ledger '${row.name}' cannot be deleted: ${joinWords(reasons)}.${hint}`, { ...u, otherReferences: others });
     }
     const before = ledgerSnapshot(db, id);
     db.run(`DELETE FROM gst_rate_history WHERE entity_type = 'ledger' AND entity_id = :id`, { id });

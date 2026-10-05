@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { AppError } from '../../lib/errors.ts';
 import { createTestCompany } from '../../testing/fixtures.ts';
 import { saveItem } from './items.ts';
-import { auditRows } from './testkit.ts';
+import { auditRows, postStock } from './testkit.ts';
 import { deleteUnit, getUnit, listUnits, saveUnit } from './units.ts';
 
 const fails = (code: string, re?: RegExp) => (e: unknown) => e instanceof AppError && e.code === code && (!re || re.test(e.message));
@@ -116,6 +116,61 @@ describe('unit list and delete', () => {
     const del = auditRows(t, 'unit').filter((a) => a.action === 'delete');
     assert.equal(del.length, 2);
     assert.ok(del[1].before_json?.includes('"symbol":"Set"'));
+    t.close();
+  });
+});
+
+describe('review regressions — decimal places', () => {
+  it('refuses fewer decimal places than existing opening or voucher quantities need', () => {
+    const t = createTestCompany();
+    const kg = t.ids.units.Kg; // 3 decimals
+    const { item } = saveItem(t.ctx, { name: 'Sugar', unitId: kg, openings: [{ qty: 1.5, rate: 40 }] });
+    assert.throws(
+      () => saveUnit(t.ctx, { id: kg, kind: 'simple', symbol: 'Kg', decimalPlaces: 0 }),
+      (e: unknown) =>
+        fails('VALIDATION', /'Sugar' has a quantity of 1\.5 Kg on opening stock, which needs more than 0 decimal places/)(e) &&
+        ((e as AppError).details as Array<{ path: string }>)[0].path === 'decimalPlaces',
+    );
+    assert.equal(saveUnit(t.ctx, { id: kg, kind: 'simple', symbol: 'Kg', decimalPlaces: 1 }).decimalPlaces, 1); // 1.5 still fits
+    // Voucher quantities count too.
+    t.db.run('UPDATE stock_openings SET qty = 2 WHERE item_id = :id', { id: item.id });
+    postStock(t, { baseType: 'sales', date: '2026-04-05', lines: [{ itemId: item.id, qty: -0.5, rate: 50 }] });
+    assert.throws(() => saveUnit(t.ctx, { id: kg, kind: 'simple', symbol: 'Kg', decimalPlaces: 0 }), fails('VALIDATION', /0\.5 Kg on a voucher/));
+    // Adding decimals is always fine.
+    assert.equal(saveUnit(t.ctx, { id: kg, kind: 'simple', symbol: 'Kg', decimalPlaces: 3 }).decimalPlaces, 3);
+    t.close();
+  });
+
+  it('keeps a compound unit on its second unit’s decimal places', () => {
+    const t = createTestCompany();
+    const c = saveUnit(t.ctx, { kind: 'compound', firstUnitId: t.ids.units.Box, conversion: 12, secondUnitId: t.ids.units.Nos });
+    assert.equal(c.decimalPlaces, 0);
+    saveUnit(t.ctx, { id: t.ids.units.Nos, kind: 'simple', symbol: 'Nos', decimalPlaces: 2 });
+    assert.equal(getUnit(t.db, c.id).decimalPlaces, 2);
+    // Items counted in the compound unit protect the second unit's decimals.
+    saveItem(t.ctx, { name: 'Soap carton', unitId: c.id, openings: [{ qty: 1.25, rate: 300 }] });
+    assert.throws(() => saveUnit(t.ctx, { id: t.ids.units.Nos, kind: 'simple', symbol: 'Nos', decimalPlaces: 0 }), fails('VALIDATION', /Soap carton/));
+    t.close();
+  });
+});
+
+describe('review regressions — audit of dependent compound units', () => {
+  it('records the compound units that a rename or decimals change alters', () => {
+    const t = createTestCompany();
+    const c = saveUnit(t.ctx, { kind: 'compound', firstUnitId: t.ids.units.Box, conversion: 12, secondUnitId: t.ids.units.Nos });
+    saveUnit(t.ctx, { id: t.ids.units.Box, kind: 'simple', symbol: 'Bx', formalName: 'Box' });
+    saveUnit(t.ctx, { id: t.ids.units.Nos, kind: 'simple', symbol: 'Nos', decimalPlaces: 1 });
+    const forCompound = auditRows(t, 'unit').filter((a) => a.entity_id === c.id);
+    assert.deepEqual(forCompound.map((a) => [a.action, a.entity_label]), [
+      ['create', 'Box of 12 Nos'],
+      ['alter', 'Bx of 12 Nos'],
+      ['alter', 'Bx of 12 Nos'],
+    ]);
+    assert.ok(forCompound[1].before_json?.includes('"symbol":"Box of 12 Nos"'));
+    assert.ok(forCompound[2].before_json?.includes('"decimalPlaces":0') && forCompound[2].after_json?.includes('"decimalPlaces":1'));
+    // A save that changes nothing about the parts adds no entry for the compound.
+    saveUnit(t.ctx, { id: t.ids.units.Box, kind: 'simple', symbol: 'Bx', formalName: 'Boxes' });
+    assert.equal(auditRows(t, 'unit').filter((a) => a.entity_id === c.id).length, 3);
     t.close();
   });
 });

@@ -31,6 +31,7 @@
  *   'accounts.costCentre.delete'       { id }                   → DeleteResult                    masters.delete
  *
  *   'accounts.currency.list'           none                     → ListResult<CurrencyRow>         masters.view
+ *   'accounts.currency.get'            { id }                   → CurrencyRow                     masters.view
  *   'accounts.currency.save'           CurrencySaveInput        → CurrencyRow                     masters.create / masters.alter
  *   'accounts.currency.delete'         { id }                   → DeleteResult                    masters.delete
  *   'accounts.exchangeRate.list'       ExchangeRateListInput    → ListResult<ExchangeRateRow>     masters.view
@@ -381,7 +382,10 @@ export interface LedgerDetail extends LedgerFields {
 
 /**
  * Create (no id) or alter (id). On alter, omitted fields keep their value and null clears them.
- * `name` and `groupId` are required on create.
+ * `name` and `groupId` are required on create. Defaults on create (only for fields not given):
+ * customers/suppliers keep bills when bill-wise details are on (F11); ledgers under Sales/Purchase
+ * Accounts have "inventory values are affected" (inventory on) and GST applicable, taxable, rate from
+ * the items (GST on) — like the predefined Sales and Purchase ledgers.
  */
 export type LedgerSaveInput = { [K in keyof LedgerFields]?: LedgerFields[K] | null } & {
   id?: number;
@@ -390,9 +394,12 @@ export type LedgerSaveInput = { [K in keyof LedgerFields]?: LedgerFields[K] | nu
   /** Accept a GST rate that is not one of the notified slabs (GST_RATES). */
   allowNonStandardRate?: boolean;
   /**
-   * Date from which changed GST details (rate, cess, HSN/SAC, taxability) apply: a new
-   * gst_rate_history row is written and older rows are kept. Without it a change corrects the
-   * current history row.
+   * Date from which GST details apply: the GST fields given in this save (gstRate, cessRate, hsnSac,
+   * gstTaxability) are applied over the details in force on that date and written as a
+   * gst_rate_history row from that date; other rows are kept. Without it a change corrects the latest
+   * history row. The master always shows the latest row, so after a back-dated entry it keeps showing
+   * the current details. Not allowed when GST is turned off or the rate is cleared (that removes the
+   * rate history).
    */
   applicableFrom?: string;
 };
@@ -517,6 +524,9 @@ export interface ExchangeRateListInput {
   currencyId: number;
   from?: string;
   to?: string;
+  /** Page size (default and maximum 5,000). */
+  limit?: number;
+  offset?: number;
 }
 
 /** Upsert by (currency, date). */
@@ -620,7 +630,10 @@ export interface ChartInput {
   asOf?: string;
   /** Include ledgers under their groups (default true). */
   includeLedgers?: boolean;
-  /** Leave out inactive ledgers (default false). */
+  /**
+   * Leave out inactive ledgers (default false). An inactive ledger that still has a balance as of
+   * `asOf` is kept, so every group's total equals the sum of the lines shown under it.
+   */
   activeOnly?: boolean;
 }
 

@@ -34,6 +34,15 @@ export type LedgerEntryRole = 'party' | 'sales' | 'purchase' | 'tax' | 'round_of
 export type NumberingMethod = 'automatic' | 'automatic_override' | 'manual' | 'none';
 export type NumberingRestart = 'yearly' | 'monthly' | 'never';
 
+/**
+ * How a warning affects saving:
+ *  - 'block':   the voucher cannot be saved (rule violation or a guard set to 'block'). `blocking` is true.
+ *  - 'confirm': material — save fails with `needsConfirmation` until resubmitted with acknowledgeWarnings.
+ *  - 'info':    shown to the user (preview, save result) but never stops or delays saving.
+ */
+export type VoucherWarningLevel = 'info' | 'confirm' | 'block';
+export const VOUCHER_WARNING_LEVELS: readonly VoucherWarningLevel[] = ['info', 'confirm', 'block'];
+
 /** Guard policy outcome codes and GST/posting checks. `blocking` ones can never be confirmed away. */
 export type VoucherWarningCode =
   | 'negative_stock'
@@ -58,15 +67,19 @@ export type VoucherWarningCode =
   | 'duplicate_bill_ref'
   | 'cost_mismatch'
   | 'tracking_ref'
-  | 'period_locked';
+  | 'period_locked'
+  | 'gst_lut'
+  | 'gst_invoice_number';
 
 export interface VoucherWarning {
   code: VoucherWarningCode;
   /** Written for an accountant. */
   message: string;
-  /** true → the voucher cannot be saved (rule violation or a guard set to 'block'). */
+  /** true → the voucher cannot be saved (rule violation or a guard set to 'block'). Same as level === 'block'. */
   blocking: boolean;
-  /** Input path of the offending line, e.g. 'items[2]' or 'ledgers[0]' (when known). */
+  /** 'info' never needs confirmation; 'confirm' needs acknowledgeWarnings; 'block' cannot be saved. */
+  level: VoucherWarningLevel;
+  /** Input path of the offending line or field, e.g. 'items[2]', 'ledgers[0]', 'referenceNo' (when known). */
   path?: string;
 }
 
@@ -367,7 +380,15 @@ export interface VoucherSaveResult {
   updatedAt: string;
 }
 
-/** details of AppError('BUSINESS_RULE') thrown by save when warnings need confirmation / rules fail. */
+/**
+ * details of AppError('BUSINESS_RULE') thrown by save when warnings need confirmation / rules fail.
+ * `warnings` lists every warning of the voucher (info ones included, for display); only 'confirm'
+ * ones are what the user is asked to accept, only 'block' ones prevent saving.
+ *
+ * Field-specific hard errors (missing party, missing batch, unknown or inactive master, GST ledger on an
+ * invoice, wrong mode …) are thrown as VALIDATION with FieldIssue[] details (`path` like
+ * 'items[2].batchName'), exactly like schema errors, so the entry screen can highlight the field.
+ */
 export interface VoucherRuleErrorDetails {
   /** true → resubmit with acknowledgeWarnings: true after the user confirms. */
   needsConfirmation?: boolean;
@@ -523,6 +544,8 @@ export interface PartyContext {
   address: string | null;
   stateCode: string | null;
   pincode: string | null;
+  /** Country of an overseas party (India otherwise). */
+  country: string | null;
   gstin: string | null;
   registrationType: RegistrationType | null;
   pan: string | null;
@@ -530,6 +553,12 @@ export interface PartyContext {
   mobile: string | null;
   /** 'debtor' | 'creditor' | 'cash' | 'bank' | 'other' — from the group chain. */
   kind: 'debtor' | 'creditor' | 'cash' | 'bank' | 'other';
+  /**
+   * GST direction an invoice-type voucher takes with this party: 'outward' for customers (a Debit Note
+   * to a customer is a supplementary invoice: Output tax, Sales ledger), 'inward' for suppliers.
+   * null for cash/bank/other parties (the voucher type decides).
+   */
+  gstDirection: 'outward' | 'inward' | null;
   billWise: boolean;
   creditDays: number | null;
   creditLimit: Paise | null;
@@ -591,7 +620,8 @@ export interface VoucherEntryContext {
   /** Default sales/purchase ledger for item lines (type config → reserved ledger). */
   defaultLedgerId: number | null;
   mainGodownId: number;
-  permissions: { canAlter: boolean; canBackdate: boolean; canDelete: boolean };
+  /** canAlter also covers cancel and optional ↔ regular. */
+  permissions: { canCreate: boolean; canAlter: boolean; canBackdate: boolean; canDelete: boolean };
 }
 
 export type TrackingKind = 'delivery' | 'receipt' | 'sales_order' | 'purchase_order';

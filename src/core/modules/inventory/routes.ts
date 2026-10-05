@@ -16,10 +16,12 @@ import {
   type UnitSaveInput,
 } from '../../../shared/types/inventory.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
+import type { Db } from '../../db/db.ts';
 import { notFound } from '../../lib/errors.ts';
 import { customSchema, patchNullable } from '../../lib/schemas.ts';
 import { v, type Schema } from '../../lib/validate.ts';
 import { resolveItemGstProfile } from './gst.ts';
+import { deleteGstHistoryEntry } from './history.ts';
 import { bulkCreateItems, deleteItem, getItem, itemPicker, listItems, saveItem } from './items.ts';
 import {
   deleteGodown,
@@ -177,6 +179,8 @@ const PickerSchema = v.object({
   asOf: v.date().optional(),
   godownId: v.id().optional(),
   priceLevelId: v.id().optional(),
+  search: v.string({ max: 200 }).optional(),
+  limit: v.int({ min: 1, max: 100_000 }).optional(),
 });
 
 const PriceForSchema = v.object({
@@ -216,11 +220,19 @@ const PriceListSaveSchema = v.object({
 const StockOnHandSchema = v.object({
   itemId: v.id(),
   godownId: v.id().optional(),
+  includeSubGodowns: v.boolean().optional(),
   batchName: v.string({ min: 1, max: 100 }).optional(),
   asOf: v.date(),
+  excludeVoucherId: v.id().optional(),
 });
 
-const BatchesSchema = v.object({ itemId: v.id(), godownId: v.id().optional(), asOf: v.date() });
+const BatchesSchema = v.object({
+  itemId: v.id(),
+  godownId: v.id().optional(),
+  includeSubGodowns: v.boolean().optional(),
+  asOf: v.date(),
+  excludeVoucherId: v.id().optional(),
+});
 
 const ValuationSchema = v
   .object({
@@ -228,13 +240,17 @@ const ValuationSchema = v
     to: v.date(),
     itemIds: v.array(v.id(), { max: 100_000 }).optional(),
     godownId: v.id().optional(),
+    includeSubGodowns: v.boolean().optional(),
   })
   .refine((x) => (x.to < x.from ? 'The period end date is before its start date' : null));
 
 const GstProfileSchema = v.object({ itemId: v.id(), date: v.date() });
 
-const assertItem = (db: import('../../db/db.ts').Db, id: number): void => {
+const assertItem = (db: Db, id: number): void => {
   if (db.value('SELECT 1 FROM stock_items WHERE id = :id', { id }) === undefined) throw notFound('Stock item', id);
+};
+const assertGodown = (db: Db, id: number): void => {
+  if (db.value('SELECT 1 FROM godowns WHERE id = :id', { id }) === undefined) throw notFound('Godown', id);
 };
 
 // ───────────────────────────── Routes ─────────────────────────────
@@ -309,6 +325,11 @@ export const inventoryRoutes = {
     handler: (ctx, input) => itemPicker(ctx.db, input, ctx.clock.today()),
   }),
   'inventory.item.priceFor': companyRoute({ access: 'masters.view', input: PriceForSchema, handler: (ctx, input) => priceFor(ctx.db, input) }),
+  'inventory.gstHistory.delete': companyRoute({
+    access: 'masters.alter',
+    input: IdInput,
+    handler: (ctx, { id }) => deleteGstHistoryEntry(ctx, id),
+  }),
   'inventory.item.gstProfile': companyRoute({
     access: 'masters.view',
     input: GstProfileSchema,
@@ -339,6 +360,7 @@ export const inventoryRoutes = {
     input: StockOnHandSchema,
     handler: (ctx, input) => {
       assertItem(ctx.db, input.itemId);
+      if (input.godownId !== undefined) assertGodown(ctx.db, input.godownId);
       const qty = stockOnHand(ctx.db, { ...input, today: ctx.clock.today() });
       return { itemId: input.itemId, godownId: input.godownId ?? null, batchName: input.batchName ?? null, asOf: input.asOf, qty };
     },
@@ -348,13 +370,21 @@ export const inventoryRoutes = {
     input: BatchesSchema,
     handler: (ctx, input) => {
       assertItem(ctx.db, input.itemId);
-      return batchesFor(ctx.db, input.itemId, input.godownId, input.asOf, { today: ctx.clock.today() });
+      if (input.godownId !== undefined) assertGodown(ctx.db, input.godownId);
+      return batchesFor(ctx.db, input.itemId, input.godownId, input.asOf, {
+        today: ctx.clock.today(),
+        excludeVoucherId: input.excludeVoucherId,
+        includeSubGodowns: input.includeSubGodowns,
+      });
     },
   }),
   'inventory.valuation': companyRoute({
     access: 'reports.view',
     input: ValuationSchema,
     transactional: false,
-    handler: (ctx, input) => computeStockValuation(ctx.db, { ...input, today: ctx.clock.today() }),
+    handler: (ctx, input) => {
+      if (input.godownId !== undefined) assertGodown(ctx.db, input.godownId);
+      return computeStockValuation(ctx.db, { ...input, today: ctx.clock.today() });
+    },
   }),
 } satisfies RouteMap;

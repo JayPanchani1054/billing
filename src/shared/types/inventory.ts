@@ -22,12 +22,14 @@
  *   'inventory.item.picker'      ItemPickerInput          → ItemPickerRow[]                   masters.view
  *   'inventory.item.priceFor'    PriceForInput            → PriceForResult                    masters.view
  *   'inventory.item.gstProfile'  ItemGstProfileInput      → ItemGstProfile | null             masters.view
+ * GST history
+ *   'inventory.gstHistory.delete' IdInput                 → DeleteResult                      masters.alter
  * Price levels / price lists
  *   'inventory.priceLevel.list'  ListInput                → ListResult<PriceLevelDto>         masters.view
  *   'inventory.priceLevel.save'  PriceLevelSaveInput      → PriceLevelDto                     masters.create | masters.alter
  *   'inventory.priceLevel.delete' IdInput                 → DeleteResult                      masters.delete
  *   'inventory.priceList.get'    PriceListGetInput        → PriceListDto                      masters.view
- *   'inventory.priceList.save'   PriceListSaveInput       → PriceListDto                      masters.alter
+ *   'inventory.priceList.save'   PriceListSaveInput       → PriceListDto                      masters.create | masters.alter
  * Stock engine
  *   'inventory.stockOnHand'      StockOnHandInput         → StockOnHandResult                 masters.view
  *   'inventory.batches'          BatchesInput             → BatchBalance[]                    masters.view
@@ -440,6 +442,10 @@ export interface ItemPickerInput {
   godownId?: number;
   /** Add the price-level rate applicable on asOf for quantity 1. */
   priceLevelId?: number;
+  /** Only items whose name, alias, part no. or barcode contains this text (names starting with it first). */
+  search?: string;
+  /** At most this many rows (default: all). */
+  limit?: number;
 }
 
 export interface ItemPickerRow {
@@ -546,8 +552,12 @@ export interface PriceForResult {
 export interface StockOnHandInput {
   itemId: number;
   godownId?: number;
+  /** With godownId: include the godowns under it (default false: that godown only). */
+  includeSubGodowns?: boolean;
   batchName?: string;
   asOf: string;
+  /** Leave out this voucher (the one being altered on screen). */
+  excludeVoucherId?: number;
 }
 
 export interface StockOnHandResult {
@@ -561,7 +571,11 @@ export interface StockOnHandResult {
 export interface BatchesInput {
   itemId: number;
   godownId?: number;
+  /** With godownId: include the godowns under it (default false: that godown only). */
+  includeSubGodowns?: boolean;
   asOf: string;
+  /** Leave out this voucher (the one being altered on screen). */
+  excludeVoucherId?: number;
 }
 
 export interface BatchBalance {
@@ -576,6 +590,8 @@ export interface StockValuationInput {
   to: string;
   itemIds?: number[];
   godownId?: number;
+  /** With godownId: include the godowns under it (Tally's godown summary of a parent location). Default false. */
+  includeSubGodowns?: boolean;
 }
 
 export interface QtyValue {

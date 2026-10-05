@@ -17,9 +17,9 @@ import type { DeleteResult, GroupDetail, GroupListInput, GroupRow, GroupSaveInpu
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { notFound, rule } from '../../lib/errors.ts';
-import { loadGroupTree, type GroupDbRow, type GroupTree, type GroupTreeNode } from './books.ts';
+import { groupDescendantIds, loadGroupTree, type GroupDbRow, type GroupTree, type GroupTreeNode } from './books.ts';
 import { Issues, cleanText, joinWords, plural, requirePermission, requireSavePermission } from './common.ts';
-import { fieldsFromRow, misplacedFields, type LedgerDbRow } from './ledgerRules.ts';
+import { fieldsFromRow, ledgerNameClash, misplacedFields, type LedgerDbRow } from './ledgerRules.ts';
 
 function ledgerCounts(db: Db, tree: GroupTree): { direct: Map<number, number>; total: Map<number, number> } {
   const direct = new Map<number, number>();
@@ -114,6 +114,17 @@ function checkGroupNames(db: Db, name: string | null, alias: string | null, excl
     const c = clash(alias);
     if (c) issues.add('alias', `Alias '${alias}' is already used by group '${c.name}'. Choose a different alias.`);
   }
+  // Groups and ledgers share one name space (as in Tally).
+  for (const [path, value] of [['name', name], ['alias', alias]] as const) {
+    if (!value || issues.has(path)) continue;
+    const l = ledgerNameClash(db, value);
+    if (l) {
+      issues.add(
+        path,
+        `'${value}' is already ${l.name.toLowerCase() === value.toLowerCase() ? 'the name' : 'an alias'} of the ledger '${l.name}'. Groups and ledgers need different names: choose another ${path}.`,
+      );
+    }
+  }
 }
 
 function groupRow(db: Db, id: number): GroupDbRow | undefined {
@@ -141,7 +152,7 @@ function assertLedgersStillValid(db: Db, rootId: number, groupName: string): voi
     const names = offenders.slice(0, 3).map((o) => `'${o.name}'`);
     const more = offenders.length > 3 ? ` and ${offenders.length - 3} more` : '';
     throw rule(
-      `Group '${groupName}' cannot be moved there: ledger ${joinWords(names)}${more} would no longer be valid (${offenders[0].message.toLowerCase()}). ` +
+      `Group '${groupName}' cannot be moved or given that nature: ledger ${joinWords(names)}${more} would no longer be valid (${offenders[0].message.toLowerCase()}). ` +
         'Alter or move those ledgers first.',
       { ledgers: offenders.map((o) => o.name) },
     );
@@ -208,6 +219,7 @@ function alterGroup(ctx: CompanyCtx, id: number, input: GroupSaveInput): number 
   const row = groupRow(db, id);
   if (!row) throw notFound('Group', id);
   const before = getGroup(db, id);
+  const treeBefore = loadGroupTree(db);
   const issues = new Issues();
 
   let name = row.name;
@@ -234,8 +246,7 @@ function alterGroup(ctx: CompanyCtx, id: number, input: GroupSaveInput): number 
       const parent = groupRow(db, parentId);
       if (!parent) issues.add('parentId', 'The selected parent group does not exist');
       else {
-        const tree = loadGroupTree(db);
-        if (parentId === id || tree.byId.get(parentId)?.chainIds.includes(id)) {
+        if (parentId === id || treeBefore.byId.get(parentId)?.chainIds.includes(id)) {
           issues.add('parentId', 'A group cannot be placed under itself or under one of its own sub-groups');
         }
         nature = parent.nature;
@@ -275,16 +286,32 @@ function alterGroup(ctx: CompanyCtx, id: number, input: GroupSaveInput): number 
   );
 
   const structural = parentId !== row.parent_id || nature !== row.nature || agp !== (row.affects_gross_profit === 1);
+  ctx.audit({ action: 'alter', entityType: 'group', entityId: id, entityGuid: row.guid, entityLabel: name, before, after: getGroup(db, id) });
   if (structural) {
-    // Sub-groups inherit nature and gross-profit treatment.
+    // Sub-groups inherit nature and gross-profit treatment; each one that changes gets its own audit row.
+    const subIds = groupDescendantIds(db, id).filter((g) => g !== id);
     db.run(
-      `WITH RECURSIVE sub(id) AS (SELECT id FROM groups WHERE parent_id = :id UNION SELECT g.id FROM groups g JOIN sub s ON g.parent_id = s.id)
-       UPDATE groups SET nature = :nature, affects_gross_profit = :agp, updated_at = :ts WHERE id IN (SELECT id FROM sub)`,
-      { id, nature, agp, ts },
+      `UPDATE groups SET nature = :nature, affects_gross_profit = :agp, updated_at = :ts
+        WHERE id IN (SELECT value FROM json_each(:ids)) AND (nature <> :nature OR affects_gross_profit <> :agp)`,
+      { ids: JSON.stringify(subIds), nature, agp, ts },
     );
+    const treeAfter = loadGroupTree(db);
+    for (const sid of subIds) {
+      const b = treeBefore.byId.get(sid);
+      const a = treeAfter.byId.get(sid);
+      if (!b || !a || (b.nature === a.nature && b.affectsGrossProfit === a.affectsGrossProfit)) continue;
+      ctx.audit({
+        action: 'alter',
+        entityType: 'group',
+        entityId: sid,
+        entityGuid: a.guid,
+        entityLabel: `${a.name} (follows '${name}')`,
+        before: toRow(b, treeBefore),
+        after: toRow(a, treeAfter),
+      });
+    }
     assertLedgersStillValid(db, id, name);
   }
-  ctx.audit({ action: 'alter', entityType: 'group', entityId: id, entityGuid: row.guid, entityLabel: name, before, after: getGroup(db, id) });
   return id;
 }
 

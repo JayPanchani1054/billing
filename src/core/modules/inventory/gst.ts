@@ -15,7 +15,7 @@
  * (item history, item columns — even incomplete ones — then each group's history and columns).
  * This matches vouchers/taxprofile.ts (levels 2–4 of its item precedence).
  */
-import { isStandardRate, isValidCessRate, isValidRate, TAXABILITIES } from '../../../shared/gst/index.ts';
+import { GST_RATES, isStandardRate, isValidCessRate, isValidRate, TAXABILITIES } from '../../../shared/gst/index.ts';
 import { formatDate } from '../../../shared/dates.ts';
 import type { GstFieldsInput, GstHistoryRow, ItemGstProfile, Taxability } from '../../../shared/types/inventory.ts';
 import { validateHsnSac } from '../../../shared/validators.ts';
@@ -94,9 +94,12 @@ export function normalizeHsn(code: string | null | undefined): string | null {
 export function normalizeGstDetails(input: GstFieldsInput, current: GstDetails | null, kind: 'goods' | 'services' | null): GstDetails {
   const hsnSac = input.hsnSac !== undefined ? normalizeHsn(input.hsnSac) : (current?.hsnSac ?? null);
   const taxability = input.taxability ?? current?.taxability ?? 'taxable';
-  let rate = input.gstRate !== undefined ? input.gstRate : (current?.rate ?? null);
-  let cessRate = input.cessRate !== undefined ? input.cessRate : (current?.cessRate ?? null);
-  let cessPerUnit = input.cessPerUnit !== undefined ? (input.cessPerUnit ?? 0) : (current?.cessPerUnit ?? 0);
+  // Rate and cess are kept from the current details only while the master was already taxable: an
+  // exempt / nil-rated / non-GST master stores 0, which must not silently become "taxable at 0%".
+  const keep = current !== null && current.taxability === 'taxable';
+  let rate = input.gstRate !== undefined ? input.gstRate : keep ? current.rate : null;
+  let cessRate = input.cessRate !== undefined ? input.cessRate : keep ? current.cessRate : null;
+  let cessPerUnit = input.cessPerUnit !== undefined ? (input.cessPerUnit ?? 0) : keep ? current.cessPerUnit : 0;
   const ownDetailsGiven = (input.gstRate !== undefined && input.gstRate !== null) || (input.taxability !== undefined && input.taxability !== 'taxable');
   const applicable = input.gstApplicable ?? (current?.applicable || ownDetailsGiven);
 
@@ -105,17 +108,29 @@ export function normalizeGstDetails(input: GstFieldsInput, current: GstDetails |
     if (err) throw validation([{ path: 'hsnSac', message: err }]);
   }
   if (taxability !== 'taxable') {
+    // Only a rate / cess typed in this save is an error; the previous taxable rate is simply dropped.
     const label = taxability === 'nil_rated' ? 'Nil-rated' : taxability === 'exempt' ? 'Exempt' : 'Non-GST';
-    if (rate !== null && rate !== 0)
+    if (input.gstRate !== undefined && input.gstRate !== null && input.gstRate !== 0)
       throw validation([{ path: 'gstRate', message: `${label} goods/services carry no GST: set the GST rate to 0, or change the taxability to Taxable` }]);
-    if ((cessRate ?? 0) !== 0 || cessPerUnit !== 0)
-      throw validation([{ path: 'cessRate', message: `${label} goods/services carry no cess: set the cess to 0, or change the taxability to Taxable` }]);
+    if ((input.cessRate ?? 0) !== 0 || (input.cessPerUnit ?? 0) !== 0)
+      throw validation([
+        {
+          path: (input.cessRate ?? 0) !== 0 ? 'cessRate' : 'cessPerUnit',
+          message: `${label} goods/services carry no cess: set the cess to 0, or change the taxability to Taxable`,
+        },
+      ]);
     rate = 0;
     cessRate = 0;
     cessPerUnit = 0;
   } else if (applicable && rate === null) {
     throw validation([
-      { path: 'gstRate', message: 'Enter the GST rate (e.g. 18), or turn off GST details here to use the stock group / ledger rate' },
+      {
+        path: 'gstRate',
+        message:
+          current !== null && current.taxability !== 'taxable'
+            ? 'Enter the GST rate for taxable goods/services (e.g. 18): the earlier taxability had no rate to keep'
+            : 'Enter the GST rate (e.g. 18), or turn off GST details here to use the stock group / ledger rate',
+      },
     ]);
   }
   if (rate !== null) {
@@ -124,7 +139,7 @@ export function normalizeGstDetails(input: GstFieldsInput, current: GstDetails |
       throw validation([
         {
           path: 'gstRate',
-          message: `${rate}% is not a notified GST rate (0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28 or 40). Tick 'Allow non-standard rate' if it is correct.`,
+          message: `${rate}% is not a notified GST rate (${GST_RATES.slice(0, -1).join(', ')} or ${GST_RATES[GST_RATES.length - 1]}). Tick 'Allow non-standard rate' if it is correct.`,
         },
       ]);
   }
@@ -166,6 +181,64 @@ function upsertHistory(db: Db, entityType: GstEntityType, id: number, from: stri
 
 export function deleteGstHistory(db: Db, entityType: GstEntityType, id: number): void {
   db.run('DELETE FROM gst_rate_history WHERE entity_type = :t AND entity_id = :id', { t: entityType, id });
+}
+
+/** Latest applicable_from in a master's GST history (undefined when it has none). */
+export function latestGstHistoryDate(db: Db, entityType: GstEntityType, id: number): string | undefined {
+  return (
+    db.value<string | null>('SELECT MAX(applicable_from) FROM gst_rate_history WHERE entity_type = :t AND entity_id = :id', { t: entityType, id }) ??
+    undefined
+  );
+}
+
+/**
+ * GST details to keep in the master's own columns — its *current* details — after a save. A change
+ * dated before the latest dated row (a back-dated correction) only adds a history row: the later row
+ * still governs today, so the columns keep the previous details instead of showing a rate that is
+ * no longer in force. `backdatedBefore` is that later date (null when the columns take `next`).
+ */
+export function columnGstDetails(
+  db: Db,
+  entityType: GstEntityType,
+  id: number | null,
+  prev: GstDetails | null,
+  next: GstDetails,
+  input: Pick<GstFieldsInput, 'gstApplicableFrom'>,
+): { details: GstDetails; backdatedBefore: string | null } {
+  const from = input.gstApplicableFrom;
+  if (id === null || prev === null || !next.applicable || from === undefined) return { details: next, backdatedBefore: null };
+  const latest = latestGstHistoryDate(db, entityType, id);
+  return latest !== undefined && from < latest ? { details: prev, backdatedBefore: latest } : { details: next, backdatedBefore: null };
+}
+
+const MASTER_TABLE: Record<GstEntityType, 'stock_items' | 'stock_groups'> = { stock_item: 'stock_items', stock_group: 'stock_groups' };
+
+/**
+ * Make the master's current GST columns match its latest dated history row (after that row's
+ * predecessor was removed). The column HSN/SAC is kept when the row has none. No-op without history.
+ */
+export function alignColumnsWithLatestHistory(db: Db, entityType: GstEntityType, id: number, ts: string): void {
+  const h = db.get<HistoryRow>(
+    `SELECT id, entity_id, applicable_from, hsn_sac, taxability, rate, cess_rate, cess_per_unit FROM gst_rate_history
+      WHERE entity_type = :t AND entity_id = :id ORDER BY applicable_from DESC LIMIT 1`,
+    { t: entityType, id },
+  );
+  if (!h) return;
+  const taxable = asTaxability(h.taxability) === 'taxable';
+  db.run(
+    `UPDATE ${MASTER_TABLE[entityType]} SET gst_applicable = 'applicable', gst_taxability = :tax, gst_rate = :rate, cess_rate = :cess,
+            cess_per_unit = :cpu, hsn_sac = COALESCE(:hsn, hsn_sac), updated_at = :ts
+      WHERE id = :id`,
+    {
+      id,
+      tax: asTaxability(h.taxability),
+      rate: taxable ? Number(h.rate) : 0,
+      cess: taxable ? Number(h.cess_rate) : 0,
+      cpu: taxable ? Number(h.cess_per_unit) : 0,
+      hsn: hsnOf(h.hsn_sac),
+      ts,
+    },
+  );
 }
 
 /**

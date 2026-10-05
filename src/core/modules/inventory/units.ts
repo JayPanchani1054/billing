@@ -125,6 +125,14 @@ export function saveUnit(ctx: CompanyCtx, input: UnitSaveInput): UnitDto {
   requireSavePermission(ctx, input.id, 'units');
   const { db } = ctx;
   const before = input.id !== undefined ? getUnit(db, input.id) : null;
+  // Compound units built from a simple unit take its symbol (and, as second unit, its decimals):
+  // they are altered along with it, so they get their own audit entries.
+  const dependants =
+    before && !before.isCompound
+      ? db
+          .all<{ id: number }>('SELECT id FROM units WHERE is_compound = 1 AND (first_unit_id = :id OR second_unit_id = :id) ORDER BY id', { id: before.id })
+          .map((r) => getUnit(db, r.id))
+      : [];
   const ts = nowIso(ctx);
   const id = input.kind === 'compound' ? saveCompound(db, input, before, ts) : saveSimple(db, input, before, ts);
   const after = getUnit(db, id);
@@ -137,6 +145,11 @@ export function saveUnit(ctx: CompanyCtx, input: UnitSaveInput): UnitDto {
     before: before ?? undefined,
     after,
   });
+  for (const dep of dependants) {
+    const now = getUnit(db, dep.id);
+    if (now.symbol === dep.symbol && now.decimalPlaces === dep.decimalPlaces) continue;
+    ctx.audit({ action: 'alter', entityType: 'unit', entityId: dep.id, entityGuid: dep.guid, entityLabel: now.symbol, before: dep, after: now });
+  }
   return after;
 }
 
@@ -161,12 +174,16 @@ function saveSimple(db: Db, input: SimpleUnitSaveInput, before: UnitDto | null, 
     throw validation([{ path: 'decimalPlaces', message: 'Decimal places must be a whole number from 0 to 4' }]);
 
   if (before) {
+    if (decimals < before.decimalPlaces) assertQuantitiesFit(db, before.id, symbol, decimals);
     db.run(
       `UPDATE units SET symbol = :symbol, formal_name = :formal, uqc = :uqc, decimal_places = :dp, updated_at = :ts WHERE id = :id`,
       { id: before.id, symbol, formal: formalName, uqc, dp: decimals, ts },
     );
     // Keep generated symbols of compound units built from this unit in step with the rename.
     if (before.symbol !== symbol) refreshCompoundSymbols(db, before.id, ts);
+    // A compound unit counts in its second unit, so it takes that unit's decimal places.
+    if (decimals !== before.decimalPlaces)
+      db.run('UPDATE units SET decimal_places = :dp, updated_at = :ts WHERE is_compound = 1 AND second_unit_id = :id', { id: before.id, dp: decimals, ts });
     return before.id;
   }
   return db.run(
@@ -174,6 +191,33 @@ function saveSimple(db: Db, input: SimpleUnitSaveInput, before: UnitDto | null, 
      VALUES (:guid, :symbol, :formal, :uqc, :dp, 0, :ts, :ts)`,
     { guid: randomUUID(), symbol, formal: formalName, uqc, dp: decimals, ts },
   ).lastInsertRowid;
+}
+
+/**
+ * Refuse fewer decimal places than existing quantities need: opening stock and voucher quantities of
+ * items counted in this unit (or in a compound unit whose second unit it is) would no longer fit.
+ */
+function assertQuantitiesFit(db: Db, unitId: number, symbol: string, decimals: number): void {
+  const params = { unit: unitId, dp: decimals };
+  const units = `SELECT :unit UNION SELECT id FROM units WHERE is_compound = 1 AND second_unit_id = :unit`;
+  const bad =
+    db.get<{ name: string; qty: number; where: string }>(
+      `SELECT i.name, o.qty, 'opening stock' AS "where" FROM stock_openings o JOIN stock_items i ON i.id = o.item_id
+        WHERE i.unit_id IN (${units}) AND abs(o.qty - round(o.qty, :dp)) > 1e-9 LIMIT 1`,
+      params,
+    ) ??
+    db.get<{ name: string; qty: number; where: string }>(
+      `SELECT i.name, abs(e.qty) AS qty, 'a voucher' AS "where" FROM inventory_entries e JOIN stock_items i ON i.id = e.item_id
+        WHERE i.unit_id IN (${units}) AND abs(e.qty - round(e.qty, :dp)) > 1e-9 LIMIT 1`,
+      params,
+    );
+  if (bad)
+    throw validation([
+      {
+        path: 'decimalPlaces',
+        message: `'${bad.name}' has a quantity of ${bad.qty} ${symbol} on ${bad.where}, which needs more than ${decimals} decimal place${decimals === 1 ? '' : 's'}. Keep the current decimal places, or correct those quantities first.`,
+      },
+    ]);
 }
 
 function refreshCompoundSymbols(db: Db, simpleId: number, ts: string): void {

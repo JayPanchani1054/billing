@@ -339,7 +339,8 @@ export const REGISTRATION_LABELS: Readonly<Record<RegistrationType, string>> = {
   uin: 'UIN holder (UN body / embassy)',
 };
 
-const NEEDS_GSTIN: ReadonlySet<RegistrationType> = new Set<RegistrationType>(['regular', 'composition', 'sez', 'uin']);
+/** Deemed-export recipients (EOU, advance-authorisation holders …) are registered: GSTR-1 table 6C needs their GSTIN. */
+const NEEDS_GSTIN: ReadonlySet<RegistrationType> = new Set<RegistrationType>(['regular', 'composition', 'sez', 'uin', 'deemed_export']);
 const NO_GSTIN: ReadonlySet<RegistrationType> = new Set<RegistrationType>(['consumer', 'unregistered']);
 
 const stateText = (code: string): string => {
@@ -361,6 +362,11 @@ export interface LedgerRuleContext {
   allowNonStandardRate: boolean;
   /** Opening bills came with this save (false: the stored bills are being re-checked). */
   billsProvided: boolean;
+  /**
+   * Inventory is integrated with accounts (F11 inventory + integrateInventory): opening stock then comes
+   * from the stock items, so Stock-in-Hand ledgers take no opening balance.
+   */
+  integratedInventory?: boolean;
 }
 
 /**
@@ -426,6 +432,18 @@ export function validateLedger(f: LedgerFields, bills: OpeningBillInput[], rc: L
     }
   }
 
+  // ── Opening stock with integrated inventory (Tally: the Stock-in-Hand opening is computed from items) ──
+  if (rc.integratedInventory && group.codes.has('STOCK_IN_HAND') && f.openingBalance !== 0) {
+    const entered = !rc.existing || rc.existing.openingBalance !== f.openingBalance || rc.existing.groupId !== f.groupId;
+    if (entered) {
+      issues.add(
+        'openingBalance',
+        'Inventory is integrated with accounts (F11), so the opening stock is the total of the stock items\' opening values. ' +
+          'Enter opening quantities and rates in the stock items instead of an opening balance on this Stock-in-Hand ledger.',
+      );
+    }
+  }
+
   validateParty(f, cls, rc, issues);
   validateIdentifiers(f, issues);
   if (taxFieldsAllowed(cls)) validateTaxFields(f, issues);
@@ -436,7 +454,7 @@ export function validateLedger(f: LedgerFields, bills: OpeningBillInput[], rc: L
   if (f.currencyId !== null && rc.db.value('SELECT 1 FROM currencies WHERE id = :id', { id: f.currencyId }) === undefined) {
     issues.add('currencyId', 'The selected currency does not exist');
   }
-  checkLedgerNames(rc.db, f.name, f.alias, rc.id, issues);
+  checkLedgerNames(rc.db, f.name, f.alias, rc.id, issues, rc.existing);
 }
 
 function validateParty(f: LedgerFields, cls: LedgerClass, rc: LedgerRuleContext, issues: Issues): void {
@@ -454,6 +472,11 @@ function validateParty(f: LedgerFields, cls: LedgerClass, rc: LedgerRuleContext,
     if (!rc.provided.has('stateCode')) f.stateCode = null;
     if (!rc.provided.has('pan')) f.pan = null;
     if (!rc.provided.has('registrationType') && f.registrationType !== null && NO_GSTIN.has(f.registrationType)) f.registrationType = null;
+  }
+  // Removing the GSTIN of a 'regular' party (the type a GSTIN implies) makes it unregistered again, unless
+  // a type was chosen in the same save. SEZ / composition / UIN parties still need a GSTIN (error below).
+  if (rc.existing?.gstin && f.gstin === null && rc.provided.has('gstin') && !rc.provided.has('registrationType') && f.registrationType === 'regular') {
+    f.registrationType = null;
   }
 
   if (f.registrationType === null) {
@@ -512,7 +535,8 @@ function validateIdentifiers(f: LedgerFields, issues: Issues): void {
     if (e) issues.add('pan', e);
     else f.pan = normalizePan(f.pan);
   }
-  const inIndia = f.country === null || f.country.toLowerCase() === 'india';
+  // PIN codes are Indian; an overseas party's postal code (ZIP, postcode …) is not checked.
+  const inIndia = (f.country === null || f.country.toLowerCase() === 'india') && f.registrationType !== 'overseas';
   if (f.pincode !== null && inIndia) {
     const e = validatePincode(f.pincode);
     if (e) issues.add('pincode', e);
@@ -623,13 +647,20 @@ function validateBills(f: LedgerFields, bills: OpeningBillInput[], rc: LedgerRul
     issues.add(
       'openingBills',
       `Opening bills add up to ₹ ${show(sum)} but the opening balance is ₹ ${show(f.openingBalance)} (difference ₹ ${show(f.openingBalance - sum)}). ` +
-        'Adjust the bills or the opening balance so that they match.',
+        'Adjust the bills or the opening balance so that they match (or remove all the bills to keep the whole opening balance on account).',
     );
   }
 }
 
 /** Name/alias must be unique among ledgers, and neither may equal another ledger's name or alias. */
-export function checkLedgerNames(db: Db, name: string, alias: string | null, excludeId: number | null, issues: Issues): void {
+export function checkLedgerNames(
+  db: Db,
+  name: string,
+  alias: string | null,
+  excludeId: number | null,
+  issues: Issues,
+  existing: Pick<LedgerFields, 'name' | 'alias'> | null = null,
+): void {
   const clash = (value: string): { name: string; alias: string | null } | undefined =>
     db.get<{ name: string; alias: string | null }>(
       `SELECT name, alias FROM ledgers WHERE (name = :v OR alias = :v COLLATE NOCASE) AND id <> :ex LIMIT 1`,
@@ -657,4 +688,23 @@ export function checkLedgerNames(db: Db, name: string, alias: string | null, exc
       );
     }
   }
+  // Ledgers and groups share one name space (as in Tally): a ledger may not take a group's name or alias.
+  // Checked for new or changed values only, so an old clash does not block unrelated edits.
+  const same = (a: string | null | undefined, b: string | null): boolean => (a ?? '').toLowerCase() === (b ?? '').toLowerCase();
+  for (const [path, value] of [['name', name], ['alias', alias]] as const) {
+    if (!value || issues.has(path)) continue;
+    if (existing && (same(existing.name, value) || same(existing.alias, value))) continue;
+    const g = groupNameClash(db, value);
+    if (g) issues.add(path, `'${value}' is already ${g.name.toLowerCase() === value.toLowerCase() ? 'the name' : 'an alias'} of the group '${g.name}'. Ledgers and groups need different names: choose another ${path}.`);
+  }
+}
+
+/** A group whose name or alias equals `value` (case-insensitive). */
+export function groupNameClash(db: Db, value: string): { name: string } | undefined {
+  return db.get<{ name: string }>('SELECT name FROM groups WHERE name = :v OR alias = :v COLLATE NOCASE LIMIT 1', { v: value });
+}
+
+/** A ledger whose name or alias equals `value` (case-insensitive). */
+export function ledgerNameClash(db: Db, value: string): { name: string } | undefined {
+  return db.get<{ name: string }>('SELECT name FROM ledgers WHERE name = :v OR alias = :v COLLATE NOCASE LIMIT 1', { v: value });
 }

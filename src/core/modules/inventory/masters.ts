@@ -34,7 +34,7 @@ import {
   toBool,
   type TreeTable,
 } from './common.ts';
-import { deleteGstHistory, detailsFromColumns, listGstHistory, normalizeGstDetails, syncGstHistory } from './gst.ts';
+import { columnGstDetails, deleteGstHistory, detailsFromColumns, listGstHistory, normalizeGstDetails, syncGstHistory } from './gst.ts';
 
 export function booksFrom(db: Db): string {
   const d = db.value<string>('SELECT books_from FROM company WHERE id = 1');
@@ -165,18 +165,20 @@ export function saveStockGroup(ctx: CompanyCtx, input: StockGroupSaveInput): Sto
       }
     : null;
   const gst = normalizeGstDetails(input, prevGst, null);
+  // A back-dated change only adds a history row; the current columns keep the details in force.
+  const cols = columnGstDetails(db, 'stock_group', id0, prevGst, gst, input).details;
   const ts = nowIso(ctx);
   const params = {
     name,
     alias,
     parentId,
     addQ: addQuantities,
-    app: gst.applicable ? 'applicable' : 'not_applicable',
-    hsn: gst.hsnSac,
-    tax: gst.applicable || gst.taxability !== 'taxable' ? gst.taxability : null,
-    rate: gst.rate,
-    cess: gst.cessRate,
-    cpu: gst.cessPerUnit,
+    app: cols.applicable ? 'applicable' : 'not_applicable',
+    hsn: cols.hsnSac,
+    tax: cols.applicable || cols.taxability !== 'taxable' ? cols.taxability : null,
+    rate: cols.rate,
+    cess: cols.cessRate,
+    cpu: cols.cessPerUnit,
     ts,
   };
   let id: number;
@@ -441,7 +443,7 @@ export function deleteGodown(ctx: CompanyCtx, id: number): DeleteResult {
   if (before.isPredefined) throw rule(`'${before.name}' is the predefined main godown and cannot be deleted.`);
   assertUnused('godown', before.name, [
     [before.childCount, 'sub-godown(s)'],
-    [countOf(db, 'SELECT COUNT(DISTINCT item_id) FROM stock_openings WHERE godown_id = :id', { id }), 'opening stock row(s)'],
+    [countOf(db, 'SELECT COUNT(DISTINCT item_id) FROM stock_openings WHERE godown_id = :id', { id }), 'stock item(s) with opening stock here'],
     [countOf(db, 'SELECT COUNT(DISTINCT voucher_id) FROM inventory_entries WHERE godown_id = :id', { id }), 'voucher(s)'],
   ]);
   db.run('DELETE FROM godowns WHERE id = :id', { id });

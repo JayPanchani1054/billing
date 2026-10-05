@@ -35,7 +35,7 @@ import { allocate, roundPaise, roundTo, lineAmount } from '../../../shared/money
 import type { CostingMethod, StockValuationResult, StockValuationRow } from '../../../shared/types/inventory.ts';
 import type { Db } from '../../db/db.ts';
 import { jsonIds } from './common.ts';
-import { roundQty, STOCK_MOVEMENT_FILTER } from './stock.ts';
+import { godownSet, roundQty, STOCK_MOVEMENT_FILTER } from './stock.ts';
 
 const EPS = 1e-9;
 
@@ -330,8 +330,10 @@ export interface StockValuationOptions {
   to: string;
   /** Only these items (their stock-journal inputs are valued too, internally). */
   itemIds?: readonly number[];
-  /** Quantities and movements of this godown only (exact). */
+  /** Quantities and movements of this godown only. */
   godownId?: number | null;
+  /** With godownId: include its sub-godowns (Tally's godown summary of a parent location). Default false (exact). */
+  includeSubGodowns?: boolean;
   /** Working date for the post-dated rule. */
   today: string;
 }
@@ -345,6 +347,10 @@ interface Acc {
   outValue: number;
   /** Quantity in the filter godown (godown mode). */
   gQty: number;
+  /** Σ value of the opening stock rows as entered in the item master (paise). */
+  enteredValue: number;
+  /** A voucher movement of this item has been replayed. */
+  moved: boolean;
 }
 
 /**
@@ -363,6 +369,9 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
   const ids = closure ? jsonIds([...closure]) : '[]';
   const filter = closure ? 1 : 0;
   const main = db.value<number>('SELECT id FROM godowns WHERE is_predefined = 1 ORDER BY id LIMIT 1') ?? null;
+  const booksBegin = db.value<string>('SELECT books_from FROM company WHERE id = 1') ?? '';
+  const godowns = godownId === null ? null : godownSet(db, godownId, opts.includeSubGodowns === true);
+  const inGodown = (g: number | null): boolean => godowns !== null && g !== null && godowns.has(g);
 
   const items = db.all<ItemInfo>(
     `SELECT i.id, i.name, u.symbol AS unit, i.group_id, i.costing_method, i.standard_cost, i.purchase_price, i.is_service
@@ -373,23 +382,43 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
   );
   const states = new Map<number, CostState>();
   const accs = new Map<number, Acc>();
+  const layered = new Set<number>();
   for (const it of items) {
     states.set(it.id, newState(it));
-    accs.set(it.id, { openQty: 0, openValue: 0, inQty: 0, inValue: 0, outQty: 0, outValue: 0, gQty: 0 });
+    accs.set(it.id, { openQty: 0, openValue: 0, inQty: 0, inValue: 0, outQty: 0, outValue: 0, gQty: 0, enteredValue: 0, moved: false });
+    const m = methodOf(it);
+    if (m === 'fifo' || m === 'lifo') layered.add(it.id);
   }
 
-  // Opening stock (each row a separate layer, in entry order).
+  // Opening stock: each row is a separate layer (FIFO/LIFO, in entry order); for the other methods
+  // the rows are taken together, so Last Purchase starts from the weighted opening rate rather than
+  // whichever row happens to be last.
   const openings = db.all<{ item_id: number; godown_id: number; qty: number; value: number }>(
     `SELECT item_id, godown_id, qty, value FROM stock_openings
       WHERE (:filter = 0 OR item_id IN (SELECT value FROM json_each(:ids))) ORDER BY item_id, id`,
     { filter, ids },
   );
+  const pooled = new Map<number, { qty: number; value: number }>();
   for (const o of openings) {
     const st = states.get(o.item_id);
     if (!st) continue;
-    if (o.qty > 0) st.receive(o.qty, Number(o.value), true);
-    else if (o.qty < 0) st.issue(-o.qty);
-    if (godownId !== null && o.godown_id === godownId) (accs.get(o.item_id) as Acc).gQty += o.qty;
+    const acc = accs.get(o.item_id) as Acc;
+    acc.enteredValue += Number(o.value);
+    if (inGodown(o.godown_id)) acc.gQty += o.qty;
+    if (layered.has(o.item_id)) {
+      if (o.qty > 0) st.receive(o.qty, Number(o.value), true);
+      else if (o.qty < 0) st.issue(-o.qty);
+    } else {
+      const p = pooled.get(o.item_id) ?? { qty: 0, value: 0 };
+      p.qty += o.qty;
+      p.value += Number(o.value);
+      pooled.set(o.item_id, p);
+    }
+  }
+  for (const [itemId, p] of pooled) {
+    const st = states.get(itemId) as CostState;
+    if (p.qty > EPS) st.receive(p.qty, p.value, true);
+    else if (p.qty < -EPS) st.issue(-p.qty);
   }
 
   const movements = db.all<Movement>(
@@ -412,7 +441,10 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
       const acc = accs.get(it.id) as Acc;
       if (godownId === null) {
         acc.openQty = st.qty;
-        acc.openValue = st.value();
+        // At the books beginning the opening stock is worth what was entered in the item masters,
+        // whatever the costing method (Last Purchase / Standard Cost would otherwise re-price it
+        // and the Balance Sheet's opening stock would not match the masters).
+        acc.openValue = from <= booksBegin && !acc.moved ? acc.enteredValue : st.value();
       } else {
         acc.openQty = acc.gQty;
         acc.openValue = roundPaise(acc.gQty * unitValue(st));
@@ -422,7 +454,7 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
 
   const record = (m: Movement, value: number): void => {
     if (m.date < from) return;
-    if (godownId !== null && m.godown_id !== godownId) return;
+    if (godownId !== null && !inGodown(m.godown_id)) return;
     const acc = accs.get(m.item_id) as Acc;
     if (m.qty > 0) {
       acc.inQty += m.qty;
@@ -444,7 +476,9 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
       v = value ?? roundPaise(m.qty * st.currentCost());
       st.receive(m.qty, v, priced);
     }
-    if (godownId !== null && m.godown_id === godownId) (accs.get(m.item_id) as Acc).gQty += m.qty;
+    const acc = accs.get(m.item_id) as Acc;
+    acc.moved = true;
+    if (inGodown(m.godown_id)) acc.gQty += m.qty;
     record(m, v);
   };
 
@@ -466,7 +500,9 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
         if (!st) continue;
         const cost = st.issue(-m.qty);
         consumed += cost;
-        if (godownId !== null && m.godown_id === godownId) (accs.get(m.item_id) as Acc).gQty += m.qty;
+        const acc = accs.get(m.item_id) as Acc;
+        acc.moved = true;
+        if (inGodown(m.godown_id)) acc.gQty += m.qty;
         record(m, cost);
       }
       const explicit = production.filter((m) => ownAmount(m) > 0);
@@ -535,13 +571,22 @@ function unitValue(st: CostState): number {
 }
 
 /** Closing stock value (paise) of all items as at the end of `asOf` — for P&L / Balance Sheet. */
-export function closingStockValue(db: Db, opts: { asOf: string; today: string; godownId?: number | null }): number {
-  return computeStockValuation(db, { from: opts.asOf, to: opts.asOf, today: opts.today, godownId: opts.godownId }).totals.closingValue;
+export function closingStockValue(
+  db: Db,
+  opts: { asOf: string; today: string; godownId?: number | null; includeSubGodowns?: boolean },
+): number {
+  return computeStockValuation(db, { ...opts, from: opts.asOf, to: opts.asOf }).totals.closingValue;
 }
 
-/** Opening stock value (paise) at the start of `from` (opening stock + movements before `from`). */
-export function openingStockValue(db: Db, opts: { from: string; today: string; godownId?: number | null }): number {
-  return computeStockValuation(db, { from: opts.from, to: opts.from, today: opts.today, godownId: opts.godownId }).totals.openingValue;
+/**
+ * Opening stock value (paise) at the start of `from` (opening stock + movements before `from`).
+ * On or before the books beginning this is the opening stock as entered in the item masters.
+ */
+export function openingStockValue(
+  db: Db,
+  opts: { from: string; today: string; godownId?: number | null; includeSubGodowns?: boolean },
+): number {
+  return computeStockValuation(db, { ...opts, to: opts.from }).totals.openingValue;
 }
 
 /**

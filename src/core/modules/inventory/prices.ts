@@ -175,12 +175,28 @@ export function priceLevelRatesForPicker(db: Db, levelId: number, date: string):
   return out;
 }
 
-/** Price lists applicable to one item on `date`, per price level (for the item detail). */
+/** Price lists applicable to one item on `date`, per price level (for the item detail). One query. */
 export function itemPriceLists(db: Db, itemId: number, date: string): ItemPriceListEntry[] {
+  const rows = db.all<SlabRow & { price_level_id: number; level_name: string }>(
+    `WITH latest AS (
+       SELECT price_level_id, MAX(applicable_from) AS af FROM price_list
+        WHERE item_id = :item AND applicable_from <= :date GROUP BY price_level_id)
+     SELECT p.price_level_id, l.name AS level_name, p.item_id, p.applicable_from, p.qty_from, p.qty_to, p.rate, p.discount_pct
+       FROM price_list p
+       JOIN latest x ON x.price_level_id = p.price_level_id AND x.af = p.applicable_from
+       JOIN price_levels l ON l.id = p.price_level_id
+      WHERE p.item_id = :item
+      ORDER BY l.name COLLATE NOCASE, l.id, p.qty_from`,
+    { item: itemId, date },
+  );
   const out: ItemPriceListEntry[] = [];
-  for (const lvl of db.all<LevelRow>('SELECT * FROM price_levels ORDER BY name COLLATE NOCASE')) {
-    const e = applicableSlabs(db, lvl.id, date, [itemId]).get(itemId);
-    if (e) out.push({ priceLevelId: lvl.id, priceLevelName: lvl.name, applicableFrom: e.from, slabs: e.slabs });
+  for (const r of rows) {
+    let e = out.at(-1);
+    if (!e || e.priceLevelId !== r.price_level_id) {
+      e = { priceLevelId: r.price_level_id, priceLevelName: r.level_name, applicableFrom: r.applicable_from, slabs: [] };
+      out.push(e);
+    }
+    e.slabs.push(toSlab(r));
   }
   return out;
 }
@@ -265,6 +281,8 @@ export function savePriceList(ctx: CompanyCtx, input: PriceListSaveInput): Price
   if (issues.length) throw validation(issues);
 
   const existing = applicableAt(db, level.id, input.applicableFrom, affected);
+  // Only clearing lists that do not exist on that date: nothing to change, nothing to audit.
+  if (byItem.size === 0 && existing.size === 0) return getPriceList(db, { priceLevelId: level.id, date: input.applicableFrom });
   requirePermission(
     ctx,
     existing.size > 0 ? 'masters.alter' : 'masters.create',

@@ -14,6 +14,9 @@
  *    value = qty × rate rounded to paise unless given; services cannot have opening stock.
  */
 import { randomUUID } from 'node:crypto';
+import { formatDate } from '../../../shared/dates.ts';
+import { formatMoney } from '../../../shared/format.ts';
+import { MAX_LINE_PAISE } from '../../../shared/gst/index.ts';
 import { lineAmount, roundTo } from '../../../shared/money.ts';
 import type {
   CostingMethod,
@@ -36,7 +39,7 @@ import type { FieldIssue } from '../../../shared/api.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { AppError, notFound, rule, validation } from '../../lib/errors.ts';
-import { getFeatures } from '../company/service.ts';
+import { getConfig, getFeatures } from '../company/service.ts';
 import {
   assertNameFree,
   cleanText,
@@ -52,6 +55,7 @@ import {
   toBool,
 } from './common.ts';
 import {
+  columnGstDetails,
   createGstResolver,
   deleteGstHistory,
   detailsFromColumns,
@@ -62,7 +66,7 @@ import {
   type GstDetails,
 } from './gst.ts';
 import { booksFrom, mainGodownId } from './masters.ts';
-import { itemPriceLists, priceLevelRatesForPicker } from './prices.ts';
+import { getPriceLevel, itemPriceLists, priceLevelRatesForPicker } from './prices.ts';
 import { itemHasTransactions, roundQty, stockByItem } from './stock.ts';
 
 interface ItemRow {
@@ -275,10 +279,13 @@ interface NormalizedOpening {
 
 const decimalsOk = (qty: number, places: number): boolean => Math.abs(roundTo(qty, places) - qty) < 1e-9;
 
+/** Largest opening quantity accepted (base units) — far beyond any real stock, well inside float precision. */
+const MAX_OPENING_QTY = 1e12;
+
 function normalizeOpenings(
   db: Db,
   rows: readonly StockOpeningInput[],
-  ctx: { multipleGodowns: boolean; maintainBatches: boolean; unitSymbol: string; unitDecimals: number },
+  ctx: { multipleGodowns: boolean; maintainBatches: boolean; batchesFeature: boolean; unitSymbol: string; unitDecimals: number },
 ): NormalizedOpening[] {
   const issues: FieldIssue[] = [];
   const out: NormalizedOpening[] = [];
@@ -295,7 +302,9 @@ function normalizeOpenings(
       issues.push({ path: p('godownId'), message: 'The selected godown does not exist' });
     }
     const batchName = cleanText(r.batchName) ?? null;
-    if (ctx.maintainBatches && batchName === null)
+    // Vouchers record batches only while the company's Batches feature is on, so a batch name is
+    // demanded only then (the form hides batch fields otherwise); one given anyway is kept.
+    if (ctx.maintainBatches && ctx.batchesFeature && batchName === null)
       issues.push({ path: p('batchName'), message: 'Enter the batch name: this item is maintained in batches' });
     if (!ctx.maintainBatches && batchName !== null)
       issues.push({ path: p('batchName'), message: "Batch names apply only to items maintained in batches. Turn on 'Maintain in batches' or clear the batch." });
@@ -306,6 +315,8 @@ function normalizeOpenings(
     if (mfgDate !== null && expiryDate !== null && expiryDate < mfgDate)
       issues.push({ path: p('expiryDate'), message: 'The expiry date is before the manufacturing date' });
     if (!(r.qty > 0)) issues.push({ path: p('qty'), message: 'Opening quantity must be more than 0 (remove the row for no stock)' });
+    else if (r.qty > MAX_OPENING_QTY)
+      issues.push({ path: p('qty'), message: `Opening quantity ${r.qty} is too large. Check the quantity (the limit is ${MAX_OPENING_QTY.toExponential()}).` });
     else if (!decimalsOk(r.qty, ctx.unitDecimals))
       issues.push({
         path: p('qty'),
@@ -318,12 +329,49 @@ function normalizeOpenings(
       issues.push({ path: p(batchName ? 'batchName' : 'godownId'), message: `Row ${(seen.get(key) ?? 0) + 1} already has opening stock for this godown${batchName ? ' and batch' : ''}` });
     seen.set(key, i);
     if (issues.length > before) return;
+    // Value in paise must stay a safe integer (it is summed into Balance Sheet totals): qty × rate is
+    // checked before rounding, so a huge rate is reported to the user instead of failing internally.
+    const raw = r.value ?? r.qty * (r.rate ?? 0) * 100;
+    if (!Number.isFinite(raw) || raw > MAX_LINE_PAISE) {
+      issues.push({
+        path: p(r.value !== undefined && r.value !== null ? 'value' : 'rate'),
+        message: `The opening value of this row is too large (more than ${formatMoney(MAX_LINE_PAISE, { symbol: true })}). Check the quantity and rate.`,
+      });
+      return;
+    }
     const value = r.value ?? lineAmount(r.qty, r.rate ?? 0);
     const rate = r.rate ?? roundTo(value / 100 / r.qty, 6);
     out.push({ godownId, batchName, mfgDate, expiryDate, qty: r.qty, rate, value });
   });
   if (issues.length) throw validation(issues);
   return out;
+}
+
+/** True when the normalised rows differ from the stored opening rows (order-insensitive). */
+function openingsChanged(current: readonly StockOpeningRow[], next: readonly NormalizedOpening[]): boolean {
+  const key = (o: { godownId: number; batchName: string | null; mfgDate: string | null; expiryDate: string | null; qty: number; rate: number; value: number }): string =>
+    JSON.stringify([o.godownId, o.batchName, o.mfgDate, o.expiryDate, o.qty, o.rate, o.value]);
+  if (current.length !== next.length) return true;
+  const a = current.map(key).sort();
+  const b = next.map(key).sort();
+  return a.some((k, i) => k !== b[i]);
+}
+
+/**
+ * Opening stock is dated at the books beginning, so it is part of every period from then on: once
+ * the books are locked on or after that date it cannot change (as for vouchers in a locked period).
+ */
+function assertOpeningStockUnlocked(db: Db, itemName: string): void {
+  const lockedUpTo = getConfig(db).lockedUpTo;
+  const from = booksFrom(db);
+  if (lockedUpTo && from <= lockedUpTo) {
+    throw new AppError(
+      'LOCKED',
+      `The opening stock of '${itemName}' is dated ${formatDate(from)} (books beginning) and the books are locked up to ${formatDate(lockedUpTo)}. ` +
+        'Unlock the period first, or bring the stock in with a voucher (e.g. Stock Journal or Physical Stock) dated after the lock.',
+      { lockedUpTo },
+    );
+  }
 }
 
 function unitInfo(db: Db, id: number, path: string): { id: number; symbol: string; decimal_places: number } {
@@ -422,6 +470,12 @@ function saveItemCore(ctx: CompanyCtx, input: StockItemSaveInput): StockItemSave
       }
     : null;
   const gst = normalizeGstDetails(input, prevGst, isService ? 'services' : 'goods');
+  const columnsGst = columnGstDetails(db, 'stock_item', id0, prevGst, gst, input);
+  if (columnsGst.backdatedBefore !== null && input.gstApplicableFrom !== undefined)
+    warnings.push(
+      `The GST details from ${formatDate(input.gstApplicableFrom)} were added to the rate history. ` +
+        `The current details (in force from ${formatDate(columnsGst.backdatedBefore)}) are unchanged.`,
+    );
   const rateInclusiveOfTax = input.rateInclusiveOfTax ?? before?.rateInclusiveOfTax ?? false;
 
   // Prices & stock levels
@@ -454,14 +508,23 @@ function saveItemCore(ctx: CompanyCtx, input: StockItemSaveInput): StockItemSave
     openings = normalizeOpenings(db, input.openings, {
       multipleGodowns: features.multipleGodowns,
       maintainBatches,
+      batchesFeature: features.batches,
       unitSymbol: unit.symbol,
       unitDecimals: unit.decimal_places,
     });
+    if (openingsChanged(before?.openings ?? [], openings)) assertOpeningStockUnlocked(db, name);
   } else if (before) {
     if (isService && before.openings.length > 0)
       throw validation([{ path: 'openings', message: 'A service has no stock: remove the opening stock before marking the item as a service' }]);
-    if (maintainBatches && !before.maintainBatches && before.openings.some((o) => !o.batchName))
+    if (maintainBatches && !before.maintainBatches && features.batches && before.openings.some((o) => !o.batchName))
       throw validation([{ path: 'openings', message: 'Give each opening stock row a batch name before maintaining this item in batches' }]);
+    if (!maintainBatches && before.maintainBatches && before.openings.some((o) => o.batchName))
+      throw validation([
+        {
+          path: 'openings',
+          message: "The opening stock is entered batch-wise. Re-enter it without batch names, or keep 'Maintain in batches' on.",
+        },
+      ]);
     if (unitId !== before.unitId && before.openings.some((o) => !decimalsOk(o.qty, unit.decimal_places)))
       throw validation([{ path: 'unitId', message: `The opening quantities have more decimal places than '${unit.symbol}' allows` }]);
   }
@@ -485,12 +548,12 @@ function saveItemCore(ctx: CompanyCtx, input: StockItemSaveInput): StockItemSave
     costing: costingMethod,
     market: marketValuation,
     service: isService,
-    gstApp: gst.applicable ? 'applicable' : 'not_applicable',
-    hsn: gst.hsnSac,
-    tax: gst.taxability,
-    rate: gst.rate,
-    cess: gst.cessRate,
-    cpu: gst.cessPerUnit,
+    gstApp: columnsGst.details.applicable ? 'applicable' : 'not_applicable',
+    hsn: columnsGst.details.hsnSac,
+    tax: columnsGst.details.taxability,
+    rate: columnsGst.details.rate,
+    cess: columnsGst.details.cessRate,
+    cpu: columnsGst.details.cessPerUnit,
     incl: rateInclusiveOfTax,
     mrp,
     sell: sellingPrice,
@@ -554,7 +617,7 @@ function saveItemCore(ctx: CompanyCtx, input: StockItemSaveInput): StockItemSave
 }
 
 /** Audit snapshot: the master data only (derived fields such as price lists and effective GST left out). */
-function auditSnapshot(d: StockItemDetail): Omit<StockItemDetail, 'effectiveGst' | 'priceLists' | 'hasTransactions'> {
+export function auditSnapshot(d: StockItemDetail): Omit<StockItemDetail, 'effectiveGst' | 'priceLists' | 'hasTransactions'> {
   const { effectiveGst: _e, priceLists: _p, hasTransactions: _h, ...rest } = d;
   return rest;
 }
@@ -602,11 +665,26 @@ export function deleteItem(ctx: CompanyCtx, id: number): DeleteResult {
       `Cannot delete stock item '${before.name}': it is used in ${Math.max(vouchers, gstLines)} voucher(s). ` +
         'Delete those vouchers first, or mark the item inactive to hide it.',
     );
+  if (before.openings.length > 0) assertOpeningStockUnlocked(db, before.name);
+  // Every price-list slab of the item (all levels and dates) goes with it: keep them in the edit log.
+  const priceListRows = db.all<{ level: string; applicable_from: string; qty_from: number; qty_to: number | null; rate: number; discount_pct: number }>(
+    `SELECT l.name AS level, p.applicable_from, p.qty_from, p.qty_to, p.rate, p.discount_pct
+       FROM price_list p JOIN price_levels l ON l.id = p.price_level_id
+      WHERE p.item_id = :id ORDER BY l.name COLLATE NOCASE, p.applicable_from, p.qty_from`,
+    { id },
+  );
   db.run('DELETE FROM stock_openings WHERE item_id = :id', { id });
   db.run('DELETE FROM price_list WHERE item_id = :id', { id });
   deleteGstHistory(db, 'stock_item', id);
   db.run('DELETE FROM stock_items WHERE id = :id', { id });
-  ctx.audit({ action: 'delete', entityType: 'stock_item', entityId: id, entityGuid: before.guid, entityLabel: before.name, before: auditSnapshot(before) });
+  ctx.audit({
+    action: 'delete',
+    entityType: 'stock_item',
+    entityId: id,
+    entityGuid: before.guid,
+    entityLabel: before.name,
+    before: priceListRows.length ? { ...auditSnapshot(before), priceListRows } : auditSnapshot(before),
+  });
   return { id, deleted: true };
 }
 
@@ -640,31 +718,54 @@ type PickerTuple = [
 ];
 
 /**
- * All active items as ONE JSON text (json_group_array, ordered by name): materialising 20,000 wide
+ * Active items as ONE JSON text (json_group_array, ordered by name): materialising 20,000 wide
  * row objects through the driver costs ~4× more than parsing one JSON document.
+ * Optional `:like` search (name, alias, part no., barcode; names starting with the text first) and
+ * `:limit` (−1 = all).
  */
 const PICKER_SQL = /* sql */ `
   SELECT json_group_array(json_array(
-           i.id, i.name, i.alias, i.part_no, i.barcode, i.group_id, g.name, u.symbol, u.decimal_places,
-           i.alt_unit_id, au.symbol, i.alt_conversion, i.gst_applicable, i.gst_taxability, i.gst_rate, i.cess_rate,
-           i.cess_per_unit, i.hsn_sac, i.selling_price, i.purchase_price, i.mrp, i.is_service, i.maintain_batches)
-         ORDER BY i.name COLLATE NOCASE, i.id)
-    FROM stock_items i
-    JOIN units u ON u.id = i.unit_id
-    LEFT JOIN units au ON au.id = i.alt_unit_id
-    LEFT JOIN stock_groups g ON g.id = i.group_id
-   WHERE i.is_active = 1`;
+           id, name, alias, part_no, barcode, group_id, group_name, unit_symbol, unit_decimals,
+           alt_unit_id, alt_symbol, alt_conversion, gst_applicable, gst_taxability, gst_rate, cess_rate,
+           cess_per_unit, hsn_sac, selling_price, purchase_price, mrp, is_service, maintain_batches)
+         ORDER BY rank, name COLLATE NOCASE, id)
+    FROM (
+      SELECT i.id, i.name, i.alias, i.part_no, i.barcode, i.group_id, g.name AS group_name, u.symbol AS unit_symbol,
+             u.decimal_places AS unit_decimals, i.alt_unit_id, au.symbol AS alt_symbol, i.alt_conversion, i.gst_applicable,
+             i.gst_taxability, i.gst_rate, i.cess_rate, i.cess_per_unit, i.hsn_sac, i.selling_price, i.purchase_price, i.mrp,
+             i.is_service, i.maintain_batches,
+             CASE WHEN :prefix IS NOT NULL AND i.name LIKE :prefix ESCAPE '\\' THEN 0 ELSE 1 END AS rank
+        FROM stock_items i
+        JOIN units u ON u.id = i.unit_id
+        LEFT JOIN units au ON au.id = i.alt_unit_id
+        LEFT JOIN stock_groups g ON g.id = i.group_id
+       WHERE i.is_active = 1
+         AND (:like IS NULL OR i.name LIKE :like ESCAPE '\\' OR i.alias LIKE :like ESCAPE '\\'
+              OR i.part_no LIKE :like ESCAPE '\\' OR i.barcode LIKE :like ESCAPE '\\')
+       ORDER BY rank, i.name COLLATE NOCASE, i.id
+       LIMIT :limit)`;
 
 /**
- * Compact list of all active items for voucher-line pickers: GST resolved as of `asOf`
+ * Compact list of active items for voucher-line pickers and Go To: GST resolved as of `asOf`
  * (same precedence as resolveItemGstProfile), stock as of `asOf` (optionally one godown),
- * optional price-level rate for quantity 1. A handful of queries regardless of the number of items.
+ * optional price-level rate for quantity 1, optional search/limit. A handful of queries regardless
+ * of the number of items.
  */
 export function itemPicker(db: Db, input: ItemPickerInput, today: string): ItemPickerRow[] {
   const asOf = input.asOf ?? today;
-  const tuples = JSON.parse(db.value<string>(PICKER_SQL) ?? '[]') as PickerTuple[];
+  if (input.priceLevelId !== undefined) getPriceLevel(db, input.priceLevelId); // NOT_FOUND for a wrong level
+  const like = likePattern(input.search);
+  const filtered = like !== null || input.limit !== undefined;
+  const tuples = JSON.parse(
+    db.value<string>(PICKER_SQL, { like, prefix: like === null ? null : like.slice(1), limit: input.limit ?? -1 }) ?? '[]',
+  ) as PickerTuple[];
   const resolve = createGstResolver(db, asOf);
-  const stock = stockByItem(db, { asOf, today, godownId: input.godownId ?? null });
+  const stock = stockByItem(db, {
+    asOf,
+    today,
+    godownId: input.godownId ?? null,
+    itemIds: filtered ? tuples.map((r) => r[0]) : undefined,
+  });
   const levels = input.priceLevelId !== undefined ? priceLevelRatesForPicker(db, input.priceLevelId, asOf) : null;
   const out: ItemPickerRow[] = new Array(tuples.length);
   for (let k = 0; k < tuples.length; k++) {

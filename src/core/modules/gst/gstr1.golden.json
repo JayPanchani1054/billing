@@ -1,0 +1,503 @@
+{
+  "gstin": "27AAPFU0939F1ZV",
+  "fp": "042026",
+  "version": "GST3.2.1",
+  "hash": "hash",
+  "b2b": [
+    {
+      "ctin": "08AAAPA0011A1Z4",
+      "inv": [
+        {
+          "inum": "S-14",
+          "idt": "15-04-2026",
+          "val": 708,
+          "pos": "08",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 600,
+                "rt": 18,
+                "iamt": 108,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "24AAAPA0006A1Z7",
+      "inv": [
+        {
+          "inum": "S-10",
+          "idt": "11-04-2026",
+          "val": 4000,
+          "pos": "24",
+          "rchrg": "N",
+          "inv_typ": "SEWOP",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 4000,
+                "rt": 18,
+                "iamt": 0,
+                "csamt": 0
+              }
+            }
+          ]
+        },
+        {
+          "inum": "S-11",
+          "idt": "12-04-2026",
+          "val": 1180,
+          "pos": "24",
+          "rchrg": "N",
+          "inv_typ": "SEWP",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 1000,
+                "rt": 18,
+                "iamt": 180,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "27AAAPA0001A1Z6",
+      "inv": [
+        {
+          "inum": "S-1",
+          "idt": "02-04-2026",
+          "val": 1705,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 500,
+                "rt": 5,
+                "camt": 12.5,
+                "samt": 12.5,
+                "csamt": 0
+              }
+            },
+            {
+              "num": 2,
+              "itm_det": {
+                "txval": 1000,
+                "rt": 18,
+                "camt": 90,
+                "samt": 90,
+                "csamt": 0
+              }
+            }
+          ]
+        },
+        {
+          "inum": "S-3",
+          "idt": "04-04-2026",
+          "val": 1000,
+          "pos": "27",
+          "rchrg": "Y",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 1000,
+                "rt": 5,
+                "camt": 25,
+                "samt": 25,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "29AAAPA0002A1Z1",
+      "inv": [
+        {
+          "inum": "S-2",
+          "idt": "03-04-2026",
+          "val": 2660,
+          "pos": "29",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 2000,
+                "rt": 18,
+                "iamt": 360,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "33AAAPA0007A1Z7",
+      "inv": [
+        {
+          "inum": "S-12",
+          "idt": "13-04-2026",
+          "val": 2360,
+          "pos": "33",
+          "rchrg": "N",
+          "inv_typ": "DE",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 2000,
+                "rt": 18,
+                "iamt": 360,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2cl": [
+    {
+      "pos": "07",
+      "inv": [
+        {
+          "inum": "S-4",
+          "idt": "05-04-2026",
+          "val": 100005,
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 84750,
+                "rt": 18,
+                "iamt": 15255,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2cs": [
+    {
+      "sply_ty": "INTER",
+      "pos": "07",
+      "typ": "OE",
+      "rt": 18,
+      "txval": 84745.76,
+      "iamt": 15254.24,
+      "csamt": 0
+    },
+    {
+      "sply_ty": "INTRA",
+      "pos": "27",
+      "typ": "OE",
+      "rt": 5,
+      "txval": 100,
+      "camt": 2.5,
+      "samt": 2.5,
+      "csamt": 0
+    },
+    {
+      "sply_ty": "INTRA",
+      "pos": "27",
+      "typ": "OE",
+      "rt": 18,
+      "txval": 400,
+      "camt": 36,
+      "samt": 36,
+      "csamt": 0
+    }
+  ],
+  "exp": [
+    {
+      "exp_typ": "WPAY",
+      "inv": [
+        {
+          "inum": "S-8",
+          "idt": "09-04-2026",
+          "val": 5900,
+          "sbpcode": "INNSA1",
+          "sbnum": "1234567",
+          "sbdt": "10-04-2026",
+          "itms": [
+            {
+              "txval": 5000,
+              "rt": 18,
+              "iamt": 900,
+              "csamt": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "exp_typ": "WOPAY",
+      "inv": [
+        {
+          "inum": "S-9",
+          "idt": "10-04-2026",
+          "val": 10000,
+          "itms": [
+            {
+              "txval": 10000,
+              "rt": 18,
+              "iamt": 0,
+              "csamt": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "cdnr": [
+    {
+      "ctin": "29AAAPA0002A1Z1",
+      "nt": [
+        {
+          "ntty": "C",
+          "nt_num": "CN-1",
+          "nt_dt": "20-04-2026",
+          "val": 590,
+          "pos": "29",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            {
+              "num": 1,
+              "itm_det": {
+                "txval": 500,
+                "rt": 18,
+                "iamt": 90,
+                "csamt": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "cdnur": [
+    {
+      "typ": "B2CL",
+      "ntty": "C",
+      "nt_num": "CN-2",
+      "nt_dt": "21-04-2026",
+      "val": 11800,
+      "pos": "07",
+      "itms": [
+        {
+          "num": 1,
+          "itm_det": {
+            "txval": 10000,
+            "rt": 18,
+            "iamt": 1800,
+            "csamt": 0
+          }
+        }
+      ]
+    }
+  ],
+  "nil": {
+    "inv": [
+      {
+        "sply_ty": "INTRB2B",
+        "expt_amt": 300,
+        "nil_amt": 0,
+        "ngsup_amt": 0
+      },
+      {
+        "sply_ty": "INTRAB2C",
+        "expt_amt": 0,
+        "nil_amt": 500,
+        "ngsup_amt": 700
+      }
+    ]
+  },
+  "hsn": {
+    "hsn_b2b": [
+      {
+        "num": 1,
+        "hsn_sc": "1006",
+        "desc": "Rice",
+        "uqc": "KGS",
+        "qty": 100,
+        "rt": 0,
+        "txval": 300,
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "num": 2,
+        "hsn_sc": "7208",
+        "desc": "HR Steel Coil",
+        "uqc": "KGS",
+        "qty": 25,
+        "rt": 18,
+        "txval": 2500,
+        "iamt": 270,
+        "camt": 90,
+        "samt": 90,
+        "csamt": 0
+      },
+      {
+        "num": 3,
+        "hsn_sc": "8471",
+        "desc": "Laptop",
+        "uqc": "NOS",
+        "qty": 5,
+        "rt": 5,
+        "txval": 500,
+        "iamt": 0,
+        "camt": 12.5,
+        "samt": 12.5,
+        "csamt": 0
+      },
+      {
+        "num": 4,
+        "hsn_sc": "8471",
+        "desc": "Laptop",
+        "uqc": "NOS",
+        "qty": 8,
+        "rt": 18,
+        "txval": 7600,
+        "iamt": 648,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "num": 5,
+        "hsn_sc": "9965",
+        "desc": "Goods transport",
+        "uqc": "NA",
+        "qty": 0,
+        "rt": 5,
+        "txval": 1000,
+        "iamt": 0,
+        "camt": 25,
+        "samt": 25,
+        "csamt": 0
+      }
+    ],
+    "hsn_b2c": [
+      {
+        "num": 1,
+        "hsn_sc": "0401",
+        "desc": "Milk",
+        "uqc": "LTR",
+        "qty": 100,
+        "rt": 0,
+        "txval": 500,
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "num": 2,
+        "hsn_sc": "2710",
+        "desc": "Petrol",
+        "uqc": "LTR",
+        "qty": 70,
+        "rt": 0,
+        "txval": 700,
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "num": 3,
+        "hsn_sc": "7208",
+        "desc": "HR Steel Coil",
+        "uqc": "KGS",
+        "qty": 1,
+        "rt": 5,
+        "txval": 100,
+        "iamt": 0,
+        "camt": 2.5,
+        "samt": 2.5,
+        "csamt": 0
+      },
+      {
+        "num": 4,
+        "hsn_sc": "7208",
+        "desc": "HR Steel Coil",
+        "uqc": "KGS",
+        "qty": 100,
+        "rt": 18,
+        "txval": 10000,
+        "iamt": 0,
+        "camt": 0,
+        "samt": 0,
+        "csamt": 0
+      },
+      {
+        "num": 5,
+        "hsn_sc": "8471",
+        "desc": "Laptop",
+        "uqc": "NOS",
+        "qty": 21,
+        "rt": 18,
+        "txval": 164895.76,
+        "iamt": 29609.24,
+        "camt": 36,
+        "samt": 36,
+        "csamt": 0
+      }
+    ]
+  },
+  "doc_issue": {
+    "doc_det": [
+      {
+        "doc_num": 1,
+        "docs": [
+          {
+            "num": 1,
+            "from": "S-1",
+            "to": "S-15",
+            "totnum": 15,
+            "cancel": 1,
+            "net_issue": 14
+          }
+        ]
+      },
+      {
+        "doc_num": 5,
+        "docs": [
+          {
+            "num": 1,
+            "from": "CN-1",
+            "to": "CN-3",
+            "totnum": 3,
+            "cancel": 0,
+            "net_issue": 3
+          }
+        ]
+      }
+    ]
+  }
+}

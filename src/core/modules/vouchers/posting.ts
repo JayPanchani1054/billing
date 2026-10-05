@@ -7,14 +7,15 @@
  */
 import {
   ACCOUNTING_BASE_TYPES,
+  B2CL_THRESHOLD_PAISE,
   GST_BASE_TYPES,
   type GstDutyHead,
   type LedgerCode,
   type VoucherBaseType,
 } from '../../../shared/constants.ts';
-import { addDays, formatDate } from '../../../shared/dates.ts';
+import { addDays, financialYear, formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
-import { computeInvoice, isRegisteredParty, REGISTRATION_TYPES } from '../../../shared/gst/index.ts';
+import { b2clThresholdOn, computeInvoice, isRegisteredParty, REGISTRATION_TYPES } from '../../../shared/gst/index.ts';
 import { allocate, lineAmount, roundTo, roundToUnit, type Paise } from '../../../shared/money.ts';
 import type { CompanyConfig, CompanyFeatures } from '../../../shared/settings.ts';
 import type {
@@ -41,9 +42,10 @@ import type {
   VoucherTotals,
   VoucherWarning,
   VoucherWarningCode,
+  VoucherWarningLevel,
 } from '../../../shared/types/vouchers.ts';
 import type { Db } from '../../db/db.ts';
-import { AppError, notFound, rule } from '../../lib/errors.ts';
+import { AppError, rule, validation } from '../../lib/errors.ts';
 import { PendingBillCache } from './bills.ts';
 import { runGuards, stockQtyAsOf } from './guards.ts';
 import { Masters, type ItemRow, type LedgerInfo } from './masters.ts';
@@ -131,6 +133,55 @@ const HSN_REQUIRED: ReadonlySet<GstNature> = new Set<GstNature>(['b2b', 'sez_wpa
 
 /** Engine warnings that duplicate the engine-level checks done here with their own codes. */
 const ENGINE_DUPLICATES: readonly RegExp[] = [/has no GSTIN/, /HSN\/SAC code is required/];
+
+/**
+ * GST engine notes that are informational (shown, never need confirmation): presentation and
+ * data-quality hints that do not change the tax, the place of supply or the return the document lands
+ * in. Every other engine warning (invalid GSTIN, GSTIN/state mismatch, unknown state or place of supply,
+ * composition inter-state supply, negative taxable value, invalid numbers or rates …) is material.
+ */
+const ENGINE_INFO: readonly RegExp[] = [
+  /is not a standard GST rate/,
+  /slab was largely merged/,
+  /is not a GST UQC/,
+  /tax-inclusive rate ignored/,
+  /do not share this charge/,
+  /the charge was apportioned by value/,
+  /there are no goods lines to absorb this charge/,
+  /supply type not set/,
+  /was not in whole paise/,
+];
+
+/** Level of a GST engine warning on a GST document. */
+export function engineWarningLevel(message: string): VoucherWarningLevel {
+  return ENGINE_INFO.some((re) => re.test(message)) ? 'info' : 'confirm';
+}
+
+/**
+ * A field-specific hard error: VALIDATION with one FieldIssue, like a schema error, so the entry screen
+ * can highlight the field (`path` is the VoucherInput path, e.g. 'items[2].batchName').
+ */
+export function fieldError(path: string, message: string): AppError {
+  return validation([{ path, message }]);
+}
+
+/** Invoice numbers on GST documents: at most 16 characters, letters, digits, '-' and '/' (CGST Rule 46(b)). */
+const GST_INVOICE_NUMBER = /^[A-Za-z0-9/-]{1,16}$/;
+
+/** The configured B2CL threshold, or undefined when it is the default (then the date-aware statutory one applies). */
+export function configuredB2clThreshold(config: CompanyConfig): Paise | undefined {
+  const t = config.gst.b2clThresholdPaise;
+  return typeof t === 'number' && Number.isFinite(t) && t > 0 && t !== B2CL_THRESHOLD_PAISE ? t : undefined;
+}
+
+/** Is a Letter of Undertaking recorded (F12 › GST) that covers `date`? */
+export function lutCovers(config: CompanyConfig, date: string): boolean {
+  const g = config.gst;
+  if (!txt(g.lutNumber)) return false;
+  if (g.lutValidFrom && date < g.lutValidFrom) return false;
+  if (g.lutValidTo && date > g.lutValidTo) return false;
+  return true;
+}
 
 export function isAccountingBase(b: VoucherBaseType): boolean {
   return ACCOUNTING_BASE_TYPES.includes(b);
@@ -328,6 +379,11 @@ class PostingBuilder {
   private readonly accounting: boolean;
   private readonly pending: PendingBillCache;
   private party: LedgerInfo | null = null;
+  /**
+   * GST direction of the document: outward (we supply) or inward (we receive). Fixed by the base type,
+   * except a Debit Note to a customer (Sundry Debtors), which is an outward supplementary invoice.
+   */
+  private outward: boolean;
   private snap: PartySnapshot | null = null;
   private computation: InvoiceComputation | null = null;
   private grandTotal = 0;
@@ -353,10 +409,11 @@ class PostingBuilder {
     this.isPostDated = input.isPostDated === true;
     this.accounting = isAccountingBase(this.base);
     this.pending = new PendingBillCache(env.db, input.date, env.today, opts.voucherId);
+    this.outward = OUTWARD.has(this.base);
   }
 
-  private warn(code: VoucherWarningCode, message: string, blocking = false, path?: string): void {
-    const w: VoucherWarning = { code, message, blocking };
+  private warn(code: VoucherWarningCode, message: string, level: VoucherWarningLevel = 'confirm', path?: string): void {
+    const w: VoucherWarning = { code, message, blocking: level === 'block', level };
     if (path) w.path = path;
     this.warnings.push(w);
   }
@@ -371,8 +428,10 @@ class PostingBuilder {
       ...(this.input.partyLedgerId ? [this.input.partyLedgerId] : []),
     ]);
     this.masters.preloadItems(items.map((i) => i.itemId));
+    this.validateMasters();
 
     if (this.input.partyLedgerId) this.party = this.masters.ledger(this.input.partyLedgerId);
+    this.outward = this.decideDirection();
 
     if (this.mode === 'item_invoice' || this.mode === 'accounting_invoice') this.buildInvoice();
     else if (this.mode === 'ledger') this.buildLedgerMode();
@@ -395,75 +454,127 @@ class PostingBuilder {
 
   private validateHeader(): void {
     const { vt, base, mode, env } = this;
-    if (!vt.isActive && this.opts.voucherId === null) throw rule(`The voucher type ${vt.name} is inactive. Activate it before entering vouchers.`);
+    if (!vt.isActive && this.opts.voucherId === null) {
+      throw fieldError('voucherTypeId', `The voucher type ${vt.name} is inactive. Activate it before entering vouchers.`);
+    }
     if (!ALLOWED_MODES[base].includes(mode)) {
-      throw rule(`${vt.name} vouchers cannot be entered in ${mode.replace('_', ' ')} mode (allowed: ${ALLOWED_MODES[base].map((m) => m.replace('_', ' ')).join(', ')}).`);
+      throw fieldError(
+        'mode',
+        `${vt.name} vouchers cannot be entered in ${mode.replace('_', ' ')} mode (allowed: ${ALLOWED_MODES[base].map((m) => m.replace('_', ' ')).join(', ')}).`,
+      );
     }
     if ((mode === 'item_invoice' || mode === 'inventory') && !env.features.inventory) {
-      throw rule('Inventory is turned off for this company (F11 › Features). Use an accounting invoice, or turn on inventory.');
+      throw fieldError('mode', 'Inventory is turned off for this company (F11 › Features). Use an accounting invoice, or turn on inventory.');
     }
     if (this.date < env.company.booksFrom) {
-      throw rule(`The voucher date ${formatDate(this.date)} is before the books beginning date (${formatDate(env.company.booksFrom)}).`);
+      throw fieldError('date', `The voucher date ${formatDate(this.date)} is before the books beginning date (${formatDate(env.company.booksFrom)}).`);
     }
     const needsParty = mode === 'item_invoice' || mode === 'accounting_invoice' || PARTY_REQUIRED.has(base);
     if (needsParty && !this.input.partyLedgerId) {
       const who =
         base === 'sales' || base === 'credit_note' || base === 'sales_order' || base === 'delivery_note' || base === 'rejection_in'
           ? 'the customer ledger (or Cash for a cash sale)'
-          : 'the supplier ledger';
-      throw rule(`Select ${who} in "Party A/c name".`);
+          : base === 'debit_note'
+            ? 'the supplier (purchase return) or customer (supplementary invoice) ledger'
+            : 'the supplier ledger';
+      throw fieldError('partyLedgerId', `Select ${who} in "Party A/c name".`);
     }
     if (this.input.priceLevelId !== undefined && this.db.value('SELECT 1 FROM price_levels WHERE id = :id', { id: this.input.priceLevelId }) === undefined) {
-      throw notFound('Price level', this.input.priceLevelId);
+      throw fieldError('priceLevelId', 'The selected price level no longer exists. Select it again.');
     }
     if ((mode === 'ledger' || mode === 'accounting_invoice') && (this.input.items?.length ?? 0) > 0) {
-      throw rule(`Stock items cannot be entered in ${mode === 'ledger' ? 'a ledger-mode voucher' : 'an accounting invoice'}. Use item invoice mode.`);
+      throw fieldError('items', `Stock items cannot be entered in ${mode === 'ledger' ? 'a ledger-mode voucher' : 'an accounting invoice'}. Use item invoice mode.`);
     }
     if (mode === 'inventory' && (this.input.ledgers?.length ?? 0) > 0) {
-      throw rule(`${vt.name} vouchers do not post ledger entries; remove the ledger lines.`);
+      throw fieldError('ledgers', `${vt.name} vouchers do not post ledger entries; remove the ledger lines.`);
     }
   }
 
-  private activeCheck(kind: 'Ledger' | 'Stock item', name: string, active: boolean): void {
-    if (!active && this.opts.voucherId === null) throw rule(`${kind} ${name} is inactive. Activate it before using it in a voucher.`);
+  /** Every master the input names must exist (a master deleted while the screen was open). */
+  private validateMasters(): void {
+    const { input, masters } = this;
+    const gone = (what: string): string => `This ${what} no longer exists (it may have been deleted). Select it again.`;
+    if (input.partyLedgerId !== undefined && !masters.ledgerOrNull(input.partyLedgerId)) throw fieldError('partyLedgerId', gone('party ledger'));
+    (input.ledgers ?? []).forEach((l, i) => {
+      if (!masters.ledgerOrNull(l.ledgerId)) throw fieldError(`ledgers[${i}].ledgerId`, gone('ledger'));
+      (l.costAllocations ?? []).forEach((c, j) => {
+        if (masters.costCentreName(c.costCentreId) === null) throw fieldError(`ledgers[${i}].costAllocations[${j}].costCentreId`, gone('cost centre'));
+      });
+    });
+    (input.items ?? []).forEach((it, i) => {
+      if (!masters.itemOrNull(it.itemId)) throw fieldError(`items[${i}].itemId`, gone('stock item'));
+      if (it.ledgerId !== undefined && !masters.ledgerOrNull(it.ledgerId)) throw fieldError(`items[${i}].ledgerId`, gone('ledger'));
+      if (it.godownId !== undefined && !masters.godownOrNull(it.godownId)) throw fieldError(`items[${i}].godownId`, gone('godown'));
+    });
+  }
+
+  /**
+   * GST direction (see `outward`). A Credit Note credits the party, so with a supplier it is not a
+   * document of ours to report; it is refused with directions instead of being posted as an outward
+   * credit note (Output tax) against a supplier.
+   */
+  private decideDirection(): boolean {
+    const invoiceMode = this.mode === 'item_invoice' || this.mode === 'accounting_invoice';
+    const p = this.party;
+    if (!invoiceMode || !p) return OUTWARD.has(this.base);
+    if (this.base === 'debit_note' && p.isDebtor) return true;
+    if (this.base === 'credit_note' && p.isCreditor) {
+      throw fieldError(
+        'partyLedgerId',
+        `${p.name} is a supplier. A Credit Note credits the party and is used for customers (sales returns, discounts, price reductions). ` +
+          'Record a credit note received from a supplier, or a purchase return, as a Debit Note; record a supplier\'s debit note (higher price) as a Purchase.',
+      );
+    }
+    return OUTWARD.has(this.base);
+  }
+
+  private activeCheck(kind: 'Ledger' | 'Stock item', name: string, active: boolean, path: string): void {
+    if (!active && this.opts.voucherId === null) throw fieldError(path, `${kind} ${name} is inactive. Activate it before using it in a voucher.`);
   }
 
   // ── Invoice modes ──
 
   private defaultItemLedgerId(): number | null {
     const cfg = this.vt.config.defaultLedgerId;
-    if (typeof cfg === 'number' && this.masters.ledgerOrNull(cfg)) return cfg;
-    const outward = OUTWARD.has(this.base);
-    return this.masters.reservedLedgerId(outward ? 'SALES' : 'PURCHASE');
+    const reserved = this.masters.reservedLedgerId(this.outward ? 'SALES' : 'PURCHASE');
+    if (typeof cfg === 'number') {
+      const L = this.masters.ledgerOrNull(cfg);
+      // A Debit Note type's default (purchase) ledger does not fit a supplementary invoice to a customer.
+      if (L && !(this.outward && L.isPurchaseAccount) && !(!this.outward && L.isSalesAccount)) return cfg;
+    }
+    return reserved;
   }
 
   private buildInvoice(): void {
-    const { input, base, mode, env, masters, gstOn } = this;
+    const { input, base, mode, env, masters, gstOn, outward } = this;
     const items = input.items ?? [];
     const ledgers = input.ledgers ?? [];
     const party = this.party as LedgerInfo;
-    this.activeCheck('Ledger', party.name, party.row.is_active === 1);
+    this.activeCheck('Ledger', party.name, party.row.is_active === 1, 'partyLedgerId');
     const snap = partySnapshot(party, input);
-    const outward = OUTWARD.has(base);
     const postEntries = this.accounting;
     const defaultLedger = this.defaultItemLedgerId();
 
-    if (mode === 'item_invoice' && items.length === 0) throw rule('Enter at least one stock item line.');
+    if (mode === 'item_invoice' && items.length === 0) throw fieldError('items', 'Enter at least one stock item line.');
 
     const lines: InvoiceLineInput[] = [];
     const meta: InvoiceLineMeta[] = [];
 
     items.forEach((it, i) => {
       const item = masters.item(it.itemId);
-      this.activeCheck('Stock item', item.name, item.is_active === 1);
+      this.activeCheck('Stock item', item.name, item.is_active === 1, `items[${i}].itemId`);
       const ledgerId = it.ledgerId ?? defaultLedger;
       const ledger = ledgerId ? masters.ledger(ledgerId) : null;
       if (postEntries && !ledger) {
-        throw rule(`Line ${i + 1} (${item.name}): select the ${outward ? 'sales' : 'purchase'} ledger (no default ${outward ? 'Sales' : 'Purchase'} ledger exists).`);
+        throw fieldError(
+          `items[${i}].ledgerId`,
+          `Line ${i + 1} (${item.name}): select the ${outward ? 'sales' : 'purchase'} ledger (no default ${outward ? 'Sales' : 'Purchase'} ledger exists).`,
+        );
       }
       if (ledger && (ledger.isGstDuty || ledger.id === party.id)) {
-        throw rule(`Line ${i + 1} (${item.name}): ${ledger.name} cannot be used as the ${outward ? 'sales' : 'purchase'} ledger.`);
+        throw fieldError(`items[${i}].ledgerId`, `Line ${i + 1} (${item.name}): ${ledger.name} cannot be used as the ${outward ? 'sales' : 'purchase'} ledger.`);
       }
+      if (ledger && it.ledgerId !== undefined) this.activeCheck('Ledger', ledger.name, ledger.row.is_active === 1, `items[${i}].ledgerId`);
       const profile = gstOn
         ? resolveItemTaxProfile(this.lookup, { itemId: item.id, date: this.date, ledgerId: ledger?.id ?? null, gstRateOverride: it.gstRateOverride })
         : NON_GST_PROFILE;
@@ -471,7 +582,7 @@ class PostingBuilder {
         this.warn(
           'gst_missing_rate',
           `Line ${i + 1} (${item.name}): no GST rate is set on the item, its stock group or the ${ledger?.name ?? 'sales/purchase'} ledger; it was taxed at 0%.`,
-          false,
+          'confirm',
           `items[${i}]`,
         );
       }
@@ -502,11 +613,11 @@ class PostingBuilder {
     const outside: Array<{ index: number; ledger: LedgerInfo; amount: Paise }> = [];
     ledgers.forEach((ll, i) => {
       const L = masters.ledger(ll.ledgerId);
-      this.activeCheck('Ledger', L.name, L.row.is_active === 1);
+      this.activeCheck('Ledger', L.name, L.row.is_active === 1, `ledgers[${i}].ledgerId`);
       if (L.isGstDuty) {
-        throw rule(`${L.name} is a GST tax ledger. GST on an invoice is calculated automatically — remove this line.`);
+        throw fieldError(`ledgers[${i}].ledgerId`, `${L.name} is a GST tax ledger. GST on an invoice is calculated automatically — remove this line.`);
       }
-      if (L.id === party.id) throw rule(`${L.name} is the party of this invoice and cannot also be an invoice line.`);
+      if (L.id === party.id) throw fieldError(`ledgers[${i}].ledgerId`, `${L.name} is the party of this invoice and cannot also be an invoice line.`);
       if (ll.amount === 0) return;
       const plAccount = L.nature === 'income' || L.nature === 'expenses' || L.isFixedAsset;
       let treatment: InvoiceLineMeta['treatment'] | 'outside';
@@ -521,7 +632,7 @@ class PostingBuilder {
       }
       const profile = gstOn ? resolveLedgerTaxProfile(this.lookup, { ledgerId: L.id, date: this.date, override: ll.gst ?? null }) : { ...NON_GST_PROFILE, supplyKind: 'goods' as SupplyKind };
       if (gstOn && profile.missing && treatment === 'computed' && GST_BASE_TYPES.includes(base)) {
-        this.warn('gst_missing_rate', `${L.name}: no GST rate is set on the ledger; it was taxed at 0%.`, false, `ledgers[${i}]`);
+        this.warn('gst_missing_rate', `${L.name}: no GST rate is set on the ledger; it was taxed at 0%.`, 'confirm', `ledgers[${i}]`);
       }
       lines.push({
         key: `l${i}`,
@@ -540,7 +651,7 @@ class PostingBuilder {
     });
 
     if (mode === 'accounting_invoice' && !meta.some((m) => m.treatment === 'computed')) {
-      throw rule('Enter at least one income or expense ledger line for the invoice.');
+      throw fieldError('ledgers', 'Enter at least one income or expense ledger line for the invoice.');
     }
 
     const companyReg: CompanyRegistrationType = gstOn ? env.company.gstRegistrationType : 'unregistered';
@@ -557,8 +668,11 @@ class PostingBuilder {
       exportWithPayment: input.exportDetails?.withPayment === true,
       reverseCharge: input.reverseCharge === true,
       roundOff: { enabled: false, method: 'nearest', unit: 100 },
-      b2clThresholdPaise: env.config.gst.b2clThresholdPaise,
     };
+    // A threshold changed in F12 wins; the default follows the invoice date (₹2,50,000 before 1-Aug-2024).
+    const configuredB2cl = configuredB2clThreshold(env.config);
+    if (configuredB2cl !== undefined) ctx.b2clThresholdPaise = configuredB2cl;
+    const b2clThreshold = configuredB2cl ?? b2clThresholdOn(this.date);
     const comp = computeInvoice(lines, ctx);
 
     // Totals: non-GST charges outside the computation are added after tax; round-off on the whole.
@@ -569,7 +683,7 @@ class PostingBuilder {
     const roundOff = grand - beforeRound;
     let nature = comp.nature;
     if (nature === 'b2cl' || nature === 'b2cs') {
-      nature = comp.interState && grand > env.config.gst.b2clThresholdPaise ? 'b2cl' : 'b2cs';
+      nature = comp.interState && grand > b2clThreshold ? 'b2cl' : 'b2cs';
     }
     this.computation = {
       ...comp,
@@ -585,12 +699,14 @@ class PostingBuilder {
       for (const m of comp.warnings) {
         if (ENGINE_DUPLICATES.some((re) => re.test(m))) continue;
         if (hasMissingRate && /GST rate is 0% on a taxable line/.test(m)) continue;
-        this.warn('gst', m);
+        this.warn('gst', m, engineWarningLevel(m));
       }
     }
 
     // ── Ledger entries ──
-    const s = base === 'sales' || base === 'debit_note' ? 1 : -1; // party sign
+    // Party sign by base type (a Debit Note always debits the party, a Credit Note credits it); the
+    // tax ledgers follow the GST direction (Output for outward, Input/RCM for inward).
+    const s = base === 'sales' || base === 'debit_note' ? 1 : -1;
     const companyClaimsItc = gstOn && env.company.gstRegistrationType === 'regular';
     const itemLedgerAmt = new Map<number, Paise>();
     const ledgerLineAmt = new Map<number, Paise>();
@@ -748,18 +864,49 @@ class PostingBuilder {
           outward
             ? `${party.name} is GST-registered (${snap.registrationType}) but has no GSTIN. Enter the GSTIN in the party ledger; B2B invoices need it.`
             : `Supplier ${party.name} is GST-registered but has no GSTIN; input tax credit cannot be matched with GSTR-2B.`,
+          'confirm',
+          'partyLedgerId',
         );
       }
-      if (HSN_REQUIRED.has(nature)) {
+      // HSN/SAC: mandatory on B2B / export / SEZ / deemed-export lines (confirm); on other outward
+      // documents it is still needed for the GSTR-1 HSN summary (Table 12), so it is shown (info).
+      const hsnLevel: VoucherWarningLevel | null = HSN_REQUIRED.has(nature) ? 'confirm' : outward ? 'info' : null;
+      if (hsnLevel) {
         meta.forEach((m, j) => {
           const cl = computed[j];
           if (cl.absorbed || cl.taxableValue === 0 || cl.hsnSac) return;
+          if (hsnLevel === 'info' && cl.taxability === 'non_gst') return;
           const label = m.kind === 'item' ? `Line ${m.index + 1} (${m.item?.name ?? ''})` : (m.ledger?.name ?? `Ledger line ${m.index + 1}`);
-          this.warn('gst_missing_hsn', `${label}: HSN/SAC code is required on this invoice.`, false, m.kind === 'item' ? `items[${m.index}]` : `ledgers[${m.index}]`);
+          const msg =
+            hsnLevel === 'confirm'
+              ? `${label}: HSN/SAC code is required on this invoice.`
+              : `${label}: no HSN/SAC code; it is needed for the HSN summary of GSTR-1.`;
+          this.warn('gst_missing_hsn', msg, hsnLevel, m.kind === 'item' ? `items[${m.index}]` : `ledgers[${m.index}]`);
         });
       }
       if (base === 'purchase' && isRegisteredParty(snap.registrationType) && !txt(input.referenceNo)) {
-        this.warn('supplier_invoice_required', 'Supplier invoice number is required for GST purchases. Enter it in "Supplier Invoice No.".', true, 'referenceNo');
+        this.warn('supplier_invoice_required', 'Supplier invoice number is required for GST purchases. Enter it in "Supplier Invoice No.".', 'block', 'referenceNo');
+      }
+      // Zero-rated supply without payment of IGST needs a Letter of Undertaking (or bond) for its date.
+      const charged = computed.some((cl) => cl.taxability === 'taxable' && cl.rate > 0 && !cl.absorbed);
+      if ((nature === 'export_lut' || nature === 'sez_lut') && charged && !lutCovers(env.config, this.date)) {
+        this.warn(
+          'gst_lut',
+          `${nature === 'export_lut' ? 'Export' : 'Supply to an SEZ'} without payment of IGST needs a Letter of Undertaking (LUT) valid on ${formatDate(this.date)}, ` +
+            'and none is recorded in F12 › GST. Record the LUT, or mark the supply "with payment of IGST".',
+          'confirm',
+          'exportDetails.withPayment',
+        );
+      }
+      // Outward tax invoices / notes: serial number of at most 16 characters (letters, digits, - and /).
+      const number = this.opts.number;
+      if (outward && this.accounting && number !== null && !GST_INVOICE_NUMBER.test(number)) {
+        this.warn(
+          'gst_invoice_number',
+          `Invoice number ${number} is not valid for GST: use at most 16 characters — letters, digits, "-" and "/" only (CGST Rule 46). E-invoices with such numbers are rejected.`,
+          'confirm',
+          'number',
+        );
       }
     }
   }

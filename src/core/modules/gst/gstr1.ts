@@ -15,6 +15,7 @@
  * unregistered), whatever the document's table. Composition and non-GST companies file no GSTR-1.
  */
 import { formatDate } from '../../../shared/dates.ts';
+import { formatMoney } from '../../../shared/format.ts';
 import { GST_NATURE_LABELS, POS_OTHER_COUNTRIES, SERVICES_UQC } from '../../../shared/gst/index.ts';
 import type { GstNature } from '../../../shared/types/gst.ts';
 import type {
@@ -425,7 +426,7 @@ export function computeGstr1(db: Db, company: GstCompany, period: ReturnPeriodRe
           null,
           'negative_value',
           'warning',
-          `B2CS row for ${r.posName || r.pos} at ${r.rate}% is negative (${(r.taxable / 100).toFixed(2)}) after netting credit notes.`,
+          `B2CS row for ${r.posName || r.pos} at ${r.rate}% is negative (${formatMoney(r.taxable, { symbol: true })}) after netting credit notes.`,
           'This is allowed on the portal, but check that the credit notes belong to this period and place of supply.',
           'b2cs',
         ),
