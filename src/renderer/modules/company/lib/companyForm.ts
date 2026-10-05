@@ -86,14 +86,20 @@ export function defaultDraft(today: string): CompanyDraft {
  * the GSTIN), so the user never types them twice.
  */
 export function applyGstin(draft: CompanyDraft, raw: string): CompanyDraft {
+  const fill = gstinAutofill(raw);
+  return { ...draft, gstin: fill.gstin, ...(fill.stateCode ? { stateCode: fill.stateCode } : {}), ...(fill.pan ? { pan: fill.pan } : {}) };
+}
+
+/** Normalised GSTIN text plus the state code and PAN it carries (only when it is valid). */
+export function gstinAutofill(raw: string): { gstin: string; stateCode?: string; pan?: string } {
   const gstin = normalizeGstin(raw).slice(0, 15);
-  const next = { ...draft, gstin };
   const v = validateGstin(gstin);
-  if (v.valid) {
-    if (v.stateCode && getState(v.stateCode)) next.stateCode = v.stateCode;
-    if (v.pan) next.pan = v.pan;
-  }
-  return next;
+  if (!v.valid) return { gstin };
+  return {
+    gstin,
+    stateCode: v.stateCode && getState(v.stateCode) ? v.stateCode : undefined,
+    pan: v.pan,
+  };
 }
 
 /** Live GSTIN message for the field (null when empty or valid). */

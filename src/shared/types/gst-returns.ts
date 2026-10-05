@@ -670,6 +670,20 @@ export interface GstDocStatusResult {
   ewayValidUpto: string | null;
 }
 
+/** One entry of a voucher's e-invoice / e-way bill trail ('gst.docEvents'). */
+export interface GstDocEvent {
+  id: number;
+  kind: 'einvoice' | 'ewaybill';
+  /** exported | generated | cancelled | updated */
+  action: string;
+  /** IRN or e-way bill number. */
+  refNo: string | null;
+  /** File name, ack no., cancellation reason … */
+  detail: Record<string, unknown> | null;
+  at: string;
+  by: string | null;
+}
+
 // ───────────────────────────── GSTR-9 ─────────────────────────────
 
 export interface Gstr9Row extends TaxValue {
