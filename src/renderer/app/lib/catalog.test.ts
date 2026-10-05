@@ -58,7 +58,7 @@ describe('global shortcuts', () => {
     assert.equal(byType.credit_note, 'Ctrl+F8');
     assert.equal(byType.debit_note, 'Ctrl+F9');
     assert.equal(byType.sales_order, 'Alt+F5');
-    assert.equal(byType.purchase_order, 'Alt+F4');
+    assert.equal(byType.purchase_order, 'Alt+F6');
     assert.equal(byType.delivery_note, 'Alt+F8');
     assert.equal(byType.receipt_note, 'Alt+F9');
     assert.equal(byType.stock_journal, 'Alt+F7');
