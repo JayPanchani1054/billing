@@ -215,6 +215,8 @@ export interface BooksDocView {
   tax: Paise;
   /** Tax on lines whose ITC is not ineligible (inward only; equals `tax` for sales). */
   eligibleTax: Paise;
+  /** `eligibleTax` per head. */
+  itc: TaxHeads;
   invoiceValue: Paise;
   rates: number[];
   /** The voucher's reconciliation period (MMYYYY of docDate). */

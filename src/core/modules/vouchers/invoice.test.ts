@@ -20,6 +20,7 @@ import {
   setupKit,
   stockOf,
   throwsApp,
+  throwsField,
 } from './testkit.ts';
 
 describe('sales invoices', () => {
@@ -240,14 +241,14 @@ describe('sales invoices', () => {
 
   it('GST tax ledgers cannot be entered on an invoice', () => {
     const k = setupKit();
-    throwsApp(() => save(k, salesInput(k, { ledgers: [{ ledgerId: k.L.OUTPUT_CGST, amount: 100 }] })), 'BUSINESS_RULE', /GST tax ledger/);
+    throwsField(() => save(k, salesInput(k, { ledgers: [{ ledgerId: k.L.OUTPUT_CGST, amount: 100 }] })), 'ledgers[0].ledgerId', /GST tax ledger/);
     k.t.close();
   });
 
   it('invoice needs a party and at least one item', () => {
     const k = setupKit();
-    throwsApp(() => save(k, salesInput(k, { partyLedgerId: undefined })), 'BUSINESS_RULE', /customer ledger/);
-    throwsApp(() => save(k, salesInput(k, { items: [] })), 'BUSINESS_RULE', /at least one stock item/);
+    throwsField(() => save(k, salesInput(k, { partyLedgerId: undefined })), 'partyLedgerId', /customer ledger/);
+    throwsField(() => save(k, salesInput(k, { items: [] })), 'items', /at least one stock item/);
     k.t.close();
   });
 
@@ -325,7 +326,10 @@ describe('notes & modes', () => {
       ledgers: [{ ledgerId: k.L.consult, amount: 50000 }],
     });
     assert.deepEqual(entryMap(k, cn.id), { 'Acme Traders': -59000, 'Consultancy Income': 50000, 'Output CGST': 4500, 'Output SGST/UTGST': 4500 });
-    assert.deepEqual(bills(k, cn.id).map((b) => [b.ref_type, b.bill_name, b.amount]), [['against', '1', -21000], ['new', '1', -38000]]);
+    // The remainder is a new bill named after the note; Sales bill '1' already exists for Acme, so the
+    // name gets the financial year instead of being netted into the invoice's bill.
+    assert.deepEqual(bills(k, cn.id).map((b) => [b.ref_type, b.bill_name, b.amount]), [['against', '1', -21000], ['new', '1/2026-27', -38000]]);
+    assert.deepEqual(pendingBills(k.t.db, k.L.acme, k.t.today, k.t.today).map((b) => [b.billName, b.amount]), [['1/2026-27', -38000]]);
     k.t.close();
   });
 
@@ -364,8 +368,8 @@ describe('notes & modes', () => {
 
   it('a mode the base type does not support is refused', () => {
     const k = setupKit();
-    throwsApp(() => save(k, { voucherTypeId: k.vt.payment, date: k.t.today, mode: 'item_invoice', partyLedgerId: k.L.acme, items: [] }), 'BUSINESS_RULE', /cannot be entered in item invoice mode/);
-    throwsApp(() => save(k, salesInput(k, { date: '2026-03-31' })), 'BUSINESS_RULE', /before the books beginning date/);
+    throwsField(() => save(k, { voucherTypeId: k.vt.payment, date: k.t.today, mode: 'item_invoice', partyLedgerId: k.L.acme, items: [] }), 'mode', /cannot be entered in item invoice mode/);
+    throwsField(() => save(k, salesInput(k, { date: '2026-03-31' })), 'date', /before the books beginning date/);
     k.t.close();
   });
 });

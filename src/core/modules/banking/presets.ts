@@ -271,7 +271,7 @@ export function fuzzyColumns(header: readonly Cell[]): Partial<StatementColumnMa
   const out: Partial<StatementColumnMap> = {};
   for (const [role, v] of best) (out as Record<string, number>)[role] = v.idx;
   assignDrCr(out, drCrCols);
-  if (out.date === undefined && out.valueDate !== undefined) {
+  if (out.date === undefined && typeof out.valueDate === 'number') {
     out.date = out.valueDate;
     delete out.valueDate;
   }

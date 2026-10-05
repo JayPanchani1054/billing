@@ -11,7 +11,7 @@ import { pendingBills } from './bills.ts';
 import { getVoucher } from './queries.ts';
 import { vouchersRoutes } from './routes.ts';
 import { cancelVoucher, deleteVoucher, duplicateVoucher, previewVoucher, saveVoucher, setVoucherOptional } from './service.ts';
-import { bills, entryMap, header, purchaseInput, salesInput, save, setupKit, stockOf, throwsApp } from './testkit.ts';
+import { bills, entryMap, header, purchaseInput, salesInput, save, setupKit, stockOf, throwsApp, throwsField } from './testkit.ts';
 
 const audits = (k: ReturnType<typeof setupKit>, id: number) =>
   k.t.db.all<{ action: string; before_json: string | null; after_json: string | null; entity_label: string }>(
@@ -72,7 +72,7 @@ describe('alter', () => {
   it('the voucher type cannot change; cancelled vouchers cannot be altered', () => {
     const k = setupKit();
     const res = save(k, salesInput(k));
-    throwsApp(() => save(k, { ...salesInput(k), id: res.id, voucherTypeId: k.vt.credit_note }), 'BUSINESS_RULE', /cannot be changed/);
+    throwsField(() => save(k, { ...salesInput(k), id: res.id, voucherTypeId: k.vt.credit_note }), 'voucherTypeId', /cannot be changed/);
     cancelVoucher(k.t.ctx, res.id, 'Entered twice');
     throwsApp(() => save(k, { ...salesInput(k), id: res.id }), 'BUSINESS_RULE', /cancelled voucher cannot be altered/);
     k.t.close();
@@ -287,6 +287,24 @@ describe('permissions', () => {
     assert.equal(view.ok, true);
     const auditorSave = await k.t.call(vouchersRoutes, 'vouchers.save', salesInput(k), { session: auditor });
     assert.equal(auditorSave.ok ? 'ok' : auditorSave.error.code, 'FORBIDDEN');
+    const auditorAlter = await k.t.call(vouchersRoutes, 'vouchers.save', { ...salesInput(k), id, acknowledgeWarnings: true }, { session: auditor });
+    assert.equal(auditorAlter.ok ? 'ok' : auditorAlter.error.code, 'FORBIDDEN');
+    k.t.close();
+  });
+
+  it('a custom role that may alter but not create can alter (and still cannot create)', async () => {
+    const k = setupKit();
+    const res = save(k, salesInput(k));
+    // Before the fix the route itself demanded vouchers.create, so this role could not alter at all.
+    const editor = k.t.sessionAs({ permissions: ['vouchers.view', 'vouchers.alter'] });
+    const alter = await k.t.call(vouchersRoutes, 'vouchers.save', { ...getVoucher(k.t.db, res.id).input, narration: 'fixed', acknowledgeWarnings: true }, { session: editor });
+    assert.equal(alter.ok, true, alter.ok ? '' : alter.error.message);
+    assert.equal(header(k, res.id).narration, 'fixed');
+    const create = await k.t.call(vouchersRoutes, 'vouchers.save', { ...salesInput(k), acknowledgeWarnings: true }, { session: editor });
+    assert.equal(create.ok ? 'ok' : create.error.code, 'FORBIDDEN');
+    const viewer = k.t.sessionAs({ permissions: ['vouchers.view'] });
+    const none = await k.t.call(vouchersRoutes, 'vouchers.save', { ...getVoucher(k.t.db, res.id).input, acknowledgeWarnings: true }, { session: viewer });
+    assert.equal(none.ok ? 'ok' : none.error.code, 'FORBIDDEN');
     k.t.close();
   });
 
@@ -310,6 +328,8 @@ describe('duplicate', () => {
     assert.equal(dup.date, k.t.today);
     assert.equal(dup.referenceNo, undefined);
     assert.equal(dup.narration, 'Monthly stock');
+    const cn = save(k, { voucherTypeId: k.vt.debit_note, date: k.t.today, mode: 'item_invoice', partyLedgerId: k.L.supplier, originalInvoiceNo: 'SUP-101', items: [{ itemId: k.I.rice, qty: 1, rate: 80 }] });
+    assert.equal(duplicateVoucher(k.t.ctx, cn.id).originalInvoiceNo, undefined, 'a copy must not settle the same bill again');
     assert.deepEqual(dup.items, [{ itemId: k.I.rice, qty: 20, rate: 80 }]);
     const again = saveVoucher(k.t.ctx, { ...dup, referenceNo: 'SUP-102', acknowledgeWarnings: true });
     assert.equal(again.number, '2');

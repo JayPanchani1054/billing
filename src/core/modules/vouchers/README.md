@@ -27,29 +27,31 @@ All routes are company scope. Types are in `shared/types/vouchers.ts`.
 
 | Route | Access | Input | Output |
 |---|---|---|---|
-| `vouchers.entryContext` | vouchers.view | `{ voucherTypeId, date }` | `VoucherEntryContext`: voucher type (numbering, config), `nextNumber`, `allowedModes`/`defaultMode`, company essentials + FY, all features, config subset (`roundOff`, `guards`, `lockedUpTo`, `gst`, `printAfterSave`), reserved ledger ids (cash, sales, purchase, roundOff, output/input/rcm × IGST/CGST/SGST/CESS), `defaultLedgerId`, `mainGodownId`, `permissions {canAlter, canBackdate, canDelete}` |
-| `vouchers.partyContext` | vouchers.view | `{ ledgerId, date, excludeVoucherId? }` | `PartyContext`: mailing/GST details, `kind` (debtor/creditor/cash/bank/other), bill-wise flag, credit days/limit, `balance` as of date (books filter), `pendingBills` |
+| `vouchers.entryContext` | vouchers.view | `{ voucherTypeId, date }` | `VoucherEntryContext`: voucher type (numbering, config), `nextNumber`, `allowedModes`/`defaultMode`, company essentials + FY, all features, config subset (`roundOff`, `guards`, `lockedUpTo`, `gst`, `printAfterSave`), reserved ledger ids (cash, sales, purchase, roundOff, output/input/rcm × IGST/CGST/SGST/CESS), `defaultLedgerId`, `mainGodownId`, `permissions {canCreate, canAlter, canBackdate, canDelete}` |
+| `vouchers.partyContext` | vouchers.view | `{ ledgerId, date, excludeVoucherId? }` | `PartyContext`: mailing/GST details, `country`, `kind` (debtor/creditor/cash/bank/other), `gstDirection` (outward for customers, inward for suppliers, null otherwise — a Debit Note to a customer is outward, see §3), bill-wise flag, credit days/limit, `balance` as of date (books filter), `pendingBills` |
 | `vouchers.pendingBills` | vouchers.view | `{ ledgerId, asOf, excludeVoucherId? }` | `PendingBill[]` (see §5) |
 | `vouchers.preview` | vouchers.view | `VoucherInput` | `VoucherPreview`. No writes. Never throws for rule violations or guards: they come back in `warnings` with `blocking: true`. Hard errors (unknown master, wrong mode, missing party…) still throw. |
-| `vouchers.save` | vouchers.create (+ vouchers.alter when `id` is given; + vouchers.backdate when `date < today`) | `VoucherInput` | `VoucherSaveResult { id, number, warnings, totals, updatedAt }` |
+| `vouchers.save` | route: vouchers.view; the service then requires vouchers.create (new) or vouchers.alter (`id` given), + vouchers.backdate when `date < today` | `VoucherInput` | `VoucherSaveResult { id, number, warnings, totals, updatedAt }` |
 | `vouchers.get` | vouchers.view | `{ id }` | `VoucherDetail`: header incl. snapshots and parsed JSON blobs, `voucherType {id,name,baseType}`, `mode`, `input` (the voucher as entered — edit it and send it back to `vouchers.save`; carries `id`, `number`, `expectedUpdatedAt`), `entries` (names, instrument, bank date, bill & cost allocations), `inventory` (item/unit/godown names), `gstLines`, `cancellation`, `createdBy`/`updatedBy` `{id,name}`, `updatedAt` |
 | `vouchers.list` | vouchers.view | `VoucherListInput { from, to, voucherTypeIds?, baseTypes?, partyLedgerId?, ledgerId?, search?, includeOptional? (true), includeCancelled? (true), onlyPostDated?, sort? ('date_asc'), limit? (≤1000, default 200), offset? }` | `{ rows: VoucherListRow[], total, sums: { amount } }`. `search` matches number, reference no., narration, party name (case-insensitive, literal) or an exact amount ('1,180.00' = `total_amount`). |
 | `vouchers.delete` | vouchers.delete | `{ id, reason? }` | `{ id, number }` |
 | `vouchers.cancel` | vouchers.alter | `{ id, reason }` | `{ id, number, updatedAt }` |
-| `vouchers.duplicate` | vouchers.view | `{ id }` | `VoucherInput` with no id or number, dated today. Bill allocations, tracking/order refs and (purchase) supplier invoice no./date are removed. |
+| `vouchers.duplicate` | vouchers.view | `{ id }` | `VoucherInput` with no id or number, dated today. Bill allocations, tracking/order refs, the original invoice no./date of a note and (purchase) supplier invoice no./date are removed. |
 | `vouchers.nextNumber` | vouchers.view | `{ voucherTypeId, date }` | `string` (`''` for manual / none) |
 | `vouchers.setOptional` | vouchers.alter | `{ id, optional, acknowledgeWarnings? }` | `VoucherSaveResult` (a full alter: guards run when becoming regular) |
 | `vouchers.trackingRefs` | vouchers.view | `{ partyLedgerId, kind: 'delivery' \| 'receipt' \| 'sales_order' \| 'purchase_order', excludeVoucherId? }` | `TrackingDoc[]`: open notes/orders with lines and `pendingQty` |
 
 ### Save errors
-- **Unconfirmed warnings:** `BUSINESS_RULE` with `details: { needsConfirmation: true, warnings }`. Resubmit with `acknowledgeWarnings: true` after the user confirms.
+Every warning has a `level` (§8): `info` never stops a save, `confirm` needs `acknowledgeWarnings`, `block` can never be saved (`blocking` is true exactly for `block`).
+- **Unconfirmed material warnings:** `BUSINESS_RULE` with `details: { needsConfirmation: true, warnings }` when at least one `confirm` warning exists and `acknowledgeWarnings` is not set. Resubmit with `acknowledgeWarnings: true` after the user confirms. `warnings` lists every warning (info ones too, for display); the message names the `confirm` ones.
 - **Blocking rule or `block` guard:** `BUSINESS_RULE` with `details: { warnings }` and no `needsConfirmation`. The message is the first blocking warning.
+- **Field-specific hard errors:** `VALIDATION` with `details: FieldIssue[]` (`{ path, message }`, path in `VoucherInput` notation such as `items[2].batchName`, `ledgers[1].ledgerId`, `partyLedgerId`, `mode`, `date`, `number`), exactly like schema errors, so the entry screen highlights the field. See §8 › Hard errors.
 - **Others:**
   - `LOCKED` (period lock: old **and** new date on alter, plus delete and cancel)
   - `FORBIDDEN` (alter, backdate, delete)
-  - `CONFLICT` (stale `expectedUpdatedAt`, duplicate number)
-  - `NOT_FOUND`
-  - `VALIDATION` (schema)
+  - `CONFLICT` (stale `expectedUpdatedAt`; duplicate number — `details: [{ path: 'number', message }]`; number taken in the period of a new date — `path: 'date'`)
+  - `BUSINESS_RULE` without warnings: alter would orphan a dependent document (§4 › Alter safety), cancelled voucher, generated IRN
+  - `NOT_FOUND` (the voucher itself)
 
 ---
 
@@ -95,7 +97,10 @@ All routes are company scope. Types are in `shared/types/vouchers.ts`.
   - A discount line (negative amount) becomes a Dr.
 - **Purchase:** exact mirror with **Input** tax ledgers. Party Cr.
 - **Credit Note:** mirrors Sales (party Cr; sales Dr; Output tax Dr). Stock comes **in**.
+  - With a **supplier** (Sundry Creditors) party in invoice modes it is refused (`VALIDATION` on `partyLedgerId`): a Credit Note credits the party, so it would post Output tax against a supplier and report a credit note we never issued. A credit note received from a supplier, or a purchase return, is a Debit Note; a supplier's debit note (higher price) is a Purchase. Ledger mode is unaffected.
 - **Debit Note:** mirrors Purchase (party Dr; purchase Cr; Input tax Cr). Stock goes **out**.
+  - With a **customer** (Sundry Debtors) party it is an outward supplementary invoice / upward price revision: party Dr; **Sales** ledger Cr (the reserved Sales ledger when the type's default is a purchase ledger); **Output** tax Cr; `gst_nature` outward (b2b, b2cs, …; reported in GSTR-1 as a debit note); e-invoice `irn_status = 'pending'` like a sales invoice. Stock still goes out.
+  - The party sign always follows the base type; the tax ledgers and `gst_nature` follow this GST direction (`PartyContext.gstDirection`).
 - **Inward reverse charge** (voucher `reverseCharge`, ledger `is_reverse_charge`, import of services, RCM from an unregistered supplier):
   - The party gets taxable + charges only.
   - Post Dr Input tax / Cr `RCM_*` liability (the "… Payable (Reverse Charge)" ledgers).
@@ -129,7 +134,7 @@ All routes are company scope. Types are in `shared/types/vouchers.ts`.
    Its profile comes from §6. A not-applicable ledger becomes a `non_gst` line.
 4. Otherwise it is a **non-GST charge outside the computation**: added after tax, with no gst_line. Examples are TCS and a non-GST discount.
 
-Round-off (F12 › roundOff) applies to the whole invoice value including such charges. B2CL vs B2CS uses that final value against `config.gst.b2clThresholdPaise`.
+Round-off (F12 › roundOff) applies to the whole invoice value including such charges. B2CL vs B2CS uses that final value against the B2CL threshold: `config.gst.b2clThresholdPaise` when it was changed from the default ₹1,00,000, otherwise the statutory threshold for the invoice date (₹2,50,000 before 1-Aug-2024, ₹1,00,000 from then on).
 
 `VoucherPreview.computation.totals.{invoiceValueBeforeRound, roundOff, grandTotal, payableToParty}` are the voucher's figures.
 
@@ -140,7 +145,7 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 | out (−) | sales, debit_note, delivery_note, rejection_out, sales_order (`affects_stock = 0`) |
 | in (+) | purchase, credit_note, receipt_note, rejection_in, purchase_order (`affects_stock = 0`) |
 | per line | stock_journal: `isConsumption` → out, else in |
-| per line | physical_stock: qty = **counted − book qty** at that date / godown / batch. The counted qty stays in `input` (meta). |
+| per line | physical_stock: qty = **counted − book qty** at that date / godown / batch. Lines counting the same item / godown / batch are added up: the first carries counted − book, later ones their counted qty (net = Σ counted − book). The counted qty stays in `input` (meta). |
 
 **`affects_stock = 0`** when any of these holds:
 - the voucher is optional;
@@ -159,8 +164,8 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 - Delivery notes, receipt notes and rejections store their **own number** in `tracking_ref`. Orders store theirs in `order_ref`.
 - An invoice line with `trackingRef = <note number>` bills that note. A line with `orderRef` fulfils that order.
 - Pairing: sales ↔ delivery_note, purchase ↔ receipt_note, credit_note ↔ rejection_in, debit_note ↔ rejection_out.
-- An unknown tracking reference raises a `tracking_ref` warning.
-- A billed note cannot be deleted or cancelled.
+- `tracking_ref` warning (confirm) when the line's stock would never move: no such note of this party with the item; the note is optional (it moved no stock); or the line bills more than the note has left (note qty − qty billed by other regular invoices − earlier lines of this voucher with the same reference).
+- A billed note cannot be deleted or cancelled, and an alter must keep its number, party, billed items and regular status (§4).
 
 ---
 
@@ -178,7 +183,7 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
   - Inventory: Σ line values (stock journal: the production side).
 - **`taxable_amount` / `tax_amount`:** from the computation (tax includes reverse-charge tax). `round_off`.
 - **`gst_nature`:** GST documents in a GST company only.
-- **`irn_status = 'pending'`:** when the e-invoice feature is on and a sales/credit note with nature b2b / export / sez / deemed_export is in the books. A `generated` IRN blocks alter and delete (cancel is allowed).
+- **`irn_status = 'pending'`:** when the e-invoice feature is on and a sales invoice, credit note or debit note to a customer with nature b2b / export / sez / deemed_export is in the books. A `generated` IRN blocks alter and delete (cancel is allowed).
 - **JSON columns:** `consignee`, `dispatch`, `order_details` and `export_details` hold the input objects. `export_details` also gets `lut: !withPayment`.
 - **`meta`:** `{ v: 1, input: <normalised VoucherInput>, createdByName, updatedByName, cancelled?: { reason, at, by, byName, snapshot } }`.
 
@@ -186,7 +191,11 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 - **Tables:** `ledger_entries`, `bill_allocations`, `cost_allocations`, `inventory_entries`, `gst_lines`.
 - **Rewritten on every save:** delete + insert inside the save transaction. The voucher id and guid are kept.
 - **Denormalised from the voucher:** `date`, `affects_books` (or `affects_stock`) and `is_post_dated`.
-- **Bank reconciliation:** an alter keeps `ledger_entries.bank_date` and `bank_statement_lines.matched_entry_id` for entries whose ledger and amount are unchanged; other matches become `unmatched`. Delete and cancel unmatch.
+- **Bank reconciliation:** an alter keeps `ledger_entries.bank_date` and `bank_statement_lines.matched_entry_id` for entries whose ledger and amount are unchanged; other matches become `unmatched`. An alter that takes the voucher out of the books (made optional) keeps bank dates but unmatches its statement lines. Delete and cancel unmatch.
+
+**Alter safety** (`BUSINESS_RULE`, nothing written):
+- A bill this voucher created (`new`/`advance`) that another voucher settles (`against`) must still be created with the same name, on the same ledger, by a voucher that stays in the books (no party change, no rename, not optional).
+- A delivery/receipt note or rejection already billed by an invoice must keep its number, party and the billed items, and stay regular. Quantities and other lines may change.
 
 **Books filter** for every child table: `affects_books = 1 AND (is_post_dated = 0 OR date <= :today)`. For stock: `affects_stock = 1 AND (is_post_dated = 0 OR date <= :today)`.
 
@@ -212,7 +221,7 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 
 **Delete** removes the voucher; children cascade.
 
-**Both** are refused when another voucher settles ('against') a bill this voucher created, or when this note has been billed. Both are audited, and so is every create/alter, with compact before/after snapshots: `{type, number, date, party, amount, taxable, tax, narration, optional, postDated, cancelled, entries: [[ledgerId, amount]], items: [[itemId, qty, amount]]}`.
+**Both** are refused when another voucher settles ('against') a bill this voucher created, or when this note has been billed. Both are audited, and so is every create/alter, with compact before/after snapshots: `{type, number, date, party, partyLedgerId, reference, gstNature, amount, taxable, tax, narration, optional, postDated, cancelled, entries: [[ledgerId, amount]], items: [[itemId, qty, amount]]}`.
 
 ---
 
@@ -224,7 +233,7 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 
 **Defaults when none are given:**
 - **Party of sales / purchase / credit note / debit note** (also in ledger mode):
-  - a `new` reference named after the voucher number (purchase: `referenceNo`, else the number);
+  - a `new` reference named after the voucher number (purchase: `referenceNo`, else the number). When another voucher or an opening bill of the same ledger already uses that name (Sales 1 vs Credit Note 1, the same number in the next year of a yearly series, a supplier reusing an invoice number next year), the financial year is appended — `1/2026-27` (then `1/2026-27-2`, …) — so two documents are never netted into one bill. An altered voucher keeps the name it already has;
   - `credit_days` = the ledger's `default_credit_days`, due date = date + days.
 - **Credit/debit note whose `originalInvoiceNo` is a pending bill of opposite sign:** `against` that bill for min(amount, pending). Any remainder becomes a `new` reference named after the note's number.
 - **Voucher without a number:** `on_account`.
@@ -282,51 +291,59 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 
 ---
 
-## 8. Warnings (`VoucherWarning { code, message, blocking, path? }`)
+## 8. Warnings (`VoucherWarning { code, message, blocking, level, path? }`)
 
-| Code | Blocking | When |
+`level`: **info** — shown (preview, save result, error details) but never stops or delays a save; **confirm** — material: save fails with `needsConfirmation` until resubmitted with `acknowledgeWarnings: true`; **block** — cannot be saved (`blocking: true`). `path` points at the input (`items[2]`, `items[0].trackingRef`, `ledgers[1].ledgerId`, `partyLedgerId`, `referenceNo`, `number`, `exportDetails.withPayment`, …) when known.
+
+| Code | Level | When |
 |---|---|---|
-| `negative_stock` | per F12 guard (warn → no, block → yes) | item + godown closing qty as of the voucher date < 0 |
+| `negative_stock` | per F12 guard (warn → confirm, block → block) | item + godown (+ batch for a batch line) closing qty as of the voucher date < 0; path `items[i]` |
 | `negative_cash` | per guard | a Cash-in-Hand ledger's balance as of the date < 0 |
 | `credit_limit` | per guard | party balance after the voucher > `credit_limit` (only when the voucher increases the Dr balance) |
 | `duplicate_reference` | per guard | purchase: same party + reference no. (case-insensitive) in the same FY |
-| `gst_missing_gstin` | no | registered party (regular / composition / sez / uin / deemed export) without a GSTIN |
-| `gst_missing_hsn` | no | B2B / export / SEZ / deemed-export line without HSN/SAC |
-| `gst_missing_rate` | no | no GST rate found (taxed at 0%) |
-| `gst` | no | any other GST engine warning (GSTIN checksum or state mismatch, retired slab, …) |
-| `gst_ledger_lines` | no | GST ledgers used in a ledger-mode sales/purchase/note (not reported in returns) |
-| `supplier_invoice_required` | **yes** | purchase from a registered supplier without `referenceNo` |
-| `unbalanced` | **yes** | ledger mode Σ ≠ 0: "Voucher is not balanced: Dr ₹ X ≠ Cr ₹ Y (difference ₹ Z Dr/Cr)" |
-| `cash_bank_required` | **yes** | Payment without a Cr to cash/bank, or Receipt without a Dr to cash/bank |
-| `contra_ledger` | **yes** | Contra line not Cash/Bank/Bank OD |
-| `journal_cash_bank` | **yes** | Journal touching Cash/Bank (as Tally does by default) |
-| `zero_value` | **yes** | no non-zero entries (unless the type allows zero value) |
-| `bill_mismatch` / `bill_name_required` / `bill_not_found` | **yes** | bill-wise rules (§5) |
-| `bill_over_settled` / `duplicate_bill_ref` | no | bill-wise rules (§5) |
-| `cost_mismatch` | **yes** | cost-centre rules (§5) |
-| `tracking_ref` | no | an invoice line's trackingRef matches no note of this party with that item |
-| `period_locked` | **yes** | preview only (save throws `LOCKED`) |
+| `gst_missing_gstin` | confirm | registered party (regular / composition / sez / uin / deemed export) without a GSTIN |
+| `gst_missing_hsn` | confirm on B2B / export / SEZ / deemed-export lines; info on other outward lines (needed for the GSTR-1 HSN summary) | line without HSN/SAC |
+| `gst_missing_rate` | confirm | no GST rate found (taxed at 0%) |
+| `gst` | confirm, or info for presentation notes | any other GST engine warning. **info:** non-standard rate, slab merged on 22-Sep-2025, unit not a GST UQC, tax-inclusive rate ignored, apportionment notes, supply type defaulted, amount rounded to paise. **confirm:** everything else (invalid GSTIN, GSTIN registered in another state, GSTIN on an unregistered party, unknown state / place of supply, composition inter-state goods, 0% on a taxable line, negative taxable value, invalid numbers or rates, …) |
+| `gst_lut` | confirm | export / SEZ supply under LUT (`withPayment` not set) with tax-bearing lines and no LUT in F12 › GST valid on the date (`lutNumber`, `lutValidFrom` ≤ date ≤ `lutValidTo`) |
+| `gst_invoice_number` | confirm | outward GST document (sales, credit note, debit note to a customer) whose number is over 16 characters or has characters other than letters, digits, `-` and `/` (CGST Rule 46; e-invoices are rejected) |
+| `gst_ledger_lines` | confirm | GST ledgers used in a ledger-mode sales/purchase/note (tax in the books that the returns will not show) |
+| `supplier_invoice_required` | block | purchase from a registered supplier without `referenceNo` |
+| `unbalanced` | block | ledger mode Σ ≠ 0: "Voucher is not balanced: Dr ₹ X ≠ Cr ₹ Y (difference ₹ Z Dr/Cr)" |
+| `cash_bank_required` | block | Payment without a Cr to cash/bank, or Receipt without a Dr to cash/bank |
+| `contra_ledger` | block | Contra line not Cash/Bank/Bank OD |
+| `journal_cash_bank` | block | Journal touching Cash/Bank (as Tally does by default) |
+| `zero_value` | block | no non-zero entries (unless the type allows zero value) |
+| `bill_mismatch` / `bill_name_required` / `bill_not_found` | block | bill-wise rules (§5) |
+| `bill_over_settled` / `duplicate_bill_ref` | confirm | bill-wise rules (§5) |
+| `cost_mismatch` | block | cost-centre rules (§5) |
+| `tracking_ref` | confirm | an invoice line's stock would never move (§3 › Tracking) |
+| `period_locked` | block | preview only (save throws `LOCKED`) |
 
 Guards are skipped for optional vouchers. The voucher being altered is always excluded from balances, stock and pending bills.
 
-**Hard errors (thrown, never warnings):**
-- inactive voucher type, ledger or item on create;
-- wrong mode;
-- missing party;
-- date before books beginning;
-- GST ledger used on an invoice;
-- missing batch;
-- unknown master, price level, godown or cost centre.
+**Hard errors (thrown, never warnings)** — `VALIDATION` with the field path:
+- inactive voucher type (`voucherTypeId`), ledger (`partyLedgerId`, `ledgers[i].ledgerId`, `items[i].ledgerId`) or item (`items[i].itemId`) on create;
+- a master that no longer exists: party, ledger, stock item, godown (`items[i].godownId`), cost centre (`ledgers[i].costAllocations[j].costCentreId`), price level (`priceLevelId`);
+- wrong mode, or inventory turned off (`mode`); stock items in a ledger/accounting voucher (`items`); ledger lines in an inventory voucher (`ledgers`);
+- missing party, or a Credit Note to a supplier (`partyLedgerId`);
+- date before books beginning (`date`);
+- no item lines / no income-expense line (`items` / `ledgers`); no sales/purchase ledger for an item line (`items[i].ledgerId`);
+- GST ledger, or the party itself, used as an invoice line (`ledgers[i].ledgerId`);
+- missing batch (`items[i].batchName`);
+- manual number missing (`number`); changing the voucher type of a saved voucher (`voucherTypeId`).
 
 ---
 
 ## 9. Known gaps
 
-- Ledger-mode GST entries produce no `gst_lines`. GST must be entered in invoice mode to reach the returns.
+- Ledger-mode GST entries produce no `gst_lines` (the `gst_ledger_lines` warning needs confirmation). GST must be entered in invoice mode to reach the returns.
 - Import of goods: IGST is not posted (no customs/IGST-paid ledger is reserved); record the bill of entry as a journal.
 - TDS/TCS computation is not automatic. A TCS/TDS ledger can be added as a non-GST line.
 - Multi-currency (`forex_amount`, `exchange_rate`) is not handled.
-- Negative-stock checks are per item + godown (not per batch) and only as of the voucher date. Later-dated vouchers are not re-checked.
-- Default bill names are voucher numbers. Different series (Sales `1`, Credit Note `1`) or years with a yearly restart can produce the same bill name for a party. Pending bills are then netted together and a `duplicate_bill_ref` warning is raised when the earlier bill is still open. Use prefixes/suffixes (e.g. `INV/`, `CN/`, `/26-27`) to keep bill names unique.
+- Negative-stock checks are only as of the voucher date (per item + godown, and per batch for batch lines). Later-dated vouchers are not re-checked.
+- Bill names typed by the user are taken as given: a `new` reference reusing a pending bill's name is netted with it (`duplicate_bill_ref`, confirm).
 - `vouchers.trackingRefs` matches by party + number. With yearly restart, two notes of the same party with the same number in different years share a reference.
+- `ledgers.gst_nature_override` (set in the ledger master) is not applied by the engine: the nature always comes from the computation.
+- Cost-centre allocation is only possible on ledger lines, not on the sales/purchase ledger of item lines.
 - Stock valuation (closing stock) is the stock/reports modules' job. `inventory_entries.amount` is the input to it.

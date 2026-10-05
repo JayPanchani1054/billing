@@ -136,6 +136,16 @@ export function throwsApp(fn: () => unknown, code: string, re?: RegExp): AppErro
   return err;
 }
 
+/** Assert fn throws a field-specific VALIDATION error for `path` (message matching `re`). */
+export function throwsField(fn: () => unknown, path: string, re?: RegExp): AppError {
+  const err = throwsApp(fn, 'VALIDATION', re);
+  const issues = err.details as Array<{ path: string; message: string }>;
+  assert.ok(Array.isArray(issues), 'VALIDATION details must be FieldIssue[]');
+  assert.deepEqual(issues.map((i) => i.path), [path]);
+  assert.equal(issues[0].message, err.message);
+  return err;
+}
+
 export function ruleDetails(err: AppError): VoucherRuleErrorDetails {
   return err.details as VoucherRuleErrorDetails;
 }

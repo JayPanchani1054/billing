@@ -14,7 +14,7 @@ import {
   type VoucherBaseType,
 } from '../../../shared/constants.ts';
 import { addDays, financialYear, formatDate } from '../../../shared/dates.ts';
-import { formatMoney } from '../../../shared/format.ts';
+import { formatMoney, formatQty } from '../../../shared/format.ts';
 import { b2clThresholdOn, computeInvoice, isRegisteredParty, REGISTRATION_TYPES } from '../../../shared/gst/index.ts';
 import { allocate, lineAmount, roundTo, roundToUnit, type Paise } from '../../../shared/money.ts';
 import type { CompanyConfig, CompanyFeatures } from '../../../shared/settings.ts';
@@ -953,7 +953,7 @@ class PostingBuilder {
     const batches = this.env.features.batches && item.maintain_batches === 1;
     const batchName = batches ? (txt(it.batchName) ?? null) : null;
     if (batches && !batchName && item.is_service !== 1) {
-      throw rule(`Line ${index + 1} (${item.name}): enter the batch — this item maintains batches.`);
+      throw fieldError(`items[${index}].batchName`, `Line ${index + 1} (${item.name}): enter the batch — this item maintains batches.`);
     }
     return {
       godownId,
@@ -971,10 +971,13 @@ class PostingBuilder {
     const lines: Array<{ L: LedgerInfo; index: number }> = [];
     ledgers.forEach((ll, i) => {
       const L = masters.ledger(ll.ledgerId);
-      this.activeCheck('Ledger', L.name, L.row.is_active === 1);
+      this.activeCheck('Ledger', L.name, L.row.is_active === 1, `ledgers[${i}].ledgerId`);
       if (ll.amount === 0) return;
       lines.push({ L, index: i });
     });
+    if (this.party && this.input.partyLedgerId !== undefined) {
+      this.activeCheck('Ledger', this.party.name, this.party.row.is_active === 1, 'partyLedgerId');
+    }
 
     // Party: explicit, else inferred (payment: first debited non-cash ledger; receipt: first credited one;
     // invoice-type vouchers: first debtor/creditor line).
@@ -1018,17 +1021,23 @@ class PostingBuilder {
     const cashBankDr = this.entries.some((e) => e.amount > 0 && masters.ledger(e.ledgerId).isCashBank);
     const cashBankCr = this.entries.some((e) => e.amount < 0 && masters.ledger(e.ledgerId).isCashBank);
     if (this.entries.length > 0) {
+      const pathOf = (e: PlanEntry): string | undefined => (e.source.kind === 'ledger' ? `ledgers[${e.source.index}].ledgerId` : undefined);
       if (base === 'payment' && !cashBankCr) {
-        this.warn('cash_bank_required', `A ${name} voucher must credit at least one Cash or Bank ledger (the account the money is paid from).`, true);
+        this.warn('cash_bank_required', `A ${name} voucher must credit at least one Cash or Bank ledger (the account the money is paid from).`, 'block', 'ledgers');
       }
       if (base === 'receipt' && !cashBankDr) {
-        this.warn('cash_bank_required', `A ${name} voucher must debit at least one Cash or Bank ledger (the account the money is received into).`, true);
+        this.warn('cash_bank_required', `A ${name} voucher must debit at least one Cash or Bank ledger (the account the money is received into).`, 'block', 'ledgers');
       }
       if (base === 'contra') {
         for (const e of this.entries) {
           const L = masters.ledger(e.ledgerId);
           if (!L.isCashBank) {
-            this.warn('contra_ledger', `${L.name} is not a Cash or Bank ledger. A Contra voucher can only move money between Cash, Bank and Bank OD accounts.`, true);
+            this.warn(
+              'contra_ledger',
+              `${L.name} is not a Cash or Bank ledger. A Contra voucher can only move money between Cash, Bank and Bank OD accounts.`,
+              'block',
+              pathOf(e),
+            );
           }
         }
       }
@@ -1039,15 +1048,20 @@ class PostingBuilder {
             this.warn(
               'journal_cash_bank',
               `${L.name} is a Cash/Bank ledger and cannot be used in a Journal. Use a Payment, Receipt or Contra voucher instead.`,
-              true,
+              'block',
+              pathOf(e),
             );
           }
         }
       }
-      if (this.gstOn && GST_BASE_TYPES.includes(base) && this.entries.some((e) => masters.ledger(e.ledgerId).isGstDuty)) {
+      // Material: tax in the books that GSTR-1/3B will not show (no gst_lines in ledger mode).
+      const gstLine = this.entries.find((e) => masters.ledger(e.ledgerId).isGstDuty);
+      if (this.gstOn && GST_BASE_TYPES.includes(base) && gstLine) {
         this.warn(
           'gst_ledger_lines',
           'GST entered as plain ledger lines is not reported in GST returns. Use item or accounting invoice mode to record GST details.',
+          'confirm',
+          pathOf(gstLine),
         );
       }
     }
@@ -1058,26 +1072,34 @@ class PostingBuilder {
   private buildInventoryMode(): void {
     const { input, masters, base } = this;
     const items = input.items ?? [];
-    if (items.length === 0) throw rule('Enter at least one stock item line.');
-    if (this.party) this.activeCheck('Ledger', this.party.name, this.party.row.is_active === 1);
+    if (items.length === 0) throw fieldError('items', 'Enter at least one stock item line.');
+    if (this.party) this.activeCheck('Ledger', this.party.name, this.party.row.is_active === 1, 'partyLedgerId');
     const dir = STOCK_DIRECTION[base];
+    // Physical stock: lines counting the same item / godown / batch are added up (counted in two racks):
+    // the first such line carries counted − book, later ones their counted quantity, so the voucher's
+    // net movement is Σ counted − book.
+    const counted = new Set<string>();
     items.forEach((it, i) => {
       const item = masters.item(it.itemId);
-      this.activeCheck('Stock item', item.name, item.is_active === 1);
+      this.activeCheck('Stock item', item.name, item.is_active === 1, `items[${i}].itemId`);
       const loc = this.locate(it, item, i);
       const rate = it.rate ?? 0;
       let qty: number;
       let amount: Paise;
       if (base === 'physical_stock') {
-        const book = stockQtyAsOf(this.db, {
-          itemId: item.id,
-          godownId: loc.godownId,
-          batchName: loc.batchName,
-          date: this.date,
-          today: this.env.today,
-          excludeVoucherId: this.opts.voucherId,
-          byBatch: loc.batchName !== null,
-        });
+        const key = `${item.id}|${loc.godownId}|${loc.batchName ?? ''}`;
+        const book = counted.has(key)
+          ? 0
+          : stockQtyAsOf(this.db, {
+              itemId: item.id,
+              godownId: loc.godownId,
+              batchName: loc.batchName,
+              date: this.date,
+              today: this.env.today,
+              excludeVoucherId: this.opts.voucherId,
+              byBatch: loc.batchName !== null,
+            });
+        counted.add(key);
         qty = roundTo(it.qty - book, 6);
         amount = it.amount ?? lineAmount(Math.abs(qty), rate, 0);
       } else {
@@ -1086,7 +1108,6 @@ class PostingBuilder {
         amount = it.amount ?? lineAmount(it.qty, rate, it.discountPct ?? 0);
       }
       const ledgerId = it.ledgerId ?? null;
-      if (ledgerId !== null) masters.ledger(ledgerId);
       const trackingRef = NOTE_TYPES.has(base) ? this.opts.number : null;
       const orderRef = ORDER_TYPES.has(base) ? this.opts.number : (txt(it.orderRef) ?? null);
       this.inventory.push({
@@ -1144,7 +1165,7 @@ class PostingBuilder {
         for (const a of provided) {
           const name = txt(a.billName);
           if (a.refType !== 'on_account' && !name) {
-            this.warn('bill_name_required', `Enter the bill name for each ${a.refType === 'new' ? 'new reference' : a.refType === 'against' ? 'against reference' : 'advance'} of ${L.name}.`, true, path);
+            this.warn('bill_name_required', `Enter the bill name for each ${a.refType === 'new' ? 'new reference' : a.refType === 'against' ? 'against reference' : 'advance'} of ${L.name}.`, 'block', path);
             continue;
           }
           sum += a.amount;
@@ -1159,7 +1180,7 @@ class PostingBuilder {
           });
         }
         if (sum !== abs) {
-          this.warn('bill_mismatch', `Bill-wise details of ${L.name} total ${money(sum)} but its amount is ${money(abs)}.`, true, path);
+          this.warn('bill_mismatch', `Bill-wise details of ${L.name} total ${money(sum)} but its amount is ${money(abs)}.`, 'block', path);
         }
       } else {
         const partyLine = e.source.kind === 'party' || (this.mode === 'ledger' && isInvoiceBase && (!this.party || this.party.id === L.id));
@@ -1175,7 +1196,8 @@ class PostingBuilder {
           }
           if (remaining > 0) {
             if (newName) {
-              e.bills.push({ refType: 'new', billName: newName, amount: sign * remaining, creditDays: creditDaysDefault, dueDate: dueFor(creditDaysDefault) });
+              const billName = this.defaultBillName(L.id, newName);
+              e.bills.push({ refType: 'new', billName, amount: sign * remaining, creditDays: creditDaysDefault, dueDate: dueFor(creditDaysDefault) });
             } else {
               e.bills.push({ refType: 'on_account', billName: null, amount: sign * remaining, creditDays: null, dueDate: null });
             }
@@ -1192,7 +1214,7 @@ class PostingBuilder {
         const pend = this.pending.forLedger(L.id).get(b.billName);
         if (b.refType === 'against') {
           if (!pend) {
-            this.warn('bill_not_found', `Bill ${b.billName} is not pending for ${L.name} on ${formatDate(this.date)}.`, true, path);
+            this.warn('bill_not_found', `Bill ${b.billName} is not pending for ${L.name} on ${formatDate(this.date)}.`, 'block', path);
             continue;
           }
           const total = (used.get(b.billName) ?? 0) + b.amount;
@@ -1201,7 +1223,7 @@ class PostingBuilder {
             this.warn(
               'bill_over_settled',
               `Bill ${b.billName} of ${L.name} has ${money(Math.abs(pend.amount))} pending, but ${money(Math.abs(total))} is allocated against it.`,
-              false,
+              'confirm',
               path,
             );
           }
@@ -1209,12 +1231,48 @@ class PostingBuilder {
           this.warn(
             'duplicate_bill_ref',
             `${L.name} already has a pending bill named ${b.billName}; the amounts will be combined in outstanding reports.`,
-            false,
+            'confirm',
             path,
           );
         }
       }
     }
+  }
+
+  /**
+   * Default name of the bill a voucher creates: its number (purchase: the supplier invoice no.). When
+   * another voucher (or an opening bill) of this ledger already uses that name — the same number in
+   * another series (Sales 1 vs Credit Note 1) or another year of a yearly series, or a supplier reusing
+   * an invoice number next year — the financial year is appended ('1/2026-27'), so two documents are
+   * never netted into one bill. An altered voucher keeps the name it already has.
+   */
+  private defaultBillName(ledgerId: number, base: string): string {
+    const fy = financialYear(this.date, this.env.company.fyStartMonth).label;
+    const candidates = [base, `${base}/${fy}`];
+    for (let n = 2; n <= 20; n++) candidates.push(`${base}/${fy}-${n}`);
+    const self = this.opts.voucherId ?? 0;
+    const own = new Set(
+      self === 0
+        ? []
+        : this.db
+            .all<{ bill_name: string }>(
+              `SELECT DISTINCT bill_name FROM bill_allocations
+                WHERE voucher_id = :self AND ledger_id = :ledgerId AND ref_type IN ('new', 'advance') AND bill_name IS NOT NULL`,
+              { self, ledgerId },
+            )
+            .map((r) => r.bill_name),
+    );
+    const kept = candidates.find((c) => own.has(c));
+    if (kept) return kept;
+    const used = (name: string): boolean =>
+      this.db.value(
+        `SELECT 1 FROM bill_allocations WHERE ledger_id = :ledgerId AND bill_name = :name AND voucher_id <> :self
+         UNION ALL
+         SELECT 1 FROM opening_bills WHERE ledger_id = :ledgerId AND bill_name = :name
+         LIMIT 1`,
+        { ledgerId, name, self },
+      ) !== undefined;
+    return candidates.find((c) => !used(c)) ?? base;
   }
 
   // ── Cost centres ──
@@ -1230,9 +1288,6 @@ class PostingBuilder {
       const provided = line?.costAllocations ?? [];
       if (provided.length === 0) continue;
       const path = `ledgers[${e.source.index}].costAllocations`;
-      for (const c of provided) {
-        if (this.masters.costCentreName(c.costCentreId) === null) throw rule(`Cost centre ${c.costCentreId} does not exist.`);
-      }
       const sum = provided.reduce((a, c) => a + c.amount, 0);
       const abs = Math.abs(e.amount);
       const sign = signOf(e.amount);
@@ -1240,7 +1295,7 @@ class PostingBuilder {
       if (sum === abs) amounts = provided.map((c) => c.amount);
       else if (sum === Math.abs(line.amount) && sum > 0) amounts = allocate(abs, provided.map((c) => c.amount)); // tax capitalised into the line
       else {
-        this.warn('cost_mismatch', `Cost centre allocations of ${L.name} total ${money(sum)} but its amount is ${money(abs)}.`, true, path);
+        this.warn('cost_mismatch', `Cost centre allocations of ${L.name} total ${money(sum)} but its amount is ${money(abs)}.`, 'block', path);
         continue;
       }
       provided.forEach((c, k) => {
@@ -1257,7 +1312,7 @@ class PostingBuilder {
     const cr = this.entries.reduce((a, e) => a + (e.amount < 0 ? -e.amount : 0), 0);
     if (this.entries.length === 0) {
       if (!this.vt.allowZeroValue) {
-        this.warn('zero_value', 'Enter an amount: a voucher with no value cannot be saved.', true);
+        this.warn('zero_value', 'Enter an amount: a voucher with no value cannot be saved.', 'block');
       }
       return;
     }
@@ -1270,33 +1325,77 @@ class PostingBuilder {
       this.warn(
         'unbalanced',
         `Voucher is not balanced: Dr ${money(dr)} ≠ Cr ${money(cr)} (difference ${money(Math.abs(diff))} ${diff > 0 ? 'Dr' : 'Cr'}).`,
-        true,
+        'block',
+        'ledgers',
       );
     }
   }
 
   // ── Tracking references ──
 
+  /**
+   * Invoice lines tracked against a delivery/receipt note (or rejection) do not move stock: the note did.
+   * So the reference must name a regular (non-optional, non-cancelled) note of this party with the item,
+   * and the line must not bill more than the note still has pending — otherwise that stock never moves.
+   */
   private checkTrackingRefs(): void {
     const noteBase = TRACKING_NOTE_FOR[this.base];
     if (!noteBase || !this.party) return;
+    const party = this.party;
     const items = this.input.items ?? [];
+    const billedHere = new Map<string, number>();
+    const noteLabel = noteBase.replace('_', ' ');
     items.forEach((it, i) => {
       const ref = txt(it.trackingRef);
       if (!ref) return;
-      const found = this.db.value(
-        `SELECT 1 FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
+      const item = this.masters.item(it.itemId);
+      if (item.is_service === 1) return;
+      const path = `items[${i}].trackingRef`;
+      const dp = Math.max(0, Math.min(6, item.unit_decimals));
+      const q = (n: number): string => formatQty(n, dp, item.unit_symbol);
+      const note = this.db.get<{ n: number; regular: number }>(
+        `SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN v.is_optional = 0 THEN ABS(ie.qty) ELSE 0 END), 0) AS regular
+           FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
           WHERE ie.tracking_ref = :ref AND ie.item_id = :item AND v.base_type = :note AND v.party_ledger_id = :party
-            AND v.is_cancelled = 0 AND v.id <> :self LIMIT 1`,
-        { ref, item: it.itemId, note: noteBase, party: (this.party as LedgerInfo).id, self: this.opts.voucherId ?? 0 },
-      );
-      if (found === undefined) {
-        const item = this.masters.item(it.itemId);
+            AND v.is_cancelled = 0 AND v.id <> :self`,
+        { ref, item: it.itemId, note: noteBase, party: party.id, self: this.opts.voucherId ?? 0 },
+      ) ?? { n: 0, regular: 0 };
+      if (note.n === 0) {
         this.warn(
           'tracking_ref',
-          `Line ${i + 1} (${item.name}): no ${noteBase.replace('_', ' ')} ${ref} with this item was found for ${(this.party as LedgerInfo).name}. This line will not change stock.`,
-          false,
-          `items[${i}]`,
+          `Line ${i + 1} (${item.name}): no ${noteLabel} ${ref} with this item was found for ${party.name}. This line will not change stock.`,
+          'confirm',
+          path,
+        );
+        return;
+      }
+      if (note.regular === 0) {
+        this.warn(
+          'tracking_ref',
+          `Line ${i + 1} (${item.name}): ${noteLabel} ${ref} is optional, so it has not moved any stock. Make it regular, or remove the tracking reference; this line will not change stock.`,
+          'confirm',
+          path,
+        );
+        return;
+      }
+      const key = `${ref}|${it.itemId}`;
+      const billedElsewhere =
+        this.db.value<number>(
+          `SELECT COALESCE(SUM(ABS(ie.qty)), 0) FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
+            WHERE ie.tracking_ref = :ref AND ie.item_id = :item AND v.base_type = :base AND v.party_ledger_id = :party
+              AND v.is_cancelled = 0 AND v.is_optional = 0 AND v.id <> :self`,
+          { ref, item: it.itemId, base: this.base, party: party.id, self: this.opts.voucherId ?? 0 },
+        ) ?? 0;
+      const pending = roundTo(Number(note.regular) - Number(billedElsewhere) - (billedHere.get(key) ?? 0), 6);
+      billedHere.set(key, (billedHere.get(key) ?? 0) + it.qty);
+      const excess = roundTo(it.qty - Math.max(0, pending), 6);
+      if (excess > 0) {
+        this.warn(
+          'tracking_ref',
+          `Line ${i + 1} (${item.name}): ${noteLabel} ${ref} has ${q(Math.max(0, pending))} left to bill, so ${q(excess)} of this line will not change stock. ` +
+            'Enter the extra quantity on a separate line without the tracking reference.',
+          'confirm',
+          path,
         );
       }
     });

@@ -14,7 +14,7 @@ import type { VoucherBaseType } from '../../../shared/constants.ts';
 import { endOfMonth, financialYear, monthKey, startOfMonth } from '../../../shared/dates.ts';
 import type { NumberingMethod, NumberingRestart, VoucherTypeView } from '../../../shared/types/vouchers.ts';
 import type { Db } from '../../db/db.ts';
-import { conflict, notFound, rule } from '../../lib/errors.ts';
+import { conflict, notFound, validation, type AppError } from '../../lib/errors.ts';
 
 interface VoucherTypeRow {
   id: number;
@@ -172,11 +172,14 @@ export function decideNumber(
 ): NumberDecision {
   const typed = args.typed?.trim() || undefined;
   const { existing } = args;
+  // CONFLICT details carry the field path (like VALIDATION issues) so the entry screen can highlight it.
   const check = (number: string): void => {
     if (vt.preventDuplicates && numberTaken(db, vt, number, args.date, args.fyStartMonth, existing?.id ?? null)) {
-      throw conflict(`${vt.name} number ${number} is already used in this period. Enter a different number.`);
+      const message = `${vt.name} number ${number} is already used in this period. Enter a different number.`;
+      throw conflict(message, [{ path: 'number', message }]);
     }
   };
+  const required = (message: string): AppError => validation([{ path: 'number', message }]);
   if (vt.numberingMethod === 'none') return { number: existing?.number ?? null, seq: existing?.seq ?? null, consume: false };
 
   if (existing) {
@@ -185,7 +188,7 @@ export function decideNumber(
       check(typed);
       return { number: typed, seq: parseVoucherSeq(vt, typed), consume: false };
     }
-    if (vt.numberingMethod === 'manual' && !existing.number && !typed) throw rule(`Enter the ${vt.name} number.`);
+    if (vt.numberingMethod === 'manual' && !existing.number && !typed) throw required(`Enter the ${vt.name} number.`);
     // Moving the voucher into another numbering period keeps its number — unless that period already uses it.
     if (
       existing.number &&
@@ -193,13 +196,14 @@ export function decideNumber(
       vt.preventDuplicates &&
       numberTaken(db, vt, existing.number, args.date, args.fyStartMonth, existing.id)
     ) {
-      throw conflict(`${vt.name} number ${existing.number} is already used in the period of the new date. Keep the old date or renumber the voucher.`);
+      const message = `${vt.name} number ${existing.number} is already used in the period of the new date. Keep the old date or renumber the voucher.`;
+      throw conflict(message, [{ path: 'date', message }]);
     }
     return { number: existing.number, seq: existing.seq, consume: false };
   }
 
   if (vt.numberingMethod === 'manual') {
-    if (!typed) throw rule(`Enter the ${vt.name} number (this voucher type is numbered manually).`);
+    if (!typed) throw required(`Enter the ${vt.name} number (this voucher type is numbered manually).`);
     check(typed);
     return { number: typed, seq: parseVoucherSeq(vt, typed), consume: false };
   }

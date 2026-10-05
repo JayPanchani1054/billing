@@ -165,7 +165,7 @@ describe('entry context, preview, detail', () => {
     assert.equal(c.mainGodownId, k.t.ids.mainGodownId);
     assert.equal(c.config.roundOff.unit, 100);
     assert.equal(c.features.billWise, true);
-    assert.deepEqual(c.permissions, { canAlter: true, canBackdate: true, canDelete: true });
+    assert.deepEqual(c.permissions, { canCreate: true, canAlter: true, canBackdate: true, canDelete: true });
     const p = await k.t.callOk<VoucherEntryContext>(vouchersRoutes, 'vouchers.entryContext', { voucherTypeId: k.vt.payment, date: k.t.today });
     assert.deepEqual(p.allowedModes, ['ledger']);
     assert.equal(await k.t.callOk<string>(vouchersRoutes, 'vouchers.nextNumber', { voucherTypeId: k.vt.payment, date: k.t.today }), '1');

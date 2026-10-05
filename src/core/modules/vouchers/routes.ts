@@ -203,8 +203,10 @@ export const vouchersRoutes = {
     input: VoucherInputSchema,
     handler: (ctx, input) => previewVoucher(ctx, input),
   }),
+  // Create needs vouchers.create, alter needs vouchers.alter (+ vouchers.backdate before today): checked in
+  // saveVoucher, so a custom role that may alter but not create can still alter.
   'vouchers.save': companyRoute({
-    access: 'vouchers.create',
+    access: 'vouchers.view',
     input: VoucherInputSchema,
     handler: (ctx, input) => saveVoucher(ctx, input),
   }),

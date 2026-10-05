@@ -402,7 +402,7 @@ export function listVouchers(db: Db, q: VoucherListInput): VoucherListResult {
 
 // ───────────────────────────── Entry context ─────────────────────────────
 
-const can = (ctx: CompanyCtx, p: 'vouchers.alter' | 'vouchers.backdate' | 'vouchers.delete'): boolean =>
+const can = (ctx: CompanyCtx, p: 'vouchers.create' | 'vouchers.alter' | 'vouchers.backdate' | 'vouchers.delete'): boolean =>
   ctx.session.isOwner || ctx.session.permissions.has(p);
 
 export function entryContext(ctx: CompanyCtx, voucherTypeId: number, date: string): VoucherEntryContext {
@@ -458,7 +458,12 @@ export function entryContext(ctx: CompanyCtx, voucherTypeId: number, date: strin
     },
     defaultLedgerId: cfgDefault ?? ledgerId(outward ? 'SALES' : 'PURCHASE'),
     mainGodownId: masters.mainGodownId(),
-    permissions: { canAlter: can(ctx, 'vouchers.alter'), canBackdate: can(ctx, 'vouchers.backdate'), canDelete: can(ctx, 'vouchers.delete') },
+    permissions: {
+      canCreate: can(ctx, 'vouchers.create'),
+      canAlter: can(ctx, 'vouchers.alter'),
+      canBackdate: can(ctx, 'vouchers.backdate'),
+      canDelete: can(ctx, 'vouchers.delete'),
+    },
   };
 }
 
@@ -480,12 +485,14 @@ export function partyContext(ctx: CompanyCtx, ledgerId: number, date: string, ex
     address: r.address,
     stateCode: r.state_code ?? (r.gstin && /^\d{2}/.test(r.gstin) ? r.gstin.slice(0, 2) : null),
     pincode: r.pincode,
+    country: r.country,
     gstin: r.gstin,
     registrationType: reg,
     pan: r.pan,
     email: r.email,
     mobile: r.mobile,
     kind: L.isDebtor ? 'debtor' : L.isCreditor ? 'creditor' : L.isCash ? 'cash' : L.isBank ? 'bank' : 'other',
+    gstDirection: L.isDebtor ? 'outward' : L.isCreditor ? 'inward' : null,
     billWise: L.billWise,
     creditDays: r.default_credit_days,
     creditLimit: r.credit_limit,

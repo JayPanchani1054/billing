@@ -8,7 +8,7 @@ import type { BindValue } from '../../db/db.ts';
 import { formatVoucherNumber, loadVoucherType, parseVoucherSeq } from './numbering.ts';
 import { vouchersRoutes } from './routes.ts';
 import { nextVoucherNumber, previewVoucher } from './service.ts';
-import { header, salesInput, save, setupKit, throwsApp, type Kit } from './testkit.ts';
+import { header, salesInput, save, setupKit, throwsApp, throwsField, type Kit } from './testkit.ts';
 
 function configureSales(k: Kit, cols: Record<string, BindValue>): void {
   for (const [col, value] of Object.entries(cols)) {
@@ -87,7 +87,7 @@ describe('voucher numbering', () => {
     const k = setupKit();
     configureSales(k, { numbering_method: 'manual' });
     assert.equal(nextVoucherNumber(k.t.ctx, k.vt.sales, k.t.today), '');
-    throwsApp(() => save(k, salesInput(k)), 'BUSINESS_RULE', /Enter the Sales number/);
+    throwsField(() => save(k, salesInput(k)), 'number', /Enter the Sales number/);
     const a = save(k, salesInput(k, { number: 'A-100' }));
     assert.equal(a.number, 'A-100');
     throwsApp(() => save(k, salesInput(k, { number: 'A-100' })), 'CONFLICT', /already used/);

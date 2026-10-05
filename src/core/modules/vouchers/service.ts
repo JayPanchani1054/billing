@@ -30,6 +30,7 @@ import {
 } from './numbering.ts';
 import {
   buildPosting,
+  fieldError,
   isAccountingBase,
   previewEntries,
   previewGstLines,
@@ -225,17 +226,22 @@ export function modeOfRow(row: VoucherRow): VoucherMode {
   return isAccountingBase(row.base_type as Parameters<typeof isAccountingBase>[0]) ? 'ledger' : 'inventory';
 }
 
-/** Throw when save must not proceed: blocking rule violations, or unconfirmed warnings. */
+/**
+ * Throw when save must not proceed: blocking rule violations ('block'), or material warnings
+ * ('confirm') the user has not acknowledged. Informational warnings ('info') never stop a save; they
+ * come back in the save result.
+ */
 export function enforceWarnings(warnings: readonly VoucherWarning[], acknowledged: boolean): void {
-  const blocking = warnings.filter((w) => w.blocking);
+  const blocking = warnings.filter((w) => w.level === 'block' || w.blocking);
   if (blocking.length > 0) {
     const more = blocking.length > 1 ? ` (and ${blocking.length - 1} more problem${blocking.length > 2 ? 's' : ''})` : '';
     const details: VoucherRuleErrorDetails = { warnings: [...warnings] };
     throw rule(`${blocking[0].message}${more}`, details);
   }
-  if (warnings.length > 0 && !acknowledged) {
+  const material = warnings.filter((w) => w.level === 'confirm');
+  if (material.length > 0 && !acknowledged) {
     const msg =
-      warnings.length === 1 ? `Please confirm: ${warnings[0].message}` : `Please confirm ${warnings.length} warnings. ${warnings[0].message} …`;
+      material.length === 1 ? `Please confirm: ${material[0].message}` : `Please confirm ${material.length} warnings. ${material[0].message} …`;
     const details: VoucherRuleErrorDetails = { needsConfirmation: true, warnings: [...warnings] };
     throw rule(msg, details);
   }
@@ -248,6 +254,10 @@ interface AuditSnapshot {
   number: string | null;
   date: string;
   party: string | null;
+  partyLedgerId: number | null;
+  /** Supplier invoice / reference no. */
+  reference: string | null;
+  gstNature: string | null;
   amount: number;
   taxable: number;
   tax: number;
@@ -267,6 +277,9 @@ export function snapshotFromDb(db: Db, row: VoucherRow, typeName: string): Audit
     number: row.number,
     date: row.date,
     party: row.party_name,
+    partyLedgerId: row.party_ledger_id,
+    reference: row.reference_no,
+    gstNature: row.gst_nature,
     amount: row.total_amount,
     taxable: row.taxable_amount,
     tax: row.tax_amount,
@@ -289,6 +302,9 @@ function snapshotFromPlan(plan: PostingPlan, input: VoucherInput): AuditSnapshot
     number: plan.number,
     date: input.date,
     party: plan.header.partyName,
+    partyLedgerId: plan.header.partyLedgerId,
+    reference: txt(input.referenceNo) ?? null,
+    gstNature: plan.header.gstNature,
     amount: plan.header.totalAmount,
     taxable: plan.header.taxableAmount,
     tax: plan.header.taxAmount,
@@ -332,6 +348,8 @@ export function previewVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherPrevi
       code: 'period_locked',
       message: `Books are locked up to ${formatDate(locked)}. Entries dated on or before this date cannot be created, altered or deleted.`,
       blocking: true,
+      level: 'block',
+      path: 'date',
     });
   }
   return {
@@ -380,7 +398,7 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
       });
     }
     if (existing.voucher_type_id !== input.voucherTypeId) {
-      throw rule('The voucher type of a saved voucher cannot be changed. Delete it and enter a new voucher instead.');
+      throw fieldError('voucherTypeId', 'The voucher type of a saved voucher cannot be changed. Delete it and enter a new voucher instead.');
     }
     if (existing.irn_status === 'generated') {
       throw rule('An e-invoice (IRN) has been generated for this voucher. Cancel the IRN before altering it.');
@@ -397,6 +415,7 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
     existing: existing ? { id: existing.id, number: existing.number, seq: existing.number_seq, date: existing.date } : null,
   });
   const plan = buildPosting(env, input, { voucherType: vt, number: decision.number, voucherId: existing?.id ?? null });
+  if (existing) assertAlterKeepsLinks(db, existing, plan);
   enforceWarnings(plan.warnings, input.acknowledgeWarnings === true);
 
   if (decision.consume) {
@@ -506,7 +525,7 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
   }
 
   writeChildren(db, id, plan, input.date);
-  if (bankKeep) restoreBankLinks(db, id, bankKeep);
+  if (bankKeep) restoreBankLinks(db, id, bankKeep, plan.header.affectsBooks);
 
   const guid = existing?.guid ?? db.value<string>('SELECT guid FROM vouchers WHERE id = :id', { id }) ?? '';
   ctx.audit({
@@ -525,9 +544,11 @@ const IRN_NATURES: ReadonlySet<string> = new Set(['b2b', 'export_wpay', 'export_
 
 function irnStatusFor(env: PostingEnv, plan: PostingPlan, current: string | null): string | null {
   if (current === 'generated' || current === 'cancelled') return current;
+  // IRN_NATURES are outward natures only, so a Debit Note qualifies only as a supplementary invoice
+  // to a customer (a purchase return is inward).
   const eligible =
     env.features.einvoice &&
-    (plan.baseType === 'sales' || plan.baseType === 'credit_note') &&
+    (plan.baseType === 'sales' || plan.baseType === 'credit_note' || plan.baseType === 'debit_note') &&
     plan.header.affectsBooks &&
     plan.header.gstNature !== null &&
     IRN_NATURES.has(plan.header.gstNature);
@@ -678,7 +699,12 @@ function captureBankLinks(db: Db, voucherId: number): BankKeep {
   return { entries, statementLines };
 }
 
-function restoreBankLinks(db: Db, voucherId: number, keep: BankKeep): void {
+/**
+ * Re-attach bank dates and statement matches to the rewritten entries (same ledger and amount). A
+ * voucher that no longer counts in the books (made optional) keeps its bank dates but its statement
+ * lines go back to unmatched: a matched line must point at an entry that is in the books.
+ */
+function restoreBankLinks(db: Db, voucherId: number, keep: BankKeep, inBooks: boolean): void {
   const relevant = keep.entries.filter((e) => e.bankDate !== null || keep.statementLines.some((s) => s.entryId === e.id));
   if (relevant.length === 0) return;
   const fresh = db.all<{ id: number; ledger_id: number; amount: number }>(
@@ -695,7 +721,7 @@ function restoreBankLinks(db: Db, voucherId: number, keep: BankKeep): void {
     if (old.bankDate) db.run('UPDATE ledger_entries SET bank_date = :d WHERE id = :id', { d: old.bankDate, id: match.id });
   }
   for (const s of keep.statementLines) {
-    const target = mapping.get(s.entryId);
+    const target = inBooks ? mapping.get(s.entryId) : undefined;
     if (target !== undefined) db.run('UPDATE bank_statement_lines SET matched_entry_id = :e WHERE id = :id', { e: target, id: s.id });
     else db.run(`UPDATE bank_statement_lines SET matched_entry_id = NULL, status = 'unmatched' WHERE id = :id`, { id: s.id });
   }
@@ -756,6 +782,65 @@ function assertNoteNotBilled(db: Db, row: VoucherRow): void {
     throw rule(
       `This note has been billed in ${hit.type_name} ${hit.number ?? ''} dated ${formatDate(hit.date)}. Remove the tracking reference there first.`,
     );
+  }
+}
+
+/**
+ * An alter must not orphan documents that depend on this voucher:
+ *  - a bill this voucher created ('new'/'advance') that another voucher settles must still be created,
+ *    with the same name, on the same ledger, by a voucher that stays in the books;
+ *  - a delivery/receipt note or rejection already billed must keep its number, party and the billed
+ *    items and stay regular (the invoices tracked against it do not move stock themselves).
+ */
+function assertAlterKeepsLinks(db: Db, existing: VoucherRow, plan: PostingPlan): void {
+  const settled = db.all<{ ledger_id: number; ledger_name: string; bill_name: string; number: string | null; type_name: string; date: string }>(
+    `SELECT DISTINCT ba.ledger_id, l.name AS ledger_name, ba.bill_name, v2.number, vt.name AS type_name, v2.date
+       FROM bill_allocations ba
+       JOIN bill_allocations ba2 ON ba2.ledger_id = ba.ledger_id AND ba2.bill_name = ba.bill_name
+                                AND ba2.voucher_id <> ba.voucher_id AND ba2.ref_type = 'against'
+       JOIN ledgers l ON l.id = ba.ledger_id
+       JOIN vouchers v2 ON v2.id = ba2.voucher_id
+       JOIN voucher_types vt ON vt.id = v2.voucher_type_id
+      WHERE ba.voucher_id = :id AND ba.ref_type IN ('new', 'advance') AND ba.bill_name IS NOT NULL`,
+    { id: existing.id },
+  );
+  for (const b of settled) {
+    const kept =
+      plan.header.affectsBooks &&
+      plan.entries.some((e) => e.ledgerId === b.ledger_id && e.bills.some((x) => (x.refType === 'new' || x.refType === 'advance') && x.billName === b.bill_name));
+    if (!kept) {
+      throw rule(
+        `Bill ${b.bill_name} of ${b.ledger_name} is settled by ${b.type_name} ${b.number ?? ''} dated ${formatDate(b.date)}. ` +
+          'Keep the party, the bill name and the voucher regular, or remove that bill allocation first.',
+      );
+    }
+  }
+
+  const billBase = BILLED_BY[existing.base_type];
+  if (!billBase || !existing.number) return;
+  const billed = db.all<{ item_id: number; item_name: string; number: string | null; type_name: string; date: string }>(
+    `SELECT ie.item_id, si.name AS item_name, v.number, vt.name AS type_name, v.date
+       FROM inventory_entries ie
+       JOIN vouchers v ON v.id = ie.voucher_id
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN stock_items si ON si.id = ie.item_id
+      WHERE ie.tracking_ref = :ref AND v.base_type = :billBase AND v.party_ledger_id IS :party AND v.id <> :id AND v.is_cancelled = 0
+      ORDER BY v.date, v.id`,
+    { ref: existing.number, billBase, party: existing.party_ledger_id, id: existing.id },
+  );
+  if (billed.length === 0) return;
+  const first = billed[0];
+  const by = `${first.type_name} ${first.number ?? ''} dated ${formatDate(first.date)}`;
+  if (plan.number !== existing.number || plan.header.partyLedgerId !== existing.party_ledger_id) {
+    throw rule(`This note has been billed in ${by}. Its number and party cannot change; remove the tracking reference there first.`);
+  }
+  if (plan.header.isOptional) {
+    throw rule(`This note has been billed in ${by} and must stay a regular voucher (the invoice does not move the stock itself).`);
+  }
+  const items = new Set(plan.inventory.map((l) => l.itemId));
+  const missing = billed.find((b) => !items.has(b.item_id));
+  if (missing) {
+    throw rule(`${missing.item_name} of this note has been billed in ${missing.type_name} ${missing.number ?? ''} dated ${formatDate(missing.date)}; it cannot be removed from the note.`);
   }
 }
 
@@ -857,6 +942,9 @@ export function duplicateVoucher(ctx: CompanyCtx, id: number): VoucherInput {
     delete out.referenceNo;
     delete out.referenceDate;
   }
+  // A note's original invoice is specific to that note (a copy would settle the same bill again).
+  delete out.originalInvoiceNo;
+  delete out.originalInvoiceDate;
   if (out.ledgers) {
     out.ledgers = out.ledgers.map((l): LedgerLineInput => {
       const copy = { ...l };

@@ -323,7 +323,13 @@ export interface StatementPreview {
   preset: BankPresetInfo;
   /** given = the mapping in the request; saved = the ledger's last mapping; preset = a bank layout; auto = fuzzy headers. */
   detectedBy: 'given' | 'saved' | 'preset' | 'auto';
-  mapping: StatementMapping;
+  /**
+   * null when no heading row could be found: show rawPreview and let the user choose the heading row and the
+   * columns, then preview again with that mapping.
+   */
+  mapping: StatementMapping | null;
+  /** The day/month order used (resolved from mapping.dateOrder 'auto'). */
+  dateOrder: 'dmy' | 'mdy' | 'ymd';
   /** Header row cells (column captions) of the mapping. */
   headers: string[];
   /** First rows of the sheet as text (≤ 40 rows × 30 columns), to let the user pick another header row. */

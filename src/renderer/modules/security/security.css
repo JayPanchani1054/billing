@@ -1,0 +1,341 @@
+/* Security module screens. Semantic design tokens only (no raw colours). Prefix: bx-sec- */
+
+/* ── Badges row in tables ─────────────────────────────────────────── */
+.bx-sec-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.bx-sec-user {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--lh-snug);
+}
+.bx-sec-user__name {
+  font-weight: var(--fw-medium);
+}
+.bx-sec-user__login {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+
+/* ── Password checklist ───────────────────────────────────────────── */
+.bx-sec-rules {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-12);
+}
+.bx-sec-rules__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  color: var(--text-secondary);
+}
+.bx-sec-rules__item.is-ok {
+  color: var(--success-text);
+}
+.bx-sec-rules__note {
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+
+/* ── Role editor: permission groups ───────────────────────────────── */
+.bx-sec-perms {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-4);
+}
+.bx-sec-perm-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  padding: var(--space-3);
+}
+.bx-sec-perm-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bx-sec-perm-group__count {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+.bx-sec-perm-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.bx-sec-perm-item.is-changed {
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: var(--space-2);
+}
+
+/* ── Field-level diff ─────────────────────────────────────────────── */
+.bx-sec-diff {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+}
+.bx-sec-diff th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-weight: var(--fw-semibold);
+  text-align: left;
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--border-default);
+}
+.bx-sec-diff td {
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.bx-sec-diff__section td {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-12);
+}
+.bx-sec-diff__field {
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+}
+.bx-sec-diff__value {
+  font-variant-numeric: tabular-nums;
+}
+.bx-sec-diff__value--json {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+}
+.bx-sec-diff__value--empty {
+  color: var(--text-muted);
+}
+.bx-sec-diff del,
+.bx-sec-diff ins {
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+}
+.bx-sec-diff del {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.bx-sec-diff ins {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+.bx-sec-diff__row--added .bx-sec-diff__field {
+  box-shadow: inset 3px 0 0 var(--success-solid);
+  padding-left: var(--space-2);
+}
+.bx-sec-diff__row--removed .bx-sec-diff__field {
+  box-shadow: inset 3px 0 0 var(--danger-solid);
+  padding-left: var(--space-2);
+}
+.bx-sec-diff__row--changed .bx-sec-diff__field {
+  box-shadow: inset 3px 0 0 var(--info-solid);
+  padding-left: var(--space-2);
+}
+.bx-sec-diff__arrow {
+  color: var(--text-muted);
+  text-align: center;
+  width: 24px;
+}
+
+/* ── Fingerprints / hashes ────────────────────────────────────────── */
+.bx-sec-hash {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* ── Edit log filters ─────────────────────────────────────────────── */
+.bx-sec-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
+}
+.bx-sec-filters__search {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+.bx-sec-filters__select {
+  flex: 0 1 180px;
+  min-width: 140px;
+}
+.bx-sec-table {
+  flex: 1 1 auto;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+.bx-sec-audit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+.bx-sec-audit__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* ── History timeline ─────────────────────────────────────────────── */
+.bx-sec-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.bx-sec-timeline__item {
+  position: relative;
+  padding-left: var(--space-6);
+}
+.bx-sec-timeline__item::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: calc(-1 * var(--space-3));
+  width: 2px;
+  background: var(--border-subtle);
+}
+.bx-sec-timeline__item:last-child::before {
+  bottom: 0;
+}
+.bx-sec-timeline__dot {
+  position: absolute;
+  left: 2px;
+  top: var(--space-3);
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  background: var(--surface-1);
+  border: 2px solid var(--border-strong);
+}
+.bx-sec-timeline__item--create .bx-sec-timeline__dot {
+  border-color: var(--success-solid);
+}
+.bx-sec-timeline__item--delete .bx-sec-timeline__dot,
+.bx-sec-timeline__item--cancel .bx-sec-timeline__dot {
+  border-color: var(--danger-solid);
+}
+.bx-sec-timeline__item--alter .bx-sec-timeline__dot {
+  border-color: var(--info-solid);
+}
+.bx-sec-timeline__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1-5);
+}
+.bx-sec-timeline__when {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Settings & session ───────────────────────────────────────────── */
+.bx-sec-setting {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(220px, 1.4fr);
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  align-items: start;
+}
+.bx-sec-setting:last-child {
+  border-bottom: 0;
+}
+.bx-sec-setting__label {
+  font-weight: var(--fw-medium);
+}
+.bx-sec-setting__explain {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  margin-top: var(--space-1);
+}
+.bx-sec-setting.is-changed {
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: var(--space-2);
+}
+@media (max-width: 720px) {
+  .bx-sec-setting {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bx-sec-state {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.bx-sec-state__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  background: var(--neutral-bg);
+  color: var(--neutral-icon);
+}
+.bx-sec-state__icon.is-on {
+  background: var(--success-bg);
+  color: var(--success-icon);
+}
+.bx-sec-state__body {
+  flex: 1;
+  min-width: 0;
+}
+.bx-sec-state__title {
+  font-size: var(--fs-16);
+  font-weight: var(--fw-semibold);
+  margin: 0 0 var(--space-1);
+}
+.bx-sec-state__text {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.bx-sec-countdown {
+  font-size: var(--fs-24);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.bx-sec-countdown.is-low {
+  color: var(--warning-text);
+}
+
+.bx-sec-tips {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}

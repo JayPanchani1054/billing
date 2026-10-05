@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import type { VoucherInput } from '../../../shared/types/vouchers.ts';
 import { getVoucher, trackingRefs } from './queries.ts';
 import { cancelVoucher, deleteVoucher, previewVoucher } from './service.ts';
-import { entryMap, header, purchaseInput, salesInput, save, setupKit, stockOf, throwsApp, type Kit } from './testkit.ts';
+import { entryMap, header, purchaseInput, salesInput, save, setupKit, stockOf, throwsApp, throwsField, type Kit } from './testkit.ts';
 
 const note = (k: Kit, base: 'delivery_note' | 'receipt_note' | 'sales_order' | 'purchase_order' | 'rejection_in', over: Partial<VoucherInput> = {}): VoucherInput => ({
   voucherTypeId: k.vt[base],
@@ -73,7 +73,8 @@ describe('delivery note → sales invoice', () => {
     const p = previewVoucher(k.t.ctx, salesInput(k, { items: [{ itemId: k.I.mixer, qty: 1, rate: 200, trackingRef: 'DN-404' }] }));
     const w = p.warnings.find((x) => x.code === 'tracking_ref');
     assert.ok(w);
-    assert.equal(w?.path, 'items[0]');
+    assert.equal(w?.path, 'items[0].trackingRef');
+    assert.equal(w?.level, 'confirm', 'material: the stock would never move');
     assert.equal(p.inventory[0].affectsStock, false);
     k.t.close();
   });
@@ -132,7 +133,7 @@ describe('orders', () => {
 
   it('orders and notes need a party', () => {
     const k = setupKit();
-    throwsApp(() => save(k, note(k, 'sales_order', { partyLedgerId: undefined })), 'BUSINESS_RULE', /customer ledger/);
+    throwsField(() => save(k, note(k, 'sales_order', { partyLedgerId: undefined })), 'partyLedgerId', /customer ledger/);
     k.t.close();
   });
 });
@@ -202,14 +203,14 @@ describe('godowns & batches', () => {
     const shop = k.t.db.run(`INSERT INTO godowns (guid, name, created_at, updated_at) VALUES ('g-shop', 'Shop Floor', :ts, :ts)`, { ts }).lastInsertRowid;
     const res = save(k, note(k, 'receipt_note', { items: [{ itemId: k.I.rice, qty: 1, rate: 1 }, { itemId: k.I.rice, qty: 2, rate: 1, godownId: shop }] }));
     assert.deepEqual(ieRows(k, res.id).map((r) => r.godown_id), [k.t.ids.mainGodownId, shop]);
-    throwsApp(() => save(k, note(k, 'receipt_note', { items: [{ itemId: k.I.rice, qty: 1, rate: 1, godownId: 9999 }] })), 'NOT_FOUND');
+    throwsField(() => save(k, note(k, 'receipt_note', { items: [{ itemId: k.I.rice, qty: 1, rate: 1, godownId: 9999 }] })), 'items[0].godownId', /godown no longer exists/);
     k.t.close();
   });
 
   it('batch-wise items require a batch when the Batches feature is on', () => {
     const k = setupKit({ features: { batches: true, expiryDates: true } });
     const med = k.t.addStockItem({ name: 'Cough Syrup', gstRate: 12, hsnSac: '3004', maintainBatches: true });
-    throwsApp(() => save(k, purchaseInput(k, { items: [{ itemId: med, qty: 10, rate: 40 }] })), 'BUSINESS_RULE', /enter the batch/);
+    throwsField(() => save(k, purchaseInput(k, { items: [{ itemId: med, qty: 10, rate: 40 }] })), 'items[0].batchName', /enter the batch/);
     const res = save(k, purchaseInput(k, { items: [{ itemId: med, qty: 10, rate: 40, batchName: 'B-01', expiryDate: '2027-12-31' }] }));
     const row = k.t.db.get<{ batch_name: string; expiry_date: string }>('SELECT batch_name, expiry_date FROM inventory_entries WHERE voucher_id = :id', { id: res.id });
     assert.deepEqual(row, { batch_name: 'B-01', expiry_date: '2027-12-31' });
@@ -221,7 +222,7 @@ describe('godowns & batches', () => {
 
   it('item invoices are refused when inventory is turned off', () => {
     const k = setupKit({ features: { inventory: false } });
-    throwsApp(() => save(k, salesInput(k)), 'BUSINESS_RULE', /Inventory is turned off/);
+    throwsField(() => save(k, salesInput(k)), 'mode', /Inventory is turned off/);
     k.t.close();
   });
 });
