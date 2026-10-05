@@ -13,9 +13,11 @@ import type { ChangePasswordInput, SessionInfo } from '../../shared/types/app.ts
 import type { Session } from '../api/context.ts';
 import type { Db } from '../db/db.ts';
 import { appendAudit } from '../lib/audit.ts';
-import { dummyPasswordHash, hashPassword, needsRehash, passwordPolicy, verifyPassword } from '../lib/crypto.ts';
+import { dummyPasswordHash, hashPassword, needsRehash, verifyPassword } from '../lib/crypto.ts';
 import { AppError, rule } from '../lib/errors.ts';
+import { getLockoutPolicy, isPasswordExpired, isPasswordReused, PASSWORD_REUSED_MESSAGE, passwordProblemFor } from '../modules/security/policy.ts';
 
+/** Defaults; the effective values come from the company's security settings (getLockoutPolicy). */
 export const MAX_FAILED_ATTEMPTS = 5;
 export const LOCKOUT_MS = 5 * 60_000;
 export const OWNER_ROLE = 'Owner';
@@ -150,13 +152,14 @@ export async function login(db: Db, username: string, password: string, now: Dat
       appendAudit(db, { action: 'login_failed', entityType: 'user', entityLabel: maskLoginName(name), after: { reason: 'unknown_user' } }, null, now);
       throw new AppError('UNAUTHENTICATED', 'Incorrect username or password');
     }
-    const lockedUntil = new Date(now.getTime() + LOCKOUT_MS).toISOString();
+    const { maxFailedAttempts, lockoutMs } = getLockoutPolicy(db);
+    const lockedUntil = new Date(now.getTime() + lockoutMs).toISOString();
     const after = db.transaction(() => {
       db.run(
         `UPDATE users SET failed_attempts = failed_attempts + 1,
                 locked_until = CASE WHEN failed_attempts + 1 >= :max THEN :lockedUntil ELSE locked_until END
           WHERE id = :id`,
-        { max: MAX_FAILED_ATTEMPTS, lockedUntil, id: user.id },
+        { max: maxFailedAttempts, lockedUntil, id: user.id },
       );
       const attempts = db.value<number>('SELECT failed_attempts FROM users WHERE id = :id', { id: user.id }) ?? 0;
       appendAudit(
@@ -167,8 +170,8 @@ export async function login(db: Db, username: string, password: string, now: Dat
       );
       return attempts;
     });
-    if (after >= MAX_FAILED_ATTEMPTS) throw new AppError('LOCKED', lockedMessage(Math.round(LOCKOUT_MS / 60_000)), { lockedUntil });
-    const left = MAX_FAILED_ATTEMPTS - after;
+    if (after >= maxFailedAttempts) throw new AppError('LOCKED', lockedMessage(Math.round(lockoutMs / 60_000)), { lockedUntil });
+    const left = maxFailedAttempts - after;
     throw new AppError(
       'UNAUTHENTICATED',
       left <= 2 ? `Incorrect username or password. ${left} attempt${left === 1 ? '' : 's'} left before the account is locked.` : 'Incorrect username or password',
@@ -181,7 +184,7 @@ export async function login(db: Db, username: string, password: string, now: Dat
   }
 
   const userId = user.id;
-  const mustChange = user.must_change_password === 1;
+  const mustChange = user.must_change_password === 1 || isPasswordExpired(db, userId, now);
   // Transparently upgrade hashes made with weaker parameters (only if nobody changed it meanwhile).
   const oldHash = user.password_hash;
   const upgraded = needsRehash(oldHash) ? await hashPassword(password) : null;
@@ -209,12 +212,14 @@ export async function changePassword(db: Db, session: Session, input: ChangePass
 
   if (!(await verifyPassword(input.currentPassword, user.password_hash)))
     throw new AppError('VALIDATION', 'Current password is incorrect', [{ path: 'currentPassword', message: 'Current password is incorrect' }]);
-  const policy = passwordPolicy(input.newPassword);
+  const policy = passwordProblemFor(db, input.newPassword, user.username);
   if (policy) throw new AppError('VALIDATION', policy, [{ path: 'newPassword', message: policy }]);
   if (input.newPassword === input.currentPassword) {
     const msg = 'The new password must be different from the current one';
     throw new AppError('VALIDATION', msg, [{ path: 'newPassword', message: msg }]);
   }
+  if (await isPasswordReused(db, userId, input.newPassword))
+    throw new AppError('VALIDATION', PASSWORD_REUSED_MESSAGE, [{ path: 'newPassword', message: PASSWORD_REUSED_MESSAGE }]);
   const hash = await hashPassword(input.newPassword);
   db.transaction(() => {
     const changed = db.run(
