@@ -48,6 +48,8 @@ export interface App extends EventEmitter {
   readonly isPackaged: boolean;
   requestSingleInstanceLock(additionalData?: Record<any, any>): boolean;
   setAppUserModelId(id: string): void;
+  setAppLogsPath(path?: string): void;
+  enableSandbox(): void;
   focus(options?: { steal: boolean }): void;
   disableHardwareAcceleration(): void;
   setAboutPanelOptions(options: Record<string, unknown>): void;
@@ -128,6 +130,7 @@ export class BrowserWindow extends EventEmitter {
   on(event: 'close', listener: (event: Event) => void): this;
   on(event: 'closed', listener: () => void): this;
   on(event: 'focus' | 'blur' | 'maximize' | 'unmaximize' | 'minimize' | 'restore' | 'enter-full-screen' | 'leave-full-screen' | 'resize' | 'move', listener: () => void): this;
+  on(event: 'page-title-updated', listener: (event: Event, title: string, explicitSet: boolean) => void): this;
   on(event: string, listener: (...args: any[]) => void): this;
   once(event: 'ready-to-show', listener: () => void): this;
   once(event: 'closed', listener: () => void): this;
@@ -215,6 +218,26 @@ export interface WebFrameMain {
   readonly routingId: number;
 }
 
+export interface EditFlags {
+  canUndo: boolean;
+  canRedo: boolean;
+  canCut: boolean;
+  canCopy: boolean;
+  canPaste: boolean;
+  canDelete: boolean;
+  canSelectAll: boolean;
+  canEditRichly: boolean;
+}
+
+export interface ContextMenuParams {
+  x: number;
+  y: number;
+  linkURL: string;
+  selectionText: string;
+  isEditable: boolean;
+  editFlags: EditFlags;
+}
+
 export interface WebContents extends EventEmitter {
   readonly id: number;
   readonly session: Session;
@@ -227,6 +250,8 @@ export interface WebContents extends EventEmitter {
   on(event: 'render-process-gone', listener: (event: Event, details: { reason: string; exitCode: number }) => void): this;
   on(event: 'before-input-event', listener: (event: Event, input: { type: string; key: string; code: string; control: boolean; shift: boolean; alt: boolean; meta: boolean }) => void): this;
   on(event: 'console-message', listener: (...args: any[]) => void): this;
+  on(event: 'zoom-changed', listener: (event: Event, zoomDirection: ('in' | 'out')) => void): this;
+  on(event: 'context-menu', listener: (event: Event, params: ContextMenuParams) => void): this;
   on(event: string, listener: (...args: any[]) => void): this;
   once(event: 'did-finish-load', listener: () => void): this;
   once(event: string, listener: (...args: any[]) => void): this;

@@ -1,0 +1,59 @@
+# electron-builder configuration — Windows x64 NSIS installer.
+# Build:  npm run dist:win      (runs scripts/build.mjs first; output in release/)
+# Docs:   docs/BUILD.md
+appId: com.bahi.erp
+productName: Bahi ERP
+copyright: Copyright © 2026 Bahi ERP
+
+directories:
+  output: release
+  buildResources: build
+
+# Everything the app needs is bundled into out/ by scripts/build.mjs (main, preload, renderer), so no
+# node_modules are shipped. All npm packages are devDependencies, which electron-builder never packs.
+files:
+  - out/**/*
+  - "!out/**/*.map"
+  - package.json
+includeSubNodeModules: false
+# No native modules (SQLite is node:sqlite, built into Electron) → nothing to rebuild.
+npmRebuild: false
+asar: true
+# Keep only the Chromium UI locales the app needs (smaller install).
+electronLanguages:
+  - en-US
+  - en-GB
+# Hardens the packaged binary with Electron fuses (no ELECTRON_RUN_AS_NODE, no NODE_OPTIONS,
+# no --inspect, app code only from app.asar). See scripts/after-pack.cjs.
+afterPack: scripts/after-pack.cjs
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  artifactName: Bahi-ERP-Setup-${version}.${ext}
+  requestedExecutionLevel: asInvoker
+  # No auto-updater: nothing to verify against.
+  verifyUpdateCodeSignature: false
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Bahi ERP
+  uninstallDisplayName: Bahi ERP ${version}
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  runAfterFinish: true
+  # Company data lives in the user-chosen data folder and settings in %APPDATA%\Bahi ERP —
+  # both must survive uninstall/reinstall.
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh
+
+# No auto-update feed; installers are published by .github/workflows/release.yml.
+publish: null

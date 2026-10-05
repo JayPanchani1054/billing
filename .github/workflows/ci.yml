@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  # No lockfile is committed yet; install exactly what package.json allows.
+  NPM_INSTALL: npm install --no-audit --no-fund
+  FORCE_COLOR: '1'
+
+jobs:
+  verify:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Types ship inside the electron package; the binary is not needed to typecheck or bundle.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Install dependencies
+        run: ${{ env.NPM_INSTALL }}
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build (main, preload, renderer)
+        run: npm run build
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: bahi-out
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  windows-installer:
+    name: Windows installer (NSIS x64)
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      # Unsigned build: do not let electron-builder look for signing identities.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Cache Electron and electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-win-${{ hashFiles('package.json') }}
+          restore-keys: electron-win-
+
+      - name: Install dependencies
+        run: ${{ env.NPM_INSTALL }}
+
+      - name: Ensure app icon
+        run: node scripts/make-icon.mjs --if-missing
+
+      - name: Build installer
+        run: npm run dist:win
+
+      - name: Checksums
+        shell: bash
+        run: |
+          cd release
+          sha256sum *.exe | tee SHA256SUMS.txt
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bahi-ERP-Windows-Installer
+          path: |
+            release/*.exe
+            release/SHA256SUMS.txt
+          retention-days: 30
+          if-no-files-found: error
+
+  e2e:
+    name: End-to-end (Electron + Playwright)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Cache Electron download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-linux-${{ hashFiles('package.json') }}
+          restore-keys: electron-linux-
+
+      - name: Install dependencies
+        run: ${{ env.NPM_INSTALL }}
+
+      - name: Build
+        run: npm run build
+
+      # Ubuntu 23.10+ restricts unprivileged user namespaces via AppArmor, which Chromium's sandbox
+      # needs. Re-enable them for this runner instead of weakening the app with --no-sandbox.
+      - name: Allow Chromium sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Playwright (xvfb)
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24" npx playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore

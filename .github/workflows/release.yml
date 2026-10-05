@@ -1,0 +1,103 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching package.json "version") to build the Windows installer and
+# publish it as a GitHub Release with SHA-256 checksums.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build and publish Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      # Optional code signing: add WIN_CSC_LINK (base64 .pfx or https URL) and WIN_CSC_KEY_PASSWORD
+      # repository secrets and electron-builder signs the app and the installer (docs/BUILD.md).
+      # The variables are exported only when the secrets exist, so unsigned builds stay unaffected.
+      - name: Configure code signing (optional)
+        shell: bash
+        env:
+          CSC_LINK_SECRET: ${{ secrets.WIN_CSC_LINK }}
+          CSC_PASSWORD_SECRET: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if [ -n "${CSC_LINK_SECRET}" ]; then
+            {
+              echo "WIN_CSC_LINK<<__BAHI_EOF__"
+              echo "${CSC_LINK_SECRET}"
+              echo "__BAHI_EOF__"
+              echo "WIN_CSC_KEY_PASSWORD<<__BAHI_EOF__"
+              echo "${CSC_PASSWORD_SECRET}"
+              echo "__BAHI_EOF__"
+            } >> "${GITHUB_ENV}"
+            echo "Code signing enabled."
+          else
+            echo "No signing certificate configured; building an unsigned installer."
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Check tag matches package.json version
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version v${version}"
+            exit 1
+          fi
+
+      - name: Cache Electron and electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-win-${{ hashFiles('package.json') }}
+          restore-keys: electron-win-
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Ensure app icon
+        run: node scripts/make-icon.mjs --if-missing
+
+      - name: Build installer
+        run: npm run dist:win
+
+      - name: Checksums
+        shell: bash
+        run: |
+          cd release
+          sha256sum *.exe | tee SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Bahi ERP ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
+          files: |
+            release/*.exe
+            release/SHA256SUMS.txt
