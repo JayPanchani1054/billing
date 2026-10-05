@@ -11,6 +11,7 @@ import path from 'node:path';
 import { app, BrowserWindow, dialog, Menu, nativeTheme, protocol, session, shell } from 'electron';
 import { APP_ID, APP_NAME } from '../shared/constants.ts';
 import { createRuntime } from '../core/app/runtime.ts';
+import { chosenFolders } from './user-choices.ts';
 import type { Runtime } from '../core/app/runtime.ts';
 import { absoluteEnvPath, APP_START_URL, bakedVersion, bundlePaths, resolveDevServer } from './config.ts';
 import { registerIpc } from './ipc.ts';
@@ -150,6 +151,8 @@ function bootRuntime(): Runtime | null {
       appVersion: appVersion(),
       logDir: app.getPath('logs'),
       consoleLog: !app.isPackaged,
+      // Only folders picked in the native folder dialog may become the data folder.
+      authorizeDataDir: (absPath) => chosenFolders.has(absPath),
     });
   } catch (err) {
     log('error', 'Core runtime failed to start', describeError(err));

@@ -148,12 +148,25 @@ export function formatMonth(key: string): string {
   return `${MONTHS[m - 1]} ${y}`;
 }
 
+const FULL_MONTHS = [
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+] as const;
+
+/** Year for a 2-digit `yy` closest to `refYear` (window refYear − 50 … refYear + 49). */
+function nearestCentury(yy: number, refYear: number): number {
+  let y = Math.floor(refYear / 100) * 100 + yy;
+  if (y > refYear + 49) y -= 100;
+  else if (y < refYear - 50) y += 100;
+  return y;
+}
+
 /**
  * Tally-style forgiving date entry, resolved against a reference date (the current working date):
  *   '5'          → 5th of reference month/year
  *   '5-10' '5/10' '5.10' → 5 Oct of reference year
- *   '5-10-26' '5/10/2026' '05102026' '051026' '2026/10/5'
- *   '5-Oct' '5 oct 2026' 'Oct 5'
+ *   '5-10-26' '5/10/2026' '05102026' '051026' '2026/10/5'   (2-digit years: nearest century)
+ *   '5-Oct' '5 oct 2026' 'Oct 5' '1 sept 2026'
  *   'today' 't', 'yesterday' 'y'
  * Returns ISO or null when it cannot be understood.
  */
@@ -164,15 +177,19 @@ export function parseDateInput(input: string, reference: string): string | null 
   if (s === 'yesterday' || s === 'y') return addDays(reference, -1);
   const ref = parts(reference);
 
-  const monthIdx = (tok: string): number => MONTHS.findIndex((mm) => tok.startsWith(mm.toLowerCase())) + 1;
-  const fixYear = (yy: number, raw: string): number => (raw.length <= 2 ? 2000 + yy : yy);
+  // A month token must be a prefix (≥ 3 letters) of the month's full name: 'oct', 'sept', 'october' —
+  // not merely start with one ('junk' is not June, 'marching' is not March).
+  const monthIdx = (tok: string): number => (tok.length >= 3 ? FULL_MONTHS.findIndex((mm) => mm.startsWith(tok)) + 1 : 0);
+  // Two-digit years resolve to the century that puts them nearest the working date
+  // (within −50 … +49 years): with a 2026 working date '26' → 2026, '75' → 2075, '99' → 1999.
+  const fixYear = (yy: number, raw: string): number => (raw.length <= 2 ? nearestCentury(yy, ref.y) : yy);
   const build = (y: number, m: number, d: number): string | null => {
     const iso = toIso(y, m, d);
     return isValidDate(iso) ? iso : null;
   };
 
   if (/^\d{8}$/.test(s)) return build(Number(s.slice(4)), Number(s.slice(2, 4)), Number(s.slice(0, 2)));
-  if (/^\d{6}$/.test(s)) return build(2000 + Number(s.slice(4)), Number(s.slice(2, 4)), Number(s.slice(0, 2)));
+  if (/^\d{6}$/.test(s)) return build(fixYear(Number(s.slice(4)), s.slice(4)), Number(s.slice(2, 4)), Number(s.slice(0, 2)));
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return isValidDate(s) ? s : null;
 
   const tokens = s.split(/[\s\-/.,]+/).filter(Boolean);

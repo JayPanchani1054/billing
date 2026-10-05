@@ -6,7 +6,7 @@ import type { FieldIssue } from '../../../shared/api.ts';
 import { validateGstin } from '../../../shared/gst/gstin.ts';
 import type { GstRegistrationType } from '../../../shared/types/company.ts';
 import { validation } from '../../lib/errors.ts';
-import { v } from '../../lib/validate.ts';
+import { isValidIsoDate, v } from '../../lib/validate.ts';
 
 /**
  * GST state codes a company can be registered in (01–38, 97 = Other Territory).
@@ -130,6 +130,12 @@ export function normalizeCompanyIdentity(input: CompanyIdentityInput): Normalize
   const pincode = text(input.pincode);
   const email = text(input.email);
 
+  // Route schemas check these too; repeated here for direct callers (seedCompany, fixtures, imports).
+  if (!name) issues.push({ path: 'name', message: 'Company name is required' });
+  if (!COMPANY_STATE_CODES.includes(input.stateCode)) issues.push({ path: 'stateCode', message: 'Select a valid state' });
+  if (!isValidIsoDate(input.booksFrom)) issues.push({ path: 'booksFrom', message: 'Books beginning date must be a valid date' });
+  if (input.fyStartMonth !== undefined && !(Number.isInteger(input.fyStartMonth) && input.fyStartMonth >= 1 && input.fyStartMonth <= 12))
+    issues.push({ path: 'fyStartMonth', message: 'Financial year start month must be 1–12' });
   if (reg !== 'unregistered' && !gstin) issues.push({ path: 'gstin', message: 'GSTIN is required for a GST-registered business' });
   if (gstin) {
     const err = checkGstin(gstin, input.stateCode);

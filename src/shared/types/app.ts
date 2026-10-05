@@ -68,6 +68,11 @@ export interface AppState {
   session: SessionInfo | null;
   /** A company is open but waiting for login. */
   pendingLogin: { companyId: string; companyName: string } | null;
+  /**
+   * Set when the data folder cannot be used right now (drive disconnected, permissions): a
+   * user-readable explanation for an empty company list. null/absent when the folder is fine.
+   */
+  dataDirError?: string | null;
 }
 
 export type OpenResult = AppState;

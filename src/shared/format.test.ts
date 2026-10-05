@@ -37,6 +37,15 @@ describe('money formatting', () => {
     assert.equal(formatMoney(1005), '10.05');
   });
 
+  test('formatMoney is exact for every safe integer (regression: float rupees misprinted paise near 2^53)', () => {
+    // 9007199254640993 / 100 is not representable; toFixed used to print …409.94.
+    assert.equal(formatMoney(9007199254640993), '9,00,71,99,25,46,409.93');
+    assert.equal(formatMoney(-9007199254740991, { symbol: true }), '-₹ 9,00,71,99,25,47,409.91');
+    assert.equal(formatDrCr(-9007199254640996), '9,00,71,99,25,46,409.96 Cr');
+    assert.equal(formatMoney(-0), '0.00');
+    assert.equal(formatMoney(-5), '-0.05');
+  });
+
   test('formatDrCr', () => {
     assert.equal(formatDrCr(123450), '1,234.50 Dr');
     assert.equal(formatDrCr(-123450), '1,234.50 Cr');
@@ -75,5 +84,14 @@ describe('quantities, rates and percentages', () => {
     assert.equal(formatPercent(18), '18%');
     assert.equal(formatPercent(0.25), '0.25%');
     assert.equal(formatPercent(7.5), '7.5%');
+  });
+
+  test('formatPercent keeps GST rate precision (regression: CGST 0.125% printed as 0.13%)', () => {
+    assert.equal(formatPercent(0.125), '0.125%'); // half of the 0.25% slab
+    assert.equal(formatPercent(0.05), '0.05%'); // half of 0.1%
+    assert.equal(formatPercent(1.5 / 2), '0.75%');
+    assert.equal(formatPercent(100 / 3), '33.33%', 'long computed fractions still round to 2 decimals');
+    assert.equal(formatPercent(-0), '0%');
+    assert.equal(formatPercent(Number.NaN), '');
   });
 });

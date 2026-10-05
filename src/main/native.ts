@@ -23,6 +23,7 @@ import { AppError, toErrorPayload } from '../core/lib/errors.ts';
 import type { Runtime } from '../core/app/runtime.ts';
 import { openExternalUrl, parseExternalUrl } from './external.ts';
 import { isPathInside, PathSet, sanitizeFileName, writeFileAtomic } from './files.ts';
+import { chosenFolders } from './user-choices.ts';
 import { describeError, log } from './log.ts';
 import { isThemeMode } from './prefs.ts';
 import type { PageSize, PdfMargins, PrintService } from './print.ts';
@@ -224,6 +225,7 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
       if (res.canceled || res.filePaths.length === 0) return null;
       const folder = path.resolve(res.filePaths[0]);
       remember(folder, true);
+      chosenFolders.add(folder);
       return { path: folder };
     },
 

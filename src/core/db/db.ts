@@ -129,8 +129,13 @@ export class Db {
       this.raw.exec(`RELEASE ${sp}`);
       return out;
     } catch (err) {
-      this.raw.exec(`ROLLBACK TO ${sp}`);
-      this.raw.exec(`RELEASE ${sp}`);
+      try {
+        this.raw.exec(`ROLLBACK TO ${sp}`);
+        this.raw.exec(`RELEASE ${sp}`);
+      } catch {
+        // SQLite already rolled back the whole transaction (e.g. disk full, I/O error): the savepoint
+        // is gone. Re-throw the original error rather than masking it with "no such savepoint".
+      }
       throw err;
     } finally {
       this.depth--;

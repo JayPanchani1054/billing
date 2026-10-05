@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { PlaceOfSupplyInput } from '../types/gst.ts';
-import { classifySupply, GST_NATURE_LABELS, isOutwardNature, isRegisteredParty, isZeroRatedNature, type ClassifyContext } from './classify.ts';
+import {
+  b2clThresholdOn,
+  classifySupply,
+  GST_NATURE_LABELS,
+  isOutwardNature,
+  isRegisteredParty,
+  isZeroRatedNature,
+  type ClassifyContext,
+} from './classify.ts';
 import { determinePlaceOfSupply, isInterState, taxModeFor } from './pos.ts';
 import { GST_NATURES } from '../types/gst.ts';
 
@@ -99,6 +107,14 @@ describe('classifySupply', () => {
     assert.equal(out(b2c, 1_00_000_01), 'b2cl');
     assert.equal(out({ ...b2c, interState: false }, 5_00_000_00), 'b2cs');
     assert.equal(out({ ...b2c, partyRegistration: 'consumer', b2clThresholdPaise: 2_50_000_00 }, 2_00_000_00), 'b2cs');
+  });
+
+  test('statutory B2CL threshold by invoice date', () => {
+    assert.equal(b2clThresholdOn('2024-07-31'), 2_50_000_00);
+    assert.equal(b2clThresholdOn('2024-08-01'), 1_00_000_00);
+    assert.equal(b2clThresholdOn('2026-10-05'), 1_00_000_00);
+    assert.equal(b2clThresholdOn(''), 1_00_000_00);
+    assert.equal(b2clThresholdOn(undefined), 1_00_000_00);
   });
 
   test('inward natures in rule order', () => {

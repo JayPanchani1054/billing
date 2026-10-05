@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { DEFAULT_FEATURES, type CompanyFeatures } from '../../../shared/settings.ts';
 import type { CompanyConfigInput, CompanyFeaturesInput, CompanyProfileInput } from '../../../shared/types/company.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
@@ -78,7 +79,9 @@ export const CompanyConfigInputSchema = v.object({
     .object({
       auto: v.boolean().optional(),
       keepLast: v.int({ min: 1, max: 365 }).optional(),
-      folder: patchNullable(v.string({ max: 1000 })),
+      folder: patchNullable(
+        v.string({ max: 1000 }).refine((f) => (path.isAbsolute(f) && !f.includes('\0') ? null : 'Choose a full folder path for backups')),
+      ),
     })
     .optional(),
   display: v

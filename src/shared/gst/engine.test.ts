@@ -637,6 +637,16 @@ describe('B2C large threshold', () => {
     assert.equal(b2c(7812501, { roundOff: { enabled: true, method: 'nearest', unit: 100 } }).nature, 'b2cs');
   });
 
+  test('default threshold follows the invoice date: ₹2,50,000 before 1-Aug-2024', () => {
+    // 15625000 @28% → IGST 4375000 → ₹2,00,000.00 (20000000 paise).
+    assert.equal(b2c(15625000, { invoiceDate: '2024-07-31' }).nature, 'b2cs');
+    assert.equal(b2c(15625000, { invoiceDate: '2024-08-01' }).nature, 'b2cl');
+    // 19531251 × 28% = 5468750.28 → 5468750 → 25000001: one paise above ₹2,50,000.
+    assert.equal(b2c(19531251, { invoiceDate: '2024-07-31' }).nature, 'b2cl');
+    // A configured threshold always wins.
+    assert.equal(b2c(15625000, { invoiceDate: '2024-07-31', b2clThresholdPaise: 1_00_000_00 }).nature, 'b2cl');
+  });
+
   test('intra-state B2C is always B2CS; custom thresholds are honoured', () => {
     assert.equal(b2c(9000000, { partyStateCode: '27' }).nature, 'b2cs');
     assert.equal(b2c(7812500, { b2clThresholdPaise: 9999999 }).nature, 'b2cl');
@@ -749,6 +759,157 @@ describe('warnings and input validation', () => {
   });
 });
 
+// ───────────────────────────── review regressions ─────────────────────────────
+
+describe('review regressions', () => {
+  const inter = (over: Partial<InvoiceContext> = {}): InvoiceContext => ctx({ partyStateCode: '29', ...over });
+  const goods = (key: string, amount: number, over: Partial<InvoiceLineInput> = {}): InvoiceLineInput =>
+    ledger(key, amount, 18, { supplyKind: 'goods', hsnSac: '8471', ...over });
+
+  test('mixed-sign bucket: line tax starts from each line’s own share (no amplification)', () => {
+    // +100001 and −99000 @18%: exact 18000.18 and −17820; bucket 1001 × 18% = 180.18 → 180.
+    // Own-share floors [18000, −17820] already sum to 180 → [18000, −17820].
+    // (Scaling 180 × w / 1001 used to give 17982 / −17802.)
+    const a = check(computeInvoice([goods('p', 100001), goods('n', -99000)], inter()));
+    assert.equal(a.totals.igst, 180);
+    assert.deepEqual(a.lines.map((l) => l.igst), [18000, -17820]);
+    // +100000 and −99999: bucket 1 × 18% = 0.18 → 0. Shares 18000 and −17999.82 → floors 18000, −18000
+    // (sum 0 = total). Scaling used to give both lines 0.
+    const b = check(computeInvoice([goods('p', 100000), goods('n', -99999)], inter()));
+    assert.equal(b.totals.igst, 0);
+    assert.deepEqual(b.lines.map((l) => l.igst), [18000, -18000]);
+  });
+
+  test('per-unit cess on lines that cancel out keeps each line’s own cess', () => {
+    // +10 and −10 units × ₹1.00 cess → +1000 / −1000 (sum 0); used to be 0 / 0.
+    const r = check(computeInvoice([item('a', 10, 100, 18, { cessPerUnit: 100 }), item('b', -10, 100, 18, { cessPerUnit: 100 })], ctx()));
+    assert.deepEqual(r.lines.map((l) => l.cess), [1000, -1000]);
+    assert.equal(r.totals.cess, 0);
+  });
+
+  test('charges are apportioned only over lines with a positive quantity/value', () => {
+    // Quantities 2 and −1 share ₹30 freight by quantity → weights [2, 0] → +3000 / 0.
+    // (Signed weights used to give +6000 / −3000.) CGST on A: 203000 × 9% = 18270.
+    const q = check(
+      computeInvoice([item('a', 2, 1000, 18), item('b', -1, 500, 18), ledger('f', 3000, 18, { apportion: 'quantity' })], ctx()),
+    );
+    assert.deepEqual([line(q, 'a').apportioned, line(q, 'b').apportioned, line(q, 'f').apportioned], [3000, 0, -3000]);
+    assert.deepEqual([line(q, 'a').taxableValue, line(q, 'a').cgst], [203000, 18270]);
+    assert.ok(q.warnings.some((w) => /negative quantity or value do not share/.test(w)));
+    // By value with a negative goods line (accounting-mode discount): +100000 takes all of ₹60.
+    const v = check(computeInvoice([goods('g', 100000), goods('d', -20000), ledger('f', 6000, 18, { apportion: 'value' })], inter()));
+    assert.deepEqual([line(v, 'g').apportioned, line(v, 'd').apportioned], [6000, 0]);
+    // All targets negative (a return): shares by absolute value, signs follow the charge.
+    const neg = check(computeInvoice([goods('g1', -30000), goods('g2', -10000), ledger('f', -4000, 18, { apportion: 'value' })], inter()));
+    assert.deepEqual([line(neg, 'g1').apportioned, line(neg, 'g2').apportioned], [-3000, -1000]);
+  });
+
+  test('a blank row does not turn an exempt invoice into a tax invoice', () => {
+    const r = check(computeInvoice([item('a', 1, 100, 0, { taxability: 'exempt' }), item('blank', 0, 0, 18)], ctx()));
+    assert.deepEqual([r.nature, r.documentKind], ['nil_exempt', 'bill_of_supply']);
+    // A blank taxable row next to taxable goods changes nothing either.
+    const t = check(computeInvoice([item('a', 1, 100, 18), item('blank', 0, 0, 18)], ctx()));
+    assert.deepEqual([t.nature, t.documentKind], ['b2b', 'tax_invoice']);
+  });
+
+  test('reverse-charge lines are bucketed apart from forward-charge lines at the same rate', () => {
+    // Goods 1010 @5% forward + GTA 1010 @5% RCM, inter-state purchase. Separately: 50.5 → 51 each.
+    // (One shared bucket used to give 2020 × 5% = 101 → 51 / 50, so RCM tax was 50.)
+    const r = check(
+      computeInvoice([item('g', 1, 10.1, 5), ledger('t', 1010, 5, { reverseCharge: true })], ctx({ direction: 'inward', partyStateCode: '29' })),
+    );
+    assert.deepEqual(r.lines.map((l) => l.igst), [51, 51]);
+    assert.deepEqual(r.buckets.map((b) => [b.rate, b.reverseCharge, b.igst]), [[5, false, 51], [5, true, 51]]);
+    assert.equal(r.totals.reverseChargeTax, 51);
+    assert.equal(r.totals.payableToParty, 1010 + 1010 + 51);
+  });
+
+  test('invoice-level size cap keeps every total a safe integer', () => {
+    // Two lines of ₹6,000 crore: the second would push Σ beyond MAX_INVOICE_PAISE (9e14) → treated as 0.
+    const r = check(computeInvoice([goods('a', 6e14), goods('b', 6e14)], ctx()));
+    assert.equal(line(r, 'b').taxableValue, 0);
+    assert.equal(r.totals.taxable, 6e14);
+    assert.ok(r.warnings.some((w) => /Line 2: the invoice total is too large/.test(w)));
+    // Per-unit cess × quantity is bounded too.
+    const c = check(computeInvoice([item('a', 1e12, 0.01, 18, { cessPerUnit: 1e6 })], ctx()));
+    assert.equal(c.totals.cess, 0);
+    assert.ok(c.warnings.some((w) => /cess per unit × quantity is too large/.test(w)));
+  });
+
+  test('tax-inclusive rate is ignored on imports and on apportioned charges', () => {
+    // Import of goods: IGST is paid at customs, so ₹118 is the assessable value; IGST 11800 × 18% = 2124.
+    const imp = check(computeInvoice([item('a', 1, 118, 18, { rateInclusiveOfTax: true })], ctx({ direction: 'inward', partyRegistration: 'overseas', partyStateCode: null })));
+    assert.deepEqual([line(imp, 'a').inclusive, line(imp, 'a').taxableValue, imp.totals.igst, imp.totals.payableToParty], [false, 11800, 2124, 11800]);
+    assert.ok(imp.warnings.some((w) => /not paid to the supplier/.test(w)));
+    // An inclusive freight line that is apportioned is absorbed at its entered value, with a warning.
+    const chg = check(computeInvoice([item('a', 1, 1000, 18), ledger('f', 11800, 18, { apportion: 'value', rateInclusiveOfTax: true })], ctx()));
+    assert.equal(line(chg, 'a').taxableValue, 111800);
+    assert.ok(chg.warnings.some((w) => /charge is apportioned/.test(w)));
+    // With nothing to absorb it, the charge stays a line of its own and its inclusive rate applies:
+    // 11800 × 100/118 = 10000 → CGST = SGST = 900.
+    const own = check(computeInvoice([ledger('s', 100000, 18), ledger('f', 11800, 18, { apportion: 'value', rateInclusiveOfTax: true })], ctx()));
+    assert.deepEqual([line(own, 'f').inclusive, line(own, 'f').taxableValue, line(own, 'f').cgst], [true, 10000, 900]);
+    assert.ok(!own.warnings.some((w) => /charge is apportioned/.test(w)));
+  });
+
+  test('invalid state codes and a GSTIN on an unregistered party are flagged', () => {
+    const s = computeInvoice([item('a', 1, 100, 18)], ctx({ partyStateCode: '45', consigneeStateCode: 'MH' }));
+    assert.ok(s.warnings.includes("Party state '45' is not a valid GST state code"));
+    assert.ok(s.warnings.includes("Consignee state 'MH' is not a valid GST state code"));
+    const u = computeInvoice([item('a', 1, 100, 18)], ctx({ partyRegistration: 'unregistered', partyGstin: '27AAPFU0939F1ZV' }));
+    assert.ok(u.warnings.some((w) => /has a GSTIN but is marked as unregistered/.test(w)));
+    assert.equal(u.nature, 'b2cs');
+  });
+
+  test('UQC: unit symbols are mapped, unknown units fall back to OTH, services report NA in the HSN summary', () => {
+    const r = check(
+      computeInvoice(
+        [
+          item('kg', 2, 100, 18, { uqc: 'Kg' }),
+          item('odd', 1, 100, 18, { uqc: 'widget', hsnSac: '8472' }),
+          ledger('svc', 5000, 18, { uqc: 'OTH', qty: 5, hsnSac: '998313' }),
+        ],
+        ctx(),
+      ),
+    );
+    assert.deepEqual(r.lines.map((l) => l.uqc), ['KGS', 'OTH', 'OTH']);
+    assert.ok(r.warnings.some((w) => /unit 'widget' is not a GST UQC/.test(w)));
+    assert.ok(!r.warnings.some((w) => /unit 'Kg'/.test(w)));
+    const svc = r.hsnSummary.find((h) => h.hsnSac === '998313');
+    assert.deepEqual([svc?.uqc, svc?.qty], ['NA', 0]);
+  });
+
+  test('absorbed flag marks charges that need no gst_line', () => {
+    const r = check(computeInvoice([item('a', 1, 1000, 18), ledger('f', 2000, 18, { apportion: 'value' })], ctx()));
+    assert.deepEqual(r.lines.map((l) => l.absorbed), [false, true]);
+    // Nothing to absorb into → taxed on its own, not absorbed.
+    const s = check(computeInvoice([ledger('s', 1000, 18), ledger('f', 2000, 18, { apportion: 'value' })], ctx()));
+    assert.deepEqual(s.lines.map((l) => l.absorbed), [false, false]);
+  });
+
+  test('overseas party with an Indian place of supply is not an export (regression: zero-rated)', () => {
+    // E.g. repair of goods physically in Maharashtra for a foreign client: POS entered as 27.
+    // ₹1,000 @18% intra-state → CGST = SGST = 100000 × 9% = 9000; B2C (no GSTIN), not export_lut.
+    const intra = check(computeInvoice([ledger('s', 100000, 18)], ctx({ partyRegistration: 'overseas', partyStateCode: null, placeOfSupply: '27' })));
+    assert.deepEqual([intra.taxMode, intra.interState, intra.nature, intra.totals.cgst, intra.totals.sgst], ['cgst_sgst', false, 'b2cs', 9000, 9000]);
+    assert.ok(intra.warnings.some((w) => /not an export/.test(w)));
+    // POS in another state → IGST 18000.
+    const inter = check(computeInvoice([ledger('s', 100000, 18)], ctx({ partyRegistration: 'overseas', partyStateCode: null, placeOfSupply: '29' })));
+    assert.deepEqual([inter.taxMode, inter.nature, inter.totals.igst], ['igst', 'b2cs', 18000]);
+    // POS 96 (or none) is still an export.
+    const exp = check(computeInvoice([ledger('s', 100000, 18)], ctx({ partyRegistration: 'overseas', partyStateCode: null, placeOfSupply: '96' })));
+    assert.deepEqual([exp.nature, exp.totals.tax], ['export_lut', 0]);
+  });
+
+  test('holes in the line array become blank lines instead of throwing', () => {
+    const lines = [item('a', 1, 100, 18), null as unknown as InvoiceLineInput];
+    const r = check(computeInvoice(lines, ctx()));
+    assert.equal(r.lines.length, 2);
+    assert.equal(r.totals.taxable, 10000);
+    assert.ok(r.warnings.some((w) => /Line 2: line data is missing/.test(w)));
+  });
+});
+
 // ───────────────────────────── property test ─────────────────────────────
 
 /** Small seeded PRNG (mulberry32) so failures are reproducible. */
@@ -786,7 +947,8 @@ describe('property: invariants hold for random invoices', () => {
         lines.push({
           key: `k${i}`,
           kind: goods ? 'item' : 'ledger',
-          qty: goods ? Math.round(rnd() * 100000) / 1000 : undefined,
+          // Mostly positive quantities; ~5% negative (returns) to exercise mixed-sign buckets.
+          qty: goods ? (rnd() < 0.05 ? -1 : 1) * (Math.round(rnd() * 100000) / 1000) : undefined,
           rate: goods ? Math.round(rnd() * 500000) / 100 : undefined,
           amount: goods ? undefined : Math.round((rnd() - 0.1) * 1_000_000),
           discountPct: rnd() < 0.3 ? Math.round(rnd() * 2500) / 100 : 0,
@@ -808,12 +970,24 @@ describe('property: invariants hold for random invoices', () => {
         // Tax-inclusive lines (not absorbing a charge) keep their entered value to the paise.
         if (l.inclusive && l.apportioned === 0) assert.equal(l.total, l.gross - l.discount, `inclusive line exact (#${n})`);
         if (!l.taxCharged) assert.equal(l.tax, 0);
+        if (l.absorbed) assert.deepEqual([l.taxableValue, l.tax, l.postingAmount], [0, 0, -l.apportioned], `absorbed charge (#${n})`);
+        // Each exclusive line's tax is within 1.5 paise of its own exact share, however the bucket's
+        // lines are signed (largest remainder never moves a line by more than one paise).
+        if (l.taxCharged && !l.inclusive && !l.absorbed) {
+          const [head, exact] = r.taxMode === 'igst' ? [l.igst, (l.taxableValue * l.rate) / 100] : [l.cgst, (l.taxableValue * l.rate) / 200];
+          assert.ok(Math.abs(head - exact) < 1.5, `line ${l.key} tax ${head} vs exact ${exact} (#${n})`);
+        }
       }
       // Buckets made only of exclusive lines satisfy tax = round(taxable × rate) exactly.
-      const absorbed = new Set(lines.filter((l, i) => l.apportion !== 'none' && r.lines[i].taxableValue === 0 && r.lines[i].apportioned !== 0).map((l) => l.key));
       for (const b of r.buckets) {
         const members = r.lines.filter(
-          (l) => l.taxability === b.taxability && l.rate === b.rate && l.cessRate === b.cessRate && l.taxCharged === b.taxCharged && !absorbed.has(l.key),
+          (l) =>
+            l.taxability === b.taxability &&
+            l.rate === b.rate &&
+            l.cessRate === b.cessRate &&
+            l.taxCharged === b.taxCharged &&
+            l.reverseCharge === b.reverseCharge &&
+            !l.absorbed,
         );
         if (!b.taxCharged || members.some((l) => l.inclusive || l.cessPerUnit > 0)) continue;
         if (r.taxMode === 'igst') assert.equal(b.igst, taxAt(b.taxableValue, b.rate), `bucket IGST (#${n})`);

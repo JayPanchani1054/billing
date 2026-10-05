@@ -32,7 +32,7 @@ tsc -p tsconfig.core.json            # typecheck src/core + src/shared (global t
 tsc -p tsconfig.web.offline.json     # typecheck renderer against types/offline React shims
 tsc -p tsconfig.node.offline.json    # typecheck main/preload against types/offline Electron shim
 node --test "src/**/*.test.ts"       # run all tests (Node 22 strips types natively)
-node --test src/core/modules/gst/    # run one module's tests
+node --test "src/core/modules/gst/**/*.test.ts"   # one module's tests (folder paths do not work; use a glob)
 ```
 
 `types/offline/*.d.ts` are faithful subsets of `@types/react` 19, `react-dom`, `qrcode` and Electron's types.

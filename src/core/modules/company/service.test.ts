@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { describe, it } from 'node:test';
 import type { ApiResult } from '../../../shared/api.ts';
 import { DEFAULT_CONFIG, DEFAULT_FEATURES, type CompanyConfig, type CompanyFeatures } from '../../../shared/settings.ts';
+import { seedCompany } from '../../db/seed.ts';
+import { Db } from '../../db/db.ts';
+import { migrate } from '../../db/migrate.ts';
 import type { CompanyProfile, CompanyProfileInput } from '../../../shared/types/company.ts';
 import { verifyAuditChain } from '../../lib/audit.ts';
 import { AppError } from '../../lib/errors.ts';
@@ -289,5 +292,51 @@ describe('company routes', () => {
     assert.equal(getFeatures(t.db).costCentres, false);
     assert.equal(t.db.value('SELECT COUNT(*) FROM audit_log'), before);
     t.close();
+  });
+});
+
+describe('review regressions', () => {
+  it('getConfig/getFeatures never hand out the shared defaults', () => {
+    const t = createTestCompany();
+    t.db.run(`DELETE FROM settings WHERE key IN ('config', 'features')`);
+    const cfg = getConfig(t.db);
+    cfg.invoice.copies.push('duplicate');
+    cfg.guards.negativeStock = 'block';
+    const f = getFeatures(t.db);
+    f.gst = false;
+    assert.deepEqual(DEFAULT_CONFIG.invoice.copies, ['original']);
+    assert.equal(DEFAULT_CONFIG.guards.negativeStock, 'warn');
+    assert.equal(DEFAULT_FEATURES.gst, true);
+    assert.deepEqual(getConfig(t.db).invoice.copies, ['original']);
+    t.close();
+  });
+
+  it('setPeriodLock checks period.lock itself (not only at the route)', () => {
+    const t = createTestCompany();
+    assert.throws(() => setPeriodLock(t.ctxAs({ permissions: ['company.manage'] }), '2026-04-10'), isCode('FORBIDDEN'));
+    assert.equal(getConfig(t.db).lockedUpTo, null);
+    assert.deepEqual(setPeriodLock(t.ctxAs({ permissions: ['period.lock'] }), '2026-04-10'), { lockedUpTo: '2026-04-10' });
+    t.close();
+  });
+
+  it('requires an absolute backup folder', async () => {
+    const t = createTestCompany();
+    assert.equal(errCode(await t.call(companyRoutes, 'company.config.save', { backup: { folder: 'relative/backups' } })), 'VALIDATION');
+    const abs = process.platform === 'win32' ? 'D:\\Backups' : '/var/backups/bahi';
+    assert.equal((await t.callOk<CompanyConfig>(companyRoutes, 'company.config.save', { backup: { folder: abs } })).backup.folder, abs);
+    t.close();
+  });
+
+  it('seedCompany validates identity fields for direct callers', () => {
+    const db = new Db(':memory:');
+    migrate(db);
+    const base = { name: 'X', stateCode: '27', gstRegistrationType: 'unregistered' as const, booksFrom: '2026-04-01' };
+    const now = new Date('2026-04-15T04:30:00Z');
+    assert.throws(() => seedCompany(db, { ...base, name: '   ' }, { now }), isCode('VALIDATION', /name is required/));
+    assert.throws(() => seedCompany(db, { ...base, booksFrom: '2026-02-30' }, { now }), isCode('VALIDATION', /valid date/));
+    assert.throws(() => seedCompany(db, { ...base, stateCode: '99' }, { now }), isCode('VALIDATION', /valid state/));
+    assert.throws(() => seedCompany(db, { ...base, fyStartMonth: 13 }, { now }), isCode('VALIDATION', /1–12/));
+    assert.equal(db.value('SELECT COUNT(*) FROM company'), 0);
+    db.close();
   });
 });

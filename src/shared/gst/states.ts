@@ -104,14 +104,45 @@ export function stateLabel(code: string | number | null | undefined): string {
   return s ? `${s.code}-${s.name}` : '';
 }
 
-/** Find a state by its name or alpha code (case-insensitive), e.g. 'maharashtra' or 'MH'. */
+/** Lower-case, '&' → 'and', punctuation dropped, single spaces: 'Jammu & Kashmir' → 'jammu and kashmir'. */
+function nameKey(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Other spellings seen in imported masters (Tally exports, e-way bill/ISO/vehicle codes, old names)
+ * → current code. Reorganised names resolve to the CURRENT state ('AP' → 37, 'Daman and Diu' → 26);
+ * the legacy codes stay reachable by their code.
+ */
+const STATE_ALIASES: Readonly<Record<string, string>> = {
+  // alpha variants (GST portal vs ISO 3166-2:IN / vehicle registration)
+  bh: '10', br: '10', mi: '15', mz: '15', me: '17', ml: '17', or: '21', od: '21', uk: '05', ut: '05',
+  cg: '22', ct: '22', tg: '36', ts: '36', ap: '37', ad: '37', dd: '26', dnh: '26', dnhdd: '26', la: '38',
+  // old / common names and portal spellings
+  orissa: '21', pondicherry: '34', uttaranchal: '05', chattisgarh: '22', meghlaya: '17', lakshwadeep: '31',
+  'new delhi': '07', 'nct of delhi': '07', 'national capital territory of delhi': '07',
+  'daman and diu': '26', 'dadra and nagar haveli': '26', 'andaman and nicobar': '35', 'jammu kashmir': '01',
+  'andhra pradesh new': '37', 'andhra pradesh newly added': '37', 'andhra pradesh before division': '28',
+  'other country': '96', 'outside india': '96', foreign: '96',
+};
+
+/**
+ * Find a state by name, alpha code or common alias (case- and punctuation-insensitive):
+ * 'maharashtra', 'MH', 'Jammu & Kashmir', 'Orissa', 'OD'. Current states win over legacy codes.
+ */
 export function findState(nameOrAlpha: string): GstState | undefined {
-  const q = nameOrAlpha.trim().toLowerCase();
+  const q = nameKey(nameOrAlpha ?? '');
   if (!q) return undefined;
-  return (
-    GST_STATES.find((s) => !s.legacy && (s.name.toLowerCase() === q || s.alpha.toLowerCase() === q)) ??
-    GST_STATES.find((s) => s.name.toLowerCase() === q || s.alpha.toLowerCase() === q)
-  );
+  const matches = (s: GstState): boolean => nameKey(s.name) === q || s.alpha.toLowerCase() === q;
+  const current = GST_STATES.find((s) => !s.legacy && matches(s));
+  if (current) return current;
+  const alias = STATE_ALIASES[q];
+  if (alias) return BY_CODE.get(alias);
+  return GST_STATES.find(matches);
 }
 
 export interface StateOption {

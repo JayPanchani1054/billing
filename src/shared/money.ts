@@ -33,15 +33,29 @@ export function paiseToRupees(p: Paise): number {
 }
 
 /**
+ * Longest number text (after trimming) the parsers accept. Real amounts are far shorter; the cap keeps
+ * parsing of hostile input (e.g. a CSV cell of megabytes) cheap.
+ */
+const MAX_NUMBER_TEXT = 64;
+
+/**
+ * Unsigned decimal: '12', '12.', '12.5', '.5' (not '' or '.'). The '.' is mandatory inside the optional
+ * group, so a failed match backtracks in linear time (the old /^\d*\.?\d*$/ was quadratic).
+ */
+const DECIMAL_RE = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+/**
  * Parse user-entered amount text into paise. Accepts Indian/Western grouping, optional ₹/Rs,
- * optional Dr/Cr suffix (Cr → negative) and a leading minus. Returns null when not a number.
+ * optional Dr/Cr suffix (Cr → negative) and a leading minus. Returns null when not a number or when
+ * the amount is too large to hold exactly (beyond Number.MAX_SAFE_INTEGER paise).
  *   '1,23,456.789' → 12345679   '₹ 50' → 5000   '100 Cr' → -10000   '-₹ 1,234.50' → -123450
  */
 export function parseAmount(input: string): Paise | null {
   let s = input.trim();
-  if (s === '') return null;
+  if (s === '' || s.length > MAX_NUMBER_TEXT) return null;
   let sign = 1;
-  const drcr = /\s*(dr|cr)\.?$/i.exec(s);
+  // Fixed-length suffix pattern (no leading \s*), so a long run of spaces cannot cause quadratic backtracking.
+  const drcr = /(dr|cr)\.?$/i.exec(s);
   if (drcr) {
     if (drcr[1].toLowerCase() === 'cr') sign = -1;
     s = s.slice(0, drcr.index).trim();
@@ -61,16 +75,25 @@ export function parseAmount(input: string): Paise | null {
   // The symbol may also follow the sign: '-₹ 1,23,456.50' (formatMoney's own output).
   s = stripCurrency(s.trim());
   s = s.replace(/[,\s]/g, '');
-  if (!/^\d*\.?\d*$/.test(s) || s === '' || s === '.') return null;
-  const value = Number(s);
-  if (!Number.isFinite(value)) return null;
-  return roundPaise(sign * value * 100);
+  if (!DECIMAL_RE.test(s)) return null;
+  // Exact decimal → paise on the digit string (no float multiply): the third decimal decides the
+  // rounding, half away from zero, so '1.0049999' → 100 and '1.005' → 101.
+  const [whole, frac = ''] = s.split('.');
+  const digits = `${frac}000`;
+  let paise = BigInt(whole || '0') * 100n + BigInt(digits.slice(0, 2));
+  if (digits.charCodeAt(2) >= 53 /* '5' */) paise += 1n;
+  // Beyond 2^53 paise the amount can no longer be held exactly — reject it rather than corrupt it.
+  if (paise > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  const out = sign * Number(paise);
+  return out === 0 ? 0 : out;
 }
 
 /** Parse a plain decimal number (quantities, rates, percentages). Returns null when invalid. */
 export function parseDecimal(input: string): number | null {
-  const s = input.trim().replace(/[,\s]/g, '');
-  if (s === '' || !/^[-+]?\d*\.?\d*$/.test(s) || s === '.' || s === '-' || s === '+') return null;
+  const t = input.trim();
+  if (t.length > MAX_NUMBER_TEXT) return null;
+  const s = t.replace(/[,\s]/g, '');
+  if (!DECIMAL_RE.test(s.replace(/^[-+]/, ''))) return null;
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
@@ -122,9 +145,21 @@ export function allocate(total: Paise, weights: readonly number[]): Paise[] {
   return floors.map((f) => (f === 0 ? 0 : sign * f));
 }
 
-/** Round an amount to a unit (e.g. 100 paise = nearest rupee) by method. Returns the rounded total. */
+/**
+ * Round an amount to a unit (e.g. 100 paise = nearest rupee) by method. Returns the rounded total.
+ * 'nearest' is half away from zero; 'up' is toward +∞ and 'down' toward −∞ (also for negatives).
+ */
 export function roundToUnit(amount: Paise, unit: number, method: 'nearest' | 'up' | 'down'): Paise {
   if (unit <= 1) return amount;
+  if (Number.isSafeInteger(amount) && Number.isSafeInteger(unit)) {
+    // Exact integer arithmetic (no division error for any unit size).
+    const rem = amount % unit; // carries the sign of `amount`
+    let out = amount - rem;
+    if (method === 'up' && rem > 0) out += unit;
+    else if (method === 'down' && rem < 0) out -= unit;
+    else if (method !== 'up' && method !== 'down' && 2 * Math.abs(rem) >= unit) out += rem > 0 ? unit : -unit;
+    return out === 0 ? 0 : out;
+  }
   const q = amount / unit;
   const r = method === 'up' ? Math.ceil(q - 1e-9) : method === 'down' ? Math.floor(q + 1e-9) : Math.sign(q) * Math.round(Math.abs(q));
   const out = r * unit;

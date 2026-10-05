@@ -56,6 +56,25 @@ describe('AppConfigStore', () => {
     assert.equal(logs[0]?.level, 'warn');
   });
 
+  it('does not discard a config that is only temporarily unreadable (regression)', () => {
+    // A directory in place of the file makes reads fail with EISDIR — stands in for a sharing violation.
+    const file = path.join(dir, 'config.json');
+    fs.mkdirSync(file);
+    const s = new AppConfigStore(dir, path.join(dir, 'Data'), log);
+    assert.deepEqual(s.get(), DEFAULT_APP_CONFIG);
+    assert.ok(fs.statSync(file).isDirectory(), 'not renamed away as "corrupt"');
+    assert.doesNotThrow(() => s.update({ theme: 'dark' }));
+    assert.equal(s.get().theme, 'dark', 'kept in memory');
+    assert.ok(fs.statSync(file).isDirectory(), 'not overwritten');
+    // Once readable again, the next change is applied on top of the stored values.
+    fs.rmdirSync(file);
+    fs.writeFileSync(file, JSON.stringify({ dataDir: path.join(dir, 'Chosen'), firstRunComplete: true }));
+    s.update({ theme: 'light' });
+    const again = new AppConfigStore(dir, path.join(dir, 'Data'), log);
+    assert.equal(again.dataDir, path.join(dir, 'Chosen'), 'chosen data folder survived');
+    assert.equal(again.get().theme, 'light');
+  });
+
   it('ignores invalid field values', () => {
     fs.writeFileSync(
       path.join(dir, 'config.json'),

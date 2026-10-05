@@ -146,4 +146,24 @@ describe('parseDateInput (Tally-style entry)', () => {
     assert.equal(p('5 10 2026 9'), null, 'extra tokens used to be ignored');
     assert.equal(p('5-xyz'), null);
   });
+
+  test('month names must be a month, not merely start with one (regression)', () => {
+    assert.equal(p('5 junk'), null, "'junk' used to parse as June");
+    assert.equal(p('marching 3'), null);
+    assert.equal(p('1 decimal'), null);
+    assert.equal(p('5 ju'), null, 'too short to be unambiguous');
+    assert.equal(p('5 jun'), '2026-06-05');
+    assert.equal(p('5 july'), '2026-07-05');
+    assert.equal(p('5 sep 26'), '2026-09-05');
+    assert.equal(p('5 MAY'), '2026-05-05');
+  });
+
+  test('two-digit years resolve to the nearest century of the working date (regression: always 20yy)', () => {
+    assert.equal(p('5-10-99'), '1999-10-05', "'99' used to become 2099");
+    assert.equal(p('010199'), '1999-01-01');
+    assert.equal(p('5-10-75'), '2075-10-05'); // 2026 + 49
+    assert.equal(p('5-10-76'), '1976-10-05'); // 2026 − 50
+    assert.equal(p('5-10-00'), '2000-10-05');
+    assert.equal(parseDateInput('1-1-01', '2095-06-01'), '2101-01-01');
+  });
 });

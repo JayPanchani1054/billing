@@ -37,18 +37,28 @@ export interface MoneyFormatOptions {
   absolute?: boolean;
 }
 
+/**
+ * Paise → '-1,23,456.50' with integer arithmetic only (exact for every safe integer, where
+ * p / 100 + toFixed can misprint the paise near 2^53). Non-integers fall back to float formatting.
+ */
+function paiseText(p: Paise): string {
+  if (!Number.isSafeInteger(p)) return formatIndianNumber(p / 100, 2);
+  const abs = Math.abs(p);
+  const body = `${groupIndian(String(Math.floor(abs / 100)))}.${String(abs % 100).padStart(2, '0')}`;
+  return p < 0 ? `-${body}` : body;
+}
+
 /** Paise → '1,23,456.50' or '₹ 1,23,456.50'. */
 export function formatMoney(p: Paise, opts: MoneyFormatOptions = {}): string {
   if (opts.blankZero && p === 0) return '';
-  const v = (opts.absolute ? Math.abs(p) : p) / 100;
-  const s = formatIndianNumber(v, 2);
+  const s = paiseText(opts.absolute ? Math.abs(p) : p);
   return opts.symbol ? (s.startsWith('-') ? `-₹ ${s.slice(1)}` : `₹ ${s}`) : s;
 }
 
 /** Signed paise → '1,234.50 Dr' / '1,234.50 Cr' (zero → '' or '0.00' when keepZero). */
 export function formatDrCr(p: Paise, opts: { keepZero?: boolean } = {}): string {
   if (p === 0) return opts.keepZero ? '0.00' : '';
-  return `${formatIndianNumber(Math.abs(p) / 100, 2)} ${p > 0 ? 'Dr' : 'Cr'}`;
+  return `${paiseText(Math.abs(p))} ${p > 0 ? 'Dr' : 'Cr'}`;
 }
 
 /** Quantity with unit: formatQty(12.5, 3, 'Kg') → '12.500 Kg' */
@@ -65,9 +75,16 @@ export function formatRate(rate: number): string {
   return formatIndianNumber(rate, decimals);
 }
 
-/** 18 → '18%', 0.25 → '0.25%' */
+/**
+ * 18 → '18%', 0.25 → '0.25%', 0.125 → '0.125%' (the CGST half of the 0.25% slab).
+ * Values with up to 4 decimals (GST/cess rates) are shown exactly; longer fractions (computed
+ * ratios) are rounded to 2 decimals: 33.3333333 → '33.33%'.
+ */
 export function formatPercent(pct: number): string {
-  return `${Number.isInteger(pct) ? pct : Number(pct.toFixed(2))}%`;
+  if (!Number.isFinite(pct)) return '';
+  const four = Number(pct.toFixed(4));
+  const shown = Math.abs(four - pct) < 1e-9 ? four : Number(pct.toFixed(2));
+  return `${shown === 0 ? 0 : shown}%`;
 }
 
 /** Compact for dashboards: 12345600 paise → '₹1.23 L', 1.5 Cr etc. */

@@ -113,6 +113,16 @@ describe('roundToUnit', () => {
     assert.equal(roundToUnit(0, 100, 'up'), 0);
   });
 
+  test('exact for any unit size (regression: float division with a 1e-9 fudge)', () => {
+    // 1 paise up to a ₹10 crore unit used to give 0 (ceil(1e-10 − 1e-9) = 0).
+    assert.equal(roundToUnit(1, 1e10, 'up'), 1e10);
+    assert.equal(roundToUnit(-1, 1e10, 'down'), -1e10);
+    assert.equal(roundToUnit(4999999999, 1e10, 'nearest'), 0);
+    assert.equal(roundToUnit(5000000000, 1e10, 'nearest'), 1e10);
+    assert.equal(roundToUnit(47555, 500, 'nearest'), 47500); // nearest ₹5
+    assert.equal(roundToUnit(47750, 500, 'nearest'), 48000); // exact half → away from zero
+  });
+
   test('unit ≤ 1 leaves the amount unchanged', () => {
     assert.equal(roundToUnit(12345, 1, 'nearest'), 12345);
     assert.equal(roundToUnit(12345, 0, 'up'), 12345);
@@ -149,6 +159,46 @@ describe('parseAmount', () => {
 
   test('rejects non-numbers', () => {
     for (const s of ['', '   ', 'abc', '1.2.3', '1e5', '.', '-', '₹', '+-5', '12abc']) assert.equal(parseAmount(s), null, s);
+  });
+
+  test('rejects amounts too large to hold exactly (regression: returned 1e22)', () => {
+    assert.equal(parseAmount('99999999999999999999'), null);
+    assert.equal(parseAmount('-1,00,00,00,00,00,00,000'), null); // ₹10^17 → 10^19 paise > 2^53
+    // ₹90,07,19,92,54,74,09.91 = 2^53 − 1 paise is the largest amount that parses.
+    assert.equal(parseAmount('90071992547409.91'), Number.MAX_SAFE_INTEGER);
+    assert.equal(parseAmount('90071992547409.92'), null);
+  });
+
+  test('decimal text is converted exactly (regression: float multiply + 6-decimal snap)', () => {
+    // In floating point 40000000000000.02 × 100 = 4000000000000003 and 90071992547359.99 × 100 = …998.
+    assert.equal(parseAmount('40000000000000.02'), 4000000000000002);
+    assert.equal(parseAmount('90071992547359.99'), 9007199254735999);
+    assert.equal(parseAmount('1.0049999'), 100, 'the snap used to round this up to 101');
+    assert.equal(parseAmount('1.005'), 101);
+    assert.equal(parseAmount('-1.005'), -101);
+    assert.equal(parseAmount('0.004'), 0);
+    assert.ok(Object.is(parseAmount('-0.004'), 0), 'never -0');
+    assert.equal(parseAmount('12345678901234.56'), 1234567890123456);
+  });
+});
+
+describe('hostile input', () => {
+  test('long text is rejected quickly (regression: quadratic regex backtracking)', () => {
+    // '1' + 50 000 spaces + 'x' took ~3 s and 50 000 digits + 'x' ~2 s before the fix.
+    const start = performance.now();
+    assert.equal(parseAmount(`1${' '.repeat(50_000)}x`), null);
+    assert.equal(parseAmount(`${'1'.repeat(50_000)}x`), null);
+    assert.equal(parseDecimal(`${'1'.repeat(50_000)}x`), null);
+    assert.equal(parseAmount(`${'1'.repeat(40)}x`), null); // under the length cap: linear regexes
+    assert.equal(parseDecimal(`${'1'.repeat(40)}x`), null);
+    assert.ok(performance.now() - start < 200, 'parsing stays linear');
+  });
+
+  test('accepted forms are unchanged', () => {
+    assert.equal(parseAmount('12.'), 1200);
+    assert.equal(parseDecimal('12.'), 12);
+    assert.equal(parseDecimal('+.5'), 0.5);
+    assert.equal(parseDecimal('+-5'), null);
   });
 });
 

@@ -13,7 +13,7 @@ import { AppError } from '../lib/errors.ts';
 import { makeGstin } from '../testing/fixtures.ts';
 import { fixedClock } from './clock.ts';
 import { CompanyStore } from './companies.ts';
-import { LOCK_FILE, LOCK_STALE_MS } from './lock.ts';
+import { LOCK_FILE, LOCK_STALE_MS, removeStaleLock } from './lock.ts';
 
 let dataDir: string;
 const logs: Array<{ level: string; message: string }> = [];
@@ -103,9 +103,62 @@ describe('CompanyStore', () => {
   it('honours a lock held by another live process on this machine', () => {
     const store = newStore();
     const c = store.create(input('Delta'));
-    const live = { pid: process.ppid, hostname: os.hostname(), startedAt: '2026-10-05T00:00:00Z', heartbeatAt: '2026-10-05T00:00:00Z' };
+    const beat = new Date(clock.now().getTime() - 60_000).toISOString();
+    const live = { pid: process.ppid, hostname: os.hostname(), startedAt: beat, heartbeatAt: beat };
     fs.writeFileSync(path.join(c.dir, LOCK_FILE), JSON.stringify(live));
-    assert.throws(() => store.open(c.id), isCode('LOCKED'));
+    assert.throws(() => store.open(c.id), isCode('LOCKED', /another Bahi ERP window/));
+  });
+
+  it('takes over a lock whose pid was recycled by another program after a crash (regression)', () => {
+    const store = newStore();
+    const c = store.create(input('Delta Two'));
+    // The pid is alive (it is our parent) but the holder stopped heartbeating long ago.
+    const old = new Date(clock.now().getTime() - LOCK_STALE_MS - 1000).toISOString();
+    fs.writeFileSync(path.join(c.dir, LOCK_FILE), JSON.stringify({ pid: process.ppid, hostname: os.hostname(), startedAt: old, heartbeatAt: old }));
+    store.close(store.open(c.id));
+  });
+
+  it('treats an unparsable lock file as held while fresh (holder mid-write), stale once old', () => {
+    const store = newStore();
+    const c = store.create(input('Delta Three'));
+    const lockPath = path.join(c.dir, LOCK_FILE);
+    fs.writeFileSync(lockPath, '');
+    assert.throws(() => store.open(c.id), isCode('LOCKED', /being opened right now/));
+    const longAgo = new Date(Date.now() - LOCK_STALE_MS - 60_000);
+    fs.utimesSync(lockPath, longAgo, longAgo);
+    store.close(store.open(c.id));
+  });
+
+  it('never deletes a fresh lock that replaced the stale one it evaluated (race regression)', () => {
+    const store = newStore();
+    const c = store.create(input('Delta Five'));
+    const lockPath = path.join(c.dir, LOCK_FILE);
+    const staleText = JSON.stringify({ pid: 1, hostname: 'OLD-PC', startedAt: 'x', heartbeatAt: '2020-01-01T00:00:00Z' });
+    // Another opener already replaced the stale lock with its own fresh one.
+    const freshText = JSON.stringify({ pid: 2, hostname: 'NEW-PC', startedAt: 'y', heartbeatAt: clock.now().toISOString() });
+    fs.writeFileSync(lockPath, freshText);
+    assert.equal(removeStaleLock(lockPath, staleText), false);
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), freshText, 'fresh lock restored');
+    assert.deepEqual(fs.readdirSync(c.dir).filter((f) => f.includes('.stale-')), []);
+    assert.throws(() => store.open(c.id), isCode('LOCKED', /NEW-PC/));
+    // The genuinely stale content is removed.
+    fs.writeFileSync(lockPath, staleText);
+    assert.equal(removeStaleLock(lockPath, staleText), true);
+    assert.equal(fs.existsSync(lockPath), false);
+    assert.equal(removeStaleLock(lockPath, staleText), true, 'already gone is fine');
+  });
+
+  it('writes heartbeats atomically and keeps them parseable', () => {
+    const store = newStore();
+    const c = store.create(input('Delta Four'));
+    const opened = store.open(c.id);
+    const later = new Date(clock.now().getTime() + 5 * 60_000);
+    opened.lock.heartbeat(later);
+    const lock = JSON.parse(fs.readFileSync(path.join(c.dir, LOCK_FILE), 'utf8'));
+    assert.equal(lock.heartbeatAt, later.toISOString());
+    assert.equal(lock.pid, process.pid);
+    assert.deepEqual(fs.readdirSync(c.dir).filter((f) => f.includes('.tmp-')), [], 'no temp files left');
+    store.close(opened);
   });
 
   it('takes over a stale lock left by a crashed process', () => {
@@ -180,6 +233,33 @@ describe('CompanyStore', () => {
     assert.equal(path.dirname(target), store.trashDir);
     assert.deepEqual(store.list(), []);
     assert.equal(store.registry.lastOpenedAt(c.id), null);
+  });
+
+  it('install() refuses newer-version files and companies open elsewhere, leaving everything untouched', () => {
+    const store = newStore();
+    const c = store.create(input('Iota'));
+    const newer = path.join(dataDir, 'newer.db');
+    const src = new Db(c.dbPath, { readOnly: true });
+    src.run('VACUUM INTO ?', [newer]);
+    src.close();
+    const w = new Db(newer);
+    w.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    w.close();
+    assert.throws(() => store.install(newer), isCode('CONFLICT', /newer version/));
+
+    const good = path.join(dataDir, 'good.db');
+    const src2 = new Db(c.dbPath, { readOnly: true });
+    src2.run('VACUUM INTO ?', [good]);
+    src2.close();
+    const opened = store.open(c.id);
+    assert.throws(() => store.install(good, { replaceId: c.id }), isCode('LOCKED'));
+    store.close(opened);
+    assert.throws(() => store.install(good, { replaceId: 'no-such-company-1' }), isCode('NOT_FOUND'));
+    assert.deepEqual(store.list().map((x) => x.id), [c.id]);
+    assert.deepEqual(fs.readdirSync(dataDir).filter((f) => f.startsWith('.staging')), []);
+    const installed = store.install(good);
+    assert.equal(store.readMeta(installed.paths.id).name, 'Iota');
+    assert.ok(fs.existsSync(installed.paths.attachmentsDir));
   });
 
   it('rejects ids that could escape the companies folder', () => {

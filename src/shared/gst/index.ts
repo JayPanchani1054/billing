@@ -65,6 +65,9 @@ export {
 export { determinePlaceOfSupply, isInterState, taxModeFor } from './pos.ts';
 
 export {
+  B2CL_THRESHOLD_BEFORE_2024_08_PAISE,
+  B2CL_THRESHOLD_REVISED_ON,
+  b2clThresholdOn,
   classifySupply,
   GST_NATURE_LABELS,
   isOutwardNature,
@@ -73,4 +76,4 @@ export {
 } from './classify.ts';
 export type { ClassifyContext, ClassifyTotals } from './classify.ts';
 
-export { computeInvoice, MAX_LINE_PAISE, taxableFromInclusive, taxAt } from './engine.ts';
+export { computeInvoice, MAX_INVOICE_PAISE, MAX_LINE_PAISE, taxableFromInclusive, taxAt } from './engine.ts';

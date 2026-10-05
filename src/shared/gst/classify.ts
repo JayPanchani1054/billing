@@ -30,6 +30,21 @@ export interface ClassifyTotals {
   servicesValue?: Paise;
 }
 
+/** B2CL threshold before 1-Aug-2024 (₹2,50,000), in paise. */
+export const B2CL_THRESHOLD_BEFORE_2024_08_PAISE = 2_50_000_00;
+/** Date from which the B2CL threshold is ₹1,00,000 (B2CL_THRESHOLD_PAISE). */
+export const B2CL_THRESHOLD_REVISED_ON = '2024-08-01';
+
+/**
+ * Statutory B2CL threshold for an invoice date: ₹2,50,000 before 1-Aug-2024, ₹1,00,000 from then on
+ * (an unknown/blank date gets the current threshold). Used when the caller does not configure one.
+ */
+export function b2clThresholdOn(isoDate: string | null | undefined): Paise {
+  return typeof isoDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(isoDate) && isoDate < B2CL_THRESHOLD_REVISED_ON
+    ? B2CL_THRESHOLD_BEFORE_2024_08_PAISE
+    : B2CL_THRESHOLD_PAISE;
+}
+
 /** Party types that hold a GSTIN/UIN and are reported as B2B. */
 export function isRegisteredParty(reg: RegistrationType): boolean {
   return reg === 'regular' || reg === 'composition' || reg === 'uin' || reg === 'sez' || reg === 'deemed_export';

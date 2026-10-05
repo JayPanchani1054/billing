@@ -28,7 +28,7 @@ import {
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { ensureGstLedgers } from '../../db/seed.ts';
-import { AppError, notFound, rule, validation } from '../../lib/errors.ts';
+import { AppError, forbidden, notFound, rule, validation } from '../../lib/errors.ts';
 import { normalizeCompanyIdentity } from './validation.ts';
 
 // ───────────────────────────── Settings storage ─────────────────────────────
@@ -52,12 +52,18 @@ export function writeSetting(db: Db, key: string, value: unknown, now: Date): vo
   );
 }
 
+/**
+ * Features merged over defaults. Always a fresh object: mergeDefaults() can hand back (parts of) the
+ * shared DEFAULT_* constants, and a caller mutating the result must never change the defaults of
+ * every other company opened in this process.
+ */
 export function getFeatures(db: Db): CompanyFeatures {
-  return mergeDefaults(DEFAULT_FEATURES, readSetting(db, 'features'));
+  return structuredClone(mergeDefaults(DEFAULT_FEATURES, readSetting(db, 'features')));
 }
 
+/** Configuration merged over defaults (fresh object, see getFeatures). */
 export function getConfig(db: Db): CompanyConfig {
-  return mergeDefaults(DEFAULT_CONFIG, readSetting(db, 'config'));
+  return structuredClone(mergeDefaults(DEFAULT_CONFIG, readSetting(db, 'config')));
 }
 
 // ───────────────────────────── Profile ─────────────────────────────
@@ -315,9 +321,10 @@ export function assertDateUnlocked(db: Db, date: string): void {
   }
 }
 
-/** Lock books up to `date` (inclusive) or unlock with null. Requires permission period.lock (route). */
+/** Lock books up to `date` (inclusive) or unlock with null. Requires permission period.lock (checked here too). */
 export function setPeriodLock(ctx: CompanyCtx, date: string | null): PeriodLockResult {
-  const { db } = ctx;
+  const { db, session } = ctx;
+  if (!session.isOwner && !session.permissions.has('period.lock')) throw forbidden('You do not have permission to lock or unlock the books');
   const current = getConfig(db);
   if (date !== null && date > ctx.clock.today())
     throw rule(`Books can be locked only up to today (${formatDate(ctx.clock.today())}).`);

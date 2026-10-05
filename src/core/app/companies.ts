@@ -96,6 +96,21 @@ export class CompanyStore {
     ensureDir(this.trashDir);
   }
 
+  /** Null when the data folder is usable, else a user-facing explanation (re-checked on every call). */
+  availabilityProblem(): string | null {
+    try {
+      this.ensureLayout();
+      fs.accessSync(this.companiesDir, fs.constants.R_OK | fs.constants.W_OK);
+      return null;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      return (
+        `The data folder ${this.dataDir} cannot be used right now${code ? ` (${code})` : ''}. ` +
+        'Reconnect the drive or network folder, or choose another data folder.'
+      );
+    }
+  }
+
   paths(id: string): CompanyPaths {
     if (typeof id !== 'string' || !COMPANY_ID_RE.test(id)) throw notFound('Company', id);
     const dir = path.join(this.companiesDir, id);

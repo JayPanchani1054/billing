@@ -76,6 +76,26 @@ describe('states', () => {
     assert.equal(findState('Andhra Pradesh')?.code, '37');
     assert.equal(findState(''), undefined);
   });
+
+  test('findState understands Tally/ISO spellings and prefers current states (regression)', () => {
+    // '&' instead of 'and' (Tally exports), punctuation and extra spaces.
+    assert.equal(findState('Jammu & Kashmir')?.code, '01');
+    assert.equal(findState('Andaman & Nicobar Islands')?.code, '35');
+    assert.equal(findState('Dadra & Nagar Haveli & Daman & Diu')?.code, '26');
+    assert.equal(findState('  tamil   nadu ')?.code, '33');
+    // Old names and alternative alpha codes.
+    assert.equal(findState('Orissa')?.code, '21');
+    assert.equal(findState('Pondicherry')?.code, '34');
+    assert.equal(findState('Uttaranchal')?.code, '05');
+    for (const [alpha, code] of [['OD', '21'], ['OR', '21'], ['BR', '10'], ['BH', '10'], ['MZ', '15'], ['MI', '15'], ['ML', '17'], ['ME', '17'], ['TG', '36'], ['CG', '22'], ['UK', '05']]) {
+      assert.equal(findState(alpha)?.code, code, alpha);
+    }
+    // Reorganised states resolve to the current code; the legacy one stays reachable by its own name.
+    assert.equal(findState('AP')?.code, '37', "'AP' used to return the legacy code 28");
+    assert.equal(findState('Daman and Diu')?.code, '26');
+    assert.equal(findState('Andhra Pradesh (Old)')?.code, '28');
+    assert.equal(findState('Narnia'), undefined);
+  });
 });
 
 describe('UQC', () => {

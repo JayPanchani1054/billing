@@ -14,12 +14,16 @@ import { fixedClock, type FixedClock } from './clock.ts';
 import { appRoutes } from './routes.ts';
 import { createRuntime, type Runtime } from './runtime.ts';
 import { createRuntimeWithRoutes } from './runtime-core.ts';
+import { companyRoute, type RouteMap } from '../api/route.ts';
+import { v } from '../lib/validate.ts';
+import { controllerFor } from './controller.ts';
+import { verifyAuditChain as verifyChain } from '../lib/audit.ts';
 
 let root: string;
 let clock: FixedClock;
 const runtimes: Runtime[] = [];
 
-function makeRuntime(opts: { idleTimeoutMs?: number } = {}): Runtime {
+function makeRuntime(opts: { idleTimeoutMs?: number; routes?: RouteMap; authorizeDataDir?: (p: string) => boolean } = {}): Runtime {
   const rt = createRuntimeWithRoutes(
     {
       userDataDir: path.join(root, 'userData'),
@@ -28,8 +32,9 @@ function makeRuntime(opts: { idleTimeoutMs?: number } = {}): Runtime {
       clock,
       consoleLog: false,
       idleTimeoutMs: opts.idleTimeoutMs,
+      authorizeDataDir: opts.authorizeDataDir,
     },
-    { ...appRoutes, ...companyRoutes },
+    { ...appRoutes, ...companyRoutes, ...opts.routes },
   );
   runtimes.push(rt);
   return rt;
@@ -81,6 +86,7 @@ describe('runtime: first run and company lifecycle', () => {
       company: null,
       session: null,
       pendingLogin: null,
+      dataDirError: null,
     });
     assert.equal(rt.hasOpenCompany(), false);
     assert.equal(rt.app.dataDir, s.dataDir);
@@ -329,5 +335,162 @@ describe('createRuntime (production entry point)', () => {
     const log = fs.readFileSync(path.join(root, 'userData', 'logs', 'bahi.log'), 'utf8');
     assert.match(log, /"msg":"Company created"/);
     assert.doesNotMatch(log, /Production Path Co/, 'business data stays out of the app log');
+  });
+});
+
+describe('review regressions', () => {
+  it('explains an unusable data folder instead of silently listing no companies', async () => {
+    const blocker = path.join(root, 'not-a-folder');
+    fs.writeFileSync(blocker, 'x');
+    fs.mkdirSync(path.join(root, 'userData'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'userData', 'config.json'), JSON.stringify({ dataDir: path.join(blocker, 'Bahi'), firstRunComplete: true }));
+    const rt = makeRuntime();
+    const s = await ok<AppState>(rt, 'app.state');
+    assert.deepEqual(s.companies, []);
+    assert.match(s.dataDirError ?? '', /cannot be used right now .*Reconnect the drive/);
+    // Choosing a working folder clears it.
+    const good = await ok<AppState>(rt, 'app.dataDir.set', { path: path.join(root, 'GoodData'), mode: 'use' });
+    assert.equal(good.dataDirError, null);
+  });
+
+  it('a failed switch keeps the current company open (open-before-close)', async () => {
+    const rt = makeRuntime();
+    const a = await ok<AppState>(rt, 'app.company.create', company('Keep Me Open'));
+    const b = await ok<AppState>(rt, 'app.company.create', company('Held Elsewhere'));
+    const bId = b.company ? b.companies.find((c) => c.name === 'Held Elsewhere')?.id : undefined;
+    assert.ok(bId);
+    const aId = a.companies[0].id;
+    await ok(rt, 'app.company.open', { id: aId });
+    const other = makeRuntime();
+    await ok(other, 'app.company.open', { id: bId });
+    await fail(rt, 'app.company.open', { id: bId }, 'LOCKED');
+    await fail(rt, 'app.company.open', { id: 'missing-company-zzzzzz' }, 'NOT_FOUND');
+    assert.equal(rt.hasOpenCompany(), true);
+    assert.equal((await ok<AppState>(rt, 'app.state')).company?.name, 'Keep Me Open');
+    assert.equal((await ok<CompanyProfile>(rt, 'company.profile.get')).name, 'Keep Me Open');
+  });
+
+  it('with security off, logging out returns to the implicit owner session instead of a dead login prompt', async () => {
+    const rt = makeRuntime({ idleTimeoutMs: 60_000 });
+    await ok(rt, 'app.company.create', company('Relaxed Co', { owner: { username: 'boss', password: 'Boss12345' } }));
+    await ok(rt, 'company.features.save', { security: false });
+    clock.advance(5 * 60_000);
+    assert.equal((await ok<AppState>(rt, 'app.state')).session?.username, 'boss', 'no idle timeout without security');
+    const out = await ok<AppState>(rt, 'app.auth.logout');
+    assert.equal(out.pendingLogin, null);
+    assert.equal(out.session?.implicit, true);
+    assert.equal(out.company?.name, 'Relaxed Co');
+    await ok(rt, 'company.summary');
+  });
+
+  it('keeps app routes working when the open company database becomes unreadable', async () => {
+    const rt = makeRuntime();
+    const s = await ok<AppState>(rt, 'app.company.create', company('Flaky Drive Co'));
+    const dbPath = path.join(rt.app.dataDir, 'companies', s.companies[0].id, 'company.db');
+    const raw = new Db(dbPath);
+    raw.exec('DROP TABLE company'); // simulate a database that can no longer be read
+    raw.close();
+    const st = await ok<AppState>(rt, 'app.state');
+    assert.equal(st.company?.name, 'Flaky Drive Co', 'last known facts are used');
+    const closed = await ok<AppState>(rt, 'app.company.close');
+    assert.equal(closed.company, null);
+    assert.equal(rt.hasOpenCompany(), false);
+  });
+
+  it('throttles owner-password guesses when deleting a secured company', async () => {
+    const rt = makeRuntime();
+    const s = await ok<AppState>(rt, 'app.company.create', company('Guarded Co', { owner: { username: 'boss', password: 'Boss12345' } }));
+    const id = s.companies[0].id;
+    await ok(rt, 'app.company.close');
+    for (let i = 0; i < 4; i++) await fail(rt, 'app.company.delete', { id, confirmName: 'Guarded Co', password: `Wrong${i}234` }, 'UNAUTHENTICATED');
+    await fail(rt, 'app.company.delete', { id, confirmName: 'Guarded Co', password: 'Wrong5234' }, 'LOCKED', /5 minutes/);
+    await fail(rt, 'app.company.delete', { id, confirmName: 'Guarded Co', password: 'Boss12345' }, 'LOCKED', /Try again in 5 minutes/);
+    clock.advance(5 * 60_000 + 1);
+    await fail(rt, 'app.company.delete', { id, confirmName: 'Guarded Co', password: 'Wrong6234' }, 'UNAUTHENTICATED', /incorrect/);
+    assert.deepEqual(await ok(rt, 'app.company.delete', { id, confirmName: 'Guarded Co', password: 'Boss12345' }), []);
+  });
+
+  it('asks main to authorise a new data folder (renderer cannot pick arbitrary paths)', async () => {
+    const allowed = path.join(root, 'picked-in-dialog');
+    const rt = makeRuntime({ authorizeDataDir: (p) => p === allowed });
+    await fail(rt, 'app.dataDir.set', { path: path.join(root, 'attacker-share'), mode: 'move' }, 'FORBIDDEN');
+    assert.ok(!fs.existsSync(path.join(root, 'attacker-share')), 'nothing written');
+    await ok(rt, 'app.dataDir.set', { path: rt.app.dataDir, mode: 'use' }); // current folder always allowed
+    assert.equal((await ok<AppState>(rt, 'app.dataDir.set', { path: allowed, mode: 'use' })).dataDir, allowed);
+  });
+
+  it('closing waits for in-flight asynchronous company routes', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const events: string[] = [];
+    const routes = {
+      'test.slowExport': companyRoute({
+        access: 'authenticated',
+        input: v.none(),
+        transactional: false,
+        handler: async (ctx) => {
+          events.push('started');
+          await gate;
+          const n = ctx.db.value<number>('SELECT COUNT(*) FROM ledgers'); // DB must still be open
+          events.push('finished');
+          return n;
+        },
+      }),
+    } satisfies RouteMap;
+    const rt = makeRuntime({ routes });
+    await ok(rt, 'app.company.create', company('Busy Exporter'));
+    const slow = rt.dispatch('test.slowExport', {});
+    const closing = rt.dispatch('app.company.close', {}).then((r) => {
+      events.push('closed');
+      return r;
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(events, ['started'], 'close is waiting');
+    release();
+    const [slowResult, closeResult] = await Promise.all([slow, closing]);
+    assert.ok(slowResult.ok, JSON.stringify(slowResult));
+    assert.ok(closeResult.ok);
+    assert.deepEqual(events, ['started', 'finished', 'closed']);
+  });
+
+  it('installs a company database file as a new company or over a closed one (restore hook)', async () => {
+    const rt = makeRuntime();
+    const s = await ok<AppState>(rt, 'app.company.create', company('Original Books'));
+    const id = s.companies[0].id;
+    await ok(rt, 'company.config.save', { invoice: { terms: 'Version A' } });
+    await ok(rt, 'app.company.close');
+    // A "backup": a consistent copy of the company database.
+    const backup = path.join(root, 'backup-a.db');
+    const src = new Db(path.join(rt.app.dataDir, 'companies', id, 'company.db'), { readOnly: true });
+    src.run('VACUUM INTO ?', [backup]);
+    src.close();
+
+    const ctl = controllerFor(rt.app);
+    const asNew = await ctl.installCompanyDatabase(backup);
+    assert.notEqual(asNew.company.id, id);
+    assert.equal(asNew.company.name, 'Original Books');
+    assert.equal(asNew.replacedTo, null);
+    assert.equal((await ok<CompanyListItem[]>(rt, 'app.company.list')).length, 2);
+
+    await ok(rt, 'app.company.open', { id });
+    await ok(rt, 'company.config.save', { invoice: { terms: 'Version B' } });
+    await assert.rejects(ctl.installCompanyDatabase(backup, { replaceId: id }), /Close this company/);
+    await ok(rt, 'app.company.close');
+    const replaced = await ctl.installCompanyDatabase(backup, { replaceId: id });
+    assert.equal(replaced.company.id, id);
+    assert.ok(replaced.replacedTo && fs.existsSync(path.join(replaced.replacedTo, 'company.db')), 'previous data kept in trash');
+    await ok(rt, 'app.company.open', { id });
+    assert.equal((await ok<{ invoice: { terms: string } }>(rt, 'company.config.get')).invoice.terms, 'Version A');
+    await ok(rt, 'app.company.close');
+
+    const junk = path.join(root, 'junk.db');
+    fs.writeFileSync(junk, 'not a database at all'.repeat(20));
+    await assert.rejects(ctl.installCompanyDatabase(junk), /not a valid Bahi ERP company data file/);
+    assert.deepEqual(fs.readdirSync(rt.app.dataDir).filter((f) => f.startsWith('.staging')), [], 'staging cleaned up');
+    const db = new Db(path.join(rt.app.dataDir, 'companies', id, 'company.db'), { readOnly: true });
+    assert.equal(verifyChain(db).ok, true);
+    db.close();
   });
 });

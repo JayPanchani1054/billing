@@ -250,6 +250,7 @@ export class AppController {
       company: o && session ? this.summaryFor(o) : null,
       session: session ? toSessionInfo(session, this.mustChangePassword) : null,
       pendingLogin: o && !session && info ? { companyId: o.opened.id, companyName: info.name } : null,
+      dataDirError: this.store.availabilityProblem(),
     };
   }
 

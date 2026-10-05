@@ -28,6 +28,9 @@ describe('fsutil', () => {
     const bom = path.join(dir, 'bom.json');
     fs.writeFileSync(bom, '﻿{"x":1}');
     assert.deepEqual(readJsonFile(bom), { status: 'ok', value: { x: 1 } });
+    const folder = path.join(dir, 'folder.json');
+    fs.mkdirSync(folder);
+    assert.equal(readJsonFile(folder).status, 'unreadable', 'I/O errors are not "corrupt"');
   });
 
   it('probes writability and creates the folder', () => {

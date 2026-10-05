@@ -10,14 +10,15 @@
  *  4. Tax regime per line: is GST charged (company registered, not LUT, supplier can charge …),
  *     is it reverse charge, is it part of the amount payable to the party.
  *  5. Tax-inclusive lines are back-calculated: taxable = round(net × 100 / (100 + rate + cess%)).
- *  6. Additional charges marked `apportion` are absorbed into the goods lines' taxable value.
- *  7. Tax per bucket (taxability + rate + cess% + charged) on the bucket's total taxable value,
- *     then allocated back to lines by largest remainder → line taxes sum exactly to bucket tax.
+ *  6. Additional charges marked `apportion` are absorbed into the goods lines' taxable value
+ *     (shared over lines with a positive quantity/value only).
+ *  7. Tax per bucket (taxability + rate + cess% + charged + reverse charge) on the bucket's total
+ *     taxable value, then allocated back to lines by largest remainder → line taxes sum exactly to
+ *     bucket tax, and every line stays within one paise of its own exact share.
  *  8. Inclusive lines keep their entered value exactly: the bucket-rounding residual (±1–2 paise)
  *     stays in the line's taxable value, so taxable + tax = net and CGST always equals SGST.
  *  9. Totals, round-off on the amount payable to the party, classification, HSN summary.
  */
-import { B2CL_THRESHOLD_PAISE } from '../constants.ts';
 import { allocate, lineAmount, roundPaise, roundToUnit, type Paise } from '../money.ts';
 import type {
   ComputedLine,
@@ -34,17 +35,22 @@ import type {
   TaxMode,
 } from '../types/gst.ts';
 import { REGISTRATION_TYPES, TAXABILITIES } from '../types/gst.ts';
-import { classifySupply, isRegisteredParty } from './classify.ts';
+import { b2clThresholdOn, classifySupply, isRegisteredParty } from './classify.ts';
 import { gstinStateCode, validateGstin } from './gstin.ts';
 import { determinePlaceOfSupply, isInterState, taxModeFor } from './pos.ts';
 import { isRetiredSlabOn, isStandardRate, isValidCessRate, isValidRate, splitRate } from './rates.ts';
-import { getState, isUtgstState, normalizeStateCode, stateLabel } from './states.ts';
-import { DEFAULT_GOODS_UQC, SERVICES_UQC } from './uqc.ts';
+import { getState, isUtgstState, normalizeStateCode, POS_OTHER_COUNTRIES, stateLabel } from './states.ts';
+import { DEFAULT_GOODS_UQC, isValidUqc, SERVICES_UQC, suggestUqc } from './uqc.ts';
 
 export { isUtgstState, splitRate, taxModeFor };
 
 /** Largest absolute paise value the engine accepts for a single line (₹9,000 crore). */
 export const MAX_LINE_PAISE = 9e14;
+/**
+ * Largest Σ|line value| + Σ|per-unit cess| the engine accepts for a whole invoice. With tax at most
+ * 500% (GST 100% + cess 400%) every total stays below 6.3e15 < 2^53, i.e. a safe integer.
+ */
+export const MAX_INVOICE_PAISE = 9e14;
 const MAX_QTY_OR_RATE = 1e12;
 
 // ───────────────────────────── Exact arithmetic helpers ─────────────────────────────
@@ -105,20 +111,20 @@ function hamilton(total: Paise, quotas: readonly number[]): Paise[] {
 }
 
 /**
- * Split `total` across lines in proportion to `weights` (largest remainder; parts sum exactly).
- * Same-sign weights use money.ts allocate(). Mixed signs (e.g. a negative discount line in the
- * bucket) use signed quotas; when weights cancel out to zero, `quotas` (each line's own exact share)
- * are used instead.
+ * Split a bucket head `total` across its lines so the parts sum exactly to `total`.
+ *  - Same-sign weights: money.ts allocate() (largest remainder on the weights).
+ *  - Mixed signs (a negative discount/return line in the bucket) or all-zero weights: start from each
+ *    line's own exact share (`quotas`, e.g. base × rate / 100) and settle the sum by largest remainder.
+ *    Scaling `total × w / Σw` instead would amplify the bucket's ±0.5 paise rounding by w / Σw when
+ *    the signs nearly cancel — bases +100001 / −99000 at 18% would get 17982 / −17802 instead of
+ *    18000 / −17820, and +100000 / −99999 would get 0 / 0.
  */
-function distribute(total: Paise, weights: readonly number[], quotas?: readonly number[]): Paise[] {
+function distribute(total: Paise, weights: readonly number[], quotas: readonly number[]): Paise[] {
   if (weights.length === 0) return [];
   const hasPos = weights.some((w) => w > 0);
   const hasNeg = weights.some((w) => w < 0);
-  if (!hasPos && !hasNeg) return quotas ? hamilton(total, quotas) : allocate(total, weights);
-  if (!(hasPos && hasNeg)) return allocate(total, weights);
-  const sum = weights.reduce((a, b) => a + b, 0);
-  if (sum !== 0) return hamilton(total, weights.map((w) => (total * w) / sum));
-  return hamilton(total, quotas ?? weights.map(() => 0));
+  if (hasPos !== hasNeg) return allocate(total, weights);
+  return hamilton(total, quotas);
 }
 
 // ───────────────────────────── Working line ─────────────────────────────
@@ -156,6 +162,21 @@ interface WorkLine {
 
 type Warn = (message: string) => void;
 
+/**
+ * GST UQC for a line. Services default to 'NA'; goods to 'OTH'. A unit symbol passed instead of a UQC
+ * ('Kg', 'pcs') is mapped with suggestUqc(); an unrecognised unit is reported as 'OTH' with a warning.
+ */
+function lineUqc(value: unknown, supplyKind: SupplyKind, label: string, warn: Warn): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return supplyKind === 'services' ? SERVICES_UQC : DEFAULT_GOODS_UQC;
+  const upper = raw.toUpperCase();
+  if (isValidUqc(upper)) return upper;
+  if (upper === SERVICES_UQC) return supplyKind === 'services' ? SERVICES_UQC : DEFAULT_GOODS_UQC;
+  const mapped = suggestUqc(raw);
+  if (mapped === DEFAULT_GOODS_UQC) warn(`${label}: unit '${raw}' is not a GST UQC and is reported as ${DEFAULT_GOODS_UQC}`);
+  return mapped;
+}
+
 function finiteOr(value: unknown, fallback: number, label: string, field: string, warn: Warn): number {
   if (value === undefined || value === null) return fallback;
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -165,7 +186,13 @@ function finiteOr(value: unknown, fallback: number, label: string, field: string
   return value;
 }
 
-function prepareLine(input: InvoiceLineInput, index: number, ctxReverseCharge: boolean, warn: Warn): WorkLine {
+function prepareLine(raw: InvoiceLineInput, index: number, ctxReverseCharge: boolean, warn: Warn): WorkLine {
+  // Defensive: a hole or non-object in the array becomes an empty line, so output lines stay 1:1 with input.
+  let input = raw;
+  if (input === null || typeof input !== 'object') {
+    warn(`Line ${index + 1}: line data is missing and was treated as a blank line`);
+    input = { key: String(index), kind: 'ledger', taxability: 'taxable', gstRate: 0, supplyKind: 'goods' };
+  }
   const desc = typeof input.description === 'string' ? input.description.trim() : '';
   const label = desc ? `Line ${index + 1} (${desc})` : `Line ${index + 1}`;
 
@@ -235,6 +262,11 @@ function prepareLine(input: InvoiceLineInput, index: number, ctxReverseCharge: b
     cessPerUnit = 0;
   }
   cessPerUnit = roundPaise(cessPerUnit);
+  // Keep qty × per-unit cess inside the safe range as well (it is not bounded by the line value).
+  if (cessPerUnit !== 0 && Math.abs(cessPerUnit * qty) > MAX_LINE_PAISE) {
+    warn(`${label}: cess per unit × quantity is too large; the per-unit cess was treated as 0`);
+    cessPerUnit = 0;
+  }
 
   const hsnSac = typeof input.hsnSac === 'string' ? input.hsnSac.replace(/\s+/g, '') : '';
   let supplyKind: SupplyKind = input.supplyKind;
@@ -242,8 +274,7 @@ function prepareLine(input: InvoiceLineInput, index: number, ctxReverseCharge: b
     supplyKind = hsnSac.startsWith('99') ? 'services' : 'goods';
     warn(`${label}: supply type not set; treated as ${supplyKind}`);
   }
-  const uqcIn = typeof input.uqc === 'string' ? input.uqc.trim().toUpperCase() : '';
-  const uqc = uqcIn || (supplyKind === 'services' ? SERVICES_UQC : DEFAULT_GOODS_UQC);
+  const uqc = lineUqc(input.uqc, supplyKind, label, warn);
 
   const taxable = taxability === 'taxable';
   const apportion = input.apportion === 'value' || input.apportion === 'quantity' ? input.apportion : 'none';
@@ -279,6 +310,30 @@ function prepareLine(input: InvoiceLineInput, index: number, ctxReverseCharge: b
   };
 }
 
+const hasText = (v: unknown): boolean => (typeof v === 'string' && v.trim() !== '') || typeof v === 'number';
+
+/**
+ * Keep the whole invoice inside MAX_INVOICE_PAISE so every total is a safe integer: lines beyond
+ * the limit are treated as 0, like an over-limit single line.
+ */
+function capInvoiceSize(work: WorkLine[], warn: Warn): void {
+  let running = 0;
+  for (const l of work) {
+    const size = Math.abs(l.net) + Math.abs(l.cessPerUnit * l.qty);
+    if (running + size <= MAX_INVOICE_PAISE) {
+      running += size;
+      continue;
+    }
+    warn(`${l.label}: the invoice total is too large; this line was treated as 0`);
+    l.gross = 0;
+    l.net = 0;
+    l.discount = 0;
+    l.base = 0;
+    l.taxable = 0;
+    l.cessPerUnit = 0;
+  }
+}
+
 // ───────────────────────────── Apportionment of additional charges ─────────────────────────────
 
 function apportionCharges(work: WorkLine[], warn: Warn): void {
@@ -299,7 +354,14 @@ function apportionCharges(work: WorkLine[], warn: Warn): void {
       warn(`${charge.label}: goods lines have no quantity; the charge was apportioned by value`);
       weights = targets.map((t) => t.base);
     }
-    const shares = distribute(charge.net, weights);
+    // Only lines with a positive quantity/value share the charge. Signed weights would amplify it:
+    // ₹30 freight over quantities 2 and −1 used to become +₹60 and −₹30.
+    let shareWeights = weights.map((w) => (w > 0 ? w : 0));
+    if (shareWeights.every((w) => w === 0)) shareWeights = weights.map((w) => Math.abs(w));
+    else if (weights.some((w) => w < 0)) {
+      warn(`${charge.label}: lines with a negative quantity or value do not share this charge`);
+    }
+    const shares = allocate(charge.net, shareWeights);
     targets.forEach((t, i) => {
       t.apportioned += shares[i];
     });
@@ -317,7 +379,9 @@ function computeBuckets(work: WorkLine[], taxMode: TaxMode): TaxBucket[] {
   const groups = new Map<string, WorkLine[]>();
   for (const l of work) {
     if (l.absorbed) continue;
-    const key = `${l.taxability}|${l.rate}|${l.cessRate}|${l.taxCharged ? 1 : 0}`;
+    // Reverse-charge lines get their own bucket: the recipient's RCM liability is computed on the RCM
+    // value alone, independent of the rounding of forward-charge lines on the same document.
+    const key = `${l.taxability}|${l.rate}|${l.cessRate}|${l.taxCharged ? 1 : 0}|${l.taxCharged && l.rc ? 1 : 0}`;
     const g = groups.get(key);
     if (g) g.push(l);
     else groups.set(key, [l]);
@@ -346,7 +410,7 @@ function computeBuckets(work: WorkLine[], taxMode: TaxMode): TaxBucket[] {
       const cessAdValorem = mulRate(base, first.cessRate, 100);
       const cessParts = distribute(cessAdValorem, bases, bases.map((b) => (b * first.cessRate) / 100));
       const perUnit = lines.map((l) => l.cessPerUnit * l.qty);
-      const perUnitParts = distribute(roundPaise(perUnit.reduce((a, b) => a + b, 0)), perUnit);
+      const perUnitParts = distribute(roundPaise(perUnit.reduce((a, b) => a + b, 0)), perUnit, perUnit);
       lines.forEach((l, i) => (l.cess = cessParts[i] + perUnitParts[i]));
     }
 
@@ -362,6 +426,7 @@ function computeBuckets(work: WorkLine[], taxMode: TaxMode): TaxBucket[] {
       rate: first.rate,
       cessRate: first.cessRate,
       taxCharged: first.taxCharged,
+      reverseCharge: first.taxCharged && first.rc,
       taxableValue: sum((l) => l.taxable),
       igst: sum((l) => l.igst),
       cgst: sum((l) => l.cgst),
@@ -378,19 +443,22 @@ function computeBuckets(work: WorkLine[], taxMode: TaxMode): TaxBucket[] {
       TAXABILITY_ORDER[a.taxability] - TAXABILITY_ORDER[b.taxability] ||
       a.rate - b.rate ||
       a.cessRate - b.cessRate ||
-      Number(b.taxCharged) - Number(a.taxCharged),
+      Number(b.taxCharged) - Number(a.taxCharged) ||
+      Number(a.reverseCharge) - Number(b.reverseCharge),
   );
 }
 
-function hsnSummary(lines: readonly ComputedLine[], absorbed: readonly boolean[]): HsnRow[] {
+function hsnSummary(lines: readonly ComputedLine[]): HsnRow[] {
   const rows = new Map<string, HsnRow>();
-  for (const [i, l] of lines.entries()) {
-    if (absorbed[i]) continue;
+  for (const l of lines) {
+    if (l.absorbed) continue;
     if (l.taxableValue === 0 && l.qty === 0 && l.tax === 0) continue; // blank row
-    const key = `${l.hsnSac}|${l.uqc}|${l.rate}`;
+    // GSTR-1 Table 12: services (SAC) are reported with UQC 'NA' and no quantity.
+    const uqc = l.supplyKind === 'services' ? SERVICES_UQC : l.uqc;
+    const key = `${l.hsnSac}|${uqc}|${l.rate}`;
     let row = rows.get(key);
     if (!row) {
-      row = { hsnSac: l.hsnSac, uqc: l.uqc, qty: 0, rate: l.rate, taxableValue: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, total: 0 };
+      row = { hsnSac: l.hsnSac, uqc, qty: 0, rate: l.rate, taxableValue: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, total: 0 };
       rows.set(key, row);
     }
     if (!row.description && l.description) row.description = l.description;
@@ -448,7 +516,13 @@ export function computeInvoice(lines: readonly InvoiceLineInput[], ctx: InvoiceC
   // Party state: as entered, else from the party's GSTIN.
   const gstin = typeof ctx.partyGstin === 'string' ? ctx.partyGstin.trim() : '';
   let partyState = normalizeStateCode(ctx.partyStateCode);
-  if (!getState(partyState)) partyState = '';
+  if (!getState(partyState)) {
+    if (hasText(ctx.partyStateCode)) warn(`Party state '${String(ctx.partyStateCode)}' is not a valid GST state code`);
+    partyState = '';
+  }
+  if (hasText(ctx.consigneeStateCode) && !getState(ctx.consigneeStateCode)) {
+    warn(`Consignee state '${String(ctx.consigneeStateCode)}' is not a valid GST state code`);
+  }
   if (gstin) {
     const g = validateGstin(gstin);
     if (!g.valid) warn(`Party GSTIN ${g.gstin ?? gstin}: ${g.error ?? 'invalid'}`);
@@ -456,13 +530,18 @@ export function computeInvoice(lines: readonly InvoiceLineInput[], ctx: InvoiceC
     if (g.valid && partyState && gState !== partyState) {
       warn(`Party GSTIN is registered in ${stateLabel(gState)} but the party state is ${stateLabel(partyState)}`);
     }
+    if (g.valid && (partyRegistration === 'unregistered' || partyRegistration === 'consumer')) {
+      warn('Party has a GSTIN but is marked as unregistered; check the GST registration type in the party ledger');
+    }
     if (!partyState && getState(gState)) partyState = gState;
   } else if (ctx.partyGstin !== undefined && isRegisteredParty(partyRegistration) && partyRegistration !== 'deemed_export') {
     warn('Party is registered under GST but has no GSTIN');
   }
 
-  const work = lines.map((l, i) => prepareLine(l, i, ctx.reverseCharge === true, warn));
+  const lineList: readonly InvoiceLineInput[] = Array.isArray(lines) ? lines : [];
+  const work = lineList.map((l, i) => prepareLine(l, i, ctx.reverseCharge === true, warn));
   if (work.length === 0) warn('Invoice has no lines');
+  capInvoiceSize(work, warn);
 
   // Invoice supply kind by value (decides POS rule for goods vs services; goods on a tie).
   // Charges that will be absorbed into goods lines count as goods.
@@ -484,6 +563,14 @@ export function computeInvoice(lines: readonly InvoiceLineInput[], ctx: InvoiceC
     explicit: ctx.placeOfSupply,
   });
   if (!pos.code) warn(pos.reason);
+
+  // An overseas recipient with a place of supply in India (entered on the voucher, e.g. services on
+  // goods or property in India — IGST Act s.13(3)–(5)) is not an export (s.2(6)(iv)): it is taxed
+  // like any domestic supply to an unregistered person, intra- or inter-state by the place of supply.
+  if (direction === 'outward' && partyRegistration === 'overseas' && pos.code && pos.code !== POS_OTHER_COUNTRIES) {
+    warn(`Place of supply is ${stateLabel(pos.code)}, so this is not an export: GST is charged as on a domestic supply`);
+    partyRegistration = 'unregistered';
+  }
 
   // Supplier's state: ours for sales; the party's for purchases (assumed local when unknown).
   let supplierState = direction === 'outward' ? companyState : partyState;
@@ -512,9 +599,15 @@ export function computeInvoice(lines: readonly InvoiceLineInput[], ctx: InvoiceC
     if (isImport && l.supplyKind === 'services') l.rc = true;
     l.taxCharged = chargesGst && l.taxability === 'taxable' && !zeroRatedUnderLut && !(supplierCannotCharge && !l.rc);
     l.payable = l.taxCharged && !l.rc && !isImport;
-    if (l.wantsInclusive && l.taxCharged && l.rc) {
+    if (l.wantsInclusive && l.apportion !== 'none' && hasGoodsTarget) {
+      // The charge becomes part of the goods lines' value at their rates; its own rate is irrelevant.
+      warn(`${l.label}: tax-inclusive rate ignored because the charge is apportioned into the goods lines`);
+    } else if (l.wantsInclusive && l.taxCharged && l.rc) {
       warn(`${l.label}: tax-inclusive rate ignored because the line is under reverse charge`);
-    } else if (l.wantsInclusive && l.taxCharged && l.apportion === 'none') {
+    } else if (l.wantsInclusive && l.taxCharged && !l.payable) {
+      // Import of goods: IGST is paid at customs, so the supplier's price cannot include it.
+      warn(`${l.label}: tax-inclusive rate ignored because the tax is not paid to the supplier (import)`);
+    } else if (l.wantsInclusive && l.taxCharged) {
       const perUnitCess = roundPaise(l.cessPerUnit * l.qty);
       l.inclusive = true;
       l.base = taxableFromInclusive(l.net - perUnitCess, l.rate + l.cessRate);
@@ -565,6 +658,7 @@ export function computeInvoice(lines: readonly InvoiceLineInput[], ctx: InvoiceC
       taxCharged: l.taxCharged,
       reverseCharge: l.taxCharged && l.rc,
       taxPayableToParty: l.payable,
+      absorbed: l.absorbed,
       total: taxable + tax,
     };
     const desc = typeof l.input.description === 'string' ? l.input.description.trim() : '';
@@ -593,13 +687,17 @@ export function computeInvoice(lines: readonly InvoiceLineInput[], ctx: InvoiceC
   }
 
   // ── Classification ──
-  const valued = work.filter((l) => !l.absorbed);
+  // Zero-value rows (e.g. the blank row the user is typing into) do not decide the document's nature.
+  const kept = work.filter((l) => !l.absorbed);
+  const withValue = kept.filter((l) => l.base !== 0 || l.net !== 0);
+  const valued = withValue.length > 0 ? withValue : kept;
   const allNonTaxable = valued.length > 0 && valued.every((l) => l.taxability !== 'taxable');
   const goodsValue = computed.filter((l) => l.supplyKind === 'goods').reduce((a, l) => a + Math.abs(l.taxableValue), 0);
   const servicesValue = computed.filter((l) => l.supplyKind === 'services').reduce((a, l) => a + Math.abs(l.taxableValue), 0);
   const reverseCharge = chargesGst && (ctx.reverseCharge === true || computed.some((l) => l.reverseCharge));
+  // A configured threshold wins; otherwise the statutory one for the invoice date (₹2.5 lakh before 1-Aug-2024).
   const threshold =
-    typeof ctx.b2clThresholdPaise === 'number' && Number.isFinite(ctx.b2clThresholdPaise) ? ctx.b2clThresholdPaise : B2CL_THRESHOLD_PAISE;
+    typeof ctx.b2clThresholdPaise === 'number' && Number.isFinite(ctx.b2clThresholdPaise) ? ctx.b2clThresholdPaise : b2clThresholdOn(ctx.invoiceDate);
   const nature = classifySupply(
     {
       direction,
@@ -630,7 +728,7 @@ export function computeInvoice(lines: readonly InvoiceLineInput[], ctx: InvoiceC
     reverseCharge,
     lines: computed,
     buckets,
-    hsnSummary: hsnSummary(computed, work.map((l) => l.absorbed)),
+    hsnSummary: hsnSummary(computed),
     totals: {
       lineGross: sum((l) => l.gross),
       discount: sum((l) => l.discount),

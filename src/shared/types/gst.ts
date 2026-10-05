@@ -234,7 +234,10 @@ export interface InvoiceContext {
   /** Whole document is under reverse charge. */
   reverseCharge?: boolean;
   roundOff?: InvoiceRoundOff;
-  /** Inter-state B2C invoices strictly above this value are B2CL. Default B2CL_THRESHOLD_PAISE. */
+  /**
+   * Inter-state B2C invoices strictly above this value are B2CL. Default: the statutory threshold
+   * for `invoiceDate` (b2clThresholdOn: ₹2,50,000 before 1-Aug-2024, ₹1,00,000 from then on).
+   */
   b2clThresholdPaise?: Paise;
 }
 
@@ -281,6 +284,11 @@ export interface ComputedLine {
   reverseCharge: boolean;
   /** Tax is part of the amount payable to/by the party (false for reverse charge and imports). */
   taxPayableToParty: boolean;
+  /**
+   * Additional charge absorbed into the goods lines (apportion 'value' | 'quantity'): it has no taxable
+   * value or tax of its own — post `postingAmount` to its ledger but write no gst_line for it.
+   */
+  absorbed: boolean;
   /** taxableValue + tax. */
   total: Paise;
 }
@@ -291,6 +299,8 @@ export interface TaxBucket {
   cessRate: number;
   /** Whether tax was computed for this bucket (see ComputedLine.taxCharged). */
   taxCharged: boolean;
+  /** Bucket of reverse-charge lines (kept apart from forward-charge lines at the same rate). */
+  reverseCharge: boolean;
   taxableValue: Paise;
   igst: Paise;
   cgst: Paise;
