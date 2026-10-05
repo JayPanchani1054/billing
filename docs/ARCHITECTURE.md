@@ -28,13 +28,18 @@ npm is not reachable in the development container, so `node_modules` only has `@
 What you **can** run locally:
 
 ```bash
-tsc -p tsconfig.core.json          # typecheck src/core + src/shared (global tsc 6)
-node --test "src/**/*.test.ts"     # run all tests (Node 22 strips types natively)
-node --test src/core/modules/gst/  # run one module's tests
+tsc -p tsconfig.core.json            # typecheck src/core + src/shared (global tsc 6)
+tsc -p tsconfig.web.offline.json     # typecheck renderer against types/offline React shims
+tsc -p tsconfig.node.offline.json    # typecheck main/preload against types/offline Electron shim
+node --test "src/**/*.test.ts"       # run all tests (Node 22 strips types natively)
+node --test src/core/modules/gst/    # run one module's tests
 ```
 
-React/Electron code (`src/renderer`, `src/main`, `src/preload`) cannot be typechecked locally — it is verified
-in CI (`npm run typecheck && npm run build`). Write it with extra care: exact imports, explicit types, no guessing APIs.
+`types/offline/*.d.ts` are faithful subsets of `@types/react` 19, `react-dom`, `qrcode` and Electron's types.
+They exist only so renderer/main code can be typechecked without npm; CI uses the real packages
+(`npm run typecheck && npm run build`). Only use React/Electron APIs that exist in the real libraries; if a
+real API is missing from a shim, add it to the shim with its exact upstream signature (never loosen to `any`).
+Rendering/bundling cannot be run locally — write UI code with extra care.
 
 TypeScript rules forced by native type stripping (`erasableSyntaxOnly`, `verbatimModuleSyntax`):
 - **Relative imports include the `.ts` / `.tsx` extension**: `import { x } from './money.ts'`.

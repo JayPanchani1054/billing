@@ -1,0 +1,13 @@
+{
+  "//": "Offline typecheck for environments without npm: maps react/react-dom/qrcode to types/offline shims.",
+  "extends": "./tsconfig.web.json",
+  "compilerOptions": {
+    "paths": {
+      "react": ["./types/offline/react.d.ts"],
+      "react/jsx-runtime": ["./types/offline/react-jsx-runtime.d.ts"],
+      "react-dom": ["./types/offline/react-dom.d.ts"],
+      "react-dom/client": ["./types/offline/react-dom-client.d.ts"],
+      "qrcode": ["./types/offline/qrcode.d.ts"]
+    }
+  }
+}

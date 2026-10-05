@@ -22,7 +22,8 @@
     "test": "node --test --test-reporter=spec \"src/**/*.test.ts\"",
     "e2e": "playwright test",
     "dist:win": "npm run build && electron-builder --win --x64 --publish never",
-    "dist:dir": "npm run build && electron-builder --dir --publish never"
+    "dist:dir": "npm run build && electron-builder --dir --publish never",
+    "typecheck:offline": "tsc -p tsconfig.core.json && tsc -p tsconfig.node.offline.json && tsc -p tsconfig.web.offline.json"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

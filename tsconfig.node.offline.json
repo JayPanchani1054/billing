@@ -1,0 +1,9 @@
+{
+  "//": "Offline typecheck for environments without npm: maps electron to types/offline/electron.d.ts.",
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "paths": {
+      "electron": ["./types/offline/electron.d.ts"]
+    }
+  }
+}
