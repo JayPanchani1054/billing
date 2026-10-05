@@ -8,8 +8,9 @@ export type InitialFocus = RefObject<HTMLElement | null> | 'first' | 'container'
 export interface FocusTrapOptions {
   active: boolean;
   /**
-   * What to focus on activation: a ref, 'first' (default — first `[data-autofocus]`, else first
-   * tabbable, else the container), 'container', or 'none'.
+   * What to focus on activation: a ref, 'first' (default — first `[data-autofocus]`, else the first
+   * tabbable not inside `[data-initial-focus-skip]` (e.g. a dialog's × button), else the container),
+   * 'container', or 'none'.
    */
   initialFocus?: InitialFocus;
   /** Return focus to the previously focused element on deactivation (default true). */
@@ -39,7 +40,14 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, option
     if (!container.contains(document.activeElement) && init !== 'none') {
       let target: HTMLElement | null = null;
       if (typeof init === 'object') target = init.current;
-      else if (init === 'first') target = container.querySelector<HTMLElement>('[data-autofocus]') ?? getTabbables(container)[0] ?? null;
+      else if (init === 'first') {
+        const tabbables = getTabbables(container);
+        target =
+          container.querySelector<HTMLElement>('[data-autofocus]') ??
+          tabbables.find((el) => !el.closest('[data-initial-focus-skip]')) ??
+          tabbables[0] ??
+          null;
+      }
       if (!target) {
         if (!container.hasAttribute('tabindex')) container.tabIndex = -1;
         target = container;

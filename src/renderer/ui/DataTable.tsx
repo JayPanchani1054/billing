@@ -9,7 +9,7 @@ import { cx } from './lib/cx.ts';
 import { readPxVar } from './lib/dom.ts';
 import { findByPrefix, nextListIndex } from './lib/listNav.ts';
 import type { ListNavKey } from './lib/listNav.ts';
-import { computeTreeInfo, keysUpToLevel, visibleTreeIndices } from './lib/tree.ts';
+import { computeTreeInfo, visibleTreeIndices } from './lib/tree.ts';
 import { computeVirtualWindow, pageSize, scrollTopToReveal } from './lib/virtual.ts';
 import type { Align, Density } from './types.ts';
 import { formatDrCr, formatIndianNumber, formatMoney, formatQty } from '../../shared/format.ts';
@@ -96,9 +96,11 @@ export interface DataTableProps<T> {
   isGroupRow?: (row: T) => boolean;
   /** Allow collapsing rows that have children (→/← or +/−). Requires getRowLevel. */
   expandable?: boolean;
+  /** Controlled: keys of expanded parent rows (e.g. Alt+F5 "Detailed" = all parent keys via keysUpToLevel). */
   expandedKeys?: ReadonlySet<string>;
-  /** Initial expansion: 'all' (default), 'none', or expand levels below N. */
+  /** Uncontrolled policy: 'all' (default), 'none', or expand rows whose level < N. User toggles are kept on top. */
   defaultExpanded?: 'all' | 'none' | number;
+  /** Receives the full set of expanded parent keys after a toggle. */
   onExpandedChange?: (keys: ReadonlySet<string>) => void;
   sort?: SortState | null;
   defaultSort?: SortState | null;
@@ -325,30 +327,59 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const tree = !!getRowLevel;
   const canExpand = tree && expandable;
 
-  const keys = useMemo(() => rows.map((r, i) => getRowKey(r, i)), [rows, getRowKey]);
-  const levels = useMemo(() => (getRowLevel ? rows.map(getRowLevel) : null), [rows, getRowLevel]);
+  // Getters are read when `rows` changes (inline arrow functions must not recompute 10k-row maps per render).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const keys = useMemo(() => rows.map((r, i) => getRowKey(r, i)), [rows]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const levels = useMemo(() => (getRowLevel ? rows.map(getRowLevel) : null), [rows, !!getRowLevel]);
   const treeInfo = useMemo(() => (levels ? computeTreeInfo(levels) : null), [levels]);
   const indexByKey = useMemo(() => new Map(keys.map((k, i) => [k, i])), [keys]);
 
   // ── Expansion ──
-  const [initialExpanded] = useState<ReadonlySet<string>>(() => {
-    if (!getRowLevel || defaultExpanded === 'none') return new Set<string>();
-    return keysUpToLevel(rows, getRowKey, getRowLevel, defaultExpanded === 'all' ? Number.POSITIVE_INFINITY : defaultExpanded);
-  });
-  const [expanded, setExpanded] = useControllableState<ReadonlySet<string>>({ value: expandedKeys, defaultValue: initialExpanded, onChange: onExpandedChange });
+  // Uncontrolled: the `defaultExpanded` policy XOR the keys the user toggled (works when rows arrive
+  // after mount). Controlled: `expandedKeys` is the full set of expanded parent keys.
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const defaultOpen = useCallback(
+    (level: number) => (defaultExpanded === 'all' ? true : defaultExpanded === 'none' ? false : level < defaultExpanded),
+    [defaultExpanded],
+  );
+  const isExpandedIdx = useCallback(
+    (i: number): boolean => {
+      const key = keys[i];
+      if (expandedKeys) return expandedKeys.has(key);
+      return defaultOpen(levels ? levels[i] : 0) !== toggled.has(key);
+    },
+    [keys, levels, expandedKeys, toggled, defaultOpen],
+  );
   const toggleRow = useCallback(
     (key: string, open?: boolean) => {
-      setExpanded((prev) => {
-        const isOpen = prev.has(key);
-        const want = open ?? !isOpen;
-        if (want === isOpen) return prev;
-        const next = new Set(prev);
-        if (want) next.add(key);
-        else next.delete(key);
-        return next;
-      });
+      const i = indexByKey.get(key);
+      if (i === undefined) return;
+      const isOpen = isExpandedIdx(i);
+      const want = open ?? !isOpen;
+      if (want === isOpen) return;
+      let nextToggled = toggled;
+      if (!expandedKeys) {
+        const t = new Set(toggled);
+        if (t.has(key)) t.delete(key);
+        else t.add(key);
+        nextToggled = t;
+        setToggled(t);
+      }
+      if (onExpandedChange) {
+        const full = new Set<string>(expandedKeys ?? []);
+        if (expandedKeys) {
+          if (want) full.add(key);
+          else full.delete(key);
+        } else if (treeInfo) {
+          treeInfo.hasChildren.forEach((has, idx) => {
+            if (has && defaultOpen(levels ? levels[idx] : 0) !== nextToggled.has(keys[idx])) full.add(keys[idx]);
+          });
+        }
+        onExpandedChange(full);
+      }
     },
-    [setExpanded],
+    [indexByKey, isExpandedIdx, toggled, expandedKeys, onExpandedChange, treeInfo, defaultOpen, levels, keys],
   );
 
   // ── Sorting ──
@@ -357,7 +388,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
   // ── Visible rows (tree visibility → sort) ──
   const visible = useMemo(() => {
     let idx: number[];
-    if (levels && treeInfo && canExpand) idx = visibleTreeIndices(levels, treeInfo.hasChildren, (i) => expanded.has(keys[i]));
+    if (levels && treeInfo && canExpand) idx = visibleTreeIndices(levels, treeInfo.hasChildren, isExpandedIdx);
     else idx = rows.map((_, i) => i);
     if (sort && !manualSort && !tree) {
       const col = columns.find((c) => c.key === sort.key);
@@ -375,7 +406,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       }
     }
     return idx;
-  }, [levels, treeInfo, canExpand, expanded, keys, rows, sort, manualSort, tree, columns]);
+  }, [levels, treeInfo, canExpand, isExpandedIdx, rows, sort, manualSort, tree, columns]);
 
   const posByKey = useMemo(() => new Map(visible.map((ri, p) => [keys[ri], p])), [visible, keys]);
 
@@ -508,7 +539,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
     if (canExpand && treeInfo && activeRowIndex >= 0) {
       const key = keys[activeRowIndex];
       const hasKids = treeInfo.hasChildren[activeRowIndex];
-      const isOpen = expanded.has(key);
+      const isOpen = isExpandedIdx(activeRowIndex);
       if (e.key === 'ArrowRight' || e.key === '+') {
         e.preventDefault();
         if (hasKids && !isOpen) toggleRow(key, true);
@@ -631,6 +662,10 @@ export function DataTable<T>(props: DataTableProps<T>) {
           aria-multiselectable="false"
           aria-activedescendant={activeInWindow && activeRowIndex >= 0 ? `${baseId}-r${activeRowIndex}` : undefined}
           onKeyDown={onKeyDown}
+          onFocus={(e) => {
+            // Tally always shows a cursor line: focusing the grid highlights the first row.
+            if (e.target === tableRef.current && activePos < 0 && visible.length > 0) setActiveKey(keys[visible[0]]);
+          }}
         >
           <colgroup>
             {columns.map((c) => (
@@ -702,7 +737,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                   treeCol={treeCol}
                   level={levels ? levels[ri] : 0}
                   hasChildren={treeInfo ? treeInfo.hasChildren[ri] : false}
-                  expanded={canExpand ? expanded.has(key) : true}
+                  expanded={canExpand ? isExpandedIdx(ri) : true}
                   expandable={canExpand}
                   group={isGroupRow ? isGroupRow(row) : false}
                   active={pos === activePos}

@@ -122,7 +122,7 @@ function ModalImpl({
                 ) : null}
               </div>
               {dismissible && !hideClose ? (
-                <IconButton icon="close" aria-label="Close" tooltip={false} className="bx-modal__close" onClick={requestClose} data-enter-skip="" />
+                <IconButton icon="close" aria-label="Close" tooltip={false} className="bx-modal__close" onClick={requestClose} data-enter-skip="" data-initial-focus-skip="" />
               ) : null}
             </header>
             <div className={cx('bx-modal__body', flush && 'bx-modal__body--flush', bodyClassName)}>{children}</div>

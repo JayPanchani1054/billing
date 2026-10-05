@@ -73,7 +73,7 @@ function DrawerImpl({ onClose, title, description, size = 'md', footer, modal = 
                   </p>
                 ) : null}
               </div>
-              {dismissible ? <IconButton icon="close" aria-label="Close" tooltip={false} onClick={requestClose} data-enter-skip="" /> : null}
+              {dismissible ? <IconButton icon="close" aria-label="Close" tooltip={false} onClick={requestClose} data-enter-skip="" data-initial-focus-skip="" /> : null}
             </header>
             <div className="bx-drawer__body">{children}</div>
             {footer ? <footer className="bx-drawer__footer">{footer}</footer> : null}

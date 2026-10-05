@@ -6,6 +6,7 @@ import { Spinner } from './Spinner.tsx';
 import { FieldContext, useFieldControl } from './fieldContext.ts';
 import { useAnchoredPosition } from './hooks/useAnchoredPosition.ts';
 import { useDebouncedValue } from './hooks/useDebouncedValue.ts';
+import { useLatestRef } from './hooks/useLatestRef.ts';
 import { useMergedRefs } from './hooks/useMergedRefs.ts';
 import { cx } from './lib/cx.ts';
 import { readPxVar } from './lib/dom.ts';
@@ -231,12 +232,16 @@ export function Combobox<T>(props: ComboboxProps<T>) {
 
   // ── Async loading ──
   const debouncedQuery = useDebouncedValue(q, loadItems ? debounceMs : 0);
+  // The loader is read through a ref: an inline arrow must not trigger a refetch on every render.
+  const loaderRef = useLatestRef(loadItems);
+  const hasLoader = !!loadItems;
   useEffect(() => {
-    if (!loadItems || !open) return undefined;
+    const load = loaderRef.current;
+    if (!load || !open) return undefined;
     const ctrl = new AbortController();
     setLoading(true);
     setLoadError(null);
-    loadItems(debouncedQuery, ctrl.signal).then(
+    load(debouncedQuery, ctrl.signal).then(
       (res) => {
         if (ctrl.signal.aborted) return;
         setLoaded(res);
@@ -249,7 +254,7 @@ export function Combobox<T>(props: ComboboxProps<T>) {
       },
     );
     return () => ctrl.abort();
-  }, [loadItems, debouncedQuery, open]);
+  }, [hasLoader, debouncedQuery, open, loaderRef]);
 
   // ── Options (filtered, ranked, grouped) ──
   const source = loadItems ? loaded : items ?? [];

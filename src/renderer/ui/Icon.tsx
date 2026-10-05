@@ -9,7 +9,7 @@ export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | number;
 
 const SIZE_PX: Readonly<Record<Exclude<IconSize, number>, number>> = { xs: 12, sm: 14, md: 16, lg: 20, xl: 24 };
 
-export interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'name' | 'ref' | 'children'> {
+export interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'name' | 'ref' | 'children' | 'size' | 'label'> {
   name: IconName;
   /** 'xs' 12 · 'sm' 14 · 'md' 16 (default) · 'lg' 20 · 'xl' 24, or px. */
   size?: IconSize;
