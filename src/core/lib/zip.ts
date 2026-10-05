@@ -390,10 +390,12 @@ export function readZip(bytes: Uint8Array, opts: ReadZipOptions = {}): ZipArchiv
     if (end > len) throw zipError(`Corrupt ZIP entry ${shown(e.name)}: data is truncated`);
     let out: Uint8Array;
     if (e.method === 0) {
-      out = bytes.slice(start, end);
+      // Always a copy (Buffer#slice would return a view sharing memory with the archive).
+      out = new Uint8Array(bytes.subarray(start, end));
     } else {
       try {
-        out = zlib.inflateRawSync(bytes.subarray(start, end), { maxOutputLength: Math.max(e.size, 1) });
+        const buf = zlib.inflateRawSync(bytes.subarray(start, end), { maxOutputLength: Math.max(e.size, 1) });
+        out = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
       } catch (err) {
         const code = (err as { code?: string }).code;
         if (code === 'ERR_BUFFER_TOO_LARGE') {

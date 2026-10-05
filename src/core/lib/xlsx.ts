@@ -13,7 +13,7 @@
  * Lotus leap-year bug, or 1904). Reads files produced by Excel, LibreOffice, Google Sheets and writeXlsx.
  * The ZIP layer enforces zip-bomb / zip-slip guards; sheet XML is streamed through the SAX parser.
  */
-import { FileFormatError } from './text.ts';
+import { FileFormatError, decodeText } from './text.ts';
 import { createZip, readZip } from './zip.ts';
 import type { ReadZipOptions, ZipArchive, ZipInputEntry } from './zip.ts';
 import { XML_DECLARATION, escapeAttr, escapeXml, localName, parseXml, saxParse, stripInvalidXmlChars } from './xml.ts';
@@ -72,6 +72,11 @@ export interface XlsxWorkbook {
 export interface ReadXlsxOptions {
   /** Read at most this many rows per sheet (rows are counted from the top of the sheet). */
   maxRows?: number;
+  /**
+   * Maximum cells materialised across the workbook, counting the null padding of sparse rows (default 20 000 000).
+   * Guards against tiny files that place cells far apart (e.g. one cell at XFD in every row) to exhaust memory.
+   */
+  maxCells?: number;
   /** Override the ZIP safety limits. */
   zip?: ReadZipOptions;
 }
@@ -88,6 +93,7 @@ export interface XlsxReadResult {
 
 export const MAX_ROWS = 1_048_576;
 export const MAX_COLUMNS = 16_384;
+export const DEFAULT_MAX_CELLS = 20_000_000;
 const MAX_CELL_TEXT = 32_767;
 
 const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -397,6 +403,15 @@ function buildSheet(
 
   const widths: number[] = new Array(colCount).fill(0);
   const out: string[] = [];
+  const serials = new Map<string, number | null>(); // report dates repeat a lot
+  const serialOf = (iso: string): number | null => {
+    let n = serials.get(iso);
+    if (n === undefined) {
+      n = dateToSerial(iso);
+      serials.set(iso, n);
+    }
+    return n;
+  };
   const cellXml = (ref: string, cell: XlsxCell, columnKind: XlsxKind | undefined, col: number, fontOverride?: number): string => {
     const r = resolveCell(cell, columnKind);
     let v = r.v;
@@ -412,7 +427,7 @@ function buildSheet(
     let numFmtId = FMT_GENERAL;
     if (kind === 'date') {
       if (typeof v === 'number') num = Number.isFinite(v) ? v : null;
-      else num = dateToSerial(v.trim());
+      else num = serialOf(v.trim());
       if (num !== null) numFmtId = FMT_DATE;
     } else if (kind !== 'text' && (typeof v === 'number' || NUMERIC_KINDS.has(kind))) {
       if (typeof v === 'number') num = Number.isFinite(v) ? v : null;
@@ -623,7 +638,13 @@ const xlsxError = (message: string): FileFormatError => new FileFormatError('xls
 const SAX_LIMITS = { maxDepth: 64, maxNodes: 200_000_000 };
 
 function partText(zip: ZipArchive, path: string): string {
-  return zip.readText(path);
+  try {
+    return zip.readText(path);
+  } catch (err) {
+    // A part larger than V8's maximum string length cannot be decoded at all.
+    if (err instanceof RangeError) throw xlsxError(`${path} is too large to read`);
+    throw err;
+  }
 }
 
 function partXml(zip: ZipArchive, path: string): XmlElement {
@@ -764,6 +785,11 @@ function readDateStyles(zip: ZipArchive, path: string): boolean[] {
 
 const STOP = Symbol('stop');
 
+interface CellBudget {
+  remaining: number;
+  readonly max: number;
+}
+
 function readSheetRows(
   zip: ZipArchive,
   path: string,
@@ -771,6 +797,7 @@ function readSheetRows(
   dateStyles: readonly boolean[],
   date1904: boolean,
   maxRows: number,
+  budget: CellBudget,
 ): XlsxValue[][] {
   const rows: XlsxValue[][] = [];
   let rowIdx = -1;
@@ -785,8 +812,10 @@ function readSheetRows(
   let isText = '';
 
   const put = (r: number, c: number, value: XlsxValue): void => {
-    while (rows.length <= r) rows.push([]);
-    const row = rows[r];
+    const row = rows[r] ?? [];
+    budget.remaining -= Math.max(0, r + 1 - rows.length) + Math.max(0, c + 1 - row.length);
+    if (budget.remaining < 0) throw xlsxError(`The workbook has more than ${budget.max} cells; refusing to load it`);
+    while (rows.length <= r) rows.push(rows.length === r ? row : []);
     while (row.length < c) row.push(null);
     row[c] = value;
   };
@@ -910,10 +939,29 @@ function readSheetRows(
   return rows;
 }
 
+function looksLikeMarkup(bytes: Uint8Array): boolean {
+  const head = decodeText(bytes.subarray(0, 512)).text.trimStart();
+  return head.startsWith('<');
+}
+
 /** Read every worksheet of an .xlsx file into rows of plain values. Throws FileFormatError for invalid files. */
 export function readXlsx(bytes: Uint8Array, opts: ReadXlsxOptions = {}): XlsxReadResult {
-  const zip = readZip(bytes, opts.zip);
+  let zip: ZipArchive;
+  try {
+    zip = readZip(bytes, opts.zip);
+  } catch (err) {
+    // Many bank/portal "Excel" downloads are really HTML tables or SpreadsheetML 2003 XML with an .xls(x) name.
+    if (err instanceof FileFormatError && /^Not a ZIP archive/.test(err.message) && looksLikeMarkup(bytes)) {
+      throw xlsxError(
+        'This file is an HTML/XML table saved with an Excel extension, not a real .xlsx workbook. ' +
+          'Open it in Excel and save it as .xlsx, or export it as CSV.',
+      );
+    }
+    throw err;
+  }
   const maxRows = opts.maxRows ?? Number.POSITIVE_INFINITY;
+  const maxCells = opts.maxCells ?? DEFAULT_MAX_CELLS;
+  const budget: CellBudget = { remaining: maxCells, max: maxCells };
 
   if (zip.has('mimetype') && /opendocument/.test(zip.readText('mimetype'))) {
     throw xlsxError('OpenDocument spreadsheets (.ods) are not supported; save the file as .xlsx');
@@ -953,7 +1001,7 @@ export function readXlsx(bytes: Uint8Array, opts: ReadXlsxOptions = {}): XlsxRea
       if (zip.has(guess)) path = guess;
     }
     if (!path || !zip.has(path)) throw xlsxError(`Worksheet "${name}" is missing from the workbook package`);
-    sheets.push({ name, rows: readSheetRows(zip, path, sst, dateStyles, date1904, maxRows) });
+    sheets.push({ name, rows: readSheetRows(zip, path, sst, dateStyles, date1904, maxRows, budget) });
   }
   return { sheets };
 }
