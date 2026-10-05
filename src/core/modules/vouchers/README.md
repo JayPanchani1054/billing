@@ -327,5 +327,6 @@ Guards are skipped for optional vouchers. The voucher being altered is always ex
 - TDS/TCS computation is not automatic. A TCS/TDS ledger can be added as a non-GST line.
 - Multi-currency (`forex_amount`, `exchange_rate`) is not handled.
 - Negative-stock checks are per item + godown (not per batch) and only as of the voucher date. Later-dated vouchers are not re-checked.
+- Default bill names are voucher numbers. Different series (Sales `1`, Credit Note `1`) or years with a yearly restart can produce the same bill name for a party. Pending bills are then netted together and a `duplicate_bill_ref` warning is raised when the earlier bill is still open. Use prefixes/suffixes (e.g. `INV/`, `CN/`, `/26-27`) to keep bill names unique.
 - `vouchers.trackingRefs` matches by party + number. With yearly restart, two notes of the same party with the same number in different years share a reference.
 - Stock valuation (closing stock) is the stock/reports modules' job. `inventory_entries.amount` is the input to it.
