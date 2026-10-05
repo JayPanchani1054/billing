@@ -235,6 +235,31 @@ describe('outstanding.bills — receivables', () => {
     assert.deepEqual(bills({ ledgerId: acme }).rows.map((x) => x.billName), ['A-1']);
     assert.deepEqual(bills({ ledgerId: acme, groupId: subId }).rows, []);
   });
+  it('matches README example 3.1 (bills, advance adjusted by a later invoice, on account)', () => {
+    company();
+    const acme = debtor('Acme Traders');
+    sale(t, acme, { date: '2026-04-10', no: 'INV-001', amount: rs(1_18_000), creditDays: 30 });
+    receipt(t, acme, { date: '2026-05-20', no: 'R-1', amount: rs(50_000), bills: [{ ref: 'against', name: 'INV-001', amount: rs(50_000) }] });
+    receipt(t, acme, { date: '2026-06-01', no: 'R-2', amount: rs(20_000), bills: [{ ref: 'advance', name: 'ADV-1', amount: rs(20_000) }] });
+    sale(t, acme, {
+      date: '2026-07-01',
+      no: 'INV-7',
+      amount: rs(50_000),
+      bills: [
+        { ref: 'against', name: 'ADV-1', amount: rs(20_000) },
+        { ref: 'new', name: 'INV-7', amount: rs(30_000), creditDays: 30 },
+      ],
+    });
+    receipt(t, acme, { date: '2026-08-20', no: 'R-3', amount: rs(40_000) });
+    const r = bills();
+    assert.deepEqual(r.rows.map((x) => [x.billName, x.dueDate, x.pendingAmount, x.overdueDays]), [
+      ['INV-001', '2026-05-10', 68_000_00, 143],
+      ['INV-7', '2026-07-31', 30_000_00, 61], // 31-Jul → 30-Sep: 31 + 30
+      ['On Account', null, -40_000_00, 0],
+    ]);
+    const p = partySummary(t.db, t.today, { side: 'receivable', asOf: TODAY }).rows[0];
+    assert.deepEqual([p.pending, p.overdue, p.advance, p.onAccount], [58_000_00, 98_000_00, 0, -40_000_00]);
+  });
 });
 
 describe('outstanding.bills — payables and scope', () => {

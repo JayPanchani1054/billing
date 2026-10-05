@@ -111,7 +111,9 @@ export function ledgerBills(db: Db, today: string, input: LedgerBillsInput): Led
   const ledger = loadLedger(db, input.ledgerId);
   const mode: NonBillWiseMode = input.nonBillWise ?? 'fifo';
   const q = { asOf: input.asOf, today };
-  const [party] = loadParties(db, [ledger], { ...q, nonBillWise: mode });
+  // Non-bill-wise FIFO is rebuilt below with settlement histories, so only the balance is needed here.
+  const [party] = loadParties(db, [ledger], { ...q, nonBillWise: 'on_account' });
+  const method: LedgerBillsResult['method'] = ledger.billWise ? 'bill_wise' : mode;
   const booksFrom = booksFromDate(db);
   const bills: LedgerBillDetail[] = [];
   let onAccount: LedgerBillsResult['onAccount'] = { total: party.onAccount, lines: [] };
@@ -204,7 +206,7 @@ export function ledgerBills(db: Db, today: string, input: LedgerBillsInput): Led
       interestRate: ledger.interestRate,
     },
     asOf: input.asOf,
-    method: party.method,
+    method,
     balance: party.balance,
     bills,
     onAccount,
