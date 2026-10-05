@@ -12,7 +12,7 @@
  *   'app.auth.logout'      none                      → AppState
  *   'app.auth.changePassword' ChangePasswordInput    → { ok: true }    access 'authenticated'
  *   'app.company.close'    none                      → AppState
- *   'app.company.delete'   { id, confirmName }       → CompanyListItem[]  (requires company closed; Owner pwd if secured)
+ *   'app.company.delete'   DeleteCompanyInput        → CompanyListItem[]  (requires company closed; Owner pwd if secured)
  *   'app.session.touch'    none                      → SessionInfo | null  (idle-timeout keepalive)
  */
 import type { Permission } from '../constants.ts';
@@ -108,4 +108,14 @@ export interface LoginInput {
 export interface ChangePasswordInput {
   currentPassword: string;
   newPassword: string;
+}
+
+/** Moves the company folder to <dataDir>/trash (never hard-deleted). */
+export interface DeleteCompanyInput {
+  id: string;
+  /** Must equal the company name exactly (typed by the user to confirm). */
+  confirmName: string;
+  /** Owner credentials, required when the company has security enabled. Username optional (any Owner). */
+  username?: string;
+  password?: string;
 }

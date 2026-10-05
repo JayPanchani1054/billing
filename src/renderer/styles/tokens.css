@@ -1,0 +1,743 @@
+/* ==========================================================================
+   Bahi ERP — design tokens
+   --------------------------------------------------------------------------
+   Layers:
+     1. Primitive palette + scales (never use palette tokens directly in components)
+     2. Semantic tokens per theme   (light default · [data-theme="dark"] ·
+                                     [data-theme="system"] + prefers-color-scheme)
+     3. Density tokens              ([data-density="comfortable"] default · "compact")
+   Every text/background pair is verified ≥ 4.5:1 and every control border /
+   focus ring ≥ 3:1 by src/renderer/ui/lib/contrast.test.ts.
+   ========================================================================== */
+
+:root {
+  /* ── Neutral: slate 0–1000 ─────────────────────────────────────────────── */
+  --slate-0: #ffffff;
+  --slate-25: #fbfcfd;
+  --slate-50: #f6f7f9;
+  --slate-75: #f1f3f6;
+  --slate-100: #eceef2;
+  --slate-150: #e3e6eb;
+  --slate-200: #d5d9e0;
+  --slate-300: #b8bec9;
+  --slate-400: #99a1af;
+  --slate-450: #808897;
+  --slate-500: #5b6373;
+  --slate-600: #4d5464;
+  --slate-700: #3b4250;
+  --slate-750: #333a46;
+  --slate-800: #2b313c;
+  --slate-850: #222731;
+  --slate-900: #1a1e26;
+  --slate-925: #15181f;
+  --slate-950: #101318;
+  --slate-1000: #0a0c10;
+
+  /* ── Brand: indigo ─────────────────────────────────────────────────────── */
+  --indigo-50: #eef0fe;
+  --indigo-100: #e0e3fd;
+  --indigo-200: #c6cbfb;
+  --indigo-300: #a3aaf6;
+  --indigo-400: #7f86ee;
+  --indigo-500: #5f64e0;
+  --indigo-600: #4b4fcc;
+  --indigo-700: #3e41ad;
+  --indigo-800: #33368a;
+  --indigo-900: #2a2c6b;
+  --indigo-950: #1d1f45;
+
+  /* ── Accent: saffron (sparingly — brand mark, highlights) ──────────────── */
+  --saffron-50: #fff6ea;
+  --saffron-100: #ffe8c8;
+  --saffron-200: #ffd194;
+  --saffron-300: #ffb55a;
+  --saffron-400: #ff9933;
+  --saffron-500: #ec7f0b;
+  --saffron-600: #c46606;
+  --saffron-700: #9a4f08;
+  --saffron-800: #773d0b;
+  --saffron-900: #592e0b;
+  --saffron-950: #2e1f0c;
+
+  /* ── Status: success / warning / danger / info ─────────────────────────── */
+  --green-50: #ecf8f1;
+  --green-100: #d1efdd;
+  --green-200: #a5dfbe;
+  --green-300: #6fc897;
+  --green-400: #3dad6f;
+  --green-500: #219158;
+  --green-600: #187748;
+  --green-700: #145f3b;
+  --green-800: #114b2f;
+  --green-900: #0d3823;
+  --green-950: #11291d;
+
+  --amber-50: #fff8e5;
+  --amber-100: #ffeebf;
+  --amber-200: #fedb86;
+  --amber-300: #fcc24a;
+  --amber-400: #f4a91a;
+  --amber-500: #d68b07;
+  --amber-600: #ad6d05;
+  --amber-700: #885408;
+  --amber-800: #69410b;
+  --amber-900: #4c300b;
+  --amber-950: #2e230d;
+
+  --red-50: #fdf1f0;
+  --red-100: #fbdcd9;
+  --red-200: #f6b7b1;
+  --red-300: #ee8c83;
+  --red-400: #e3635a;
+  --red-500: #d0433a;
+  --red-600: #b2332b;
+  --red-700: #902922;
+  --red-800: #70211c;
+  --red-900: #521916;
+  --red-950: #2f1513;
+
+  --blue-50: #eef5fe;
+  --blue-100: #d7e8fd;
+  --blue-200: #b0d1fa;
+  --blue-300: #80b4f4;
+  --blue-400: #5194ea;
+  --blue-500: #2f77d6;
+  --blue-600: #2260b5;
+  --blue-700: #1d4d91;
+  --blue-800: #1a3f74;
+  --blue-900: #163157;
+  --blue-950: #11233b;
+
+  /* Chart-only hues (data series beyond brand/accent) */
+  --teal-300: #5fc4c0;
+  --teal-500: #1e9a95;
+  --teal-700: #146b68;
+  --plum-300: #c39be0;
+  --plum-500: #9257c2;
+  --plum-700: #6a3a92;
+
+  /* ── Typography ────────────────────────────────────────────────────────── */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-24: 24px;
+  --fs-32: 32px;
+
+  /* Semantic type roles */
+  --text-caption: var(--fs-11);
+  --text-small: var(--fs-12);
+  --text-base: var(--fs-13); /* data-dense UI default */
+  --text-body: var(--fs-14);
+  --text-subtitle: var(--fs-16);
+  --text-title: var(--fs-20);
+  --text-heading: var(--fs-24);
+  --text-display: var(--fs-32);
+
+  --lh-tight: 1.2;
+  --lh-snug: 1.35;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.6;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-caps: 0.06em;
+
+  /* ── Spacing (4px base) ────────────────────────────────────────────────── */
+  --space-0: 0;
+  --space-px: 1px;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ── Radii ─────────────────────────────────────────────────────────────── */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
+
+  /* ── Z-index layers ────────────────────────────────────────────────────── */
+  --z-base: 0;
+  --z-raised: 1;
+  --z-sticky: 10;
+  --z-rail: 20;
+  --z-header: 30;
+  --z-drawer: 300;
+  --z-modal: 400;
+  --z-popover: 500;
+  --z-tooltip: 600;
+  --z-toast: 700;
+
+  /* ── Motion ────────────────────────────────────────────────────────────── */
+  --dur-instant: 60ms;
+  --dur-fast: 100ms;
+  --dur-base: 160ms;
+  --dur-slow: 240ms;
+  --dur-tooltip-delay: 400ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1.2);
+
+  /* ── Sizing ────────────────────────────────────────────────────────────── */
+  --icon-xs: 12px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+  --border-width: 1px;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --rail-width: 188px;
+  --field-label-width: 168px;
+  --indent-step: 16px;
+  --modal-sm: 400px;
+  --modal-md: 560px;
+  --modal-lg: 760px;
+  --modal-xl: 1040px;
+  --drawer-sm: 360px;
+  --drawer-md: 480px;
+  --drawer-lg: 720px;
+  --toast-width: 380px;
+  --toast-inset-right: var(--space-4);
+  --toast-inset-bottom: var(--space-4);
+  --tooltip-max-width: 280px;
+  --listbox-max-height: 320px;
+  --scrollbar-size: 12px;
+}
+
+/* ==========================================================================
+   Light theme (default)
+   ========================================================================== */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Surfaces: 0 = app canvas · 1 = cards/inputs/tables · 2 = subtle fill (headers, toolbars) · 3 = strong fill */
+  --surface-0: var(--slate-50);
+  --surface-1: var(--slate-0);
+  --surface-2: var(--slate-75);
+  --surface-3: var(--slate-150);
+  --surface-overlay: var(--slate-0);
+  --surface-sunken: var(--slate-100);
+  --surface-inverse: var(--slate-850);
+  --backdrop: rgba(10, 12, 16, 0.42);
+
+  /* Text */
+  --text-primary: var(--slate-900);
+  --text-secondary: var(--slate-700);
+  --text-muted: var(--slate-500);
+  --text-placeholder: var(--slate-500);
+  --text-disabled: var(--slate-400);
+  --text-inverse: var(--slate-0);
+  --text-link: var(--indigo-700);
+  --text-link-hover: var(--indigo-800);
+
+  /* Borders */
+  --border-subtle: var(--slate-150);
+  --border-default: var(--slate-200);
+  --border-strong: var(--slate-450); /* control outlines: ≥ 3:1 on surfaces */
+  --border-inverse: var(--slate-700);
+
+  /* Brand & accent */
+  --brand: var(--indigo-600);
+  --brand-hover: var(--indigo-700);
+  --brand-active: var(--indigo-800);
+  --on-brand: var(--slate-0);
+  --brand-text: var(--indigo-700);
+  --brand-subtle: var(--indigo-50);
+  --brand-subtle-hover: var(--indigo-100);
+  --brand-border: var(--indigo-200);
+  --accent: var(--saffron-400);
+  --on-accent: var(--slate-1000);
+  --accent-text: var(--saffron-800);
+  --accent-subtle: var(--saffron-50);
+
+  /* Interaction */
+  --focus-ring: var(--indigo-500);
+  --focus-ring-danger: var(--red-500);
+  --selection-bg: var(--indigo-100);
+  --selection-text: var(--slate-900);
+  --row-hover: var(--slate-75);
+  --row-selected: var(--indigo-50);
+  --row-selected-hover: var(--indigo-100);
+  --row-selected-indicator: var(--indigo-600);
+  --row-zebra: var(--slate-25);
+  --row-group: var(--slate-25);
+  --control-bg: var(--slate-0);
+  --control-bg-hover: var(--slate-25);
+  --control-bg-disabled: var(--slate-75);
+  --control-fill: var(--slate-100); /* neutral button / segmented track */
+  --control-fill-hover: var(--slate-150);
+  --control-fill-active: var(--slate-200);
+  --ghost-hover: rgba(26, 30, 38, 0.06);
+  --ghost-active: rgba(26, 30, 38, 0.1);
+  --match-bg: var(--saffron-100);
+  --match-text: var(--slate-1000);
+  --kbd-bg: var(--slate-0);
+  --kbd-border: var(--slate-300);
+  --kbd-text: var(--slate-700);
+  --skeleton-base: var(--slate-100);
+  --skeleton-shine: var(--slate-50);
+  --scrollbar-thumb: var(--slate-300);
+  --scrollbar-thumb-hover: var(--slate-400);
+  --switch-off: var(--slate-450);
+  --tooltip-bg: var(--slate-850);
+  --tooltip-text: var(--slate-0);
+
+  /* Accounting */
+  --dr: #29355f; /* navy-slate: subtle, distinct from text without red/green */
+  --cr: var(--saffron-800);
+  --positive: var(--green-700);
+  --negative: var(--red-600);
+
+  /* Tones (bg = subtle fill · border · text on bg/surfaces · solid fill + on-solid · icon ≥ 3:1) */
+  --neutral-bg: var(--slate-100);
+  --neutral-border: var(--slate-200);
+  --neutral-text: var(--slate-700);
+  --neutral-solid: var(--slate-700);
+  --on-neutral-solid: var(--slate-0);
+  --neutral-icon: var(--slate-500);
+
+  --brand-bg: var(--indigo-50);
+  --brand-tone-border: var(--indigo-200);
+  --brand-tone-text: var(--indigo-700);
+  --brand-solid: var(--indigo-600);
+  --on-brand-solid: var(--slate-0);
+  --brand-icon: var(--indigo-600);
+
+  --accent-bg: var(--saffron-50);
+  --accent-border: var(--saffron-200);
+  --accent-tone-text: var(--saffron-800);
+  --accent-solid: var(--saffron-400);
+  --on-accent-solid: var(--slate-1000);
+  --accent-icon: var(--saffron-600);
+
+  --success-bg: var(--green-50);
+  --success-border: var(--green-200);
+  --success-text: var(--green-700);
+  --success-solid: var(--green-600);
+  --on-success-solid: var(--slate-0);
+  --success-icon: var(--green-600);
+
+  --warning-bg: var(--amber-50);
+  --warning-border: var(--amber-200);
+  --warning-text: var(--amber-800);
+  --warning-solid: var(--amber-400);
+  --on-warning-solid: var(--slate-1000);
+  --warning-icon: var(--amber-600);
+
+  --danger-bg: var(--red-50);
+  --danger-border: var(--red-200);
+  --danger-text: var(--red-700);
+  --danger-solid: var(--red-600);
+  --danger-solid-hover: var(--red-700);
+  --on-danger-solid: var(--slate-0);
+  --danger-icon: var(--red-600);
+
+  --info-bg: var(--blue-50);
+  --info-border: var(--blue-200);
+  --info-text: var(--blue-700);
+  --info-solid: var(--blue-600);
+  --on-info-solid: var(--slate-0);
+  --info-icon: var(--blue-600);
+
+  /* Charts */
+  --chart-1: var(--indigo-600);
+  --chart-2: var(--saffron-600);
+  --chart-3: var(--teal-500);
+  --chart-4: var(--plum-500);
+  --chart-5: var(--green-500);
+  --chart-6: var(--slate-500);
+  --chart-grid: var(--slate-150);
+  --chart-axis: var(--slate-300);
+  --chart-label: var(--slate-500);
+  --chart-area-opacity: 0.12;
+
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgba(16, 19, 24, 0.06), 0 1px 1px rgba(16, 19, 24, 0.04);
+  --shadow-2: 0 4px 12px rgba(16, 19, 24, 0.08), 0 1px 3px rgba(16, 19, 24, 0.06);
+  --shadow-3: 0 16px 40px rgba(16, 19, 24, 0.16), 0 4px 12px rgba(16, 19, 24, 0.08);
+  --shadow-inset: inset 0 1px 2px rgba(16, 19, 24, 0.06);
+  --overlay-border: var(--slate-200);
+}
+
+/* ==========================================================================
+   Dark theme — explicit
+   ========================================================================== */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-0: var(--slate-950);
+  --surface-1: var(--slate-925);
+  --surface-2: var(--slate-900);
+  --surface-3: var(--slate-850);
+  --surface-overlay: var(--slate-900);
+  --surface-sunken: var(--slate-1000);
+  --surface-inverse: var(--slate-100);
+  --backdrop: rgba(0, 0, 0, 0.6);
+
+  --text-primary: var(--slate-100);
+  --text-secondary: var(--slate-300);
+  --text-muted: var(--slate-400);
+  --text-placeholder: var(--slate-400);
+  --text-disabled: var(--slate-500);
+  --text-inverse: var(--slate-1000);
+  --text-link: var(--indigo-300);
+  --text-link-hover: var(--indigo-200);
+
+  --border-subtle: var(--slate-850);
+  --border-default: var(--slate-750);
+  --border-strong: #6e7686;
+  --border-inverse: var(--slate-300);
+
+  --brand: #5a5fdc;
+  --brand-hover: #4e53cc;
+  --brand-active: var(--indigo-700);
+  --on-brand: var(--slate-0);
+  --brand-text: var(--indigo-300);
+  --brand-subtle: var(--indigo-950);
+  --brand-subtle-hover: #262a5a;
+  --brand-border: var(--indigo-800);
+  --accent: var(--saffron-400);
+  --on-accent: var(--slate-1000);
+  --accent-text: var(--saffron-300);
+  --accent-subtle: var(--saffron-950);
+
+  --focus-ring: var(--indigo-300);
+  --focus-ring-danger: var(--red-300);
+  --selection-bg: #33377a;
+  --selection-text: var(--slate-0);
+  --row-hover: #1e232c;
+  --row-selected: #262a4a;
+  --row-selected-hover: #2d3256;
+  --row-selected-indicator: var(--indigo-400);
+  --row-zebra: #181c23;
+  --row-group: #181c23;
+  --control-bg: var(--slate-950);
+  --control-bg-hover: #13161c;
+  --control-bg-disabled: var(--slate-900);
+  --control-fill: var(--slate-850);
+  --control-fill-hover: var(--slate-800);
+  --control-fill-active: var(--slate-750);
+  --ghost-hover: rgba(236, 238, 242, 0.07);
+  --ghost-active: rgba(236, 238, 242, 0.12);
+  --match-bg: #5c3a0a;
+  --match-text: var(--slate-0);
+  --kbd-bg: var(--slate-850);
+  --kbd-border: var(--slate-700);
+  --kbd-text: var(--slate-200);
+  --skeleton-base: var(--slate-850);
+  --skeleton-shine: var(--slate-800);
+  --scrollbar-thumb: var(--slate-750);
+  --scrollbar-thumb-hover: var(--slate-600);
+  --switch-off: #6e7686;
+  --tooltip-bg: var(--slate-100);
+  --tooltip-text: var(--slate-1000);
+
+  --dr: #b9c1f5;
+  --cr: #f5c98f;
+  --positive: var(--green-300);
+  --negative: var(--red-300);
+
+  --neutral-bg: var(--slate-850);
+  --neutral-border: var(--slate-750);
+  --neutral-text: var(--slate-200);
+  --neutral-solid: var(--slate-300);
+  --on-neutral-solid: var(--slate-1000);
+  --neutral-icon: var(--slate-400);
+
+  --brand-bg: var(--indigo-950);
+  --brand-tone-border: var(--indigo-800);
+  --brand-tone-text: var(--indigo-200);
+  --brand-solid: #5a5fdc;
+  --on-brand-solid: var(--slate-0);
+  --brand-icon: var(--indigo-300);
+
+  --accent-bg: var(--saffron-950);
+  --accent-border: var(--saffron-800);
+  --accent-tone-text: var(--saffron-300);
+  --accent-solid: var(--saffron-400);
+  --on-accent-solid: var(--slate-1000);
+  --accent-icon: var(--saffron-400);
+
+  --success-bg: var(--green-950);
+  --success-border: var(--green-800);
+  --success-text: var(--green-300);
+  --success-solid: var(--green-600);
+  --on-success-solid: var(--slate-0);
+  --success-icon: var(--green-400);
+
+  --warning-bg: var(--amber-950);
+  --warning-border: var(--amber-800);
+  --warning-text: var(--amber-300);
+  --warning-solid: var(--amber-400);
+  --on-warning-solid: var(--slate-1000);
+  --warning-icon: var(--amber-400);
+
+  --danger-bg: var(--red-950);
+  --danger-border: var(--red-800);
+  --danger-text: var(--red-300);
+  --danger-solid: var(--red-600);
+  --danger-solid-hover: var(--red-500);
+  --on-danger-solid: var(--slate-0);
+  --danger-icon: var(--red-400);
+
+  --info-bg: var(--blue-950);
+  --info-border: var(--blue-800);
+  --info-text: var(--blue-300);
+  --info-solid: var(--blue-600);
+  --on-info-solid: var(--slate-0);
+  --info-icon: var(--blue-400);
+
+  --chart-1: var(--indigo-400);
+  --chart-2: var(--saffron-400);
+  --chart-3: var(--teal-300);
+  --chart-4: var(--plum-300);
+  --chart-5: var(--green-300);
+  --chart-6: var(--slate-400);
+  --chart-grid: var(--slate-850);
+  --chart-axis: var(--slate-700);
+  --chart-label: var(--slate-400);
+  --chart-area-opacity: 0.18;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  --overlay-border: var(--slate-750);
+}
+
+/* ==========================================================================
+   Dark theme — follow the OS when [data-theme="system"]
+   (kept identical to the explicit dark block above; the contrast test checks both)
+   ========================================================================== */
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    color-scheme: dark;
+
+    --surface-0: var(--slate-950);
+    --surface-1: var(--slate-925);
+    --surface-2: var(--slate-900);
+    --surface-3: var(--slate-850);
+    --surface-overlay: var(--slate-900);
+    --surface-sunken: var(--slate-1000);
+    --surface-inverse: var(--slate-100);
+    --backdrop: rgba(0, 0, 0, 0.6);
+
+    --text-primary: var(--slate-100);
+    --text-secondary: var(--slate-300);
+    --text-muted: var(--slate-400);
+    --text-placeholder: var(--slate-400);
+    --text-disabled: var(--slate-500);
+    --text-inverse: var(--slate-1000);
+    --text-link: var(--indigo-300);
+    --text-link-hover: var(--indigo-200);
+
+    --border-subtle: var(--slate-850);
+    --border-default: var(--slate-750);
+    --border-strong: #6e7686;
+    --border-inverse: var(--slate-300);
+
+    --brand: #5a5fdc;
+    --brand-hover: #4e53cc;
+    --brand-active: var(--indigo-700);
+    --on-brand: var(--slate-0);
+    --brand-text: var(--indigo-300);
+    --brand-subtle: var(--indigo-950);
+    --brand-subtle-hover: #262a5a;
+    --brand-border: var(--indigo-800);
+    --accent: var(--saffron-400);
+    --on-accent: var(--slate-1000);
+    --accent-text: var(--saffron-300);
+    --accent-subtle: var(--saffron-950);
+
+    --focus-ring: var(--indigo-300);
+    --focus-ring-danger: var(--red-300);
+    --selection-bg: #33377a;
+    --selection-text: var(--slate-0);
+    --row-hover: #1e232c;
+    --row-selected: #262a4a;
+    --row-selected-hover: #2d3256;
+    --row-selected-indicator: var(--indigo-400);
+    --row-zebra: #181c23;
+    --row-group: #181c23;
+    --control-bg: var(--slate-950);
+    --control-bg-hover: #13161c;
+    --control-bg-disabled: var(--slate-900);
+    --control-fill: var(--slate-850);
+    --control-fill-hover: var(--slate-800);
+    --control-fill-active: var(--slate-750);
+    --ghost-hover: rgba(236, 238, 242, 0.07);
+    --ghost-active: rgba(236, 238, 242, 0.12);
+    --match-bg: #5c3a0a;
+    --match-text: var(--slate-0);
+    --kbd-bg: var(--slate-850);
+    --kbd-border: var(--slate-700);
+    --kbd-text: var(--slate-200);
+    --skeleton-base: var(--slate-850);
+    --skeleton-shine: var(--slate-800);
+    --scrollbar-thumb: var(--slate-750);
+    --scrollbar-thumb-hover: var(--slate-600);
+    --switch-off: #6e7686;
+    --tooltip-bg: var(--slate-100);
+    --tooltip-text: var(--slate-1000);
+
+    --dr: #b9c1f5;
+    --cr: #f5c98f;
+    --positive: var(--green-300);
+    --negative: var(--red-300);
+
+    --neutral-bg: var(--slate-850);
+    --neutral-border: var(--slate-750);
+    --neutral-text: var(--slate-200);
+    --neutral-solid: var(--slate-300);
+    --on-neutral-solid: var(--slate-1000);
+    --neutral-icon: var(--slate-400);
+
+    --brand-bg: var(--indigo-950);
+    --brand-tone-border: var(--indigo-800);
+    --brand-tone-text: var(--indigo-200);
+    --brand-solid: #5a5fdc;
+    --on-brand-solid: var(--slate-0);
+    --brand-icon: var(--indigo-300);
+
+    --accent-bg: var(--saffron-950);
+    --accent-border: var(--saffron-800);
+    --accent-tone-text: var(--saffron-300);
+    --accent-solid: var(--saffron-400);
+    --on-accent-solid: var(--slate-1000);
+    --accent-icon: var(--saffron-400);
+
+    --success-bg: var(--green-950);
+    --success-border: var(--green-800);
+    --success-text: var(--green-300);
+    --success-solid: var(--green-600);
+    --on-success-solid: var(--slate-0);
+    --success-icon: var(--green-400);
+
+    --warning-bg: var(--amber-950);
+    --warning-border: var(--amber-800);
+    --warning-text: var(--amber-300);
+    --warning-solid: var(--amber-400);
+    --on-warning-solid: var(--slate-1000);
+    --warning-icon: var(--amber-400);
+
+    --danger-bg: var(--red-950);
+    --danger-border: var(--red-800);
+    --danger-text: var(--red-300);
+    --danger-solid: var(--red-600);
+    --danger-solid-hover: var(--red-500);
+    --on-danger-solid: var(--slate-0);
+    --danger-icon: var(--red-400);
+
+    --info-bg: var(--blue-950);
+    --info-border: var(--blue-800);
+    --info-text: var(--blue-300);
+    --info-solid: var(--blue-600);
+    --on-info-solid: var(--slate-0);
+    --info-icon: var(--blue-400);
+
+    --chart-1: var(--indigo-400);
+    --chart-2: var(--saffron-400);
+    --chart-3: var(--teal-300);
+    --chart-4: var(--plum-300);
+    --chart-5: var(--green-300);
+    --chart-6: var(--slate-400);
+    --chart-grid: var(--slate-850);
+    --chart-axis: var(--slate-700);
+    --chart-label: var(--slate-400);
+    --chart-area-opacity: 0.18;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+    --overlay-border: var(--slate-750);
+  }
+}
+
+/* ==========================================================================
+   Density — comfortable (default): 36px controls, 44px mouse hit areas.
+   Compact: 28px controls, 32px hit areas, tighter tables and forms.
+   Applies to any subtree, so a single table or panel can opt in.
+   ========================================================================== */
+:root,
+[data-density="comfortable"] {
+  --control-h: 36px;
+  --control-h-sm: 28px;
+  --control-px: 12px;
+  --control-px-sm: 8px;
+  --control-gap: 6px;
+  --hit-min: 44px;
+  --row-h: 32px;
+  --option-h: 32px;
+  --cell-px: 12px;
+  --form-gap: 16px;
+  --field-gap: 6px;
+  --panel-p: 16px;
+  --card-p: 16px;
+  --toolbar-h: 48px;
+  --rail-item-h: 36px;
+  --checkbox-size: 16px;
+  --switch-w: 32px;
+  --switch-h: 18px;
+}
+
+[data-density="compact"] {
+  --control-h: 28px;
+  --control-h-sm: 24px;
+  --control-px: 8px;
+  --control-px-sm: 6px;
+  --control-gap: 4px;
+  --hit-min: 32px;
+  --row-h: 26px;
+  --option-h: 28px;
+  --cell-px: 8px;
+  --form-gap: 10px;
+  --field-gap: 4px;
+  --panel-p: 12px;
+  --card-p: 12px;
+  --toolbar-h: 40px;
+  --rail-item-h: 28px;
+  --checkbox-size: 14px;
+  --switch-w: 28px;
+  --switch-h: 16px;
+}
+
+/* ==========================================================================
+   Reduced motion — collapse all durations (components animate via tokens)
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+    --dur-tooltip-delay: 0ms;
+  }
+}

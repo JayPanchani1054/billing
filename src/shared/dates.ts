@@ -152,7 +152,7 @@ export function formatMonth(key: string): string {
  * Tally-style forgiving date entry, resolved against a reference date (the current working date):
  *   '5'          → 5th of reference month/year
  *   '5-10' '5/10' '5.10' → 5 Oct of reference year
- *   '5-10-26' '5/10/2026' '05102026' '051026'
+ *   '5-10-26' '5/10/2026' '05102026' '051026' '2026/10/5'
  *   '5-Oct' '5 oct 2026' 'Oct 5'
  *   'today' 't', 'yesterday' 'y'
  * Returns ISO or null when it cannot be understood.
@@ -176,25 +176,24 @@ export function parseDateInput(input: string, reference: string): string | null 
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return isValidDate(s) ? s : null;
 
   const tokens = s.split(/[\s\-/.,]+/).filter(Boolean);
+  if (tokens.length > 3) return null;
   if (tokens.length === 1 && /^\d{1,2}$/.test(tokens[0])) return build(ref.y, ref.m, Number(tokens[0]));
 
   if (tokens.length >= 2) {
     const [a, b, c] = tokens;
+    // A third token must be a 2- or 4-digit year; anything else is rejected, never silently ignored.
+    const year = c === undefined ? ref.y : /^(\d{2}|\d{4})$/.test(c) ? fixYear(Number(c), c) : null;
+    // yyyy-m-d ('2026/10/5')
+    if (/^\d{4}$/.test(a) && c !== undefined && /^\d{1,2}$/.test(b) && /^\d{1,2}$/.test(c)) {
+      return build(Number(a), Number(b), Number(c));
+    }
+    if (year === null) return null;
     // d-mon[-y]
-    if (/^\d{1,2}$/.test(a) && /^[a-z]{3,}$/.test(b) && monthIdx(b) > 0) {
-      const y = c && /^\d{2,4}$/.test(c) ? fixYear(Number(c), c) : ref.y;
-      return build(y, monthIdx(b), Number(a));
-    }
+    if (/^\d{1,2}$/.test(a) && /^[a-z]{3,}$/.test(b) && monthIdx(b) > 0) return build(year, monthIdx(b), Number(a));
     // mon-d[-y]
-    if (/^[a-z]{3,}$/.test(a) && monthIdx(a) > 0 && /^\d{1,2}$/.test(b)) {
-      const y = c && /^\d{2,4}$/.test(c) ? fixYear(Number(c), c) : ref.y;
-      return build(y, monthIdx(a), Number(b));
-    }
+    if (/^[a-z]{3,}$/.test(a) && monthIdx(a) > 0 && /^\d{1,2}$/.test(b)) return build(year, monthIdx(a), Number(b));
     // d-m[-y]
-    if (/^\d{1,2}$/.test(a) && /^\d{1,2}$/.test(b)) {
-      const y = c && /^\d{2,4}$/.test(c) ? fixYear(Number(c), c) : ref.y;
-      return build(y, Number(b), Number(a));
-    }
+    if (/^\d{1,2}$/.test(a) && /^\d{1,2}$/.test(b)) return build(year, Number(b), Number(a));
   }
   return null;
 }

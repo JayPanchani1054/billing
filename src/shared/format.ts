@@ -72,11 +72,13 @@ export function formatPercent(pct: number): string {
 
 /** Compact for dashboards: 12345600 paise → '₹1.23 L', 1.5 Cr etc. */
 export function formatCompactINR(p: Paise): string {
-  const r = p / 100;
-  const abs = Math.abs(r);
-  const sign = r < 0 ? '-' : '';
-  if (abs >= 1e7) return `${sign}₹${(abs / 1e7).toFixed(2)} Cr`;
-  if (abs >= 1e5) return `${sign}₹${(abs / 1e5).toFixed(2)} L`;
-  if (abs >= 1e3) return `${sign}₹${(abs / 1e3).toFixed(1)} K`;
-  return `${sign}₹${abs.toFixed(0)}`;
+  const abs = Math.abs(p / 100);
+  // Pick the tier from the value as displayed, so ₹99,999.99 shows '₹1.00 L' rather than '₹100.0 K'.
+  let body: string;
+  if (Number((abs / 1e5).toFixed(2)) >= 100) body = `${(abs / 1e7).toFixed(2)} Cr`;
+  else if (Number((abs / 1e3).toFixed(1)) >= 100) body = `${(abs / 1e5).toFixed(2)} L`;
+  else if (Math.round(abs) >= 1e3) body = `${(abs / 1e3).toFixed(1)} K`;
+  else body = abs.toFixed(0);
+  const sign = p < 0 && /[1-9]/.test(body) ? '-' : '';
+  return `${sign}₹${body}`;
 }

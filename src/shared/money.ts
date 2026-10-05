@@ -5,11 +5,19 @@
 
 export type Paise = number;
 
+/** Below 2^53, so `abs × factor` is still an exactly representable integer when snapping. */
+const SNAP_LIMIT = 9e15;
+
 /** Round half away from zero to an integer (paise). Guards against binary float noise (e.g. 1.005). */
 export function roundPaise(x: number): Paise {
   if (!Number.isFinite(x)) throw new RangeError(`Cannot round non-finite amount: ${x}`);
-  // Snap to 6 decimals first so binary noise (100.49999999999999 from 1.005 × 100) rounds as intended.
-  const snapped = Math.round(Math.abs(x) * 1e6) / 1e6;
+  const abs = Math.abs(x);
+  // Snap to the finest decimal grid (≤ 6 places) that keeps abs × factor below 2^53, so binary noise
+  // (100.49999999999999 from 1.005 × 100) rounds as intended — and large amounts such as
+  // 331560320190.5 are not corrupted by an inexact snap.
+  let factor = 1e6;
+  while (factor > 1 && abs * factor >= SNAP_LIMIT) factor /= 10;
+  const snapped = Math.round(abs * factor) / factor;
   const r = Math.sign(x) * Math.round(snapped);
   return r === 0 ? 0 : r; // normalise -0
 }
@@ -27,7 +35,7 @@ export function paiseToRupees(p: Paise): number {
 /**
  * Parse user-entered amount text into paise. Accepts Indian/Western grouping, optional ₹/Rs,
  * optional Dr/Cr suffix (Cr → negative) and a leading minus. Returns null when not a number.
- *   '1,23,456.789' → 12345679   '₹ 50' → 5000   '100 Cr' → -10000
+ *   '1,23,456.789' → 12345679   '₹ 50' → 5000   '100 Cr' → -10000   '-₹ 1,234.50' → -123450
  */
 export function parseAmount(input: string): Paise | null {
   let s = input.trim();
@@ -38,10 +46,11 @@ export function parseAmount(input: string): Paise | null {
     if (drcr[1].toLowerCase() === 'cr') sign = -1;
     s = s.slice(0, drcr.index).trim();
   }
-  s = s.replace(/^(₹|rs\.?|inr)\s*/i, '');
+  const stripCurrency = (t: string): string => t.replace(/^(₹|rs\.?|inr)\s*/i, '');
+  s = stripCurrency(s);
   if (s.startsWith('(') && s.endsWith(')')) {
     sign *= -1;
-    s = s.slice(1, -1);
+    s = s.slice(1, -1).trim();
   }
   if (s.startsWith('-')) {
     sign *= -1;
@@ -49,6 +58,8 @@ export function parseAmount(input: string): Paise | null {
   } else if (s.startsWith('+')) {
     s = s.slice(1);
   }
+  // The symbol may also follow the sign: '-₹ 1,23,456.50' (formatMoney's own output).
+  s = stripCurrency(s.trim());
   s = s.replace(/[,\s]/g, '');
   if (!/^\d*\.?\d*$/.test(s) || s === '' || s === '.') return null;
   const value = Number(s);

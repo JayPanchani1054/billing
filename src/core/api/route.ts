@@ -27,7 +27,12 @@ export interface CompanyRoute<I, O> {
   scope: 'company';
   access: Exclude<RouteAccess, 'public'>;
   input: Schema<I>;
-  /** Mutating routes run inside a DB transaction automatically when true (default true for non-GET-like names). */
+  /**
+   * Company routes run inside one DB transaction unless this is `false` (default: true for every
+   * company route). A transactional handler MUST be synchronous: if it returns a Promise the
+   * dispatcher rolls back and fails the call with INTERNAL. Set `transactional: false` for async
+   * handlers (they wrap their own writes in ctx.db.transaction(...)) and for heavy read-only reports.
+   */
   transactional?: boolean;
   handler: (ctx: CompanyCtx, input: I) => O | Promise<O>;
 }
