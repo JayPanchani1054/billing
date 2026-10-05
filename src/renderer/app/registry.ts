@@ -5,6 +5,7 @@
  */
 import type { ComponentType } from 'react';
 import type { Permission } from '../../shared/constants.ts';
+import type { CompanyFeatures } from '../../shared/settings.ts';
 
 export interface ScreenProps<P = Record<string, unknown>> {
   /** Parameters passed by nav.push(screenId, params). Must be JSON-serialisable. */
@@ -22,6 +23,17 @@ export interface ScreenDef {
   access?: Permission;
   /** 'full' (default) uses the whole workspace; 'dialog' renders as a modal over the current screen. */
   presentation?: 'full' | 'dialog';
+  /**
+   * Offer this screen in the Go To palette even though no menu item points at it. Only for screens
+   * that work without params (menu items are always offered). Default false.
+   */
+  goto?: boolean;
+  /** Extra words for the Go To palette search. */
+  keywords?: string[];
+  /** Requires this company feature (F11) to be on — hidden from menus/Go To and refused otherwise. */
+  feature?: keyof CompanyFeatures;
+  /** Requires the company GST feature to be on. */
+  gstOnly?: boolean;
 }
 
 export type MenuSection =
@@ -50,6 +62,10 @@ export interface MenuItem {
   order?: number;
   /** Requires the company GST feature to be enabled. */
   gstOnly?: boolean;
+  /** Requires this company feature (F11) to be on, e.g. 'inventory' for stock reports. */
+  feature?: keyof CompanyFeatures;
+  /** One plain-language line shown as a tooltip on the Gateway and under the label in Go To. */
+  description?: string;
 }
 
 export interface ModuleDef {

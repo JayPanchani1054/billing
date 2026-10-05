@@ -42,7 +42,7 @@ export function booksFrom(db: Db): string {
   return d;
 }
 
-function treeWhere(table: TreeTable): string {
+function treeWhere(): string {
   return `WHERE (:like IS NULL OR t.name LIKE :like ESCAPE '\\' OR t.alias LIKE :like ESCAPE '\\')
             AND (:anyParent = 1 OR t.parent_id IS :parentId)`;
 }
@@ -129,7 +129,7 @@ function groupDto(r: StockGroupRow): StockGroupDto {
 export function listStockGroups(db: Db, input: TreeListInput = {}): ListResult<StockGroupDto> {
   const { limit, offset } = paging(input);
   const params = treeParams(input);
-  const where = treeWhere('stock_groups');
+  const where = treeWhere();
   const total = countOf(db, `SELECT COUNT(*) FROM stock_groups t ${where}`, params);
   const rows = db.all<StockGroupRow>(`${SELECT_GROUP} ${where} ORDER BY t.name COLLATE NOCASE LIMIT :limit OFFSET :offset`, {
     ...params,
@@ -196,7 +196,7 @@ export function saveStockGroup(ctx: CompanyCtx, input: StockGroupSaveInput): Sto
       { ...params, guid: randomUUID() },
     ).lastInsertRowid;
   }
-  syncGstHistory(db, 'stock_group', id, name, prevGst, gst, input.gstApplicableFrom, booksFrom(db));
+  syncGstHistory(db, 'stock_group', id, name, prevGst, gst, input, booksFrom(db));
   const after = getStockGroup(db, id);
   ctx.audit({
     action: before ? 'alter' : 'create',
@@ -263,7 +263,7 @@ function categoryDto(r: CategoryRow): StockCategoryDto {
 export function listStockCategories(db: Db, input: TreeListInput = {}): ListResult<StockCategoryDto> {
   const { limit, offset } = paging(input);
   const params = treeParams(input);
-  const where = treeWhere('stock_categories');
+  const where = treeWhere();
   const total = countOf(db, `SELECT COUNT(*) FROM stock_categories t ${where}`, params);
   const rows = db.all<CategoryRow>(`${SELECT_CATEGORY} ${where} ORDER BY t.name COLLATE NOCASE LIMIT :limit OFFSET :offset`, {
     ...params,
@@ -378,7 +378,7 @@ export function mainGodownId(db: Db): number {
 export function listGodowns(db: Db, input: TreeListInput = {}): ListResult<GodownDto> {
   const { limit, offset } = paging(input);
   const params = treeParams(input);
-  const where = treeWhere('godowns');
+  const where = treeWhere();
   const total = countOf(db, `SELECT COUNT(*) FROM godowns t ${where}`, params);
   const rows = db.all<GodownRow>(
     `${SELECT_GODOWN} ${where} ORDER BY t.is_predefined DESC, t.name COLLATE NOCASE LIMIT :limit OFFSET :offset`,

@@ -120,6 +120,8 @@ export interface StockByItemQuery {
   godownId?: number | null;
   /** Restrict to these items (default: all). */
   itemIds?: readonly number[];
+  /** Leave this voucher out (e.g. the voucher being altered). */
+  excludeVoucherId?: number | null;
 }
 
 /** Quantity on hand per item (items with no stock rows are absent → 0). One query for any number of items. */
@@ -132,6 +134,7 @@ export function stockByItem(db: Db, q: StockByItemQuery): Map<number, number> {
     main: mainGodown(db),
     ids: filterItems ? jsonIds(q.itemIds ?? []) : '[]',
     filter: filterItems ? 1 : 0,
+    exclude: q.excludeVoucherId ?? null,
   };
   const rows = db.all<{ item_id: number; qty: number }>(
     `SELECT item_id, SUM(qty) AS qty FROM (
@@ -143,6 +146,7 @@ export function stockByItem(db: Db, q: StockByItemQuery): Map<number, number> {
         WHERE ie.date <= :asOf AND ${STOCK_MOVEMENT_FILTER}
           AND (:godown IS NULL OR COALESCE(ie.godown_id, :main) = :godown)
           AND (:filter = 0 OR ie.item_id IN (SELECT value FROM json_each(:ids)))
+          AND ie.voucher_id IS NOT :exclude
      ) GROUP BY item_id`,
     params,
   );

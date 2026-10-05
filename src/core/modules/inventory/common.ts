@@ -76,17 +76,20 @@ export function assertNameFree(
   noun: string,
   checkAlias = true,
 ): void {
+  // Units are named by `symbol`; every other master by `name`.
+  const col = table === 'units' ? 'symbol' : 'name';
   const aliasClause = checkAlias ? ' OR alias = :name COLLATE NOCASE' : '';
   const row = db.get<{ id: number; name: string }>(
-    `SELECT id, name FROM ${table} WHERE (name = :name COLLATE NOCASE${aliasClause}) AND id IS NOT :exclude LIMIT 1`,
+    `SELECT id, ${col} AS name FROM ${table} WHERE (${col} = :name COLLATE NOCASE${aliasClause}) AND id IS NOT :exclude LIMIT 1`,
     { name, exclude: excludeId },
   );
   if (row) {
-    const how = row.name.toLowerCase() === name.toLowerCase() ? 'name' : 'alias';
+    const how = row.name.toLowerCase() === name.toLowerCase() ? (col === 'symbol' ? 'symbol' : 'name') : 'alias';
+    const what = field === 'alias' ? 'alias' : col === 'symbol' ? 'symbol' : 'name';
     throw validation([
       {
         path: field,
-        message: `${noun} '${name}' already exists (it is the ${how} of '${row.name}'). Choose a different ${field === 'alias' ? 'alias' : 'name'}.`,
+        message: `${noun} '${name}' already exists (it is the ${how} of '${row.name}'). Choose a different ${what}.`,
       },
     ]);
   }

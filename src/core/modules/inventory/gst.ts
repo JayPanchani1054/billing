@@ -10,7 +10,10 @@
  *   3. the stock group chain, nearest group first: for each group its history row (≤ date, latest),
  *      then its columns under the same completeness rule;
  *   4. null — the caller falls back to the sales/purchase ledger.
- * A profile always comes from ONE source as a whole (rate, cess, taxability and HSN together).
+ * Rate, cess and taxability come from the one level that resolved. HSN/SAC comes from that level
+ * too; when it has none, from the first non-empty HSN/SAC along the same chain in the same order
+ * (item history, item columns — even incomplete ones — then each group's history and columns).
+ * This matches vouchers/taxprofile.ts (levels 2–4 of its item precedence).
  */
 import { isStandardRate, isValidCessRate, isValidRate, TAXABILITIES } from '../../../shared/gst/index.ts';
 import { formatDate } from '../../../shared/dates.ts';
@@ -54,9 +57,14 @@ interface HistoryRow {
 const asTaxability = (t: string | null | undefined): Taxability =>
   (TAXABILITIES as readonly string[]).includes(t ?? '') ? (t as Taxability) : 'taxable';
 
+/**
+ * Normalised details of a master row. `applicable` is true only when the row's own details are
+ * usable for resolution (see columnsComplete): a row marked 'applicable' without a rate (e.g. the
+ * stock_items column default) is treated as "no own GST details".
+ */
 export function detailsFromColumns(row: GstColumns): GstDetails {
   return {
-    applicable: row.gst_applicable === 'applicable',
+    applicable: columnsComplete(row),
     hsnSac: row.hsn_sac,
     taxability: asTaxability(row.gst_taxability),
     rate: row.gst_rate,
@@ -162,7 +170,8 @@ export function deleteGstHistory(db: Db, entityType: GstEntityType, id: number):
 
 /**
  * Keep gst_rate_history in step with a save (call after the master row is written):
- *  - GST details turned off → the master's history is removed (it then inherits again).
+ *  - GST details explicitly turned off (gstApplicable: false) → the master's history is removed
+ *    (it then inherits from its group / the ledger again).
  *  - `applicableFrom` given → the details are recorded from that date (row replaced if the date exists).
  *    When this introduces history for a master that already had details from its columns, those
  *    earlier details are first recorded from the books-beginning date so older dates keep them.
@@ -176,11 +185,13 @@ export function syncGstHistory(
   label: string,
   prev: GstDetails | null,
   next: GstDetails,
-  applicableFrom: string | undefined,
+  input: Pick<GstFieldsInput, 'gstApplicable' | 'gstApplicableFrom'>,
   booksFrom: string,
 ): void {
+  const applicableFrom = input.gstApplicableFrom;
   if (!next.applicable) {
-    deleteGstHistory(db, entityType, id);
+    // Only an explicit "GST details: off" removes dated history (never a plain rename).
+    if (input.gstApplicable === false) deleteGstHistory(db, entityType, id);
     return;
   }
   const changed = prev === null || !sameDetails(prev, next);
@@ -205,11 +216,18 @@ export function syncGstHistory(
 
 // ───────────────────────────── Resolution ─────────────────────────────
 
-function columnsComplete(row: GstColumns): boolean {
+/** The row's own GST details are usable: marked applicable AND (a rate is set OR the taxability is not 'taxable'). */
+export function columnsComplete(row: GstColumns): boolean {
   if (row.gst_applicable !== 'applicable') return false;
   const tax = asTaxability(row.gst_taxability);
   return row.gst_rate !== null || (row.gst_taxability !== null && tax !== 'taxable');
 }
+
+/** Trimmed HSN/SAC; null when blank. */
+const hsnOf = (s: string | null | undefined): string | null => {
+  const t = (s ?? '').trim();
+  return t === '' ? null : t;
+};
 
 function fromColumns(source: 'item' | 'group', sourceId: number, row: GstColumns): ItemGstProfile {
   const taxability = asTaxability(row.gst_taxability);
@@ -219,10 +237,10 @@ function fromColumns(source: 'item' | 'group', sourceId: number, row: GstColumns
     sourceId,
     applicableFrom: null,
     taxability,
-    rate: taxable ? (row.gst_rate ?? 0) : 0,
-    cessRate: taxable ? (row.cess_rate ?? 0) : 0,
+    rate: taxable ? Number(row.gst_rate ?? 0) : 0,
+    cessRate: taxable ? Number(row.cess_rate ?? 0) : 0,
     cessPerUnit: taxable ? Number(row.cess_per_unit ?? 0) : 0,
-    hsnSac: row.hsn_sac,
+    hsnSac: hsnOf(row.hsn_sac),
   };
 }
 
@@ -234,10 +252,10 @@ function fromHistory(source: 'item_history' | 'group_history', sourceId: number,
     sourceId,
     applicableFrom: h.applicable_from,
     taxability,
-    rate: taxable ? h.rate : 0,
-    cessRate: taxable ? h.cess_rate : 0,
-    cessPerUnit: taxable ? Number(h.cess_per_unit) : 0,
-    hsnSac: h.hsn_sac,
+    rate: taxable ? Number(h.rate) || 0 : 0,
+    cessRate: taxable ? Number(h.cess_rate) || 0 : 0,
+    cessPerUnit: taxable ? Number(h.cess_per_unit) || 0 : 0,
+    hsnSac: hsnOf(h.hsn_sac),
   };
 }
 
@@ -248,39 +266,85 @@ const HISTORY_AT = /* sql */ `
 
 const GST_COLS = 'gst_applicable, gst_taxability, gst_rate, cess_rate, cess_per_unit, hsn_sac';
 
+/** Same cap as the vouchers engine (a group tree is never this deep; cycles are refused on save). */
+const MAX_GROUP_DEPTH = 64;
+
+/** One precedence level: the profile it defines (if complete) and the HSN/SAC it carries (even if incomplete). */
+interface Level {
+  profile: ItemGstProfile | null;
+  hsn: string | null;
+}
+
+/**
+ * First level that defines a profile; its HSN/SAC, or — when that level has none — the first
+ * non-empty HSN/SAC of any level in precedence order (vouchers/taxprofile.ts does the same).
+ */
+function pickProfile(levels: Iterable<Level>): ItemGstProfile | null {
+  let found: ItemGstProfile | null = null;
+  let firstHsn: string | null = null;
+  for (const l of levels) {
+    if (firstHsn === null && l.hsn !== null) firstHsn = l.hsn;
+    if (found === null && l.profile !== null) {
+      found = l.profile;
+      if (found.hsnSac !== null) return found;
+    }
+    if (found !== null && firstHsn !== null) break;
+  }
+  if (found === null) return null;
+  return { ...found, hsnSac: firstHsn };
+}
+
+function* groupLevels(db: Db, groupId: number | null, date: string): Generator<Level> {
+  const seen = new Set<number>();
+  let gid = groupId;
+  for (let depth = 0; gid !== null && depth < MAX_GROUP_DEPTH && !seen.has(gid); depth++) {
+    seen.add(gid);
+    const gh = db.get<HistoryRow>(HISTORY_AT, { t: 'stock_group', id: gid, date });
+    yield { profile: gh ? fromHistory('group_history', gid, gh) : null, hsn: hsnOf(gh?.hsn_sac) };
+    const g = db.get<GstColumns & { parent_id: number | null }>(`SELECT parent_id, ${GST_COLS} FROM stock_groups WHERE id = :id`, { id: gid });
+    if (!g) return;
+    yield { profile: columnsComplete(g) ? fromColumns('group', gid, g) : null, hsn: hsnOf(g.hsn_sac) };
+    gid = g.parent_id;
+  }
+}
+
+function* itemLevels(db: Db, itemId: number, item: GstColumns & { group_id: number | null }, date: string): Generator<Level> {
+  const h = db.get<HistoryRow>(HISTORY_AT, { t: 'stock_item', id: itemId, date });
+  yield { profile: h ? fromHistory('item_history', itemId, h) : null, hsn: hsnOf(h?.hsn_sac) };
+  yield { profile: columnsComplete(item) ? fromColumns('item', itemId, item) : null, hsn: hsnOf(item.hsn_sac) };
+  yield* groupLevels(db, item.group_id, date);
+}
+
 /**
  * GST profile of a stock item on `date` (see the precedence at the top of this file).
+ * HSN/SAC comes from the level that resolved the rate; when that level has none, the first non-empty
+ * HSN/SAC along the same chain (item history, item, then each group's history and columns).
  * Returns null when neither the item nor its groups define GST details, or the item does not exist.
  */
 export function resolveItemGstProfile(db: Db, itemId: number, date: string): ItemGstProfile | null {
-  const h = db.get<HistoryRow>(HISTORY_AT, { t: 'stock_item', id: itemId, date });
-  if (h) return fromHistory('item_history', itemId, h);
   const item = db.get<GstColumns & { group_id: number | null }>(`SELECT group_id, ${GST_COLS} FROM stock_items WHERE id = :id`, { id: itemId });
   if (!item) return null;
-  if (columnsComplete(item)) return fromColumns('item', itemId, item);
-  return resolveGroupGstProfile(db, item.group_id, date);
+  return pickProfile(itemLevels(db, itemId, item, date));
 }
 
 /** GST profile defined by a stock group (or its ancestors) on `date`; null when none. */
 export function resolveGroupGstProfile(db: Db, groupId: number | null, date: string): ItemGstProfile | null {
-  const seen = new Set<number>();
-  let gid = groupId;
-  while (gid !== null && !seen.has(gid)) {
-    seen.add(gid);
-    const gh = db.get<HistoryRow>(HISTORY_AT, { t: 'stock_group', id: gid, date });
-    if (gh) return fromHistory('group_history', gid, gh);
-    const g = db.get<GstColumns & { parent_id: number | null }>(`SELECT parent_id, ${GST_COLS} FROM stock_groups WHERE id = :id`, { id: gid });
-    if (!g) return null;
-    if (columnsComplete(g)) return fromColumns('group', gid, g);
-    gid = g.parent_id;
-  }
-  return null;
+  return pickProfile(groupLevels(db, groupId, date));
 }
 
 export interface ItemGstSource extends GstColumns {
   id: number;
   group_id: number | null;
 }
+
+interface ChainInfo {
+  /** First profile defined along the chain (with its own HSN, possibly null). */
+  profile: ItemGstProfile | null;
+  /** First non-empty HSN/SAC along the whole chain. */
+  firstHsn: string | null;
+}
+
+const EMPTY_CHAIN: ChainInfo = { profile: null, firstHsn: null };
 
 /**
  * Bulk resolver for many items on one date (item picker, imports): preloads all history rows and
@@ -303,39 +367,46 @@ export function createGstResolver(db: Db, date: string): (item: ItemGstSource) =
   for (const g of db.all<GstColumns & { id: number; parent_id: number | null }>(`SELECT id, parent_id, ${GST_COLS} FROM stock_groups`)) {
     groups.set(g.id, g);
   }
-  const groupMemo = new Map<number, ItemGstProfile | null>();
-  const resolveGroup = (start: number | null): ItemGstProfile | null => {
+  const memo = new Map<number, ChainInfo>();
+  const chainInfo = (start: number | null): ChainInfo => {
+    // Walk up to a memoised group (or the root), then fill the memo top-down.
     const chain: number[] = [];
-    let gid = start;
-    let found: ItemGstProfile | null = null;
     const seen = new Set<number>();
+    let gid = start;
+    let tail: ChainInfo = EMPTY_CHAIN;
     while (gid !== null && !seen.has(gid)) {
-      if (groupMemo.has(gid)) {
-        found = groupMemo.get(gid) ?? null;
+      const hit = memo.get(gid);
+      if (hit) {
+        tail = hit;
         break;
       }
       seen.add(gid);
       chain.push(gid);
-      const gh = groupHistory.get(gid);
-      if (gh) {
-        found = fromHistory('group_history', gid, gh);
-        break;
-      }
-      const g = groups.get(gid);
-      if (!g) break;
-      if (columnsComplete(g)) {
-        found = fromColumns('group', gid, g);
-        break;
-      }
-      gid = g.parent_id;
+      gid = groups.get(gid)?.parent_id ?? null;
     }
-    for (const id of chain) groupMemo.set(id, found);
-    return found;
+    for (let k = chain.length - 1; k >= 0; k--) {
+      const id = chain[k];
+      const gh = groupHistory.get(id);
+      const g = groups.get(id);
+      // A missing group ends the chain (as in resolveItemGstProfile): only its history row counts.
+      const next = g ? tail : EMPTY_CHAIN;
+      const own = gh ? fromHistory('group_history', id, gh) : g && columnsComplete(g) ? fromColumns('group', id, g) : null;
+      tail = {
+        profile: own ?? next.profile,
+        firstHsn: hsnOf(gh?.hsn_sac) ?? hsnOf(g?.hsn_sac) ?? next.firstHsn,
+      };
+      memo.set(id, tail);
+    }
+    return tail;
   };
   return (item) => {
     const h = itemHistory.get(item.id);
-    if (h) return fromHistory('item_history', item.id, h);
-    if (columnsComplete(item)) return fromColumns('item', item.id, item);
-    return resolveGroup(item.group_id);
+    const own = h ? fromHistory('item_history', item.id, h) : columnsComplete(item) ? fromColumns('item', item.id, item) : null;
+    if (own && own.hsnSac !== null) return own;
+    const chain = chainInfo(item.group_id);
+    const found = own ?? chain.profile;
+    if (!found) return null;
+    if (found.hsnSac !== null) return found;
+    return { ...found, hsnSac: hsnOf(h?.hsn_sac) ?? hsnOf(item.hsn_sac) ?? chain.firstHsn };
   };
 }

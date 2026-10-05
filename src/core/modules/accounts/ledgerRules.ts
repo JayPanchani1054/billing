@@ -447,6 +447,15 @@ function validateParty(f: LedgerFields, cls: LedgerClass, rc: LedgerRuleContext,
   }
   if (gst?.gstin) f.gstin = gst.gstin;
 
+  // A GSTIN entered now (new or changed) re-derives what was only carried over from the stored ledger:
+  // state and PAN (unless entered together with it), and an 'unregistered'/'consumer' type.
+  const gstinChanged = rc.provided.has('gstin') && f.gstin !== null && (rc.existing === null || rc.existing.gstin !== f.gstin);
+  if (gstinChanged && gst?.valid && rc.existing) {
+    if (!rc.provided.has('stateCode')) f.stateCode = null;
+    if (!rc.provided.has('pan')) f.pan = null;
+    if (!rc.provided.has('registrationType') && f.registrationType !== null && NO_GSTIN.has(f.registrationType)) f.registrationType = null;
+  }
+
   if (f.registrationType === null) {
     if (f.gstin) f.registrationType = gst?.kind === 'uin' ? 'uin' : 'regular';
     else if (cls.isParty) f.registrationType = 'unregistered';

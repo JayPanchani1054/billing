@@ -163,7 +163,12 @@ export interface NumberDecision {
 export function decideNumber(
   db: Db,
   vt: VoucherTypeInfo,
-  args: { date: string; fyStartMonth: number; typed: string | undefined; existing: { id: number; number: string | null; seq: number | null } | null },
+  args: {
+    date: string;
+    fyStartMonth: number;
+    typed: string | undefined;
+    existing: { id: number; number: string | null; seq: number | null; date: string } | null;
+  },
 ): NumberDecision {
   const typed = args.typed?.trim() || undefined;
   const { existing } = args;
@@ -181,6 +186,15 @@ export function decideNumber(
       return { number: typed, seq: parseVoucherSeq(vt, typed), consume: false };
     }
     if (vt.numberingMethod === 'manual' && !existing.number && !typed) throw rule(`Enter the ${vt.name} number.`);
+    // Moving the voucher into another numbering period keeps its number — unless that period already uses it.
+    if (
+      existing.number &&
+      periodKey(vt, existing.date, args.fyStartMonth) !== periodKey(vt, args.date, args.fyStartMonth) &&
+      vt.preventDuplicates &&
+      numberTaken(db, vt, existing.number, args.date, args.fyStartMonth, existing.id)
+    ) {
+      throw conflict(`${vt.name} number ${existing.number} is already used in the period of the new date. Keep the old date or renumber the voucher.`);
+    }
     return { number: existing.number, seq: existing.seq, consume: false };
   }
 

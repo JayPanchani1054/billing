@@ -1,0 +1,301 @@
+/**
+ * Screen layout patterns for feature modules.
+ *
+ *   <Screen title="Ledger Creation" actions={[{ key: 'Ctrl+A', label: 'Accept', onClick: save, primary: true }]} width="form" dirty={dirty}>
+ *     …form…
+ *   </Screen>
+ *
+ *   <ReportScreen title="Trial Balance" exportDef={() => ({ columns, rows })} loading={q.loading} refreshing={q.refreshing}>
+ *     <DataTable … />
+ *   </ReportScreen>
+ */
+import { useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Banner, Button, EmptyState, Icon, Kbd, Modal, PageHeader, ReportFrame, Skeleton, useHotkeys, useRovingFocus, useToast } from '../ui/index.ts';
+import type { IconName } from '../ui/index.ts';
+import { cx } from '../ui/lib/cx.ts';
+import { exportTable, printReport, savePdf, showInFolder } from './export.ts';
+import type { ExportResult, TableExportDef } from './export.ts';
+import { ApiError, userMessage } from './lib/apiErrors.ts';
+import { useDirty, useScreenActions, useScreenTitle, useStatusHint } from './nav.tsx';
+import type { ScreenActionItem } from './nav.tsx';
+import { useAppState } from './state.tsx';
+import { usePeriod } from './working.tsx';
+import type { Period } from './working.tsx';
+import { formatDate } from '../../shared/dates.ts';
+
+export interface ScreenLayoutProps {
+  /** Screen title (Title Case): header h1, breadcrumb and window title. */
+  title: string;
+  subtitle?: ReactNode;
+  icon?: IconName;
+  /** Rail actions; their keys become screen hotkeys while this screen is on top. */
+  actions?: readonly ScreenActionItem[];
+  /** Buttons in the header (right side). */
+  toolbar?: ReactNode;
+  /** Badges/status next to the title. */
+  meta?: ReactNode;
+  /** 'form': readable centred column; 'narrow': dialogs-like width; 'full' (default): all available width. */
+  width?: 'full' | 'form' | 'narrow';
+  /** Unsaved changes (Esc asks before leaving; window close asks too). */
+  dirty?: boolean;
+  /** One-line keyboard help in the status bar. */
+  hint?: string;
+  /** First load: show a skeleton instead of children. */
+  loading?: boolean;
+  /** Load failure: show the message with a Retry button instead of children. */
+  error?: unknown;
+  onRetry?: () => void;
+  /** Sticky bar under the body (e.g. Accept / Cancel buttons). */
+  footer?: ReactNode;
+  className?: string;
+  children?: ReactNode;
+}
+
+/** Standard screen: title/actions/dirty wiring + header + body (+ loading/error states). */
+export function Screen({ title, subtitle, icon, actions, toolbar, meta, width = 'full', dirty = false, hint, loading = false, error, onRetry, footer, className, children }: ScreenLayoutProps) {
+  useScreenTitle(title);
+  useScreenActions(actions ?? NO_ACTIONS);
+  useDirty(dirty);
+  useStatusHint(hint);
+  return (
+    <div className={cx('bx-screen-layout', `bx-screen-layout--${width}`, className)}>
+      <div className="bx-screen-layout__inner">
+        <PageHeader title={title} subtitle={subtitle} icon={icon} actions={toolbar} meta={meta} />
+        <div className="bx-screen-layout__body">
+          {error ? <ScreenError error={error} onRetry={onRetry} /> : loading ? <ScreenSkeleton /> : children}
+        </div>
+      </div>
+      {footer ? <div className="bx-screen-layout__footer">{footer}</div> : null}
+    </div>
+  );
+}
+
+const NO_ACTIONS: readonly ScreenActionItem[] = [];
+
+/** Placeholder while a screen's first data loads. */
+export function ScreenSkeleton({ lines = 6 }: { lines?: number }) {
+  return (
+    <div className="bx-screen-skeleton" aria-busy="true" aria-label="Loading">
+      <Skeleton variant="text" width="40%" />
+      <Skeleton variant="text" lines={lines} />
+    </div>
+  );
+}
+
+/** Friendly load error with Retry. */
+export function ScreenError({ error, onRetry, title = 'This could not be loaded' }: { error: unknown; onRetry?: () => void; title?: string }) {
+  const code = error instanceof ApiError ? error.code : null;
+  const forbidden = code === 'FORBIDDEN';
+  return (
+    <EmptyState
+      icon={forbidden ? 'lock' : 'alert'}
+      title={forbidden ? "You don't have access to this" : title}
+      body={forbidden ? 'Ask the company owner or an administrator for access.' : userMessage(error)}
+      action={
+        onRetry && !forbidden ? (
+          <Button icon="refresh" onClick={onRetry}>
+            Try again
+          </Button>
+        ) : undefined
+      }
+    />
+  );
+}
+
+// ───────────────────────────── Reports ─────────────────────────────
+
+/** What a report hands to export/print (title, company and period are filled in for you). */
+export type ReportExportDef = Omit<TableExportDef, 'title' | 'company' | 'period'> & Partial<Pick<TableExportDef, 'title' | 'period' | 'subtitle'>>;
+
+export interface ReportScreenProps {
+  title: string;
+  subtitle?: ReactNode;
+  /** Build the table for export/print on demand. Omit to hide Export/Print. */
+  exportDef?: () => ReportExportDef;
+  /** 'range' (default) shows the period (Alt+F2); 'asOn' shows "As on <to date>"; 'none' hides it. */
+  periodMode?: 'range' | 'asOn' | 'none';
+  /** Override the period (e.g. a drilled-down month). Default: the global period (usePeriod). */
+  period?: Period;
+  /** Left toolbar slot (view toggles, filters). */
+  filters?: ReactNode;
+  /** Extra buttons in the right toolbar slot. */
+  toolbar?: ReactNode;
+  /** Extra rail actions (drill-down views, Alt+F5 detailed…). */
+  actions?: readonly ScreenActionItem[];
+  loading?: boolean;
+  refreshing?: boolean;
+  error?: unknown;
+  onRetry?: () => void;
+  footer?: ReactNode;
+  hint?: string;
+  children?: ReactNode;
+}
+
+/**
+ * Standard report: ReportFrame with company + period header (click or Alt+F2 to change), Export
+ * (Alt+E → Excel / CSV / PDF) and Print (Alt+P) wired to the export helpers.
+ */
+export function ReportScreen({
+  title,
+  subtitle,
+  exportDef,
+  periodMode = 'range',
+  period: periodOverride,
+  filters,
+  toolbar,
+  actions,
+  loading = false,
+  refreshing = false,
+  error,
+  onRetry,
+  footer,
+  hint,
+  children,
+}: ReportScreenProps) {
+  const app = useAppState();
+  const globalPeriod = usePeriod();
+  const toast = useToast();
+  const period = periodOverride ?? globalPeriod.period;
+  const [exportOpen, setExportOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const companyName = app.company?.mailingName || app.company?.name || '';
+
+  const fullDef = (): TableExportDef | null => {
+    if (!exportDef) return null;
+    const d = exportDef();
+    return {
+      ...d,
+      title: d.title ?? title,
+      subtitle: d.subtitle ?? (typeof subtitle === 'string' ? subtitle : undefined),
+      company: companyName,
+      period: d.period ?? (periodMode === 'none' ? undefined : periodMode === 'asOn' ? `As on ${formatDate(period.to)}` : period),
+    };
+  };
+
+  const announce = (r: ExportResult | null) => {
+    if (!r) return;
+    const name = r.path.split(/[\\/]/).pop() ?? r.path;
+    toast.success(r.fellBackToCsv ? `Saved as CSV: ${name}` : `Saved ${name}`, {
+      message: r.fellBackToCsv ? 'Excel export is not available yet, so the report was saved as a CSV file (opens in Excel).' : undefined,
+      action: { label: 'Show in folder', onClick: () => showInFolder(r.path) },
+    });
+  };
+
+  const run = async (what: 'xlsx' | 'csv' | 'pdf' | 'print') => {
+    const def = fullDef();
+    if (!def || busy) return;
+    setBusy(true);
+    try {
+      if (what === 'print') await printReport(def);
+      else if (what === 'pdf') announce(await savePdf(def));
+      else announce(await exportTable(def, what));
+    } catch (err) {
+      toast.error(what === 'print' ? 'Could not print' : 'Could not export', { message: userMessage(err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const canOutput = !!exportDef && !loading && !error;
+  const railActions: ScreenActionItem[] = [
+    ...(actions ?? []),
+    ...(periodMode !== 'none' ? [{ key: 'Alt+F2', label: 'Period', icon: 'calendar' as const, onClick: () => globalPeriod.openDialog(), group: 'period' }] : []),
+    { key: 'Alt+E', label: 'Export', icon: 'export', onClick: () => setExportOpen(true), disabled: !canOutput, hidden: !exportDef, group: 'output' },
+    { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => void run('print'), disabled: !canOutput, hidden: !exportDef, group: 'output' },
+  ];
+  useScreenTitle(title);
+  useScreenActions(railActions);
+  useStatusHint(hint ?? 'Enter Open · Alt+F2 Period · Alt+E Export · Alt+P Print · Esc Back');
+
+  const periodNode =
+    periodMode === 'none' ? undefined : periodMode === 'asOn' ? <>As on {formatDate(period.to, 'D-MMM-YY')}</> : period;
+
+  return (
+    <>
+      <ReportFrame
+        title={title}
+        subtitle={subtitle}
+        companyName={companyName}
+        period={periodNode}
+        onPeriodClick={periodMode === 'none' || periodOverride ? undefined : () => globalPeriod.openDialog()}
+        filters={filters}
+        refreshing={refreshing || busy}
+        actions={
+          <>
+            {toolbar}
+            {exportDef ? (
+              <>
+                <Button icon="export" shortcut="Alt+E" disabled={!canOutput} onClick={() => setExportOpen(true)}>
+                  Export
+                </Button>
+                <Button icon="print" shortcut="Alt+P" disabled={!canOutput} onClick={() => void run('print')}>
+                  Print
+                </Button>
+              </>
+            ) : null}
+          </>
+        }
+        footer={footer}
+      >
+        {error ? <ScreenError error={error} onRetry={onRetry} /> : loading ? <ScreenSkeleton lines={10} /> : children}
+      </ReportFrame>
+      {exportOpen ? (
+        <ExportDialog
+          title={title}
+          onClose={() => setExportOpen(false)}
+          onPick={(f) => {
+            setExportOpen(false);
+            void run(f);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+const EXPORT_CHOICES: ReadonlyArray<{ id: 'xlsx' | 'csv' | 'pdf'; key: string; label: string; body: string; icon: IconName }> = [
+  { id: 'xlsx', key: 'X', label: 'Excel workbook (.xlsx)', body: 'Numbers stay numbers — ready to sort, filter and add up in Excel.', icon: 'grid' },
+  { id: 'csv', key: 'C', label: 'CSV file (.csv)', body: 'Plain comma-separated text for other software or uploads.', icon: 'file' },
+  { id: 'pdf', key: 'P', label: 'PDF document (.pdf)', body: 'A print-ready A4 copy to share or email.', icon: 'invoice' },
+];
+
+/** Alt+E: choose Excel / CSV / PDF (↑/↓ + Enter, or press X / C / P). */
+export function ExportDialog({ title, onPick, onClose }: { title: string; onPick: (format: 'xlsx' | 'csv' | 'pdf') => void; onClose: () => void }) {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const roving = useRovingFocus(listRef, { orientation: 'vertical', loop: true });
+  return (
+    <Modal open onClose={onClose} title={`Export ${title}`} description="Choose a format. You'll pick where to save it next." size="sm">
+      <ExportKeys onPick={onPick} />
+      <div ref={listRef} className="bx-export-choices" role="group" aria-label="Export format" onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
+        {EXPORT_CHOICES.map((c, i) => (
+          <button key={c.id} type="button" data-roving-item="" data-autofocus={i === 0 ? '' : undefined} className="bx-export-choice" onClick={() => onPick(c.id)} aria-keyshortcuts={c.key}>
+            <Icon name={c.icon} size="lg" className="bx-export-choice__icon" />
+            <span className="bx-export-choice__text">
+              <span className="bx-export-choice__label">{c.label}</span>
+              <span className="bx-export-choice__body">{c.body}</span>
+            </span>
+            <Kbd size="sm" tone="subtle">
+              {c.key}
+            </Kbd>
+          </button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+/** Letter keys inside the dialog's own (blocking) hotkey scope. */
+function ExportKeys({ onPick }: { onPick: (format: 'xlsx' | 'csv' | 'pdf') => void }) {
+  useHotkeys({ x: () => onPick('xlsx'), c: () => onPick('csv'), p: () => onPick('pdf') });
+  return null;
+}
+
+/** Inline notice for screens that are read-only for this user. */
+export function ReadOnlyNotice({ what = 'these settings' }: { what?: string }) {
+  return (
+    <Banner tone="info" title="View only" inline>
+      You can see {what} but not change them. Ask the company owner for permission to make changes.
+    </Banner>
+  );
+}

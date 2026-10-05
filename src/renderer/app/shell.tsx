@@ -1,0 +1,233 @@
+/**
+ * Workspace-level shell services: overlays (Go To, shortcuts, voucher picker), global hotkeys,
+ * native menu commands, session keep-alive, and company/session actions.
+ *
+ *   const shell = useShell();
+ *   shell.openVoucher('sales');   // what F8 does (permission + feature checks, then nav.push)
+ *   shell.openGoto();             // Ctrl+G
+ */
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import type { VoucherBaseType } from '../../shared/constants.ts';
+import { PREDEFINED_VOUCHER_TYPES } from '../../shared/constants.ts';
+import { useHotkeys, useToast } from '../ui/index.ts';
+import { api } from './api.ts';
+import { native, onBridgeEvent, setNativeDirty } from './bridge.ts';
+import { confirmDialog } from './confirm.tsx';
+import { GotoPalette } from './GotoPalette.tsx';
+import { userMessage } from './lib/apiErrors.ts';
+import { featureLabel } from './lib/featureCatalog.ts';
+import { VOUCHER_FEATURE, VOUCHER_SHORTCUTS } from './lib/shortcuts.ts';
+import { useNav } from './nav.tsx';
+import { ShortcutsOverlay } from './ShortcutsOverlay.tsx';
+import { useAppState } from './state.tsx';
+import { VoucherPicker } from './VoucherPicker.tsx';
+import { usePeriod, useWorkingDate } from './working.tsx';
+
+/** Screen id the vouchers module registers for voucher entry (params: { baseType, id? }). */
+export const VOUCHER_ENTRY_SCREEN = 'vouchers.entry';
+
+export interface ShellApi {
+  openGoto: (initialQuery?: string) => void;
+  openShortcuts: () => void;
+  openVoucherPicker: () => void;
+  /** Open voucher entry for a base type (checks permission and company features first). */
+  openVoucher: (baseType: VoucherBaseType, params?: Record<string, unknown>) => void;
+  /** Whether a voucher type can be entered right now, with the reason when not. */
+  voucherAvailability: (baseType: VoucherBaseType) => { ok: boolean; reason?: string };
+  /** F3: close the company (asks about unsaved work) and return to the company list. */
+  closeCompany: () => Promise<void>;
+  logout: () => Promise<void>;
+  /** Ctrl+Q: confirm and quit the app. */
+  quit: () => Promise<void>;
+}
+
+const ShellContext = createContext<ShellApi | null>(null);
+
+export function useShell(): ShellApi {
+  const ctx = useContext(ShellContext);
+  if (!ctx) throw new Error('useShell must be used inside the workspace');
+  return ctx;
+}
+
+type Overlay = { kind: 'goto'; query: string } | { kind: 'shortcuts' } | { kind: 'vouchers' } | null;
+
+export function ShellProvider({ children }: { children?: ReactNode }) {
+  const nav = useNav();
+  const app = useAppState();
+  const toast = useToast();
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const appRef = useRef(app);
+  appRef.current = app;
+
+  const voucherAvailability = useCallback((baseType: VoucherBaseType): { ok: boolean; reason?: string } => {
+    const { can, company } = appRef.current;
+    if (!can('vouchers.create')) return { ok: false, reason: "You don't have permission to create vouchers." };
+    const feature = VOUCHER_FEATURE[baseType];
+    if (feature && company && !company.features[feature]) return { ok: false, reason: `Turn on ${featureLabel(feature)} in Features (F11) first.` };
+    return { ok: true };
+  }, []);
+
+  const openVoucher = useCallback(
+    (baseType: VoucherBaseType, params: Record<string, unknown> = {}) => {
+      const name = PREDEFINED_VOUCHER_TYPES.find((t) => t.baseType === baseType)?.name ?? 'Voucher';
+      const a = voucherAvailability(baseType);
+      if (!a.ok) {
+        toast.info(`${name} entry is not available`, { message: a.reason, id: 'voucher-unavailable' });
+        return;
+      }
+      nav.push(VOUCHER_ENTRY_SCREEN, { baseType, ...params });
+    },
+    [nav, toast, voucherAvailability],
+  );
+
+  const closeCompany = useCallback(async () => {
+    if (!(await nav.confirmDiscardAll())) return;
+    try {
+      setNativeDirty(false);
+      const next = await api('app.company.close');
+      appRef.current.applyState(next);
+    } catch (err) {
+      toast.error('Could not close the company', { message: userMessage(err) });
+    }
+  }, [nav, toast]);
+
+  const logout = useCallback(async () => {
+    if (!(await nav.confirmDiscardAll())) return;
+    try {
+      setNativeDirty(false);
+      const next = await api('app.auth.logout');
+      appRef.current.applyState(next);
+    } catch (err) {
+      toast.error('Could not log out', { message: userMessage(err) });
+    }
+  }, [nav, toast]);
+
+  const quit = useCallback(async () => {
+    const dirty = nav.hasUnsavedChanges();
+    const ok = await confirmDialog({
+      title: 'Quit Bahi ERP?',
+      message: dirty
+        ? 'Some open screens have changes that are not saved. They will be lost if you quit now.'
+        : 'Everything you saved is kept. You can open Bahi ERP again any time.',
+      confirmLabel: dirty ? 'Discard and quit' : 'Quit',
+      cancelLabel: 'Stay',
+      tone: dirty ? 'danger' : 'default',
+    });
+    if (!ok) return;
+    setNativeDirty(false);
+    try {
+      await native('app.quit', undefined);
+    } catch (err) {
+      toast.error('Could not quit', { message: userMessage(err) });
+    }
+  }, [nav, toast]);
+
+  const shell = useMemo<ShellApi>(
+    () => ({
+      openGoto: (initialQuery = '') => setOverlay({ kind: 'goto', query: initialQuery }),
+      openShortcuts: () => setOverlay({ kind: 'shortcuts' }),
+      openVoucherPicker: () => setOverlay({ kind: 'vouchers' }),
+      openVoucher,
+      voucherAvailability,
+      closeCompany,
+      logout,
+      quit,
+    }),
+    [openVoucher, voucherAvailability, closeCompany, logout, quit],
+  );
+
+  const close = useCallback(() => setOverlay(null), []);
+
+  return (
+    <ShellContext.Provider value={shell}>
+      {children}
+      <GlobalHotkeys />
+      <BridgeCommands />
+      <SessionKeepAlive />
+      {overlay?.kind === 'goto' ? <GotoPalette initialQuery={overlay.query} onClose={close} /> : null}
+      {overlay?.kind === 'shortcuts' ? <ShortcutsOverlay onClose={close} /> : null}
+      {overlay?.kind === 'vouchers' ? <VoucherPicker onClose={close} /> : null}
+    </ShellContext.Provider>
+  );
+}
+
+/** Global keys (root hotkey layer: fenced automatically while any dialog is open). */
+function GlobalHotkeys() {
+  const shell = useShell();
+  const nav = useNav();
+  const date = useWorkingDate();
+  const period = usePeriod();
+
+  const map: Record<string, () => void> = {
+    F2: () => date.openDialog(),
+    'Alt+F2': () => period.openDialog(),
+    F3: () => void shell.closeCompany(),
+    'Ctrl+G, Alt+G, Ctrl+K': () => shell.openGoto(),
+    F10: () => shell.openVoucherPicker(),
+    F11: () => nav.push('company.features'),
+    F12: () => nav.push('company.config'),
+    'F1, Ctrl+H': () => shell.openShortcuts(),
+    'Ctrl+Q': () => void shell.quit(),
+  };
+  for (const v of VOUCHER_SHORTCUTS) {
+    const baseType = v.baseType;
+    if (baseType) map[v.keys] = () => shell.openVoucher(baseType);
+  }
+  useHotkeys(map, [], { scope: 'global' });
+  return null;
+}
+
+/** Native menu commands ('goto', 'company.close', 'help.shortcuts'). */
+function BridgeCommands() {
+  const shell = useShell();
+  const shellRef = useRef(shell);
+  shellRef.current = shell;
+  useEffect(
+    () =>
+      onBridgeEvent('command', ({ id }) => {
+        const s = shellRef.current;
+        if (id === 'goto') s.openGoto();
+        else if (id === 'company.close') void s.closeCompany();
+        else if (id === 'help.shortcuts') s.openShortcuts();
+      }),
+    [],
+  );
+  return null;
+}
+
+/**
+ * Keep the session alive while the user is active, and notice an idle-timeout logout: user
+ * activity (throttled to once a minute) calls 'app.session.touch'; a null answer means the
+ * session ended — refresh the app state (shows the login screen).
+ */
+function SessionKeepAlive() {
+  const app = useAppState();
+  const appRef = useRef(app);
+  appRef.current = app;
+  useEffect(() => {
+    let last = 0;
+    let busy = false;
+    const onActivity = () => {
+      const now = Date.now();
+      if (busy || now - last < 60_000) return;
+      last = now;
+      busy = true;
+      api('app.session.touch')
+        .then((s) => {
+          if (s === null && appRef.current.session) void appRef.current.refresh();
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          busy = false;
+        });
+    };
+    window.addEventListener('keydown', onActivity, true);
+    window.addEventListener('pointerdown', onActivity, true);
+    return () => {
+      window.removeEventListener('keydown', onActivity, true);
+      window.removeEventListener('pointerdown', onActivity, true);
+    };
+  }, []);
+  return null;
+}

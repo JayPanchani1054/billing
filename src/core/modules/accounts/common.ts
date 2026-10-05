@@ -73,4 +73,8 @@ export function plural(n: number, singular: string, pluralForm = `${singular}s`)
   return `${n} ${n === 1 ? singular : pluralForm}`;
 }
 
-export const bool = (n: number | null | undefined): boolean => n === 1;
+
+/** VALIDATION when a from/to range is reversed. */
+export function assertRange(from: string | undefined, to: string | undefined): void {
+  if (from && to && from > to) throw validation([{ path: 'from', message: 'The period starts after it ends. Check the From and To dates.' }]);
+}

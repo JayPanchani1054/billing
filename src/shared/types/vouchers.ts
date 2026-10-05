@@ -57,7 +57,8 @@ export type VoucherWarningCode =
   | 'bill_over_settled'
   | 'duplicate_bill_ref'
   | 'cost_mismatch'
-  | 'tracking_ref';
+  | 'tracking_ref'
+  | 'period_locked';
 
 export interface VoucherWarning {
   code: VoucherWarningCode;

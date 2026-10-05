@@ -24,6 +24,7 @@ import {
   likePattern,
   nowIso,
   paging,
+  patch,
   requirePermission,
   requireSavePermission,
   toBool,
@@ -146,15 +147,16 @@ function saveSimple(db: Db, input: SimpleUnitSaveInput, before: UnitDto | null, 
   if (/\s/.test(symbol))
     throw validation([{ path: 'symbol', message: 'A unit symbol cannot contain spaces (use the formal name for the full description)' }]);
   assertNameFree(db, 'units', symbol, before?.id ?? null, 'symbol', 'Unit', false);
-  const formalName = cleanText(input.formalName) ?? null;
-  let uqc = cleanText(input.uqc)?.toUpperCase() ?? null;
+  // Alter: omitted fields keep their value; null clears (UQC is then suggested again).
+  const formalName = patch(cleanText(input.formalName), before?.formalName ?? null);
+  let uqc = input.uqc === undefined ? (before?.uqc ?? null) : (cleanText(input.uqc)?.toUpperCase() ?? null);
   if (uqc === null) {
     uqc = suggestUqc(symbol);
     if (uqc === 'OTH' && formalName) uqc = suggestUqc(formalName);
   } else if (!isValidUqc(uqc)) {
     throw validation([{ path: 'uqc', message: `'${uqc}' is not a GST Unique Quantity Code (UQC). Pick one from the list, e.g. NOS, KGS or OTH.` }]);
   }
-  const decimals = input.decimalPlaces ?? 0;
+  const decimals = input.decimalPlaces ?? before?.decimalPlaces ?? 0;
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 4)
     throw validation([{ path: 'decimalPlaces', message: 'Decimal places must be a whole number from 0 to 4' }]);
 
