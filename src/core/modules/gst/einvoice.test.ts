@@ -178,6 +178,12 @@ describe('e-invoice workflow', () => {
       [nopin, 'NP-1', 'B2B', 'INV', false],
     ]);
     assert.deepEqual(r.rows[1].errors, ['The PIN code of "Pinless Buyer" is missing or not 6 digits — enter it in the party ledger or on the voucher.']);
+    // A voucher cancelled in the books whose IRN is still active must be cancelled on the IRP.
+    const cxl = insertDoc(t, { type: 'sales', number: 'CXL-2', date: '2026-04-17', party: P.acme, nature: 'b2b', pos: '27', irn: IRN_B, irnStatus: 'generated', lines: [{ hsn: '8471', rate: 18, taxable: 1000, cgst: 90, sgst: 90 }] });
+    t.db.run("UPDATE vouchers SET is_cancelled = 1, affects_books = 0, irn_ack_date = '2026-04-17 10:00:00' WHERE id = :id", { id: cxl });
+    const again = pendingEinvoices(t.db, loadCompany(t.db), '2026-04-01', '2026-04-30', t.today);
+    assert.deepEqual(again.cancelRequired, [{ voucherId: cxl, number: 'CXL-2', date: '2026-04-17', voucherTypeName: 'Sales', partyName: 'Acme Industries', refNo: IRN_B, refDate: '2026-04-17 10:00:00' }]);
+    assert.equal(again.rows.length, 2);
     t.close();
   });
 

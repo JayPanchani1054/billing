@@ -26,6 +26,7 @@ import type {
   EinvoicePendingRow,
   EinvoiceSupplyType,
   GstBulkJsonFile,
+  GstCancelRequiredRow,
   GstDocStatusResult,
 } from '../../../shared/types/gst-returns.ts';
 import type { CompanyCtx } from '../../api/context.ts';
@@ -402,7 +403,22 @@ export function pendingEinvoices(db: Db, company: GstCompany, from: string, to: 
       warnings: b.warnings,
     };
   });
-  return { enabled: company.features.einvoice, rows };
+  return { enabled: company.features.einvoice, rows, cancelRequired: cancelledWithActiveRef(db, 'irn', from, to) };
+}
+
+/** Vouchers cancelled in the books that still carry an active IRN ('irn') or an e-way bill ('eway'). */
+export function cancelledWithActiveRef(db: Db, kind: 'irn' | 'eway', from: string, to: string): GstCancelRequiredRow[] {
+  const cond = kind === 'irn' ? "v.irn IS NOT NULL AND v.irn_status = 'generated'" : "v.eway_bill_no IS NOT NULL AND v.eway_bill_no <> ''";
+  return db
+    .all<{ id: number; number: string | null; date: string; vt_name: string; party_name: string | null; ref: string; ref_date: string | null }>(
+      `SELECT v.id, v.number, v.date, vt.name AS vt_name, v.party_name,
+              ${kind === 'irn' ? 'v.irn' : 'v.eway_bill_no'} AS ref, ${kind === 'irn' ? 'v.irn_ack_date' : 'v.eway_bill_date'} AS ref_date
+         FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+        WHERE v.is_cancelled = 1 AND v.date >= :from AND v.date <= :to AND ${cond}
+        ORDER BY v.date, v.id`,
+      { from, to },
+    )
+    .map((r) => ({ voucherId: r.id, number: r.number, date: r.date, voucherTypeName: r.vt_name, partyName: r.party_name, refNo: r.ref, refDate: r.ref_date }));
 }
 
 /** Log a document event (e-invoice / e-way bill trail). */

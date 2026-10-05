@@ -26,7 +26,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { rule } from '../../lib/errors.ts';
 import { v, type Schema } from '../../lib/validate.ts';
-import { loadCompany, type GstCompany } from './docs.ts';
+import { loadCompany, loadDocs, type GstCompany } from './docs.ts';
 import { einvoiceJson, importIrpResponse, markIrnCancelled, pendingEinvoices } from './einvoice.ts';
 import { ewayJson, pendingEwayBills, updateEwayBill } from './ewaybill.ts';
 import { computeGstr1, gstr1Section, gstr1Summary } from './gstr1.ts';
@@ -122,9 +122,10 @@ export const gstRoutes = {
       const company = gstCompany(ctx);
       const period = resolvePeriod(input);
       const today = ctx.clock.today();
-      const issues = collectIssues(ctx.db, company, period.from, period.to, today);
+      const docs = loadDocs(ctx.db, company, { from: period.from, to: period.to, today, includeCancelled: true });
+      const issues = collectIssues(ctx.db, company, period.from, period.to, today, docs);
       const errors = issues.filter((i) => i.severity === 'error').length;
-      return computeGstr3b(ctx.db, company, period, today, { errors, warnings: issues.length - errors });
+      return computeGstr3b(ctx.db, company, period, today, { errors, warnings: issues.length - errors }, docs);
     },
   }),
   'gst.gstr3b.saveAdjustments': companyRoute({

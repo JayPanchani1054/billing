@@ -64,6 +64,10 @@ describe('e-way bill', () => {
       [w5, 'W-5', 7080000, 7080000, true],
     ]);
     assert.equal(consignmentValue(bill(t, w2).d), 5000000, 'exactly at the threshold → not required (Rule 138: exceeding)');
+    assert.deepEqual(r.cancelRequired, []);
+    t.db.run("UPDATE vouchers SET is_cancelled = 1, affects_books = 0, eway_bill_date = '2026-04-15' WHERE number = 'W-4'");
+    const after = pendingEwayBills(t.db, loadCompany(t.db), '2026-04-01', '2026-04-30', t.today);
+    assert.deepEqual(after.cancelRequired.map((x) => [x.number, x.refNo, x.refDate]), [['W-4', '391000000001', '2026-04-15']]);
     t.close();
   });
 

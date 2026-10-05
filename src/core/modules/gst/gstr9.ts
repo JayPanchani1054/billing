@@ -43,8 +43,10 @@ export function computeGstr9(db: Db, company: GstCompany, fy: string, today: str
   for (const h of TAX_HEADS) t9[h] = { head: h, label: headLabels[h], payable: 0, paidCash: 0, paidItc: { igst: 0, cgst: 0, sgst: 0, cess: 0 } };
   const itc3bA = zeroTax();
   const isd = zeroTax();
+  // The year's documents are loaded once and shared by every table.
+  const all = loadDocs(db, company, { from, to, today, includeCancelled: true });
   for (const m of monthsOf({ from, to })) {
-    const s = computeGstr3b(db, company, m, today);
+    const s = computeGstr3b(db, company, m, today, undefined, all.filter((d) => d.inBooks && d.date >= m.from && d.date <= m.to));
     const outTax = zeroTax();
     let outTaxable = 0;
     for (const r of s.supplies) {
@@ -70,7 +72,7 @@ export function computeGstr9(db: Db, company: GstCompany, fy: string, today: str
   }
 
   // ── Tables 4 and 5 from the year's GSTR-1 placement ──
-  const g1 = computeGstr1(db, company, { key: null, kind: 'range', label: fy, from, to, fp: null }, today);
+  const g1 = computeGstr1(db, company, { key: null, kind: 'range', label: fy, from, to, fp: null }, today, all);
   const t = {
     a4: zeroTV(),
     b4: zeroTV(),
@@ -118,7 +120,7 @@ export function computeGstr9(db: Db, company: GstCompany, fy: string, today: str
   }
 
   // Inward RCM (4G) and ITC split (table 6).
-  const inward = loadDocs(db, company, { from, to, today }).filter((d) => d.direction === 'inward');
+  const inward = all.filter((d) => d.inBooks && d.direction === 'inward');
   const t6 = { inputs: zeroTV(), capital: zeroTV(), services: zeroTV(), rcmUnreg: zeroTV(), rcmReg: zeroTV(), impg: zeroTV(), imps: zeroTV(), blocked: zeroTV() };
   for (const d of inward) {
     for (const l of d.lines) {
@@ -217,8 +219,8 @@ export function computeGstr9(db: Db, company: GstCompany, fy: string, today: str
     table5,
     table6,
     table9: TAX_HEADS.map((h) => t9[h]),
-    hsnOutward: hsnSummary(db, company, from, to, 'outward', today).rows,
-    hsnInward: hsnSummary(db, company, from, to, 'inward', today).rows,
+    hsnOutward: hsnSummary(db, company, from, to, 'outward', today, all).rows,
+    hsnInward: hsnSummary(db, company, from, to, 'inward', today, all).rows,
     months,
     notes: addMonths(fyStart, 12) > today ? [...notes, 'The financial year has not ended yet: figures cover the months so far.'] : notes,
   };

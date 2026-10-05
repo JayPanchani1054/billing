@@ -28,8 +28,15 @@
  * else 0). For avg_cost a later inward into negative stock restarts the average at that inward's
  * rate; for layers it first fills the shortfall. Values are integer paise and never NaN.
  *
- * Godown filter: quantities and in/out movements are those of that godown (exact), while values of
- * opening/closing use the item's overall unit cost (value ÷ qty of the item across godowns).
+ * Opening stock: FIFO/LIFO take each stock_openings row as a layer; the other methods take the rows
+ * together (Last Purchase starts from the weighted opening rate). For a period starting on or before
+ * the books beginning the opening VALUE is the opening stock as entered in the masters (Σ value), so
+ * the Balance Sheet's opening stock matches them whatever the costing method; later periods open
+ * with the previous day's closing value.
+ *
+ * Godown filter: quantities and in/out movements are those of that godown (exact, or with all its
+ * sub-godowns when includeSubGodowns), while values of opening/closing use the item's overall unit
+ * cost (value ÷ qty of the item across godowns).
  */
 import { allocate, roundPaise, roundTo, lineAmount } from '../../../shared/money.ts';
 import type { CostingMethod, StockValuationResult, StockValuationRow } from '../../../shared/types/inventory.ts';

@@ -245,9 +245,19 @@ const supplyRow = (key: Gstr3bSupplyRow['key'], row: string, label: string, t: T
 const sortInter = (m: Map<string, Gstr3bInterStateRow>): Gstr3bInterStateRow[] =>
   [...m.values()].filter((r) => r.taxable !== 0 || r.igst !== 0).sort((a, b) => a.pos.localeCompare(b.pos));
 
-/** GSTR-3B for a period (month or quarter; a date range works for review). */
-export function computeGstr3b(db: Db, company: GstCompany, period: ReturnPeriodRef, today: string, issueCount = { errors: 0, warnings: 0 }): Gstr3bSummary {
-  const docs = loadDocs(db, company, { from: period.from, to: period.to, today });
+/**
+ * GSTR-3B for a period (month or quarter; a date range works for review). `preloaded` (optional): the
+ * period's documents from loadDocs() — cancelled ones (inBooks = false) are ignored.
+ */
+export function computeGstr3b(
+  db: Db,
+  company: GstCompany,
+  period: ReturnPeriodRef,
+  today: string,
+  issueCount = { errors: 0, warnings: 0 },
+  preloaded?: readonly GstDoc[],
+): Gstr3bSummary {
+  const docs = (preloaded ?? loadDocs(db, company, { from: period.from, to: period.to, today })).filter((d) => d.inBooks);
   const a = accumulate(docs);
   const adj = period.key ? readAdjustments(db, period.key) : { values: emptyAdjustments(), updatedAt: null };
   const v = adj.values;

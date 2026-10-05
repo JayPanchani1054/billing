@@ -29,9 +29,17 @@ export function rangeRef(from: string, to: string): ReturnPeriodRef {
   return { key: null, kind: 'range', label: `${from} to ${to}`, from, to, fp: null };
 }
 
-export function hsnSummary(db: Db, company: GstCompany, from: string, to: string, direction: 'outward' | 'inward', today: string): GstHsnSummaryResult {
-  const docs = loadDocs(db, company, { from, to, today }).filter(
-    (d) => d.direction === direction && d.nature !== 'composition_outward' && d.nature !== 'no_gst',
+export function hsnSummary(
+  db: Db,
+  company: GstCompany,
+  from: string,
+  to: string,
+  direction: 'outward' | 'inward',
+  today: string,
+  preloaded?: readonly GstDoc[],
+): GstHsnSummaryResult {
+  const docs = (preloaded ?? loadDocs(db, company, { from, to, today })).filter(
+    (d) => d.inBooks && d.direction === direction && d.nature !== 'composition_outward' && d.nature !== 'no_gst',
   );
   const acc = hsnAccumulator(company.config.gst.hsnDigits);
   for (const d of docs) for (const l of d.lines) acc.add(l, d.sign);
@@ -171,10 +179,14 @@ export function itcReport(db: Db, company: GstCompany, from: string, to: string,
   };
 }
 
-/** Every uncertain transaction in a range: GSTR-1 checks on outward documents + purchase-side checks. */
-export function collectIssues(db: Db, company: GstCompany, from: string, to: string, today: string): GstIssue[] {
-  const issues: GstIssue[] = [...computeGstr1(db, company, rangeRef(from, to), today).issues];
-  const inward = loadDocs(db, company, { from, to, today }).filter((d) => d.direction === 'inward');
+/**
+ * Every uncertain transaction in a range: GSTR-1 checks on outward documents + purchase-side checks.
+ * `preloaded` (optional): loadDocs() of exactly this range with includeCancelled: true.
+ */
+export function collectIssues(db: Db, company: GstCompany, from: string, to: string, today: string, preloaded?: readonly GstDoc[]): GstIssue[] {
+  const docs = preloaded ?? loadDocs(db, company, { from, to, today, includeCancelled: true });
+  const issues: GstIssue[] = [...computeGstr1(db, company, rangeRef(from, to), today, docs).issues];
+  const inward = docs.filter((d) => d.inBooks && d.direction === 'inward');
   const rcm = vouchersWithRcmLiability(
     db,
     inward.map((d) => d.id),

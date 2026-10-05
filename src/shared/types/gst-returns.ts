@@ -588,10 +588,25 @@ export interface EinvoicePendingRow {
   warnings: string[];
 }
 
+/** A voucher cancelled in the books whose IRN / e-way bill is still active on the portal. */
+export interface GstCancelRequiredRow {
+  voucherId: number;
+  number: string | null;
+  date: string;
+  voucherTypeName: string;
+  partyName: string | null;
+  /** IRN (e-invoice) or e-way bill number. */
+  refNo: string;
+  /** IRN ack date / e-way bill date as recorded. */
+  refDate: string | null;
+}
+
 export interface EinvoicePendingResult {
   /** F11 e-Invoice feature is on. */
   enabled: boolean;
   rows: EinvoicePendingRow[];
+  /** Cancelled in the books but the IRN is still active: cancel it on the IRP, then mark it cancelled. */
+  cancelRequired: GstCancelRequiredRow[];
 }
 
 export interface GstBulkJsonFile extends GstJsonFile {
@@ -650,6 +665,8 @@ export interface EwayPendingResult {
   enabled: boolean;
   thresholdPaise: Paise;
   rows: EwayPendingRow[];
+  /** Cancelled in the books but an e-way bill is recorded: cancel it on the EWB portal. */
+  cancelRequired: GstCancelRequiredRow[];
 }
 
 export interface EwayUpdateInput {

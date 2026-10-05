@@ -11,6 +11,7 @@ used by vouchers and reports.
 | `masters.ts` | Stock groups (GST details + history), stock categories, godowns |
 | `items.ts` | Stock items: list / get / save / delete / bulk create / picker |
 | `gst.ts` | GST details validation, effective-dated history, `resolveItemGstProfile` |
+| `history.ts` | Removing one dated GST row of an item or group (`inventory.gstHistory.delete`) |
 | `prices.ts` | Price levels, price lists (quantity slabs), `priceFor` |
 | `stock.ts` | Stock movement filter, `stockOnHand`, `batchesFor`, `stockByItem` |
 | `valuation.ts` | `computeStockValuation`, `closingStockValue`, `openingStockValue`, `currentUnitCost` |
@@ -29,7 +30,17 @@ DTOs and the route table are in `src/shared/types/inventory.ts`. Migration `040_
 - Saves are create (no `id`) or alter (`id`). On alter, an omitted field keeps its value and `null`
   clears it. Save routes are open to `masters.view`; the service then requires `masters.create`
   (new) or `masters.alter` (existing). Deletes need `masters.delete`. Every create/alter/delete is
-  audited with before/after snapshots in the same transaction.
+  audited with before/after snapshots in the same transaction — including compound units altered
+  by a rename / decimals change of their parts, and an item's price-list slabs when it is deleted.
+- **Opening stock** is dated at the books beginning. It cannot be added, changed or removed (nor an
+  item with opening stock deleted) while the books are locked on or after that date (`LOCKED`).
+  Quantities are at most 1e12 and each row's value at most ₹9,00,00,00,00,000.00 (safe paise).
+  A batch name is required for batch items only while the company's *Batches* feature is on (the
+  posting engine records batches only then); an item cannot stop maintaining batches while its
+  opening stock is batch-wise (re-enter the openings in the same save).
+- **Units:** decimal places cannot be reduced below what existing opening / voucher quantities of
+  items counted in the unit (or in a compound unit built on it) need. A compound unit always has its
+  second unit's decimal places.
 
 ## What moves stock
 
@@ -43,8 +54,10 @@ One definition, used by every quantity and value function (`STOCK_MOVEMENT_FILTE
   `AND v.base_type NOT IN ('sales_order','purchase_order','memorandum')`
   `AND ie.date <= :asOf`.
 
-An entry without a godown counts in *Main Location*. Godown filters are exact: sub-godowns are not
-included. Batch names match case-insensitively.
+An entry without a godown counts in *Main Location*. Godown filters are exact by default; with
+`includeSubGodowns: true` (functions and the `stockOnHand` / `batches` / `valuation` routes) a godown
+also covers every godown under it, like Tally's godown summary of a parent location. Batch names
+match case-insensitively.
 
 ### Contract for the posting engine (vouchers)
 
@@ -58,7 +71,8 @@ included. Batch names match case-insensitively.
 | Invoice line tracked against a delivery/receipt note | any | `affects_stock = 0` |
 | Orders, Memorandum | any | never move stock |
 
-Use `stockOnHand(db, { …, excludeVoucherId })` to compute the book quantity while altering a voucher.
+Use `stockOnHand(db, { …, excludeVoucherId })` (or the routes' `excludeVoucherId`) to compute the
+book quantity while altering a voucher.
 
 ## GST profile of a stock item
 
@@ -85,6 +99,16 @@ already had details in its columns, the earlier details are first recorded from 
 date, so older dates keep the earlier rate. Changing GST details **without** a date while dated
 history exists is refused (the accountant must say from when). `gstApplicable: false` removes the
 master's history so it inherits again.
+
+- The master's own columns always hold the details **in force now**: a change dated *before* the
+  latest dated row (a back-dated correction) only adds a history row, and the item save returns a
+  warning saying so.
+- `inventory.gstHistory.delete { id }` (masters.alter) removes one dated row of a stock item or
+  group (e.g. a wrong date); when it was the latest row, the columns go back to the new latest row.
+  Audited as an alteration of the master.
+- Taxability: switching a taxable master to exempt / nil-rated / non-GST drops its rate and cess
+  (only a rate or cess typed in the same save is an error); switching back to taxable requires a
+  rate — the stored 0 is never kept as "taxable at 0%".
 
 ## Valuation methods
 
@@ -143,10 +167,21 @@ layer. The repricing of the shortfall is not pushed back into earlier outwards, 
 went negative, opening + inward − outward can differ from closing by that repricing. Values are
 always safe integers — never `NaN`.
 
+### Opening stock at the books beginning
+
+For a period starting on or before the books beginning, each item's opening value is the opening
+stock **as entered in the item master** (Σ `stock_openings.value`), whatever the costing method —
+so the Balance Sheet's opening stock matches the masters. Later periods open with the previous
+day's closing value (periods chain). FIFO/LIFO take each opening row as its own layer; the other
+methods take the rows together, so Last Purchase starts from the **weighted** opening rate
+(Σ value ÷ Σ qty), not from whichever row is last. (Standard Cost therefore shows the revaluation to
+standard cost in the first period, like the purchase price variance.)
+
 ### Godown filter
 
-Quantities and inward/outward movements are those of that godown (exact). Opening and closing
-values use the **item's** unit cost across all godowns: `round(godownQ × V/Q)`.
+Quantities and inward/outward movements are those of that godown (exact, or with its sub-godowns
+when `includeSubGodowns`). Opening and closing values use the **item's** unit cost across all
+godowns: `round(godownQ × V/Q)`.
 
 ### Worked example (also `valuation.test.ts`)
 
@@ -177,22 +212,24 @@ columnsComplete(row): boolean                                                   
 
 // Quantities
 STOCK_MOVEMENT_FILTER: string            // SQL condition on `ie`/`v`, needs :today
-stockOnHand(db, { itemId, godownId?, batchName?, asOf, excludeVoucherId?, today? }): number
-batchesFor(db, itemId, godownId: number | null | undefined, asOf, { today?, excludeVoucherId? }?): BatchBalance[]  // FEFO
-stockByItem(db, { asOf, today?, godownId?, itemIds?, excludeVoucherId? }): Map<number, number>
+stockOnHand(db, { itemId, godownId?, includeSubGodowns?, batchName?, asOf, excludeVoucherId?, today? }): number
+batchesFor(db, itemId, godownId: number | null | undefined, asOf, { today?, excludeVoucherId?, includeSubGodowns? }?): BatchBalance[]  // FEFO
+stockByItem(db, { asOf, today?, godownId?, includeSubGodowns?, itemIds?, excludeVoucherId? }): Map<number, number>
+godownSet(db, godownId, includeSub): Set<number>   // the godown (+ all godowns under it)
 itemHasTransactions(db, itemId): boolean
 roundQty(q): number                      // 6 decimals
 
 // Values (paise)
-computeStockValuation(db, { from, to, itemIds?, godownId?, today }): StockValuationResult
-closingStockValue(db, { asOf, today, godownId? }): number     // Balance Sheet / P&L closing stock
-openingStockValue(db, { from, today, godownId? }): number     // value at the start of `from`
+computeStockValuation(db, { from, to, itemIds?, godownId?, includeSubGodowns?, today }): StockValuationResult
+closingStockValue(db, { asOf, today, godownId?, includeSubGodowns? }): number   // Balance Sheet / P&L closing stock
+openingStockValue(db, { from, today, godownId?, includeSubGodowns? }): number   // value at the start of `from` (entered values at books beginning)
 currentUnitCost(db, { itemId, asOf, today }): number          // rupees per base unit
 
 // Prices & masters
 priceFor(db, { itemId, priceLevelId?, date, qty, side? }): PriceForResult
 slabForQty(slabs, qty): PriceSlab | null
-getItem(db, id, asOf): StockItemDetail;  listItems(db, input, today);  itemPicker(db, input, today)
+getItem(db, id, asOf): StockItemDetail;  listItems(db, input, today)
+itemPicker(db, { asOf?, godownId?, priceLevelId?, search?, limit? }, today): ItemPickerRow[]   // search: name/alias/part no./barcode
 booksFrom(db): string;  mainGodownId(db): number;  compoundSymbol(first, conversion, second): string
 inventoryRoutes
 ```
@@ -204,8 +241,14 @@ no `today`, post-dated vouchers up to `asOf` count.
 
 - Physical stock entries must carry the signed difference; a later back-dated entry before a
   physical stock voucher is not re-absorbed (Tally re-bases on the counted quantity).
-- Godown filters are exact (no roll-up of sub-godowns); third-party godowns are valued like own stock.
+- Third-party godowns are valued like own stock (the single `is_third_party` flag does not say
+  whose stock it is).
 - Value-only inward lines (qty 0, amount > 0) are ignored by the valuation.
+- Average Cost with negative stock: the next inward restarts the average at its own rate, so for
+  that item opening + inward − outward can differ from closing by the re-pricing of the shortfall
+  (Standard Cost / Last Purchase show their revaluation the same way).
 - An item switched from "inherit GST" to its own details with a later `applicableFrom` uses the new
   details for earlier dates too (history cannot express "inherit until").
+- When no level of the item chain has an HSN/SAC the profile's `hsnSac` is null; the vouchers
+  engine then also looks at the sales/purchase ledger.
 - Market valuation (`market_valuation`) is stored but not used; no lower-of-cost-or-market.

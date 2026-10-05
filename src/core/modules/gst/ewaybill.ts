@@ -23,7 +23,7 @@ import { pinNumber, splitAddress } from './address.ts';
 import { DOC_NO_RE } from './checks.ts';
 import type { GstCompany, GstDoc } from './docs.ts';
 import { docLabel, loadDocs, round2, rupees } from './docs.ts';
-import { logDocEvent, transModeCode } from './einvoice.ts';
+import { cancelledWithActiveRef, logDocEvent, transModeCode } from './einvoice.ts';
 
 /** Bulk-generation JSON version. Verify against the EWB portal's current bulk JSON schema. */
 export const EWAY_JSON_VERSION = '1.0.0621';
@@ -246,7 +246,7 @@ export function pendingEwayBills(db: Db, company: GstCompany, from: string, to: 
         warnings: b.warnings,
       };
     });
-  return { enabled: company.features.ewayBill, thresholdPaise: threshold, rows };
+  return { enabled: company.features.ewayBill, thresholdPaise: threshold, rows, cancelRequired: cancelledWithActiveRef(db, 'eway', from, to) };
 }
 
 export function ewayJson(ctx: CompanyCtx, company: GstCompany, voucherIds: readonly number[]): GstBulkJsonFile {

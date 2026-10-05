@@ -14,9 +14,8 @@
  * Lines that are exempt / nil-rated / non-GST always go to table 8 (split inter/intra × registered/
  * unregistered), whatever the document's table. Composition and non-GST companies file no GSTR-1.
  */
-import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
-import { GST_NATURE_LABELS, POS_OTHER_COUNTRIES, SERVICES_UQC } from '../../../shared/gst/index.ts';
+import { POS_OTHER_COUNTRIES, SERVICES_UQC } from '../../../shared/gst/index.ts';
 import type { GstNature } from '../../../shared/types/gst.ts';
 import type {
   GstHsnRow,
@@ -297,8 +296,16 @@ export function documentSeries(docs: readonly GstDoc[]): { series: Array<Gstr1Do
     }
   };
   for (const g of groups.values()) {
-    const seqs = g.items.map((i) => i.seq);
-    const dup = seqs.some((s, i) => s !== null && seqs.indexOf(s) !== i);
+    const seen = new Set<number>();
+    let dup = false;
+    for (const it of g.items) {
+      if (it.seq === null) continue;
+      if (seen.has(it.seq)) {
+        dup = true;
+        break;
+      }
+      seen.add(it.seq);
+    }
     if (!dup) {
       emit(g, g.items);
       continue;
@@ -349,10 +356,13 @@ export function hsnAccumulator(digits: number): {
   };
 }
 
-/** Compute everything GSTR-1 needs for a period. */
-export function computeGstr1(db: Db, company: GstCompany, period: ReturnPeriodRef, today: string): Gstr1Computation {
+/**
+ * Compute everything GSTR-1 needs for a period. `preloaded` (optional) must be loadDocs() of exactly
+ * this period with includeCancelled: true — callers that need the documents for several reports load once.
+ */
+export function computeGstr1(db: Db, company: GstCompany, period: ReturnPeriodRef, today: string, preloaded?: readonly GstDoc[]): Gstr1Computation {
   if (company.registration === 'unregistered') throw rule('This company is not registered under GST, so it does not file GSTR-1.');
-  const all = loadDocs(db, company, { from: period.from, to: period.to, today, includeCancelled: true });
+  const all = preloaded ?? loadDocs(db, company, { from: period.from, to: period.to, today, includeCancelled: true });
   const outward = all.filter((d) => d.direction === 'outward');
   const docs = outward.filter((d) => d.inBooks);
   const cancelled = outward.filter((d) => !d.inBooks);
@@ -612,13 +622,4 @@ export function gstr1Section(c: Gstr1Computation, section: Gstr1SectionId): Gstr
     result.totals.invoiceValue += r.sign * r.invoiceValue;
   }
   return result;
-}
-
-/** Short label for a document nature (for UI tables). */
-export function natureLabel(n: GstNature): string {
-  return GST_NATURE_LABELS[n] ?? n;
-}
-
-export function periodCaption(p: ReturnPeriodRef): string {
-  return p.kind === 'range' ? `${formatDate(p.from)} to ${formatDate(p.to)}` : p.label;
 }

@@ -6,7 +6,7 @@
  */
 export { columnsComplete, createGstResolver, resolveGroupGstProfile, resolveItemGstProfile } from './gst.ts';
 export type { ItemGstSource } from './gst.ts';
-export { batchesFor, itemHasTransactions, roundQty, STOCK_MOVEMENT_FILTER, stockByItem, stockOnHand } from './stock.ts';
+export { batchesFor, godownSet, itemHasTransactions, roundQty, STOCK_MOVEMENT_FILTER, stockByItem, stockOnHand } from './stock.ts';
 export type { BatchQueryOptions, StockByItemQuery, StockOnHandQuery } from './stock.ts';
 export { closingStockValue, computeStockValuation, currentUnitCost, openingStockValue } from './valuation.ts';
 export type { StockValuationOptions } from './valuation.ts';
