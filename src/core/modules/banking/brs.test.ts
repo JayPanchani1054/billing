@@ -114,6 +114,22 @@ describe('BRS', () => {
     assert.deepEqual([r2.instrumentType, r2.instrumentNo, r2.instrumentDate, r2.drawnOn, r2.voucherType], ['cheque', '778899', '2026-04-27', 'ICICI Bank', 'Receipt']);
   });
 
+  it('statement lines dated before the books begin do not count as "not in the books" (they are in the opening balance)', () => {
+    const { k } = s;
+    const res = importHdfc(k);
+    // A line from 31-Mar (imported before such lines were skipped at import): already part of the 1,00,000 opening.
+    k.t.db.run(
+      `INSERT INTO bank_statement_lines (batch_id, ledger_id, txn_date, description, reference, amount, status, seq)
+       VALUES (:b, :l, '2026-03-31', 'CHQ PAID OLD SUPPLIER', '000400', -100000, 'unmatched', 0)`,
+      { b: res.batchId, l: k.L.hdfc },
+    );
+    autoMatch(k.t.ctx, { ledgerId: k.L.hdfc });
+    const r = brs(k.t.db, k.t.today, { ledgerId: k.L.hdfc, asOf: '2026-04-30' });
+    // Still only the SMS charges (590) explain the −590 difference; the ₹1,000 March cheque is ignored.
+    assert.deepEqual(r.amountsNotInBooks, { count: 1, deposits: 0, withdrawals: rs(590) });
+    assert.equal(r.unexplainedDifference, 0);
+  });
+
   it('compares the statement on its own last date, not with bank dates entered for later days', () => {
     const { k } = s;
     // Statement downloaded on 24-Apr (no SMS line yet); the Bharat cheque is then cleared by hand on 29-Apr.

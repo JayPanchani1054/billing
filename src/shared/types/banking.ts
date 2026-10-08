@@ -348,6 +348,12 @@ export interface StatementPreview {
   truncated: boolean;
   issues: StatementIssue[];
   summary: StatementSummary;
+  /**
+   * The file names an account number (above the heading row) whose last 4 digits differ from the bank
+   * ledger's account number: a plain-English warning to show before importing (the import is not blocked).
+   * null when the numbers agree or either side has none.
+   */
+  accountWarning: string | null;
 }
 
 export const STATEMENT_PREVIEW_MAX_LINES = 5_000;

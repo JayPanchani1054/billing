@@ -1,13 +1,15 @@
 /**
  * GST reconciliation routes. DTOs: src/shared/types/gstrecon.ts; semantics: README.md in this folder.
  *
- * Access: imports, runs and decisions need 'gst.file'; read routes need 'gst.view'. Heavy routes
+ * Access: imports, runs and decisions need 'gst.file'; read routes and the follow-up e-mail need 'gst.view';
+ * the export needs 'gst.view' + 'data.export'. Heavy routes
  * (import, run, exports, reads) are transactional: false and open their own transaction for writes.
  */
 import { RECON_SOURCES, RECON_STATUS_FILTERS } from '../../../shared/types/gstrecon.ts';
 import type { ReconSource } from '../../../shared/types/gstrecon.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
 import type { CompanyCtx } from '../../api/context.ts';
+import { forbidden } from '../../lib/errors.ts';
 import { v } from '../../lib/validate.ts';
 import { buildSupplierFollowUp, exportReconFile } from './export.ts';
 import { getResults, getSuggestions, getSummary, getSupplierSummary } from './queries.ts';
@@ -162,17 +164,20 @@ export const gstreconRoutes = {
     handler: (ctx, input) => resolveDocs(ctx, 'ignore', input),
   }),
   'gstrecon.export': companyRoute({
-    access: 'gst.file',
+    access: 'gst.view', // plus 'data.export', checked below (read-only roles such as Auditor can export)
     transactional: false,
     input: v.object({ period, source, format: v.enum(['xlsx', 'csv'] as const) }),
     handler: (ctx, input) => {
+      if (!ctx.session.isOwner && !ctx.session.permissions.has('data.export')) {
+        throw forbidden('Exporting the reconciliation also needs the "Export data" permission. Ask an Owner to grant it.');
+      }
       const out = exportReconFile(ctx.db, input);
       auditExport(ctx, out.fileName, input.source, input.period);
       return out;
     },
   }),
   'gstrecon.supplierFollowUp': companyRoute({
-    access: 'gst.file',
+    access: 'gst.view',
     transactional: false,
     input: v.object({ period, supplierGstin: v.string({ min: 1, max: 20 }), source: source.optional() }),
     handler: (ctx, input) => {

@@ -12,8 +12,11 @@
  *      portal document a 'duplicate'; a repeated portal document is a 'duplicate' of the first;
  *   3. financial-year-free key ('INV/1/25-26' ~ 'INV1') — only when exactly one portal document and one
  *      voucher share it (fuzzy mode);
+ *   3b. amendments (B2BA / CDNRA) whose number changed — the voucher still carries the original number;
  *   4. vouchers of other periods (within 183 days of the portal date) — supplier reported late or the
- *      voucher is dated in another month; flagged 'books_other_period' (info);
+ *      voucher is dated in another month; flagged 'books_other_period' (info). A voucher another
+ *      period's return already took is not paired again (except by an amendment): the document is a
+ *      'duplicate' across returns (`otherPeriod`, `duplicateOfDocId`);
  *   5. what is left: portal → missing_in_books, books of the period → missing_in_portal (and, when another
  *      imported period ±2 months has the document, `otherPeriod`).
  * Pairs are compared head by head (see compareDocs); probable matches are only suggested, never linked.
@@ -41,6 +44,10 @@ export interface PortalRec {
   invoiceValue: number;
   rates: number[];
   itcAvailable: boolean | null;
+  /** Amendment (B2BA / CDNRA): the document number the supplier first reported. */
+  origDocNo?: string | null;
+  /** True for amendment sections (B2BA / CDNRA): they replace a document of an earlier return. */
+  amendment?: boolean;
 }
 
 export interface BooksRec extends BooksDoc {
@@ -65,6 +72,14 @@ export interface OtherPeriodDoc {
   docNo: string;
 }
 
+/** A voucher already paired with a portal document of another imported period (its last run). */
+export interface ClaimedVoucher {
+  voucherId: number;
+  period: string;
+  docId: number;
+  docNo: string;
+}
+
 export interface PortalOutcome {
   docId: number;
   status: ReconStatus;
@@ -75,6 +90,8 @@ export interface PortalOutcome {
   diffs: FieldDiff[];
   duplicateVoucherIds: number[];
   duplicateOfDocId: number | null;
+  /** Duplicate across returns: the period whose document already took the voucher. */
+  otherPeriod: string | null;
   suggestionCount: number;
   notes: string[];
   remarks: string | null;
@@ -109,6 +126,8 @@ export interface ReconInput {
   decisions: readonly Decision[];
   tolerance: ReconTolerance;
   otherPeriods?: readonly OtherPeriodDoc[];
+  /** Vouchers paired in other periods' reconciliations of the same return (double-reporting check). */
+  claimed?: readonly ClaimedVoucher[];
 }
 
 export interface ReconOutcome {
@@ -178,7 +197,10 @@ export function compareDocs(p: PortalRec, b: BooksRec, tol: ReconTolerance, sour
   }
   if (p.gstin !== b.gstin) diffs.push({ field: 'gstin', label: 'GSTIN', portal: p.gstin, books: b.gstin, difference: null, severity: 'mismatch' });
   if (p.docType !== b.docType) {
-    diffs.push({ field: 'doc_type', label: 'Document type', portal: p.docType, books: b.docType, difference: null, severity: source === 'gstr1' ? 'mismatch' : 'info' });
+    // A credit note against an invoice/debit note always matters (opposite effect on ITC/tax); an invoice
+    // booked as the supplier's debit note (same effect) only matters for GSTR-1, where the table differs.
+    const severity = source === 'gstr1' || classOf(p.docType) !== b.cls ? 'mismatch' : 'info';
+    diffs.push({ field: 'doc_type', label: 'Document type', portal: p.docType, books: b.docType, difference: null, severity });
   }
   if (exactDocNo(p.docNo) !== exactDocNo(b.docNo)) diffs.push({ field: 'doc_no', label: 'Document number', portal: p.docNo, books: b.docNo, difference: null, severity: 'info' });
   if (p.invoiceValue !== 0 && b.invoiceValue !== 0 && Math.abs(p.invoiceValue - b.invoiceValue) > tol.amountPaise) {
@@ -340,7 +362,34 @@ export function reconcile(input: ReconInput): ReconOutcome {
     }
   }
 
-  // 4. Vouchers of other periods (late filing / booked in another month).
+  // 3b. Amendments (B2BA / CDNRA) whose number changed: the voucher still carries the original number.
+  //     Looked up in the period first, then within the other-period window; unique candidates only.
+  {
+    const free = books.filter((b) => !consumed.has(b.voucherId));
+    const exactIdx = groupBy(free, (b) => bKey(b, 'exact'));
+    const fyIdx = fuzzy ? groupBy(free, (b) => bKey(b, 'fy')) : new Map<string, BooksRec[]>();
+    for (const p of unpairedPortal()) {
+      if (!p.origDocNo || normalizeDocNo(p.origDocNo) === normalizeDocNo(p.docNo)) continue;
+      const k = docNoKeys(p.origDocNo, fuzzy);
+      const near = (list: BooksRec[] | undefined): BooksRec[] =>
+        (list ?? []).filter((b) => !consumed.has(b.voucherId) && (b.inRange || days(p, b) <= OTHER_PERIOD_WINDOW_DAYS));
+      let cands = near(exactIdx.get(`${p.gstin}|${classOf(p.docType)}|${k.exact}`));
+      if (cands.length === 0 && fuzzy) cands = near(fyIdx.get(`${p.gstin}|${classOf(p.docType)}|${k.fy}`));
+      if (cands.length !== 1) continue;
+      consumed.add(cands[0].voucherId);
+      pair.set(p.id, { voucherId: cands[0].voucherId, method: 'original_no' });
+      note(p.id, `The supplier amended this document; the voucher carries the original number ${p.origDocNo}.`);
+    }
+  }
+
+  // 4. Vouchers of other periods (late filing / booked in another month). A voucher that another
+  //    period's return already took is not paired again (unless this document is an amendment): the
+  //    supplier has reported the same document twice, and the ITC must be claimed only once.
+  const claimedBy = new Map<number, ClaimedVoucher>();
+  for (const c of [...(input.claimed ?? [])].sort((a, b) => a.period.localeCompare(b.period) || a.docId - b.docId)) {
+    if (!claimedBy.has(c.voucherId)) claimedBy.set(c.voucherId, c);
+  }
+  const crossDup = new Map<number, ClaimedVoucher>();
   {
     const pool = freeBooks(false);
     const exactIdx = groupBy(pool, (b) => bKey(b, 'exact'));
@@ -355,7 +404,14 @@ export function reconcile(input: ReconInput): ReconOutcome {
         if (fyCands.length === 1) cands = fyCands;
       }
       if (cands.length === 0) continue;
-      const best = [...cands].sort((x, y) => distance(p, x) - distance(p, y) || days(p, x) - days(p, y) || x.voucherId - y.voucherId)[0];
+      const free = p.amendment ? cands : cands.filter((b) => !claimedBy.has(b.voucherId));
+      if (free.length === 0) {
+        const c = claimedBy.get(cands[0].voucherId) as ClaimedVoucher;
+        crossDup.set(p.id, c);
+        note(p.id, `Already matched with ${c.docNo} in the return for ${periodLabel(c.period)} (same voucher). The supplier seems to have reported it twice — claim the ITC only once.`);
+        continue;
+      }
+      const best = [...free].sort((x, y) => distance(p, x) - distance(p, y) || days(p, x) - days(p, y) || x.voucherId - y.voucherId)[0];
       consumed.add(best.voucherId);
       pair.set(p.id, { voucherId: best.voucherId, method: 'other_period' });
     }
@@ -393,10 +449,16 @@ export function reconcile(input: ReconInput): ReconOutcome {
       if (b.dateBasis === 'voucher_date' && input.source !== 'gstr1') note(p.id, 'The supplier invoice date is not entered on the voucher; the voucher date was used.');
       if (b.docNoBasis === 'voucher_number' && input.source !== 'gstr1') note(p.id, 'The supplier invoice number is not entered on the voucher; the voucher number was used.');
       if (b.gstinFromLedger) note(p.id, 'The voucher has no GSTIN; the party ledger’s GSTIN was used.');
+      const c = claimedBy.get(b.voucherId);
+      if (c && !p.amendment) {
+        note(p.id, `This voucher is also matched with ${c.docNo} in the return for ${periodLabel(c.period)} — check that the supplier has not reported the document twice.`);
+      }
       if (dupVouchers.has(p.id)) note(p.id, `${(dupVouchers.get(p.id) as number[]).length + 1} vouchers carry this supplier and document number; only one should remain.`);
     } else if (dupOf.has(p.id)) {
       baseStatus = 'duplicate';
       note(p.id, 'The same document appears more than once in the portal file.');
+    } else if (crossDup.has(p.id)) {
+      baseStatus = 'duplicate';
     } else {
       baseStatus = 'missing_in_books';
       for (const b of books) {
@@ -417,7 +479,8 @@ export function reconcile(input: ReconInput): ReconOutcome {
       manual: method === 'manual',
       diffs,
       duplicateVoucherIds: dupVouchers.get(p.id) ?? [],
-      duplicateOfDocId: dupOf.get(p.id) ?? null,
+      duplicateOfDocId: dupOf.get(p.id) ?? crossDup.get(p.id)?.docId ?? null,
+      otherPeriod: crossDup.get(p.id)?.period ?? null,
       suggestionCount,
       notes: notes.get(p.id) ?? [],
       remarks: d?.remarks ?? null,

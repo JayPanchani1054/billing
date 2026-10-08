@@ -4,8 +4,6 @@
  */
 import { createHash } from 'node:crypto';
 import { addDays } from '../../../shared/dates.ts';
-import { formatMoney } from '../../../shared/format.ts';
-import { normalizeGstin } from '../../../shared/gst/index.ts';
 import type {
   ImportBatchView,
   ReconDecisionInput,
@@ -22,12 +20,12 @@ import type {
   ReconTolerance,
   TaxTotals,
 } from '../../../shared/types/gstrecon.ts';
-import { DEFAULT_RECON_TOLERANCE, RECON_SOURCE_LABELS } from '../../../shared/types/gstrecon.ts';
+import { DEFAULT_RECON_TOLERANCE, PORTAL_DOC_TYPE_LABELS, RECON_SOURCE_LABELS } from '../../../shared/types/gstrecon.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { AppError, conflict, notFound, rule, validation } from '../../lib/errors.ts';
 import { loadBooksDocs } from './books.ts';
-import { classOf, OTHER_PERIOD_WINDOW_DAYS, portalDocKey, reconcile, type BooksRec, type OtherPeriodDoc, type PortalRec } from './matcher.ts';
+import { classOf, OTHER_PERIOD_WINDOW_DAYS, portalDocKey, reconcile, type BooksRec, type ClaimedVoucher, type OtherPeriodDoc, type PortalRec } from './matcher.ts';
 import { parsePortalFile } from './parsers.ts';
 import { buildSummary } from './queries.ts';
 import {
@@ -38,7 +36,7 @@ import {
   getBatch,
   getDecision,
   getDocRow,
-  isOpenStatus,
+  isAmendmentSection,
   latestBatch,
   latestRun,
   listBatchRecs,
@@ -58,7 +56,7 @@ import {
   type StoredPortalDetails,
   type StoredRunSummary,
 } from './store.ts';
-import { isMonthPeriod, periodLabel, periodShort, shiftPeriod, type ResolvedPeriod } from './values.ts';
+import { periodLabel, periodShort, resolveReconPeriod, shiftPeriod, type ResolvedPeriod } from './values.ts';
 
 const who = (ctx: CompanyCtx): { userId: number | null; username: string | null; at: string } => ({
   userId: ctx.session.userId,
@@ -91,10 +89,13 @@ export function importPortalFile(ctx: CompanyCtx, input: ReconImportInput): Reco
       `This ${label} belongs to GSTIN ${parsed.gstin}, but the open company's GSTIN is ${company.gstin}. Open the right company, or download the file for ${company.gstin} from the GST portal.`,
     );
   }
-  const requested = input.period?.trim() || null;
-  if (requested !== null && !isMonthPeriod(requested)) {
-    throw validation([{ path: 'period', message: `"${requested}" is not a return period. Use MMYYYY, for example 042026 for April 2026.` }]);
+  // A quarterly (QRMP) GSTR-1 is filed under the quarter's last month ('2026-27-Q1' → fp 062026).
+  const chosen = input.period?.trim() || null;
+  const resolved = chosen !== null ? resolveReconPeriod(chosen, input.source === 'gstr1') : null;
+  if (chosen !== null && !resolved) {
+    throw validation([{ path: 'period', message: `"${chosen}" is not a return period. Use MMYYYY, for example 042026 for April 2026.` }]);
   }
+  const requested = resolved ? resolved.key : null;
   if (requested && parsed.period && requested !== parsed.period) {
     throw validation([
       {
@@ -312,6 +313,30 @@ function otherPeriodDocs(db: Db, source: ReconSource, period: string): OtherPeri
 }
 
 /**
+ * Vouchers paired by the last run of the same return in the surrounding periods (±6 months, the
+ * other-period window), so a document the supplier reported twice is not matched twice. Pairs made by
+ * amendments (B2BA / CDNRA …) are left out: an amendment is expected to meet the original's voucher.
+ */
+function claimedVouchers(db: Db, source: ReconSource, period: string): ClaimedVoucher[] {
+  const out: ClaimedVoucher[] = [];
+  for (let n = -6; n <= 6; n++) {
+    if (n === 0) continue;
+    const p = shiftPeriod(period, n);
+    const b = latestBatch(db, source, p);
+    if (!b) continue;
+    for (const r of db.all<{ id: number; doc_no: string; matched_voucher_id: number; section: string | null }>(
+      `SELECT id, doc_no, matched_voucher_id, section FROM gst_portal_docs
+        WHERE batch_id = :id AND matched_voucher_id IS NOT NULL AND match_status <> 'pending'`,
+      { id: b.id },
+    )) {
+      if (isAmendmentSection(r.section)) continue;
+      out.push({ voucherId: r.matched_voucher_id, period: p, docId: r.id, docNo: r.doc_no });
+    }
+  }
+  return out;
+}
+
+/**
  * Reconcile one source + period and store the results (portal rows, books-only rows, run record).
  * Synchronous; callers provide the transaction.
  */
@@ -336,7 +361,15 @@ export function performRun(ctx: CompanyCtx, source: ReconSource, rp: ResolvedPer
   const extra = linked.length > 0 ? loadBooksDocs(db, { side, today, voucherIds: linked }) : [];
   const books: BooksRec[] = [...loaded, ...extra].map((b) => ({ ...b, inRange: b.docDate >= rp.from && b.docDate <= rp.to }));
 
-  const outcome = reconcile({ source, portal, books, decisions, tolerance, otherPeriods: otherPeriodDocs(db, source, rp.key) });
+  const outcome = reconcile({
+    source,
+    portal,
+    books,
+    decisions,
+    tolerance,
+    otherPeriods: otherPeriodDocs(db, source, rp.key),
+    claimed: claimedVouchers(db, source, rp.key),
+  });
   const booksById = new Map(books.map((b) => [b.voucherId, b]));
 
   for (const o of outcome.portal) {
@@ -350,6 +383,7 @@ export function performRun(ctx: CompanyCtx, source: ReconSource, rp: ResolvedPer
       diffs: o.diffs,
       duplicateVoucherIds: o.duplicateVoucherIds,
       duplicateOfDocId: o.duplicateOfDocId,
+      otherPeriod: o.otherPeriod,
       suggestionCount: o.suggestionCount,
       notes: o.notes,
     };
@@ -491,6 +525,20 @@ export function linkDoc(ctx: CompanyCtx, input: { portalDocId: number; voucherId
   const today = ctx.clock.today();
   const b = loadBooksDocs(db, { side: sideOf(source), today, voucherIds: [input.voucherId] })[0];
   if (!b) explainUnlinkable(db, input.voucherId, source, today);
+  const docType = doc.doc_type as PortalRec['docType'];
+  if (b.cls !== classOf(docType)) {
+    const want =
+      classOf(docType) === 'dec'
+        ? source === 'gstr1'
+          ? 'a sales credit note'
+          : 'a purchase return (debit note)'
+        : source === 'gstr1'
+          ? 'a sales invoice or debit note'
+          : 'a purchase (invoice or supplier debit note)';
+    throw rule(
+      `${PORTAL_DOC_TYPE_LABELS[docType]} ${doc.doc_no} can only be linked to ${want}; ${voucherLabel(db, input.voucherId)} has the opposite effect on tax. Choose another voucher.`,
+    );
+  }
   const key = doc.doc_key ?? portalDocKey(doc.counterparty_gstin, doc.doc_type as PortalRec['docType'], doc.doc_no);
   const other = db.get<{ doc_key: string }>(
     `SELECT doc_key FROM gstrecon_decisions WHERE source = :source AND return_period = :period AND link_voucher_id = :vid AND doc_key IS NOT NULL AND doc_key <> :key`,

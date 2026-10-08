@@ -80,10 +80,11 @@ export type ReconStatusFilter = ReconStatus | 'open' | 'other_period' | 'all';
 export const RECON_STATUS_FILTERS: readonly ReconStatusFilter[] = ['all', 'open', 'other_period', ...RECON_STATUSES];
 
 /** How a pair was made. */
-export type MatchMethod = 'exact' | 'fy_stripped' | 'other_period' | 'manual';
+export type MatchMethod = 'exact' | 'fy_stripped' | 'original_no' | 'other_period' | 'manual';
 export const MATCH_METHOD_LABELS: Readonly<Record<MatchMethod, string>> = {
   exact: 'Document number',
   fy_stripped: 'Document number (year part ignored)',
+  original_no: 'Original number of the amended document',
   other_period: 'Booked in another period',
   manual: 'Linked manually',
 };
@@ -253,7 +254,10 @@ export interface ReconRow {
   difference: ReconDifference | null;
   method: MatchMethod | null;
   manual: boolean;
-  /** Missing in portal: another imported period (MMYYYY) where the supplier reported this document. */
+  /**
+   * Books rows (missing in portal): another imported period (MMYYYY) where the supplier reported this
+   * document. Portal rows (duplicate): the period whose return already took the same voucher.
+   */
   otherPeriod: string | null;
   /** Other vouchers with the same supplier + document number (duplicate entry in the books). */
   duplicateVoucherIds: number[];
@@ -375,8 +379,11 @@ export interface ReconSummary {
   /** Tax claimed in the books that the portal does not support. */
   itcAtRisk: {
     missingInPortal: TaxHeads;
+    /** Head-wise books ITC above the portal on partial/duplicate pairs (credit notes: portal reduces more than the books). */
     excessInBooks: TaxHeads;
     itcNotAvailable: TaxHeads;
+    /** Supplier credit notes on the portal (ITC available) with no purchase return in the books: ITC to reverse. */
+    creditNotesNotBooked: TaxHeads;
     total: Paise;
   };
   /** ITC on the portal that the books have not taken. */

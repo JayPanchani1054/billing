@@ -38,6 +38,7 @@ import {
   Stack,
   Tabs,
   TextInput,
+  useEnterAdvance,
   useHotkeys,
   useToast,
 } from '../../ui/index.ts';
@@ -84,7 +85,7 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
   const [cursor, setCursor] = useState<Record<MatchTab, string | null>>({ matched: null, suggestions: null, unmatched: null, ignored: null });
   const [suggested, setSuggested] = useState<Map<number, MatchCandidate[]>>(() => new Map());
   const [picking, setPicking] = useState<StatementLineView | null>(null);
-  const [creating, setCreating] = useState<StatementLineView | null>(null);
+  const [creating, setCreating] = useState<{ line: StatementLineView; draft?: CreateFormDraft } | null>(null);
   const [bulk, setBulk] = useState(false);
 
   // When the statement was imported for dates outside the period, widen the lines' range to the batch.
@@ -172,6 +173,19 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
     if (line.status === 'matched' || line.status === 'created') {
       if (line.matched) nav.push('vouchers.view', { id: line.matched.voucherId });
     } else if (line.status === 'unmatched' && canEdit) setPicking(line);
+  };
+
+  /**
+   * Alt+C in the ledger picker: the ledger form is a full screen, so the dialog closes first (a dialog would
+   * stay on top of it and keep the focus) and reopens with what was typed and the new ledger chosen.
+   */
+  const createLedgerFor = async (line: StatementLineView, draft: CreateFormDraft, typed: string): Promise<void> => {
+    setCreating(null);
+    const created = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', { initialName: typed, forResult: true });
+    setCreating({
+      line,
+      draft: created ? { ...draft, ledger: { id: created.id, name: created.name, groupName: '', classes: [] }, touched: true } : draft,
+    });
   };
 
   const onMatched = (lineId: number): void => {
@@ -342,7 +356,7 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
       }
       actions={[
         { key: 'Alt+M', label: 'Auto-match', icon: 'zap', primary: true, onClick: () => void runAutoMatch(), disabled: auto.pending || ledgerId === null, hidden: !canEdit },
-        { key: 'Alt+V', label: 'Create voucher', icon: 'plus', onClick: () => sel && setCreating(sel), hidden: !canEdit || !canCreate, disabled: !sel || sel.status !== 'unmatched' || (tab !== 'unmatched' && tab !== 'suggestions') },
+        { key: 'Alt+V', label: 'Create voucher', icon: 'plus', onClick: () => sel && setCreating({ line: sel }), hidden: !canEdit || !canCreate, disabled: !sel || sel.status !== 'unmatched' || (tab !== 'unmatched' && tab !== 'suggestions') },
         { key: 'Alt+B', label: 'Create vouchers for many', icon: 'layers', onClick: () => setBulk(true), hidden: !canEdit || !canCreate, disabled: byTab.unmatched.length + byTab.suggestions.length === 0 },
         { key: 'Alt+L', label: 'Look for a match', icon: 'search', onClick: () => sel && setPicking(sel), hidden: !canEdit, disabled: !sel || sel.status !== 'unmatched' },
         { key: 'Alt+I', label: tab === 'ignored' ? 'Restore line' : 'Ignore line', icon: tab === 'ignored' ? 'undo' : 'eye-off', onClick: () => void doIgnore(sel, tab !== 'ignored'), hidden: !canEdit, disabled: !sel || tab === 'matched' },
@@ -414,7 +428,7 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
               ? () => {
                   const l = picking;
                   setPicking(null);
-                  setCreating(l);
+                  setCreating({ line: l });
                 }
               : undefined
           }
@@ -422,11 +436,13 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
       ) : null}
       {creating && ledgerId !== null ? (
         <CreateVoucherDialog
-          line={creating}
+          line={creating.line}
+          initial={creating.draft}
           bankLedgerId={ledgerId}
           onClose={() => setCreating(null)}
+          onCreateLedger={(draft, typed) => void createLedgerFor(creating.line, draft, typed)}
           onCreated={() => {
-            onMatched(creating.id);
+            onMatched(creating.line.id);
             setCreating(null);
           }}
         />
@@ -548,25 +564,46 @@ function MatchPicker({
 
 // ───────────────────────────── Create one voucher ─────────────────────────────
 
-function CreateVoucherDialog({ line, bankLedgerId, onClose, onCreated }: { line: StatementLineView; bankLedgerId: number; onClose: () => void; onCreated: () => void }) {
+/** What the user has entered in the create-voucher dialog (kept while a new ledger is being created). */
+interface CreateFormDraft {
+  kind: FromLineKind;
+  ledger: LedgerOption | null;
+  narration: string;
+  /** The ledger was chosen by the user (no more suggestions from the narration). */
+  touched: boolean;
+}
+
+interface CreateDialogProps {
+  line: StatementLineView;
+  initial?: CreateFormDraft;
+  bankLedgerId: number;
+  onClose: () => void;
+  onCreated: () => void;
+  /** Alt+C in the ledger picker. */
+  onCreateLedger: (draft: CreateFormDraft, typed: string) => void;
+}
+
+function CreateVoucherDialog(props: CreateDialogProps) {
   return (
-    <Modal open onClose={onClose} size="md" title="Create voucher from statement line" description={lineSummary(line)}>
-      <CreateVoucherForm line={line} bankLedgerId={bankLedgerId} onClose={onClose} onCreated={onCreated} />
+    <Modal open onClose={props.onClose} size="md" title="Create voucher from statement line" description={lineSummary(props.line)}>
+      <CreateVoucherForm {...props} />
     </Modal>
   );
 }
 
-function CreateVoucherForm({ line, bankLedgerId, onClose, onCreated }: { line: StatementLineView; bankLedgerId: number; onClose: () => void; onCreated: () => void }) {
+function CreateVoucherForm({ line, initial, bankLedgerId, onClose, onCreated, onCreateLedger }: CreateDialogProps) {
   const nav = useNav();
   const toast = useToast();
   const canCreateLedger = useCan('masters.create');
   const { ledgers, loading } = useLedgerOptions();
-  const [kind, setKind] = useState<FromLineKind>(() => defaultKind(line));
+  const [kind, setKind] = useState<FromLineKind>(() => initial?.kind ?? defaultKind(line));
   const fitting = useMemo(() => ledgers.filter((l) => ledgerFitsKind(l, kind, bankLedgerId)), [ledgers, kind, bankLedgerId]);
-  const [ledger, setLedger] = useState<LedgerOption | null>(null);
-  const [touched, setTouched] = useState(false);
-  const [narration, setNarration] = useState(line.description);
+  const [ledger, setLedger] = useState<LedgerOption | null>(initial?.ledger ?? null);
+  const [touched, setTouched] = useState(initial?.touched ?? false);
+  const [narration, setNarration] = useState(initial?.narration ?? line.description);
   const create = useApiMutation('banking.createVoucher', { invalidates: BOOK_ROUTES });
+  // Enter moves Voucher type → Ledger → Narration; Enter on the narration creates the voucher (Tally style).
+  const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => void submit() });
 
   // Propose a ledger from the narration until the user picks one.
   useEffect(() => {
@@ -596,60 +633,51 @@ function CreateVoucherForm({ line, bankLedgerId, onClose, onCreated }: { line: S
   useHotkeys({ 'Ctrl+A': () => void submit() }, [kind, ledger, narration]);
 
   return (
-    <Stack gap={3}>
-      <Field label="Voucher type">
-        <SegmentedControl
-          aria-label="Voucher type"
-          options={allowedKinds(line.amount).map((k) => ({ value: k, label: KIND_LABEL[k] }))}
-          value={kind}
-          onChange={(k) => {
-            setKind(k);
-            setTouched(false);
-          }}
-        />
-      </Field>
-      <Field
-        label={kind === 'contra' ? (line.amount >= 0 ? 'Deposited from (cash / bank)' : 'Withdrawn to (cash / bank)') : line.amount >= 0 ? 'Received from (party / income)' : 'Paid to (party / expense)'}
-        required
-        hint={ledger && !touched ? 'Suggested from the narration — change it if needed.' : undefined}
-      >
-        <Picker<LedgerOption>
-          items={fitting}
-          getKey={(l) => String(l.id)}
-          getLabel={(l) => l.name}
-          getAlias={(l) => l.alias}
-          groupBy={(l) => l.groupName}
-          value={ledger}
-          autoFocus
-          placeholder={loading ? 'Loading ledgers…' : 'Type to search ledgers'}
-          onChange={(l) => {
-            setLedger(l);
-            setTouched(true);
-          }}
-          onCreate={
-            canCreateLedger
-              ? (typed) => {
-                  void nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', { initialName: typed, forResult: true }).then((created) => {
-                    if (created) {
-                      setLedger({ id: created.id, name: created.name, groupName: '', classes: [] });
-                      setTouched(true);
-                    }
-                  });
-                }
-              : undefined
-          }
-        />
-      </Field>
-      <Field label="Narration" optional>
-        <TextInput value={narration} onChange={(e) => setNarration(e.target.value)} maxLength={4000} />
-      </Field>
-      <Inline gap={2} justify="end">
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" shortcut="Ctrl+A" loading={create.pending} onClick={() => void submit()}>
-          Create {KIND_LABEL[kind]}
-        </Button>
-      </Inline>
-    </Stack>
+    <div ref={formRef}>
+      <Stack gap={3}>
+        <Field label="Voucher type">
+          <SegmentedControl
+            aria-label="Voucher type"
+            options={allowedKinds(line.amount).map((k) => ({ value: k, label: KIND_LABEL[k] }))}
+            value={kind}
+            onChange={(k) => {
+              setKind(k);
+              setTouched(false);
+            }}
+          />
+        </Field>
+        <Field
+          label={kind === 'contra' ? (line.amount >= 0 ? 'Deposited from (cash / bank)' : 'Withdrawn to (cash / bank)') : line.amount >= 0 ? 'Received from (party / income)' : 'Paid to (party / expense)'}
+          required
+          hint={ledger && !touched ? 'Suggested from the narration — change it if needed.' : undefined}
+        >
+          <Picker<LedgerOption>
+            items={fitting}
+            getKey={(l) => String(l.id)}
+            getLabel={(l) => l.name}
+            getAlias={(l) => l.alias}
+            groupBy={(l) => l.groupName}
+            value={ledger}
+            autoFocus
+            placeholder={loading ? 'Loading ledgers…' : 'Type to search ledgers'}
+            onChange={(l) => {
+              setLedger(l);
+              setTouched(true);
+            }}
+            onCreate={canCreateLedger ? (typed) => onCreateLedger({ kind, ledger, narration, touched }, typed) : undefined}
+          />
+        </Field>
+        <Field label="Narration" optional>
+          <TextInput value={narration} onChange={(e) => setNarration(e.target.value)} maxLength={4000} />
+        </Field>
+        <Inline gap={2} justify="end">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" shortcut="Ctrl+A" loading={create.pending} onClick={() => void submit()}>
+            Create {KIND_LABEL[kind]}
+          </Button>
+        </Inline>
+      </Stack>
+    </div>
   );
 }
 
@@ -807,7 +835,7 @@ function BulkCreateForm({ lines, withCandidates, bankLedgerId, onClose, onCreate
                   <td>
                     <Select
                       size="sm"
-                      aria-label="Voucher type"
+                      aria-label={`Voucher type for ${lineSummary(l)}`}
                       value={d.kind}
                       options={allowedKinds(l.amount).map((k) => ({ value: k, label: KIND_LABEL[k] }))}
                       onChange={(v) => update(l.id, { kind: v as FromLineKind })}
@@ -816,7 +844,7 @@ function BulkCreateForm({ lines, withCandidates, bankLedgerId, onClose, onCreate
                   <td>
                     <Select
                       size="sm"
-                      aria-label="Ledger"
+                      aria-label={`Ledger for ${lineSummary(l)}`}
                       value={d.contraLedgerId === null ? '' : String(d.contraLedgerId)}
                       options={optionsFor(d.kind)}
                       invalid={included.has(l.id) && d.contraLedgerId === null}
@@ -827,7 +855,7 @@ function BulkCreateForm({ lines, withCandidates, bankLedgerId, onClose, onCreate
                     />
                   </td>
                   <td>
-                    <TextInput size="sm" aria-label="Narration" value={d.narration} placeholder="Statement narration" onChange={(e) => update(l.id, { narration: e.target.value })} />
+                    <TextInput size="sm" aria-label={`Narration for ${lineSummary(l)}`} value={d.narration} placeholder="Statement narration" onChange={(e) => update(l.id, { narration: e.target.value })} />
                   </td>
                 </tr>
               );

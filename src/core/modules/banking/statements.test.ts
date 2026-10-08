@@ -278,3 +278,60 @@ describe('statement import: other bank files', () => {
     }
   });
 });
+
+describe('statement import: data safety', () => {
+  it('lines dated before the books begin are skipped (already in the opening balance) and never imported', async () => {
+    const k = setupBank(); // books from 01-Apr-2026
+    try {
+      const csv = [
+        'Date,Narration,Chq./Ref.No.,Value Dt,Withdrawal Amt.,Deposit Amt.,Closing Balance',
+        '30/03/26,NEFT CR-OLD CUSTOMER,N1,30/03/26,,"5,000.00","1,00,000.00"',
+        '31/03/26,CHQ PAID-OLD SUPPLIER,000400,31/03/26,"2,000.00",,"98,000.00"',
+        '02/04/26,NEFT CR-ACME TRADERS,N2,02/04/26,,"25,000.00","1,23,000.00"',
+      ].join('\n');
+      const input = { ledgerId: k.L.hdfc, fileName: 'hdfc.csv', bytes: textBytes(csv) };
+      const p = await k.t.callOk<StatementPreview>(bankingRoutes, 'banking.statement.preview', input);
+      // Only the April line counts; the two March lines are skipped with the reason.
+      assert.deepEqual(p.lines.map((l) => [l.txnDate, l.amount]), [['2026-04-02', rs(25_000)]]);
+      assert.deepEqual([p.summary.lineCount, p.summary.totalDeposits, p.summary.totalWithdrawals, p.summary.from, p.summary.to, p.summary.skippedRows], [1, rs(25_000), 0, '2026-04-02', '2026-04-02', 2]);
+      assert.deepEqual(
+        p.issues.filter((i) => i.reason.startsWith('Dated before the books begin')).map((i) => i.row),
+        [2, 3],
+      );
+      // The running balance check still covers the whole file: 1,00,000 − 2,000 = 98,000 ✓; 98,000 + 25,000 = 1,23,000 ✓.
+      assert.equal(p.summary.balanceCheck.mismatches, 0);
+      const res = await k.t.callOk<StatementImportResult>(bankingRoutes, 'banking.statement.import', { ...input, mapping: p.mapping });
+      assert.deepEqual([res.imported, res.skippedRows, res.from, res.totalDeposits], [1, 2, '2026-04-02', rs(25_000)]);
+      assert.equal(k.t.db.value<number>("SELECT COUNT(*) FROM bank_statement_lines WHERE txn_date < '2026-04-01'"), 0);
+
+      const allOld = [csv.split('\n')[0], csv.split('\n')[1]].join('\n');
+      const bad = await k.t.call(bankingRoutes, 'banking.statement.import', { ...input, bytes: textBytes(allOld), mapping: p.mapping });
+      assert.match(!bad.ok ? bad.error.message : '', /dated before the books begin \(01-Apr-2026\).*opening balance of HDFC Bank/);
+    } finally {
+      k.t.close();
+    }
+  });
+
+  it('warns (without blocking) when the file names another account number than the bank ledger', async () => {
+    const k = setupBank(); // HDFC ledger account no. 50100012345678 (ends 5678)
+    try {
+      const body = [
+        'Date\tNarration\tChq./Ref.No.\tValue Dt\tWithdrawal Amt.\tDeposit Amt.\tClosing Balance',
+        '02/04/26\tNEFT CR-ACME TRADERS\tN2\t02/04/26\t\t25,000.00\t1,25,000.00',
+      ];
+      const file = (account: string): Uint8Array => textBytes([`Account Number\t:\t${account}`, 'Branch\t:\tFORT', ...body].join('\n'));
+      const call = (account: string): Promise<StatementPreview> =>
+        k.t.callOk<StatementPreview>(bankingRoutes, 'banking.statement.preview', { ledgerId: k.L.hdfc, fileName: 'hdfc.xls', bytes: file(account) });
+      const other = await call('XXXXXXXXXX9999');
+      assert.match(other.accountWarning ?? '', /ending 9999, but HDFC Bank is account no\. ending 5678/);
+      assert.equal(other.lines.length, 1); // still readable and importable
+      assert.equal((await call('50100012345678')).accountWarning, null);
+      assert.equal((await call('XXXXXXXXXX5678')).accountWarning, null); // masked, same last 4 digits
+      // No account number in the file → no check.
+      const plain = await k.t.callOk<StatementPreview>(bankingRoutes, 'banking.statement.preview', { ledgerId: k.L.hdfc, fileName: 'hdfc.xls', bytes: textBytes(body.join('\n')) });
+      assert.equal(plain.accountWarning, null);
+    } finally {
+      k.t.close();
+    }
+  });
+});

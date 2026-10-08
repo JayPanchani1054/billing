@@ -648,6 +648,52 @@ function balanceFits(lines: ReadonlyArray<{ amount: Paise; balance: Paise | null
   return ok;
 }
 
+/** "Account Number", "A/C No.", "Acct No", "Account #" — not "Account Name" / "Account Statement". */
+const ACCOUNT_LABEL_RE = /\b(?:a\/c|acc(?:oun)?t|account)\.?\s*(?:no\b\.?|number|num\b|#)/i;
+
+/**
+ * Account numbers printed above the heading row ("Account Number : 00000012345678901", "A/C No. XXXXXXXX5678"),
+ * as written (masked digits kept). Used to warn when a statement is imported into another bank ledger.
+ */
+export function statementAccountNumbers(rows: readonly Cell[][], headerRow: number): string[] {
+  const out: string[] = [];
+  const token = (cell: Cell | undefined): string | null => {
+    if (typeof cell === 'number' && !Number.isSafeInteger(cell)) return null; // digits lost in a number cell
+    const m = /[0-9Xx*]*\d{4,}/.exec(cellText(cell ?? null).replace(/[\s-]/g, ''));
+    return m && m[0].length >= 6 ? m[0] : null;
+  };
+  for (let r = 0; r < Math.min(headerRow, HEADER_SCAN_ROWS); r++) {
+    const row = rows[r] ?? [];
+    for (let j = 0; j < row.length; j++) {
+      const c = row[j];
+      if (typeof c !== 'string') continue;
+      const label = ACCOUNT_LABEL_RE.exec(c);
+      if (!label) continue;
+      let found = token(c.slice(label.index + label[0].length));
+      for (let k = j + 1; found === null && k < row.length; k++) {
+        if (isBlank(row[k]) || (typeof row[k] === 'string' && String(row[k]).trim() === ':')) continue;
+        found = token(row[k]);
+        break;
+      }
+      if (found !== null && !out.includes(found)) out.push(found);
+    }
+  }
+  return out;
+}
+
+/**
+ * null when the file names no account number, the ledger has none, or one of them ends with the ledger's last
+ * 4 digits; else the last 4 digits the file shows (the statement is probably of another account).
+ */
+export function accountMismatch(fileAccounts: readonly string[], ledgerAccountNo: string | null): string | null {
+  const ledgerDigits = (ledgerAccountNo ?? '').replace(/\D/g, '');
+  if (ledgerDigits.length < 4 || fileAccounts.length === 0) return null;
+  const want = ledgerDigits.slice(-4);
+  const tails = fileAccounts.map((a) => (/\d+$/.exec(a)?.[0] ?? '').slice(-4)).filter((t) => t.length === 4);
+  if (tails.length === 0 || tails.includes(want)) return null;
+  return tails[0];
+}
+
 /** First rows of a table as text for the mapping screen (≤ 40 rows × 30 columns, cells ≤ 100 characters). */
 export function rawPreview(rows: readonly Cell[][]): string[][] {
   return rows.slice(0, 40).map((r) => r.slice(0, 30).map((c) => {

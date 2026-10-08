@@ -60,8 +60,13 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
 
   const q = useApiQuery('banking.brs', { ledgerId: ledgerId ?? 0, asOf, show }, { enabled: ledgerId !== null, keepPrevious: true });
-  const save = useApiMutation('banking.setBankDates', { invalidates: ['dashboard'] });
+  // Bank dates show in the cash/bank book and ledger reports too.
+  const save = useApiMutation('banking.setBankDates', { invalidates: ['dashboard', 'reports'] });
   const brs = q.data;
+  // While another bank / date / view loads, the previous list stays on screen: it must not be edited (a date
+  // typed there would be saved on the wrong bank's entries).
+  const stale = brs !== undefined && (brs.ledger.id !== ledgerId || brs.asOf !== asOf || brs.show !== show);
+  const editable = canEdit && !stale;
   const entries = brs?.entries ?? NO_ENTRIES;
   const visible = useMemo(() => (entries.length > MAX_GRID_ROWS ? entries.slice(0, MAX_GRID_ROWS) : entries), [entries]);
   const states = useMemo(() => evaluateRows(visible, drafts, asOf, today), [visible, drafts, asOf, today]);
@@ -107,7 +112,7 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
   };
 
   const submit = async (): Promise<void> => {
-    if (!canEdit) return;
+    if (!editable) return;
     if (pending.errors > 0) {
       toast.error(`${pending.errors} bank date${pending.errors === 1 ? ' needs' : 's need'} correcting before saving`, { message: 'Rows with a problem are marked in red.' });
       return;
@@ -129,7 +134,7 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
   };
 
   const fillAll = (): void => {
-    if (!brs || !canEdit) return;
+    if (!brs || !editable) return;
     const date = brs.statementDate ?? asOf;
     const out = fillBankDates(visible, drafts, date, today);
     setDrafts(out.drafts);
@@ -150,6 +155,10 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       openVoucher(visible[i]);
+    } else if (e.key === 'Enter' && !e.shiftKey && i === visible.length - 1 && pending.entries.length > 0) {
+      // Enter on the last row accepts, like Tally.
+      e.preventDefault();
+      void submit();
     } else if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'ArrowDown') {
       e.preventDefault();
       focusRow(i + 1);
@@ -195,7 +204,7 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
         void q.refetch();
       }}
       exportDef={brs ? () => brsExport(brs) : undefined}
-      hint="Type a bank date: 5 · 5-4 · v voucher date · . same as above · blank clears · Enter next row · Ctrl+Enter open voucher · Ctrl+A save"
+      hint="Type a bank date: 5 · 5-4 · v voucher date · . same as above · blank clears · Enter next row (on the last row: save) · Ctrl+Enter open voucher · Ctrl+A save"
       filters={
         <Inline gap={2} wrap>
           <BankSelect banks={banks} value={ledgerId} onChange={(id) => void changeLedger(id)} aria-label="Bank account to reconcile" />
@@ -203,8 +212,8 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
         </Inline>
       }
       actions={[
-        { key: 'Ctrl+A', label: 'Save bank dates', icon: 'save', primary: true, onClick: () => void submit(), disabled: pending.entries.length === 0 || save.pending, hidden: !canEdit },
-        { key: 'Alt+R', label: 'Set all to statement date', icon: 'calendar', onClick: fillAll, hidden: !canEdit, disabled: visible.length === 0, hint: 'Fill every row without a bank date with the statement date' },
+        { key: 'Ctrl+A', label: 'Save bank dates', icon: 'save', primary: true, onClick: () => void submit(), disabled: pending.entries.length === 0 || save.pending || stale, hidden: !canEdit },
+        { key: 'Alt+R', label: 'Set all to statement date', icon: 'calendar', onClick: fillAll, hidden: !canEdit, disabled: visible.length === 0 || stale, hint: 'Fill every row without a bank date with the statement date' },
         { key: 'Alt+X', label: 'Discard typed dates', icon: 'undo', onClick: () => void discard(), hidden: !canEdit, disabled: drafts.size === 0 },
         { key: 'Alt+1', label: 'Unreconciled', onClick: () => void changeShow('unreconciled'), group: 'view', disabled: show === 'unreconciled' },
         { key: 'Alt+2', label: 'Reconciled', onClick: () => void changeShow('reconciled'), group: 'view', disabled: show === 'reconciled' },
@@ -286,7 +295,7 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
                             }}
                             size="sm"
                             value={text}
-                            readOnly={!canEdit}
+                            readOnly={!editable}
                             selectOnFocus
                             invalid={Boolean(st?.error)}
                             aria-label={`Bank date for ${e.voucherType} ${e.number ?? ''} dated ${formatDate(e.date)}, ${e.debit ? `debit ${formatMoney(e.debit)}` : `credit ${formatMoney(e.credit)}`}`}

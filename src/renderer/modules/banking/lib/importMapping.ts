@@ -171,8 +171,10 @@ export function previewSummaryText(p: Pick<StatementPreview, 'summary'>, fmtDate
 }
 
 /** Problems worth a warning banner before importing. */
-export function previewWarnings(p: Pick<StatementPreview, 'summary' | 'lines'>): string[] {
+export function previewWarnings(p: Pick<StatementPreview, 'summary' | 'lines'> & Partial<Pick<StatementPreview, 'accountWarning'>>): string[] {
   const out: string[] = [];
+  // Another account's statement would be imported into this bank: the most important check, shown first.
+  if (p.accountWarning) out.push(p.accountWarning);
   const b = p.summary.balanceCheck;
   if (b.swappedLikely) {
     out.push('The running balance only adds up with withdrawals and deposits the other way round — the Withdrawal and Deposit columns are probably swapped.');

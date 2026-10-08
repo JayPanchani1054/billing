@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 import type { StatementMapping } from '../../../shared/types/banking.ts';
 import { FileFormatError } from '../../lib/text.ts';
 import { dateToSerial, writeXlsx } from '../../lib/xlsx.ts';
-import { parseStatement, referenceKey, type ParsedStatement } from './parse.ts';
+import { accountMismatch, parseStatement, referenceKey, statementAccountNumbers, type ParsedStatement } from './parse.ts';
 import { classifyHeader, headerKey } from './presets.ts';
 import { detectDateOrder, parseStatementAmount, parseStatementDate } from './values.ts';
 import { rs, textBytes } from './testkit.ts';
@@ -403,5 +403,24 @@ describe('statement checks', () => {
         String(re),
       );
     }
+  });
+});
+
+describe('account number above the heading', () => {
+  it('finds "Account Number", "A/C No." and masked numbers, ignores "Account Name" / "Account Statement"', () => {
+    const rows = [
+      ['Account Name', ':', 'Test Traders'],
+      ['Account Statement from 1 Apr 2026'],
+      ['Account Number', ':', '00000012345678901'],
+      ['A/C No. XXXXXXXX5678'],
+      ['Date', 'Narration', 'Debit', 'Credit'],
+    ];
+    assert.deepEqual(statementAccountNumbers(rows, 4), ['00000012345678901', 'XXXXXXXX5678']);
+    // Rows below the heading are transactions, never read for account numbers.
+    assert.deepEqual(statementAccountNumbers(rows, 2), []);
+    assert.equal(accountMismatch(['XXXXXXXX5678'], '50100012345678'), null);
+    assert.equal(accountMismatch(['00000012345678901'], '50100012345678'), '8901');
+    assert.equal(accountMismatch([], '50100012345678'), null);
+    assert.equal(accountMismatch(['XXXX8901'], null), null);
   });
 });

@@ -18,6 +18,7 @@ import type {
 import { MATCH_METHOD_LABELS, PORTAL_DOC_TYPE_LABELS, RECON_SOURCE_LABELS, RECON_STATUS_LABELS } from '../../../shared/types/gstrecon.ts';
 import type { Db } from '../../db/db.ts';
 import { toCsv, type CsvValue } from '../../lib/csv.ts';
+import { validation } from '../../lib/errors.ts';
 import { encodeUtf8WithBom } from '../../lib/text.ts';
 import { writeXlsx, type XlsxCell, type XlsxColumn, type XlsxSheet } from '../../lib/xlsx.ts';
 import { buildSummary, getSupplierSummary, periodRows, readPeriod } from './queries.ts';
@@ -141,9 +142,12 @@ function summarySheet(s: ReconSummary, title: string[], label: string): XlsxShee
   const inward = s.source !== 'gstr1';
   rows.push(heads(inward ? 'ITC at risk – not on the portal' : 'Tax in books not reported in GSTR-1', s.itcAtRisk.missingInPortal));
   rows.push(heads(inward ? 'ITC at risk – books higher than portal' : 'Books higher than GSTR-1', s.itcAtRisk.excessInBooks));
-  if (inward) rows.push(heads('ITC at risk – ITC not available as per GSTR-2B', s.itcAtRisk.itcNotAvailable));
+  if (inward) rows.push(heads(`ITC at risk – ITC not available as per ${label}`, s.itcAtRisk.itcNotAvailable));
+  if (inward) rows.push(heads('ITC at risk – supplier credit notes not booked (reverse ITC)', s.itcAtRisk.creditNotesNotBooked));
+  rows.push([{ v: inward ? 'Total ITC at risk' : 'Total books higher than GSTR-1', bold: true }, null, null, null, null, null, null, amt(s.itcAtRisk.total)]);
   rows.push(heads(inward ? 'ITC available but not booked – missing in books' : 'Reported in GSTR-1, not in books', s.itcNotBooked.missingInBooks));
   rows.push(heads(inward ? 'ITC available but not booked – books lower than portal' : 'GSTR-1 higher than books', s.itcNotBooked.shortInBooks));
+  rows.push([{ v: inward ? 'Total ITC available but not booked' : 'Total GSTR-1 higher than books', bold: true }, null, null, null, null, null, null, amt(s.itcNotBooked.total)]);
   if (s.warnings.length > 0) {
     rows.push([]);
     for (const w of s.warnings) rows.push([w]);
@@ -269,15 +273,24 @@ const docWord = (r: ReconRow): string => PORTAL_DOC_TYPE_LABELS[r.docType];
 /** Plain-text e-mail asking a supplier to fix what their GSTR-1 is missing or has wrong. */
 export function buildSupplierFollowUp(db: Db, input: { period: string; supplierGstin: string; source?: ReconSource }): SupplierFollowUp {
   const source = input.source ?? 'gstr2b';
+  if (source === 'gstr1') {
+    throw validation([{ path: 'source', message: 'The follow-up e-mail is for suppliers. Choose GSTR-2B or GSTR-2A.' }]);
+  }
   const rp = readPeriod(db, source, input.period);
   const gstin = normalizeGstin(input.supplierGstin);
   const rows = periodRows(db, source, rp.key).filter((r) => r.gstin === gstin);
   const company = companyInfo(db);
   const label = RECON_SOURCE_LABELS[source];
   const name = rows.map((r) => r.portal?.name ?? r.books?.partyName ?? null).find((n) => n) ?? null;
-  const missingInPortal = rows.filter((r) => r.status === 'missing_in_portal');
-  const mismatched = rows.filter((r) => r.status === 'partial' || (r.status === 'duplicate' && r.books !== null));
+  // Reported by the supplier in another month: no need to report again, only mentioned for information.
+  const missingInPortal = rows.filter((r) => r.status === 'missing_in_portal' && r.otherPeriod === null);
+  const otherPeriod = rows.filter((r) => r.status === 'missing_in_portal' && r.otherPeriod !== null);
+  // Only differences the supplier can correct (a voucher entered twice is ours to fix, not theirs).
+  const supplierDiffs = (r: ReconRow): FieldDiff[] => r.diffs.filter((x) => x.severity === 'mismatch' && x.field !== 'books_period' && x.field !== 'gstin');
+  const mismatched = rows.filter((r) => (r.status === 'partial' || r.status === 'duplicate') && r.portal !== null && r.books !== null && supplierDiffs(r).length > 0);
   const missingInBooks = rows.filter((r) => r.status === 'missing_in_books');
+  // Reported again although an earlier/later return already carries it (same voucher matched there).
+  const reportedTwice = rows.filter((r) => r.status === 'duplicate' && r.kind === 'portal' && r.books === null && r.otherPeriod !== null);
   const period = periodLabel(rp.key);
 
   const lines: string[] = [];
@@ -294,7 +307,16 @@ export function buildSupplierFollowUp(db: Db, input: { period: string; supplierG
     missingInPortal.forEach((r, i) => {
       const b = r.books;
       if (!b) return;
-      lines.push(`  ${i + 1}. ${docWord(r)} ${b.docNo} dated ${dmy(b.docDate)} — taxable value ${inr(b.taxable)}, tax ${inr(b.tax)}${r.otherPeriod ? ` (we see it in your return for ${periodLabel(r.otherPeriod)})` : ''}`);
+      lines.push(`  ${i + 1}. ${docWord(r)} ${b.docNo} dated ${dmy(b.docDate)} — taxable value ${inr(b.taxable)}, tax ${inr(b.tax)}`);
+    });
+  }
+  if (otherPeriod.length > 0) {
+    lines.push('');
+    lines.push(`${letter()}. Documents you reported in another month's return — no action needed unless the date or month is wrong:`);
+    otherPeriod.forEach((r, i) => {
+      const b = r.books;
+      if (!b) return;
+      lines.push(`  ${i + 1}. ${docWord(r)} ${b.docNo} dated ${dmy(b.docDate)} — reported in your return for ${periodLabel(r.otherPeriod as string)}`);
     });
   }
   if (mismatched.length > 0) {
@@ -304,9 +326,18 @@ export function buildSupplierFollowUp(db: Db, input: { period: string; supplierG
       const p = r.portal;
       if (!p) return;
       lines.push(`  ${i + 1}. ${docWord(r)} ${p.docNo} dated ${dmy(p.docDate)}:`);
-      for (const d of r.diffs.filter((x) => x.severity === 'mismatch' && x.field !== 'books_period')) {
+      for (const d of supplierDiffs(r)) {
         lines.push(`       ${d.label}: as per our books ${diffValue(d, 'books')}, as per your return ${diffValue(d, 'portal')}`);
       }
+    });
+  }
+  if (reportedTwice.length > 0) {
+    lines.push('');
+    lines.push(`${letter()}. Documents reported in more than one return — please check and remove the duplicate:`);
+    reportedTwice.forEach((r, i) => {
+      const p = r.portal;
+      if (!p) return;
+      lines.push(`  ${i + 1}. ${docWord(r)} ${p.docNo} dated ${dmy(p.docDate)} — also in your return for ${periodLabel(r.otherPeriod as string)}`);
     });
   }
   if (missingInBooks.length > 0) {
@@ -318,9 +349,10 @@ export function buildSupplierFollowUp(db: Db, input: { period: string; supplierG
       lines.push(`  ${i + 1}. ${docWord(r)} ${p.docNo} dated ${dmy(p.docDate)} — taxable value ${inr(p.taxable)}, tax ${inr(p.tax)}`);
     });
   }
-  if (section === 0) {
+  const actionNeeded = missingInPortal.length + mismatched.length + reportedTwice.length + missingInBooks.length > 0;
+  if (!actionNeeded) {
     lines.push('');
-    lines.push('All your documents for this period match our records. Thank you.');
+    lines.push(`${section === 0 ? 'All' : 'Otherwise, all'} your documents for this period match our records. Thank you.`);
   } else {
     lines.push('');
     lines.push('Kindly correct these in your next return so that we can claim the input tax credit, and confirm once done.');
@@ -333,7 +365,7 @@ export function buildSupplierFollowUp(db: Db, input: { period: string; supplierG
   return {
     gstin,
     name,
-    subject: `GST reconciliation for ${period}: ${section === 0 ? 'no differences' : 'differences in your documents'} — ${company.name}`,
+    subject: `GST reconciliation for ${period}: ${actionNeeded ? 'differences in your documents' : 'no differences'} — ${company.name}`,
     body: lines.join('\n'),
     counts: { missingInPortal: missingInPortal.length, mismatched: mismatched.length, missingInBooks: missingInBooks.length },
   };

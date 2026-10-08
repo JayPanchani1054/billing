@@ -93,6 +93,10 @@ describe('import mapping editor', () => {
     );
     assert.match(previewWarnings({ summary, lines: [] })[0], /does not agree on 3 rows \(first at row 12\)/);
     assert.match(previewWarnings({ summary: { ...summary, balanceCheck: { ...summary.balanceCheck, swappedLikely: true } }, lines: [] })[0], /probably swapped/);
+    // A statement of another account is the first warning.
+    const acc = previewWarnings({ summary, lines: [], accountWarning: 'This statement is for account no. ending 9999, but HDFC Bank is account no. ending 5678.' });
+    assert.deepEqual([acc.length, acc[0].startsWith('This statement is for account no. ending 9999')], [2, true]);
+    assert.equal(previewWarnings({ summary: { ...summary, balanceCheck: { ...summary.balanceCheck, mismatches: 0 } }, lines: [], accountWarning: null }).length, 0);
     const base = { batchId: 1, from: null, to: null, totalDeposits: 0, totalWithdrawals: 0, closingBalance: null };
     assert.equal(importResultText({ ...base, imported: 40, duplicates: 2, skippedRows: 1 }), 'Imported 40 transactions, skipped 2 duplicates, 1 row was not a transaction.');
     assert.equal(importResultText({ ...base, batchId: null, imported: 0, duplicates: 12, skippedRows: 0 }), 'Nothing new to import — all 12 transactions were imported before.');

@@ -143,8 +143,10 @@ export function brs(db: Db, today: string, input: BrsInput): BrsResult {
   const notInBooks = db.get<{ n: number; dep: number | null; wd: number | null }>(
     `SELECT COUNT(*) AS n, SUM(CASE WHEN s.amount > 0 THEN s.amount ELSE 0 END) AS dep,
             SUM(CASE WHEN s.amount < 0 THEN -s.amount ELSE 0 END) AS wd
-       FROM bank_statement_lines s WHERE s.ledger_id = :l AND s.txn_date <= :upTo AND ${NOT_LINKED}`,
-    { l: bank.id, upTo: stmt?.date ?? asOf },
+       FROM bank_statement_lines s
+      WHERE s.ledger_id = :l AND s.txn_date >= :booksFrom AND s.txn_date <= :upTo AND ${NOT_LINKED}`,
+    // Lines before the books begin are part of the opening balance, not "missing from the books".
+    { l: bank.id, upTo: stmt?.date ?? asOf, booksFrom: db.value<string>('SELECT books_from FROM company WHERE id = 1') ?? '' },
   );
   const amountsNotInBooks = { count: notInBooks?.n ?? 0, deposits: notInBooks?.dep ?? 0, withdrawals: notInBooks?.wd ?? 0 };
   const difference = stmt && bankOnStatementDate !== null ? stmt.balance - bankOnStatementDate : null;

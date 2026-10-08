@@ -236,6 +236,10 @@ export function toPortalView(r: PortalDocRow): PortalDocView {
   };
 }
 
+/** Amendment sections replace a document of an earlier return (B2BA, CDNRA, B2CLA, EXPA, CDNURA). */
+const AMENDMENT_SECTIONS: ReadonlySet<string> = new Set(['b2ba', 'cdnra', 'b2cla', 'expa', 'cdnura']);
+export const isAmendmentSection = (section: string | null | undefined): boolean => !!section && AMENDMENT_SECTIONS.has(section);
+
 /** Matcher input from a stored portal document. */
 export function toPortalRec(r: PortalDocRow): PortalRec {
   const meta = parseMeta(r.meta);
@@ -255,6 +259,8 @@ export function toPortalRec(r: PortalDocRow): PortalRec {
     invoiceValue: r.invoice_value,
     rates: meta.rates,
     itcAvailable: r.itc_available === null ? null : r.itc_available === 1,
+    origDocNo: meta.original?.docNo || null,
+    amendment: isAmendmentSection(r.section),
   };
 }
 
@@ -270,6 +276,8 @@ export interface StoredPortalDetails {
   diffs: FieldDiff[];
   duplicateVoucherIds: number[];
   duplicateOfDocId: number | null;
+  /** Duplicate across returns: the period whose document already took the voucher (absent in older rows). */
+  otherPeriod?: string | null;
   suggestionCount: number;
   notes: string[];
 }
@@ -372,7 +380,7 @@ export function loadRows(db: Db, source: ReconSource, period: string, batchId: n
           : null,
         method: det?.method ?? null,
         manual: det?.manual ?? false,
-        otherPeriod: null,
+        otherPeriod: det?.otherPeriod ?? null,
         duplicateVoucherIds: det?.duplicateVoucherIds ?? [],
         duplicateOfDocId: det?.duplicateOfDocId ?? null,
         suggestionCount: det?.suggestionCount ?? 0,

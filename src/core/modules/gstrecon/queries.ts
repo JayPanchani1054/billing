@@ -83,7 +83,7 @@ export function buildSummary(db: Db, source: ReconSource, rp: ResolvedPeriod): R
   for (const s of RECON_STATUSES) byStatus.set(s, { status: s, label: RECON_STATUS_LABELS[s], ...zeroTotals() });
   const portal = zeroTotals();
   const portalItc = zeroTotals();
-  const atRisk = { missingInPortal: zeroHeads(), excessInBooks: zeroHeads(), itcNotAvailable: zeroHeads() };
+  const atRisk = { missingInPortal: zeroHeads(), excessInBooks: zeroHeads(), itcNotAvailable: zeroHeads(), creditNotesNotBooked: zeroHeads() };
   const notBooked = { missingInBooks: zeroHeads(), shortInBooks: zeroHeads() };
   let otherPeriodCount = 0;
   let openCount = 0;
@@ -92,6 +92,9 @@ export function buildSummary(db: Db, source: ReconSource, rp: ResolvedPeriod): R
 
   for (const r of rows) {
     const t = byStatus.get(r.status) as ReconStatusTotals;
+    // ITC figures follow the computed status: accepting or ignoring a row records a decision, it does
+    // not put the document on the portal (Rule 36(4)), so the tax stays "at risk" / "not booked".
+    const base = r.baseStatus;
     if (isOpenStatus(r.status)) openCount++;
     if (r.kind === 'portal' && r.portal) {
       const p = r.portal;
@@ -102,17 +105,27 @@ export function buildSummary(db: Db, source: ReconSource, rp: ResolvedPeriod): R
       addTo(portal, p, sign);
       if (p.itcAvailable !== false) addTo(portalItc, p, sign);
       const inc = classOf(p.docType) === 'inc';
-      if (r.status === 'missing_in_books' && inc && p.itcAvailable !== false) {
-        for (const h of HEAD_KEYS) notBooked.missingInBooks[h] += p[h];
+      if (base === 'missing_in_books' && p.itcAvailable !== false) {
+        // An invoice not booked is ITC not taken; a supplier credit note not booked as a purchase
+        // return is ITC that should have been reversed.
+        for (const h of HEAD_KEYS) (inc ? notBooked.missingInBooks : atRisk.creditNotesNotBooked)[h] += p[h];
       }
       const b = r.books;
-      if (b && inc && (r.status === 'matched' || r.status === 'partial' || r.status === 'duplicate')) {
-        if (p.itcAvailable === false) {
+      if (b && (base === 'matched' || base === 'partial' || base === 'duplicate')) {
+        if (inc && p.itcAvailable === false) {
           for (const h of HEAD_KEYS) atRisk.itcNotAvailable[h] += b.itc[h];
-        } else if (r.status !== 'matched') {
+        } else if (base !== 'matched' && inc) {
+          // Excess is measured on the ITC claimed (eligible lines); the shortfall on the tax booked, so
+          // credit deliberately blocked under s.17(5) is not reported as "not booked".
           for (const h of HEAD_KEYS) {
             atRisk.excessInBooks[h] += Math.max(0, b.itc[h] - p[h]);
-            notBooked.shortInBooks[h] += Math.max(0, p[h] - b.itc[h]);
+            notBooked.shortInBooks[h] += Math.max(0, p[h] - b[h]);
+          }
+        } else if (base !== 'matched' && p.itcAvailable !== false) {
+          // Credit note vs purchase return: the books reverse less ITC than the note → at risk.
+          for (const h of HEAD_KEYS) {
+            atRisk.excessInBooks[h] += Math.max(0, p[h] - b[h]);
+            notBooked.shortInBooks[h] += Math.max(0, b[h] - p[h]);
           }
         }
       }
@@ -120,7 +133,7 @@ export function buildSummary(db: Db, source: ReconSource, rp: ResolvedPeriod): R
       const b = r.books;
       addTo(t, b, rowSign(b.docType));
       if (r.otherPeriod && r.status === 'missing_in_portal') otherPeriodCount++;
-      if (r.status === 'missing_in_portal' && classOf(b.docType) === 'inc') {
+      if (base === 'missing_in_portal' && classOf(b.docType) === 'inc') {
         for (const h of HEAD_KEYS) atRisk.missingInPortal[h] += b.itc[h];
       }
     }
@@ -144,7 +157,12 @@ export function buildSummary(db: Db, source: ReconSource, rp: ResolvedPeriod): R
   if (run && batch) {
     if (run.batchId !== batch.id || batch.importedAt > run.runAt) staleReason = 'A new file was imported after the last run.';
     else {
-      const changed = lastVoucherChange(db, sideOf(source));
+      const ids = rows.map((r) => r.books?.voucherId).filter((id): id is number => typeof id === 'number');
+      const changed = lastVoucherChange(db, sideOf(source), {
+        from: addDays(rp.from, -OTHER_PERIOD_WINDOW_DAYS),
+        to: addDays(rp.to, OTHER_PERIOD_WINDOW_DAYS),
+        voucherIds: ids,
+      });
       if (changed && changed > run.runAt) staleReason = 'Vouchers were entered or altered after the last run.';
       else if (rows.some((r) => r.kind === 'portal' && r.books && r.status !== 'missing_in_books' && !voucherExists(db, r.books.voucherId))) {
         staleReason = 'A matched voucher was deleted after the last run.';
@@ -180,7 +198,7 @@ export function buildSummary(db: Db, source: ReconSource, rp: ResolvedPeriod): R
     difference,
     itcAtRisk: {
       ...atRisk,
-      total: headsTotal(atRisk.missingInPortal) + headsTotal(atRisk.excessInBooks) + headsTotal(atRisk.itcNotAvailable),
+      total: headsTotal(atRisk.missingInPortal) + headsTotal(atRisk.excessInBooks) + headsTotal(atRisk.itcNotAvailable) + headsTotal(atRisk.creditNotesNotBooked),
     },
     itcNotBooked: { ...notBooked, total: headsTotal(notBooked.missingInBooks) + headsTotal(notBooked.shortInBooks) },
     otherPeriodCount,

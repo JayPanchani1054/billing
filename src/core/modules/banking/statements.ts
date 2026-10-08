@@ -23,13 +23,25 @@ import { notFound, rule } from '../../lib/errors.ts';
 import {
   LINE_SELECT,
   bankHint,
+  fmtDate,
   healOrphanLines,
   lineViews,
+  money,
   requireBankLedger,
   unlinkLine,
+  type BankLedger,
   type LineRow,
 } from './common.ts';
-import { parseStatement, rawPreview, toSavedMapping, type SavedStatementMapping } from './parse.ts';
+import {
+  accountMismatch,
+  parseStatement,
+  rawPreview,
+  statementAccountNumbers,
+  toSavedMapping,
+  type ExtractResult,
+  type ParsedStatement,
+  type SavedStatementMapping,
+} from './parse.ts';
 import { BANK_PRESETS, presetById, presetInfo } from './presets.ts';
 
 export function listPresets(): BankPresetInfo[] {
@@ -72,6 +84,76 @@ function existingHashes(db: Db, ledgerId: number, hashes: readonly string[]): Se
   return out;
 }
 
+/** The company's books-beginning date (statement lines before it are already in the opening balance). */
+export function booksFrom(db: Db): string | null {
+  return db.value<string>('SELECT books_from FROM company WHERE id = 1') ?? null;
+}
+
+/**
+ * Statement lines dated before the books begin are already part of the bank ledger's opening balance: importing
+ * them would only add lines that can never be matched and would distort "amounts not in the books". They are
+ * skipped with a reason; the summary counts are recomputed (file-level opening/closing balance and the
+ * running-balance check stay as read).
+ */
+export function dropBeforeBooks(extract: ExtractResult, from: string | null): ExtractResult {
+  if (!from) return extract;
+  const early = extract.lines.filter((l) => l.txnDate < from);
+  if (early.length === 0) return extract;
+  const lines = extract.lines.filter((l) => l.txnDate >= from);
+  const reason = `Dated before the books begin (${fmtDate(from)}) — already part of the opening balance`;
+  const issues = [
+    ...extract.issues,
+    ...early.slice(0, 500).map((l) => ({
+      row: l.row,
+      level: 'info' as const,
+      reason,
+      text: `${fmtDate(l.txnDate)} | ${l.description} | ${l.amount >= 0 ? 'deposit' : 'withdrawal'} ${money(Math.abs(l.amount))}`.slice(0, 200),
+    })),
+  ].sort((a, b) => a.row - b.row);
+  let depositCount = 0;
+  let totalDeposits = 0;
+  let totalWithdrawals = 0;
+  let first: string | null = null;
+  let last: string | null = null;
+  for (const l of lines) {
+    if (l.amount > 0) {
+      depositCount++;
+      totalDeposits += l.amount;
+    } else totalWithdrawals -= l.amount;
+    if (first === null || l.txnDate < first) first = l.txnDate;
+    if (last === null || l.txnDate > last) last = l.txnDate;
+  }
+  return {
+    ...extract,
+    lines,
+    issues,
+    summary: {
+      ...extract.summary,
+      lineCount: lines.length,
+      depositCount,
+      withdrawalCount: lines.length - depositCount,
+      totalDeposits,
+      totalWithdrawals,
+      from: first,
+      to: last,
+      skippedRows: extract.summary.skippedRows + early.length,
+    },
+  };
+}
+
+/** Warning when the file names another account number than the bank ledger's (see accountMismatch). */
+function accountWarningFor(parsed: ParsedStatement, bank: BankLedger): string | null {
+  const mapping = parsed.layout.mapping;
+  if (!mapping) return null;
+  const tail = accountMismatch(statementAccountNumbers(parsed.layout.table.rows, mapping.headerRow), bank.accountNo);
+  if (tail === null) return null;
+  const own = (bank.accountNo ?? '').replace(/\D/g, '').slice(-4);
+  return (
+    `This statement is for account no. ending ${tail}, but ${bank.name} is account no. ending ${own}. ` +
+    'Check that you chose the right bank account before importing — lines imported into the wrong bank would have to be deleted again.'
+  );
+}
+
 // ───────────────────────────── Preview ─────────────────────────────
 
 export function previewStatement(db: Db, input: StatementPreviewInput): StatementPreview {
@@ -82,7 +164,8 @@ export function previewStatement(db: Db, input: StatementPreviewInput): Statemen
     bankHint: bankHint(bank),
     sheet: input.mapping ? null : (input.sheet ?? null),
   });
-  const { file, layout, extract } = parsed;
+  const { file, layout } = parsed;
+  const extract = parsed.extract ? dropBeforeBooks(parsed.extract, booksFrom(db)) : null;
   const base = {
     format: file.format,
     encoding: file.encoding,
@@ -93,6 +176,7 @@ export function previewStatement(db: Db, input: StatementPreviewInput): Statemen
     mapping: layout.mapping,
     headers: parsed.headers,
     rawPreview: rawPreview(layout.table.rows),
+    accountWarning: accountWarningFor(parsed, bank),
   };
   if (!extract) {
     return {
@@ -151,9 +235,15 @@ export function importStatement(ctx: CompanyCtx, input: StatementImportInput): S
   const bank = requireBankLedger(db, input.ledgerId, 'Statement import');
   // Parse outside the write transaction (large files), then write everything atomically.
   const parsed = parseStatement(input.fileName, input.bytes, { mapping: input.mapping, bankHint: bankHint(bank) });
-  const extract = parsed.extract;
   const mapping = parsed.layout.mapping;
-  if (!extract || !mapping) throw rule('Choose the heading row and the columns of the statement first.');
+  if (!parsed.extract || !mapping) throw rule('Choose the heading row and the columns of the statement first.');
+  const from = booksFrom(db);
+  const extract = dropBeforeBooks(parsed.extract, from);
+  if (extract.lines.length === 0 && parsed.extract.lines.length > 0) {
+    throw rule(
+      `Every transaction in ${input.fileName} is dated before the books begin (${fmtDate(from)}); those amounts are already in the opening balance of ${bank.name}. Download the statement from ${fmtDate(from)} onwards.`,
+    );
+  }
   if (extract.lines.length === 0) {
     throw rule(
       `No transactions were found in ${input.fileName} with this column mapping. Check the heading row and the Date / Withdrawal / Deposit (or Amount) columns.`,

@@ -263,8 +263,21 @@ export function loadBooksDocs(db: Db, opts: LoadBooksOptions): BooksDoc[] {
   return out;
 }
 
-/** Latest updated_at among the vouchers a reconciliation of this side reads (stale-run detection). */
-export function lastVoucherChange(db: Db, side: Side): string | null {
+/**
+ * Latest updated_at among the vouchers a reconciliation of this side reads (stale-run detection):
+ * vouchers whose document date (or voucher date) falls in the run's window, plus the vouchers on its
+ * rows (one moved out of the window still changes the result). Vouchers of unrelated months do not
+ * make every past reconciliation look out of date.
+ */
+export function lastVoucherChange(db: Db, side: Side, scope: { from: string; to: string; voucherIds: readonly number[] }): string | null {
   const types = BASE_TYPES[side];
-  return db.value<string>('SELECT MAX(updated_at) FROM vouchers WHERE base_type IN (:t0, :t1, :t2)', { t0: types[0], t1: types[1], t2: types[2] }) ?? null;
+  const dateExpr = side === 'inward' ? 'COALESCE(reference_date, date)' : 'date';
+  return (
+    db.value<string>(
+      `SELECT MAX(updated_at) FROM vouchers
+        WHERE base_type IN (:t0, :t1, :t2)
+          AND ((${dateExpr} BETWEEN :from AND :to) OR (date BETWEEN :from AND :to) OR id IN (SELECT value FROM json_each(:ids)))`,
+      { t0: types[0], t1: types[1], t2: types[2], from: scope.from, to: scope.to, ids: JSON.stringify(scope.voucherIds.filter((n) => Number.isSafeInteger(n))) },
+    ) ?? null
+  );
 }

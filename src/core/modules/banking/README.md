@@ -105,6 +105,13 @@ the entry's bank date is the line's date: clearing the date, or moving it to ano
    ledger (reference key: letters/digits only, leading zeros dropped from all-digit references, so the CSV
    `000501` and the Excel number `501` are the same line); overlapping downloads import only the new lines (`duplicates` counts the rest; a fully duplicate file
    creates no batch). Import saves the mapping for the ledger (`bank_statement_presets`).
+7. **Before the books begin**: lines dated before `company.books_from` are already in the bank ledger's opening
+   balance — preview and import skip them with the reason "Dated before the books begin …" (summary counts are
+   recomputed; the file's opening/closing balance and running-balance check stay as read). A file with only such
+   lines is refused. The BRS also leaves any such line out of `amountsNotInBooks`.
+8. **Wrong account**: an account number printed above the heading row ("Account Number : …", "A/C No. XXXX5678")
+   whose last 4 digits differ from the ledger's account number gives `StatementPreview.accountWarning` (shown
+   first on the import screen; the import is not blocked — the ledger may have no or an old number).
 
 Statement amounts are from the **bank's view**: deposit `+`, withdrawal `−` — the same sign as the matching
 entry on the bank ledger (a deposit is a debit to the bank in our books). Balances: `+` funds, `−` overdrawn.

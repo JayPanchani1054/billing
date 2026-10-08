@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AppError } from '../../lib/errors.ts';
 import { FileFormatError } from '../../lib/text.ts';
+import type { XlsxCell } from '../../lib/xlsx.ts';
 import { createZip } from '../../lib/zip.ts';
 import { detectJsonKind } from './portal-json.ts';
 import { findHeader, matchHeader } from './portal-xlsx.ts';
@@ -234,7 +235,7 @@ describe('GSTR-2B Excel', () => {
   });
 
   it('parses B2B and B2B-CDNR sheets, aggregating rows of the same invoice and reading the period from Read me', () => {
-    const b2b = [
+    const b2b: XlsxCell[][] = [
       // Two rows of one invoice (18% and 5%): taxable 10,000 + 2,000; value repeats.
       [S1, 'SUPREME', 'INV/001/26-27', 'Regular', '05-04-2026', 13900, '27-Maharashtra', 'No', 10000, 0, 900, 900, 0, "Apr'26", '11-05-2026', 'Yes', '', '100%', 'e-Invoice', 'abc', '05-04-2026'],
       [S1, 'SUPREME', 'INV/001/26-27', 'Regular', '05-04-2026', 13900, '27-Maharashtra', 'No', 2000, 0, 50, 50, 0, "Apr'26", '11-05-2026', 'Yes', '', '100%', 'e-Invoice', 'abc', '05-04-2026'],
@@ -243,7 +244,7 @@ describe('GSTR-2B Excel', () => {
       [S3, 'BAD', '', 'Regular', '05-04-2026', 1, '27', 'N', 1, 0, 0, 0, 0, '', '', 'Yes', '', '', '', '', ''],
       ['Total', '', '', '', '', 37500, '', '', 32000, 3600, 950, 950, 0],
     ];
-    const cdnr = [[S1, 'SUPREME', 'CN-1', 'Credit Note', 'Regular', '20-04-2026', 236, '27-Maharashtra', 'No', 200, 0, 18, 18, 0, "Apr'26", '11-05-2026', 'Yes', '', '', '', '', '']];
+    const cdnr: XlsxCell[][] = [[S1, 'SUPREME', 'CN-1', 'Credit Note', 'Regular', '20-04-2026', 236, '27-Maharashtra', 'No', 200, 0, 18, 18, 0, "Apr'26", '11-05-2026', 'Yes', '', '', '', '', '']];
     const bytes = excel2b({
       readme: [['GSTR-2B'], ['Financial Year', '2026-27'], ['Tax Period', 'April'], ['GSTIN', OWN]],
       b2b,

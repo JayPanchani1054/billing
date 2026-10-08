@@ -1,0 +1,185 @@
+/* GST reconciliation screen. Semantic design tokens only (no raw colours). Prefix: bx-gr- */
+
+.bx-gr-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.bx-gr-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.bx-gr-bar__label {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.bx-gr-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.bx-gr-help {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-snug);
+}
+.bx-gr-help .bx-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--info-icon);
+}
+
+.bx-gr-meta {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+
+/* Status tiles act as filters: the active one carries an inset bar (never colour alone). */
+.bx-gr-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-2);
+}
+.bx-gr-tile.is-active {
+  box-shadow: inset 0 -3px 0 var(--row-selected-indicator);
+  border-color: var(--border-strong);
+}
+
+.bx-gr-itc {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-2);
+}
+
+.bx-gr-split {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .bx-gr-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.bx-gr-table-fill {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 320px;
+}
+.bx-gr-table-fill > .bx-table {
+  flex: 1;
+}
+
+.bx-gr-sub {
+  color: var(--text-muted);
+  font-size: var(--fs-11);
+}
+
+/* ── Compare drawer ─────────────────────────────────────────────────── */
+.bx-gr-compare {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-13);
+}
+.bx-gr-compare th,
+.bx-gr-compare td {
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+.bx-gr-compare thead th {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+}
+.bx-gr-compare th[scope='row'] {
+  width: 26%;
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
+}
+.bx-gr-compare .is-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bx-gr-compare tr.is-mismatch td,
+.bx-gr-compare tr.is-mismatch th {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+.bx-gr-compare tr.is-mismatch th[scope='row'] {
+  box-shadow: inset 3px 0 0 var(--warning-solid);
+}
+.bx-gr-compare tr.is-info th[scope='row'] {
+  box-shadow: inset 3px 0 0 var(--info-solid);
+}
+.bx-gr-mark {
+  display: inline-block;
+  min-width: 1.2em;
+  font-weight: var(--fw-bold);
+}
+
+.bx-gr-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bx-gr-suggestion {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.bx-gr-suggestion__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+.bx-gr-suggestion__reasons {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+
+.bx-gr-notes {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+.bx-gr-notes li + li {
+  margin-top: var(--space-1);
+}
+
+.bx-gr-mail {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  white-space: pre-wrap;
+}
