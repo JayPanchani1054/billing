@@ -69,7 +69,8 @@ export type VoucherWarningCode =
   | 'tracking_ref'
   | 'period_locked'
   | 'gst_lut'
-  | 'gst_invoice_number';
+  | 'gst_invoice_number'
+  | 'negative_value';
 
 export interface VoucherWarning {
   code: VoucherWarningCode;

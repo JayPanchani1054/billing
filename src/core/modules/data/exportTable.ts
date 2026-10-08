@@ -144,10 +144,6 @@ function buildXlsx(input: ExportTableInput, companyName: string): Uint8Array {
 
 export function exportTable(ctx: CompanyCtx, input: ExportTableInput): ExportFileResult {
   requirePermission(ctx, 'data.export');
-  const width = input.columns.length;
-  input.rows.forEach((r, i) => {
-    if (r.length > width + 50) throw new Error(`row ${i} is wider than the columns`);
-  });
   const companyName = input.company ?? ctx.company.name;
   let out: ExportFileResult;
   if (input.format === 'csv') {

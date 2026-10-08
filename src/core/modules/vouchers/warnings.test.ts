@@ -37,6 +37,19 @@ describe('warning levels', () => {
     k.t.close();
   });
 
+  it('an HSN shorter than the configured digits is flagged like a missing one', () => {
+    const k = setupKit();
+    const short = k.t.addStockItem({ name: 'Short HSN', gstRate: 18, hsnSac: '85', openingQty: 10, openingRate: 10 });
+    const b2b = previewVoucher(k.t.ctx, salesInput(k, { items: [{ itemId: short, qty: 1, rate: 100 }] }));
+    assert.deepEqual(b2b.warnings.map((w) => [w.code, w.level, w.message]), [
+      ['gst_missing_hsn', 'confirm', 'Line 1 (Short HSN): HSN/SAC 85 has 2 digits; GST returns need at least 4 (F12 › GST › HSN digits).'],
+    ]);
+    // Turnover above ₹5 crore → 6 digits: the 4-digit HSN 8509 of the mixer is now short too.
+    k.t.db.run(`UPDATE settings SET value = json_set(value, '$.gst.hsnDigits', 6) WHERE key = 'config'`);
+    assert.match(previewVoucher(k.t.ctx, salesInput(k)).warnings[0]?.message ?? '', /HSN\/SAC 8509 has 4 digits; GST returns need at least 6/);
+    k.t.close();
+  });
+
   it('material engine warnings (GSTIN registered in another state) need confirmation', () => {
     const k = setupKit();
     const odd = k.t.addLedger({ name: 'Mismatch Traders', group: 'SUNDRY_DEBTORS', gstin: makeGstin('29', testPan(9)), stateCode: '27' });
@@ -105,6 +118,19 @@ describe('warning levels', () => {
     assert.equal(bad.warnings[0]?.code, 'gst_invoice_number');
     const ok = previewVoucher(k.t.ctx, salesInput(k, { number: 'INV/26-27/0001' }));
     assert.deepEqual(ok.warnings, []);
+    k.t.close();
+  });
+
+  it('an invoice whose discounts exceed its value is refused (no negative invoices)', () => {
+    const k = setupKit();
+    // Mixer 1 × ₹10 = ₹10.00 + CGST 0.90 + SGST 0.90 = ₹11.80; non-GST discount ₹20.00 → ₹-8.20 → rounded ₹-8.00.
+    // Before the fix this posted Cr Acme ₹8.00 on a sales invoice and stored total_amount = −800.
+    const input = salesInput(k, { items: [{ itemId: k.I.mixer, qty: 1, rate: 10 }], ledgers: [{ ledgerId: k.L.discount, amount: -2000 }] });
+    const p = previewVoucher(k.t.ctx, input);
+    assert.equal(p.totals.grandTotal, -800);
+    assert.deepEqual(p.warnings.map((w) => [w.code, w.level, w.path]), [['negative_value', 'block', 'ledgers']]);
+    const err = throwsApp(() => saveVoucher(k.t.ctx, { ...input, acknowledgeWarnings: true }), 'BUSINESS_RULE', /The invoice value is -₹ 8\.00/);
+    assert.equal(ruleDetails(err).needsConfirmation, undefined);
     k.t.close();
   });
 

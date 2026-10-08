@@ -3,7 +3,7 @@
  * strip, party/group pickers and print/PDF output of ready HTML documents.
  */
 import { useMemo } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, Ref } from 'react';
 import { todayLocal } from '../../../shared/dates.ts';
 import { formatDrCr } from '../../../shared/format.ts';
 import type { OutstandingSide, PartySummaryResult } from '../../../shared/types/outstanding.ts';
@@ -104,9 +104,9 @@ export interface PartyOption {
  * Debtors and creditors (and bill-wise ledgers in the outstanding scope) for party pickers, from
  * 'outstanding.partySummary' — needs only reports.view.
  */
-export function usePartyOptions(asOf: string): { options: PartyOption[]; loading: boolean } {
-  const rec = useApiQuery('outstanding.partySummary', { side: 'receivable', asOf, includeZero: true }, { staleTime: 60_000 });
-  const pay = useApiQuery('outstanding.partySummary', { side: 'payable', asOf, includeZero: true }, { staleTime: 60_000 });
+export function usePartyOptions(asOf: string, enabled = true): { options: PartyOption[]; loading: boolean } {
+  const rec = useApiQuery('outstanding.partySummary', { side: 'receivable', asOf, includeZero: true }, { staleTime: 60_000, enabled });
+  const pay = useApiQuery('outstanding.partySummary', { side: 'payable', asOf, includeZero: true }, { staleTime: 60_000, enabled });
   const options = useMemo(() => {
     const out = new Map<number, PartyOption>();
     for (const r of rec.data?.rows ?? []) out.set(r.ledgerId, { id: r.ledgerId, name: r.ledgerName, groupName: r.groupName, side: 'receivable', balance: r.pending });
@@ -122,12 +122,14 @@ export function PartyPicker({
   onChange,
   autoFocus,
   placeholder = 'Type a party name',
+  inputRef,
 }: {
   options: readonly PartyOption[];
   value: number | null;
   onChange: (id: number | null) => void;
   autoFocus?: boolean;
   placeholder?: string;
+  inputRef?: Ref<HTMLInputElement>;
 }) {
   const selected = options.find((o) => o.id === value) ?? null;
   return (
@@ -143,6 +145,8 @@ export function PartyPicker({
       placeholder={placeholder}
       autoFocus={autoFocus}
       emptyText="No party by that name"
+      clearable={false}
+      ref={inputRef}
     />
   );
 }

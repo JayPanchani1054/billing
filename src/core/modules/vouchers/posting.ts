@@ -692,6 +692,17 @@ class PostingBuilder {
     };
     this.grandTotal = grand;
     this.roundOffAmount = roundOff;
+    if (grand < 0) {
+      // A negative document would post the party on the wrong side (a sale crediting the customer) and
+      // report a negative invoice in GST returns; a reduction is a Credit/Debit Note.
+      this.warn(
+        'negative_value',
+        `The invoice value is ${money(grand)}: discounts and deductions exceed the value of the ${mode === 'item_invoice' ? 'items' : 'lines'}. ` +
+          'Reduce them, or record the reduction as a Credit Note / Debit Note.',
+        'block',
+        'ledgers',
+      );
+    }
 
     // Engine warnings (GST documents only), minus the ones reported with their own codes below.
     if (gstOn && GST_BASE_TYPES.includes(base)) {
@@ -870,15 +881,20 @@ class PostingBuilder {
       }
       // HSN/SAC: mandatory on B2B / export / SEZ / deemed-export lines (confirm); on other outward
       // documents it is still needed for the GSTR-1 HSN summary (Table 12), so it is shown (info).
+      // A code shorter than F12 › GST › HSN digits (4 up to ₹5 crore turnover, 6 above) is reported the same way.
       const hsnLevel: VoucherWarningLevel | null = HSN_REQUIRED.has(nature) ? 'confirm' : outward ? 'info' : null;
+      const minDigits = Math.max(0, Math.min(8, Number(env.config.gst.hsnDigits) || 0));
       if (hsnLevel) {
         meta.forEach((m, j) => {
           const cl = computed[j];
-          if (cl.absorbed || cl.taxableValue === 0 || cl.hsnSac) return;
+          if (cl.absorbed || cl.taxableValue === 0) return;
           if (hsnLevel === 'info' && cl.taxability === 'non_gst') return;
+          const digits = cl.hsnSac.replace(/\D/g, '').length;
+          if (cl.hsnSac && digits >= minDigits) return;
           const label = m.kind === 'item' ? `Line ${m.index + 1} (${m.item?.name ?? ''})` : (m.ledger?.name ?? `Ledger line ${m.index + 1}`);
-          const msg =
-            hsnLevel === 'confirm'
+          const msg = cl.hsnSac
+            ? `${label}: HSN/SAC ${cl.hsnSac} has ${digits} digit${digits === 1 ? '' : 's'}; GST returns need at least ${minDigits} (F12 › GST › HSN digits).`
+            : hsnLevel === 'confirm'
               ? `${label}: HSN/SAC code is required on this invoice.`
               : `${label}: no HSN/SAC code; it is needed for the HSN summary of GSTR-1.`;
           this.warn('gst_missing_hsn', msg, hsnLevel, m.kind === 'item' ? `items[${m.index}]` : `ledgers[${m.index}]`);

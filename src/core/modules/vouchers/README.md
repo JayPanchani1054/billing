@@ -302,7 +302,7 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 | `credit_limit` | per guard | party balance after the voucher > `credit_limit` (only when the voucher increases the Dr balance) |
 | `duplicate_reference` | per guard | purchase: same party + reference no. (case-insensitive) in the same FY |
 | `gst_missing_gstin` | confirm | registered party (regular / composition / sez / uin / deemed export) without a GSTIN |
-| `gst_missing_hsn` | confirm on B2B / export / SEZ / deemed-export lines; info on other outward lines (needed for the GSTR-1 HSN summary) | line without HSN/SAC |
+| `gst_missing_hsn` | confirm on B2B / export / SEZ / deemed-export lines; info on other outward lines (needed for the GSTR-1 HSN summary) | line without HSN/SAC, or with fewer digits than F12 › GST › HSN digits (4 up to ₹5 crore turnover, 6 above) |
 | `gst_missing_rate` | confirm | no GST rate found (taxed at 0%) |
 | `gst` | confirm, or info for presentation notes | any other GST engine warning. **info:** non-standard rate, slab merged on 22-Sep-2025, unit not a GST UQC, tax-inclusive rate ignored, apportionment notes, supply type defaulted, amount rounded to paise. **confirm:** everything else (invalid GSTIN, GSTIN registered in another state, GSTIN on an unregistered party, unknown state / place of supply, composition inter-state goods, 0% on a taxable line, negative taxable value, invalid numbers or rates, …) |
 | `gst_lut` | confirm | export / SEZ supply under LUT (`withPayment` not set) with tax-bearing lines and no LUT in F12 › GST valid on the date (`lutNumber`, `lutValidFrom` ≤ date ≤ `lutValidTo`) |
@@ -314,6 +314,7 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 | `contra_ledger` | block | Contra line not Cash/Bank/Bank OD |
 | `journal_cash_bank` | block | Journal touching Cash/Bank (as Tally does by default) |
 | `zero_value` | block | no non-zero entries (unless the type allows zero value) |
+| `negative_value` | block | invoice modes: the invoice value G is below zero (discount/deduction lines exceed the goods/services) |
 | `bill_mismatch` / `bill_name_required` / `bill_not_found` | block | bill-wise rules (§5) |
 | `bill_over_settled` / `duplicate_bill_ref` | confirm | bill-wise rules (§5) |
 | `cost_mismatch` | block | cost-centre rules (§5) |
