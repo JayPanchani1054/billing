@@ -92,7 +92,7 @@ export interface VoucherGotoItem {
   params: { id: number };
 }
 
-/** Go To results for vouchers: open in alteration (Tally), or the read-only view when cancelled. */
+/** Go To results for vouchers: open in alteration (Tally), or the read-only view when cancelled or its e-invoice is generated. */
 export function voucherGotoItems(rows: readonly VoucherListRow[]): VoucherGotoItem[] {
   return rows.map((r) => {
     const status = r.isCancelled ? 'Cancelled' : r.isOptional ? 'Optional' : '';
@@ -102,7 +102,7 @@ export function voucherGotoItems(rows: readonly VoucherListRow[]): VoucherGotoIt
       group: 'Vouchers',
       description: [formatDate(r.date), r.partyName ?? '', r.isCancelled ? '' : `₹ ${formatMoney(Math.abs(r.amount))}`, status].filter(Boolean).join(' · '),
       keywords: [r.number ?? '', r.partyName ?? '', r.referenceNo ?? ''].filter(Boolean),
-      screen: r.isCancelled ? 'vouchers.view' : 'vouchers.entry',
+      screen: r.isCancelled || r.irnStatus === 'generated' ? 'vouchers.view' : 'vouchers.entry',
       params: { id: r.id },
     };
   });

@@ -11,7 +11,7 @@ import type { VoucherListInput } from '../../../shared/types/vouchers.ts';
 import { ReportScreen, useApiQuery, useFeatures, usePeriod, useWorkingDate } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
 import { Button, Checkbox, DateInput, EmptyState, Inline, TextInput, useDebouncedValue } from '../../ui/index.ts';
-import { baseTypesOf, DAYBOOK_CHIPS, dayBookExportRows, toDayBookRow, toggleChip } from './lib/daybook.ts';
+import { baseTypesOf, DAYBOOK_CHIPS, dayBookExportRows, dayBookExportTotals, SEARCH_MAX, searchText, toDayBookRow, toggleChip } from './lib/daybook.ts';
 import { useVoucherTable, VoucherTable } from './VoucherTable.tsx';
 
 const LIMIT = 1000;
@@ -27,7 +27,7 @@ export function DayBookScreen({ params }: ScreenProps<{ from?: string; to?: stri
   }, [working.date, range.custom]);
   const [chips, setChips] = useState<string[]>([]);
   const [search, setSearch] = useState('');
-  const debounced = useDebouncedValue(search.trim(), 250);
+  const debounced = useDebouncedValue(searchText(search), 250);
   const [includeOptional, setIncludeOptional] = useState(true);
   const [includeCancelled, setIncludeCancelled] = useState(true);
 
@@ -70,6 +70,7 @@ export function DayBookScreen({ params }: ScreenProps<{ from?: string; to?: stri
         period: { from: input.from, to: input.to },
         columns: [{ header: 'Date', kind: 'date' }, { header: 'Particulars' }, { header: 'Vch Type' }, { header: 'Vch No.' }, { header: 'Debit', kind: 'amount' }, { header: 'Credit', kind: 'amount' }],
         rows: dayBookExportRows(rows),
+        totals: rows.length > 0 ? dayBookExportTotals(rows) : undefined,
       })}
       filters={
         <div className="bx-vch-filters">
@@ -80,7 +81,7 @@ export function DayBookScreen({ params }: ScreenProps<{ from?: string; to?: stri
             <Button size="sm" variant="ghost" onClick={() => setRange({ from: period.from, to: period.to, custom: true })}>
               {period.label}
             </Button>
-            <TextInput size="sm" leadingIcon="search" aria-label="Search vouchers" placeholder="Number, party, narration or amount" value={search} onValueChange={setSearch} />
+            <TextInput size="sm" leadingIcon="search" aria-label="Search vouchers" placeholder="Number, party, narration or amount" maxLength={SEARCH_MAX} value={search} onValueChange={setSearch} />
           </Inline>
           <Inline gap={1} align="center" aria-label="Voucher types">
             {visibleChips.map((c) => (

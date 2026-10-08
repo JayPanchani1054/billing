@@ -69,8 +69,10 @@ Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersio
   AES-GCM) in 64 KiB chunks into `<folder>/.<name>.tmp`, manifest filled in place, fsync, atomic rename.
   File name `<Company Name>_<YYYYMMDD-HHmmss>.bahibak` (local time; name made file-system safe).
   Folder: input `folder` (must be absolute) → F12 `backup.folder` → `<dataDir>/backups/<companyId>`.
-  Password: at least 8 characters. Then "keep last N" (F12 `backup.keepLast`) deletes only this company's
-  oldest backups (same company guid) in that folder; `backup_history` row; `backup` audit entry.
+  Password: at least 8 characters. The new file is then read back (header + payload checksum); only if it
+  is intact does "keep last N" (F12 `backup.keepLast`) delete this company's oldest backups (same company
+  id and guid) in that folder — a backup that did not land intact fails with BUSINESS_RULE and every older
+  backup is kept. Then a `backup_history` row and a `backup` audit entry.
 - **Verify** (`checks` in this order): `container` (magic, manifest, format version) → `checksum`
   (payloadSha256) → `password` (encrypted only; `ok:null` + `needsPassword` when none given) →
   `decompress` → `database_checksum` (dbSha256) → `integrity` (PRAGMA integrity_check on a temporary copy)
@@ -84,7 +86,9 @@ Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersio
   or over a CLOSED company (`mode:'replace'`, `replaceId`; its folder is moved to the trash first;
   owner credentials required when that company has security on, 5 wrong tries → 5 minute lock). Replacing
   the open company is refused ("Close the company first"); a backup of another company (different guid)
-  cannot replace a company. `restoreFromFile` / `verifyFile` / `inspectFile` are for the Company Select
+  cannot replace a company — checked against the manifest first and again against the company inside the
+  extracted data (the manifest is plain JSON, so a forged manifest cannot smuggle another company's data
+  over this one). `restoreFromFile` / `verifyFile` / `inspectFile` are for the Company Select
   screen and refuse to run while a company is open.
 
 ## Export
@@ -118,6 +122,11 @@ example rows, plus an Instructions sheet (column, required, type, help, allowed 
   nothing written. `skipInvalid` → good records kept, bad ones rolled back individually and reported.
   `updateExisting` alters existing masters (default: duplicates skipped). `acknowledgeWarnings` saves
   vouchers with non-blocking warnings. One `import_batches` row and one `import` audit entry.
+- Permissions: besides `data.import`, masters kinds need `masters.create` (+ `masters.alter` with
+  `updateExisting`), opening balances / opening stock need `masters.alter`, voucher kinds need
+  `vouchers.create` (the masters services leave permission checks to their routes, so the importer asks).
+- The template's example rows left in a file are refused as errors ("This is example row 1 from the
+  template…") when every mapped column holds the example value and at least three are filled.
 - Masters go through the accounts / inventory services; invoices through `saveVoucher` (GST, round-off and
   stock computed exactly as in manual entry). Typed numbers are kept only when the voucher type allows
   typed numbers (warning otherwise).
@@ -152,7 +161,16 @@ Nothing is written.
   (not in the books); `ISCANCELLED` → cancelled with no entries. Unbalanced vouchers, unknown
   ledgers/items/types, dates before the books beginning or in a locked period are issues (skipped).
   `meta = {v:1, source:'tally', importBatchId, tally:{guid, remoteId, voucherType, isInvoice}, input}`.
-  Duplicates (same Tally GUID, or same voucher type + number in its numbering period) are skipped or updated per `onDuplicate`.
+  Duplicates: same Tally GUID, or the same voucher type + number in its numbering period — except that a
+  number match against a voucher imported from Tally with a *different* GUID is not a duplicate (Tally
+  allows repeated numbers, e.g. manual numbering). `onDuplicate: 'skip'` skips (a number clash with a
+  voucher entered in Bahi ERP is reported as a `number_exists` warning); `'update'` rewrites only vouchers
+  that came from Tally (`meta.source = 'tally'`) and not inside the locked period — a voucher entered here
+  is never overwritten. Imported numbers in the voucher type's own format advance `voucher_counters`.
+- Permissions: `data.import`, plus `masters.create` (masters), `vouchers.create` and `vouchers.backdate`
+  (vouchers are dated in the past), and `masters.alter` / `vouchers.alter` for `onDuplicate: 'update'`.
+- Masters whose parent comes later in the file (Tally lists masters alphabetically) are created
+  parents-first.
 - Masters: one transaction. Vouchers: chunks of 250, each its own transaction, yielding to the event
   loop between chunks (`data.tally.progress`). ONE `import` audit entry + an `import_batches` row
   (`kind 'tally_xml'`).
@@ -172,10 +190,13 @@ missing parents) · `group_tree` (no cycles) · `opening_difference` (Σ opening
 
 ## Tests
 
-`backup.test.ts`, `export.test.ts`, `import.test.ts`, `tally.test.ts`, `verify.test.ts` (88 tests):
+`backup.test.ts`, `export.test.ts`, `import.test.ts`, `tally.test.ts`, `verify.test.ts` (105 tests):
 backup round trip plain / encrypted / wrong password / tampered / truncated / newer schema, retention,
 auto 24 h, restore (new, replace closed, refuse open, wrong password), table export xlsx/csv (paise →
 rupees, formula injection), masters export → import round trip, import preview per-row errors, commit
 all-or-nothing vs skip invalid, invoices through the vouchers service, the full Tally fixture (TB balances,
 pending bills, stock, GST as recorded, optional/cancelled, duplicates, date range), and verify on clean and
-corrupted data.
+corrupted data; review regressions: backup read back before retention, forged-manifest replace refused,
+owner password for a secured company, template example rows refused, import permissions, repeated Tally
+numbers, update never overwriting vouchers entered here, locked period, numbering counters, parents later
+in the file (UTF-16 with BOM, entities).

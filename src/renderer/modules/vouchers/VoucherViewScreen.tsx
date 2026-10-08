@@ -89,6 +89,7 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   );
   const gstRows = useMemo(() => gstByRate(v?.gstLines ?? []), [v]);
 
+  const physical = v?.voucherType.baseType === 'physical_stock';
   const itemColumns = useMemo<Column<PreviewInventoryLine>[]>(
     () => [
       { key: 'lineNo', header: '#', width: 44, kind: 'number', decimals: 0 },
@@ -106,14 +107,17 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
         ),
       },
       { key: 'godownName', header: 'Godown', width: 140 },
-      { key: 'qty', header: 'Quantity', width: 130, align: 'right', render: (r) => <span className="bx-num">{formatQty(Math.abs(r.qty), 3, r.unit)}</span> },
+      // Physical stock stores the adjustment (counted − book): show it signed, not as a quantity.
+      physical
+        ? { key: 'qty', header: 'Adjustment', width: 140, align: 'right', render: (r) => <span className="bx-num">{`${r.qty > 0 ? '+' : r.qty < 0 ? '−' : ''}${formatQty(Math.abs(r.qty), 3, r.unit)}`}</span> }
+        : { key: 'qty', header: 'Quantity', width: 130, align: 'right', render: (r) => <span className="bx-num">{formatQty(Math.abs(r.qty), 3, r.unit)}</span> },
       { key: 'rate', header: 'Rate', width: 110, align: 'right', render: (r) => <span className="bx-num">{formatRate(r.rate)}</span> },
       { key: 'discountPct', header: 'Disc %', width: 80, align: 'right', render: (r) => (r.discountPct ? <span className="bx-num">{formatPercent(r.discountPct)}</span> : '') },
       { key: 'hsnSac', header: 'HSN/SAC', width: 100 },
       { key: 'gstRate', header: 'GST %', width: 80, align: 'right', render: (r) => (r.gstRate === null ? '' : <span className="bx-num">{formatPercent(r.gstRate)}</span>) },
       { key: 'amount', header: 'Amount', kind: 'amount', width: 140, total: true },
     ],
-    [],
+    [physical],
   );
   const entryColumns = useMemo<Column<EntryRow>[]>(
     () => [
@@ -180,7 +184,14 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
     { key: 'Alt+A', label: 'Alter', icon: 'edit', primary: true, onClick: () => v && nav.push('vouchers.entry', { id: v.id }), hidden: !live || !canAlter, disabled: irnGenerated, hint: irnGenerated ? 'An e-invoice has been generated: cancel it instead of altering.' : undefined },
     { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => v && nav.push('print.voucher', { id: v.id }), hidden: !v, group: 'output' },
     { key: 'Alt+2', label: 'Duplicate', icon: 'copy', onClick: () => v && nav.push('vouchers.entry', { duplicateOf: v.id }), hidden: !v || !canCreate, group: 'output' },
-    { key: 'Alt+H', label: 'Edit history', icon: 'clock', onClick: () => v && nav.push('security.audit', { entityType: 'voucher', entityId: v.id }), hidden: !v || !canAudit, group: 'output' },
+    {
+      key: 'Alt+H',
+      label: 'Edit history',
+      icon: 'clock',
+      onClick: () => v && nav.push('security.audit', { entityType: 'voucher', entityId: v.id, entityGuid: v.guid, label: `${v.voucherType.name} ${v.number ?? ''}`.trim() }),
+      hidden: !v || !canAudit,
+      group: 'output',
+    },
     { key: 'Alt+X', label: 'Cancel voucher', icon: 'x-circle', onClick: () => setCancelling(true), hidden: !live || !canAlter, group: 'danger' },
     { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), hidden: !v || !canDelete || irnGenerated, group: 'danger' },
   ];

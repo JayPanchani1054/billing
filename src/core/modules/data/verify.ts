@@ -308,6 +308,8 @@ function duplicateNumbers(db: Db): DataVerifyCheck {
       vt = loadVoucherType(db, r.tid);
       types.set(r.tid, vt);
     }
+    // A voucher type that allows repeated numbers ("Prevent duplicates" off) is not a problem.
+    if (!vt.preventDuplicates) continue;
     const k = `${r.tid}|${r.number}|${periodKey(vt, r.date, fy)}`;
     const list = groups.get(k) ?? [];
     list.push(r);
@@ -318,7 +320,7 @@ function duplicateNumbers(db: Db): DataVerifyCheck {
     if (list.length < 2) continue;
     problems.push(`${list[0].type} number ${list[0].number} is used ${list.length} times: ${list.map((r) => `${formatDate(r.date)} (id ${r.id})`).join(', ')}`);
   }
-  return check('duplicate_numbers', 'Voucher numbers are unique in each series', problems);
+  return check('duplicate_numbers', 'Voucher numbers are unique in each series (where duplicates are prevented)', problems);
 }
 
 /** Run every check. Read-only; safe on a live company. */

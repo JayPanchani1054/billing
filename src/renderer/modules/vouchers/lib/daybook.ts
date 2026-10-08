@@ -20,6 +20,8 @@ export interface DayBookRow {
   narration: string | null;
   isCancelled: boolean;
   isOptional: boolean;
+  /** An e-invoice (IRN) was generated: the voucher can no longer be altered or deleted (cancel only). */
+  irnGenerated: boolean;
 }
 
 export function toDayBookRow(r: VoucherListRow): DayBookRow {
@@ -43,6 +45,7 @@ export function toDayBookRow(r: VoucherListRow): DayBookRow {
     narration: r.narration,
     isCancelled: r.isCancelled,
     isOptional: r.isOptional,
+    irnGenerated: r.irnStatus === 'generated',
   };
 }
 
@@ -94,3 +97,26 @@ export function toggleChip(selected: readonly string[], id: string): string[] {
 export function dayBookExportRows(rows: readonly DayBookRow[]): Array<Array<string | number | null>> {
   return rows.map((r) => [r.date, r.flags.length ? `${r.particulars} (${r.flags.join(', ')})` : r.particulars, r.typeName, r.number, r.debit || null, r.credit || null]);
 }
+
+/** Export totals row (same rule as the screen: optional and cancelled vouchers are not counted). */
+export function dayBookExportTotals(rows: readonly DayBookRow[]): Array<string | number | null> {
+  const t = dayBookTotals(rows);
+  return ['', 'Total (optional and cancelled vouchers not counted)', '', '', t.debit, t.credit];
+}
+
+/** Screen for opening a voucher from a register: alteration (Tally), else the read-only view. */
+export function openTarget(r: Pick<DayBookRow, 'isCancelled' | 'irnGenerated'>, canAlter: boolean): 'vouchers.entry' | 'vouchers.view' {
+  return r.isCancelled || r.irnGenerated || !canAlter ? 'vouchers.view' : 'vouchers.entry';
+}
+
+/** Row to highlight after `id` is deleted: the next one, else the previous one. */
+export function keyAfterRemoval(rows: readonly DayBookRow[], id: number): string | null {
+  const i = rows.findIndex((r) => r.id === id);
+  if (i < 0) return null;
+  const next = rows[i + 1] ?? rows[i - 1];
+  return next ? String(next.id) : null;
+}
+
+/** The list route accepts at most 100 characters of search text. */
+export const SEARCH_MAX = 100;
+export const searchText = (s: string): string => s.trim().slice(0, SEARCH_MAX);

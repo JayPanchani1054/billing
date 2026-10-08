@@ -42,7 +42,7 @@ export interface DashboardParams {
 function useSummary(): { q: ApiQueryResult<DashboardSummary>; asOf: string } {
   const { date } = useWorkingDate();
   const { from, to } = usePeriod();
-  const q = useApiQuery('dashboard.summary', { asOf: date, from, to }, { keepPrevious: true, staleTime: 60_000 }) as ApiQueryResult<DashboardSummary>;
+  const q = useApiQuery('dashboard.summary', { asOf: date, from, to }, { keepPrevious: true, staleTime: 60_000 });
   return { q, asOf: date };
 }
 

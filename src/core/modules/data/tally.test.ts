@@ -471,3 +471,33 @@ describe('data.tally.import: repeated numbers and existing vouchers', () => {
   });
 });
 
+describe('data.tally: tricky XML', () => {
+  it('BOM + entities + a parent defined later + a missing parent: imports what it can and reports the rest', async () => {
+    const xml = `<ENVELOPE><BODY><IMPORTDATA><REQUESTDATA>
+<TALLYMESSAGE><GROUP NAME="Mumbai R&amp;D" RESERVEDNAME=""><PARENT>R&amp;D &amp; Projects</PARENT></GROUP></TALLYMESSAGE>
+<TALLYMESSAGE><GROUP NAME="R&amp;D &amp; Projects" RESERVEDNAME=""><PARENT>&#4; Indirect Expenses</PARENT></GROUP></TALLYMESSAGE>
+<TALLYMESSAGE><LEDGER NAME="Lab Rent &lt;Andheri&gt;" RESERVEDNAME=""><PARENT>Mumbai R&amp;D</PARENT><OPENINGBALANCE>-1500.50</OPENINGBALANCE></LEDGER></TALLYMESSAGE>
+<TALLYMESSAGE><LEDGER NAME="Orphan Ledger" RESERVEDNAME=""><PARENT>No Such Group</PARENT><OPENINGBALANCE>200.00</OPENINGBALANCE></LEDGER></TALLYMESSAGE>
+</REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>`;
+    // UTF-16LE with a BOM this time (FF FE).
+    const body = utf16le(xml);
+    const bytes = new Uint8Array(body.length + 2);
+    bytes.set([0xff, 0xfe], 0);
+    bytes.set(body, 2);
+    const preview = previewTally(t.ctx, { fileName: 'm.xml', bytes });
+    assert.ok(preview.issues.some((i) => i.object === 'LEDGER Orphan Ledger' && i.severity === 'error'));
+    assert.ok(!preview.issues.some((i) => i.object === 'GROUP Mumbai R&D'), 'a parent later in the file is not an issue');
+    const r = await runImport({ vouchers: false }, bytes);
+    assert.equal(r.masters.groups.created, 2, JSON.stringify(r.issues));
+    assert.equal(r.masters.ledgers.created, 1);
+    assert.equal(r.masters.ledgers.failed, 1);
+    // OPENINGBALANCE -1,500.50 in Tally = 1,500.50 Dr here.
+    assert.equal(t.db.value(`SELECT opening_balance FROM ledgers WHERE name = 'Lab Rent <Andheri>'`), 1_500_50);
+    assert.equal(
+      t.db.value(`SELECT p.name FROM groups g JOIN groups p ON p.id = g.parent_id WHERE g.name = 'Mumbai R&D'`),
+      'R&D & Projects',
+    );
+    assert.equal(t.db.value(`SELECT COUNT(*) FROM ledgers WHERE name = 'Orphan Ledger'`), 0);
+  });
+});
+

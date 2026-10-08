@@ -11,7 +11,7 @@ import { useApiMutation, useCan, useConfirm, useNav, userMessage } from '../../a
 import type { ScreenActionItem } from '../../app/index.ts';
 import { Badge, DataTable, useToast } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
-import { dayBookTotals } from './lib/daybook.ts';
+import { dayBookTotals, keyAfterRemoval, openTarget } from './lib/daybook.ts';
 import type { DayBookRow } from './lib/daybook.ts';
 import { VOUCHER_INVALIDATES } from './entry/VoucherEntryScreen.tsx';
 
@@ -37,11 +37,13 @@ export function useVoucherTable(rows: readonly DayBookRow[]): VoucherTableState 
   const selected = rows.find((r) => String(r.id) === selectedKey) ?? null;
 
   const view = (r: DayBookRow) => nav.push('vouchers.view', { id: r.id });
-  const open = (r: DayBookRow) => {
-    if (r.isCancelled || !canAlter) view(r);
-    else nav.push('vouchers.entry', { id: r.id });
-  };
+  // Enter alters (Tally); cancelled vouchers, generated e-invoices and users who may not alter get the view.
+  const open = (r: DayBookRow) => nav.push(openTarget(r, canAlter), { id: r.id });
   const remove = async (r: DayBookRow) => {
+    if (r.irnGenerated) {
+      toast.info('This voucher cannot be deleted', { message: 'Its e-invoice (IRN) has been generated. Open it (Alt+Enter) and cancel it instead.' });
+      return;
+    }
     const ok = await confirm({
       title: `Delete ${r.typeName} ${r.number}?`.replace(/\s+\?/, '?'),
       message: 'The voucher and its GST entries are removed from the books. To keep a record of it instead, open it and cancel it (Alt+X).',
@@ -49,8 +51,10 @@ export function useVoucherTable(rows: readonly DayBookRow[]): VoucherTableState 
       tone: 'danger',
     });
     if (!ok) return;
+    const nextKey = keyAfterRemoval(rows, r.id);
     try {
       await del.mutate({ id: r.id });
+      setSelectedKey(nextKey);
       toast.success(`${r.typeName} ${r.number} deleted`.replace(/\s+/g, ' '));
     } catch (err) {
       toast.error('Could not delete', { message: userMessage(err) });

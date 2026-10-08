@@ -269,7 +269,7 @@ describe('Tally wizard', () => {
     };
     const s = tallyResultSummary(res);
     assert.equal(s.tone, 'warning');
-    assert.deepEqual(s.lines, ['Masters: 13 created, 0 updated, 2 already existed.', 'Vouchers: 10 created, 0 updated, 0 already existed, 1 not imported.']);
+    assert.deepEqual(s.lines, ['Masters: 13 created, 0 updated, 2 already existed.', 'Vouchers: 10 created, 0 updated, 0 skipped (already here — see the notes), 1 not imported.']);
     assert.equal(tallyResultSummary({ ...res, stopped: true }).tone, 'danger');
   });
 });

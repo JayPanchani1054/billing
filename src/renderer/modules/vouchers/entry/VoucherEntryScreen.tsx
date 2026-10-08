@@ -136,17 +136,18 @@ export function VoucherEntryScreen({ params }: ScreenProps<VoucherEntryParams>) 
   // keepPrevious is off and the id is checked: the form must start from THIS type's context.
   const ctx0 = ctxQ.data && type && ctxQ.data.voucherType.id === type.id ? ctxQ.data : undefined;
 
-  // A cancelled voucher cannot be altered: show it read-only.
+  // A cancelled voucher, or one whose e-invoice (IRN) is generated, cannot be altered: show it read-only.
+  const readOnly = !!detail && (detail.isCancelled || detail.irn.status === 'generated');
   useEffect(() => {
-    if (detail?.isCancelled) nav.replace('vouchers.view', { id: detail.id });
-  }, [detail, nav]);
+    if (detail && readOnly) nav.replace('vouchers.view', { id: detail.id });
+  }, [detail, readOnly, nav]);
 
   const label = params.baseType ? baseTypeLabel(params.baseType) : (type?.name ?? 'Voucher');
   const title = params.id !== undefined ? `${detail?.voucherType.name ?? label} Alteration` : `${type?.name ?? label} Voucher`;
   const loading = typesQ.loading || waiting || (type !== null && !ctx0);
   const error = typesQ.error ?? (params.id !== undefined ? detailQ.error : null) ?? (params.duplicateOf !== undefined ? dupQ.error : null) ?? ctxQ.error;
 
-  if (error || loading || !types || detail?.isCancelled) {
+  if (error || loading || !types || readOnly) {
     return <Screen title={title} icon="invoice" loading={!error} error={error} onRetry={() => void (typesQ.refetch(), detailQ.refetch(), dupQ.refetch(), ctxQ.refetch())} />;
   }
   if (!type) {

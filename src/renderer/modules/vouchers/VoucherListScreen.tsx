@@ -14,7 +14,7 @@ import type { VoucherListInput } from '../../../shared/types/vouchers.ts';
 import { ReportScreen, useApiQuery, usePeriod } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
 import { EmptyState, TextInput, useDebouncedValue } from '../../ui/index.ts';
-import { dayBookExportRows, toDayBookRow } from './lib/daybook.ts';
+import { dayBookExportRows, dayBookExportTotals, SEARCH_MAX, searchText, toDayBookRow } from './lib/daybook.ts';
 import { useVoucherTable, VoucherTable } from './VoucherTable.tsx';
 
 export interface VoucherListParams {
@@ -39,7 +39,7 @@ export function VoucherListScreen({ params }: ScreenProps<VoucherListParams>) {
   const from = params.from ?? period.from;
   const to = params.to ?? period.to;
   const [search, setSearch] = useState(params.search ?? '');
-  const debounced = useDebouncedValue(search.trim(), 250);
+  const debounced = useDebouncedValue(searchText(search), 250);
   const input = useMemo<VoucherListInput>(() => {
     const i: VoucherListInput = { from, to, limit: LIMIT, sort: 'date_asc' };
     if (params.voucherTypeIds?.length) i.voucherTypeIds = params.voucherTypeIds;
@@ -72,8 +72,9 @@ export function VoucherListScreen({ params }: ScreenProps<VoucherListParams>) {
         period: { from, to },
         columns: [{ header: 'Date', kind: 'date' }, { header: 'Particulars' }, { header: 'Vch Type' }, { header: 'Vch No.' }, { header: 'Debit', kind: 'amount' }, { header: 'Credit', kind: 'amount' }],
         rows: dayBookExportRows(rows),
+        totals: rows.length > 0 ? dayBookExportTotals(rows) : undefined,
       })}
-      filters={<TextInput size="sm" leadingIcon="search" aria-label="Search vouchers" placeholder="Number, party, narration or amount" value={search} onValueChange={setSearch} />}
+      filters={<TextInput size="sm" leadingIcon="search" aria-label="Search vouchers" placeholder="Number, party, narration or amount" maxLength={SEARCH_MAX} value={search} onValueChange={setSearch} />}
       footer={total > rows.length ? <p className="bx-muted">Showing the first {rows.length.toLocaleString('en-IN')} of {total.toLocaleString('en-IN')} vouchers — narrow the period or search.</p> : undefined}
     >
       <VoucherTable

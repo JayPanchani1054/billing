@@ -371,16 +371,24 @@ function saveTolerant<T extends object, R>(run: Run, object: string, input: T, r
 }
 
 /** Process records whose dependencies (parents) may appear later in the file: repeat until stable. */
-function inDependencyOrder<T extends { name: string }>(records: T[], ready: (r: T) => boolean | 'never'): { ordered: T[]; stuck: T[] } {
+/**
+ * Order records parents-first. `ready` says whether a record's parent already exists in the company
+ * (true), will never exist ('never' — reported when the record is processed), or is still to come
+ * (false). A parent placed earlier in the order also counts as ready: Tally lists masters
+ * alphabetically, so 'Mumbai R&D' often comes before its parent 'R&D Projects'.
+ */
+function inDependencyOrder<T extends { name: string; parent: string | null }>(records: T[], ready: (r: T) => boolean | 'never'): { ordered: T[]; stuck: T[] } {
   let pending = records.filter((r) => r.name);
   const ordered: T[] = [];
+  const placed = new Set<string>();
   for (;;) {
     const next: T[] = [];
     let progressed = false;
     for (const r of pending) {
-      const ok = ready(r);
+      const ok = r.parent !== null && placed.has(key(r.parent)) ? true : ready(r);
       if (ok === true || ok === 'never') {
         ordered.push(r);
+        placed.add(key(r.name));
         progressed = true;
       } else next.push(r);
     }

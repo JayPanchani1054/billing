@@ -5,7 +5,7 @@
  * Keys: Enter next field · Alt+F oldest bills first · Alt+N add line · Ctrl+D remove line ·
  * Ctrl+A accept · Esc cancel.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, diffDays, formatDate } from '../../../../shared/dates.ts';
 import { formatMoney } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
@@ -13,7 +13,7 @@ import { BILL_REF_TYPES } from '../../../../shared/types/vouchers.ts';
 import type { BillAllocationInput, BillRefType, PendingBill } from '../../../../shared/types/vouchers.ts';
 import { formatDrCr, useApiQuery } from '../../../app/index.ts';
 import { AmountInput, Banner, Button, Combobox, DateInput, EmptyState, Hotkeys, IconButton, Modal, Select, TextInput, useEnterAdvance } from '../../../ui/index.ts';
-import { allocationRemaining, autoAllocateFifo, checkAllocations, dueDateFor, fifoOrder, REF_TYPE_LABEL, settleableBills } from '../lib/bills.ts';
+import { allocationRemaining, autoAllocateFifo, checkAllocations, defaultAllocation, fifoOrder, REF_TYPE_LABEL, settleableBills } from '../lib/bills.ts';
 
 export interface BillsDialogProps {
   ledgerId: number;
@@ -47,10 +47,22 @@ export function BillsDialog(props: BillsDialogProps) {
   const pending = useMemo(() => fifoOrder(pendingQ.data ?? []), [pendingQ.data]);
   const settleable = useMemo(() => settleableBills(pending, side), [pending, side]);
   const seq = useRef(1000);
+  const fresh = !initial || initial.length === 0;
   const [lines, setLines] = useState<Line[]>(() => {
-    const src = initial && initial.length > 0 ? initial : [{ refType: 'new' as BillRefType, billName: suggestedName, amount, creditDays: creditDays ?? undefined, dueDate: dueDateFor(date, creditDays) ?? undefined }];
+    const src = fresh ? defaultAllocation({ pending: [], amount, side, date, suggestedName, creditDays, invoiceParty: !!allowDefault }) : initial;
     return src.map((b, i) => ({ ...b, k: i }));
   });
+  // Tally: a receipt / payment against a party with pending bills starts as "Agst Ref" on the oldest
+  // bills. The bills arrive after the dialog opens: apply that default once, unless the user has typed.
+  const edited = useRef(false);
+  const defaulted = useRef(false);
+  useEffect(() => {
+    if (!fresh || defaulted.current || edited.current || !pendingQ.data) return;
+    defaulted.current = true;
+    const src = defaultAllocation({ pending: pendingQ.data, amount, side, date, suggestedName, creditDays, invoiceParty: !!allowDefault });
+    setLines(src.map((b) => ({ ...b, k: nextK() })));
+    // Runs once, when the pending bills arrive.
+  }, [pendingQ.data]);
   const nextK = () => {
     seq.current += 1;
     return seq.current;
@@ -59,13 +71,27 @@ export function BillsDialog(props: BillsDialogProps) {
   const remaining = allocationRemaining(lines, amount);
   const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => accept() });
 
-  const patch = (k: number, p: Partial<BillAllocationInput>) => setLines((ls) => ls.map((l) => (l.k === k ? { ...l, ...p } : l)));
-  const remove = (k: number) => setLines((ls) => ls.filter((l) => l.k !== k));
+  const patch = (k: number, p: Partial<BillAllocationInput>) => {
+    edited.current = true;
+    setLines((ls) => ls.map((l) => (l.k === k ? { ...l, ...p } : l)));
+  };
+  const remove = (k: number) => {
+    edited.current = true;
+    setLines((ls) => ls.filter((l) => l.k !== k));
+  };
+  /** Ctrl+D: remove the line the cursor is on. */
+  const removeFocused = () => {
+    const tr = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-bill-line]');
+    const k = tr ? Number(tr.dataset.billLine) : NaN;
+    if (Number.isFinite(k)) remove(k);
+  };
   const addLine = (b?: Partial<BillAllocationInput>) => {
+    edited.current = true;
     const left = Math.max(0, allocationRemaining(lines, amount));
     setLines((ls) => [...ls, { k: nextK(), refType: 'against', billName: '', amount: left, ...b }]);
   };
   const fifo = () => {
+    edited.current = true;
     const out = autoAllocateFifo(pending, amount, side, { remainder: 'on_account' });
     setLines(out.map((b) => ({ ...b, k: nextK() })));
   };
@@ -114,7 +140,7 @@ export function BillsDialog(props: BillsDialogProps) {
         </>
       }
     >
-      <Hotkeys map={{ 'Ctrl+A': () => accept(), 'Alt+F': () => fifo(), 'Alt+N': () => addLine() }} />
+      <Hotkeys map={{ 'Ctrl+A': () => accept(), 'Alt+F': () => fifo(), 'Alt+N': () => addLine(), 'Ctrl+D': () => removeFocused() }} />
       <div className="bx-vch-bills">
         <div className="bx-vch-bills__lines" ref={formRef}>
           <table className="bx-vch-mini" aria-label="Bill allocations">
@@ -133,7 +159,7 @@ export function BillsDialog(props: BillsDialogProps) {
             </thead>
             <tbody>
               {lines.map((l) => (
-                <tr key={l.k}>
+                <tr key={l.k} data-bill-line={l.k}>
                   <td>
                     <Select<BillRefType> aria-label="Type of reference" size="sm" options={REF_OPTIONS} value={l.refType} onChange={(v) => patch(l.k, { refType: v, billName: v === 'on_account' ? undefined : l.billName })} />
                   </td>

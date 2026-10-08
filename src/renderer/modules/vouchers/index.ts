@@ -13,6 +13,7 @@ import { api, registerGotoProvider } from '../../app/index.ts';
 import { VOUCHER_FEATURE } from '../../app/lib/shortcuts.ts';
 import { DayBookScreen } from './DayBookScreen.tsx';
 import { VoucherEntryScreen } from './entry/VoucherEntryScreen.tsx';
+import { searchText } from './lib/daybook.ts';
 import { voucherGotoItems, voucherMenuEntries } from './lib/menu.ts';
 import { VoucherListScreen } from './VoucherListScreen.tsx';
 import { VoucherViewScreen } from './VoucherViewScreen.tsx';
@@ -26,7 +27,9 @@ registerGotoProvider({
   label: 'Vouchers',
   minQuery: 1,
   search: async (query) => {
-    const out = await api('vouchers.list', { from: '1900-01-01', to: '2999-12-31', search: query.trim(), limit: 8, sort: 'date_desc' });
+    const search = searchText(query);
+    if (search === '') return [];
+    const out = await api('vouchers.list', { from: '1900-01-01', to: '2999-12-31', search, limit: 8, sort: 'date_desc' });
     return voucherGotoItems(out.rows);
   },
 });

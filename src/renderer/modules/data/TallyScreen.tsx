@@ -96,7 +96,8 @@ export function TallyScreen() {
     const errs = issueCounts(preview.issues).error;
     const ok = await confirm({
       title: `Import this Tally data${company ? ` into ${company.name}` : ''}?`,
-      message: `${masters ? 'Masters' : ''}${masters && vouchers ? ' and ' : ''}${vouchers ? `vouchers${from && to ? ` from ${formatDate(from)} to ${formatDate(to)}` : ''}` : ''} will be added. ${errs ? `${errs} record${errs === 1 ? '' : 's'} with errors will be left out. ` : ''}Take a backup first if this company already has data.`,
+      message: `${masters ? 'Masters' : ''}${masters && vouchers ? ' and ' : ''}${vouchers ? `vouchers${from && to ? ` from ${formatDate(from)} to ${formatDate(to)}` : ''}` : ''} will be added.${onDuplicate === 'update' ? ' Masters that already exist here are changed to match Tally.' : ''} ${errs ? `${errs} record${errs === 1 ? '' : 's'} with errors will be left out. ` : ''}Take a backup first if this company already has data.`,
+      tone: onDuplicate === 'update' ? 'danger' : undefined,
       confirmLabel: 'Start import',
     });
     if (!ok) return;
@@ -182,7 +183,7 @@ export function TallyScreen() {
                   orientation="horizontal"
                   options={[
                     { value: 'skip', label: 'Keep mine (skip)', description: 'Safe to import the same file twice' },
-                    { value: 'update', label: 'Replace with Tally’s', description: 'Masters and vouchers are overwritten' },
+                    { value: 'update', label: 'Update from Tally', description: 'Masters change to match Tally; vouchers imported from Tally before are refreshed. Vouchers entered here are never overwritten.' },
                   ]}
                 />
                 {optionsProblem ? <p className="bx-muted" role="status">{optionsProblem}</p> : null}

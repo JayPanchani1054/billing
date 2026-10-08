@@ -74,6 +74,31 @@ export function dueDateFor(date: string, creditDays: number | null | undefined):
   return addDays(date, Math.round(creditDays));
 }
 
+/**
+ * What the bill-wise dialog starts with (Tally): an entry that can settle pending bills of the other
+ * side (a receipt from a customer who owes, a payment to a supplier) is allocated against the oldest
+ * bills first, the rest On Account; an invoice party — or a ledger with nothing to settle — starts a
+ * New Ref named after the voucher (purchase: the supplier's invoice no.) with the credit period.
+ */
+export function defaultAllocation(o: {
+  pending: readonly PendingBill[];
+  amount: Paise;
+  side: 'dr' | 'cr';
+  date: string;
+  suggestedName: string;
+  creditDays: number | null;
+  invoiceParty: boolean;
+}): BillAllocationInput[] {
+  if (!o.invoiceParty && settleableBills(o.pending, o.side).length > 0) return autoAllocateFifo(o.pending, o.amount, o.side, { remainder: 'on_account' });
+  const line: BillAllocationInput = { refType: 'new', billName: o.suggestedName, amount: Math.abs(o.amount) };
+  const due = dueDateFor(o.date, o.creditDays);
+  if (due && o.creditDays) {
+    line.creditDays = o.creditDays;
+    line.dueDate = due;
+  }
+  return [line];
+}
+
 export interface AllocationIssue {
   index: number | null;
   message: string;

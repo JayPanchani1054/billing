@@ -217,7 +217,7 @@ export function tallyResultSummary(r: TallyImportResult): { tone: 'success' | 'w
   );
   const lines = [
     `Masters: ${m.created} created, ${m.updated} updated, ${m.skipped} already existed${m.failed ? `, ${m.failed} failed` : ''}.`,
-    `Vouchers: ${r.vouchers.created} created, ${r.vouchers.updated} updated, ${r.vouchers.skipped} already existed${r.vouchers.failed ? `, ${r.vouchers.failed} not imported` : ''}.`,
+    `Vouchers: ${r.vouchers.created} created, ${r.vouchers.updated} updated, ${r.vouchers.skipped} skipped (already here — see the notes)${r.vouchers.failed ? `, ${r.vouchers.failed} not imported` : ''}.`,
   ];
   const errors = r.issues.filter((i) => i.severity === 'error').length;
   if (r.stopped) return { tone: 'danger', title: 'The import stopped part-way', lines: [...lines, 'Everything up to the problem was saved. Fix the cause and import the same file again — existing records are skipped.'] };
