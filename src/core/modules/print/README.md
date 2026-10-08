@@ -79,6 +79,38 @@ Copy labels: goods invoices *Original for Recipient / Duplicate for Transporter 
 Supplier*; services *Original for Recipient / Duplicate for Supplier*; challans *Original for
 Consignee / Duplicate for Transporter / Triplicate for Consigner*; everything else plain.
 
+## Statutory checks (compliance.ts)
+
+`warnings` also lists missing statutory particulars of documents the company issues (never for
+purchases from suppliers, cancelled / optional vouchers, or a company not under GST). They never block
+printing; the preview shows them under "Before you print".
+
+| Check | Rule |
+|---|---|
+| Serial number present, ≤ 16 characters, only letters / digits / `-` / `/` (invoices, notes, challans) | CGST 46(b), 55(1)(a) |
+| Registered buyer has a GSTIN and an address; unregistered buyer with taxable value ≥ ₹50,000 has name, address and state | 46(d), 46(e) |
+| Export invoice names the country of destination | proviso to 46 |
+| Place of supply present (taxed documents) | 46(n) |
+| HSN/SAC: ≥ 4 digits on B2B / export / SEZ lines; ≥ F12 › GST › HSN digits (6/8) on every line above ₹5 crore | 46(g), N/N 78/2020-CT |
+| Credit / debit note names the invoice it adjusts | 53(1)(g) |
+| E-invoicing on (F11): B2B / export / SEZ invoice or note has an IRN | 48(4), 48(5) |
+| Taxable line with no GST rate on a regular dealer's invoice (other than export / SEZ) | master data |
+
+## Presentation rules
+
+- A Bill of Supply has `gst.showTax = false` (no tax columns, rate summary or reverse-charge line;
+  HSN stays on the lines) — Rule 49.
+- Inward documents (purchases, notes from suppliers) have no ship-to box (`consignee = null`); a
+  purchase order ships to the company.
+- A delivery challan without a separate ship-to labels the party *Consignee (Ship to)*; its place of
+  supply is the consignee's (else the party's) state when the voucher has none — Rule 55(1)(d), (g).
+- Terms & conditions print on what the company sells (invoices, outward debit notes, sales orders),
+  not on credit notes or challans.
+- Bank details only ever come from a ledger under Bank Accounts / Bank OD (a party ledger id in the
+  configuration or a preview override prints nothing).
+- An imported accounting invoice of a company not under GST (no `gst_lines`) prints its sales /
+  purchase ledger entries as the lines.
+
 ## Options
 
 `options` = F12 › Invoice printing, then the voucher type's `config` (`printTemplate`,
@@ -87,15 +119,19 @@ Consignee / Duplicate for Transporter / Triplicate for Consigner*; everything el
 - Bank details: outward invoices / debit notes / sales orders when `showBankDetails` and a bank
   ledger is chosen.
 - UPI: `showUpiQr` and a UPI id (`options.upiId`, else the bank ledger's) on outward documents with
-  a positive total that are not cancelled → `upi.uri` =
+  a positive total that are not cancelled and not export invoices (UPI collects rupees from Indian
+  accounts) → `upi.uri` =
   `upi://pay?pa=<vpa>&pn=<company>&am=<rupees.paise>&cu=INR&tn=<title number>` (percent-encoded).
-- Declaration only on sales documents and outward debit notes; terms on outward documents.
+- Declaration only on sales documents and outward debit notes; terms as above.
 - E-invoice (`irn`, `ackNo`, `ackDate`, `signedQr`) and e-way bill come from the voucher.
 - `navigation.prevId / nextId`: same voucher type, ordered by date, number sequence, id.
 
 ## Known gaps
 
-- `print.print` in the main process always asks Chromium for A4 paper, and `print.savePdf`
-  accepts A4/A5/Letter/Legal only. A5 prints use an A5 `@page` rule (honoured when the printer
-  dialog leaves paper to the document); 80 mm receipts are laid out at 80 mm on an A4 PDF page.
+- `print.print` in the main process (src/main/print.ts) always asks Chromium for A4 paper, and
+  `print.savePdf` accepts A4/A5/Letter/Legal only (no `preferCSSPageSize`). A5 prints use an A5
+  `@page` rule (honoured when the printer dialog leaves paper to the document); 80 mm receipts keep
+  a 72 mm-wide, centred layout on whatever sheet is used (an A4 page in a PDF).
+- With several copies or vouchers in one job, pages show "Page n" (Chromium cannot restart the page
+  counter per document); a single document shows "Page n of m".
 - Multi-currency invoices print in rupees only.

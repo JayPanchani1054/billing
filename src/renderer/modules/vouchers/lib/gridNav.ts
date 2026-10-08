@@ -5,6 +5,7 @@
  * leaves the grid (items → additional ledgers → narration); Shift+Enter goes back; from the first
  * cell of the first row it leaves the grid backwards (to the header).
  */
+import { cellId, headerId } from './errorPaths.ts';
 
 export type NavTarget = { kind: 'cell'; rowKey: string; column: string } | { kind: 'exit-forward' } | { kind: 'exit-back' };
 
@@ -56,4 +57,50 @@ export function verticalCell(m: GridModel, at: { rowKey: string; column: string 
   if (r < 0 || k === undefined) return null;
   const column = cellsOf(m, k).includes(at.column) ? at.column : m.columns[0];
   return { kind: 'cell', rowKey: k, column };
+}
+
+/** Body sections of the entry screen in Enter order (the header comes before, Accept after). */
+export type EntrySection = 'items' | 'items:src' | 'items:dst' | 'ledgers' | 'narration';
+
+/**
+ * Item invoice: items → additional ledgers → narration. Stock journal: source → destination →
+ * narration. Other stock documents: items → narration. Accounting invoice / ledger vouchers:
+ * ledgers → narration.
+ */
+export function entrySections(mode: 'item_invoice' | 'accounting_invoice' | 'ledger' | 'inventory', baseType: string): EntrySection[] {
+  if (baseType === 'stock_journal') return ['items:src', 'items:dst', 'narration'];
+  if (mode === 'item_invoice') return ['items', 'ledgers', 'narration'];
+  if (mode === 'inventory') return ['items', 'narration'];
+  return ['ledgers', 'narration'];
+}
+
+/** Section after / before `current` ('header' before the first; 'accept' after the narration). */
+export function neighbourSection(sections: readonly EntrySection[], current: EntrySection, dir: 'forward' | 'back'): EntrySection | 'header' | 'accept' {
+  const i = sections.indexOf(current);
+  if (i < 0) return dir === 'forward' ? 'accept' : 'header';
+  const j = dir === 'forward' ? i + 1 : i - 1;
+  if (j < 0) return 'header';
+  return sections[j] ?? 'accept';
+}
+
+/**
+ * Where the cursor starts on the entry screen (Tally): a manually numbered new voucher asks for its
+ * number first; then the party of an invoice / order / note; then the cash or bank Account of a
+ * single-entry payment / receipt / contra; otherwise the first line of the first grid. The date is
+ * one key away (F2).
+ */
+export function initialFocusId(o: {
+  manualNumber: boolean;
+  partyShown: boolean;
+  singleAccount: boolean;
+  firstSection: EntrySection;
+  firstRowKey: string | null;
+}): string {
+  if (o.manualNumber) return headerId('number');
+  if (o.partyShown) return headerId('party');
+  if (o.singleAccount) return headerId('account');
+  if (o.firstRowKey !== null && o.firstSection !== 'narration') {
+    return o.firstSection === 'ledgers' ? cellId('ledgers', o.firstRowKey, 'ledger') : cellId('items', o.firstRowKey, 'item');
+  }
+  return headerId('date');
 }

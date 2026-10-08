@@ -10,7 +10,7 @@ import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, DataTable, EmptyState, Stack, Tabs } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
-import { voucherTarget } from './lib/model.ts';
+import { currentRow, voucherTarget } from './lib/model.ts';
 
 type Tab = 'balances' | 'optional' | 'postDated' | 'cancelled' | 'memorandum' | 'noNarration';
 
@@ -37,6 +37,7 @@ export function ExceptionsScreen({ params }: ScreenProps<{ from?: string; to?: s
     memorandum: d?.memorandum ?? [],
     noNarration: d?.noNarration ?? [],
   };
+  const selected = tab === 'balances' ? null : currentRow(cursor, lists[tab], (r) => r.id);
   const count = (t: Tab): number => (t === 'balances' ? (d?.negativeLedgers.length ?? 0) : lists[t].length);
 
   const balanceColumns = useMemo<Column<NegativeLedgerRow>[]>(
@@ -62,7 +63,7 @@ export function ExceptionsScreen({ params }: ScreenProps<{ from?: string; to?: s
 
   const actions: ScreenActionItem[] = [
     ...TABS.map((t) => ({ key: t.key, label: t.label, onClick: () => setTab(t.id), disabled: tab === t.id, group: 'tabs' })),
-    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit' as const, onClick: () => cursor && drill(voucherTarget(cursor.id, cursor.baseType, true)), hidden: tab === 'balances', disabled: !cursor || tab === 'cancelled', group: 'voucher' },
+    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit' as const, onClick: () => selected && tab !== 'cancelled' && drill(voucherTarget(selected.id, selected.baseType, true)), hidden: tab === 'balances', disabled: !selected || tab === 'cancelled', group: 'voucher' },
   ];
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   return (

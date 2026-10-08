@@ -221,3 +221,16 @@ test('texts', () => {
   );
   assert.match(effectiveGstText(null, null), /sales or purchase ledger/);
 });
+
+test('a service saves no (hidden) alternate unit and is not checked for one', () => {
+  const saved = detail({ altUnitId: 7, altUnitSymbol: 'Box', altConversion: 12 });
+  // Switched to a service with a half-typed alternate unit left behind (the field is hidden then).
+  const d = { ...itemDraftFromDetail(saved), isService: true, hsnSac: '998729', altConversion: null, openings: [] };
+  assert.deepEqual(validateItemDraft(d, saved, ctx), {});
+  const input = itemSaveInput(d, saved, ctx);
+  assert.equal(input.altUnitId, null);
+  assert.equal(input.altConversion, null);
+  // Goods keep it: 1 Box = 12 Nos.
+  const goods = itemSaveInput(itemDraftFromDetail(saved), saved, ctx);
+  assert.deepEqual([goods.altUnitId, goods.altConversion], [7, 12]);
+});

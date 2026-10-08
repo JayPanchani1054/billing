@@ -14,7 +14,7 @@ import type { GstDutyHead, GstTaxDirection } from '../../../shared/constants.ts'
 import { formatDate } from '../../../shared/dates.ts';
 import { formatDrCr } from '../../../shared/format.ts';
 import { GST_RATES } from '../../../shared/gst/rates.ts';
-import type { AppropriateBy, GroupRow, IncludeInAssessable, ItcEligibility, LedgerDetail, LedgerTaxType } from '../../../shared/types/accounts.ts';
+import type { AppropriateBy, GroupRow, IncludeInAssessable, ItcEligibility, LedgerClass, LedgerDetail, LedgerTaxType } from '../../../shared/types/accounts.ts';
 import type { RegistrationType, SupplyKind, Taxability } from '../../../shared/types/gst.ts';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
@@ -44,11 +44,11 @@ import {
   useToast,
 } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { OkHint, StatePicker } from './components.tsx';
+import { focusFirstInvalid, OkHint, StatePicker } from './components.tsx';
 import { LEDGER_DEPENDENTS, useDeleteLedger } from './hooks.ts';
 import { classOfGroup, groupIsUnder, indexGroups } from './lib/groupClass.ts';
 import { applyGstin, gstinOkText, NO_GSTIN, REGISTRATION_OPTIONS } from './lib/gstin.ts';
-import { applyGroupDefaults, buildSaveInput, draftFromDetail, emptyLedgerDraft, gstDetailsChanged, isDraftDirty, validateLedgerDraft } from './lib/ledgerDraft.ts';
+import { applyGroupDefaults, buildSaveInput, draftFromDetail, emptyLedgerDraft, gstHistoryEffect, isDraftDirty, validateLedgerDraft } from './lib/ledgerDraft.ts';
 import type { LedgerDraft } from './lib/ledgerDraft.ts';
 import { defaultOpeningSide, ledgerSections } from './lib/ledgerSections.ts';
 import { remapBillErrors } from './lib/openingBills.ts';
@@ -164,13 +164,20 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
     [features.billWise, features.inventory, features.gst, company.gstEnabled, company.stateCode],
   );
 
+  const initialGroup = original ? null : typeof params.groupId === 'number' ? params.groupId : null;
   const initial = useMemo<LedgerDraft>(() => {
     if (original) return draftFromDetail(original);
-    const gid = typeof params.groupId === 'number' ? params.groupId : null;
-    const d = emptyLedgerDraft(params.initialName ?? '', gid);
-    return applyGroupDefaults(d, null, classOfGroup(index, gid), defaultsCtx);
+    const d = emptyLedgerDraft(params.initialName ?? '', initialGroup);
+    return applyGroupDefaults(d, null, classOfGroup(index, initialGroup), defaultsCtx);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [original]);
+  /**
+   * The group whose Tally-like defaults are in the draft (create only). Defaults are applied when the
+   * group's class becomes known — also for a group just created with Alt+C, which reaches the group
+   * index only after the list refetches.
+   */
+  const initialCls = classOfGroup(index, initialGroup);
+  const applied = useRef<{ groupId: number | null; cls: LedgerClass | null }>(initialCls ? { groupId: initialGroup, cls: initialCls } : { groupId: null, cls: null });
   const [baseline, setBaseline] = useState<LedgerDraft>(initial);
   const [d, setD] = useState<LedgerDraft>(initial);
   const [submitted, setSubmitted] = useState(false);
@@ -178,6 +185,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
   const [billIndexMap, setBillIndexMap] = useState<number[]>([]);
   const [savedCount, setSavedCount] = useState(0);
   const nameRef = useRef<HTMLInputElement>(null);
+  const formBox = useRef<HTMLDivElement>(null);
 
   const cls = classOfGroup(index, d.groupId);
   const stockInHand = groupIsUnder(index, d.groupId, 'STOCK_IN_HAND');
@@ -204,29 +212,45 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
   const errors: Record<string, string> = { ...shownClient, ...serverErrors };
   const err = (k: string): string | undefined => errors[k] || undefined;
 
+  // A server error is dropped (not blanked) once its field is edited, so the live client check for
+  // that field shows again.
+  const clearServer = (...keys: string[]) =>
+    setServerErrors((e) => {
+      if (!keys.some((k) => k in e)) return e;
+      const copy = { ...e };
+      for (const k of keys) delete copy[k];
+      return copy;
+    });
+
   const set = <K extends keyof LedgerDraft>(k: K, v: LedgerDraft[K]) => {
     setD((x) => ({ ...x, [k]: v }));
-    if (serverErrors[k as string]) setServerErrors((e) => ({ ...e, [k]: '' }));
+    clearServer(k as string);
   };
 
   const onGroup = (groupId: number | null) => {
-    setD((x) => {
-      const next = { ...x, groupId };
-      if (original) return next;
-      return applyGroupDefaults(next, classOfGroup(index, x.groupId), classOfGroup(index, groupId), defaultsCtx);
-    });
-    setServerErrors((e) => ({ ...e, groupId: '' }));
+    setD((x) => ({ ...x, groupId }));
+    clearServer('groupId');
   };
+
+  useEffect(() => {
+    if (original) return;
+    const next = classOfGroup(index, d.groupId);
+    if (!next || applied.current.groupId === d.groupId) return;
+    const prev = applied.current.cls;
+    applied.current = { groupId: d.groupId, cls: next };
+    setD((x) => applyGroupDefaults(x, prev, next, defaultsCtx));
+  }, [original, index, d.groupId, defaultsCtx]);
 
   const onGstin = (raw: string) => {
     setD((x) => {
       const f = applyGstin(x, raw);
       return { ...x, gstin: f.gstin, stateCode: f.stateCode, pan: f.pan, registrationType: f.registrationType };
     });
-    setServerErrors((e) => ({ ...e, gstin: '', pan: '', stateCode: '', registrationType: '' }));
+    clearServer('gstin', 'pan', 'stateCode', 'registrationType');
   };
 
-  const gstHistoryChange = original !== null && sections.gstDetails && gstDetailsChanged(d, sections, original);
+  const historyEffect = original !== null && sections.gstDetails ? gstHistoryEffect(d, sections, original) : 'none';
+  const latestRate = original && original.gstRateHistory.length > 0 ? original.gstRateHistory[original.gstRateHistory.length - 1] : null;
 
   const submit = async (mode: 'default' | 'close' = 'default') => {
     if (readOnly || save.pending) return;
@@ -234,6 +258,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
     const problems = validateLedgerDraft(d, { sections, booksFrom, final: true });
     if (Object.keys(problems).length > 0) {
       toast.error('Please correct the highlighted fields', { message: Object.values(problems)[0] });
+      focusFirstInvalid(formBox.current);
       return;
     }
     const build = buildSaveInput(d, sections, original);
@@ -257,6 +282,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
       }
       // Rapid entry: a fresh form under the same group.
       const fresh = applyGroupDefaults(emptyLedgerDraft('', d.groupId), null, cls, defaultsCtx);
+      applied.current = { groupId: d.groupId, cls };
       setBaseline(fresh);
       setD(fresh);
       setSubmitted(false);
@@ -271,6 +297,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
       if (Object.keys(f).length > 0) {
         setServerErrors(f);
         toast.error('The ledger was not saved', { message: Object.values(f)[0] });
+        focusFirstInvalid(formBox.current);
       } else toast.error('The ledger was not saved', { message: userMessage(e) });
     }
   };
@@ -342,6 +369,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
         )
       }
     >
+      <div ref={formBox}>
       <div ref={formRef}>
         <Stack gap={6}>
           {readOnly ? <ReadOnlyNotice what="ledgers" /> : null}
@@ -374,10 +402,11 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
             {openingDisabled ? (
               <Banner tone="info" inline>
                 Inventory is integrated with accounts, so the opening stock is the total of the stock items' opening values. Enter opening quantities and rates in the stock items instead.
+                {d.openingBalance !== 0 ? ` This ledger still carries an opening balance of ₹ ${formatDrCr(d.openingBalance)} from before; it is kept as it is.` : ''}
               </Banner>
             ) : (
               <Field label="Opening balance" error={err('openingBalance')} hint={side === 'dr' ? 'Usually Dr for this kind of account.' : 'Usually Cr for this kind of account.'}>
-                <AmountInput drcr defaultSide={side} value={d.openingBalance} onChange={(v) => set('openingBalance', v ?? 0)} readOnly={readOnly} symbol />
+                <AmountInput key={side} drcr defaultSide={side} value={d.openingBalance} onChange={(v) => set('openingBalance', v ?? 0)} readOnly={readOnly} symbol />
               </Field>
             )}
             {sections.billWise ? (
@@ -458,7 +487,11 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
 
           {sections.party ? (
             <FieldGroup legend="GST registration" description="Typing a valid GSTIN fills the state and PAN for you." columns={2}>
-              <Field label="Registration type" error={err('registrationType')} hint={REGISTRATION_OPTIONS.find((o) => o.value === d.registrationType)?.hint}>
+              <Field
+                label="Registration type"
+                error={err('registrationType')}
+                hint={REGISTRATION_OPTIONS.find((o) => o.value === d.registrationType)?.hint ?? 'Leave it: a party with a GSTIN is Regular, without one Unregistered.'}
+              >
                 <Select<RegistrationType>
                   value={d.registrationType}
                   onChange={(v) =>
@@ -469,7 +502,8 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
                   options={REGISTRATION_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
                 />
               </Field>
-              {d.registrationType !== 'overseas' && d.registrationType !== 'unregistered' && d.registrationType !== 'consumer' ? (
+              {/* Shown for unregistered / consumer parties too: typing a valid GSTIN makes the party Regular. */}
+              {d.registrationType !== 'overseas' ? (
                 <Field label={d.registrationType === 'uin' ? 'UIN' : 'GSTIN'} error={err('gstin')} hint={gstinOkText(d.gstin) ? <OkHint>{gstinOkText(d.gstin)}</OkHint> : '15 characters, e.g. 27AAPFU0939F1ZV'}>
                   <TextInput value={d.gstin} onChange={(e) => onGstin(e.target.value)} readOnly={readOnly} uppercase mono maxLength={15} spellCheck={false} autoComplete="off" />
                 </Field>
@@ -594,14 +628,29 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
                   ) : null}
                 </>
               ) : null}
-              {gstHistoryChange ? (
+              {historyEffect === 'dated' ? (
                 <Field
                   label="These GST details apply from"
                   optional
-                  hint={d.applicableFrom ? `Invoices dated before ${formatDate(d.applicableFrom)} keep the earlier details.` : 'Leave blank to correct the current details for all dates.'}
+                  error={err('applicableFrom')}
+                  hint={
+                    d.applicableFrom
+                      ? `Invoices dated before ${formatDate(d.applicableFrom)} keep the earlier details.`
+                      : latestRate && original && original.gstRateHistory.length > 1
+                        ? `Leave blank to correct the details in force since ${formatDate(latestRate.applicableFrom)}.`
+                        : 'Leave blank to correct the current details for all dates.'
+                  }
                 >
                   <DateInput value={d.applicableFrom} onChange={(v) => set('applicableFrom', v)} referenceDate={workingDate} minDate={booksFrom} readOnly={readOnly} />
                 </Field>
+              ) : null}
+              {historyEffect === 'removes' && original && original.gstRateHistory.length > 0 ? (
+                <Banner tone="warning" inline>
+                  {d.gstApplicable
+                    ? 'Without a rate, each invoice line takes the stock item’s rate, and this ledger’s dated GST rate history is removed.'
+                    : 'GST will not apply to this ledger, and its dated GST rate history is removed.'}{' '}
+                  To change the rate only from a date, choose the new rate or taxability (e.g. Exempt) instead and give the date.
+                </Banner>
               ) : null}
             </FieldGroup>
           ) : null}
@@ -642,6 +691,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
             <span className="bx-muted">GST is off for this company (F11); registration details are still stored for when you turn it on.</span>
           ) : null}
         </Stack>
+      </div>
       </div>
     </Screen>
   );

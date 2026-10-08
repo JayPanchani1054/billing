@@ -19,7 +19,7 @@ import { usePeriod } from '../../app/working.tsx';
 import { Card, DataTable, EmptyState, Grid, Inline, KeyValueList, SegmentedControl, useToast } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { OverdueBadge, PartyPicker, VGap, printedOn, useDocumentOutput, usePartyOptions } from './components.tsx';
-import { refTypeLabel, statementExport } from './lib/model.ts';
+import { refTypeLabel, statementExport, statementPeriod } from './lib/model.ts';
 import { buildStatementHtml, pdfName } from './lib/printHtml.ts';
 
 export interface StatementParams {
@@ -35,8 +35,8 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
   const toast = useToast();
   const global = usePeriod();
   const p = params ?? {};
-  const fixedPeriod = p.from && p.to ? { from: p.from, to: p.to } : undefined;
-  const period = fixedPeriod ?? global.period;
+  const globalAtOpen = useRef(global.period).current;
+  const { period, pinned } = statementPeriod(p, global.period, globalAtOpen);
   const [ledgerId, setLedgerId] = useState<number | null>(typeof p.ledgerId === 'number' ? p.ledgerId : null);
   const [section, setSection] = useState<Section>('transactions');
   const [exportOpen, setExportOpen] = useState(false);
@@ -140,7 +140,7 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
       <ReportScreen
         title="Statement of Account"
         subtitle={s?.party.name}
-        period={fixedPeriod}
+        period={pinned ? period : undefined}
         periodMode="range"
         loading={q.loading && !s && ledgerId !== null}
         refreshing={q.refreshing}

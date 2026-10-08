@@ -28,6 +28,7 @@ import type { Column } from '../../ui/index.ts';
 import { AcceptKey, FeatureOff, focusFirstError, INVENTORY_INVALIDATES, splitApiError } from './common.tsx';
 import { DeleteKey } from './Groups.tsx';
 import { compoundSymbolPreview, conversionText, uqcSelectOptions, uqcSuggestion, validateCompoundUnit, validateSimpleUnit } from './lib/units.ts';
+import { isShownValue } from './lib/opening.ts';
 import { UnitPicker } from './pickers.tsx';
 import './inventory.css';
 
@@ -383,7 +384,7 @@ function UnitForm({ title, saved, params }: { title: string; saved: UnitDto | nu
                   =
                 </span>
                 <Field label="Contains" required htmlFor={`${UID}conversion`} error={errors.conversion}>
-                  <NumberInput id={`${UID}conversion`} value={d.conversion} onChange={(v) => patch({ conversion: v })} decimals={4} min={0} readOnly={readOnly} />
+                  <NumberInput id={`${UID}conversion`} value={d.conversion} onChange={(v) => { if (!isShownValue(v, d.conversion, 4)) patch({ conversion: v }); }} decimals={4} min={0} readOnly={readOnly} />
                 </Field>
                 <Field label="Smaller unit" required htmlFor={`${UID}secondUnitId`} error={errors.secondUnitId}>
                   <UnitPicker

@@ -7,12 +7,12 @@
 import { useMemo, useRef, useState } from 'react';
 import type { LedgerPickerRow } from '../../../shared/types/accounts.ts';
 import type { LedgerReportRow } from '../../../shared/types/reports.ts';
-import { ReportScreen, formatDrCr, useApiQuery, useNav } from '../../app/index.ts';
+import { ReportScreen, formatDrCr, useApiQuery, useCan, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, DataTable, EmptyState, Field, Inline, Picker, Stack } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
-import { voucherTarget } from './lib/model.ts';
+import { currentRow, voucherTarget } from './lib/model.ts';
 
 export interface LedgerParams {
   ledgerId?: number;
@@ -28,11 +28,15 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
   const [detailed, setDetailed] = useState(false);
   const [cursor, setCursor] = useState<LedgerReportRow | null>(null);
   const pickerRef = useRef<HTMLInputElement | null>(null);
-  const ledgers = useApiQuery('accounts.ledger.picker', { includeInactive: true }, { staleTime: 60_000 });
+  // The ledger list needs Masters › view; without it a ledger opened by drill-down still works.
+  const canPick = useCan('masters.view');
+  const ledgers = useApiQuery('accounts.ledger.picker', { includeInactive: true }, { staleTime: 60_000, enabled: canPick });
   const q = useApiQuery('reports.ledger', { ledgerId: ledgerId ?? 0, from: p.from, to: p.to }, { keepPrevious: true, enabled: ledgerId !== null });
   const d = ledgerId !== null ? q.data : undefined;
   const items = useMemo(() => ledgers.data ?? [], [ledgers.data]);
   const selected = items.find((l) => l.id === ledgerId) ?? null;
+  // Alt+A applies to the highlighted voucher only while it belongs to the ledger on screen.
+  const current = currentRow(cursor, d?.rows, (r) => r.voucherId);
 
   const columns = useMemo<Column<LedgerReportRow>[]>(
     () => [
@@ -72,10 +76,10 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
     : [];
 
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+L', label: 'Change ledger', icon: 'ledger', onClick: () => pickerRef.current?.focus(), group: 'ledger' },
+    { key: 'Alt+L', label: 'Change ledger', icon: 'ledger', onClick: () => pickerRef.current?.focus(), disabled: !canPick, group: 'ledger' },
     { key: 'Alt+F1', label: detailed ? 'Condensed' : 'Detailed', icon: 'layers', onClick: () => setDetailed(!detailed), group: 'view' },
     { key: 'Alt+M', label: 'Monthly summary', icon: 'calendar', onClick: () => ledgerId !== null && drill({ screen: 'reports.monthlySummary', params: { ledgerId, from: p.from, to: p.to } }), disabled: ledgerId === null, group: 'view' },
-    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => cursor && drill(voucherTarget(cursor.voucherId, cursor.baseType, true)), disabled: !cursor, group: 'voucher' },
+    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => current && drill(voucherTarget(current.voucherId, current.baseType, true)), disabled: !current, group: 'voucher' },
     { key: 'Alt+R', label: 'Ledger master', icon: 'edit', onClick: () => ledgerId !== null && nav.push('accounts.ledger.form', { id: ledgerId }), disabled: ledgerId === null, group: 'ledger' },
   ];
 
@@ -104,10 +108,14 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
             groupBy={(l) => l.groupName}
             rightMeta={(l) => formatDrCr(l.balance)}
             value={selected}
-            onChange={(l) => l && setLedgerId(l.id)}
+            onChange={(l) => {
+              if (!l) return;
+              setLedgerId(l.id);
+              setCursor(null);
+            }}
             clearable={false}
-            placeholder={ledgers.loading ? 'Loading ledgers…' : 'Type a ledger name'}
-            disabled={ledgers.loading && items.length === 0}
+            placeholder={!canPick ? 'You may not browse ledgers' : ledgers.error ? 'Could not load the ledger list' : ledgers.loading ? 'Loading ledgers…' : 'Type a ledger name'}
+            disabled={!canPick || (ledgers.loading && items.length === 0)}
             listMinWidth={360}
             autoFocus={ledgerId === null}
           />
@@ -129,9 +137,10 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
           ? [
               ['', 'Opening Balance', ...(detailed ? ['', ''] : []), '', '', null, null, d.opening],
               ...d.rows.map((r) => [r.date, r.particulars, ...(detailed ? [r.narration ?? '', r.referenceNo ?? ''] : []), r.voucherType, r.number ?? '', r.debit || null, r.credit || null, r.balance]),
+              ['', 'Current Total', ...(detailed ? ['', ''] : []), '', '', d.totals.debit, d.totals.credit, null],
             ]
           : [],
-        totals: d ? ['', 'Closing Balance', ...(detailed ? ['', ''] : []), '', '', d.totals.debit, d.totals.credit, d.closing] : undefined,
+        totals: d ? ['', 'Closing Balance', ...(detailed ? ['', ''] : []), '', '', null, null, d.closing] : undefined,
         landscape: detailed,
       })}
     >

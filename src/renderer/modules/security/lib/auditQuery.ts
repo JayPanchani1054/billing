@@ -1,8 +1,9 @@
 /**
  * Edit-log screen state → route inputs, screen params, action groups and tones. Pure.
  */
-import type { AuditActionName, AuditExportInput, AuditListInput, AuditVerifyReport } from '../../../../shared/types/security.ts';
-import { AUDIT_ACTION_LABELS, AUDIT_LIST_MAX_LIMIT } from '../../../../shared/types/security.ts';
+import type { AuditActionName, AuditExportInput, AuditFacets, AuditListInput, AuditListRow, AuditVerifyReport } from '../../../../shared/types/security.ts';
+import { formatIndianNumber } from '../../../../shared/format.ts';
+import { AUDIT_ACTION_LABELS, AUDIT_ACTIONS, AUDIT_LIST_MAX_LIMIT } from '../../../../shared/types/security.ts';
 
 export type ActionGroup = 'all' | 'changes' | 'logins' | 'security' | 'data';
 
@@ -78,19 +79,31 @@ export function hasFilters(f: AuditFilterState): boolean {
   return f.userId !== null || f.group !== 'all' || f.action !== null || f.entityType !== null || f.search.trim() !== '';
 }
 
-export interface AuditScreenParams {
+/** A type alias (not an interface) so it is assignable to nav params. */
+export type AuditScreenParams = {
   entityType?: string;
   entityId?: number;
   entityGuid?: string;
   /** Record label for the title while loading (e.g. 'Sales 42'). */
   label?: string;
-}
+};
 
 export interface HistoryTarget {
   entityType: string;
   entityId: number;
   entityGuid?: string;
   label?: string;
+}
+
+/**
+ * Params that open the Edit Log in record-history mode, for "Edit history" actions on other screens:
+ * `nav.push('security.audit', auditHistoryParams('ledger', 7, 'Sharma & Sons'))`.
+ */
+export function auditHistoryParams(entityType: string, entityId: number, label?: string, entityGuid?: string): AuditScreenParams {
+  const p: AuditScreenParams = { entityType, entityId };
+  if (label) p.label = label;
+  if (entityGuid) p.entityGuid = entityGuid;
+  return p;
 }
 
 /** History mode when the params name one record ({ entityType, entityId }). */
@@ -106,10 +119,110 @@ export function historyTarget(params: unknown): HistoryTarget | null {
   return out;
 }
 
-/** Initial filter for a record type only ({ entityType } without id). */
+/**
+ * Initial filters from screen params: a record type only ({ entityType } without id) and/or one user
+ * ({ userId }, e.g. "My activity" from the session screen). A user filter shows every date.
+ */
 export function initialFilters(params: unknown): AuditFilterState {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>;
-  return { ...DEFAULT_FILTERS, entityType: typeof p.entityType === 'string' && p.entityType ? p.entityType : null };
+  const userId = typeof p.userId === 'number' && Number.isSafeInteger(p.userId) && p.userId > 0 ? p.userId : null;
+  return {
+    ...DEFAULT_FILTERS,
+    entityType: typeof p.entityType === 'string' && p.entityType ? p.entityType : null,
+    userId,
+    dates: userId !== null ? 'all' : DEFAULT_FILTERS.dates,
+  };
+}
+
+// ───────────────────────────── Filter options from the facets ─────────────────────────────
+
+export interface FilterOption {
+  value: string;
+  label: string;
+}
+
+/** Value used by the "everything" choice of the filter selects. */
+export const ANY = 'any';
+
+/**
+ * Users who appear in the edit log, one option per user id (a renamed user is listed once with both
+ * names). Entries without a user id (security off, failed logins of unknown names) cannot be filtered
+ * by user — search for the name instead.
+ */
+export function userOptions(facets: AuditFacets | undefined, current: number | null = null): FilterOption[] {
+  const byId = new Map<number, { names: string[]; count: number }>();
+  for (const u of facets?.users ?? []) {
+    if (u.userId === null) continue;
+    const e = byId.get(u.userId) ?? { names: [], count: 0 };
+    if (!e.names.includes(u.username)) e.names.push(u.username);
+    e.count += u.count;
+    byId.set(u.userId, e);
+  }
+  const opts = [...byId.entries()]
+    .map(([id, e]) => ({ value: String(id), label: `${e.names.join(' / ')} (${formatCount(e.count)})`, sort: e.names[0].toLowerCase() }))
+    .sort((a, b) => a.sort.localeCompare(b.sort));
+  // Keep a user given by the screen params (e.g. "My activity") selectable even with no entries yet,
+  // so the select never shows "All users" while the list is filtered.
+  if (current !== null && !byId.has(current)) opts.push({ value: String(current), label: `User #${current} (0)`, sort: '\uffff' });
+  return [{ value: ANY, label: 'All users' }, ...opts.map(({ value, label }) => ({ value, label }))];
+}
+
+/** Record types present in the edit log, by readable label. */
+export function entityTypeOptions(facets: AuditFacets | undefined, current: string | null = null): FilterOption[] {
+  const opts = (facets?.entityTypes ?? []).map((t) => ({ value: t.value, label: `${t.label} (${formatCount(t.count)})` }));
+  // Keep a type given by the screen params selectable even when the log has no entry of it yet.
+  if (current && !opts.some((o) => o.value === current)) opts.push({ value: current, label: current });
+  return [{ value: ANY, label: 'All record types' }, ...opts];
+}
+
+/** Specific actions within the chosen group that occur in the log (with counts). */
+export function actionOptions(facets: AuditFacets | undefined, group: ActionGroup): FilterOption[] {
+  const inGroup = ACTION_GROUPS.find((g) => g.value === group)?.actions ?? [];
+  const counts = new Map((facets?.actions ?? []).map((a) => [a.value, a.count]));
+  const pool = inGroup.length ? inGroup : AUDIT_ACTIONS;
+  const opts = pool.filter((a) => counts.has(a)).map((a) => ({ value: a, label: `${actionLabel(a)} (${formatCount(counts.get(a) ?? 0)})` }));
+  return [{ value: ANY, label: group === 'all' ? 'All actions' : 'Any of these' }, ...opts];
+}
+
+/** Indian digit grouping for counts (1,23,456). */
+export function formatCount(n: number): string {
+  return formatIndianNumber(Math.trunc(n), 0);
+}
+
+/** Moving to a group clears a specific action that is not part of it. */
+export function withGroup(f: AuditFilterState, group: ActionGroup): AuditFilterState {
+  const g = ACTION_GROUPS.find((x) => x.value === group);
+  const keep = f.action !== null && g !== undefined && (g.actions.length === 0 || g.actions.includes(f.action));
+  return { ...f, group, action: keep ? f.action : null, page: 1 };
+}
+
+/** Next / previous row id for the detail drawer (null at either end or when not found). */
+export function adjacentId(rows: readonly { id: number }[], currentId: number, dir: 1 | -1): number | null {
+  const i = rows.findIndex((r) => r.id === currentId);
+  if (i < 0) return null;
+  const j = i + dir;
+  return j >= 0 && j < rows.length ? rows[j].id : null;
+}
+
+/** Export input for one record's history. */
+export function historyExportInput(t: HistoryTarget, format: 'xlsx' | 'csv'): AuditExportInput {
+  return { entityType: t.entityType, entityId: t.entityId, format };
+}
+
+/** Plain-text one-liner for a filtered view (print subtitle, empty state). */
+export function filterSummary(f: AuditFilterState, ctx: { periodLabel: string; userLabel?: string; entityTypeLabel?: string }): string {
+  const parts: string[] = [f.dates === 'all' ? 'All dates' : ctx.periodLabel];
+  if (f.userId !== null) parts.push(`User: ${ctx.userLabel ?? `#${f.userId}`}`);
+  if (f.action) parts.push(`Action: ${actionLabel(f.action)}`);
+  else if (f.group !== 'all') parts.push(ACTION_GROUPS.find((g) => g.value === f.group)?.label ?? f.group);
+  if (f.entityType) parts.push(`Record type: ${ctx.entityTypeLabel ?? f.entityType}`);
+  if (f.search.trim()) parts.push(`Search: “${f.search.trim()}”`);
+  return parts.join(' · ');
+}
+
+/** Rows for printing what is on screen (dates as local date-time text). */
+export function printRows(rows: readonly AuditListRow[], formatTs: (iso: string) => string): Array<[string, string, string, string, string, string]> {
+  return rows.map((r) => [formatTs(r.ts), r.username ?? '—', actionLabel(r.action), r.entityTypeLabel, r.entityLabel ?? (r.entityId !== null ? `#${r.entityId}` : ''), r.summary]);
 }
 
 export type ActionTone = 'neutral' | 'brand' | 'accent' | 'success' | 'warning' | 'danger' | 'info';

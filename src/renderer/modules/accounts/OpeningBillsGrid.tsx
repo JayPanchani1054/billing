@@ -2,6 +2,8 @@
  * Opening bills of a bill-wise ledger: one row per bill outstanding when the books begin, with a
  * live "bills total vs opening balance" check. Enter moves across the cells (the form's
  * useEnterAdvance scope); Alt+N adds a row; the last row is always blank so typing just continues.
+ * Enter on the blank last row's bill number leaves the grid (its other cells are skipped until a
+ * bill number or amount is typed), so finishing the bills takes one key, as in Tally.
  */
 import { useRef } from 'react';
 import type { Paise } from '../../../shared/money.ts';
@@ -77,7 +79,7 @@ export function OpeningBillsGrid({ bills, onChange, opening, booksFrom, defaultS
                     />
                     {err(i, 'billName') ? <span className="bx-acc-grid__error">{err(i, 'billName')}</span> : null}
                   </td>
-                  <td>
+                  <td data-enter-skip={last ? '' : undefined}>
                     <DateInput
                       size="sm"
                       value={b.billDate}
@@ -90,7 +92,7 @@ export function OpeningBillsGrid({ bills, onChange, opening, booksFrom, defaultS
                     />
                     {err(i, 'billDate') ? <span className="bx-acc-grid__error">{err(i, 'billDate')}</span> : null}
                   </td>
-                  <td>
+                  <td data-enter-skip={last ? '' : undefined}>
                     <DateInput
                       size="sm"
                       value={b.dueDate}
@@ -102,7 +104,7 @@ export function OpeningBillsGrid({ bills, onChange, opening, booksFrom, defaultS
                     />
                     {err(i, 'dueDate') ? <span className="bx-acc-grid__error">{err(i, 'dueDate')}</span> : null}
                   </td>
-                  <td>
+                  <td data-enter-skip={last ? '' : undefined}>
                     <AmountInput
                       size="sm"
                       drcr

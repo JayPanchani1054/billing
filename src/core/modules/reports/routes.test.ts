@@ -56,6 +56,20 @@ test('reversed period and bad input are VALIDATION errors with a field path', as
   const grp = await b.t.call(reportsRoutes, 'reports.groupSummary', { ...APRIL, groupId: 99_999 });
   assert.equal(grp.ok, false);
   if (!grp.ok) assert.equal(grp.error.code, 'VALIDATION');
+  const basis = await b.t.call(reportsRoutes, 'reports.groupSummary', { ...APRIL, groupId: b.t.ids.groups.SALES_ACCOUNTS, basis: 'cash' });
+  assert.equal(basis.ok, false);
+  if (!basis.ok) assert.deepEqual((basis.error.details as Array<{ path: string }>).map((d) => d.path), ['basis']);
+});
+
+test('Group Summary basis travels through the dispatcher (the P&L drill-down)', async () => {
+  const b = makeBooks();
+  const r = await b.t.call(reportsRoutes, 'reports.groupSummary', { ...APRIL, groupId: b.t.ids.groups.SALES_ACCOUNTS, basis: 'profitLoss' });
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    const out = r.data as { basis: string; totals: { closing: number } };
+    // April sales Cr 1,20,00,000 — the P&L Sales Accounts line.
+    assert.deepEqual([out.basis, out.totals.closing], ['profitLoss', -12_000_000]);
+  }
 });
 
 test('every route answers on an empty company', async () => {

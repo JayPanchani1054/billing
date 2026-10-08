@@ -50,6 +50,11 @@ export interface BulkContext {
   multipleGodowns: boolean;
   /** Decimal places per unit id (for opening quantity checks). */
   unitDecimals: (unitId: number) => number;
+  /**
+   * Books locked on or after the books beginning (the date of opening stock): the core refuses
+   * opening stock then, so a row with one is flagged here instead of failing the whole grid.
+   */
+  openingLocked?: boolean;
 }
 
 /** Problems keyed `${row.key}.${field}`; also flags duplicate names within the grid. */
@@ -91,6 +96,8 @@ export function validateBulkRows(rows: readonly BulkRow[], ctx: BulkContext): Re
       }
       if (ctx.multipleGodowns && ctx.openingGodownId === null) at('openingQty', 'Choose the godown for opening stock at the top');
     } else if (r.openingRate !== null) at('openingQty', 'Enter the opening quantity for this rate');
+    if (ctx.openingLocked && (r.openingQty !== null || r.openingRate !== null))
+      at('openingQty', 'The books are locked, so opening stock cannot be added. Clear it and bring the stock in with a voucher dated after the lock.');
     if (r.openingRate !== null && r.openingRate < 0) at('openingRate', 'Rate cannot be negative');
   });
   return out;

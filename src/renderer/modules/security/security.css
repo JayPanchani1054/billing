@@ -339,3 +339,124 @@
   flex-direction: column;
   gap: var(--space-1);
 }
+
+/* ── Edit log: verify banner, rows, drawer ────────────────────────── */
+.bx-sec-verify {
+  border-width: 2px;
+}
+.bx-sec-verify__hash {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.bx-sec-row--attention .bx-td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger-solid);
+}
+.bx-sec-section-head {
+  margin-bottom: var(--space-2);
+}
+.bx-sec-h3 {
+  margin: 0;
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+}
+.bx-sec-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+.bx-sec-legend del,
+.bx-sec-legend ins {
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+}
+.bx-sec-legend del {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+.bx-sec-legend ins {
+  text-decoration: none;
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+.bx-sec-raw {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  max-height: 280px;
+  overflow: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bx-sec-raw:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* ── History timeline cards ───────────────────────────────────────── */
+.bx-sec-timeline__card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  padding: var(--space-3);
+  cursor: default;
+}
+.bx-sec-timeline__card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.bx-sec-timeline__card:hover {
+  border-color: var(--border-default);
+}
+
+/* ── Session ──────────────────────────────────────────────────────── */
+.bx-sec-idle {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.bx-sec-countdown.is-expired {
+  color: var(--danger-text);
+}
+.bx-sec-text--warning {
+  color: var(--warning-text);
+}
+.bx-sec-text--danger {
+  color: var(--danger-text);
+}
+.bx-sec-perm-summary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+.bx-sec-perm-summary__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  color: var(--text-muted);
+}
+.bx-sec-perm-summary__item.is-held {
+  color: var(--text-primary);
+}
+.bx-sec-perm-summary__item.is-held .bx-icon {
+  color: var(--success-icon);
+}
+
+/* ── Read-only user form (account the editor may not change) ──────── */
+.bx-sec-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}

@@ -10,7 +10,7 @@
  *            Σ ledgers = 20,000 + 1,50,000 + 25,000 − 30,000 − 2,33,000 = −68,000 = −(stock 68,000) ✓
  *  S-1   5-Apr  Acme, 3 Mixer × 2,950.50 = 8,851.50; CGST 9% 796.635→796.64; SGST 796.64;
  *               8,851.50 + 1,593.28 = 10,444.78; round off 0.22 Cr → party 10,445.00 Dr (New Ref S-1)
- *  S-2   10-Apr "GST Sales" Delhi Distributors (07), 10 Rice × 1,250 = 12,500 from Bhiwandi;
+ *  GS-1  10-Apr "GST Sales" Delhi Distributors (07), 10 Rice × 1,250 = 12,500 from Bhiwandi;
  *               IGST 5% 625 → 13,125 Dr
  *  P-1   3-Apr  Supreme, ref SS/2026/501, 20 Rice × 1,100 = 22,000; CGST 2.5% 550; SGST 550 → 23,100 Cr
  *  R-1   20-Apr Acme pays 20,000 into HDFC (cheque 123456): Agst INV-0911 10,000 + Agst S-1 10,000
@@ -24,7 +24,7 @@
  *  Expected after import:
  *   Acme 25,000 + 10,445 − 20,000 − 3,482 = 11,963 Dr = INV-0950 11,518 + S-1 445
  *   Supreme 30,000 Cr − 30,000 + 23,100 Cr = 23,100 Cr (SS/2026/501)
- *   Delhi 13,125 Dr (S-2) · Cash 15,000 Dr · HDFC 1,50,000 + 20,000 − 30,000 + 5,000 = 1,45,000 Dr
+ *   Delhi 13,125 Dr (GS-1) · Cash 15,000 Dr · HDFC 1,50,000 + 20,000 − 30,000 + 5,000 = 1,45,000 Dr
  *   Stock: Mixer 10 − 3 + 1 = 8 · Rice 40 + 20 − 10 = 50
  */
 import { makeGstin } from '../../testing/fixtures.ts';

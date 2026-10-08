@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import type { StatementLine, TbRow } from '../../../../shared/types/reports.ts';
 import {
   balanceSheetCompareDate,
+  currentRow,
   daysBetween,
   drillForRow,
   monthRange,
@@ -16,7 +17,7 @@ import {
   voucherTarget,
   yearStartFor,
 } from './model.ts';
-import { clearExpansionMemory, indentLabel, keysUpToLevel, loadExpansion, parentKeys, saveExpansion, visibleRows, type StorageLike } from './tree.ts';
+import { clearExpansionMemory, expansionKey, indentLabel, keysUpToLevel, loadExpansion, parentKeys, saveExpansion, visibleRows, type StorageLike } from './tree.ts';
 
 const P = { from: '2026-04-01', to: '2026-04-30' };
 
@@ -163,4 +164,35 @@ test('trial balance export: Dr/Cr closing columns split by sign, totals over top
   assert.deepEqual(ex.rows[2], ['Cash-in-Hand', 500, 200, 1300, null]);
   assert.deepEqual(ex.totals, ['Grand Total', 500, 500, 1300, 1300]);
   assert.deepEqual(ex.levels, [0, 1, 0, 0]);
+});
+
+test('P&L drill-downs keep the Profit & Loss basis; other rows ignore it', () => {
+  assert.deepEqual(drillForRow({ key: 'g:7', kind: 'group', id: 7 }, P, { basis: 'profitLoss' }), {
+    screen: 'reports.groupSummary',
+    params: { groupId: 7, ...P, basis: 'profitLoss' },
+  });
+  // Trial-Balance basis is the default: no extra param.
+  assert.deepEqual(drillForRow({ key: 'g:7', kind: 'group', id: 7 }, P, { basis: 'trialBalance' })?.params, { groupId: 7, ...P });
+  assert.deepEqual(drillForRow({ key: 'l:9', kind: 'ledger', id: 9 }, P, { basis: 'profitLoss' })?.params, { ledgerId: 9, ...P });
+});
+
+test('an action applies to the highlighted row only while it is still on screen', () => {
+  const rows = [{ id: 1 }, { id: 2 }];
+  assert.equal(currentRow({ id: 2 }, rows, (r) => r.id), rows[1]);
+  // After switching ledger / tab the old highlight is not one of the rows → nothing to alter.
+  assert.equal(currentRow({ id: 9 }, rows, (r) => r.id), null);
+  assert.equal(currentRow(null, rows, (r) => r.id), null);
+  assert.equal(currentRow({ id: 1 }, undefined, (r) => r.id), null);
+});
+
+test('expansion state is kept apart per company', () => {
+  assert.equal(expansionKey('7', 'tb:groups'), 'c7:tb:groups');
+  assert.notEqual(expansionKey('7', 'tb:groups'), expansionKey('8', 'tb:groups'));
+  assert.equal(expansionKey(null, 'tb:groups'), 'tb:groups');
+  clearExpansionMemory();
+  const store = new Map<string, string>();
+  const storage: StorageLike = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => void store.set(k, v) };
+  saveExpansion(expansionKey('7', 'bs:left'), new Set(['g:12']), storage);
+  assert.equal(loadExpansion(expansionKey('8', 'bs:left'), storage), null);
+  assert.deepEqual([...(loadExpansion(expansionKey('7', 'bs:left'), storage) ?? [])], ['g:12']);
 });

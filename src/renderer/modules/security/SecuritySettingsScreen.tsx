@@ -11,7 +11,7 @@ import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
 import { Screen } from '../../app/Screen.tsx';
-import { useAppState } from '../../app/state.tsx';
+import { useAppState, useCan } from '../../app/state.tsx';
 import { Banner, Button, Callout, Field, Icon, Inline, NumberInput, Panel, Stack, Switch, useEnterAdvance, useToast } from '../../ui/index.ts';
 import { cx } from '../../ui/lib/cx.ts';
 import {
@@ -57,6 +57,7 @@ function SettingsForm({ saved, users }: { saved: SecuritySettings; users: readon
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<'enable' | 'disable' | null>(null);
   const securityOn = app.company?.features.security ?? false;
+  const canAudit = useCan('audit.view');
   const session = app.session;
   const canTurnOff = securityOn && !!session?.isOwner && !session.implicit;
   const changed = changedKeys(saved, draft);
@@ -103,7 +104,7 @@ function SettingsForm({ saved, users }: { saved: SecuritySettings; users: readon
           ? { key: 'Alt+O', label: 'Turn security off', icon: 'unlock', onClick: () => setDialog('disable'), disabled: !canTurnOff, hint: canTurnOff ? undefined : 'Only an Owner can turn security off.', group: 'state' }
           : { key: 'Alt+O', label: 'Turn security on', icon: 'lock', onClick: () => setDialog('enable'), group: 'state' },
         { key: 'Alt+U', label: 'Users & roles', icon: 'users', onClick: () => nav.push('security.users'), group: 'more' },
-        { key: 'Alt+L', label: 'Edit log', icon: 'book', onClick: () => nav.push('security.audit'), group: 'more' },
+        { key: 'Alt+L', label: 'Edit log', icon: 'book', onClick: () => nav.push('security.audit'), hidden: !canAudit, group: 'more' },
       ]}
       footer={
         <>

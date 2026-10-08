@@ -44,6 +44,15 @@ describe('diff formatting', () => {
     assert.equal(formatValue(12.5, 'amount').text, '12.5', 'non-integers are never paise');
     assert.equal(formatValue(7, 'ledgerId').text, '7');
     assert.equal(formatValue(42, null).text, '42');
+    // Whole words decide: 'discount' and 'account' contain "count" but are still money.
+    // 5000 paise = ₹50.00 (Dr); -123456 paise = 1,234.56 Cr.
+    assert.equal(formatValue(5000, 'discountAmount').text, '50.00 Dr');
+    assert.equal(formatValue(-123456, 'account_balance').text, '1,234.56 Cr');
+    // 250000 paise = ₹2,500.00; 'sortOrder' ends in a non-money word and stays a number.
+    assert.equal(formatValue(250000, 'orderValue').text, '₹ 2,500.00');
+    assert.equal(formatValue(4, 'sortOrder').text, '4');
+    assert.equal(formatValue(3, 'voucherCount').text, '3');
+    assert.equal(formatValue(18, 'gstRateValue').text, '18');
   });
 
   it('formats empties, booleans, long text and objects', () => {

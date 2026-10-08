@@ -216,6 +216,22 @@ export function partyTreeRows(r: Pick<LedgerBillsResult, 'bills'>): PartyTreeRow
   return out;
 }
 
+/**
+ * Why the party screen's bill list is empty, and where to look instead. A ledger not maintained
+ * bill-wise has no On Account entries list (Ctrl+2 is off for it): its balance is either broken
+ * down FIFO or shown as one On Account amount (Alt+N switches).
+ */
+export function partyEmptyBody(d: Pick<LedgerBillsResult, 'method' | 'onAccount' | 'balance'>, includeSettled: boolean): string {
+  if (d.method === 'on_account') {
+    return d.balance === 0
+      ? 'Nothing is outstanding. This party is not maintained bill-wise.'
+      : 'This party is not maintained bill-wise, so the whole balance is one On Account amount (see the totals below). Alt+N breaks it down FIFO by the latest entries.';
+  }
+  if (d.method === 'bill_wise' && d.onAccount.total !== 0) return 'Only on-account amounts are open — see Ctrl+2.';
+  if (d.method === 'fifo') return 'Nothing is outstanding — every entry is settled first-in-first-out.';
+  return includeSettled ? 'No bills at all for this party.' : 'Every bill is settled. Alt+H shows settled bills.';
+}
+
 // ───────────────────────────── Export tables ─────────────────────────────
 
 export interface ExportTable {
@@ -229,6 +245,31 @@ export interface ExportTable {
 /** Side-signed → ledger-signed (Dr +, Cr −) so reports show Dr/Cr instead of a bare minus. */
 export function ledgerSign(side: OutstandingSide): 1 | -1 {
   return side === 'receivable' ? 1 : -1;
+}
+
+/**
+ * The party summary as shown: with "Only parties over their credit limit" on, just those rows AND
+ * totals recomputed over them (the server's totals cover every party), so an export of the filtered
+ * list adds up.
+ */
+export function partiesInView(r: PartySummaryResult, overLimitOnly: boolean): PartySummaryResult {
+  if (!overLimitOnly) return r;
+  const rows = r.rows.filter((p) => p.overLimit);
+  const sum = (f: (p: PartySummaryResult['rows'][number]) => number): number => rows.reduce((s, p) => s + f(p), 0);
+  return {
+    ...r,
+    rows,
+    totals: {
+      pending: sum((p) => p.pending),
+      billsPending: sum((p) => p.billsPending),
+      overdue: sum((p) => p.overdue),
+      notDue: sum((p) => p.notDue),
+      advance: sum((p) => p.advance),
+      onAccount: sum((p) => p.onAccount),
+      partyCount: rows.length,
+      overLimitCount: rows.length,
+    },
+  };
 }
 
 export function partiesExport(r: PartySummaryResult): ExportTable {
@@ -372,6 +413,20 @@ export function statementExport(s: StatementResult): ExportTable {
     ],
     totals: ['', 'Closing Balance', '', '', s.totals.debit, s.totals.credit, s.closingBalance],
   };
+}
+
+/**
+ * Period of the statement screen. A statement opened with { from, to } (e.g. drilled from a report)
+ * keeps that period — until the user changes the global period (Alt+F2) while it is open, which
+ * then applies (otherwise Alt+F2 would appear to do nothing).
+ */
+export function statementPeriod(
+  params: { from?: string; to?: string },
+  global: { from: string; to: string },
+  globalAtOpen: { from: string; to: string },
+): { period: { from: string; to: string }; pinned: boolean } {
+  const pinned = !!params.from && !!params.to && global.from === globalAtOpen.from && global.to === globalAtOpen.to;
+  return pinned ? { period: { from: params.from as string, to: params.to as string }, pinned } : { period: { from: global.from, to: global.to }, pinned };
 }
 
 // ───────────────────────────── KPIs ─────────────────────────────

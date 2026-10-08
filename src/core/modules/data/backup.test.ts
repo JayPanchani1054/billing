@@ -21,6 +21,7 @@ import { saveConfig } from '../company/service.ts';
 import { autoBackup, createBackup, defaultBackupFolder, lastBackupAt, listBackups, verifyBackup } from './backup.ts';
 import { BACKUP_MAGIC, readContainerInfo, writeContainer } from './container.ts';
 import { dataRoutes } from './routes.ts';
+import { securityRoutes } from '../security/routes.ts';
 
 let t: TestCompany;
 let dir: string;
@@ -246,6 +247,26 @@ describe('backup: list, retention and automatic backups', () => {
     assert.equal(fs.existsSync(foreign.path), true);
   });
 
+  it('a new backup that cannot be read back keeps every older backup (retention never runs)', async () => {
+    t.db.transaction(() => saveConfig(t.ctx, { backup: { keepLast: 1 } }));
+    const first = await createBackup(t.ctx, { folder: dir });
+    t.clock.advance(60_000);
+    // Simulate a drive that corrupts what is written: flip the last byte of every file renamed into place.
+    const realRename = fs.renameSync;
+    (fs as { renameSync: typeof fs.renameSync }).renameSync = (from: fs.PathLike, to: fs.PathLike): void => {
+      realRename(from, to);
+      const buf = fs.readFileSync(to);
+      buf[buf.length - 1] ^= 0xff;
+      fs.writeFileSync(to, buf);
+    };
+    try {
+      await assert.rejects(createBackup(t.ctx, { folder: dir }), (e: unknown) => e instanceof AppError && /could not be read back/.test(e.message) && /Older backups were kept/.test(e.message));
+    } finally {
+      (fs as { renameSync: typeof fs.renameSync }).renameSync = realRename;
+    }
+    assert.ok(fs.existsSync(first.path), 'the older good backup is still there');
+  });
+
   it('auto backup runs when on and the last backup is over 24 hours old', async () => {
     t.db.transaction(() => saveConfig(t.ctx, { backup: { folder: dir, auto: true } }));
     const first = await autoBackup(t.ctx);
@@ -320,7 +341,7 @@ describe('restore (app runtime)', () => {
     clock = fixedClock('2026-10-05');
     rt = createRuntimeWithRoutes(
       { userDataDir: path.join(root, 'userData'), defaultDataDir: path.join(root, 'data'), appVersion: '1.2.3', clock, consoleLog: false },
-      { ...appRoutes, ...companyRoutes, ...dataRoutes },
+      { ...appRoutes, ...companyRoutes, ...dataRoutes, ...securityRoutes },
     );
   });
   afterEach(async () => {
@@ -386,5 +407,39 @@ describe('restore (app runtime)', () => {
     const b = await backupOf('Eta Traders');
     await call('app.company.close');
     await fails('data.backup.restoreFromFile', { path: a.backup.path, mode: 'replace', replaceId: b.id }, 'CONFLICT', /belongs to "Zeta Traders"/);
+  });
+
+  it('a forged manifest (company id copied from the target) is caught by the data inside; the target stays', async () => {
+    const a = await backupOf('Theta Traders');
+    await call('app.company.close');
+    const b = await backupOf('Iota Traders');
+    await call('app.company.close');
+    // Rewrite A's plain-JSON manifest to claim it is B (same length area, still valid JSON).
+    const info = readContainerInfo(a.backup.path);
+    const bGuid = readContainerInfo(b.backup.path).manifest.companyGuid;
+    const forged = Buffer.from(JSON.stringify({ ...info.manifest, companyGuid: bGuid, companyName: 'Iota Traders' }), 'utf8');
+    const fd = fs.openSync(a.backup.path, 'r+');
+    try {
+      const area = Buffer.alloc(info.payloadOffset - 12, 0x20);
+      forged.copy(area);
+      fs.writeSync(fd, area, 0, area.length, 12);
+    } finally {
+      fs.closeSync(fd);
+    }
+    await fails('data.backup.restoreFromFile', { path: a.backup.path, mode: 'replace', replaceId: b.id }, 'CONFLICT', /belongs to "Theta Traders"/);
+    const list = await call<CompanyListItem[]>('app.company.list');
+    assert.equal(list.find((c) => c.id === b.id)?.name, 'Iota Traders', 'the company being replaced is untouched');
+    assert.equal(list.length, 2);
+  });
+
+  it('replacing a password-protected company needs its owner password (wrong tries refused)', async () => {
+    const { id, backup } = await backupOf('Kappa Traders');
+    await call('security.enable', { username: 'owner', password: 'Owner@2026' });
+    await call('app.company.close');
+    await fails('data.backup.restoreFromFile', { path: backup.path, mode: 'replace', replaceId: id }, 'VALIDATION', /owner password/);
+    await fails('data.backup.restoreFromFile', { path: backup.path, mode: 'replace', replaceId: id, ownerPassword: 'Wrong@2026' }, 'UNAUTHENTICATED', /incorrect/);
+    const res = await call<BackupRestoreResult>('data.backup.restoreFromFile', { path: backup.path, mode: 'replace', replaceId: id, ownerUsername: 'owner', ownerPassword: 'Owner@2026' });
+    assert.equal(res.company.id, id);
+    assert.ok(res.replacedTo);
   });
 });

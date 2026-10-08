@@ -4,7 +4,7 @@ import type { ReminderParty, RemindersResult } from '../../../../shared/types/ou
 import { ageingBarText, ageingLevel, ageingSegments } from './ageingBars.ts';
 import { interestBasisText, interestInput, interestSegmentLines, rateText } from './interest.ts';
 import type { InterestChoices } from './interest.ts';
-import { clampLookAhead, clampMinDays, dueInText, letterNumericColumns, remindersExport, remindersQuery, selectedParties, toggleAll, toggleExcluded } from './reminders.ts';
+import { clampLookAhead, clampMinDays, dueInText, letterNumericColumns, lookAheadText, remindersExport, remindersQuery, selectedParties, toggleAll, toggleExcluded } from './reminders.ts';
 
 describe('ageing bars', () => {
   it('spreads the age ranges over four severity levels, last bucket always the most severe', () => {
@@ -85,6 +85,24 @@ describe('interest input', () => {
     // ₹10,000 for 365 days at 12.5% = ₹1,250.00 exactly: 10,00,000 × 365 × 12.5 ÷ 36,500 = 1,25,000 paise.
     const [l] = interestSegmentLines({ ratePercent: 12.5, interest: 1_25_000, segments: [{ from: '2025-09-30', to: '2026-09-30', days: 365, balance: 10_00_000 }] });
     assert.equal(l.interest, 1_25_000);
+  });
+
+  it('still adds up to the bill’s interest when the server figure differs from the exact split', () => {
+    // Same two segments as above (floors 1,52,876 + 41,424 = 1,94,300; remainders .71 and .66).
+    const segments = [
+      { from: '2026-04-30', to: '2026-05-31', days: 31, balance: 1_00_000_00 },
+      { from: '2026-05-31', to: '2026-06-14', days: 14, balance: 60_000_00 },
+    ];
+    // 2 paise short of the floors: taken off the smallest remainder first (.66), then the next (.71).
+    const less = interestSegmentLines({ ratePercent: 18, interest: 1_94_298, segments });
+    assert.deepEqual(less.map((l) => l.interest), [1_52_875, 41_423]);
+    // 3 paise over the floors (more than one per line): the largest remainder gets two.
+    const more = interestSegmentLines({ ratePercent: 18, interest: 1_94_303, segments });
+    assert.deepEqual(more.map((l) => l.interest), [1_52_878, 41_425]);
+    // Nothing to take from: lines never go below zero.
+    const zero = interestSegmentLines({ ratePercent: 18, interest: 0, segments: [{ from: '2026-06-13', to: '2026-06-14', days: 1, balance: 1 }] });
+    assert.deepEqual(zero.map((l) => l.interest), [0]);
+    assert.deepEqual(interestSegmentLines({ ratePercent: 18, interest: 0, segments: [] }), []);
   });
 
   it('formats the rate and the basis sentence', () => {
@@ -184,9 +202,12 @@ describe('reminders', () => {
     };
     assert.deepEqual(letterNumericColumns(table), [false, false, false, true, true]);
     assert.deepEqual(letterNumericColumns({ columns: ['A'], rows: [] }), [false]);
+    // Purely numeric bill numbers stay left-aligned with the "Total overdue" label under them.
+    assert.deepEqual(letterNumericColumns({ columns: table.columns, rows: [['1024', '01-May-2026', '22-Jun-2026', '100', '500.00']] }), [false, false, false, true, true]);
   });
 
   it('words the due-soon distance', () => {
     assert.deepEqual([0, 1, 5].map(dueInText), ['Due today', 'Due tomorrow', 'In 5 days']);
+    assert.deepEqual([0, 1, 7].map(lookAheadText), ['today', 'today or tomorrow', 'in the next 7 days']);
   });
 });

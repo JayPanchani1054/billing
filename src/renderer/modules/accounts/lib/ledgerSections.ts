@@ -3,7 +3,7 @@
  * company's F11 features. Mirrors the core placement rules (src/core/modules/accounts/ledgerRules.ts:
  * bank fields only under Bank Accounts / Bank OD, tax fields only under Duties & Taxes, GST rate
  * details only for income / expense / fixed-asset ledgers, ITC and reverse charge only inward).
- * Pure — tested in ledgerSections.test.ts.
+ * Pure — tested in groupClass.test.ts (section visibility).
  */
 import type { CompanyFeatures } from '../../../../shared/settings.ts';
 import type { LedgerClass } from '../../../../shared/types/accounts.ts';

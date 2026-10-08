@@ -3,7 +3,20 @@
  * left, reference grid on the right, goods table with tax ledgers listed under the items, amount
  * chargeable in words, HSN/SAC tax table, declaration and "for <company>" signature box.
  */
-import { addressLines, classicTaxRows, headerRefs, itemColumns, money, partyIds, pctText, qtyText, rateText, rupees } from '../lib/layout.ts';
+import {
+  addressLines,
+  classicTaxRows,
+  headerRefs,
+  itemColumns,
+  money,
+  partyBoxLabel,
+  partyIds,
+  pctText,
+  qtyText,
+  rateText,
+  rupees,
+  taxabilityText,
+} from '../lib/layout.ts';
 import type { PrintAddress, PrintVoucherData } from '../../../../shared/types/print.ts';
 import { BankBlock, EInvoiceBlock, safeImage, Stamp, UpiBlock, type DocProps } from './parts.tsx';
 
@@ -86,8 +99,12 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
   const logo = safeImage(doc.company.logo);
   const taxRows = classicTaxRows(doc);
   const t = doc.totals;
-  const nCols = 3 + (cols.hsn ? 1 : 0) + (cols.qty ? 1 : 0) + (cols.rate ? 2 : 0) + (cols.discount ? 1 : 0);
-  const descSpan = 2 + (cols.hsn ? 1 : 0);
+  // Rule 46(i): the rate of tax per line — Tally's "GST Rate" column next to HSN/SAC.
+  const gstCol = doc.gst.showTax;
+  const nCols = 3 + (cols.hsn ? 1 : 0) + (gstCol ? 1 : 0) + (cols.qty ? 1 : 0) + (cols.rate ? 2 : 0) + (cols.discount ? 1 : 0);
+  const descSpan = 2 + (cols.hsn ? 1 : 0) + (gstCol ? 1 : 0);
+  /** Blank cells between the description and the Amount column of a tax / charge row. */
+  const gap = nCols - 3;
   const showConsignee = !doc.consigneeSameAsParty && doc.consignee;
   return (
     <article className="bp-doc bp-classic">
@@ -118,7 +135,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
               ) : null}
               {doc.party ? (
                 <div className="bp-sep-top">
-                  <AddressCell label={showConsignee ? doc.partyLabel : doc.layout === 'invoice' ? `${doc.consigneeLabel} / ${doc.partyLabel}` : doc.partyLabel} a={doc.party} />
+                  <AddressCell label={partyBoxLabel(doc)} a={doc.party} />
                 </div>
               ) : null}
             </td>
@@ -147,6 +164,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
             <th className="bp-sl">Sl No.</th>
             <th>Description of Goods / Services</th>
             {cols.hsn ? <th>HSN/SAC</th> : null}
+            {gstCol ? <th>GST Rate</th> : null}
             {cols.qty ? <th>Quantity</th> : null}
             {cols.rate ? <th>Rate</th> : null}
             {cols.rate ? <th>per</th> : null}
@@ -165,6 +183,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
                 {l.absorbed ? <span className="bp-sub">Included in the taxable value</span> : null}
               </td>
               {cols.hsn ? <td>{l.hsnSac ?? ''}</td> : null}
+              {gstCol ? <td className="bp-num">{l.absorbed ? '' : l.taxability === 'taxable' ? pctText(l.gstRate) : taxabilityText(l.taxability)}</td> : null}
               {cols.qty ? <td className="bp-num bp-strong">{l.qty === null ? '' : `${qtyText(l.qty, l.qtyDecimals)} ${l.unit ?? ''}`.trim()}</td> : null}
               {cols.rate ? <td className="bp-num">{rateText(l.rate)}</td> : null}
               {cols.rate ? <td>{l.qty === null ? '' : (l.unit ?? '')}</td> : null}
@@ -177,6 +196,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
               <td />
               <td className="bp-num bp-strong">{r.label}</td>
               {cols.hsn ? <td /> : null}
+              {gstCol ? <td /> : null}
               {cols.qty ? <td /> : null}
               {cols.rate ? <td className="bp-num">{r.rate}</td> : null}
               {cols.rate ? <td>{r.rate ? '%' : ''}</td> : null}
@@ -188,7 +208,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
             <tr key={c.name} className="bp-taxrow">
               <td />
               <td className="bp-num bp-strong">{c.name}</td>
-              <td colSpan={nCols - 3} />
+              {gap > 0 ? <td colSpan={gap} /> : null}
               <td className="bp-num bp-strong">{money(c.amount)}</td>
             </tr>
           ))}
@@ -196,7 +216,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
             <tr className="bp-taxrow">
               <td />
               <td className="bp-num bp-strong">Round Off</td>
-              <td colSpan={nCols - 3} />
+              {gap > 0 ? <td colSpan={gap} /> : null}
               <td className="bp-num bp-strong">{money(t.roundOff)}</td>
             </tr>
           ) : null}

@@ -152,13 +152,13 @@ export function negativeReason(cls: {
     if (cls.isBank && !cls.isBankOd) return 'Bank account shows a credit (overdrawn) balance. If this is an overdraft account, move it under Bank OD A/c.';
     if (cls.isDebtor) return 'Customer has a credit balance (an advance received or an excess payment).';
     if (cls.nature === 'assets') return 'Asset ledger has a credit balance.';
-    if (cls.nature === 'expenses') return 'Expense ledger has a credit balance for the period.';
+    if (cls.nature === 'expenses') return 'Expense ledger has a credit balance for the year to date (more returned or reversed than spent).';
     return null;
   }
   if (cls.isBankOd) return 'Overdraft account has a debit balance (money in the account).';
   if (cls.isCreditor) return 'Supplier has a debit balance (an advance paid or an excess payment).';
   if (cls.nature === 'liabilities') return 'Liability ledger has a debit balance.';
-  if (cls.nature === 'income') return 'Income ledger has a debit balance for the period.';
+  if (cls.nature === 'income') return 'Income ledger has a debit balance for the year to date (more returned or reversed than earned).';
   return null;
 }
 

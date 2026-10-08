@@ -58,6 +58,7 @@ import { loadVoucherType, type VoucherTypeInfo } from '../vouchers/numbering.ts'
 import { buildPosting, type PostingEnv, type PostingPlan } from '../vouchers/posting.ts';
 import { getVoucher, gstLinesView } from '../vouchers/queries.ts';
 import { loadCompanyEssentials, loadVoucherRow, normalizeInput, parseJson, parseMeta, storedInput, modeOfRow, type VoucherRow } from '../vouchers/service.ts';
+import { complianceWarnings } from './compliance.ts';
 import { baseDirection, copyLabels, documentTitle, isSalesDocument, partyLabels, type CompanyGstStatus } from './titles.ts';
 
 // ───────────────────────────── Shared context (one per request / batch) ─────────────────────────────
@@ -211,6 +212,15 @@ export function resolveOptions(env: PrintEnv, vtConfig: Record<string, unknown>,
   return out;
 }
 
+/** Groups under Bank Accounts / Bank OD (nested groups included). */
+const BANK_GROUPS_CTE = `WITH RECURSIVE g(id) AS (
+    SELECT id FROM groups WHERE reserved_code IN ('BANK_ACCOUNTS', 'BANK_OD')
+    UNION SELECT c.id FROM groups c JOIN g ON c.parent_id = g.id)`;
+
+/**
+ * Account details of a bank ledger for printing. Only ledgers under Bank Accounts / Bank OD qualify, so
+ * a stale or hand-edited bankLedgerId can never print (or disclose) a party's own bank details.
+ */
 export function bankDetails(db: Db, ledgerId: number | null): PrintBank | null {
   if (ledgerId === null) return null;
   const r = db.get<{
@@ -223,8 +233,9 @@ export function bankDetails(db: Db, ledgerId: number | null): PrintBank | null {
     bank_branch: string | null;
     bank_upi_id: string | null;
   }>(
-    `SELECT id, name, bank_account_holder, bank_account_no, bank_ifsc, bank_name, bank_branch, bank_upi_id
-       FROM ledgers WHERE id = :id`,
+    `${BANK_GROUPS_CTE}
+     SELECT id, name, bank_account_holder, bank_account_no, bank_ifsc, bank_name, bank_branch, bank_upi_id
+       FROM ledgers WHERE id = :id AND group_id IN (SELECT id FROM g)`,
     { id: ledgerId },
   );
   if (!r) return null;
@@ -243,9 +254,7 @@ export function bankDetails(db: Db, ledgerId: number | null): PrintBank | null {
 /** Bank ledgers (Bank Accounts / Bank OD, nested groups included) for the print settings picker. */
 export function listBankLedgers(db: Db): PrintBank[] {
   const ids = db.all<{ id: number }>(
-    `WITH RECURSIVE g(id) AS (
-        SELECT id FROM groups WHERE reserved_code IN ('BANK_ACCOUNTS', 'BANK_OD')
-        UNION SELECT c.id FROM groups c JOIN g ON c.parent_id = g.id)
+    `${BANK_GROUPS_CTE}
      SELECT l.id FROM ledgers l WHERE l.group_id IN (SELECT id FROM g) AND l.is_active = 1 ORDER BY l.name COLLATE NOCASE`,
     {},
   );
@@ -682,6 +691,40 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
       WHERE le.voucher_id = :id ORDER BY le.line_no`,
     { id: row.id },
   );
+  // Accounting invoice without GST lines (company not under GST): the sales / purchase ledgers are the lines.
+  if (gst.length === 0 && inv.length === 0) {
+    for (const e of entries) {
+      if (e.role !== 'sales' && e.role !== 'purchase') continue;
+      lines.push({
+        sl: lines.length + 1,
+        kind: 'ledger',
+        name: e.name,
+        description: null,
+        hsnSac: null,
+        batch: null,
+        qty: null,
+        unit: null,
+        qtyDecimals: 0,
+        rate: null,
+        discountPct: 0,
+        discount: 0,
+        amount: -s * e.amount,
+        taxableValue: -s * e.amount,
+        taxability: 'non_gst',
+        gstRate: 0,
+        cessRate: 0,
+        cgst: 0,
+        sgst: 0,
+        igst: 0,
+        cess: 0,
+        tax: 0,
+        taxPayable: true,
+        absorbed: false,
+        reverseCharge: false,
+        section: null,
+      });
+    }
+  }
   const charges: PrintCharge[] = [];
   const itemTaxable = sum(lines.filter((l) => l.kind === 'item').map((l) => l.taxableValue));
   const itemLedgerPosted = sum(entries.filter((e) => e.role === 'sales' || e.role === 'purchase').filter((e) => !gstLedgers.has(e.ledger_id)).map((e) => -s * e.amount));
@@ -997,15 +1040,24 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
     consignee = address({ ...consigneeRaw, country: null });
   } else if (base === 'purchase_order') {
     consignee = { ...company, name: company.displayName, registrationType: null };
+  } else if (direction === 'inward') {
+    // Goods bought come to the company: the supplier is not a "ship to".
+    consignee = null;
   } else {
     consignee = party;
     consigneeSameAsParty = party !== null;
   }
+  // A challan names its consignee (Rule 55(1)(d)); when there is no separate ship-to, the party is the consignee.
+  const partyLabel = base === 'delivery_note' && consigneeSameAsParty ? labels.consignee : labels.party;
 
   // ── GST presentation ──
-  const pos = placeOfSupply(row.place_of_supply);
+  // Rule 55(1)(g): a challan for inter-State movement shows the place of supply — the state the goods go to.
+  const pos =
+    placeOfSupply(row.place_of_supply) ??
+    (title.kind === 'delivery_challan' ? placeOfSupply(consignee?.stateCode ?? party?.stateCode ?? null) : null);
   const taxMode: TaxMode = build?.taxMode ?? 'none';
-  const showTax = layout === 'invoice' && companyGst === 'regular' && taxMode !== 'none';
+  // A bill of supply (Rule 49) carries no tax columns, rates or reverse-charge line.
+  const showTax = layout === 'invoice' && companyGst === 'regular' && taxMode !== 'none' && title.kind !== 'bill_of_supply';
 
   // ── References ──
   const detailParty = layout === 'invoice' && !cancelled && row.party_ledger_id !== null
@@ -1023,7 +1075,8 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
   const bank = asksPayment && options.showBankDetails ? bankDetails(db, options.bankLedgerId) : null;
   let upi: PrintUpi | null = null;
   const upiId = txt(options.upiId) ?? (asksPayment ? (bankDetails(db, options.bankLedgerId)?.upiId ?? null) : null);
-  if (asksPayment && options.showUpiQr && upiId && !cancelled && totals.grandTotal > 0) {
+  // UPI collects rupees from Indian accounts: not offered to an overseas buyer on an export invoice.
+  if (asksPayment && title.kind !== 'export_invoice' && options.showUpiQr && upiId && !cancelled && totals.grandTotal > 0) {
     const note = row.number ? `${title.title} ${row.number}` : title.title;
     const payeeName = company.displayName;
     upi = { id: upiId, payeeName, amount: totals.grandTotal, note, uri: upiUri({ id: upiId, payeeName, amount: totals.grandTotal, note }) };
@@ -1053,7 +1106,7 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
       postDated: row.is_post_dated === 1,
     },
     company,
-    partyLabel: labels.party,
+    partyLabel,
     party,
     consigneeLabel: labels.consignee,
     consignee,
@@ -1086,7 +1139,9 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
     bank,
     upi,
     declaration: sellerDoc ? txt(options.declaration) : null,
-    terms: layout !== 'voucher' && direction === 'outward' ? txt(options.terms) : null,
+    // Terms of sale belong on what the company sells (invoices, outward debit notes, sales orders) — not on a
+    // credit note for returned goods or a challan.
+    terms: sellerDoc || (title.kind === 'sales_order' && layout !== 'voucher') ? txt(options.terms) : null,
     signatoryLabel: txt(options.signatoryLabel) ?? 'Authorised Signatory',
     copyLabels: copyLabels(title.kind, direction === 'outward', lines.some((l) => l.kind === 'item')),
     options,
@@ -1096,6 +1151,14 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
   };
   if (cancelled) data.warnings.unshift(`This voucher was cancelled${data.status.cancelReason ? ` (${data.status.cancelReason})` : ''}; it prints marked CANCELLED.`);
   else if (data.status.optional) data.warnings.unshift('This is an optional voucher (not in the books); it prints marked OPTIONAL.');
+  data.warnings.push(
+    ...complianceWarnings(data, {
+      issuedByCompany: direction === 'outward' || title.kind === 'self_invoice',
+      companyGst,
+      hsnDigits: env.config.gst.hsnDigits,
+      einvoice: env.features.einvoice,
+    }),
+  );
   return data;
 }
 

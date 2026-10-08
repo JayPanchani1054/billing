@@ -39,7 +39,7 @@ export function RoleFormScreen({ params }: ScreenProps<RoleParams>) {
   const error = source.error ?? catalog.error ?? roles.error;
   const ready = (sourceId === undefined || source.data) && catalog.data && roles.data;
   if (error || !ready) {
-    return <Screen title={title} icon="shield" width="form" loading={!error} error={error} onRetry={() => void (source.error ? source.refetch() : catalog.refetch())} />;
+    return <Screen title={title} icon="shield" width="form" loading={!error} error={error} onRetry={() => void Promise.all([source.error ? source.refetch() : null, catalog.error ? catalog.refetch() : null, roles.error ? roles.refetch() : null])} />;
   }
   const others = (roles.data?.rows ?? []).filter((r) => r.id !== id).map((r) => r.name);
   return (

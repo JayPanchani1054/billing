@@ -146,6 +146,7 @@ export function RemindersScreen({ params }: ScreenProps<RemindersParams>) {
     { key: 'Alt+M', label: 'Save all as one PDF', icon: 'download', onClick: () => void batch('pdf'), disabled: chosen.length === 0, group: 'batch' },
     { key: 'Alt+A', label: excluded.size > 0 ? 'Include everyone' : 'Skip everyone', icon: 'check', onClick: () => setExcluded(toggleAll(parties, excluded)), disabled: parties.length === 0, group: 'batch' },
     { key: 'Alt+F', label: 'Overdue by', icon: 'filter', onClick: () => minRef.current?.focus(), group: 'filter' },
+    { key: 'Alt+W', label: 'All customers', icon: 'users', onClick: () => setLedgerId(undefined), hidden: ledgerId === undefined, group: 'filter', hint: 'Show every customer with overdue bills, not just this one' },
     { key: 'Alt+O', label: 'Party outstanding', icon: 'list', onClick: () => current && nav.push('outstanding.party', { ledgerId: current.ledgerId }), disabled: !current, group: 'party' },
     { key: 'Alt+E', label: 'Export list', icon: 'export', onClick: () => setExportOpen(true), disabled: !d || parties.length === 0, group: 'output' },
   ];
@@ -163,7 +164,7 @@ export function RemindersScreen({ params }: ScreenProps<RemindersParams>) {
         error={q.error}
         onRetry={() => void q.refetch()}
         actions={actions}
-        hint="Space Include/skip · Alt+P Print · Alt+S PDF · Alt+T Copy text · Alt+B Print all · Alt+F2 As on · Esc Back"
+        hint={`Enter Party · Space Include/skip · Alt+P Print · Alt+S PDF · Alt+T Copy text · Alt+B Print all${ledgerId !== undefined ? ' · Alt+W All customers' : ''} · Alt+F2 As on · Esc Back`}
         filters={
           <Inline gap={2}>
             <Field label="Overdue by at least" layout="inline" labelWidth="auto">

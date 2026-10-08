@@ -62,7 +62,7 @@ import { getConfig, getFeatures, saveFeatures } from '../company/service.ts';
 import { mainGodownId, saveGodown, saveStockCategory, saveStockGroup } from '../inventory/masters.ts';
 import { saveItem } from '../inventory/items.ts';
 import { saveUnit } from '../inventory/units.ts';
-import { loadVoucherType, parseVoucherSeq, periodRange } from '../vouchers/numbering.ts';
+import { loadVoucherType, parseVoucherSeq, periodKey, periodRange, type VoucherTypeInfo } from '../vouchers/numbering.ts';
 import { dbTaxLookup, resolveItemTaxProfile, resolveLedgerTaxProfile, type TaxLookup } from '../vouchers/taxprofile.ts';
 import { hasPermission, plural, requirePermission, yieldToEventLoop } from './common.ts';
 import {
@@ -1039,6 +1039,21 @@ interface VoucherEnv {
   now: string;
   userName: string | null;
   counts: TallyCounts;
+  /** Tally GUID → voucher id of vouchers already imported from Tally (loaded once; kept up to date). */
+  guids: Map<string, number>;
+  /** Set by writeVoucher: the id written for the voucher being processed (committed into `guids` by the caller). */
+  lastWritten: { guid: string; id: number } | null;
+}
+
+/** GUIDs of vouchers imported from Tally earlier (one scan instead of one per voucher). */
+function loadTallyGuids(db: Db): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const r of db.all<{ id: number; guid: unknown }>(
+    `SELECT id, json_extract(meta, '$.tally.guid') AS guid FROM vouchers WHERE json_valid(meta) AND json_extract(meta, '$.source') = 'tally'`,
+  )) {
+    if (typeof r.guid === 'string' && r.guid !== '' && !map.has(r.guid)) map.set(r.guid, r.id);
+  }
+  return map;
 }
 
 function loadLedgers(db: Db): { byName: Map<string, LedgerInfo>; byId: Map<number, LedgerInfo> } {
@@ -1215,6 +1230,21 @@ function numberSeq(db: Db, typeId: number, num: string | null): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
+/**
+ * Keep the automatic numbering counter at or above an imported number in this type's own format, so
+ * the next voucher entered after a migration does not have to skip over thousands of used numbers.
+ */
+function advanceCounter(db: Db, vt: VoucherTypeInfo, num: string | null, date: string, fyStartMonth: number): void {
+  if (!num || vt.numberingMethod === 'none' || vt.numberingMethod === 'manual') return;
+  const seq = parseVoucherSeq(vt, num);
+  if (seq === null) return;
+  db.run(
+    `INSERT INTO voucher_counters (voucher_type_id, period_key, last_number) VALUES (:vt, :key, :seq)
+     ON CONFLICT(voucher_type_id, period_key) DO UPDATE SET last_number = MAX(last_number, excluded.last_number)`,
+    { vt: vt.id, key: periodKey(vt, date, fyStartMonth), seq },
+  );
+}
+
 function snapRate(rate: number): number {
   for (const r of GST_RATES) if (Math.abs(r - rate) <= 0.05) return r;
   return Math.round(rate * 100) / 100;
@@ -1234,14 +1264,55 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
   if (env.lockedUpTo && v.date <= env.lockedUpTo) throw new SkipVoucher('locked', `The books are locked up to ${env.lockedUpTo}.`);
 
   // Duplicate: same Tally GUID, or the same number in the same voucher type and numbering period.
+  // Tally allows repeated numbers (manual numbering, Receipt/Payment "1" every day), so a number match
+  // against a voucher that came from Tally with ANOTHER GUID is a different voucher, not a duplicate.
   const vt = loadVoucherType(db, typeId);
-  let existingId: number | undefined;
-  if (v.guid) existingId = db.value<number>(`SELECT id FROM vouchers WHERE json_valid(meta) AND json_extract(meta, '$.tally.guid') = :g LIMIT 1`, { g: v.guid });
+  let existingId: number | undefined = v.guid ? env.guids.get(v.guid) : undefined;
+  let matchedByNumber = false;
   if (existingId === undefined && v.number) {
     const { from, to } = periodRange(vt, v.date, env.company.fyStartMonth);
-    existingId = db.value<number>('SELECT id FROM vouchers WHERE voucher_type_id = :t AND number = :n AND date BETWEEN :from AND :to LIMIT 1', { t: typeId, n: v.number, from, to });
+    const rows = db.all<{ id: number; source: unknown; tguid: unknown }>(
+      `SELECT id, CASE WHEN json_valid(meta) THEN json_extract(meta, '$.source') END AS source,
+              CASE WHEN json_valid(meta) THEN json_extract(meta, '$.tally.guid') END AS tguid
+         FROM vouchers WHERE voucher_type_id = :t AND number = :n AND date BETWEEN :from AND :to ORDER BY id`,
+      { t: typeId, n: v.number, from, to },
+    );
+    const same = rows.find((r) => !(v.guid && r.source === 'tally' && typeof r.tguid === 'string' && r.tguid !== '' && r.tguid !== v.guid));
+    if (same) {
+      existingId = same.id;
+      matchedByNumber = true;
+    }
   }
-  if (existingId !== undefined && !run.update) return 'skipped';
+  if (existingId !== undefined) {
+    const ex = db.get<{ source: unknown; date: string; is_cancelled: number }>(
+      `SELECT CASE WHEN json_valid(meta) THEN json_extract(meta, '$.source') END AS source, date, is_cancelled FROM vouchers WHERE id = :id`,
+      { id: existingId },
+    );
+    const fromTally = ex?.source === 'tally';
+    if (!run.update) {
+      if (matchedByNumber && !fromTally) {
+        run.add({
+          severity: 'warning',
+          code: 'number_exists',
+          message: `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Bahi ERP; the Tally voucher was not imported. Check that it is the same transaction.`,
+          object: `VOUCHER ${voucherLabel(v)}`,
+        });
+      }
+      return 'skipped';
+    }
+    // "Update existing" only refreshes vouchers that came from Tally: a voucher entered (or altered
+    // into shape) in this app is never overwritten by an import.
+    if (!fromTally) {
+      throw new SkipVoucher(
+        'number_exists',
+        `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Bahi ERP; it was not overwritten. Alter or delete it yourself if the Tally voucher should replace it.`,
+        'warning',
+      );
+    }
+    if (ex && env.lockedUpTo && ex.date <= env.lockedUpTo) {
+      throw new SkipVoucher('locked', `The voucher already imported is in the locked period (up to ${env.lockedUpTo}); it was not updated.`, 'warning');
+    }
+  }
 
   const isAccounting = ACCOUNTING_BASE_TYPES.includes(base);
   const writesEntries = isAccounting || base === 'memorandum' || base === 'reversing_journal';
@@ -1525,6 +1596,8 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     const names = Object.keys(all);
     id = db.run(`INSERT INTO vouchers (${names.join(', ')}) VALUES (${names.map((n) => `:${n}`).join(', ')})`, all).lastInsertRowid;
   }
+  if (v.guid) env.lastWritten = { guid: v.guid, id };
+  advanceCounter(db, vt, v.number, v.date, env.company.fyStartMonth);
 
   const books = affectsBooks ? 1 : 0;
   entries.forEach((e, i) => {
@@ -1714,6 +1787,14 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
   if (!doMasters && !opts.vouchers) throw validation([{ path: 'options', message: 'Choose masters, vouchers or both to import' }]);
   if (doMasters && !hasPermission(ctx, 'masters.create')) throw new AppError('FORBIDDEN', 'You need permission to create masters to import them from Tally.');
   if (opts.vouchers && !hasPermission(ctx, 'vouchers.create')) throw new AppError('FORBIDDEN', 'You need permission to create vouchers to import them from Tally.');
+  // Same rights as entering the data by hand: migrated vouchers are back-dated, and "update" alters.
+  if (opts.vouchers && !hasPermission(ctx, 'vouchers.backdate')) {
+    throw new AppError('FORBIDDEN', 'Vouchers from Tally are dated in the past. You need permission to enter back-dated vouchers ("vouchers.backdate") to import them.');
+  }
+  if (opts.onDuplicate === 'update') {
+    if (doMasters && !hasPermission(ctx, 'masters.alter')) throw new AppError('FORBIDDEN', 'You need permission to alter masters to update existing ones from Tally. Choose "Skip" for existing records, or ask the owner.');
+    if (opts.vouchers && !hasPermission(ctx, 'vouchers.alter')) throw new AppError('FORBIDDEN', 'You need permission to alter vouchers to update existing ones from Tally. Choose "Skip" for existing records, or ask the owner.');
+  }
   if (opts.from && opts.to && opts.to < opts.from) throw validation([{ path: 'options.to', message: 'The end date is before the start date' }]);
   const lockKey = ctx.company.dbPath + '|' + ctx.company.id;
   if (RUNNING.has(lockKey)) throw new AppError('CONFLICT', 'A Tally import is already running for this company. Wait for it to finish.');
@@ -1721,6 +1802,7 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
   const started = Date.now();
   const issues: TallyIssue[] = [];
   const add = issueSink(issues);
+  let openBatch: number | null = null;
   try {
     setProgress(ctx, { running: true, phase: 'parse', done: 0, total: 0, message: 'Reading the Tally file…' });
     await yieldToEventLoop();
@@ -1762,6 +1844,7 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
         meta: JSON.stringify({ status: 'running' }),
       }).lastInsertRowid,
     );
+    openBatch = batchId;
     const baseOf = baseTypeResolver(db, file);
     if (doMasters) {
       setProgress(ctx, { running: true, phase: 'masters', done: 0, total: 0, message: 'Creating groups, ledgers and stock items…' });
@@ -1799,6 +1882,8 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
         now,
         userName: ctx.session.displayName || ctx.session.username || null,
         counts,
+        guids: loadTallyGuids(db),
+        lastWritten: null,
       };
       for (let start = 0; start < list.length; start += CHUNK) {
         setProgress(ctx, { running: true, phase: 'vouchers', done: start, total: list.length, message: `Importing vouchers ${start + 1}–${Math.min(start + CHUNK, list.length)} of ${list.length}…` });
@@ -1807,8 +1892,12 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
           db.transaction(() => {
             for (const v of list.slice(start, start + CHUNK)) {
               try {
+                env.lastWritten = null;
                 const out = db.transaction(() => writeVoucher(env, v));
                 counts[out]++;
+                // A failed chunk stops the import, so ids recorded here never outlive a rollback that continues.
+                const w = env.lastWritten as VoucherEnv['lastWritten'];
+                if (w) env.guids.set(w.guid, w.id);
               } catch (err) {
                 counts.failed++;
                 if (err instanceof SkipVoucher) {
@@ -1849,6 +1938,17 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
     return result;
   } catch (err) {
     setProgress(ctx, { running: false, phase: 'failed', done: 0, total: 0, message: err instanceof AppError ? err.message : 'The import failed.' });
+    if (openBatch !== null) {
+      // Leave no batch marked 'running' behind (the masters transaction rolled back as a whole).
+      const id = openBatch;
+      try {
+        ctx.db.transaction(() =>
+          ctx.db.run('UPDATE import_batches SET meta = :meta WHERE id = :id', { id, meta: JSON.stringify({ status: 'failed', file: input.fileName, error: err instanceof Error ? err.message : String(err) }) }),
+        );
+      } catch {
+        /* the original error matters more */
+      }
+    }
     throw err;
   } finally {
     RUNNING.delete(lockKey);

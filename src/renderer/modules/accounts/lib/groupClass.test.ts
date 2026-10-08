@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { classNamesOf, classOfGroup, groupIsUnder, indexGroups, natureHint } from './groupClass.ts';
+import { classNamesOf, classOfGroup, groupCodeForClasses, groupIsUnder, indexGroups, natureHint } from './groupClass.ts';
 import { defaultOpeningSide, ledgerSections, visibleSectionTitles } from './ledgerSections.ts';
 import type { SectionContext } from './ledgerSections.ts';
 import { groupIdOf, predefinedTestGroups } from './testGroups.ts';
@@ -148,5 +148,17 @@ describe('ledgerSections (section visibility by class)', () => {
     assert.equal(defaultOpeningSide(cls('SALES_ACCOUNTS')), 'cr');
     assert.equal(defaultOpeningSide(cls('CASH_IN_HAND')), 'dr');
     assert.equal(defaultOpeningSide(null), 'dr');
+  });
+});
+
+describe('Alt+C from a class-limited ledger picker', () => {
+  it('opens the ledger form under the one group the classes point to', () => {
+    assert.equal(groupCodeForClasses(['debtor']), 'SUNDRY_DEBTORS');
+    assert.equal(groupCodeForClasses(['bank']), 'BANK_ACCOUNTS');
+    assert.equal(groupCodeForClasses(['sales']), 'SALES_ACCOUNTS');
+    // Ambiguous: a party may be a customer or a supplier; several classes → no guess.
+    assert.equal(groupCodeForClasses(['party']), null);
+    assert.equal(groupCodeForClasses(['party', 'cash_bank']), null);
+    assert.equal(groupCodeForClasses(undefined), null);
   });
 });

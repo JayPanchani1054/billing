@@ -5,7 +5,7 @@
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { addDays, daysInMonth, endOfMonth, financialYear, formatMonth, parts } from '../../../../shared/dates.ts';
 import { formatIndianNumber, formatMoney, formatPercent } from '../../../../shared/format.ts';
-import type { RatioItem, ReportRowKind, StatementLine, TbRow, VerticalLine } from '../../../../shared/types/reports.ts';
+import type { GroupSummaryBasis, RatioItem, ReportRowKind, StatementLine, TbRow, VerticalLine } from '../../../../shared/types/reports.ts';
 import { indentLabel } from './tree.ts';
 
 // ───────────────────────────── Periods ─────────────────────────────
@@ -60,15 +60,29 @@ export interface DrillRow {
   id: number | null;
 }
 
+export interface DrillOptions {
+  /** Balance Sheet: start of the financial year (the P&L A/c line opens the P&L from here). */
+  yearStart?: string;
+  /**
+   * 'profitLoss' when drilling from the Profit & Loss statement (or a summary opened from it): the
+   * Group Summary then shows income/expense groups for the period only, agreeing with the P&L line.
+   */
+  basis?: GroupSummaryBasis;
+}
+
 /**
  * Where Enter on a report row goes: group → Group Summary, ledger → Ledger Vouchers, stock → Stock
  * Summary, the Balance Sheet's Profit & Loss A/c → the P&L of the year so far. Other rows (totals,
  * gross/net profit, opening difference) have no drill-down.
  */
-export function drillForRow(row: DrillRow, period: Range, opts: { yearStart?: string } = {}): DrillTarget | null {
+export function drillForRow(row: DrillRow, period: Range, opts: DrillOptions = {}): DrillTarget | null {
   switch (row.kind) {
     case 'group':
-      return row.id === null ? null : { screen: 'reports.groupSummary', params: { groupId: row.id, from: period.from, to: period.to } };
+      if (row.id === null) return null;
+      return {
+        screen: 'reports.groupSummary',
+        params: { groupId: row.id, from: period.from, to: period.to, ...(opts.basis === 'profitLoss' ? { basis: 'profitLoss' } : {}) },
+      };
     case 'ledger':
       return row.id === null ? null : { screen: 'reports.ledger', params: { ledgerId: row.id, from: period.from, to: period.to } };
     case 'stock':
@@ -86,6 +100,16 @@ export function voucherTarget(voucherId: number, baseType: VoucherBaseType | nul
   return alter
     ? { screen: 'vouchers.entry', params: baseType ? { id: voucherId, baseType } : { id: voucherId } }
     : { screen: 'vouchers.view', params: { id: voucherId } };
+}
+
+/**
+ * The row an action such as Alt+A (alter voucher) applies to: the table's highlighted row, but only
+ * while it is still one of the rows on screen (after a change of ledger, tab or period it is not).
+ */
+export function currentRow<T>(cursor: T | null, rows: readonly T[] | null | undefined, key: (row: T) => string | number): T | null {
+  if (cursor === null || !rows) return null;
+  const k = key(cursor);
+  return rows.find((r) => key(r) === k) ?? null;
 }
 
 // ───────────────────────────── Amount text ─────────────────────────────

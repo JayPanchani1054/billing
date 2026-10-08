@@ -88,3 +88,17 @@ export function DialogAccept({ onAccept }: { onAccept: () => void }) {
   useHotkeys({ 'Ctrl+A': () => onAccept() }, [onAccept]);
   return null;
 }
+
+/**
+ * After a failed save: move focus to the first field marked invalid (aria-invalid) inside `root`,
+ * once React has rendered the errors (ARCHITECTURE §7 — errors inline, focus the first invalid field).
+ */
+export function focusFirstInvalid(root: HTMLElement | null): void {
+  if (!root) return;
+  requestAnimationFrame(() => {
+    const el = root.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (!el) return;
+    el.focus();
+    el.scrollIntoView({ block: 'center' });
+  });
+}

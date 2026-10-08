@@ -66,7 +66,7 @@ import {
   validateItemDraft,
 } from './lib/itemForm.ts';
 import type { OpeningContext, OpeningField } from './lib/opening.ts';
-import { emptyOpening, remapOpeningErrors } from './lib/opening.ts';
+import { emptyOpening, isShownValue, openingErrorsToGrid, remapOpeningErrors } from './lib/opening.ts';
 import { netRate, qtyText } from './lib/slabs.ts';
 import { altUnitText } from './lib/units.ts';
 import { openingCellId, OpeningStockGrid } from './OpeningStockGrid.tsx';
@@ -319,7 +319,8 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
       }
     } catch (err) {
       const split = splitApiError(err, isKnownKey);
-      const fields = withOpeningErrorsShown(split.fields);
+      // The server numbers opening rows as sent (blank grid rows are not sent): back to grid rows.
+      const fields = withOpeningErrorsShown(openingErrorsToGrid(split.fields, d.openings));
       setErrors(fields);
       setBanner([split.message, unseenErrors(fields)].filter(Boolean).join(' ') || null);
       if (Object.keys(fields).length) focusFirstError(fields, FIELD_ORDER, idOf);
@@ -354,7 +355,10 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
     if (!saved) return;
     const ok = await confirm({
       title: `Remove the GST rate from ${formatDate(h.applicableFrom)}?`,
-      message: 'Invoices on and after that date will use the previous rate in the history. Use this only to undo a wrongly dated change.',
+      message:
+        'Invoices on and after that date will use the previous rate in the history. Use this only to undo a wrongly dated change.' +
+        // The form reloads the item afterwards (it changed on the server).
+        (dirty ? ' Your other unsaved changes on this form are discarded — save them first if you need them.' : ''),
       confirmLabel: 'Remove',
       tone: 'danger',
     });
@@ -507,7 +511,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
                         error={errors.altConversion}
                         hint={altUnitText(unit?.symbol, altUnit?.symbol, d.altConversion) || 'e.g. 12 when 1 Box = 12 Nos'}
                       >
-                        <NumberInput id={`${ID}altConversion`} value={d.altConversion} onChange={(v) => set('altConversion', v)} decimals={4} min={0} readOnly={readOnly} />
+                        <NumberInput id={`${ID}altConversion`} value={d.altConversion} onChange={(v) => { if (!isShownValue(v, d.altConversion, 4)) set('altConversion', v); }} decimals={4} min={0} readOnly={readOnly} />
                       </Field>
                     </>
                   ) : null}

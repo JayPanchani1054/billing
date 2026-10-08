@@ -6,12 +6,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { StatementLine, TbRow } from '../../../shared/types/reports.ts';
-import { useNav, usePeriod } from '../../app/index.ts';
+import { useCompany, useNav, usePeriod } from '../../app/index.ts';
 import { DataTable, EmptyState } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { paramsPeriod, statementAmountText, tbTotals } from './lib/model.ts';
 import type { DrillTarget, Range } from './lib/model.ts';
-import { keysUpToLevel, loadExpansion, parentKeys, saveExpansion } from './lib/tree.ts';
+import { expansionKey, keysUpToLevel, loadExpansion, parentKeys, saveExpansion } from './lib/tree.ts';
 
 // ───────────────────────────── Period ─────────────────────────────
 
@@ -54,10 +54,13 @@ export interface TreeExpansion {
 }
 
 /**
- * Controlled expansion for a tree DataTable, remembered per `screenKey` (e.g. 'tb:detailed'): the
- * first visit opens rows up to `defaultLevel`; later visits restore what the user left open.
+ * Controlled expansion for a tree DataTable, remembered per company and `key` (e.g. 'tb:detailed'):
+ * the first visit opens rows up to `defaultLevel`; later visits restore what the user left open.
+ * Row keys hold group/ledger ids, so another company never inherits them.
  */
-export function useTreeExpansion(screenKey: string, rows: readonly { key: string; level: number; parentKey: string | null; hasChildren: boolean }[], defaultLevel: number): TreeExpansion {
+export function useTreeExpansion(key: string, rows: readonly { key: string; level: number; parentKey: string | null; hasChildren: boolean }[], defaultLevel: number): TreeExpansion {
+  const company = useCompany();
+  const screenKey = expansionKey(company.id, key);
   const [state, setState] = useState<{ key: string; keys: Set<string> | null }>(() => ({ key: screenKey, keys: loadExpansion(screenKey) }));
   const stored = state.key === screenKey ? state.keys : loadExpansion(screenKey);
   useEffect(() => {

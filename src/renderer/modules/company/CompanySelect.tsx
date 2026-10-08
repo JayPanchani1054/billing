@@ -1,6 +1,7 @@
 /**
  * Company list (no company open): search, open (Enter), create (Alt+C), delete (Ctrl+D), data
- * folder with "Change…", data-folder problems, and a first-company empty state.
+ * folder with "Change…", restore a backup (Alt+R, data module dialog), data-folder problems, and a
+ * first-company empty state.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CompanyListItem } from '../../../shared/types/app.ts';
@@ -13,6 +14,7 @@ import type { Column } from '../../ui/index.ts';
 import { CreateCompanyWizard } from './CreateCompanyWizard.tsx';
 import { DataFolderDialog } from './DataFolderDialog.tsx';
 import { DeleteCompanyDialog } from './DeleteCompanyDialog.tsx';
+import { RestoreBackupDialog } from '../data/RestoreFlow.tsx';
 import { GateLayout } from './GateLayout.tsx';
 
 export function CompanySelect() {
@@ -36,6 +38,7 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [folderOpen, setFolderOpen] = useState(false);
   const [deleting, setDeleting] = useState<CompanyListItem | null>(null);
+  const [restoring, setRestoring] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const gridRef = useRef<HTMLTableElement | null>(null);
 
@@ -74,6 +77,7 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
   useHotkeys(
     {
       'Alt+C': () => onCreate(),
+      'Alt+R': () => setRestoring(true),
       'Ctrl+D': () => {
         if (selectedCompany) setDeleting(selectedCompany);
       },
@@ -144,7 +148,7 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
       aside={folder}
       footer={
         <span className="bx-gate__keys">
-          <Kbd keys="Enter" size="sm" tone="subtle" /> Open <Kbd keys="Alt+C" size="sm" tone="subtle" /> Create <Kbd keys="Ctrl+D" size="sm" tone="subtle" /> Delete
+          <Kbd keys="Enter" size="sm" tone="subtle" /> Open <Kbd keys="Alt+C" size="sm" tone="subtle" /> Create <Kbd keys="Alt+R" size="sm" tone="subtle" /> Restore <Kbd keys="Ctrl+D" size="sm" tone="subtle" /> Delete
           <span className="bx-muted"> · Version {state?.appVersion}</span>
         </span>
       }
@@ -180,9 +184,14 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
           title="Create your first company"
           body="Set up your business in about two minutes — name, GST details and financial year. You can change everything later."
           action={
-            <Button variant="primary" icon="plus" onClick={onCreate} shortcut="Alt+C" autoFocus>
-              Create company
-            </Button>
+            <>
+              <Button variant="primary" icon="plus" onClick={onCreate} shortcut="Alt+C" autoFocus>
+                Create company
+              </Button>
+              <Button icon="undo" onClick={() => setRestoring(true)} shortcut="Alt+R">
+                Restore a backup…
+              </Button>
+            </>
           }
         />
       ) : (
@@ -208,6 +217,9 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
             <Button variant="primary" icon="plus" onClick={onCreate} shortcut="Alt+C">
               Create company
             </Button>
+            <Button icon="undo" onClick={() => setRestoring(true)} shortcut="Alt+R">
+              Restore a backup…
+            </Button>
             <Button icon="trash" variant="ghost" disabled={!selectedCompany} onClick={() => selectedCompany && setDeleting(selectedCompany)} shortcut="Ctrl+D">
               Delete
             </Button>
@@ -228,6 +240,7 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
       )}
 
       {folderOpen ? <DataFolderDialog onClose={() => setFolderOpen(false)} /> : null}
+      {restoring ? <RestoreBackupDialog onClose={() => setRestoring(false)} /> : null}
       {deleting ? (
         <DeleteCompanyDialog
           company={deleting}

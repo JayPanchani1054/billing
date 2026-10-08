@@ -298,7 +298,10 @@ export interface PrintVoucherData {
   partyLabel: string;
   party: PrintAddress | null;
   consigneeLabel: string;
-  /** Ship-to; equals the party block when no separate consignee was entered (see consigneeSameAsParty). */
+  /**
+   * Ship-to; equals the party block when no separate consignee was entered (see consigneeSameAsParty).
+   * null on inward documents (goods come to the company); the company itself on a purchase order.
+   */
   consignee: PrintAddress | null;
   consigneeSameAsParty: boolean;
   /** '27-Maharashtra' style; null when not applicable. */
@@ -337,7 +340,8 @@ export interface PrintVoucherData {
   navigation: { prevId: number | null; nextId: number | null };
   /**
    * Things the user should know before printing (figures rebuilt from the books, masters changed since
-   * the voucher was saved …). Written for an accountant.
+   * the voucher was saved, missing statutory particulars — see print/compliance.ts …). Written for an
+   * accountant; never blocks printing.
    */
   warnings: string[];
 }

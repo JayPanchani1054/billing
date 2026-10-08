@@ -4,17 +4,20 @@ import { sampleDoc, line } from './fixtures.ts';
 import {
   addressLines,
   classicTaxRows,
+  compactLineInfo,
   copyLabel,
   documentTitle,
   headerRefs,
   itemColumns,
   nativePageSize,
   pageSizeFor,
+  partyBoxLabel,
   partyIds,
   pdfFileName,
   qtyText,
   resolveCopies,
   resolveTemplate,
+  taxabilityText,
   templateForPageSize,
   toggleCopy,
   totalRows,
@@ -71,6 +74,15 @@ describe('addresses and header', () => {
     const unreg = { ...sampleDoc().party!, gstin: null, pan: null, registrationType: 'unregistered' };
     assert.deepEqual(partyIds(unreg, false), [{ label: 'GSTIN/UIN', value: 'Unregistered' }]);
   });
+  it('classic buyer box label: combined only when the buyer is also the ship-to', () => {
+    assert.equal(partyBoxLabel(sampleDoc()), 'Consignee (Ship to) / Buyer (Bill to)');
+    assert.equal(partyBoxLabel(sampleDoc({ consigneeSameAsParty: false })), 'Buyer (Bill to)');
+    // Purchase: no ship-to box at all → just the supplier.
+    assert.equal(partyBoxLabel(sampleDoc({ partyLabel: 'Supplier (Bill from)', consigneeLabel: 'Ship to', consignee: null, consigneeSameAsParty: false })), 'Supplier (Bill from)');
+    // Challan: the party already is the consignee — never "Consignee / Consignee".
+    assert.equal(partyBoxLabel(sampleDoc({ partyLabel: 'Consignee (Ship to)', consigneeLabel: 'Consignee (Ship to)' })), 'Consignee (Ship to)');
+  });
+
   it('header references: number, date, place of supply, reverse charge, e-way bill, references', () => {
     const doc = sampleDoc({ ewayBill: { number: '321009876543', date: '2026-04-15', validUpto: null }, references: [{ label: 'Vehicle No.', value: 'MH12AB1234' }] });
     assert.deepEqual(headerRefs(doc), [
@@ -134,6 +146,16 @@ describe('columns and totals', () => {
       { label: 'SGST', rate: '2.5%', amount: 1250 },
     ]);
     assert.deepEqual(classicTaxRows(sampleDoc()).map((r) => r.rate), ['', '']);
+  });
+
+  it('receipt line info: HSN and the GST rate on every taxed line (Rule 46), with or without HSN', () => {
+    assert.equal(compactLineInfo(line(), true), 'HSN 1006 · GST 5%');
+    assert.equal(compactLineInfo(line({ hsnSac: null, gstRate: 18 }), true), 'GST 18%', 'rate prints even without an HSN code');
+    assert.equal(compactLineInfo(line({ taxability: 'exempt', gstRate: 0 }), true), 'HSN 1006 · GST Exempt');
+    assert.equal(compactLineInfo(line(), false), 'HSN 1006', 'bill of supply / composition: no rate');
+    assert.equal(compactLineInfo(line({ hsnSac: null }), false), '');
+    assert.equal(compactLineInfo(line({ kind: 'ledger', absorbed: true, hsnSac: null }), true), 'Included in the taxable value');
+    assert.deepEqual((['taxable', 'exempt', 'nil_rated', 'non_gst'] as const).map(taxabilityText), ['', 'Exempt', 'Nil', 'Non-GST']);
   });
 
   it('payment voucher sides', () => {

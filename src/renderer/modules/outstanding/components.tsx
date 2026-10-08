@@ -158,6 +158,7 @@ export function PartyPicker({
   autoFocus,
   placeholder = 'Type a party name',
   inputRef,
+  onCommit,
 }: {
   options: readonly PartyOption[];
   value: number | null;
@@ -165,6 +166,8 @@ export function PartyPicker({
   autoFocus?: boolean;
   placeholder?: string;
   inputRef?: Ref<HTMLInputElement>;
+  /** Enter on a party (after it is chosen): move on, e.g. to the next field. Without it Enter stays put. */
+  onCommit?: (id: number) => void;
 }) {
   const selected = options.find((o) => o.id === value) ?? null;
   return (
@@ -177,6 +180,7 @@ export function PartyPicker({
       rightMeta={(o) => formatDrCr(o.balance)}
       value={selected}
       onChange={(o) => onChange(o ? o.id : null)}
+      onCommit={onCommit ? (o) => o && onCommit(o.id) : undefined}
       placeholder={placeholder}
       autoFocus={autoFocus}
       emptyText="No party by that name"

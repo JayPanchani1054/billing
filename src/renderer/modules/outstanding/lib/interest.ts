@@ -72,14 +72,26 @@ export function interestSegmentLines(row: Pick<InterestBillRow, 'segments' | 'ra
     balance: s.balance,
     interest: Number(floors[i]),
   }));
+  if (lines.length === 0) return lines;
+  // Normally 0 ≤ left ≤ lines.length (Σ floors ≤ round(Σ exact) < Σ floors + n). If the server's
+  // figure differs (e.g. a rate with more than 4 decimals), still make the lines add up exactly:
+  // extra paise go to the largest remainders first, missing paise come off the smallest remainders
+  // (never taking a line below zero), cycling as often as needed.
   let left = row.interest - lines.reduce((sum, l) => sum + l.interest, 0);
-  if (left > 0 && left <= lines.length) {
-    const order = rems.map((r, i) => ({ r, i })).sort((a, b) => (a.r === b.r ? a.i - b.i : a.r > b.r ? -1 : 1));
-    for (const o of order) {
-      if (left <= 0) break;
-      lines[o.i].interest += 1;
-      left -= 1;
-    }
+  const byRem = rems.map((r, i) => ({ r, i })).sort((a, b) => (a.r === b.r ? a.i - b.i : a.r > b.r ? -1 : 1));
+  const up = byRem.map((o) => o.i);
+  const down = [...up].reverse();
+  for (let k = 0; left > 0; k++) {
+    lines[up[k % up.length]].interest += 1;
+    left -= 1;
+  }
+  for (let k = 0, guard = 0; left < 0 && guard < down.length; k++) {
+    const l = lines[down[k % down.length]];
+    if (l.interest > 0) {
+      l.interest -= 1;
+      left += 1;
+      guard = 0;
+    } else guard += 1;
   }
   return lines;
 }

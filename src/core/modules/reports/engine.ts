@@ -191,7 +191,7 @@ export interface Snapshot {
   /** Carry-forward date: nominal ledgers start here; their earlier results are in the P&L A/c. */
   yearStart: string;
   ledgers: Map<number, Balance>;
-  /** Rolled up over sub-groups. */
+  /** Rolled up over sub-groups (the reserved Profit & Loss A/c ledger is left out of every group). */
   groups: Map<number, GroupBalance>;
   /** Profit of the years before `yearStart` (Cr-signed: negative = profit), added to the P&L A/c ledger. */
   retained: Paise;
@@ -251,6 +251,9 @@ export function buildSnapshot(env: ReportEnv, q: { from: string; to: string; yea
   const groups = new Map<number, GroupBalance>();
   for (const id of env.tree.order) groups.set(id, zeroBalance());
   for (const l of env.ledgers) {
+    // The reserved Profit & Loss A/c is a primary line of its own (Tally): it never rolls into the
+    // group it is stored under (Capital Account), so a group's figures match its Balance Sheet line.
+    if (l.id === env.plLedgerId) continue;
     const b = ledgers.get(l.id) as Balance;
     const g = env.tree.byId.get(l.groupId);
     if (!g) continue;
@@ -268,13 +271,15 @@ export function buildSnapshot(env: ReportEnv, q: { from: string; to: string; yea
 
 /**
  * P&L value (Dr-signed) of every nominal ledger for [from, to]: the period's movement, plus the
- * ledger's opening balance when the period starts on or before the books beginning (a company that
- * started its books mid-year enters the year-to-date figures as opening balances).
+ * ledger's opening balance when the period contains the books beginning (a company that started its
+ * books mid-year enters the year-to-date figures as opening balances; they belong to the first P&L).
  */
 export function nominalMovement(env: ReportEnv, from: string, to: string): Map<number, Paise> {
   assertPeriod(from, to);
   const sums = ledgerSums(env, { cf: from, from, to });
-  const includeOb = from <= env.booksFrom;
+  // Only the period that contains the books beginning gets the opening balances: a comparative
+  // period wholly before the books (or a later one) must not count them a second time.
+  const includeOb = from <= env.booksFrom && env.booksFrom <= to;
   const out = new Map<number, Paise>();
   for (const l of env.ledgers) {
     if (!l.isNominal) continue;
@@ -298,10 +303,11 @@ export function rollUp(env: ReportEnv, values: ReadonlyMap<number, Paise>): Map<
   return out;
 }
 
-/** Ledgers placed directly in each group, in name order. */
+/** Ledgers placed directly in each group, in name order (the reserved Profit & Loss A/c is not listed). */
 export function ledgersByGroup(env: ReportEnv): Map<number, LedgerMeta[]> {
   const out = new Map<number, LedgerMeta[]>();
   for (const l of env.ledgers) {
+    if (l.id === env.plLedgerId) continue;
     const list = out.get(l.groupId);
     if (list) list.push(l);
     else out.set(l.groupId, [l]);

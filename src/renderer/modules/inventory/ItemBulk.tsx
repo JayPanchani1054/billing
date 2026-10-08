@@ -1,18 +1,21 @@
 /**
  * 'inventory.item.bulk' — Multiple Stock Item Creation (Tally's "Multiple Stock Items").
  * Params: { groupId?: number }. One row per item: name, alias, group (blank = the default "Under"
- * at the top), unit, HSN/SAC, GST rate, selling price and opening stock. A new blank row appears as
+ * at the top), unit, HSN, GST rate, selling price and opening stock. A new blank row appears as
  * soon as the last one is used; Enter on an empty name finishes (asks to save). All rows are
  * created together, or none (the first problem is shown on its row).
  */
 import { useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import {
+  formatDate,
   formatMoney,
   Screen,
   useApiMutation,
   useApiQuery,
+  useBooks,
   useCompany,
+  useCompanyConfig,
   useFeatures,
   useNav,
   useWorkingDate,
@@ -84,6 +87,10 @@ function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, u
   const company = useCompany();
   const features = useFeatures();
   const { date: workingDate } = useWorkingDate();
+  const { booksFrom } = useBooks();
+  const lockedUpTo = useCompanyConfig()?.lockedUpTo ?? null;
+  // Opening stock is dated at the books beginning: the core refuses it once that date is locked.
+  const openingLocked = lockedUpTo !== null && booksFrom <= lockedUpTo;
   const save = useApiMutation('inventory.item.bulkCreate', { invalidates: INVENTORY_INVALIDATES });
   const [groupId, setGroupId] = useState<number | null>(initialGroupId);
   const [godownId, setGodownId] = useState<number | null>(mainGodownId);
@@ -93,8 +100,8 @@ function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, u
   const [created, setCreated] = useState(0);
   const gst = company.gstEnabled;
   const ctx: BulkContext = useMemo(
-    () => ({ gstEnabled: gst, openingGodownId: godownId, multipleGodowns: features.multipleGodowns, unitDecimals: (id) => unitDecimals.get(id) ?? 0 }),
-    [gst, godownId, features.multipleGodowns, unitDecimals],
+    () => ({ gstEnabled: gst, openingGodownId: godownId, multipleGodowns: features.multipleGodowns, unitDecimals: (id) => unitDecimals.get(id) ?? 0, openingLocked }),
+    [gst, godownId, features.multipleGodowns, unitDecimals, openingLocked],
   );
   const used = rows.filter((r) => !isBlankBulkRow(r));
   const dirty = used.length > 0;
@@ -207,11 +214,17 @@ function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, u
               {banner}
             </Banner>
           ) : null}
-          <FieldGroup columns={features.multipleGodowns ? 2 : 1}>
+          {openingLocked && lockedUpTo ? (
+            <Banner tone="info" inline title="Opening stock is locked">
+              The books are locked up to {formatDate(lockedUpTo)}, which includes the opening stock date ({formatDate(booksFrom)}). Create the items here and bring
+              their stock in with a Stock Journal or Physical Stock voucher dated after the lock.
+            </Banner>
+          ) : null}
+          <FieldGroup columns={features.multipleGodowns && !openingLocked ? 2 : 1}>
             <Field label="Under (default stock group)" optional hint="Used for rows that leave 'Under' blank.">
               <StockGroupPicker value={groupId} onChange={(id) => setGroupId(id)} placeholder="Primary (no group)" />
             </Field>
-            {features.multipleGodowns ? (
+            {features.multipleGodowns && !openingLocked ? (
               <Field label="Opening stock in" required hint="Godown for the opening quantities below.">
                 <GodownPicker value={godownId} onChange={(id) => setGodownId(id)} />
               </Field>
@@ -252,7 +265,7 @@ function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, u
                   </th>
                   {gst ? (
                     <th className="bx-inv-grid__th" scope="col">
-                      HSN/SAC
+                      HSN
                     </th>
                   ) : null}
                   {gst ? (
@@ -317,7 +330,7 @@ function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, u
                         <td className="bx-inv-grid__td">
                           <TextInput
                             id={cellId(r.key, 'hsnSac')}
-                            aria-label={`Row ${n} HSN or SAC`}
+                            aria-label={`Row ${n} HSN code`}
                             aria-describedby={desc(r, 'hsnSac')}
                             size="sm"
                             value={r.hsnSac}
@@ -351,11 +364,12 @@ function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, u
                           decimals={r.unitId !== null ? (unitDecimals.get(r.unitId) ?? 0) : 0}
                           unit={sym}
                           invalid={!!err(r, 'openingQty')}
+                          readOnly={openingLocked}
                         />
                         {errNode(r, 'openingQty')}
                       </td>
                       <td className="bx-inv-grid__td bx-inv-grid__td--num">
-                        <NumberInput id={cellId(r.key, 'openingRate')} aria-label={`Row ${n} opening rate`} aria-describedby={desc(r, 'openingRate')} size="sm" value={r.openingRate} onChange={(v) => edit(r.key, { openingRate: v })} decimals={4} min={0} invalid={!!err(r, 'openingRate')} />
+                        <NumberInput id={cellId(r.key, 'openingRate')} aria-label={`Row ${n} opening rate`} aria-describedby={desc(r, 'openingRate')} size="sm" value={r.openingRate} onChange={(v) => edit(r.key, { openingRate: v })} decimals={4} min={0} invalid={!!err(r, 'openingRate')} readOnly={openingLocked} />
                         {errNode(r, 'openingRate')}
                       </td>
                       <td className="bx-inv-grid__td bx-inv-grid__td--num bx-inv-grid__td--static">{value === null ? '' : formatMoney(value)}</td>

@@ -7,7 +7,7 @@
  */
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { formatIndianNumber } from '../../../../shared/format.ts';
-import type { NumberingMethod, NumberingRestart, VoucherNumbering } from '../../../../shared/types/accounts.ts';
+import type { NumberingMethod, NumberingRestart, VoucherNumbering, VoucherTypeRow } from '../../../../shared/types/accounts.ts';
 
 /** GST documents whose numbers go to GSTR-1 (same list as the core). */
 export const GST_DOCUMENT_BASE_TYPES: readonly VoucherBaseType[] = ['sales', 'credit_note', 'debit_note'];
@@ -112,6 +112,56 @@ export function checkNumbering(baseType: VoucherBaseType, n: VoucherNumbering, g
     if (n.method === 'none') errors.push({ path: 'numbering.method', message: 'GST invoices, credit notes and debit notes must carry a serial number: choose automatic or manual numbering.' });
   }
   return { errors, warnings };
+}
+
+const DEFAULT_NUMBERING: VoucherNumbering = { method: 'automatic', prefix: null, suffix: null, start: 1, width: 0, restart: 'yearly' };
+
+/**
+ * Numbering a NEW voucher type starts with (same as the core): the parent's method, padding and
+ * restart, but no prefix/suffix and start 1. Copying the parent's prefix would give two series that
+ * issue the same numbers (Sales INV/1 and Cash Sales INV/1).
+ */
+export function newTypeNumbering(parent: VoucherNumbering | null): VoucherNumbering {
+  return parent ? { ...parent, prefix: null, suffix: null, start: 1 } : { ...DEFAULT_NUMBERING };
+}
+
+const auto = (m: NumberingMethod): boolean => m === 'automatic' || m === 'automatic_override';
+const fix = (v: string | null): string => (v ?? '').trim().toUpperCase();
+
+/**
+ * Other active voucher types of the same GST document kind (sales / credit note / debit note) whose
+ * automatic numbers look exactly like this one's (same prefix, suffix and padding, compared without
+ * case as the GST portal does). Two such series issue the same numbers, and GST needs each
+ * document number to be unique in the financial year. Empty for other base types.
+ */
+export function seriesClashes(
+  types: readonly Pick<VoucherTypeRow, 'id' | 'name' | 'baseType' | 'isActive' | 'numbering'>[],
+  selfId: number | null,
+  baseType: VoucherBaseType,
+  n: VoucherNumbering,
+): string[] {
+  if (!GST_DOCUMENT_BASE_TYPES.includes(baseType) || !auto(n.method)) return [];
+  return types
+    .filter(
+      (t) =>
+        t.id !== selfId &&
+        t.isActive &&
+        t.baseType === baseType &&
+        auto(t.numbering.method) &&
+        fix(t.numbering.prefix) === fix(n.prefix) &&
+        fix(t.numbering.suffix) === fix(n.suffix) &&
+        t.numbering.width === n.width,
+    )
+    .map((t) => t.name);
+}
+
+/** Plain-English warning for `seriesClashes` (null when there is none). */
+export function seriesClashWarning(names: readonly string[], n: VoucherNumbering): string | null {
+  if (names.length === 0) return null;
+  const sample = formatNumber(n, 1);
+  const who = names.length === 1 ? `“${names[0]}” already numbers` : `${names.map((x) => `“${x}”`).join(', ')} already number`;
+  const how = n.prefix || n.suffix ? 'the same way' : 'without a prefix';
+  return `${who} documents ${how}, so both series would issue ${sample}, ${formatNumber(n, 2)} … GST needs every document number to be unique in the financial year: give this type its own prefix (e.g. CS/ for cash sales).`;
 }
 
 /** Length of the longest number for a width/start (for the "12 of 16 characters" meter). */

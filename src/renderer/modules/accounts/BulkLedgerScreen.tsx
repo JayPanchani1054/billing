@@ -15,6 +15,8 @@ import { AmountInput, Banner, Button, Field, IconButton, Stack, TextInput, useEn
 import { StatePicker } from './components.tsx';
 import { LEDGER_DEPENDENTS } from './hooks.ts';
 import { applyRowGstin, bulkInput, bulkTotals, isBlankRow, mapBulkServerErrors, newBulkRow, validateBulkRows } from './lib/bulkRows.ts';
+import { classOfGroup, indexGroups } from './lib/groupClass.ts';
+import { defaultOpeningSide } from './lib/ledgerSections.ts';
 import type { BulkErrors, BulkRow } from './lib/bulkRows.ts';
 import { GroupPicker, useGroups, useLedgerPicker } from './pickers.tsx';
 
@@ -39,9 +41,13 @@ export function BulkLedgerScreen() {
       s.add(l.name.toLowerCase());
       if (l.alias) s.add(l.alias.toLowerCase());
     }
-    for (const g of groups.rows) s.add(g.name.toLowerCase());
+    for (const g of groups.rows) {
+      s.add(g.name.toLowerCase());
+      if (g.alias) s.add(g.alias.toLowerCase());
+    }
     return s;
   }, [ledgers.rows, groups.rows]);
+  const index = useMemo(() => indexGroups(groups.rows), [groups.rows]);
 
   const clientErrors = validateBulkRows(rows, existing);
   // Before the first save only "live" problems (duplicates, GSTIN) show; afterwards all of them.
@@ -168,7 +174,8 @@ export function BulkLedgerScreen() {
                       {e(r, 'groupId') ? <span className="bx-acc-grid__error">{e(r, 'groupId')}</span> : null}
                     </td>
                     <td style={{ width: 180 }}>
-                      <AmountInput size="sm" drcr value={r.openingBalance} onChange={(v) => update(i, { ...r, openingBalance: v })} aria-label={`Row ${i + 1} opening balance`} invalid={!!e(r, 'openingBalance')} readOnly={!canCreate} />
+                      {/* Starts on the usual side of the row's group (Cr for suppliers, capital, income); keyed so it follows a group change. */}
+                      <AmountInput key={defaultOpeningSide(classOfGroup(index, r.groupId))} size="sm" drcr defaultSide={defaultOpeningSide(classOfGroup(index, r.groupId))} value={r.openingBalance} onChange={(v) => update(i, { ...r, openingBalance: v })} aria-label={`Row ${i + 1} opening balance`} invalid={!!e(r, 'openingBalance')} readOnly={!canCreate} />
                       {e(r, 'openingBalance') ? <span className="bx-acc-grid__error">{e(r, 'openingBalance')}</span> : null}
                     </td>
                     <td style={{ width: 190 }}>

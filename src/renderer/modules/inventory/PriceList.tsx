@@ -10,6 +10,7 @@ import type { KeyboardEvent } from 'react';
 import type { PriceLevelDto } from '../../../shared/types/inventory.ts';
 import {
   api,
+  fieldErrorsOf,
   formatDate,
   formatMoney,
   formatRate,
@@ -47,6 +48,7 @@ import {
 import { FeatureOff, focusField, INVENTORY_INVALIDATES } from './common.tsx';
 import type { ItemSlabs, SlabDraft } from './lib/slabs.ts';
 import { emptySlab, itemSlabsFromList, netRate, nextSlabFrom, priceListChanges, slabErrors, slabGaps } from './lib/slabs.ts';
+import { isShownValue } from './lib/opening.ts';
 import { StockGroupPicker } from './pickers.tsx';
 import './inventory.css';
 
@@ -445,7 +447,7 @@ function SlabRow({ item, slab: s, first, last, errors, changed, date, onEdit, on
         {node('qtyTo')}
       </td>
       <td className="bx-inv-grid__td bx-inv-grid__td--num">
-        <NumberInput id={cellId(s.key, 'rate')} aria-label={`${label}: rate in rupees`} aria-describedby={desc('rate')} size="sm" value={s.rate} onChange={(v) => onEdit({ rate: v })} decimals={4} min={0} invalid={!!err('rate')} />
+        <NumberInput id={cellId(s.key, 'rate')} aria-label={`${label}: rate in rupees`} aria-describedby={desc('rate')} size="sm" value={s.rate} onChange={(v) => { if (!isShownValue(v, s.rate, 4)) onEdit({ rate: v }); }} decimals={4} min={0} invalid={!!err('rate')} />
         {node('rate')}
       </td>
       <td className="bx-inv-grid__td bx-inv-grid__td--num">
@@ -480,7 +482,8 @@ function LevelDialog({ initial, onClose }: { initial: { id?: number; name: strin
       toast.success(initial.id !== undefined ? `Price level renamed to “${out.name}”` : `Price level “${out.name}” created`);
       onClose(out);
     } catch (err) {
-      setError(save.fieldErrors.name ?? userMessage(err));
+      // Read the error itself: save.fieldErrors is React state and not updated yet here.
+      setError(fieldErrorsOf(err).name ?? userMessage(err));
     }
   };
   return (

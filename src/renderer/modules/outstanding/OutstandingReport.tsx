@@ -44,6 +44,7 @@ import {
   ledgerSign,
   parseBucketText,
   partiesExport,
+  partiesInView,
   refTypeLabel,
 } from './lib/model.ts';
 import type { KeyedBillRow, OutstandingView } from './lib/model.ts';
@@ -98,7 +99,9 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
   );
   const ageing = useApiQuery('outstanding.ageing', { ...base, buckets, basis }, { keepPrevious: true, enabled: view === 'ageing' });
 
-  const partyRows = useMemo(() => (summary.data?.rows ?? []).filter((r) => !overLimitOnly || r.overLimit), [summary.data, overLimitOnly]);
+  // Rows AND totals of the party list as shown (the over-limit filter recomputes the totals).
+  const partyView = useMemo(() => (summary.data ? partiesInView(summary.data, overLimitOnly) : undefined), [summary.data, overLimitOnly]);
+  const partyRows = useMemo(() => partyView?.rows ?? [], [partyView]);
   const billRows = useMemo(() => keyBills(bills.data?.rows ?? []), [bills.data]);
   const ageRows = useMemo(() => ageing.data?.rows ?? [], [ageing.data]);
 
@@ -258,9 +261,18 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       icon: 'percent',
       onClick: () => nav.push('outstanding.interest', party ? { ledgerId: party.ledgerId } : groupId !== undefined ? { groupId } : {}),
       group: 'go',
-      hint: party ? `Interest for ${party.ledgerName}` : 'Interest for all parties in view',
+      hint: party ? `Interest for ${party.ledgerName}` : groupId !== undefined ? 'Interest for the parties of this group' : 'Interest for all debtors and creditors',
     },
-    { key: 'Alt+R', label: 'Reminders', icon: 'mail', onClick: () => nav.push('outstanding.reminders', groupId !== undefined ? { groupId } : {}), hidden: side !== 'receivable', group: 'go' },
+    {
+      // Collections: the highlighted customer's reminder letter (the reminders screen can widen to everyone).
+      key: 'Alt+R',
+      label: party ? 'Reminder letter' : 'Reminders',
+      icon: 'mail',
+      onClick: () => nav.push('outstanding.reminders', party ? { ledgerId: party.ledgerId } : groupId !== undefined ? { groupId } : {}),
+      hidden: side !== 'receivable',
+      group: 'go',
+      hint: party ? `Payment reminder for ${party.ledgerName}` : 'Reminder letters for every customer with overdue bills',
+    },
     { key: 'Alt+W', label: t.otherTitle, icon: 'arrow-right', onClick: () => nav.replace(t.otherScreen), group: 'go' },
   ];
 
@@ -268,7 +280,7 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
   const exportDef = () => {
     if (view === 'bills' && bills.data) return billsExport(bills.data);
     if (view === 'ageing' && ageing.data) return ageingExport(ageing.data);
-    return summary.data ? partiesExport({ ...summary.data, rows: partyRows }) : { columns: [], rows: [] };
+    return partyView ? partiesExport(partyView) : { columns: [], rows: [] };
   };
   const nothing = `Nothing ${side === 'receivable' ? 'receivable' : 'payable'} as on ${formatDate(asOf)}`;
   const filtered = !!term || groupId !== undefined || overLimitOnly || (view === 'bills' && (overdueOnly || minDays !== null));
@@ -288,7 +300,7 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       hint={
         view === 'bills'
           ? 'Enter Open voucher · Alt+V Party · Alt+O Overdue only · Ctrl+1/2/3 Views · Ctrl+F Search · Alt+F2 As on · Alt+E Export · Esc Back'
-          : 'Enter Open party · Ctrl+1/2/3 Views · Ctrl+F Search · Alt+S Statement · Alt+F2 As on · Alt+E Export · Alt+P Print · Esc Back'
+          : `Enter Open party · Ctrl+1/2/3 Views · Ctrl+F Search · Alt+S Statement${side === 'receivable' ? ' · Alt+R Reminder' : ''} · Alt+F2 As on · Alt+E Export · Alt+P Print · Esc Back`
       }
       filters={
         <Inline gap={2}>

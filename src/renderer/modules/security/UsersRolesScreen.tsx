@@ -4,8 +4,10 @@
  * Users: list with status (active / locked / must change / expired), last login; create/alter
  * (dialog screen 'security.user.form'), reset password, unlock, delete → "Deactivate instead".
  * Roles: list with user counts; create/alter/copy (screen 'security.role.form'), delete unused roles.
+ * Actions the server would refuse (Owner accounts for non-Owners, users with stronger roles, yourself,
+ * the only active Owner) are disabled with the reason as their hint (lib/access.ts).
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { SecurityRole, SecurityUser, UserDeleteRefusal } from '../../../shared/types/security.ts';
 import { api } from '../../app/api.ts';
 import { useConfirm } from '../../app/confirm.tsx';
@@ -15,12 +17,15 @@ import { isApiError, userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav, useScreenActions } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
 import { Screen } from '../../app/Screen.tsx';
-import { useAppState } from '../../app/state.tsx';
+import { useAppState, useCan } from '../../app/state.tsx';
 import { Badge, Banner, Button, Checkbox, DataTable, EmptyState, Inline, Stack, Tabs, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { UserStatusBadges } from './components.tsx';
 import { useNow } from './hooks.ts';
 import { formatDateTime, relativeTime } from './lib/time.ts';
+import { userActionBlock } from './lib/access.ts';
+import type { UserAction } from './lib/access.ts';
+import { auditHistoryParams } from './lib/auditQuery.ts';
 import { lastLoginText, statusRank } from './lib/users.ts';
 import { ResetPasswordDialog } from './ResetPasswordDialog.tsx';
 
@@ -39,7 +44,7 @@ export function UsersRolesScreen({ params }: ScreenProps<{ tab?: TabId }>) {
       title="Users & Roles"
       subtitle="Who can open this company and what each person may do."
       icon="users"
-      hint={tab === 'users' ? 'Enter Alter · Alt+C New user · Alt+R Reset password · Alt+U Unlock · Alt+D Delete · Alt+2 Roles' : 'Enter Open · Alt+C New role · Alt+K Copy · Alt+D Delete · Alt+1 Users'}
+      hint={tab === 'users' ? 'Enter Alter · Alt+C New user · Alt+R Reset password · Alt+U Unlock · Alt+V Deactivate · Alt+H History · Alt+2 Roles' : 'Enter Open · Alt+C New role · Alt+K Copy · Alt+D Delete · Alt+H History · Alt+1 Users'}
       actions={[
         { key: 'Alt+1', label: 'Users', icon: 'user', onClick: () => setTab('users'), group: 'view', disabled: tab === 'users' },
         { key: 'Alt+2', label: 'Roles', icon: 'shield', onClick: () => setTab('roles'), group: 'view', disabled: tab === 'roles' },
@@ -93,14 +98,24 @@ function UsersTab() {
   const toast = useToast();
   const confirm = useConfirm();
   const now = useNow();
+  const canAudit = useCan('audit.view');
+  const session = useAppState().session;
   const [search, setSearch] = useState('');
   const [showInactive, setShowInactive] = useState(true);
   const debounced = useDebouncedValue(search.trim(), 200);
   const q = useApiQuery('security.user.list', { search: debounced || undefined, activeOnly: showInactive ? undefined : true }, { keepPrevious: true });
   const rows = q.data?.rows ?? [];
+  // Full lists (cached by the parent screen) for the "only Owner" and role-permission checks.
+  const allUsers = useApiQuery('security.user.list', {}).data?.rows;
+  const roles = useApiQuery('security.role.list', {}).data?.rows ?? [];
   const [cursor, setCursor] = useState<string | null>(null);
   const selected = rows.find((r) => String(r.id) === cursor) ?? null;
   const [resetFor, setResetFor] = useState<SecurityUser | null>(null);
+  const gridRef = useRef<HTMLTableElement | null>(null);
+  const block = (action: UserAction) => (selected ? userActionBlock(session, selected, action, roles, allUsers) : null);
+  const resetBlock = block('resetPassword');
+  const unlockBlock = block('unlock');
+  const activeBlock = block(selected && !selected.isActive ? 'reactivate' : 'deactivate');
   const unlock = useApiMutation('security.user.unlock');
   const save = useApiMutation('security.user.save');
 
@@ -129,6 +144,16 @@ function UsersTab() {
     }
   };
 
+  const confirmDeactivate = async (u: SecurityUser) => {
+    const ok = await confirm({
+      title: `Deactivate “${u.username}”?`,
+      message: `${u.displayName} will no longer be able to log in. Their entries in the edit log are kept, and you can reactivate them at any time (Alt+V).`,
+      confirmLabel: 'Deactivate',
+      tone: 'danger',
+    });
+    if (ok) await setActive(u, false);
+  };
+
   /** The server never deletes users; it explains why and we offer deactivation instead. */
   const doDelete = async (u: SecurityUser) => {
     try {
@@ -137,7 +162,12 @@ function UsersTab() {
       const refusal = isApiError(err) && err.code === 'BUSINESS_RULE' ? (err.details as UserDeleteRefusal | undefined) : undefined;
       if (refusal?.suggestion === 'deactivate') {
         if (!refusal.isActive) {
-          toast.info(`“${u.username}” is already deactivated`, { message: err instanceof Error ? err.message : undefined });
+          toast.info(`“${u.username}” is already deactivated`, { message: userMessage(err) });
+          return;
+        }
+        const blocked = userActionBlock(session, u, 'deactivate', roles, allUsers);
+        if (blocked) {
+          toast.info('Users can’t be deleted', { message: `${userMessage(err)} ${blocked}` });
           return;
         }
         const ok = await confirm({
@@ -164,19 +194,47 @@ function UsersTab() {
       key: 'Alt+R',
       label: 'Reset password',
       icon: 'key',
-      onClick: () => selected && setResetFor(selected),
-      disabled: !selected || selected.isSelf,
-      hint: selected?.isSelf ? 'Use Change Password for your own account.' : 'Set a new password for the selected user.',
+      onClick: () => selected && !resetBlock && setResetFor(selected),
+      disabled: !selected || resetBlock !== null,
+      hint: resetBlock ?? 'Set a new password for the selected user.',
     },
     {
       key: 'Alt+U',
       label: 'Unlock',
       icon: 'unlock',
-      onClick: () => selected && void doUnlock(selected),
-      disabled: !selected || (!selected.locked && selected.failedAttempts === 0),
-      hint: 'Clear a lockout after too many wrong passwords.',
+      onClick: () => selected && !unlockBlock && void doUnlock(selected),
+      disabled: !selected || unlockBlock !== null || (!selected.locked && selected.failedAttempts === 0),
+      hint: unlockBlock ?? 'Clear a lockout after too many wrong passwords.',
     },
-    { key: 'Alt+V', label: 'Reactivate', icon: 'check-circle', onClick: () => selected && void setActive(selected, true), hidden: !selected || selected.isActive, group: 'danger' },
+    selected && !selected.isActive
+      ? {
+          key: 'Alt+V',
+          label: 'Reactivate',
+          icon: 'check-circle',
+          onClick: () => !activeBlock && void setActive(selected, true),
+          disabled: activeBlock !== null,
+          group: 'danger',
+          hint: activeBlock ?? 'Let this user log in again with their existing password.',
+        }
+      : {
+          key: 'Alt+V',
+          label: 'Deactivate…',
+          icon: 'x-circle',
+          onClick: () => selected && !activeBlock && void confirmDeactivate(selected),
+          disabled: !selected || activeBlock !== null,
+          group: 'danger',
+          hint: activeBlock ?? 'Stop this user from logging in. Their history is kept.',
+        },
+    {
+      key: 'Alt+H',
+      label: 'Edit history',
+      icon: 'clock',
+      onClick: () => selected && nav.push('security.audit', auditHistoryParams('user', selected.id, selected.username)),
+      disabled: !selected,
+      hidden: !canAudit,
+      group: 'more',
+      hint: 'Every change to this user, password resets and unlocks.',
+    },
     { key: 'Alt+D', label: 'Delete…', icon: 'trash', onClick: () => selected && void doDelete(selected), disabled: !selected || selected.isSelf, group: 'danger', hint: 'Users are kept for the edit log — you will be offered to deactivate instead.' },
   ]);
 
@@ -229,7 +287,20 @@ function UsersTab() {
     <Stack gap={3}>
       <Inline gap={3} align="center">
         <div className="bx-sec-filters__search">
-          <TextInput value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Search users by name" aria-label="Search users" />
+          <TextInput
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              // ↓ / Enter from the search box go to the list (keyboard-first).
+              if ((e.key === 'ArrowDown' || e.key === 'Enter') && !e.altKey && !e.ctrlKey && !e.shiftKey) {
+                e.preventDefault();
+                gridRef.current?.focus();
+              }
+            }}
+            leadingIcon="search"
+            placeholder="Search users by name"
+            aria-label="Search users"
+          />
         </div>
         <Checkbox checked={showInactive} onChange={setShowInactive} label="Show deactivated users" />
       </Inline>
@@ -242,6 +313,7 @@ function UsersTab() {
         <DataTable<SecurityUser>
           aria-label="Users"
           autoFocus
+          gridRef={gridRef}
           columns={columns}
           rows={rows}
           getRowKey={(u) => String(u.id)}
@@ -271,6 +343,7 @@ function RolesTab() {
   const nav = useNav();
   const toast = useToast();
   const confirm = useConfirm();
+  const canAudit = useCan('audit.view');
   const q = useApiQuery('security.role.list', {});
   const rows = q.data?.rows ?? [];
   const [cursor, setCursor] = useState<string | null>(null);
@@ -305,6 +378,16 @@ function RolesTab() {
     { key: 'Alt+C', label: 'New role', icon: 'plus', primary: true, onClick: () => void open({}) },
     { key: 'Alt+A', label: selected?.isSystem ? 'View role' : 'Alter role', icon: selected?.isSystem ? 'eye' : 'edit', onClick: () => selected && void open({ id: selected.id }), disabled: !selected },
     { key: 'Alt+K', label: 'Copy as new role', icon: 'copy', onClick: () => selected && void open({ copyFrom: selected.id }), disabled: !selected, hint: 'Start a new role from the selected role’s permissions.' },
+    {
+      key: 'Alt+H',
+      label: 'Edit history',
+      icon: 'clock',
+      onClick: () => selected && nav.push('security.audit', auditHistoryParams('role', selected.id, selected.name)),
+      disabled: !selected,
+      hidden: !canAudit,
+      group: 'more',
+      hint: 'Every change to this role’s permissions.',
+    },
     {
       key: 'Alt+D',
       label: 'Delete role',

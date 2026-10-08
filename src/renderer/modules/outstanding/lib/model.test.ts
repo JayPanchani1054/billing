@@ -11,8 +11,11 @@ import {
   overdueTone,
   parseBucketText,
   partiesExport,
+  partiesInView,
+  partyEmptyBody,
   partyTreeRows,
   refTypeLabel,
+  statementPeriod,
   summaryKpis,
   utilisationTone,
 } from './model.ts';
@@ -141,6 +144,24 @@ describe('exports and KPIs', () => {
     assert.equal(e.rows[0].length, e.columns.length);
   });
 
+  it('recomputes totals when only parties over their credit limit are shown', () => {
+    // Two parties: Acme (over limit) 1,15,000 and Bharat (within) 30,000 → server totals 1,45,000.
+    const bharat = { ...summary.rows[0], ledgerId: 2, ledgerName: 'Bharat Stores', pending: 30_000_00, billsPending: 30_000_00, overdue: 0, notDue: 30_000_00, onAccount: 0, oldestDueDays: 0, utilisationPercent: 30, overLimit: false };
+    const both: PartySummaryResult = {
+      ...summary,
+      rows: [summary.rows[0], bharat],
+      totals: { pending: 1_45_000_00, billsPending: 1_50_000_00, overdue: 80_000_00, notDue: 70_000_00, advance: 0, onAccount: -5_000_00, partyCount: 2, overLimitCount: 1 },
+    };
+    assert.equal(partiesInView(both, false), both);
+    const v = partiesInView(both, true);
+    assert.deepEqual(v.rows.map((r) => r.ledgerId), [1]);
+    // Only Acme: 1,15,000 pending = 1,20,000 bills (80,000 overdue + 40,000 not due) − 5,000 on account.
+    assert.deepEqual(v.totals, { pending: 1_15_000_00, billsPending: 1_20_000_00, overdue: 80_000_00, notDue: 40_000_00, advance: 0, onAccount: -5_000_00, partyCount: 1, overLimitCount: 1 });
+    const e = partiesExport(v);
+    assert.equal(e.rows.length, 1);
+    assert.equal(e.totals?.[2], 1_15_000_00); // the export's total is the visible rows' total, not 1,45,000
+  });
+
   it('builds bill-wise and ageing exports aligned with their columns', () => {
     const b = billsExport({ side: 'payable', asOf: '2026-09-30', rows: [bill()], total: 1, totals: { pending: 68_000_00, overdue: 68_000_00, notDue: 0, advance: 0, onAccount: 0, billCount: 1, overdueCount: 1 } });
     assert.equal(b.columns[2].header, 'Supplier');
@@ -238,5 +259,30 @@ describe('interestExport', () => {
       ],
     );
     assert.ok(e.rows.every((r) => r.length === e.columns.length));
+  });
+});
+
+describe('statementPeriod', () => {
+  const fy = { from: '2026-04-01', to: '2026-10-08' };
+  it('keeps the period it was opened with until the global period changes', () => {
+    assert.deepEqual(statementPeriod({ from: '2026-07-01', to: '2026-07-31' }, fy, fy), { period: { from: '2026-07-01', to: '2026-07-31' }, pinned: true });
+    // Alt+F2 → Q1: the new global period applies.
+    assert.deepEqual(statementPeriod({ from: '2026-07-01', to: '2026-07-31' }, { from: '2026-04-01', to: '2026-06-30' }, fy), { period: { from: '2026-04-01', to: '2026-06-30' }, pinned: false });
+    // Without both dates the global period is used.
+    assert.deepEqual(statementPeriod({ from: '2026-07-01' }, fy, fy), { period: fy, pinned: false });
+  });
+});
+
+describe('partyEmptyBody', () => {
+  const oa = (total: number) => ({ total, lines: [] });
+  it('points to where the balance is when no bill is listed', () => {
+    // Not bill-wise, shown as one On Account amount: never send the user to the (disabled) Ctrl+2 list.
+    assert.match(partyEmptyBody({ method: 'on_account', onAccount: oa(5_000_00), balance: 5_000_00 }, false), /whole balance is one On Account amount.*Alt\+N/);
+    assert.doesNotMatch(partyEmptyBody({ method: 'on_account', onAccount: oa(5_000_00), balance: 5_000_00 }, false), /Ctrl\+2/);
+    assert.match(partyEmptyBody({ method: 'on_account', onAccount: oa(0), balance: 0 }, false), /Nothing is outstanding/);
+    assert.equal(partyEmptyBody({ method: 'bill_wise', onAccount: oa(-40_000_00), balance: -40_000_00 }, false), 'Only on-account amounts are open — see Ctrl+2.');
+    assert.match(partyEmptyBody({ method: 'bill_wise', onAccount: oa(0), balance: 0 }, false), /Alt\+H/);
+    assert.equal(partyEmptyBody({ method: 'bill_wise', onAccount: oa(0), balance: 0 }, true), 'No bills at all for this party.');
+    assert.match(partyEmptyBody({ method: 'fifo', onAccount: oa(0), balance: 0 }, false), /first-in-first-out/);
   });
 });

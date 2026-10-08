@@ -6,13 +6,16 @@ import {
   editOpening,
   emptyOpening,
   isBlankOpening,
+  isShownValue,
   openingDraftsFromRows,
+  openingErrorsToGrid,
   openingsChanged,
   openingTotals,
   openingWarnings,
   remapOpeningErrors,
   rowRate,
   rowValue,
+  sentOpeningIndexes,
   toOpeningInputs,
   validateOpenings,
 } from './opening.ts';
@@ -154,4 +157,38 @@ test('rows without a rate or value are flagged as valued at ₹0', () => {
     'Opening stock row 2 has no rate or value, so it is valued at ₹0. Enter the cost if the stock cost something.',
   ]);
   assert.deepEqual(openingWarnings([row({ qty: 5, rate: 10 })]), []);
+});
+
+test('server errors on opening rows land on the grid row that was sent (blank rows are not sent)', () => {
+  // Grid: 0 blank (just added), 1 qty 5, 2 blank, 3 qty 2 in a godown the server rejects.
+  const rows = [row({}), row({ qty: 5 }), row({ godownId: 7 }), row({ qty: 2, godownId: 99 })];
+  assert.equal(toOpeningInputs(rows, ctx).length, 2);
+  assert.deepEqual(sentOpeningIndexes(rows), [1, 3]);
+  // The core numbers the rows it received: openings[1] is grid row 3, openings[0] grid row 1.
+  assert.deepEqual(openingErrorsToGrid({ 'openings.1.godownId': 'The selected godown does not exist', 'openings.0.qty': 'Too many decimals', name: 'Enter the name' }, rows), {
+    'openings.3.godownId': 'The selected godown does not exist',
+    'openings.1.qty': 'Too many decimals',
+    name: 'Enter the name',
+  });
+  // An index the grid does not know (should not happen) keeps its key rather than vanishing.
+  assert.deepEqual(openingErrorsToGrid({ 'openings.5.qty': 'x' }, rows), { 'openings.5.qty': 'x' });
+});
+
+test('moving through a rate cell does not change a stored 6-decimal rate (or the value worked out from it)', () => {
+  // Saved: 3,000 Nos worth ₹1,000.00 → the core stored rate 1000 ÷ 3000 = 0.333333 (6 decimals).
+  // 3000 × 0.333333 = ₹999.999 → 99,999.9 p → 1,00,000 p: the row loads as calculated.
+  const saved: StockOpeningRow = { id: 1, godownId: 1, godownName: 'Main Location', batchName: null, mfgDate: null, expiryDate: null, qty: 3000, rate: 0.333333, value: 100000 };
+  const [r] = openingDraftsFromRows([saved]);
+  assert.equal(r.valueOverridden, false);
+  assert.equal(rowValue(r), 100000);
+  // Enter through the 4-decimal rate cell commits 0.3333: 3000 × 0.3333 = ₹999.90 — ₹0.10 lost. Ignored.
+  const passed = editOpening(r, 'rate', 0.3333);
+  assert.equal(passed, r);
+  assert.equal(openingsChanged([saved], [passed], ctx), false);
+  // A real edit still recalculates: 3000 × ₹0.34 = ₹1,020.00.
+  assert.equal(rowValue(editOpening(r, 'rate', 0.34)), 102000);
+  assert.equal(isShownValue(0.3333, 0.333333, 4), true);
+  assert.equal(isShownValue(0.3333, 0.3333, 4), false); // unchanged is not a re-format
+  assert.equal(isShownValue(null, 0.333333, 4), false); // clearing is an edit
+  assert.equal(isShownValue(0.33, 0.333333, 4), false);
 });

@@ -1,0 +1,241 @@
+/* Dashboard (dashboard.home). Semantic design tokens only — no raw colours. Prefix: bx-db- */
+
+.bx-db {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+/* Full page: the dashboard scrolls inside the report body. */
+.bx-db--full {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--space-4);
+}
+/* Inside the Gateway's right panel (which scrolls itself). */
+.bx-db--embedded {
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6);
+}
+
+/* ── Header (embedded only) ───────────────────────────────────────── */
+.bx-db__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.bx-db__title {
+  margin: 0;
+  font-size: var(--fs-20);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+.bx-db__sub {
+  margin: var(--space-0-5) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+.bx-db__head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ── KPI row ──────────────────────────────────────────────────────── */
+.bx-db__kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+.bx-db--embedded .bx-db__kpis {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+
+/* ── Card grid ────────────────────────────────────────────────────── */
+.bx-db__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+.bx-db--embedded .bx-db__grid {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+.bx-db__wide {
+  grid-column: 1 / -1;
+}
+.bx-db__card {
+  min-width: 0;
+}
+.bx-db__note {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+.bx-db__figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+.bx-db__figures strong {
+  color: var(--text-primary);
+  font-weight: var(--fw-semibold);
+}
+
+/* ── Alerts ───────────────────────────────────────────────────────── */
+.bx-db-alerts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bx-db-alerts > li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+.bx-db-alert {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2-5);
+  width: 100%;
+  padding: var(--space-2) var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bx-db-alert:hover {
+  background: var(--row-hover);
+}
+.bx-db-alert:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.bx-db-alert__icon {
+  display: inline-flex;
+  margin-top: var(--space-0-5);
+}
+.bx-db-alert__icon--danger { color: var(--danger-icon); }
+.bx-db-alert__icon--warning { color: var(--warning-icon); }
+.bx-db-alert__icon--info { color: var(--info-icon); }
+.bx-db-alert__title {
+  display: block;
+  font-weight: var(--fw-semibold);
+}
+.bx-db-alert__body {
+  display: block;
+  margin-top: var(--space-0-5);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+.bx-db-alert__chevron {
+  margin-top: var(--space-0-5);
+  color: var(--text-muted);
+}
+.bx-db-allclear {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-secondary);
+}
+.bx-db-allclear__icon {
+  color: var(--success-icon);
+}
+
+/* ── Ageing mini-bars ─────────────────────────────────────────────── */
+.bx-db-age {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bx-db-age__row {
+  display: grid;
+  grid-template-columns: 96px minmax(60px, 1fr) minmax(96px, auto);
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 28px;
+  padding: var(--space-0-5) var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bx-db-age__row:hover {
+  background: var(--row-hover);
+}
+.bx-db-age__row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.bx-db-age__label {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  white-space: nowrap;
+}
+.bx-db-age__track {
+  position: relative;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+/* Emphasis form: "not due" recedes (neutral), overdue buckets carry the accent hue. */
+.bx-db-age__fill {
+  height: 100%;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--chart-other);
+}
+.bx-db-age__fill.is-overdue {
+  background: var(--chart-1);
+}
+.bx-db-age__amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Status pills in tables ───────────────────────────────────────── */
+.bx-db-flags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.bx-db-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+/* ── Getting started (no vouchers yet) ────────────────────────────── */
+.bx-db-start__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+@media print {
+  .bx-db--full {
+    overflow: visible;
+  }
+}

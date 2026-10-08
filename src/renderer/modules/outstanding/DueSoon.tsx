@@ -15,7 +15,7 @@ import { useWorkingDate } from '../../app/working.tsx';
 import { Button, Card, DataTable, EmptyState, KpiCard } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { SIDE_TEXT } from './lib/model.ts';
-import { clampLookAhead, dueInText } from './lib/reminders.ts';
+import { clampLookAhead, dueInText, lookAheadText } from './lib/reminders.ts';
 
 export interface DueSoonWidgetProps {
   side: OutstandingSide;
@@ -56,7 +56,7 @@ export function DueSoonWidget({ side, days, limit = 8, height = 260, className }
   );
 
   if (!canView) return null;
-  const title = side === 'receivable' ? `Payments to collect — next ${look} days` : `Payments to make — next ${look} days`;
+  const title = `${side === 'receivable' ? 'Payments to collect' : 'Payments to make'} — due ${lookAheadText(look)}`;
   return (
     <Card
       className={className}
@@ -101,7 +101,7 @@ export function DueSoonWidget({ side, days, limit = 8, height = 260, className }
           height={height}
           density="compact"
           onRowActivate={(r) => nav.push('outstanding.party', { ledgerId: r.ledgerId })}
-          empty={<EmptyState size="sm" icon="check-circle" title={`Nothing falls due in the next ${look} days`} body={`No ${t.parties} have bills due by ${formatDate(d?.until ?? date)}.`} />}
+          empty={<EmptyState size="sm" icon="check-circle" title={`Nothing falls due ${lookAheadText(look)}`} body={`No ${t.parties} have bills due by ${formatDate(d?.until ?? date)}.`} />}
         />
       )}
       {d && d.total > d.rows.length ? <p className="bx-muted">{d.total - d.rows.length} more — View all to see every bill.</p> : null}

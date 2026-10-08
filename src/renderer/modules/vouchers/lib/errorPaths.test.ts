@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { VoucherWarning } from '../../../../shared/types/vouchers.ts';
 import { ACCOUNT_ROW } from './buildInput.ts';
-import { cellId, headerId, mapFieldErrors, parsePath, splitWarnings, targetOf, warningsByRow, warningsOfDetails } from './errorPaths.ts';
+import { cellId, confirmationRequest, headerId, mapFieldErrors, parseCellId, parsePath, splitWarnings, targetOf, warningsByRow, warningsOfDetails } from './errorPaths.ts';
 
 const maps = { itemKeys: ['i3', 'i7', 'i9'], ledgerKeys: [ACCOUNT_ROW, 'l2'] };
 
@@ -58,5 +58,25 @@ describe('warnings', () => {
     assert.equal(d.warnings.length, 2);
     assert.equal(d.warnings[1].message, 'plain text');
     assert.deepEqual(warningsOfDetails(null), { needsConfirmation: false, warnings: [] });
+  });
+});
+
+describe('cell ids and confirmation requests', () => {
+  it('parseCellId inverts cellId', () => {
+    assert.deepEqual(parseCellId(cellId('items', 'i12', 'qty')), { section: 'items', rowKey: 'i12', column: 'qty' });
+    assert.deepEqual(parseCellId(cellId('ledgers', 'l3', 'amount')), { section: 'ledgers', rowKey: 'l3', column: 'amount' });
+    assert.equal(parseCellId(headerId('party')), null);
+    assert.equal(parseCellId(null), null);
+  });
+
+  it('confirmationRequest asks only about confirm-level warnings', () => {
+    const w = (code: VoucherWarning['code'], level: VoucherWarning['level'], message: string): VoucherWarning => ({ code, level, message, blocking: level === 'block' });
+    const details = { needsConfirmation: true, warnings: [w('gst_missing_hsn', 'info', 'HSN missing on line 1'), w('negative_stock', 'confirm', 'Rice goes below zero')] };
+    const r = confirmationRequest(details);
+    assert.deepEqual(r?.confirm, ['Rice goes below zero']);
+    assert.equal(r?.info.length, 1);
+    assert.equal(r?.all.length, 2);
+    assert.equal(confirmationRequest({ warnings: [w('unbalanced', 'block', 'Not balanced')] }), null);
+    assert.equal(confirmationRequest(undefined), null);
   });
 });

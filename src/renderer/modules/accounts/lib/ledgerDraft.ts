@@ -33,7 +33,7 @@ import {
 } from '../../../../shared/validators.ts';
 import { gstinProblem, panProblem } from './gstin.ts';
 import type { LedgerSections } from './ledgerSections.ts';
-import { billDraftFrom, billsForSave, sameBills, validateBills } from './openingBills.ts';
+import { billDraftFrom, billsForSave, checkBills, sameBills, validateBills } from './openingBills.ts';
 import type { BillDraft } from './openingBills.ts';
 
 export interface LedgerDraft {
@@ -317,7 +317,13 @@ export function validateLedgerDraft(d: LedgerDraft, ctx: ValidateContext): Recor
       if (m) e.hsnSac = m;
     }
   }
-  if (sec.billWise && d.billWise) Object.assign(e, validateBills(d.openingBills, ctx.booksFrom));
+  if (sec.billWise && d.billWise) {
+    Object.assign(e, validateBills(d.openingBills, ctx.booksFrom));
+    // Same rule as the core (bills, when entered, must add up to the opening balance) — caught here so
+    // the grid says so before a round trip.
+    const check = checkBills(d.openingBalance, d.openingBills);
+    if (!check.balanced) e.openingBills = `${check.message} Correct a bill or the opening balance, or use "Put the difference in a bill".`;
+  }
   return e;
 }
 

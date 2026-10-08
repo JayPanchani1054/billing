@@ -22,6 +22,9 @@ describe('printable HTML document', () => {
     assert.match(buildPrintHtml({ title: 't', body: '<div></div>', pageSize: 'A5', documents: 3 }), /size: A5 portrait/);
     assert.doesNotMatch(pageCss('80mm', { pageNumbers: 'of' }), /counter/);
     assert.match(pageCss('80mm', { pageNumbers: 'of' }), /size: 80mm 297mm/);
+    // The receipt keeps its 72 mm printable width on any sheet (thermal roll or an A4 PDF page).
+    assert.match(pageCss('80mm', { pageNumbers: 'none' }), /\.bp-docs\.bp-size-80mm \.bp-doc \{ width: 72mm; max-width: 100%; margin: 0 auto; \}/);
+    assert.doesNotMatch(pageCss('A4', { pageNumbers: 'of' }), /72mm/);
   });
 
   it('rejects scripts, handlers, frames and external resources — but not harmless text', () => {

@@ -167,7 +167,17 @@ export async function createBackup(ctx: CompanyCtx, input: BackupCreateInput, ki
     await fsp.rm(`${snapshot}-journal`, { force: true }).catch(() => undefined);
   }
 
-  const removed = applyRetention(ctx, folder, facts.guid, target);
+  // Read the new file back before "keep last N" deletes anything: a backup that did not land on the
+  // disk intact (full or failing drive, network folder) must never cost the user an older good one.
+  let removed: string[] = [];
+  try {
+    const info = readContainerInfo(target);
+    await checkPayloadDigest(target, info);
+    removed = applyRetention(ctx, folder, facts.guid, target);
+  } catch (err) {
+    ctx.app.log('error', 'The new backup could not be read back; old backups were kept', { company: ctx.company.id, file: path.basename(target), error: err });
+    throw new AppError('BUSINESS_RULE', `The backup ${path.basename(target)} could not be read back from ${folder}, so it may be damaged. Older backups were kept. Check the drive and back up again.`);
+  }
 
   ctx.db.transaction(() => {
     if (!hasHistoryTable(ctx.db)) ctx.db.exec(BACKUP_HISTORY_DDL);
@@ -528,6 +538,7 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
   const m = info.manifest;
   assertSupportedVersion(m.schemaVersion);
 
+  let replaceGuid: string | undefined;
   if (replaceDbPath && input.replaceId) {
     const target = new Db(replaceDbPath, { readOnly: true, timeoutMs: 2000 });
     let targetGuid: string | undefined;
@@ -539,6 +550,7 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
     } finally {
       target.close();
     }
+    replaceGuid = targetGuid;
     if (targetGuid !== undefined && targetGuid !== m.companyGuid) {
       throw new AppError(
         'CONFLICT',
@@ -558,6 +570,11 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
     }
     if (facts.name === null) throw new AppError('VALIDATION', 'This backup does not contain Bahi ERP company data.');
     assertSupportedVersion(facts.schemaVersion);
+    // The manifest is plain JSON (not covered by AES-GCM): check the company inside the data itself
+    // before it replaces anything.
+    if (replaceGuid !== undefined && facts.guid !== replaceGuid) {
+      throw new AppError('CONFLICT', `The data in this backup belongs to "${facts.name}", not to the company being replaced. Restore it as a new company instead.`);
+    }
 
     // The restored company keeps its edit log; record the restore in it (hash-chained like any entry).
     const db = new Db(extracted);

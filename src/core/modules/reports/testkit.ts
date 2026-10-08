@@ -128,3 +128,39 @@ export function bulkVouchers(t: TestCompany, count: number, opts: { from?: strin
     }
   });
 }
+
+/**
+ * Insert `count` item invoices directly (performance tests): alternately a sale (Dr party / Cr sales
+ * ledger, 1 unit out) and a purchase (Dr purchase ledger / Cr party, 1 unit in), spread over 360 days,
+ * parties and items taken in turn. Each voucher balances; stock moves through inventory_entries.
+ */
+export function bulkTrade(t: TestCompany, count: number, opts: { parties: number[]; items: number[]; salesLedger: number; purchaseLedger: number; from?: string }): void {
+  const { parties, items } = opts;
+  if (parties.length === 0 || items.length === 0) throw new Error('bulkTrade: need parties and items');
+  const start = Date.parse(`${opts.from ?? '2026-04-01'}T00:00:00Z`);
+  const ts = new Date().toISOString();
+  t.db.transaction(() => {
+    for (let i = 0; i < count; i++) {
+      const date = new Date(start + (i % 360) * 86_400_000).toISOString().slice(0, 10);
+      const amount = 10_000 + (i % 97) * 100;
+      const sale = i % 2 === 0;
+      const vid = t.db.run(
+        `INSERT INTO vouchers (guid, voucher_type_id, base_type, number, number_seq, date, total_amount, created_at, updated_at)
+         VALUES (:guid, :vt, :bt, :num, :seq, :date, :amt, :ts, :ts)`,
+        { guid: `trade-${i}`, vt: sale ? t.ids.voucherTypes.sales : t.ids.voucherTypes.purchase, bt: sale ? 'sales' : 'purchase', num: String(i + 1), seq: i + 1, date, amt: amount, ts },
+      ).lastInsertRowid;
+      const party = parties[(i * 7) % parties.length];
+      const ledger = sale ? opts.salesLedger : opts.purchaseLedger;
+      t.db.run('INSERT INTO ledger_entries (voucher_id, line_no, ledger_id, amount, date) VALUES (:v, 1, :l, :a, :d)', { v: vid, l: party, a: sale ? amount : -amount, d: date });
+      t.db.run('INSERT INTO ledger_entries (voucher_id, line_no, ledger_id, amount, date) VALUES (:v, 2, :l, :a, :d)', { v: vid, l: ledger, a: sale ? -amount : amount, d: date });
+      t.db.run('INSERT INTO inventory_entries (voucher_id, line_no, item_id, qty, rate, amount, date) VALUES (:v, 1, :it, :q, :r, :a, :d)', {
+        v: vid,
+        it: items[i % items.length],
+        q: sale ? -1 : 1,
+        r: amount / 100,
+        a: amount,
+        d: date,
+      });
+    }
+  });
+}

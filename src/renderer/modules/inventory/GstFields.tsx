@@ -76,13 +76,13 @@ export function GstFields({ value: d, onChange, errors, kind, hsnDigits, noun, e
         header: '',
         headerLabel: 'Remove',
         width: 52,
-        hidden: !onDeleteHistory,
+        hidden: !onDeleteHistory || readOnly,
         render: (h) => (
           <IconButton icon="trash" size="sm" variant="ghost" aria-label={`Remove the rate from ${formatDate(h.applicableFrom)}`} onClick={() => onDeleteHistory?.(h)} />
         ),
       },
     ],
-    [onDeleteHistory],
+    [onDeleteHistory, readOnly],
   );
 
   return (
@@ -180,9 +180,23 @@ export function GstFields({ value: d, onChange, errors, kind, hsnDigits, noun, e
       {history.length > 0 ? (
         <Stack gap={1}>
           <p className="bx-inv-note">
-            Rate history — invoices use the row in force on their date{onDeleteHistory ? '. Remove a row only if its date was entered by mistake.' : '.'}
+            Rate history — invoices use the row in force on their date
+            {onDeleteHistory && !readOnly ? '. Remove a row (select it and press Delete) only if its date was entered by mistake.' : '.'}
           </p>
-          <DataTable aria-label="GST rate history" columns={historyColumns} rows={history} getRowKey={(h) => String(h.id)} density="compact" />
+          <DataTable
+            aria-label="GST rate history"
+            columns={historyColumns}
+            rows={history}
+            getRowKey={(h) => String(h.id)}
+            density="compact"
+            onRowKeyDown={(e, row) => {
+              // Keyboard path to the row's remove button (the grid is one Tab stop).
+              if (e.key === 'Delete' && !e.ctrlKey && !e.altKey && row && onDeleteHistory && !readOnly) {
+                e.preventDefault();
+                onDeleteHistory(row);
+              }
+            }}
+          />
         </Stack>
       ) : null}
     </Stack>

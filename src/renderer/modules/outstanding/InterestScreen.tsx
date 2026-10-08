@@ -202,13 +202,21 @@ export function InterestScreen({ params }: ScreenProps<InterestParams>) {
         error={built.ok ? q.error : undefined}
         onRetry={() => void q.refetch()}
         actions={actions}
-        hint="Enter Bill details · Alt+N Party · Alt+R Rate · Alt+U Basis · Alt+F2 Period · Alt+E Export · Esc Back"
+        hint="Enter Next field / Bill details · Alt+N Party · Alt+R Rate · Alt+U Basis · Alt+O Party outstanding · Alt+F2 Period · Alt+E Export · Esc Back"
         filters={
           <Inline gap={2}>
             <SegmentedControl<InterestScope> aria-label="Calculate for" size="sm" value={scope} onChange={setScope} options={SCOPES.map((s) => ({ ...s, disabled: s.value === 'group' && groups.length === 0 }))} />
             {scope === 'party' ? (
               <div style={{ width: 280 }}>
-                <PartyPicker options={parties.options} value={ledgerId} onChange={changeParty} autoFocus={ledgerId === null} inputRef={pickerRef} placeholder="Customer or supplier" />
+                <PartyPicker
+                  options={parties.options}
+                  value={ledgerId}
+                  onChange={changeParty}
+                  onCommit={() => rateRef.current?.focus()}
+                  autoFocus={ledgerId === null}
+                  inputRef={pickerRef}
+                  placeholder="Customer or supplier"
+                />
               </div>
             ) : scope === 'group' ? (
               <GroupSelect options={groups} value={groupId} onChange={setGroupId} allLabel="Choose a group" />

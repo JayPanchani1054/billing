@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { VoucherNumbering } from '../../../../shared/types/accounts.ts';
-import { badCharacters, checkNumbering, defaultLedgerSide, formatNumber, numberLength, numberingPreview, restartText } from './numbering.ts';
+import { badCharacters, checkNumbering, defaultLedgerSide, formatNumber, newTypeNumbering, numberLength, numberingPreview, restartText, seriesClashes, seriesClashWarning } from './numbering.ts';
 
 const n = (over: Partial<VoucherNumbering> = {}): VoucherNumbering => ({ method: 'automatic', prefix: null, suffix: null, start: 1, width: 0, restart: 'yearly', ...over });
 
@@ -68,5 +68,40 @@ describe('checkNumbering — GST invoice-number rules (mirror of core)', () => {
     assert.equal(defaultLedgerSide('sales'), 'sales');
     assert.equal(defaultLedgerSide('debit_note'), 'purchase');
     assert.equal(defaultLedgerSide('payment'), null);
+  });
+});
+
+describe('a new voucher type gets its own number series', () => {
+  it('takes the parent\'s method, padding and restart but not its prefix, suffix or start (same as the core)', () => {
+    const parent = n({ prefix: 'INV/', suffix: '/26', start: 500, width: 4, restart: 'never', method: 'automatic_override' });
+    assert.deepEqual(newTypeNumbering(parent), { method: 'automatic_override', prefix: null, suffix: null, start: 1, width: 4, restart: 'never' });
+    assert.deepEqual(newTypeNumbering(null), n());
+  });
+
+  const types = [
+    { id: 1, name: 'Sales', baseType: 'sales' as const, isActive: true, numbering: n() },
+    { id: 2, name: 'Export Sales', baseType: 'sales' as const, isActive: true, numbering: n({ prefix: 'EXP/' }) },
+    { id: 3, name: 'Old Series', baseType: 'sales' as const, isActive: false, numbering: n({ prefix: 'CS/' }) },
+    { id: 4, name: 'Credit Note', baseType: 'credit_note' as const, isActive: true, numbering: n() },
+    { id: 5, name: 'Payment', baseType: 'payment' as const, isActive: true, numbering: n() },
+  ];
+
+  it('two automatic sales series without a prefix clash (both issue 1, 2, …)', () => {
+    assert.deepEqual(seriesClashes(types, null, 'sales', n()), ['Sales']);
+    const w = seriesClashWarning(['Sales'], n());
+    assert.match(w ?? '', /“Sales” already numbers documents without a prefix, so both series would issue 1, 2/);
+  });
+
+  it('prefix compared without case; padding must match; own row, inactive types and other kinds ignored', () => {
+    assert.deepEqual(seriesClashes(types, null, 'sales', n({ prefix: 'exp/' })), ['Export Sales']);
+    assert.deepEqual(seriesClashes(types, null, 'sales', n({ prefix: 'EXP/', width: 4 })), []);
+    assert.deepEqual(seriesClashes(types, 2, 'sales', n({ prefix: 'EXP/' })), []);
+    assert.deepEqual(seriesClashes(types, null, 'sales', n({ prefix: 'CS/' })), []);
+    // Credit notes are a separate document kind; payments are not GST documents at all.
+    assert.deepEqual(seriesClashes(types, null, 'credit_note', n({ prefix: 'EXP/' })), []);
+    assert.deepEqual(seriesClashes(types, null, 'payment', n()), []);
+    // Manual numbering issues nothing automatically.
+    assert.deepEqual(seriesClashes(types, null, 'sales', n({ method: 'manual' })), []);
+    assert.equal(seriesClashWarning([], n()), null);
   });
 });

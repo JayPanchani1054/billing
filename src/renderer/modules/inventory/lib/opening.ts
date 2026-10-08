@@ -15,6 +15,18 @@ import { formatMoney } from '../../../../shared/format.ts';
 /** Largest opening quantity the core accepts (base units). */
 export const MAX_OPENING_QTY = 1e12;
 
+/** Decimal places of rate inputs (₹ per base unit). The core may store more (e.g. a rate worked out as value ÷ qty). */
+export const RATE_DECIMALS = 4;
+
+/**
+ * True when `next` is only `current` as an input showing `decimals` places displays it — what a
+ * number field commits when the user merely moves through it (Enter / Tab). Such a commit must not
+ * count as an edit: re-saving 0.333333 as 0.3333 would change a value worked out from it.
+ */
+export function isShownValue(next: number | null, current: number | null, decimals: number): boolean {
+  return next !== null && current !== null && next !== current && roundTo(current, decimals) === next;
+}
+
 export interface OpeningDraft {
   /** Stable React key. */
   key: string;
@@ -80,6 +92,8 @@ export function editOpening(row: OpeningDraft, field: OpeningField, v: number | 
     }
     case 'rate': {
       const rate = typeof v === 'number' ? v : null;
+      // Moving through the cell re-formats a stored 6-decimal rate to 4 decimals: not an edit.
+      if (!row.valueOverridden && isShownValue(rate, row.rate, RATE_DECIMALS)) return row;
       return { ...row, rate, valueOverridden: false, value: calculatedValue(row.qty, rate) };
     }
     case 'value': {
@@ -190,6 +204,34 @@ export function toOpeningInputs(rows: readonly OpeningDraft[], ctx: OpeningConte
       if (v !== null) input.value = v;
     }
     out.push(input);
+  }
+  return out;
+}
+
+/**
+ * Grid row index of each row toOpeningInputs sends (blank rows are dropped there): the server
+ * reports problems as `openings[i]` over the rows it received, the form keys them by grid row.
+ */
+export function sentOpeningIndexes(rows: readonly OpeningDraft[]): number[] {
+  const out: number[] = [];
+  rows.forEach((r, i) => {
+    if (!isBlankOpening(r) && r.qty !== null) out.push(i);
+  });
+  return out;
+}
+
+/**
+ * Re-key server field errors from sent-row indexes to grid-row indexes: 'openings.1.godownId' for
+ * the second row sent becomes 'openings.2.godownId' when grid row 0 was blank. Other keys are kept.
+ */
+export function openingErrorsToGrid(fields: Readonly<Record<string, string>>, rows: readonly OpeningDraft[]): Record<string, string> {
+  const map = sentOpeningIndexes(rows);
+  const out: Record<string, string> = {};
+  for (const [k, msg] of Object.entries(fields)) {
+    const m = /^openings\.(\d+)\.(.+)$/.exec(k);
+    const grid = m ? map[Number(m[1])] : undefined;
+    const key = m && grid !== undefined ? `openings.${grid}.${m[2]}` : k;
+    out[key] = out[key] && out[key] !== msg ? `${out[key]} ${msg}` : msg;
   }
   return out;
 }

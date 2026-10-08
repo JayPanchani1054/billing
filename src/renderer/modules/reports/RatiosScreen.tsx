@@ -10,7 +10,7 @@ import type { ScreenProps } from '../../app/index.ts';
 import { DataTable, EmptyState } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
-import { ratioText } from './lib/model.ts';
+import { drillForRow, ratioText } from './lib/model.ts';
 
 export function RatiosScreen({ params }: ScreenProps<{ from?: string; to?: string }>) {
   const p = useReportPeriod(params);
@@ -33,7 +33,10 @@ export function RatiosScreen({ params }: ScreenProps<{ from?: string; to?: strin
     [],
   );
   const open = (r: RatioItem): void => {
-    if (r.groupId !== null) drill({ screen: 'reports.groupSummary', params: { groupId: r.groupId, from: p.from, to: p.to } });
+    if (r.groupId === null) return;
+    // Sales / purchases are period figures (P&L basis); the other principal groups are balances.
+    const basis = r.key === 'sales' || r.key === 'purchases' ? ('profitLoss' as const) : undefined;
+    drill(drillForRow({ key: r.key, kind: 'group', id: r.groupId }, p.period, { basis }));
   };
   const table = (title: string, rows: readonly RatioItem[], autoFocus: boolean) => (
     <section className="bx-rep-side" aria-label={title}>

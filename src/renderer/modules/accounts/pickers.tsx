@@ -17,6 +17,7 @@ import { useNav } from '../../app/nav.tsx';
 import { useCan } from '../../app/state.tsx';
 import { Picker } from '../../ui/index.ts';
 import type { ControlSize } from '../../ui/index.ts';
+import { groupCodeForClasses } from './lib/groupClass.ts';
 
 // ───────────────────────────── Ledgers ─────────────────────────────
 
@@ -69,7 +70,11 @@ export interface LedgerPickerProps extends UseLedgerPickerOptions {
   onCommit?: (id: number | null, row: LedgerPickerRow | null) => void;
   /** Show the closing balance (Dr/Cr) on the right of each row. Default true. */
   showBalance?: boolean;
-  /** Offer "+ Create" / Alt+C (opens accounts.ledger.form for a result). Default true when the user may create masters. */
+  /**
+   * Offer "+ Create" / Alt+C (opens accounts.ledger.form for a result). Default true when the user
+   * may create masters. With a single unambiguous class (['debtor'], ['bank'], ['sales'] …) the
+   * form opens under that group (Sundry Debtors, Bank Accounts, Sales Accounts …).
+   */
   allowCreate?: boolean;
   /** Group the list by ledger group. Default true. */
   groupByGroup?: boolean;
@@ -99,6 +104,9 @@ export function LedgerPicker(props: LedgerPickerProps) {
   const canCreate = useCan('masters.create');
   const allowCreate = (props.allowCreate ?? true) && canCreate;
   const { rows, byId } = useLedgerPicker(props);
+  const createCode = allowCreate ? groupCodeForClasses(props.classes) : null;
+  const groups = useGroups({ enabled: createCode !== null });
+  const createGroupId = createCode ? (groups.rows.find((g) => g.reservedCode === createCode)?.id ?? null) : null;
   const [created, setCreated] = useState<{ id: number; name: string } | null>(null);
   const items = useMemo(() => {
     if (!excludeIds || excludeIds.length === 0) return rows;
@@ -108,7 +116,9 @@ export function LedgerPicker(props: LedgerPickerProps) {
   const selected = value === null ? null : (byId.get(value) ?? (created && created.id === value ? pendingRow(created.id, created.name) : null));
 
   const create = async (typed: string) => {
-    const out = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', { initialName: typed.trim(), forResult: true });
+    const params: Record<string, unknown> = { initialName: typed.trim(), forResult: true };
+    if (createGroupId !== null) params.groupId = createGroupId;
+    const out = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', params);
     if (!out) return;
     setCreated(out);
     onChange(out.id, byId.get(out.id) ?? null);

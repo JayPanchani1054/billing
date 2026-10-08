@@ -252,7 +252,7 @@ function GroupForm({ title, saved, params, groups, hsnDigits }: { title: string;
   };
 
   const removeHistory = async (h: GstHistoryRow): Promise<void> => {
-    if (!(await confirm({ title: `Remove the GST rate from ${formatDate(h.applicableFrom)}?`, message: 'Use this only to undo a wrongly dated change.', confirmLabel: 'Remove', tone: 'danger' }))) return;
+    if (!(await confirm({ title: `Remove the GST rate from ${formatDate(h.applicableFrom)}?`, message: `Use this only to undo a wrongly dated change.${dirty ? ' Your other unsaved changes on this form are discarded — save them first if you need them.' : ''}`, confirmLabel: 'Remove', tone: 'danger' }))) return;
     try {
       await api('inventory.gstHistory.delete', { id: h.id });
       invalidate('inventory');

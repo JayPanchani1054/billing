@@ -5,7 +5,7 @@
  */
 import type { ReactNode } from 'react';
 import type { InvoiceTemplate } from '../../../../shared/settings.ts';
-import type { PrintAddress, PrintBank, PrintCompany, PrintPageSize, PrintVoucherData } from '../../../../shared/types/print.ts';
+import type { PrintAddress, PrintBank, PrintCompany, PrintLine, PrintPageSize, PrintVoucherData } from '../../../../shared/types/print.ts';
 import {
   addressLines,
   dateText,
@@ -17,6 +17,7 @@ import {
   qtyText,
   rateText,
   rupees,
+  taxabilityText,
   totalRows,
   type ItemColumns,
 } from '../lib/layout.ts';
@@ -205,6 +206,16 @@ function sumLines(doc: PrintVoucherData, key: 'cgst' | 'sgst' | 'igst' | 'cess' 
   return doc.lines.reduce((a, l) => a + l[key], 0);
 }
 
+/** Tax head amount in a summary row, with the head's rate under it (Rule 46(i): rate per tax head). */
+function SummaryTaxCell({ rate, amount }: { rate: number | null; amount: number }) {
+  return (
+    <td className="bp-num">
+      {money(amount)}
+      {amount !== 0 && rate !== null ? <span className="bp-sub">@ {pctText(rate)}</span> : null}
+    </td>
+  );
+}
+
 function TaxCell({ rate, amount }: { rate: number; amount: number }) {
   return (
     <td className="bp-num">
@@ -214,8 +225,8 @@ function TaxCell({ rate, amount }: { rate: number; amount: number }) {
   );
 }
 
-export function taxabilityShort(t: string): string {
-  return t === 'exempt' ? 'Exempt' : t === 'nil_rated' ? 'Nil' : t === 'non_gst' ? 'Non-GST' : '';
+export function taxabilityShort(t: PrintLine['taxability']): string {
+  return taxabilityText(t);
 }
 
 export function TotalsTable({ doc }: { doc: PrintVoucherData }) {
@@ -306,6 +317,7 @@ export function TaxSummary({ doc, cols, byHsn }: { doc: PrintVoucherData; cols: 
         first: r.hsnSac || '—',
         qtyLabel: r.qty !== null ? `${qtyText(r.qty, 3).replace(/\.?0+$/, '')} ${r.unit ?? ''}`.trim() : '',
         rate: r.rate,
+        cessRate: null as number | null,
         taxableValue: r.taxableValue,
         cgst: r.cgst,
         sgst: r.sgst,
@@ -318,6 +330,7 @@ export function TaxSummary({ doc, cols, byHsn }: { doc: PrintVoucherData; cols: 
         first: r.taxability === 'taxable' ? pctText(r.rate) + (r.reverseCharge ? ' (RCM)' : '') : taxabilityShort(r.taxability),
         qtyLabel: '',
         rate: r.rate,
+        cessRate: r.cessRate as number | null,
         taxableValue: r.taxableValue,
         cgst: r.cgst,
         sgst: r.sgst,
@@ -350,10 +363,10 @@ export function TaxSummary({ doc, cols, byHsn }: { doc: PrintVoucherData; cols: 
             {byHsn ? <td className="bp-num">{r.qtyLabel}</td> : null}
             {byHsn ? <td className="bp-num">{pctText(r.rate)}</td> : null}
             <td className="bp-num">{money(r.taxableValue)}</td>
-            {cols.cgstSgst ? <td className="bp-num">{money(r.cgst)}</td> : null}
-            {cols.cgstSgst ? <td className="bp-num">{money(r.sgst)}</td> : null}
-            {cols.igst ? <td className="bp-num">{money(r.igst)}</td> : null}
-            {cols.cess ? <td className="bp-num">{money(r.cess)}</td> : null}
+            {cols.cgstSgst ? <SummaryTaxCell amount={r.cgst} rate={r.rate / 2} /> : null}
+            {cols.cgstSgst ? <SummaryTaxCell amount={r.sgst} rate={r.rate / 2} /> : null}
+            {cols.igst ? <SummaryTaxCell amount={r.igst} rate={r.rate} /> : null}
+            {cols.cess ? <SummaryTaxCell amount={r.cess} rate={r.cessRate} /> : null}
             <td className="bp-num">{money(r.tax)}</td>
           </tr>
         ))}

@@ -7,6 +7,7 @@ import { formatDate } from '../../../../shared/dates.ts';
 import { formatDrCr, formatMoney } from '../../../../shared/format.ts';
 import type { ReminderLetter, StatementResult } from '../../../../shared/types/outstanding.ts';
 import { escapeHtml } from '../../../app/lib/exportFormat.ts';
+import { letterNumericColumns } from './reminders.ts';
 
 const BASE_CSS = `
 @page { size: A4 portrait; margin: 14mm 14mm 16mm;
@@ -179,12 +180,10 @@ export function buildStatementHtml(s: StatementResult, opts: PrintOptions = {}):
 
 // ───────────────────────────── Reminder letters ─────────────────────────────
 
-const NUMERIC_CELL = /^-?[\d,]+(\.\d+)?$/;
-
 /** One page per letter (batch printing). */
 export function buildLettersHtml(letters: readonly ReminderLetter[], opts: PrintOptions = {}): string {
   const sections = letters.map((l) => {
-    const numeric = l.table.columns.map((_, i) => l.table.rows.length > 0 && l.table.rows.every((r) => (r[i] ?? '') === '' || NUMERIC_CELL.test(r[i] ?? '')));
+    const numeric = letterNumericColumns(l.table);
     const cell = (tag: 'th' | 'td', text: string, i: number): string => `<${tag}${numeric[i] ? ' class="num"' : ''}>${escapeHtml(text)}</${tag}>`;
     const [firstFrom, ...restFrom] = l.from;
     const [toLabel, ...toLines] = l.to;

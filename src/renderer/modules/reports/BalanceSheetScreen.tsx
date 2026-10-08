@@ -72,8 +72,9 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
           ) : null}
           {d.openingDifference !== 0 ? (
             <Banner tone="warning" title="Opening balances do not agree">
-              The difference of {formatDrCr(-d.openingDifference)} in opening balances is shown on the{' '}
-              {d.openingDifference > 0 ? 'assets' : 'liabilities'} side. Correct the ledger opening balances to clear it.
+              Ledger opening balances{d.inventoryIntegrated ? ' and opening stock' : ''} differ by {formatDrCr(-d.openingDifference)}, so a
+              difference of {statementAmountText(Math.abs(d.openingDifference))} is shown on the {d.openingDifference > 0 ? 'assets' : 'liabilities'} side to
+              balance it. Correct the ledger opening balances to clear it.
             </Banner>
           ) : null}
           <StatementBlockView leftTitle="Liabilities" rightTitle="Assets" block={block} expansion={expansion} compareLabel={compareLabel} onActivate={activate} autoFocus />

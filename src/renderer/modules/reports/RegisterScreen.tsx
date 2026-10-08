@@ -12,7 +12,7 @@ import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, DataTable, EmptyState, Inline, Select, Stack } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
-import { REGISTERS, monthLabel, voucherTarget } from './lib/model.ts';
+import { REGISTERS, currentRow, monthLabel, voucherTarget } from './lib/model.ts';
 
 export interface RegisterParams {
   baseType?: VoucherBaseType;
@@ -34,6 +34,7 @@ export function RegisterScreen({ params }: ScreenProps<RegisterParams>) {
   const subject = voucherTypeId !== undefined ? { voucherTypeId } : { baseType };
   const q = useApiQuery('reports.register', { ...subject, from: p.from, to: p.to, includeVouchers: view === 'vouchers' }, { keepPrevious: true });
   const d = q.data;
+  const current = view === 'vouchers' ? currentRow(cursor, d?.vouchers, (r) => r.id) : null;
 
   const monthColumns = useMemo<Column<RegisterMonth>[]>(
     () => [
@@ -83,7 +84,7 @@ export function RegisterScreen({ params }: ScreenProps<RegisterParams>) {
 
   const actions: ScreenActionItem[] = [
     { key: 'Alt+V', label: view === 'months' ? 'Voucher list' : 'Monthly view', icon: 'list', onClick: () => setView(view === 'months' ? 'vouchers' : 'months'), group: 'view' },
-    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => cursor && drill(voucherTarget(cursor.id, cursor.baseType, true)), hidden: view !== 'vouchers', disabled: !cursor || cursor.isCancelled, group: 'voucher' },
+    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => current && !current.isCancelled && drill(voucherTarget(current.id, current.baseType, true)), hidden: view !== 'vouchers', disabled: !current || current.isCancelled, group: 'voucher' },
   ];
   const title = d?.title ?? (voucherTypeId === undefined ? (REGISTERS.find((r) => r.baseType === baseType)?.label ?? 'Register') : 'Register');
 

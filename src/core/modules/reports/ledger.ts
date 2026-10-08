@@ -35,10 +35,11 @@ interface VoucherHead {
   cr: number;
 }
 
-/** Ledger ids of a group and all its sub-groups. */
+/** Ledger ids of a group and all its sub-groups (never the reserved Profit & Loss A/c, a line of its own). */
 export function ledgerIdsUnder(env: ReportEnv, groupId: number): number[] {
   const out: number[] = [];
   for (const l of env.ledgers) {
+    if (l.id === env.plLedgerId) continue;
     const g = env.tree.byId.get(l.groupId);
     if (g && g.chainIds.includes(groupId)) out.push(l.id);
   }

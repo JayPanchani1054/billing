@@ -189,3 +189,22 @@ export function warningsOfDetails(details: unknown): { needsConfirmation: boolea
   }
   return { needsConfirmation: d.needsConfirmation === true, warnings };
 }
+
+/** Inverse of cellId: which grid cell a DOM id names (null for other ids). */
+export function parseCellId(id: string | null | undefined): { section: Section; rowKey: string; column: string } | null {
+  const m = /^vch-(items|ledgers)-([A-Za-z0-9]+)-([A-Za-z]+)$/.exec(id ?? '');
+  return m ? { section: m[1] as Section, rowKey: m[2], column: m[3] } : null;
+}
+
+/**
+ * The voucher save warnings protocol, translated for the shell's withConfirmation (which lists
+ * strings): only `confirm`-level messages are asked about; `info` ones stay inline on the screen.
+ * Returns null when the details are not a needs-confirmation request.
+ */
+export function confirmationRequest(details: unknown): { confirm: string[]; info: VoucherWarning[]; all: VoucherWarning[] } | null {
+  const d = warningsOfDetails(details);
+  if (!d.needsConfirmation) return null;
+  const s = splitWarnings(d.warnings);
+  const confirm = s.confirm.map((w) => w.message);
+  return { confirm: confirm.length > 0 ? confirm : d.warnings.filter((w) => w.level !== 'info').map((w) => w.message), info: s.info, all: d.warnings };
+}

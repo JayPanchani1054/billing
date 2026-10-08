@@ -165,7 +165,8 @@ export function validateItemDraft(d: ItemDraft, saved: StockItemDetail | null, c
   if (!d.name.trim()) e.name = 'Enter the stock item name';
   if (d.alias.trim() && d.alias.trim().toLowerCase() === d.name.trim().toLowerCase()) e.alias = 'The alias must be different from the name';
   if (d.unitId === null) e.unitId = 'Choose the unit of measure (e.g. Nos, Kg)';
-  if (d.altUnitId !== null) {
+  // A service keeps no stock: the alternate unit is hidden for it and saved as none (itemSaveInput).
+  if (d.altUnitId !== null && !d.isService) {
     if (d.altUnitId === d.unitId) e.altUnitId = 'The alternate unit must be different from the base unit';
     else if (d.altConversion === null || !(d.altConversion > 0)) e.altConversion = 'Enter how many base units make 1 alternate unit (more than 0)';
   }
@@ -294,8 +295,9 @@ export function itemSaveInput(d: ItemDraft, saved: StockItemDetail | null, ctx: 
     description: trimOrNull(d.description),
     groupId: d.groupId,
     categoryId: d.categoryId,
-    altUnitId: d.altUnitId,
-    altConversion: d.altUnitId === null ? null : d.altConversion,
+    // Hidden for services (no stock in two units): never saved behind the user's back.
+    altUnitId: d.isService ? null : d.altUnitId,
+    altConversion: d.isService || d.altUnitId === null ? null : d.altConversion,
     isService: d.isService,
     isActive: d.isActive,
     rateInclusiveOfTax: d.rateInclusiveOfTax,

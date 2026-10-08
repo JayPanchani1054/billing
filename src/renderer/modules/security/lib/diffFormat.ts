@@ -86,12 +86,25 @@ export function lastKey(path: string): string | null {
   return null;
 }
 
-/** Keys that hold signed paise (Dr +, Cr −) → shown with Dr/Cr. */
-const SIGNED_MONEY = /(amount|balance)$/i;
-/** Keys that hold unsigned paise → shown as ₹ (a '…Paise' suffix always means money). */
-const MONEY = /(price|total|value|limit|mrp)$/i;
-/** Integer keys that look like money words but are counts, rates or ids. */
-const NOT_MONEY = /rate|percent|qty|quantity|days|minutes|count|attempts|threshold|digits|month|year|version|order|level|id$/i;
+/** Last word of a key that holds signed paise (Dr +, Cr −) → shown with Dr/Cr. */
+const SIGNED_MONEY = new Set(['amount', 'balance']);
+/** Last word of a key that holds unsigned paise → shown as ₹ (a '…Paise' suffix always means money). */
+const MONEY = new Set(['price', 'total', 'value', 'limit', 'mrp']);
+/**
+ * Whole words that make a money-looking key a count, rate or id ('gstRateValue', 'qtyTotal',
+ * 'voucherCount'). Whole words only: 'discountAmount' and 'accountBalance' are still money.
+ */
+const NOT_MONEY = new Set(['rate', 'percent', 'pct', 'qty', 'quantity', 'days', 'minutes', 'count', 'attempts', 'threshold', 'digits', 'id']);
+
+/** 'discountAmount' / 'discount_amount' → ['discount', 'amount']. */
+function keyWords(key: string): string[] {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[\s_\-]+/)
+    .filter(Boolean)
+    .map((w) => w.toLowerCase());
+}
 
 export type ValueStyle = 'empty' | 'money' | 'boolean' | 'number' | 'text' | 'json';
 
@@ -109,10 +122,13 @@ export function formatValue(value: JsonValue | null, key: string | null): Format
   if (typeof value === 'boolean') return { text: value ? 'Yes' : 'No', style: 'boolean', raw: null };
   if (typeof value === 'number') {
     if (key && Number.isSafeInteger(value)) {
+      const words = keyWords(key);
+      const last = words[words.length - 1] ?? '';
       const explicit = /paise$/i.test(key);
-      if (explicit || !NOT_MONEY.test(key)) {
-        if (!explicit && SIGNED_MONEY.test(key)) return { text: formatDrCr(value, { keepZero: true }), style: 'money', raw: `${value} paise` };
-        if (explicit || MONEY.test(key)) return { text: formatMoney(value, { symbol: true }), style: 'money', raw: `${value} paise` };
+      if (explicit) return { text: formatMoney(value, { symbol: true }), style: 'money', raw: `${value} paise` };
+      if (!words.some((w) => NOT_MONEY.has(w))) {
+        if (SIGNED_MONEY.has(last)) return { text: formatDrCr(value, { keepZero: true }), style: 'money', raw: `${value} paise` };
+        if (MONEY.has(last)) return { text: formatMoney(value, { symbol: true }), style: 'money', raw: `${value} paise` };
       }
     }
     return { text: String(value), style: 'number', raw: null };

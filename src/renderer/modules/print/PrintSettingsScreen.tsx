@@ -93,14 +93,20 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
     }
   };
 
-  // ── Live preview: the latest sales invoice, or a sample ──
+  // ── Live preview: the latest sales invoice, or a sample (no sales yet, or no access to vouchers) ──
   const { booksFrom } = useBooks();
-  const latest = useApiQuery('vouchers.list', { from: booksFrom, to: '2099-12-31', baseTypes: ['sales'], sort: 'date_desc', limit: 1, includeCancelled: false, includeOptional: false });
-  const sampleId = latest.data?.rows[0]?.id ?? null;
+  const canSeeVouchers = useCan('vouchers.view');
+  const latest = useApiQuery(
+    'vouchers.list',
+    { from: booksFrom, to: '2099-12-31', baseTypes: ['sales'], sort: 'date_desc', limit: 1, includeCancelled: false, includeOptional: false },
+    { enabled: canSeeVouchers },
+  );
+  const sampleId = canSeeVouchers && !latest.error ? (latest.data?.rows[0]?.id ?? null) : null;
+  const latestSettled = !canSeeVouchers || latest.data !== undefined || latest.error !== null;
   const overridesJson = useDebouncedValue(JSON.stringify(previewOverrides(draft)), 300);
   const overrides = useMemo(() => JSON.parse(overridesJson) as ReturnType<typeof previewOverrides>, [overridesJson]);
   const real = useApiQuery('print.voucherData', { id: sampleId ?? 0, overrides }, { enabled: sampleId !== null, keepPrevious: true });
-  const sample = useApiQuery('print.sample', { overrides }, { enabled: latest.data !== undefined && sampleId === null, keepPrevious: true });
+  const sample = useApiQuery('print.sample', { overrides }, { enabled: latestSettled && sampleId === null, keepPrevious: true });
   const doc = sampleId !== null ? real.data : sample.data;
   const docs = useMemo(() => (doc ? [doc] : undefined), [doc]);
   const { qrs, ready } = useDocumentQrs(docs);

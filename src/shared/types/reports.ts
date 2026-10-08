@@ -65,7 +65,11 @@ export interface ReportTreeRow {
 
 // ───────────────────────────── Trial Balance ─────────────────────────────
 
-/** 'groups': group tree (no ledgers) · 'detailed': groups with their ledgers · 'ledgers': flat ledger list. */
+/**
+ * 'groups': group tree (no ledgers) · 'detailed': groups with their ledgers · 'ledgers': flat ledger list.
+ * In every mode the reserved Profit & Loss A/c ledger is a level-0 line of its own (key 'l:<id>'), never
+ * inside Capital Account — as in Tally, and so Capital Account agrees with its Balance Sheet line.
+ */
 export type TrialBalanceMode = 'groups' | 'ledgers' | 'detailed';
 export const TRIAL_BALANCE_MODES: readonly TrialBalanceMode[] = ['groups', 'ledgers', 'detailed'];
 

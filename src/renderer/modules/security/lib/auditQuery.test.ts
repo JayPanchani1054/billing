@@ -1,7 +1,31 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { DEFAULT_SECURITY_SETTINGS } from '../../../../shared/types/security.ts';
-import { actionLabel, actionsOf, actionTone, DEFAULT_FILTERS, groupedHash, hasFilters, historyTarget, initialFilters, toExportInput, toListInput, verifyTone } from './auditQuery.ts';
+import type { AuditFacets, AuditListRow } from '../../../../shared/types/security.ts';
+import {
+  actionLabel,
+  actionOptions,
+  actionsOf,
+  actionTone,
+  adjacentId,
+  ANY,
+  auditHistoryParams,
+  DEFAULT_FILTERS,
+  entityTypeOptions,
+  filterSummary,
+  formatCount,
+  groupedHash,
+  hasFilters,
+  historyExportInput,
+  historyTarget,
+  initialFilters,
+  printRows,
+  toExportInput,
+  toListInput,
+  userOptions,
+  verifyTone,
+  withGroup,
+} from './auditQuery.ts';
 import { changedKeys, describeExpiry, describeIdle, draftOf, patchOf, recommendations, settingsErrors } from './settingsForm.ts';
 import { formatCountdown, formatDateTime, formatMinutes, relativeTime } from './time.ts';
 
@@ -93,5 +117,97 @@ describe('time display', () => {
     assert.equal(formatCountdown(-5), '0:00');
     assert.equal(formatMinutes(1), '1 minute');
     assert.equal(formatMinutes(120), '2 hours');
+  });
+});
+
+describe('edit log filter options', () => {
+  const facets: AuditFacets = {
+    entityTypes: [
+      { value: 'ledger', label: 'Ledger', count: 1234 },
+      { value: 'voucher', label: 'Voucher', count: 123456 },
+    ],
+    users: [
+      { userId: null, username: 'owner', count: 40 },
+      { userId: 2, username: 'ravi', count: 10 },
+      { userId: 2, username: 'ravi.k', count: 5 },
+      { userId: 1, username: 'Admin', count: 7 },
+    ],
+    actions: [
+      { value: 'alter', count: 3 },
+      { value: 'create', count: 12 },
+      { value: 'login', count: 2 },
+    ],
+    firstTs: null,
+    lastTs: null,
+  };
+
+  it('lists each user id once (renames merged; entries without a user id are not filterable)', () => {
+    // ravi: 10 + 5 = 15 entries under both names.
+    assert.deepEqual(userOptions(facets), [
+      { value: ANY, label: 'All users' },
+      { value: '1', label: 'Admin (7)' },
+      { value: '2', label: 'ravi / ravi.k (15)' },
+    ]);
+    assert.deepEqual(userOptions(undefined), [{ value: ANY, label: 'All users' }]);
+    // A user requested by the screen params stays selectable (the select must not read "All users").
+    assert.deepEqual(userOptions(facets, 9).at(-1), { value: '9', label: 'User #9 (0)' });
+    assert.equal(userOptions(facets, 2).length, 3, 'a known user is not added twice');
+  });
+
+  it('lists record types with Indian-grouped counts and keeps a requested type', () => {
+    assert.deepEqual(entityTypeOptions(facets).map((o) => o.label), ['All record types', 'Ledger (1,234)', 'Voucher (1,23,456)']);
+    assert.equal(entityTypeOptions(facets, 'godown').at(-1)?.value, 'godown');
+    assert.equal(formatCount(1234567), '12,34,567');
+  });
+
+  it('offers only the actions of the chosen group that occur in the log', () => {
+    assert.deepEqual(actionOptions(facets, 'changes').map((o) => o.value), [ANY, 'create', 'alter']);
+    assert.deepEqual(actionOptions(facets, 'all').map((o) => o.value), [ANY, 'create', 'alter', 'login']);
+    assert.deepEqual(actionOptions(facets, 'data').map((o) => o.value), [ANY]);
+    assert.equal(actionOptions(facets, 'changes')[1].label, 'Created (12)');
+  });
+
+  it('switching group drops an action outside it and goes back to page 1', () => {
+    const f = { ...DEFAULT_FILTERS, group: 'changes' as const, action: 'delete' as const, page: 4 };
+    assert.deepEqual(withGroup(f, 'logins'), { ...f, group: 'logins', action: null, page: 1 });
+    assert.equal(withGroup(f, 'all').action, 'delete', '"All" keeps a specific action');
+    assert.equal(withGroup(f, 'changes').action, 'delete');
+  });
+
+  it('starts a user-filtered view on all dates', () => {
+    const f = initialFilters({ userId: 3 });
+    assert.equal(f.userId, 3);
+    assert.equal(f.dates, 'all');
+    assert.equal(initialFilters({ userId: 0 }).userId, null);
+    assert.equal(initialFilters({ userId: '3' }).userId, null);
+  });
+});
+
+describe('edit log navigation and output', () => {
+  const rows = [{ id: 9 }, { id: 7 }, { id: 4 }];
+
+  it('finds the newer / older entry for the drawer', () => {
+    assert.equal(adjacentId(rows, 7, -1), 9);
+    assert.equal(adjacentId(rows, 7, 1), 4);
+    assert.equal(adjacentId(rows, 9, -1), null);
+    assert.equal(adjacentId(rows, 4, 1), null);
+    assert.equal(adjacentId(rows, 5, 1), null, 'an entry outside this page (e.g. from Verify) has no neighbours');
+  });
+
+  it('builds history params and export input for one record', () => {
+    assert.deepEqual(auditHistoryParams('ledger', 7, 'Sharma & Sons'), { entityType: 'ledger', entityId: 7, label: 'Sharma & Sons' });
+    assert.deepEqual(historyTarget(auditHistoryParams('voucher', 3, undefined, 'g-1')), { entityType: 'voucher', entityId: 3, entityGuid: 'g-1' });
+    assert.deepEqual(historyExportInput({ entityType: 'voucher', entityId: 3, label: 'x' }, 'xlsx'), { entityType: 'voucher', entityId: 3, format: 'xlsx' });
+  });
+
+  it('summarises filters and prints rows as text', () => {
+    assert.equal(filterSummary(DEFAULT_FILTERS, { periodLabel: 'FY 2026-27' }), 'FY 2026-27');
+    assert.equal(
+      filterSummary({ ...DEFAULT_FILTERS, dates: 'all', userId: 2, group: 'changes', entityType: 'ledger', search: ' sharma ' }, { periodLabel: 'FY', userLabel: 'ravi', entityTypeLabel: 'Ledger' }),
+      'All dates · User: ravi · Changes · Record type: Ledger · Search: “sharma”',
+    );
+    assert.equal(filterSummary({ ...DEFAULT_FILTERS, group: 'changes', action: 'delete' }, { periodLabel: 'FY' }), 'FY · Action: Deleted');
+    const row: AuditListRow = { id: 1, ts: '2026-10-05T05:00:00.000Z', userId: 2, username: null, action: 'delete', entityType: 'ledger', entityTypeLabel: 'Ledger', entityId: 7, entityGuid: null, entityLabel: null, summary: 'Deleted' };
+    assert.deepEqual(printRows([row], (ts) => ts.slice(0, 10)), [['2026-10-05', '—', 'Deleted', 'Ledger', '#7', 'Deleted']]);
   });
 });

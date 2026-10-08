@@ -5,6 +5,9 @@
  *
  * The ledger list is accounts.ledger.list with the balance as on the day before the books begin:
  * no voucher can be dated earlier, so that balance is exactly the ledger's opening balance.
+ * With inventory integrated with accounts the opening stock (the stock items' opening value, a
+ * debit) is part of the opening trial balance; it is read from the Trial Balance as on the books
+ * beginning (reports.trialBalance → openingStock) when the user may see reports.
  */
 import { useMemo } from 'react';
 import { addDays, formatDate } from '../../../shared/dates.ts';
@@ -24,13 +27,18 @@ export function OpeningBalancesScreen() {
   const nav = useNav();
   const features = useFeatures();
   const canCreate = useCan('masters.create');
+  const canReports = useCan('reports.view');
   const { booksFrom } = useBooks();
   const summary = useApiQuery('accounts.openingBalances.summary', {});
   const list = useApiQuery('accounts.ledger.list', { withBalance: true, asOf: addDays(booksFrom, -1), limit: 10_000 }, { keepPrevious: true });
   const rows = useMemo(() => (list.data?.rows ?? []).filter((r) => (r.closingBalance ?? 0) !== 0), [list.data]);
   const s = summary.data;
-  const explanation = s ? explainOpening(s, null) : null;
   const integrated = features.inventory && features.integrateInventory;
+  const tb = useApiQuery('reports.trialBalance', { from: booksFrom, to: booksFrom, mode: 'groups' }, { enabled: integrated && canReports });
+  const openingStock = integrated && tb.data ? tb.data.openingStock : null;
+  const explanation = s ? explainOpening(s, openingStock) : null;
+  // Σ Dr − Σ Cr including the opening stock (a debit) when it is known.
+  const difference = s ? s.difference + (openingStock ?? 0) : 0;
 
   const columns = useMemo<Column<LedgerListRow>[]>(
     () => [
@@ -59,22 +67,30 @@ export function OpeningBalancesScreen() {
       exportDef={() => ({
         subtitle: `As on ${formatDate(booksFrom)}`,
         columns: [{ header: 'Ledger' }, { header: 'Under' }, { header: 'Debit', kind: 'amount' }, { header: 'Credit', kind: 'amount' }],
-        rows: rows.map((r) => [r.name, r.groupName, Math.max(0, r.closingBalance ?? 0), Math.max(0, -(r.closingBalance ?? 0))]),
-        totals: s ? ['Total', '', s.totalDebit, s.totalCredit] : undefined,
+        rows: [
+          ...(openingStock ? [['Opening stock (stock items)', 'Stock-in-Hand', openingStock, 0]] : []),
+          ...rows.map((r) => [r.name, r.groupName, Math.max(0, r.closingBalance ?? 0), Math.max(0, -(r.closingBalance ?? 0))]),
+        ],
+        totals: s ? ['Total', '', s.totalDebit + (openingStock ?? 0), s.totalCredit] : undefined,
       })}
     >
       <Stack gap={4} style={{ height: '100%' }}>
         {s ? (
-          <Grid columns={3} gap={3}>
+          <Grid columns={openingStock !== null ? 4 : 3} gap={3}>
             <KpiCard label="Debit balances" value={`₹ ${formatMoney(s.totalDebit)}`} caption="Assets and expenses" />
+            {openingStock !== null ? <KpiCard label="Opening stock" value={`₹ ${formatMoney(openingStock)}`} caption="Stock items' opening value (debit)" /> : null}
             <KpiCard label="Credit balances" value={`₹ ${formatMoney(s.totalCredit)}`} caption="Capital, liabilities and income" />
-            <KpiCard label="Difference" value={s.difference === 0 ? 'Nil' : `₹ ${formatMoney(Math.abs(s.difference))} ${s.difference > 0 ? 'Dr' : 'Cr'}`} caption={`${s.ledgerCount} ledger${s.ledgerCount === 1 ? '' : 's'} with an opening balance`} />
+            <KpiCard
+              label="Difference"
+              value={difference === 0 ? 'Nil' : `₹ ${formatMoney(Math.abs(difference))} ${difference > 0 ? 'Dr' : 'Cr'}`}
+              caption={`${s.ledgerCount} ledger${s.ledgerCount === 1 ? '' : 's'} with an opening balance`}
+            />
           </Grid>
         ) : null}
         {explanation ? (
           <Banner tone={explanation.tone} title={explanation.title}>
             {explanation.body}
-            {integrated && s && s.difference < 0
+            {integrated && openingStock === null && s && s.difference < 0
               ? ' Inventory is integrated with accounts: the opening value of your stock items is added as a debit in the Balance Sheet, so a credit difference equal to your opening stock is expected.'
               : null}
           </Banner>

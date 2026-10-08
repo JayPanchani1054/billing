@@ -54,7 +54,11 @@ the financial year containing `from` (never before the books beginning).
   **profit brought forward** (credit-signed: negative = profit):
   `retained = Σ nominal (ob + pre) − (stock at Y − S0)`; it is added to the opening and closing of the
   reserved **Profit & Loss A/c** ledger. In the first year `retained = 0`.
-- `closing = opening + dr − cr`; groups roll up over all sub-groups.
+- `closing = opening + dr − cr`; groups roll up over all sub-groups. The reserved **Profit & Loss A/c**
+  ledger never rolls into the group it is stored under (Capital Account): as in Tally it is a primary
+  line of its own, so Capital Account's Trial Balance / Group Summary figure equals its Balance Sheet line
+  (`ledgersByGroup` and `ledgerIdsUnder` leave it out too — Group Vouchers and Monthly Summary of
+  Capital Account do not include it).
 - **Opening Stock** of the Trial Balance = stock value at the start of `Y`.
 - **Difference in opening balances** `D = −(L + S0)` (0 when the openings agree). It never changes
   after the books begin, because every voucher balances.
@@ -63,8 +67,11 @@ Proof that the Trial Balance balances: Σ snapshot closings = `L − (stock at Y
 nominal history moves into the P&L A/c minus the stock movement), + opening stock at `Y` + `D` = 0.
 
 `nominalMovement(env, from, to)` — the P&L value (Dr-signed) of each nominal ledger:
-movement in `[from, to]` **plus `ob` when `from` ≤ the books beginning** (a company that starts its books
-mid-year enters year-to-date income/expenses as opening balances; they belong to the first P&L).
+movement in `[from, to]` **plus `ob` when the period contains the books beginning**
+(`from ≤ booksFrom ≤ to`; a company that starts its books mid-year enters year-to-date income/expenses
+as opening balances; they belong to the first P&L). A comparative period wholly before the books (e.g.
+"same period last year" in the first year) therefore shows no income or expenses, never the openings
+a second time.
 
 ## 2. Trial Balance — `reports.trialBalance`
 
@@ -75,6 +82,9 @@ Input `{ from, to, mode?: 'groups' | 'ledgers' | 'detailed' (default groups), sh
 - `ledgers`: every ledger at level 0, in group order then name.
 - With integrated inventory a top row **Opening Stock** (`kind 'stock'`, key `stock:opening`) shows the
   stock value at the year start (closing stock is not a ledger balance, as in Tally).
+- **Profit & Loss A/c** (the reserved ledger, `kind 'ledger'`, key `l:<id>`) is a level-0 row of its own
+  in every mode, after the groups (opening = profit brought forward + its opening balance; Dr/Cr =
+  entries posted to it, e.g. a transfer to capital). Shown when non-zero (or `showZero`).
 - When `D ≠ 0` a last row **Difference in opening balances** (`kind 'difference'`, key `diff`), signed.
 - `showZero: false` (default) hides ledgers whose opening, debit, credit and closing are all 0, and groups
   that are all 0 with nothing shown below them. `showOpening` is a UI hint only.
@@ -86,8 +96,15 @@ Input `{ from, to, mode?: 'groups' | 'ledgers' | 'detailed' (default groups), sh
 
 ## 3. Group Summary — `reports.groupSummary`
 
-`{ groupId, from, to, showZero? }` → the group's direct sub-groups and ledgers at level 0 with their own
-sub-trees below (expandable), Trial-Balance figures. With integrated inventory, a summary that contains
+`{ groupId, from, to, showZero?, basis? }` → the group's direct sub-groups and ledgers at level 0 with
+their own sub-trees below (expandable).
+
+- `basis: 'trialBalance'` (default): Trial-Balance figures (income/expense ledgers open with the year to
+  date before `from`).
+- `basis: 'profitLoss'` (the P&L screen drills with it): for an income/expense group the ledgers restart
+  at `from` (opening = their opening balance only when the period contains the books beginning — exactly
+  `nominalMovement`), so the closing equals the P&L line. Asset/liability groups ignore it; the result's
+  `basis` says which was used. With integrated inventory, a summary that contains
 Stock-in-Hand gets a **Closing Stock (stock summary)** row (`kind 'stock'`: opening = stock at `from`,
 closing = stock at `to`, the change in Dr/Cr) and it rolls into Stock-in-Hand / Current Assets.
 `totals` = Σ level-0 rows (equals the group's Trial-Balance line, plus stock where applicable).
@@ -95,7 +112,8 @@ closing = stock at `to`, the change in Dr/Cr) and it rolls into Stock-in-Hand / 
 ## 4. Cash/Bank books — `reports.cashBank`
 
 `{ from, to }` → Cash-in-Hand, Bank Accounts and Bank OD A/c with every ledger (zero-balance ledgers
-kept so a new account shows; empty groups hidden), Trial-Balance figures, `totals` (Σ groups).
+kept so a new account shows; a group with no ledger anywhere below it is hidden, and so is a parent
+left with nothing below it), Trial-Balance figures, `totals` (Σ groups).
 
 ## 5. Profit & Loss — `reports.profitLoss` (reports.financial)
 
@@ -280,16 +298,18 @@ All are `transactional: false` (read-only). Errors: `VALIDATION` with a field pa
 (`to`), an unknown `groupId` / `ledgerId` / `voucherTypeId` / `categoryId` / `costCentreId`, a register
 without a type, a monthly summary without (or with both) ledger and group, and `compareAsOf = asOf`.
 
-Performance (in-memory, 20,000 vouchers / 40,000 entries, 213 ledgers): Trial Balance (detailed) and a
-ledger of the whole year well under 1 s (`perf.test.ts`). Stock values are memoised per request; each
-distinct date replays the stock valuation once.
+Performance (`perf.test.ts`, in-memory): 20,000 vouchers / 213 ledgers — Trial Balance (detailed) and a
+ledger of the whole year well under 1 s; 20,000 item invoices / 2,000+ ledgers / 51 items with
+integrated inventory — Trial Balance < 1 s (≈ 40 ms), Balance Sheet / P&L with comparison, Group
+Summary, a 10,000-voucher ledger, Group Vouchers, Cash Flow, Funds Flow and Ratios each < 2 s (≈ 0.1–0.3 s).
+Stock values are memoised per request; each distinct date replays the stock valuation once.
 
 ## 18. Known gaps
 
 - Without integrated inventory there is no automatic opening/closing stock: Stock-in-Hand ledgers are
   plain asset ledgers (record closing stock by journal).
-- The P&L is a period movement; a Group Summary drilled from it shows Trial-Balance figures (opening
-  within the year + movement), so for a period starting mid-year the summary's closing is larger.
+- Ledger Vouchers opened from a P&L-basis Group Summary show Trial-Balance figures (opening = year to
+  date before `from`), as Tally does; the period's Dr/Cr agree with the summary.
 - Foreign-currency columns are not shown (forex amounts are not posted by the vouchers engine yet).
 - Group "net Dr/Cr balances" flags are not applied: groups always show the net of their ledgers.
 - Cash flow does not split operating / investing / financing activities (Tally's monthly view only).

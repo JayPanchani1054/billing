@@ -8,6 +8,7 @@ import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import type {
   BillAllocationInput,
   ItemLineInput,
+  LedgerLineGstInput,
   LedgerLineInput,
   VoucherInput,
   VoucherMode,
@@ -58,6 +59,7 @@ function itemLine(r: ItemRow, f: VoucherForm): ItemLineInput {
   if (r.mfgDate) line.mfgDate = r.mfgDate;
   if (r.expiryDate) line.expiryDate = r.expiryDate;
   if (r.billedQty !== null) line.billedQty = r.billedQty;
+  if (r.altQty !== null) line.altQty = r.altQty;
   if (r.discountPct !== null && r.discountPct !== 0) line.discountPct = r.discountPct;
   if (r.amount !== null) line.amount = r.amount;
   if (r.ledgerId !== null && f.mode === 'item_invoice') line.ledgerId = r.ledgerId;
@@ -76,6 +78,19 @@ function withAllocations(line: LedgerLineInput, r: LedgerRow): LedgerLineInput {
   if (r.instrument && hasValues(r.instrument)) line.instrument = clean(r.instrument);
   if (txt(r.narration)) line.narration = txt(r.narration);
   return line;
+}
+
+/**
+ * GST override of an invoice ledger line (rate / HSN typed in the grid, plus any other override fields
+ * the saved line carried), or undefined when the line follows its ledger master. Mirrors the engine:
+ * any `gst` object makes the line part of the GST computation.
+ */
+export function ledgerGstOverride(r: LedgerRow): LedgerLineGstInput | undefined {
+  const g: LedgerLineGstInput = { ...(r.gstExtra ?? {}) };
+  if (r.gstRate !== null) g.rate = r.gstRate;
+  if (txt(r.hsnSac)) g.hsnSac = txt(r.hsnSac);
+  for (const k of Object.keys(g) as Array<keyof LedgerLineGstInput>) if (g[k] === undefined || g[k] === null) delete g[k];
+  return Object.keys(g).length > 0 ? g : undefined;
 }
 
 /** Turn the form into the VoucherInput sent to vouchers.preview / vouchers.save. */
@@ -137,11 +152,8 @@ export function buildVoucherInput(f: VoucherForm): BuiltInput {
       const line: LedgerLineInput = { ledgerId: r.ledgerId as number, amount: r.amount };
       if (txt(r.narration)) line.narration = txt(r.narration);
       if (r.costs && r.costs.length > 0) line.costAllocations = r.costs.map((c) => ({ ...c }));
-      if (f.mode === 'accounting_invoice' && (r.gstRate !== null || txt(r.hsnSac))) {
-        line.gst = {};
-        if (r.gstRate !== null) line.gst.rate = r.gstRate;
-        if (txt(r.hsnSac)) line.gst.hsnSac = txt(r.hsnSac);
-      }
+      const gst = ledgerGstOverride(r);
+      if (gst) line.gst = gst;
       ledgers.push(line);
       ledgerKeys.push(r.key);
     }
@@ -187,6 +199,12 @@ export interface FormFromInputOptions {
   preferLayout?: LedgerLayout;
 }
 
+function gstExtraOf(g: LedgerLineGstInput | undefined): LedgerRow['gstExtra'] {
+  if (!g) return null;
+  const { rate: _rate, hsnSac: _hsn, ...extra } = g;
+  return Object.keys(extra).length > 0 ? extra : null;
+}
+
 function billsCopy(b: BillAllocationInput[] | undefined): BillAllocationInput[] | null {
   return b && b.length > 0 ? b.map((x) => ({ ...x })) : null;
 }
@@ -209,6 +227,7 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
     expiryDate: it.expiryDate ?? null,
     qty: it.qty,
     billedQty: it.billedQty ?? null,
+    altQty: it.altQty ?? null,
     rate: it.rate ?? null,
     discountPct: it.discountPct ?? null,
     amount: it.amount ?? null,
@@ -229,6 +248,7 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
     instrument: l.instrument ? { ...l.instrument } : null,
     gstRate: l.gst?.rate ?? null,
     hsnSac: l.gst?.hsnSac ?? '',
+    gstExtra: gstExtraOf(l.gst),
   }));
   let layout: LedgerLayout = 'double';
   let accountLedgerId: number | null = null;

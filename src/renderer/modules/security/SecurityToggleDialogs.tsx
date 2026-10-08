@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react';
 import type { SecurityUser } from '../../../shared/types/security.ts';
 import { api } from '../../app/api.ts';
 import { invalidate } from '../../app/queryClient.ts';
-import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
+import { fieldErrorsOf, isApiError, userMessage } from '../../app/lib/apiErrors.ts';
 import { useAppState } from '../../app/state.tsx';
 import { Banner, Button, Field, Modal, PasswordInput, SegmentedControl, Select, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import { PasswordChecklist, usePasswordPolicy } from './components.tsx';
@@ -62,6 +62,11 @@ export function EnableSecurityDialog({ owners, onClose }: { owners: readonly Sec
       await app.refresh();
     } catch (err) {
       const f = fieldErrorsOf(err);
+      // A refused Owner password counts as a failed login: never leave it sitting in the field.
+      if (mode === 'existing' || (isApiError(err) && err.code === 'LOCKED')) {
+        setPassword('');
+        setConfirm('');
+      }
       if (f.username || f.password) setErrors({ username: f.username, password: f.password });
       else setError(userMessage(err));
     } finally {
@@ -166,6 +171,8 @@ export function DisableSecurityDialog({ username, onClose }: { username: string;
       await app.refresh();
     } catch (err) {
       const f = fieldErrorsOf(err);
+      // Wrong passwords count as failed logins: clear the field so it is typed again deliberately.
+      setPassword('');
       if (f.password) setFieldError(f.password);
       else setError(userMessage(err));
     } finally {

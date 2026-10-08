@@ -42,7 +42,7 @@ export function visibleRows<T extends TreeRowLike>(rows: readonly T[], expanded:
   return out;
 }
 
-/** Text indented for exports/print (non-breaking spaces survive HTML whitespace collapsing). */
+/** Text indented for exports/print with non-breaking spaces (they survive HTML whitespace collapsing). */
 export function indentLabel(name: string, level: number): string {
   return `${'   '.repeat(Math.max(0, level))}${name}`;
 }
@@ -65,6 +65,11 @@ function defaultStorage(): StorageLike | null {
   } catch {
     return null;
   }
+}
+
+/** Storage key of a screen's expansion state for one company ('c7:tb:detailed'). */
+export function expansionKey(companyId: string | number | null, key: string): string {
+  return companyId === null ? key : `c${String(companyId)}:${key}`;
 }
 
 /** Expanded keys remembered for a screen (this session first, then the browser storage), or null. */

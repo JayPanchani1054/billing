@@ -99,6 +99,13 @@ export function trialBalance(env: ReportEnv, input: TrialBalanceInput): TrialBal
     special.push({ key: 'stock:opening', kind: 'stock', id: null, name: 'Opening Stock', level: 0, parentKey: null, hasChildren: false, opening: s, debit: 0, credit: 0, closing: s });
   }
   rows = [...special, ...rows];
+  // Profit & Loss A/c: a primary line of its own, as in Tally (profit brought forward + entries posted to it).
+  const plId = env.plLedgerId;
+  const plBal = plId !== null ? snap.ledgers.get(plId) : undefined;
+  if (plId !== null && plBal && (showZero || !isZero(plBal))) {
+    const name = env.ledgerById.get(plId)?.name ?? 'Profit & Loss A/c';
+    rows.push({ key: `l:${plId}`, kind: 'ledger', id: plId, name, level: 0, parentKey: null, hasChildren: false, ...pick(plBal) });
+  }
   const diff = snap.openingDifference;
   if (diff !== 0) {
     rows.push({ key: 'diff', kind: 'difference', id: null, name: 'Difference in opening balances', level: 0, parentKey: null, hasChildren: false, opening: diff, debit: 0, credit: 0, closing: diff });
@@ -203,8 +210,19 @@ export function cashBank(env: ReportEnv, input: { from: string; to: string }): C
     if (id !== undefined) roots.push(id);
   }
   const rows = tbTree(env, snap, roots, 0, null, { withLedgers: true, showZero: true });
-  // Hide empty groups (no ledgers at all) but keep zero-balance ledgers: a new bank account shows up.
-  const visible = rows.filter((r) => r.kind !== 'group' || r.hasChildren);
+  // Hide groups without a ledger anywhere below them, but keep zero-balance ledgers: a new bank account
+  // shows up. Pre-order, so walking backwards sees every child before its parent.
+  const keep = new Set<string>();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i];
+    if (r.kind !== 'group' || keep.has(r.key)) {
+      keep.add(r.key);
+      if (r.parentKey !== null) keep.add(r.parentKey);
+    }
+  }
+  const visible = rows.filter((r) => keep.has(r.key));
+  const parents = new Set(visible.map((r) => r.parentKey));
+  for (const r of visible) r.hasChildren = parents.has(r.key);
   const totals = { opening: 0, debit: 0, credit: 0, closing: 0 };
   for (const r of visible) {
     if (r.level !== 0) continue;

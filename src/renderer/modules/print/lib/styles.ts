@@ -133,6 +133,8 @@ export const DOCUMENT_CSS = `
 .bp-compact .bp-c-item td { padding-top: 2pt; }
 .bp-compact .bp-c-total td { font-weight: 700; font-size: 10pt; border-top: .75pt dashed ${INK}; padding-top: 2pt; }
 .bp-compact .bp-qr { width: 30mm; height: 30mm; margin: 3pt auto; }
+.bp-compact .bp-c-sign { margin-top: 6pt; text-align: right; }
+.bp-compact .bp-c-sign-space { height: 8mm; }
 
 /* ── Smaller paper ── */
 .bp-size-a5 { font-size: 7.6pt; }
@@ -167,8 +169,10 @@ export function pageCss(size: PrintPageSize, opts: { pageNumbers: 'of' | 'plain'
     opts.pageNumbers === 'none' || size === '80mm'
       ? ''
       : `@bottom-right { content: "Page " counter(page)${opts.pageNumbers === 'of' ? ' " of " counter(pages)' : ''}; font: 7pt "Segoe UI", system-ui, sans-serif; color: ${mix(55)}; }`;
+  // A receipt keeps its 72 mm printable width even when the printer (or a PDF) uses a wider sheet.
+  const roll = size === '80mm' ? '.bp-docs.bp-size-80mm .bp-doc { width: 72mm; max-width: 100%; margin: 0 auto; }\n' : '';
   return `
 @page { size: ${page.css}; margin: ${page.margin}; ${counter} }
 html, body { margin: 0; padding: 0; background: ${PAPER}; }
-`;
+${roll}`;
 }

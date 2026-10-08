@@ -15,6 +15,7 @@ import type {
   DispatchDetailsInput,
   ExportDetailsInput,
   InstrumentInput,
+  LedgerLineGstInput,
   OrderDetailsInput,
   PartySnapshotInput,
   VoucherMode,
@@ -35,8 +36,15 @@ export interface ItemRow {
   qty: number | null;
   /** Billed quantity (Actual & Billed Qty feature); null = same as qty. */
   billedQty: number | null;
+  /** Quantity in the alternate unit (no column; kept so an alteration round-trips). */
+  altQty: number | null;
   /** Rupees per unit. */
   rate: number | null;
+  /**
+   * The rate the screen filled in from the masters (price level slab / item price); null when none.
+   * While `rate === autoRate` the screen may re-read the price-list slab when the quantity changes.
+   */
+  autoRate: number | null;
   discountPct: number | null;
   /** Line value typed by the user (paise); null = qty × rate × (1 − disc%). */
   amount: Paise | null;
@@ -67,9 +75,11 @@ export interface LedgerRow {
   bills: BillAllocationInput[] | null;
   costs: CostAllocationInput[] | null;
   instrument: InstrumentInput | null;
-  /** Accounting invoice: GST rate / HSN override of this line. */
+  /** Invoice modes: GST rate / HSN override of this line (shown in accounting invoices). */
   gstRate: number | null;
   hsnSac: string;
+  /** Other GST override fields of a saved line (taxability, cess, supply kind) — no column; kept for alteration. */
+  gstExtra: Omit<LedgerLineGstInput, 'rate' | 'hsnSac'> | null;
 }
 
 export interface VoucherForm {
@@ -127,7 +137,9 @@ export function blankItem(key: string, isConsumption = false): ItemRow {
     expiryDate: null,
     qty: null,
     billedQty: null,
+    altQty: null,
     rate: null,
+    autoRate: null,
     discountPct: null,
     amount: null,
     gstRateOverride: null,
@@ -141,7 +153,7 @@ export function blankItem(key: string, isConsumption = false): ItemRow {
 }
 
 export function blankLedger(key: string, side: Side = 'dr'): LedgerRow {
-  return { key, ledgerId: null, amount: null, side, narration: '', bills: null, costs: null, instrument: null, gstRate: null, hsnSac: '' };
+  return { key, ledgerId: null, amount: null, side, narration: '', bills: null, costs: null, instrument: null, gstRate: null, hsnSac: '', gstExtra: null };
 }
 
 export const isBlankItem = (r: ItemRow): boolean => r.itemId === null;
@@ -277,7 +289,7 @@ export type FormAction =
   | { type: 'balanceLast' }
   | { type: 'setMode'; mode: VoucherMode }
   | { type: 'setLayout'; layout: LedgerLayout }
-  | { type: 'next'; date?: string; isOptional?: boolean };
+  | { type: 'next'; date?: string; isOptional?: boolean; partyLedgerId?: number | null };
 
 export function formReducer(f: VoucherForm, a: FormAction): VoucherForm {
   switch (a.type) {
@@ -358,6 +370,7 @@ export function formReducer(f: VoucherForm, a: FormAction): VoucherForm {
         date: a.date ?? f.date,
         layout: f.layout,
         isOptional: a.isOptional ?? false,
+        partyLedgerId: a.partyLedgerId ?? null,
         accountLedgerId: f.layout === 'single' ? f.accountLedgerId : null,
       });
     default:
@@ -430,7 +443,11 @@ export function splitForSingle(rows: readonly LedgerRow[], side: Side): { accoun
   if (rows.length === 0) return { account: null, particulars: [] };
   if (onAccountSide.length !== 1) return null;
   const account = onAccountSide[0];
+  // The Account line has no bill-wise, cost-centre or narration cell in the single-entry layout:
+  // keep such a voucher in Dr/Cr so nothing is lost on alteration.
   if (account.bills && account.bills.length > 0) return null;
+  if (account.costs && account.costs.length > 0) return null;
+  if (account.narration.trim() !== '') return null;
   return { account, particulars: rows.filter((r) => r !== account) };
 }
 

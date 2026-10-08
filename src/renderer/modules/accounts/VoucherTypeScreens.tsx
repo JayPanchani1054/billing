@@ -41,7 +41,7 @@ import {
   useToast,
 } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { NameCell } from './components.tsx';
+import { focusFirstInvalid, NameCell } from './components.tsx';
 import {
   BASE_TYPE_LABELS,
   checkNumbering,
@@ -51,10 +51,13 @@ import {
   isInvoiceBase,
   METHOD_OPTIONS,
   movesStock,
+  newTypeNumbering,
   numberingPreview,
   numberLength,
   RESTART_OPTIONS,
   restartText,
+  seriesClashes,
+  seriesClashWarning,
 } from './lib/numbering.ts';
 import { LedgerPicker } from './pickers.tsx';
 
@@ -193,7 +196,6 @@ interface VtDraft {
   config: Required<{ [K in keyof VoucherTypeConfig]: VoucherTypeConfig[K] | null }>;
 }
 
-const DEFAULT_NUMBERING: VoucherNumbering = { method: 'automatic', prefix: null, suffix: null, start: 1, width: 0, restart: 'yearly' };
 const EMPTY_CONFIG: VtDraft['config'] = {
   defaultLedgerId: null,
   defaultPartyLedgerId: null,
@@ -214,7 +216,8 @@ function draftOf(vt: VoucherTypeDetail | null, parent: VoucherTypeRow | null): V
       abbreviation: '',
       parentId: parent?.id ?? null,
       isActive: true,
-      numbering: parent ? { ...parent.numbering } : { ...DEFAULT_NUMBERING },
+      // Like the core: the parent's method/padding/restart but its own series (no prefix, from 1).
+      numbering: newTypeNumbering(parent?.numbering ?? null),
       preventDuplicates: false,
       useEffectiveDate: false,
       allowZeroValue: false,
@@ -268,6 +271,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
   const baselineRef = useRef(draftOf(original, initialParent));
   const [d, setD] = useState<VtDraft>(baselineRef.current);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const formBox = useRef<HTMLDivElement>(null);
   const predefined = original?.isPredefined ?? false;
   const readOnly = !canSave;
   const parent = d.parentId !== null ? (types.find((t) => t.id === d.parentId) ?? null) : null;
@@ -276,6 +280,8 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
   const numberingDirty = JSON.stringify(d.numbering) !== JSON.stringify(baselineRef.current.numbering);
   const gstDoc = baseType !== null && GST_DOCUMENT_BASE_TYPES.includes(baseType);
   const check = baseType ? checkNumbering(baseType, d.numbering, company.gstEnabled) : { errors: [], warnings: [] };
+  const clash = baseType && company.gstEnabled ? seriesClashWarning(seriesClashes(types, original?.id ?? null, baseType, d.numbering), d.numbering) : null;
+  const warnings = clash ? [...check.warnings, clash] : check.warnings;
   const preview = numberingPreview(d.numbering);
   const next = useApiQuery('vouchers.nextNumber', { voucherTypeId: original?.id ?? 0, date: workingDate }, { enabled: original !== null && d.numbering.method !== 'none' });
   const side = baseType ? defaultLedgerSide(baseType) : null;
@@ -284,15 +290,26 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
 
   const set = <K extends keyof VtDraft>(k: K, v: VtDraft[K]) => {
     setD((x) => ({ ...x, [k]: v }));
-    setErrors((e) => (e[k] ? { ...e, [k]: '' } : e));
+    setErrors((e) => withoutKey(e, k));
+  };
+  /** New type: choosing another "based on" type also takes its numbering, unless numbering was edited. */
+  const setParent = (id: number | null) => {
+    setD((x) => {
+      if (original) return { ...x, parentId: id };
+      const was = types.find((t) => t.id === x.parentId) ?? null;
+      const untouched = JSON.stringify(x.numbering) === JSON.stringify(newTypeNumbering(was?.numbering ?? null));
+      const now = types.find((t) => t.id === id) ?? null;
+      return { ...x, parentId: id, numbering: untouched ? newTypeNumbering(now?.numbering ?? null) : x.numbering };
+    });
+    setErrors((e) => withoutKey(e, 'parentId'));
   };
   const setNum = <K extends keyof VoucherNumbering>(k: K, v: VoucherNumbering[K]) => {
     setD((x) => ({ ...x, numbering: { ...x.numbering, [k]: v } }));
-    setErrors((e) => ({ ...e, [`numbering.${k}`]: '' }));
+    setErrors((e) => withoutKey(e, `numbering.${k}`));
   };
   const setCfg = <K extends keyof VtDraft['config']>(k: K, v: VtDraft['config'][K]) => {
     setD((x) => ({ ...x, config: { ...x.config, [k]: v } }));
-    setErrors((e) => ({ ...e, [`config.${k}`]: '' }));
+    setErrors((e) => withoutKey(e, `config.${k}`));
   };
 
   const buildInput = (): VoucherTypeSaveInput => {
@@ -332,6 +349,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
     setErrors(e);
     if (Object.keys(e).length > 0) {
       toast.error('Please correct the highlighted fields', { message: Object.values(e)[0] });
+      focusFirstInvalid(formBox.current);
       return;
     }
     const input = buildInput();
@@ -353,7 +371,10 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
       nav.pop();
     } catch (err) {
       const f = fieldErrorsOf(err);
-      if (Object.keys(f).length > 0) setErrors(f);
+      if (Object.keys(f).length > 0) {
+        setErrors(f);
+        focusFirstInvalid(formBox.current);
+      }
       toast.error('The voucher type was not saved', { message: Object.values(f)[0] ?? userMessage(err) });
     }
   };
@@ -410,6 +431,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
         )
       }
     >
+      <div ref={formBox}>
       <div ref={formRef}>
         <Stack gap={6}>
           {readOnly ? <ReadOnlyNotice what="voucher types" /> : null}
@@ -421,7 +443,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
               <TextInput value={d.abbreviation} onChange={(e) => set('abbreviation', e.target.value)} readOnly={readOnly} maxLength={10} />
             </Field>
             <Field label="Based on" required={!original} error={errors.parentId || undefined} hint={baseType ? `Works like ${BASE_TYPE_LABELS[baseType]}.` : 'Its behaviour (sales, payment, journal…) comes from this type.'}>
-              <Select value={d.parentId === null ? '' : String(d.parentId)} onChange={(v) => set('parentId', v === '' ? null : Number(v))} disabled={readOnly || predefined} placeholder="Choose…" options={parentOptions} />
+              <Select value={d.parentId === null ? '' : String(d.parentId)} onChange={(v) => setParent(v === '' ? null : Number(v))} disabled={readOnly || predefined} placeholder="Choose…" options={parentOptions} />
             </Field>
             <Field label="Alias" optional error={errors.alias || undefined}>
               <TextInput value={d.alias} onChange={(e) => set('alias', e.target.value)} readOnly={readOnly} maxLength={60} />
@@ -488,10 +510,10 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
               </ul>
             </Banner>
           ) : null}
-          {check.warnings.length > 0 ? (
+          {warnings.length > 0 ? (
             <Banner tone="warning" title="Check the numbering">
               <ul>
-                {check.warnings.map((w) => (
+                {warnings.map((w) => (
                   <li key={w}>{w}</li>
                 ))}
               </ul>
@@ -570,6 +592,14 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
           ) : null}
         </Stack>
       </div>
+      </div>
     </Screen>
   );
+}
+
+function withoutKey(e: Record<string, string>, k: string): Record<string, string> {
+  if (!(k in e)) return e;
+  const copy = { ...e };
+  delete copy[k];
+  return copy;
 }

@@ -13,7 +13,7 @@ import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
 import { invalidate } from '../../app/queryClient.ts';
 import { Screen } from '../../app/Screen.tsx';
 import { useCan } from '../../app/state.tsx';
-import { Button, DataTable, EmptyState, Field, Modal, Select, Stack, Switch, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Button, DataTable, EmptyState, Field, Modal, Select, Stack, Switch, TextInput, useDebouncedValue, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { DialogAccept, NameCell } from './components.tsx';
 
@@ -30,7 +30,8 @@ export function CostCentresScreen() {
   const [catKey, setCatKey] = useState<string | null>(null);
   const category = categories.find((c) => String(c.id) === catKey) ?? categories[0] ?? null;
   const [search, setSearch] = useState('');
-  const centres = useApiQuery('accounts.costCentre.list', { categoryId: category?.id, search: search.trim() || undefined }, { enabled: category !== null, keepPrevious: true });
+  const debounced = useDebouncedValue(search.trim(), 150);
+  const centres = useApiQuery('accounts.costCentre.list', { categoryId: category?.id, search: debounced || undefined }, { enabled: category !== null, keepPrevious: true });
   const rows = centres.data?.rows ?? [];
   const [centreKey, setCentreKey] = useState<string | null>(null);
   const centre = rows.find((r) => String(r.id) === centreKey) ?? null;
@@ -122,8 +123,8 @@ export function CostCentresScreen() {
               columns={centreColumns}
               rows={rows}
               getRowKey={(r) => String(r.id)}
-              getRowLevel={(r) => (search.trim() ? 0 : r.depth)}
-              expandable={!search.trim()}
+              getRowLevel={(r) => (debounced ? 0 : r.depth)}
+              expandable={!debounced}
               selectedKey={centreKey}
               onSelect={(k) => setCentreKey(k)}
               onRowActivate={(r) => canAlter && setCentreDialog({ row: r, parentId: r.parentId })}

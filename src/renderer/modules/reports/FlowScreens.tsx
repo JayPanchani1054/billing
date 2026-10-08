@@ -118,8 +118,9 @@ export function FundsFlowScreen({ params }: ScreenProps<{ from?: string; to?: st
     ],
     [],
   );
-  const openLine = (r: { groupId: number | null }): void => {
+  const openLine = (r: { groupId: number | null; ledgerId?: number | null }): void => {
     if (r.groupId !== null) drill({ screen: 'reports.groupSummary', params: { groupId: r.groupId, from: p.from, to: p.to } });
+    else if (typeof r.ledgerId === 'number') drill({ screen: 'reports.ledger', params: { ledgerId: r.ledgerId, from: p.from, to: p.to } });
   };
   const side = (title: string, lines: readonly FundsFlowLine[], total: number, autoFocus: boolean) => (
     <section className="bx-rep-side" aria-label={title}>
@@ -146,7 +147,7 @@ export function FundsFlowScreen({ params }: ScreenProps<{ from?: string; to?: st
       refreshing={q.refreshing}
       error={q.error}
       onRetry={q.refetch}
-      hint="Enter Group summary · Tab Next table"
+      hint="Enter Group summary or ledger · Tab Next table"
       exportDef={() => ({
         columns: [{ header: 'Particulars' }, { header: 'Amount', kind: 'amount' }],
         rows: d
@@ -159,6 +160,8 @@ export function FundsFlowScreen({ params }: ScreenProps<{ from?: string; to?: st
               ['Total applications', d.totalApplications],
               ['Working capital at the start', d.workingCapital.opening],
               ['Working capital at the end', d.workingCapital.closing],
+              ['Working capital changes (increase + / decrease −)', null],
+              ...d.workingCapitalRows.map((r) => [`${r.label} (${r.side === 'asset' ? 'current asset' : 'current liability'})`, r.change]),
             ]
           : [],
         totals: d ? ['Change in working capital', d.workingCapital.change] : undefined,

@@ -12,6 +12,8 @@ import type { CompanyRegistrationType, InvoiceComputation, InvoiceContext, Invoi
 import { roundToUnit } from '../../../../shared/money.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import type { RoundOffMethod } from '../../../../shared/settings.ts';
+import type { LedgerLineGstInput } from '../../../../shared/types/vouchers.ts';
+import { ledgerGstOverride } from './buildInput.ts';
 import { isBlankItem, isBlankLedger, itemLineValue } from './formState.ts';
 import type { VoucherForm } from './formState.ts';
 import { singleEntryAccountSide } from './kinds.ts';
@@ -118,7 +120,7 @@ function supplyKindOf(explicit: SupplyKind | null, hsn: string): SupplyKind {
 }
 
 /** Mirror of taxprofile.ts resolveLedgerTaxProfile (history → columns → non-GST; override merged). */
-export function ledgerProfile(t: ClientLedgerTax | undefined, date: string, override?: { rate?: number; hsnSac?: string } | null): Profile {
+export function ledgerProfile(t: ClientLedgerTax | undefined, date: string, override?: LedgerLineGstInput | null): Profile {
   let base: Omit<Profile, 'supplyKind'>;
   const h = t ? historyOn(t.history, date) : null;
   if (h) {
@@ -131,17 +133,18 @@ export function ledgerProfile(t: ClientLedgerTax | undefined, date: string, over
   } else {
     base = { taxability: 'non_gst', rate: 0, cessRate: 0, cessPerUnit: 0, hsnSac: (t?.hsnSac ?? '').trim() };
   }
-  if (override && (override.rate !== undefined || override.hsnSac !== undefined)) {
-    const taxability: Taxability = override.rate !== undefined ? 'taxable' : base.taxability;
+  const o = override;
+  if (o && (o.rate !== undefined || o.taxability !== undefined || o.cessRate !== undefined || o.hsnSac !== undefined || o.supplyKind !== undefined)) {
+    const taxability: Taxability = o.taxability ?? (o.rate !== undefined ? 'taxable' : base.taxability);
     const taxable = taxability === 'taxable';
-    const hsnSac = (override.hsnSac ?? base.hsnSac).trim();
+    const hsnSac = (o.hsnSac ?? base.hsnSac).trim();
     return {
       taxability,
-      rate: taxable ? (override.rate ?? (base.taxability === 'taxable' ? base.rate : 0)) : 0,
-      cessRate: taxable && base.taxability === 'taxable' ? base.cessRate : 0,
+      rate: taxable ? (o.rate ?? (base.taxability === 'taxable' ? base.rate : 0)) : 0,
+      cessRate: taxable ? (o.cessRate ?? (base.taxability === 'taxable' ? base.cessRate : 0)) : 0,
       cessPerUnit: 0,
       hsnSac,
-      supplyKind: supplyKindOf(t?.supplyType ?? null, hsnSac),
+      supplyKind: o.supplyKind ?? supplyKindOf(t?.supplyType ?? null, hsnSac),
     };
   }
   return { ...base, supplyKind: supplyKindOf(t?.supplyType ?? null, base.hsnSac) };
@@ -222,7 +225,7 @@ export function computeInvoiceTotals(f: VoucherForm, env: TotalsEnv): ClientTota
   for (const r of f.ledgers) {
     if (isBlankLedger(r) || r.amount === null || r.amount === 0) continue;
     const t = env.ledgerTax(r.ledgerId as number);
-    const override = f.mode === 'accounting_invoice' && (r.gstRate !== null || r.hsnSac.trim() !== '') ? { rate: r.gstRate ?? undefined, hsnSac: r.hsnSac.trim() || undefined } : null;
+    const override = ledgerGstOverride(r) ?? null;
     let treatment: 'apportion' | 'computed' | 'outside';
     if (t?.includeInAssessable === 'goods') treatment = 'apportion';
     else if (gstOn && (override !== null || ledgerIsGstApplicable(t, f.date))) treatment = 'computed';
@@ -289,6 +292,23 @@ export function computeInvoiceTotals(f: VoucherForm, env: TotalsEnv): ClientTota
     grandTotal,
     warnings: comp.warnings,
   };
+}
+
+const sameFigures = (a: LineFigures, b: LineFigures): boolean =>
+  a.taxable === b.taxable && a.tax === b.tax && a.rate === b.rate && a.total === b.total && a.taxability === b.taxability;
+
+/**
+ * Reuse the previous LineFigures object of every row whose figures did not change, so memoised grid
+ * rows (which receive their figures as a prop) re-render only when their own numbers change — not on
+ * every recomputation of the invoice (a 500-line voucher would otherwise re-render every row per keystroke).
+ */
+export function stabilizeLines(prev: ReadonlyMap<string, LineFigures> | null, next: ReadonlyMap<string, LineFigures>): Map<string, LineFigures> {
+  const out = new Map<string, LineFigures>();
+  for (const [k, v] of next) {
+    const p = prev?.get(k);
+    out.set(k, p && sameFigures(p, v) ? p : v);
+  }
+  return out;
 }
 
 /** Ledger-mode figures: Σ Dr, Σ Cr and the difference (Dr − Cr; 0 = balanced). */

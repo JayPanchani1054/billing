@@ -1,8 +1,10 @@
 /**
  * 'compact' — 80 mm thermal receipt for retail counters. Works for every layout: invoice lines as
- * "qty × rate = amount", vouchers as Dr/Cr lines, stock documents as quantities.
+ * "qty × rate = amount", vouchers as Dr/Cr lines, stock documents as quantities. A GST invoice keeps
+ * its Rule 46 particulars even on a roll: buyer address / GSTIN / state code, place of supply, HSN and
+ * rate per line, the reverse-charge statement, the invoice adjusted by a note, and the signatory.
  */
-import { addressLines, dateText, money, pctText, qtyText, rateText, rupees, totalRows, voucherSides } from '../lib/layout.ts';
+import { addressLines, compactLineInfo, dateText, money, pctText, qtyText, rateText, rupees, totalRows, voucherSides } from '../lib/layout.ts';
 import { safeImage, Stamp, taxabilityShort, type DocProps } from './parts.tsx';
 
 export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
@@ -36,17 +38,67 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
             <td>No: {doc.number ?? '—'}</td>
             <td className="bp-num">{dateText(doc.date)}</td>
           </tr>
+          {doc.referenceNo ? (
+            <tr>
+              <td colSpan={2}>
+                Ref: {doc.referenceNo}
+                {doc.referenceDate ? ` dated ${dateText(doc.referenceDate)}` : ''}
+              </td>
+            </tr>
+          ) : null}
+          {doc.originalInvoice ? (
+            <tr>
+              <td colSpan={2}>
+                Against invoice: {doc.originalInvoice.number}
+                {doc.originalInvoice.date ? ` dated ${dateText(doc.originalInvoice.date)}` : ''}
+                {doc.originalInvoice.reason ? <span className="bp-sub">Reason: {doc.originalInvoice.reason}</span> : null}
+              </td>
+            </tr>
+          ) : null}
           {doc.party?.name ? (
             <tr>
               <td colSpan={2}>
                 {doc.partyLabel.replace(/ \(.*\)$/, '')}: <b>{doc.party.name}</b>
+                {addressLines(doc.party).map((l, i) => (
+                  <span key={i} className="bp-sub">
+                    {l}
+                  </span>
+                ))}
                 {doc.party.gstin ? <span className="bp-sub">GSTIN: {doc.party.gstin}</span> : null}
+                {doc.party.stateCode && (doc.party.gstin || doc.party.address) ? (
+                  <span className="bp-sub">
+                    State code: {doc.party.stateCode}
+                    {doc.party.stateName ? ` (${doc.party.stateName})` : ''}
+                  </span>
+                ) : null}
               </td>
             </tr>
           ) : null}
-          {doc.placeOfSupply && doc.gst.showTax ? (
+          {doc.consignee && !doc.consigneeSameAsParty && doc.layout !== 'voucher' ? (
+            <tr>
+              <td colSpan={2}>
+                {doc.consigneeLabel.replace(/ \(.*\)$/, '')}: <b>{doc.consignee.name ?? ''}</b>
+                {addressLines(doc.consignee).map((l, i) => (
+                  <span key={i} className="bp-sub">
+                    {l}
+                  </span>
+                ))}
+              </td>
+            </tr>
+          ) : null}
+          {doc.placeOfSupply && (doc.gst.showTax || doc.kind === 'delivery_challan') ? (
             <tr>
               <td colSpan={2}>Place of supply: {doc.placeOfSupply.label}</td>
+            </tr>
+          ) : null}
+          {doc.layout === 'invoice' && doc.gst.showTax ? (
+            <tr>
+              <td colSpan={2}>Reverse charge: {doc.reverseCharge ? 'Yes' : 'No'}</td>
+            </tr>
+          ) : null}
+          {doc.ewayBill ? (
+            <tr>
+              <td colSpan={2}>E-way bill: {doc.ewayBill.number}</td>
             </tr>
           ) : null}
         </tbody>
@@ -80,7 +132,7 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
               <tr key={l.sl} className="bp-c-item">
                 <td>
                   {l.name}
-                  {l.hsnSac ? <span className="bp-sub">HSN {l.hsnSac}{doc.gst.showTax && !l.absorbed ? ` · GST ${l.taxability === 'taxable' ? pctText(l.gstRate) : taxabilityShort(l.taxability)}` : ''}</span> : null}
+                  {compactLineInfo(l, doc.gst.showTax) ? <span className="bp-sub">{compactLineInfo(l, doc.gst.showTax)}</span> : null}
                   {l.qty !== null ? (
                     <span className="bp-sub">
                       {qtyText(l.qty, l.qtyDecimals)} {l.unit ?? ''}
@@ -159,8 +211,14 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
           {doc.einvoice.ackNo ? <div className="bp-small">Ack No. {doc.einvoice.ackNo}</div> : null}
         </div>
       ) : null}
+      {doc.totals.reverseChargeTax !== 0 ? <div className="bp-small">Tax payable on reverse charge: {rupees(doc.totals.reverseChargeTax)} (not included above)</div> : null}
       {doc.terms ? <div className="bp-small bp-pre">{doc.terms}</div> : null}
       {doc.declaration ? <div className="bp-small bp-pre">{doc.declaration}</div> : null}
+      <div className="bp-c-sign">
+        <div>For {c.displayName}</div>
+        <div className="bp-c-sign-space" />
+        <div>{doc.signatoryLabel}</div>
+      </div>
       <div className="bp-c-center bp-small">Thank you</div>
     </article>
   );

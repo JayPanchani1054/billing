@@ -44,7 +44,9 @@ payables, creditors, ageing, overdue, interest, statement, reminder.
 ### Receivables / Payables
 * **Parties** (Ctrl+1): KPI strip — total, overdue (click → overdue bills), not yet due, advances &
   on account, over-credit-limit count (click → only parties over their limit); table with
-  outstanding / overdue / not due / unadjusted, oldest overdue badge and a credit-limit bar.
+  outstanding / overdue / not due / unadjusted, oldest overdue badge and a credit-limit bar. With
+  "Only parties over their credit limit" on, the export's totals are recomputed over the parties
+  shown (`partiesInView`), not the server's all-party totals.
 * **Bills** (Ctrl+2): every pending bill; Overdue only (Alt+O), "overdue by at least N days",
   search (Ctrl+F, party or bill), group filter. Enter opens the bill's voucher (On Account / opening
   lines open the party).
@@ -52,8 +54,8 @@ payables, creditors, ageing, overdue, interest, statement, reminder.
   due-date / bill-date basis (Alt+U), a bar chart of totals, a colour key and a small stacked
   "Age profile" bar per party (text alternative lists every bucket).
 * Enter on a party → `outstanding.party`; in the bills / ageing views Alt+V opens the highlighted
-  row's party. Alt+S statement, Alt+L ledger, Alt+I interest (the highlighted party, else the group
-  / everyone), Alt+R reminders (receivables), Alt+W switch side. These party actions follow the
+  row's party. Alt+S statement, Alt+L ledger, Alt+I interest and Alt+R reminder letter (receivables)
+  — both for the highlighted party, else the group / everyone — Alt+W switch side. These party actions follow the
   highlighted row of the table on screen only — switching views or filtering clears them. Parties
   not maintained bill-wise are aged **FIFO** by default (Alt+N switches to one On Account line).
 * The group filter lists Sundry Debtors / Creditors and their sub-groups; it needs `masters.view`
@@ -61,25 +63,30 @@ payables, creditors, ageing, overdue, interest, statement, reminder.
 
 ### Party outstanding
 Bills as a tree (→ / + expands the history: new ref, against ref, advance…); Enter on a history line
-opens the voucher. Ctrl+2 lists on-account entries. Totals: bills pending, advances, on account,
+opens the voucher. Ctrl+2 lists on-account entries (bill-wise ledgers only; a ledger not maintained
+bill-wise shows its balance FIFO or as one On Account amount — Alt+N — and the empty list says so,
+`partyEmptyBody`). Totals: bills pending, advances, on account,
 balance. KPIs: balance, overdue, unadjusted, credit terms/limit used. Alt+H settled bills, Alt+N
 FIFO ↔ On Account for non-bill-wise ledgers. Actions: Statement (Alt+S), Interest (Alt+I), Reminder
 letter (Alt+R, receivable side), Ledger (Alt+L).
 
 ### Statement of account
 Party card, period summary, transactions with running balance (Ctrl+1) and pending bills with
-ageing (Ctrl+2). Print (Alt+P) and PDF (Alt+E → P) use `buildStatementHtml` (A4, letterhead, ageing
+ageing (Ctrl+2). Opened with `{ from, to }` it keeps that period until the global period is changed
+(Alt+F2) while it is open, which then applies (`statementPeriod`). Print (Alt+P) and PDF (Alt+E → P)
+use `buildStatementHtml` (A4, letterhead, ageing
 table, balance-confirmation note); Excel/CSV export the transactions.
 
 ### Interest
 Rate: in party scope the ledger's own interest rate is pre-filled (from `outstanding.ledgerBills`);
 clearing the field means "each party's own rate". Basis due/bill date (Alt+U), grace days; Enter
-moves rate → basis → grace days → the bill list. The calculation runs only once typed values have
+on the chosen party moves to the rate, then rate → basis → grace days → the bill list. The calculation runs only once typed values have
 settled (300 ms) and, in party scope, once the party's rate is known — never at a half-typed rate. KPIs
 split interest to charge (customers) and payable (suppliers); parties without a rate are listed in a
 warning. Enter on a bill opens a **drawer** with the balance segments; per-segment interest is
 allocated from the bill's once-rounded interest with the largest-remainder method, so the lines add
-up to the paisa (`interestSegmentLines`). Export/print (`interestExport`) never adds interest to
+up to the paisa (`interestSegmentLines`; even if the server's figure differs from the exact split,
+the difference is spread so the lines still add up, never below zero). Export/print (`interestExport`) never adds interest to
 charge and interest payable together: with both sides present the rows are grouped by side, each
 with its own total line.
 
@@ -88,11 +95,14 @@ Left: customers with bills overdue by at least N days (Alt+F) whose overdue amou
 covered by unadjusted receipts; tone badge (gentle / second / firm). Customers **not maintained
 bill-wise are aged FIFO** (`remindersQuery` sends `nonBillWise: 'fifo'`) — with the route's default
 they would be one never-overdue On Account line and never be reminded. Opened for one customer
-(`{ ledgerId }`) the tag shows that customer's name even when nothing is due. Space includes/skips a customer
+(`{ ledgerId }`) the tag shows that customer's name even when nothing is due; Alt+W (or the tag's ×)
+widens to every customer. Space includes/skips a customer
 for batch output, Alt+A toggles everyone. Right: the letter preview, rendered as React text (no
 HTML). Alt+P print, Alt+S PDF, Alt+T copy the plain-text letter (`navigator.clipboard`), Alt+B print
 every included letter (one page each; asks first above 10), Alt+M all included letters as one PDF,
-Alt+E export the follow-up list (Excel / CSV / PDF).
+Alt+E export the follow-up list (Excel / CSV / PDF). Enter opens the customer's outstanding. In
+the letter table the bill-number column stays left-aligned even when bill numbers are numeric
+(`letterNumericColumns`, shared by the preview and the printed letter).
 
 ## DueSoonWidget (for the dashboard)
 
@@ -114,6 +124,9 @@ import { DueSoonWidget } from '../outstanding/index.ts';
 A `Card` with two clickable figures (due by <date> → bills view; already overdue → overdue bills)
 and a compact table (party, bill, "Due today / tomorrow / In N days", amount). Enter on a row opens
 `outstanding.party`; "View all" opens Receivables/Payables. Non-bill-wise parties are included FIFO.
-Renders nothing for users without `reports.view`; errors show a small retry state. `days` is
+Renders nothing for users without `reports.view`; errors show a small retry state. The title reads
+"due today" / "today or tomorrow" / "in the next N days". Note: the widget counts from the working
+date, while the Receivables/Payables screen it opens is "as on" the period end (Alt+F2) — the two
+agree whenever the period ends on the working date (the default: financial year to date). `days` is
 clamped to 0–366 (non-numbers → 7) and `limit` to 1–1000, so a bad prop never reaches the route as
 a validation error.

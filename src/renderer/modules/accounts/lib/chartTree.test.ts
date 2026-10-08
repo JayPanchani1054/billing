@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { ChartNode, OpeningBalanceSummary } from '../../../../shared/types/accounts.ts';
-import { bulkInput, bulkTotals, isBlankRow, mapBulkServerErrors, newBulkRow, validateBulkRows, applyRowGstin } from './bulkRows.ts';
+import type { ChartNode } from '../../../../shared/types/accounts.ts';
 import { filterChart, flattenChart, parentKeys, parentKeysUpTo } from './chartTree.ts';
-import { chipClasses, explainOpening, ledgerKind } from './ledgerFilters.ts';
 
 const node = (kind: 'group' | 'ledger', id: number, name: string, closing: number, children: ChartNode[] = [], alias: string | null = null): ChartNode => ({
   kind,
@@ -65,75 +63,5 @@ describe('filterChart', () => {
   });
   it('empty query → everything', () => {
     assert.equal(filterChart(rows, '  ').length, rows.length);
-  });
-});
-
-describe('bulk ledger rows', () => {
-  const MH = '27AAPFU0939F1ZV';
-  it('validates names (duplicates in the grid, existing names), group and GSTIN; blank rows ignored', () => {
-    const a = { ...newBulkRow(5), name: 'Sharma' };
-    const b = { ...newBulkRow(5), name: 'sharma ' };
-    const c = { ...newBulkRow(null), name: 'Cash' };
-    const d = { ...newBulkRow(5), name: 'Gupta', gstin: `${MH.slice(0, 14)}A` };
-    const blank = newBulkRow(5);
-    const e = validateBulkRows([a, b, c, d, blank], new Set(['cash']));
-    assert.equal(e[`${b.key}.name`], 'Same name as row 1');
-    assert.match(e[`${c.key}.name`], /already exists/);
-    assert.equal(e[`${c.key}.groupId`], 'Choose the group');
-    assert.match(e[`${d.key}.gstin`], /check character/);
-    assert.equal(Object.keys(e).some((k) => k.startsWith(blank.key)), false);
-    assert.equal(e[`${a.key}.name`], undefined);
-  });
-
-  it('builds the input without blank rows and maps server errors back', () => {
-    const blank = newBulkRow(5);
-    const a = applyRowGstin({ ...newBulkRow(5), name: 'Sharma', openingBalance: 10_000 }, MH.toLowerCase());
-    assert.equal(a.stateCode, '27');
-    const { rows, rowKeys } = bulkInput([blank, a]);
-    assert.deepEqual(rows, [{ name: 'Sharma', groupId: 5, openingBalance: 10_000, gstin: MH, stateCode: '27' }]);
-    assert.deepEqual(rowKeys, [a.key]);
-    assert.deepEqual(mapBulkServerErrors({ 'rows[0].name': 'Taken', rows: 'x' }, rowKeys), { [`${a.key}.name`]: 'Taken', _: 'x' });
-    assert.equal(isBlankRow(blank), true);
-  });
-
-  it('totals: Dr 10,000 + Dr 2,500 and Cr 4,000 (paise)', () => {
-    const t = bulkTotals([
-      { ...newBulkRow(1), name: 'A', openingBalance: 10_000 },
-      { ...newBulkRow(1), name: 'B', openingBalance: 2_500 },
-      { ...newBulkRow(1), name: 'C', openingBalance: -4_000 },
-      newBulkRow(1),
-    ]);
-    assert.deepEqual(t, { debit: 12_500, credit: 4_000, count: 3 });
-  });
-});
-
-describe('ledger filters and opening summary', () => {
-  it('chips map to classes', () => {
-    assert.deepEqual(chipClasses('parties'), ['party']);
-    assert.equal(chipClasses('all'), undefined);
-    assert.equal(ledgerKind({ classes: ['party', 'creditor', 'liability'] }), 'Supplier');
-    assert.equal(ledgerKind({ classes: ['bank', 'cash_bank', 'asset'] }), 'Bank');
-  });
-
-  const sum = (totalDebit: number, totalCredit: number, ledgerCount = 2): OpeningBalanceSummary => ({ totalDebit, totalCredit, difference: totalDebit - totalCredit, ledgerCount });
-
-  it('balanced openings', () => {
-    assert.equal(explainOpening(sum(50_000, 50_000), null).tone, 'success');
-  });
-
-  it('difference explained with side and amount: Dr 60,000 − Cr 50,000 = 10,000 Dr (₹100.00)', () => {
-    const x = explainOpening(sum(60_000, 50_000), null);
-    assert.equal(x.tone, 'warning');
-    assert.equal(x.title, 'Difference in opening balances: ₹ 100.00 Dr');
-  });
-
-  it('opening stock (a debit) closes a credit difference: Dr 40,000 − Cr 50,000 + stock 10,000 = 0', () => {
-    const x = explainOpening(sum(40_000, 50_000), 10_000);
-    assert.equal(x.tone, 'success');
-    assert.match(x.body, /opening stock of ₹ 100\.00/);
-  });
-
-  it('no openings at all', () => {
-    assert.equal(explainOpening(sum(0, 0, 0), null).title, 'No opening balances entered');
   });
 });

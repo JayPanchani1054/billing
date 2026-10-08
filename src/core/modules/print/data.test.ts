@@ -10,10 +10,24 @@ import type { PrintLine, PrintVoucherData } from '../../../shared/types/print.ts
 import type { VoucherInput } from '../../../shared/types/vouchers.ts';
 import { saveConfig } from '../company/service.ts';
 import { cancelVoucher } from '../vouchers/service.ts';
-import { save, setupKit, type Kit } from '../vouchers/testkit.ts';
+import { save, setupKit as baseKit, type Kit } from '../vouchers/testkit.ts';
 import { buildBatch, buildPrintDataFor, instrumentText, invoiceTotals, rupeesText, upiUri } from './data.ts';
 
 const DATE = '2026-04-15';
+
+/** The vouchers testkit, with postal addresses on the parties (CGST Rule 46 needs the recipient's address). */
+function setupKit(opts: Parameters<typeof baseKit>[0] = {}): Kit {
+  const k = baseKit(opts);
+  const set = (id: number, address: string): void => {
+    k.t.db.run('UPDATE ledgers SET address = :a WHERE id = :id', { a: address, id });
+  };
+  set(k.L.acme, '12, MG Road, Pune');
+  set(k.L.blr, '5, Residency Road, Bengaluru');
+  set(k.L.sez, 'Plot 7, SEZ Phase I, Pune');
+  set(k.L.export, '100 Main Street, Austin TX');
+  set(k.L.supplier, '3, Market Yard, Pune');
+  return k;
+}
 
 function sale(k: Kit, extra: Partial<VoucherInput> = {}): number {
   return save(k, {
@@ -131,11 +145,14 @@ describe('print.voucherData — sales invoices', () => {
 
   it('export under LUT and with payment of IGST → Export Invoice with the endorsement', () => {
     const k = setupKit();
+    saveConfig(k.t.ctx, { invoice: { showUpiQr: true, upiId: 'shop@okhdfcbank', bankLedgerId: k.L.bank } });
     const lut = buildPrintDataFor(k.t.ctx, sale(k, { partyLedgerId: k.L.export, items: [{ itemId: k.I.mixer, qty: 1, rate: 150 }] }));
     assert.equal(lut.kind, 'export_invoice');
     assert.equal(lut.title, 'Export Invoice');
     assert.equal(lut.endorsement, 'Supply meant for export under LUT without payment of IGST');
     assert.equal(lut.placeOfSupply?.code, '96');
+    assert.equal(lut.party?.country, 'USA', 'proviso to Rule 46: country of destination');
+    assert.deepEqual(lut.warnings, []);
     // Zero-rated under LUT: 150.00, no tax.
     assert.deepEqual([lut.totals.taxable, lut.totals.tax, lut.totals.grandTotal], [15000, 0, 15000]);
     const wpay = buildPrintDataFor(
@@ -143,6 +160,9 @@ describe('print.voucherData — sales invoices', () => {
       sale(k, { partyLedgerId: k.L.export, items: [{ itemId: k.I.mixer, qty: 1, rate: 150 }], exportDetails: { withPayment: true, shippingBillNo: 'SB-9', portCode: 'INNSA1' } }),
     );
     assert.equal(wpay.endorsement, 'Supply meant for export with payment of IGST');
+    // Bank details yes; a UPI QR (rupee payments from Indian accounts) no.
+    assert.equal(wpay.bank?.accountNo, '50100012345678');
+    assert.equal(wpay.upi, null);
     // 150.00 @18% IGST = 27.00 → 177.00
     assert.deepEqual([wpay.totals.igst, wpay.totals.grandTotal], [2700, 17700]);
     assert.deepEqual(wpay.references, [
@@ -160,6 +180,12 @@ describe('print.voucherData — sales invoices', () => {
     assert.equal(bos.kind, 'bill_of_supply');
     assert.equal(bos.title, 'Bill of Supply');
     assert.deepEqual([bos.totals.taxable, bos.totals.tax, bos.totals.grandTotal], [10000, 0, 10000]);
+    // Rule 49: a bill of supply shows no tax columns, rate summary or reverse-charge line; HSN stays on the lines.
+    assert.equal(bos.gst.showTax, false);
+    assert.deepEqual(bos.taxByRate, []);
+    assert.equal(bos.taxInWords, null);
+    assert.equal(bos.lines[0].hsnSac, '0702');
+    assert.deepEqual(bos.warnings, []);
     const mixed = buildPrintDataFor(k.t.ctx, sale(k, { items: [{ itemId: veg, qty: 5, rate: 20 }, { itemId: k.I.rice, qty: 10, rate: 50 }] }));
     // 100.00 exempt + 500.00 @5% (CGST 12.50 + SGST 12.50) = 625.00
     assert.equal(mixed.kind, 'invoice_cum_bill_of_supply');
@@ -198,6 +224,21 @@ describe('print.voucherData — sales invoices', () => {
     assert.deepEqual(d.taxByHsn, []);
     assert.deepEqual([d.totals.taxable, d.totals.roundOff, d.totals.grandTotal], [9999, 1, 10000]);
     assert.equal(d.amountInWords, 'Rupees One Hundred Only');
+    assertTies(d);
+    k.t.close();
+  });
+
+  it('imported accounting invoice of a company not under GST prints its sales ledger lines', () => {
+    const k = setupKit({ gst: false });
+    const id = save(k, { voucherTypeId: k.vt.sales, date: DATE, mode: 'accounting_invoice', partyLedgerId: k.L.acme, ledgers: [{ ledgerId: k.L.sales, amount: 12345 }] }).id;
+    k.t.db.run('UPDATE vouchers SET meta = NULL WHERE id = :id', { id });
+    const d = buildPrintDataFor(k.t.ctx, id);
+    // Sales 123.45 → rounded to 123.00 (round off −0.45); before the fix the lines were empty and the total −0.45.
+    assert.equal(d.layout, 'invoice');
+    assert.deepEqual(d.lines.map((l) => [l.name, l.amount]), [['Sales', 12345]]);
+    assert.deepEqual([d.totals.taxable, d.totals.roundOff, d.totals.grandTotal], [12345, -45, 12300]);
+    assert.equal(d.totals.grandTotal, row(k, id).total_amount);
+    assert.deepEqual(d.warnings, []);
     assertTies(d);
     k.t.close();
   });
@@ -285,6 +326,10 @@ describe('print.voucherData — sales invoices', () => {
     assert.equal(d.bank?.ledgerName, 'HDFC Bank');
     assert.equal(d.upi?.uri, 'upi://pay?pa=shop%40okhdfcbank&pn=Test%20Traders%20Pvt%20Ltd&am=844.00&cu=INR&tn=Tax%20Invoice%201');
     assert.equal(d.terms, 'Goods once sold will not be taken back.');
+    // Only a bank ledger's details ever print: a party ledger id (stale config / crafted override) gives none.
+    k.t.db.run("UPDATE ledgers SET bank_account_no = '99887766', bank_ifsc = 'SBIN0000001' WHERE id = :id", { id: k.L.supplier });
+    const party = buildPrintDataFor(k.t.ctx, d.id, { bankLedgerId: k.L.supplier });
+    assert.equal(party.bank, null);
     // Bank details switched off → none.
     const off = buildPrintDataFor(k.t.ctx, d.id, { showBankDetails: false, showUpiQr: false });
     assert.equal(off.bank, null);
@@ -343,6 +388,7 @@ describe('print.voucherData — sales invoices', () => {
 describe('print.voucherData — notes, purchases, orders, challans', () => {
   it('credit note carries the original invoice reference', () => {
     const k = setupKit();
+    saveConfig(k.t.ctx, { invoice: { terms: 'Goods once sold will not be taken back.' } });
     sale(k);
     const id = save(k, {
       voucherTypeId: k.vt.credit_note,
@@ -362,6 +408,7 @@ describe('print.voucherData — notes, purchases, orders, challans', () => {
     assert.equal(d.totals.grandTotal, 10500);
     assert.equal(d.totals.grandTotal, row(k, id).total_amount);
     assert.equal(d.declaration, null);
+    assert.equal(d.terms, null, '"Goods once sold…" terms do not belong on a credit note');
     assert.equal(d.partyLabel, 'Buyer (Bill to)');
     assertTies(d);
     k.t.close();
@@ -403,6 +450,9 @@ describe('print.voucherData — notes, purchases, orders, challans', () => {
     // 400.00 @5% input → 10.00 + 10.00 = 420.00
     assert.equal(d.title, 'Purchase Voucher');
     assert.equal(d.partyLabel, 'Supplier (Bill from)');
+    // The goods come to us: the supplier is not printed again as "Ship to".
+    assert.equal(d.consignee, null);
+    assert.equal(d.consigneeSameAsParty, false);
     assert.equal(d.referenceNo, 'SUP-77');
     assert.equal(d.declaration, null);
     assert.equal(d.bank, null);
@@ -462,11 +512,16 @@ describe('print.voucherData — notes, purchases, orders, challans', () => {
 
   it('delivery note entered as quantities → Delivery Challan (Rule 55 copies)', () => {
     const k = setupKit({ features: { trackingNumbers: true } });
+    saveConfig(k.t.ctx, { invoice: { terms: 'Goods once sold will not be taken back.' } });
     const id = save(k, { voucherTypeId: k.vt.delivery_note, date: DATE, mode: 'inventory', partyLedgerId: k.L.acme, items: [{ itemId: k.I.rice, qty: 5, rate: 50 }, { itemId: k.I.mixer, qty: 1, rate: 150 }] }).id;
     const d = buildPrintDataFor(k.t.ctx, id);
     assert.equal(d.layout, 'inventory');
     assert.equal(d.kind, 'delivery_challan');
     assert.equal(d.copyLabels.original, 'Original for Consignee');
+    // Rule 55: the party is the consignee when there is no separate ship-to; place of supply = its state.
+    assert.equal(d.partyLabel, 'Consignee (Ship to)');
+    assert.equal(d.placeOfSupply?.label, '27-Maharashtra');
+    assert.equal(d.terms, null, 'terms of sale are not printed on a challan');
     assert.deepEqual(d.lines.map((l) => [l.name, l.hsnSac, l.qty, l.amount]), [
       ['Rice Bag', '1006', 5, 25000],
       ['Mixer Grinder', '8509', 1, 15000],

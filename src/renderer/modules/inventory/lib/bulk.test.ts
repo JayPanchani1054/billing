@@ -86,3 +86,13 @@ test('retired 12% / 28% slabs are flagged (not blocked) from 22-Sep-2025', () =>
   assert.deepEqual(bulkWarnings(rows, { gstEnabled: false }, '2026-10-08'), []);
   assert.deepEqual(validateBulkRows(rows, ctx), {}); // 12 and 28 are still notified rates
 });
+
+test('books locked from the books beginning: opening stock in a row is flagged, items without it pass', () => {
+  const locked = { ...ctx, openingLocked: true };
+  const rows = [row({ key: 'a', name: 'Dal', openingQty: 3, openingRate: 90 }), row({ key: 'b', name: 'Rice', openingRate: 40 }), row({ key: 'c', name: 'Salt' })];
+  const e = validateBulkRows(rows, locked);
+  assert.match(e['a.openingQty'], /books are locked/);
+  assert.match(e['b.openingQty'], /Enter the opening quantity/); // first problem of the cell wins
+  assert.equal(e['c.name'], undefined);
+  assert.deepEqual(Object.keys(e).sort(), ['a.openingQty', 'b.openingQty']);
+});

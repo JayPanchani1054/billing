@@ -21,7 +21,7 @@ import { ReadOnlyNotice, ReportScreen, Screen } from '../../app/Screen.tsx';
 import { useCan } from '../../app/state.tsx';
 import { Badge, Banner, Button, DataTable, EmptyState, Field, FieldGroup, NumberInput, Select, Stack, Switch, TextInput, useDebouncedValue, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { NameCell } from './components.tsx';
+import { focusFirstInvalid, NameCell } from './components.tsx';
 import { LEDGER_DEPENDENTS } from './hooks.ts';
 import { NATURE_LABELS, natureHint } from './lib/groupClass.ts';
 import { GroupPicker, groupTrail, useGroups } from './pickers.tsx';
@@ -193,6 +193,7 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [created, setCreated] = useState(0);
   const nameRef = useRef<HTMLInputElement>(null);
+  const formBox = useRef<HTMLDivElement>(null);
   const predefined = original?.isPredefined ?? false;
   const readOnly = !canSave;
   const parent = d.parentId !== null ? (groups.byId.get(d.parentId) ?? null) : null;
@@ -203,7 +204,12 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
 
   const set = <K extends keyof GroupDraft>(k: K, v: GroupDraft[K]) => {
     setD((x) => ({ ...x, [k]: v }));
-    setErrors((e) => (e[k] ? { ...e, [k]: '' } : e));
+    setErrors((e) => {
+      if (!(k in e)) return e;
+      const copy = { ...e };
+      delete copy[k];
+      return copy;
+    });
   };
 
   const validate = (): Record<string, string> => {
@@ -218,7 +224,10 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
     if (readOnly || save.pending) return;
     const e = validate();
     setErrors(e);
-    if (Object.keys(e).length > 0) return;
+    if (Object.keys(e).length > 0) {
+      focusFirstInvalid(formBox.current);
+      return;
+    }
     const base = baselineRef.current;
     const input: Parameters<typeof save.mutate>[0] = original ? { id: original.id } : {};
     const put = <K extends keyof GroupDraft>(k: K, apply: () => void) => {
@@ -253,7 +262,10 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
       }
     } catch (err) {
       const f = fieldErrorsOf(err);
-      if (Object.keys(f).length > 0) setErrors(f);
+      if (Object.keys(f).length > 0) {
+        setErrors(f);
+        focusFirstInvalid(formBox.current);
+      }
       toast.error('The group was not saved', { message: Object.values(f)[0] ?? userMessage(err) });
     }
   };
@@ -305,6 +317,7 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
         )
       }
     >
+      <div ref={formBox}>
       <div ref={formRef}>
         <Stack gap={6}>
           {readOnly ? <ReadOnlyNotice what="groups" /> : null}
@@ -357,6 +370,7 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
             </Field>
           </FieldGroup>
         </Stack>
+      </div>
       </div>
     </Screen>
   );

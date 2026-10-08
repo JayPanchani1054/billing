@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { nextCell, rowAfterDelete, verticalCell } from './gridNav.ts';
+import { entrySections, neighbourSection, nextCell, rowAfterDelete, verticalCell } from './gridNav.ts';
 import type { GridModel } from './gridNav.ts';
 
 const filled = new Set(['r1', 'r2']);
@@ -42,5 +42,23 @@ describe('grid keyboard model', () => {
     assert.deepEqual(verticalCell(model, { rowKey: 'r2', column: 'batch' }, 'up'), { kind: 'cell', rowKey: 'r1', column: 'item' });
     assert.deepEqual(verticalCell(model, { rowKey: 'r1', column: 'qty' }, 'down'), { kind: 'cell', rowKey: 'r2', column: 'qty' });
     assert.equal(verticalCell(model, { rowKey: 'r3', column: 'qty' }, 'down'), null);
+  });
+});
+
+describe('entry sections', () => {
+  it('orders the body by mode', () => {
+    assert.deepEqual(entrySections('item_invoice', 'sales'), ['items', 'ledgers', 'narration']);
+    assert.deepEqual(entrySections('accounting_invoice', 'sales'), ['ledgers', 'narration']);
+    assert.deepEqual(entrySections('ledger', 'payment'), ['ledgers', 'narration']);
+    assert.deepEqual(entrySections('inventory', 'delivery_note'), ['items', 'narration']);
+    assert.deepEqual(entrySections('inventory', 'stock_journal'), ['items:src', 'items:dst', 'narration']);
+  });
+
+  it('moves between neighbours, header before and accept after', () => {
+    const s = entrySections('item_invoice', 'sales');
+    assert.equal(neighbourSection(s, 'items', 'forward'), 'ledgers');
+    assert.equal(neighbourSection(s, 'items', 'back'), 'header');
+    assert.equal(neighbourSection(s, 'narration', 'forward'), 'accept');
+    assert.equal(neighbourSection(s, 'narration', 'back'), 'ledgers');
   });
 });

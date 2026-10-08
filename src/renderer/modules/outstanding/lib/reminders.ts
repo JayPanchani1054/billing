@@ -103,9 +103,20 @@ export function dueInText(daysToDue: number): string {
   return `In ${daysToDue} days`;
 }
 
+/** Widget wording for the look-ahead: 'today', 'today or tomorrow', 'in the next 7 days'. */
+export function lookAheadText(days: number): string {
+  if (days <= 0) return 'today';
+  if (days === 1) return 'today or tomorrow';
+  return `in the next ${days} days`;
+}
+
 const NUMERIC_CELL = /^-?[\d,]+(\.\d+)?$/;
 
-/** Columns of a letter's bills table whose every cell is a number (right-aligned in the preview). */
+/**
+ * Columns of a letter's bills table whose every cell is a number (right-aligned in the preview and
+ * the printed letter). The first column (bill numbers, and the "Total overdue" label in the total
+ * row) always stays left-aligned, even when every bill number happens to be numeric.
+ */
 export function letterNumericColumns(table: { columns: readonly string[]; rows: readonly (readonly string[])[] }): boolean[] {
-  return table.columns.map((_, i) => table.rows.length > 0 && table.rows.every((r) => (r[i] ?? '') === '' || NUMERIC_CELL.test(r[i] ?? '')));
+  return table.columns.map((_, i) => i > 0 && table.rows.length > 0 && table.rows.every((r) => (r[i] ?? '') === '' || NUMERIC_CELL.test(r[i] ?? '')));
 }

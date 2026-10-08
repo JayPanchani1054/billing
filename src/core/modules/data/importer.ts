@@ -29,7 +29,7 @@ import { parseCsv } from '../../lib/csv.ts';
 import { AppError } from '../../lib/errors.ts';
 import { decodeText, FileFormatError } from '../../lib/text.ts';
 import { readXlsx, writeXlsx, type XlsxCell, type XlsxKind } from '../../lib/xlsx.ts';
-import { requirePermission } from './common.ts';
+import { hasPermission, requirePermission } from './common.ts';
 import { APPLIERS, type ApplyOutcome, type ImportRecord, type ParsedRow, type Typed } from './importApply.ts';
 import { headerIndex, headerKey, KIND_SPECS, type ColumnSpec, type KindSpec } from './importSpecs.ts';
 
@@ -303,6 +303,10 @@ function parseFile(ctx: CompanyCtx, spec: KindSpec, fileName: string, bytes: Uin
       values[key] = out.value;
       if (out.error) errors.push(out.error);
     }
+    const example = exampleRowOf(spec, mapping, values, reference);
+    if (example !== null) {
+      errors.push(`This is example row ${example} from the template, not your data. Delete the example rows before importing.`);
+    }
     for (const col of spec.columns) {
       if (col.required && (values[col.key] === null || values[col.key] === undefined) && !errors.some((e) => e.startsWith(`${col.header}:`))) {
         if (!(spec.kind === 'vouchers_ledger' && col.key === 'key')) errors.push(`${col.header} is required`);
@@ -324,6 +328,34 @@ function parseFile(ctx: CompanyCtx, spec: KindSpec, fileName: string, bytes: Uin
     }
   }
   return { table, mapping, records };
+}
+
+/**
+ * 1 or 2 when the row is one of the template's example rows left in the file (every mapped column holds
+ * the example value, at least three of them filled), else null — so sample parties and invoices never reach
+ * the books by accident.
+ */
+function exampleRowOf(spec: KindSpec, mapping: Mapping, values: Record<string, Typed>, reference: string): 1 | 2 | null {
+  const byKey = new Map(spec.columns.map((col) => [col.key, col]));
+  for (const i of [0, 1] as const) {
+    let compared = 0;
+    let same = true;
+    for (const key of mapping.columns.values()) {
+      const col = byKey.get(key);
+      if (!col) continue;
+      const ex = col.examples[i];
+      const want = ex === null ? null : convert(col, ex, reference).value;
+      const got = values[key] ?? null;
+      const eq = typeof want === 'string' && typeof got === 'string' ? want.trim().toLowerCase() === got.trim().toLowerCase() : want === got;
+      if (!eq) {
+        same = false;
+        break;
+      }
+      if (want !== null) compared++;
+    }
+    if (same && compared >= 3) return i === 0 ? 1 : 2;
+  }
+  return null;
 }
 
 // ───────────────────────────── Run ─────────────────────────────
@@ -384,8 +416,33 @@ function summarise(rows: ImportRowResult[]): ImportPreviewResult['summary'] {
   };
 }
 
-export function previewImport(ctx: CompanyCtx, input: ImportPreviewInput): ImportPreviewResult {
+const VOUCHER_KINDS: ReadonlySet<ImportKind> = new Set(['sales_invoices', 'purchase_invoices', 'vouchers_ledger']);
+/** Kinds that change existing masters even without "update existing" (opening balances / stock). */
+const ALTERS_MASTERS: ReadonlySet<ImportKind> = new Set(['opening_balances', 'stock_openings']);
+
+/**
+ * The masters services do not check permissions themselves (their routes do), so an import must ask
+ * for the same rights as the screens: data.import alone does not let a user create or alter masters.
+ */
+function requireKindPermissions(ctx: CompanyCtx, kind: ImportKind, opts: ImportOptions): void {
   requirePermission(ctx, 'data.import');
+  const deny = (what: string, perm: string): never => {
+    throw new AppError('FORBIDDEN', `You do not have permission to ${what}, so this file cannot be imported. Ask the owner to grant "${perm}".`);
+  };
+  if (VOUCHER_KINDS.has(kind)) {
+    if (!hasPermission(ctx, 'vouchers.create')) deny('create vouchers', 'vouchers.create');
+    return;
+  }
+  if (ALTERS_MASTERS.has(kind)) {
+    if (!hasPermission(ctx, 'masters.alter')) deny('alter masters (opening balances)', 'masters.alter');
+    return;
+  }
+  if (!hasPermission(ctx, 'masters.create')) deny('create masters', 'masters.create');
+  if (opts.updateExisting && !hasPermission(ctx, 'masters.alter')) deny('alter masters ("Update existing records")', 'masters.alter');
+}
+
+export function previewImport(ctx: CompanyCtx, input: ImportPreviewInput): ImportPreviewResult {
+  requireKindPermissions(ctx, input.kind, input.options ?? {});
   const spec = KIND_SPECS[input.kind];
   const opts = input.options ?? {};
   const parsed = parseFile(ctx, spec, input.fileName, input.bytes, opts);
@@ -411,7 +468,7 @@ export function previewImport(ctx: CompanyCtx, input: ImportPreviewInput): Impor
 }
 
 export function commitImport(ctx: CompanyCtx, input: ImportCommitInput): ImportCommitResult {
-  requirePermission(ctx, 'data.import');
+  requireKindPermissions(ctx, input.kind, input.options);
   const spec = KIND_SPECS[input.kind];
   const opts = input.options;
   const parsed = parseFile(ctx, spec, input.fileName, input.bytes, opts);

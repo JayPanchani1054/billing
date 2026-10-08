@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { LedgerDetail } from '../../../../shared/types/accounts.ts';
 import { classOfGroup, indexGroups } from './groupClass.ts';
-import { applyGroupDefaults, buildSaveInput, draftFromDetail, emptyLedgerDraft, gstDetailsChanged, isDraftDirty, validateLedgerDraft } from './ledgerDraft.ts';
+import { applyGroupDefaults, buildSaveInput, draftFromDetail, emptyLedgerDraft, gstDetailsChanged, gstHistoryEffect, isDraftDirty, validateLedgerDraft } from './ledgerDraft.ts';
 import { ledgerSections } from './ledgerSections.ts';
 import type { SectionContext } from './ledgerSections.ts';
 import { groupIdOf, predefinedTestGroups } from './testGroups.ts';
@@ -282,5 +282,48 @@ describe('fieldsFromDraft — hidden is not the same as cleared', () => {
     const { input } = buildSaveInput(d, sectionsFor(SALES), null);
     assert.equal(input.isReverseCharge, false);
     assert.equal(input.itcEligibility, null);
+  });
+});
+
+describe('opening bills must add up to the opening balance (caught before saving)', () => {
+  const bill = (key: string, billName: string, amount: number) => ({ key, billName, billDate: '2026-03-01', dueDate: null, amount });
+  const ctx = { sections: sectionsFor(DEBTORS), booksFrom: '2026-04-01', final: true };
+
+  it('opening ₹1,180.00 Dr, bills ₹1,000 + ₹150 = ₹1,150 → ₹30.00 Dr not allocated', () => {
+    // 1,18,000 − (1,00,000 + 15,000) = 3,000 paise still to allocate.
+    const d = { ...emptyLedgerDraft('A', DEBTORS), billWise: true, openingBalance: 118_000, openingBills: [bill('a', 'INV-1', 100_000), bill('b', 'INV-2', 15_000)] };
+    const e = validateLedgerDraft(d, ctx);
+    assert.match(e.openingBills, /₹ 30\.00 Dr is not yet allocated/);
+  });
+
+  it('exact match, no bills at all, or bill-wise off → no error', () => {
+    const d = { ...emptyLedgerDraft('A', DEBTORS), billWise: true, openingBalance: 115_000, openingBills: [bill('a', 'INV-1', 100_000), bill('b', 'INV-2', 15_000)] };
+    assert.equal(validateLedgerDraft(d, ctx).openingBills, undefined);
+    assert.equal(validateLedgerDraft({ ...d, openingBills: [] }, ctx).openingBills, undefined);
+    assert.equal(validateLedgerDraft({ ...d, openingBalance: 1, billWise: false }, ctx).openingBills, undefined);
+  });
+});
+
+describe('what a GST change does to the dated rate history', () => {
+  const orig = detail({ groupId: SALES, gstApplicable: true, gstTaxability: 'taxable', gstRate: 12, registrationType: null, stateCode: null, billWise: false, defaultCreditDays: null });
+  const base = draftFromDetail(orig);
+  const sec = sectionsFor(SALES);
+
+  it("'dated' for a new rate over an existing one (the form offers 'applies from')", () => {
+    assert.equal(gstHistoryEffect({ ...base, gstRate: 18 }, sec, orig), 'dated');
+    assert.equal(gstHistoryEffect({ ...base, gstTaxability: 'exempt', gstRate: null }, sec, orig), 'dated');
+  });
+
+  it("'removes' when the rate is cleared or GST turned off (the form warns; no date is sent)", () => {
+    assert.equal(gstHistoryEffect({ ...base, gstRate: null }, sec, orig), 'removes');
+    assert.equal(gstHistoryEffect({ ...base, gstApplicable: false }, sec, orig), 'removes');
+    assert.equal(buildSaveInput({ ...base, gstApplicable: false, applicableFrom: '2026-06-01' }, sec, orig).input.applicableFrom, undefined);
+  });
+
+  it("'first' when the ledger had no rate; 'none' when no GST detail changed", () => {
+    const noRate = detail({ groupId: SALES, gstApplicable: true, gstTaxability: 'taxable', gstRate: null, registrationType: null, stateCode: null, billWise: false, defaultCreditDays: null });
+    assert.equal(gstHistoryEffect({ ...draftFromDetail(noRate), gstRate: 18 }, sec, noRate), 'first');
+    assert.equal(buildSaveInput({ ...draftFromDetail(noRate), gstRate: 18, applicableFrom: '2026-06-01' }, sec, noRate).input.applicableFrom, undefined);
+    assert.equal(gstHistoryEffect({ ...base, name: 'Sales 12%' }, sec, orig), 'none');
   });
 });

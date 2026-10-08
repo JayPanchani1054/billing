@@ -58,6 +58,9 @@
   display: flex;
   flex-direction: column;
 }
+.bx-os-split > * > .bx-table {
+  flex: 1;
+}
 @media (max-width: 960px) {
   .bx-os-split {
     grid-template-columns: 1fr;

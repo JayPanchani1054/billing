@@ -73,7 +73,14 @@ export function ResetPasswordDialog({ user, onClose }: { user: SecurityUser; onC
           </Field>
           <PasswordChecklist policy={policy} password={password} username={user.username} />
           <Field label="Type it again" required error={errors.confirm}>
-            <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+            <PasswordInput
+              value={confirm}
+              onChange={(e) => {
+                setConfirm(e.target.value);
+                setErrors((x) => ({ ...x, confirm: undefined }));
+              }}
+              autoComplete="new-password"
+            />
           </Field>
           <Switch checked={mustChange} onChange={setMustChange} label="Ask them to choose their own password at the next login" />
           {error ? (

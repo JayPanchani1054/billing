@@ -120,6 +120,15 @@ export function partyIds(a: PrintAddress | null, showState = true): Array<{ labe
   return out;
 }
 
+/**
+ * Label of the classic layout's buyer box: 'Consignee (Ship to) / Buyer (Bill to)' when the buyer is
+ * also the ship-to, else the party label alone (supplier of a purchase, or a separate consignee box).
+ */
+export function partyBoxLabel(doc: Pick<PrintVoucherData, 'partyLabel' | 'consigneeLabel' | 'consigneeSameAsParty'>): string {
+  if (!doc.consigneeSameAsParty || doc.partyLabel === doc.consigneeLabel) return doc.partyLabel;
+  return `${doc.consigneeLabel} / ${doc.partyLabel}`;
+}
+
 // ───────────────────────────── Header references ─────────────────────────────
 
 export interface LabelValue {
@@ -251,6 +260,23 @@ export function classicTaxRows(doc: PrintVoucherData): Array<{ label: string; ra
 const cgstOf = (l: PrintLine): number => l.cgst;
 const sgstOf = (l: PrintLine): number => l.sgst;
 const igstOf = (l: PrintLine): number => l.igst;
+
+/** Short taxability label for rate columns ('' for taxable lines). */
+export function taxabilityText(t: PrintLine['taxability']): string {
+  return t === 'exempt' ? 'Exempt' : t === 'nil_rated' ? 'Nil' : t === 'non_gst' ? 'Non-GST' : '';
+}
+
+/**
+ * Second line of a receipt item: 'HSN 1006 · GST 5%' (Rule 46: HSN and rate per line). The rate prints
+ * on every taxed line, with or without an HSN code; absorbed charges show neither.
+ */
+export function compactLineInfo(l: PrintLine, showTax: boolean): string {
+  if (l.absorbed) return 'Included in the taxable value';
+  const parts: string[] = [];
+  if (l.hsnSac) parts.push(`HSN ${l.hsnSac}`);
+  if (showTax) parts.push(`GST ${l.taxability === 'taxable' ? pctText(l.gstRate) : taxabilityText(l.taxability)}`);
+  return parts.join(' · ');
+}
 
 // ───────────────────────────── Vouchers ─────────────────────────────
 

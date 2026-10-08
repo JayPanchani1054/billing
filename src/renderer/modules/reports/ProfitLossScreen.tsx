@@ -3,7 +3,8 @@
  * Trading account down to Gross Profit, then the P&L account down to Net Profit. Groups expand to
  * sub-groups and ledgers (→/←, Alt+F1 opens or closes everything), Alt+C adds a comparison column
  * (previous period → same period last year → none), Alt+V switches to the Schedule III vertical
- * statement. Enter drills into the group / ledger / stock summary.
+ * statement. Enter drills into the group (Group Summary on the P&L basis, so its total is this line) /
+ * ledger / stock summary.
  */
 import { useMemo, useState } from 'react';
 import type { CompareWith, StatementLine, VerticalLine } from '../../../shared/types/reports.ts';
@@ -49,7 +50,8 @@ export function ProfitLossScreen({ params }: ScreenProps<ProfitLossParams>) {
     const i = COMPARE_CYCLE.indexOf(compareWith);
     setCompareWith(COMPARE_CYCLE[(i + 1) % COMPARE_CYCLE.length]);
   };
-  const activate = (line: StatementLine): void => drill(drillForRow(line, p.period));
+  // Groups open on the P&L basis (income/expenses of this period only), so the summary agrees with the line.
+  const activate = (line: StatementLine): void => drill(drillForRow(line, p.period, { basis: 'profitLoss' }));
 
   const actions: ScreenActionItem[] = [
     { key: 'Alt+F1', label: detailed ? 'Condensed' : 'Detailed', icon: 'layers', onClick: toggleDetailed, group: 'view' },
@@ -119,7 +121,7 @@ export function ProfitLossScreen({ params }: ScreenProps<ProfitLossParams>) {
           getRowKey={(r) => r.key}
           getRowLevel={(r) => r.level}
           isGroupRow={(r) => r.emphasis}
-          onRowActivate={(r) => r.groupId !== null && drill({ screen: 'reports.groupSummary', params: { groupId: r.groupId, from: p.from, to: p.to } })}
+          onRowActivate={(r) => r.groupId !== null && drill(drillForRow({ key: r.key, kind: 'group', id: r.groupId }, p.period, { basis: 'profitLoss' }))}
           autoFocus
         />
       ) : d ? (

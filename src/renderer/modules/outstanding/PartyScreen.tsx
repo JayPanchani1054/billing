@@ -17,7 +17,7 @@ import { usePeriod } from '../../app/working.tsx';
 import { Badge, Banner, DataTable, EmptyState, Grid, Inline, KpiCard, SegmentedControl, Switch } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { OverdueBadge, VGap } from './components.tsx';
-import { partyTreeRows, refTypeLabel } from './lib/model.ts';
+import { partyEmptyBody, partyTreeRows, refTypeLabel } from './lib/model.ts';
 import type { PartyTreeRow } from './lib/model.ts';
 
 type Section = 'bills' | 'onAccount';
@@ -96,9 +96,12 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
     : [];
 
   const isReceivable = d?.ledger.side === 'receivable';
+  // On Account entries are listed for bill-wise ledgers only (see partyEmptyBody).
+  const billWise = d?.ledger.billWise ?? true;
+  const shown: Section = billWise ? section : 'bills';
   const actions: ScreenActionItem[] = [
-    { key: 'Ctrl+1', label: 'Bills', onClick: () => setSection('bills'), group: 'view', disabled: section === 'bills' },
-    { key: 'Ctrl+2', label: 'On account entries', onClick: () => setSection('onAccount'), group: 'view', disabled: section === 'onAccount' },
+    { key: 'Ctrl+1', label: 'Bills', onClick: () => setSection('bills'), group: 'view', disabled: shown === 'bills' },
+    { key: 'Ctrl+2', label: 'On account entries', onClick: () => setSection('onAccount'), group: 'view', disabled: section === 'onAccount' || !billWise },
     { key: 'Alt+H', label: includeSettled ? 'Hide settled bills' : 'Show settled bills', icon: 'eye', onClick: () => setIncludeSettled((x) => !x), group: 'view' },
     {
       key: 'Alt+N',
@@ -150,7 +153,7 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
           <SegmentedControl<Section>
             aria-label="Section"
             size="sm"
-            value={section}
+            value={shown}
             onChange={setSection}
             options={[
               { value: 'bills', label: `Bills${d ? ` (${d.bills.length})` : ''}` },
@@ -190,7 +193,7 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
               <VGap />
             </>
           ) : null}
-          {section === 'bills' ? (
+          {shown === 'bills' ? (
             <DataTable<PartyTreeRow>
               aria-label={`Pending bills of ${d.ledger.name}`}
               autoFocus
@@ -210,7 +213,7 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
                 <EmptyState
                   icon="check-circle"
                   title={`No pending bills as on ${formatDate(asOf)}`}
-                  body={d.onAccount.total !== 0 ? 'Only on-account amounts are open — see Ctrl+2.' : includeSettled ? 'No bills at all for this party.' : 'Every bill is settled. Alt+H shows settled bills.'}
+                  body={partyEmptyBody(d, includeSettled)}
                 />
               }
             />

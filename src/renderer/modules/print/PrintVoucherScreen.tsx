@@ -70,7 +70,6 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
 
   const prevId = doc && !q.isPrevious ? doc.navigation.prevId : null;
   const nextId = doc && !q.isPrevious ? doc.navigation.nextId : null;
-  const showCopies = doc ? doc.layout !== 'voucher' || copies.length > 1 : true;
 
   return (
     <Screen
@@ -98,9 +97,9 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
         { key: 'Alt+V', label: 'Open voucher', icon: 'eye', onClick: () => nav.push('vouchers.view', { id }), disabled: !doc, group: 'nav' },
         { key: 'Alt+T', label: 'Change template', icon: 'layers', onClick: () => setTemplate(cycle(TEMPLATES, template)), disabled: !doc, group: 'layout' },
         { key: 'Alt+S', label: 'Change paper size', icon: 'file', onClick: () => setPageSize(cycle(SIZES, pageSize)), disabled: !doc, group: 'layout' },
-        { key: 'Alt+1', label: 'Original copy', onClick: () => toggle(PRINT_COPIES[0]), disabled: !doc, group: 'copies', hidden: !showCopies },
-        { key: 'Alt+2', label: 'Duplicate copy', onClick: () => toggle(PRINT_COPIES[1]), disabled: !doc, group: 'copies', hidden: !showCopies },
-        { key: 'Alt+3', label: 'Triplicate copy', onClick: () => toggle(PRINT_COPIES[2]), disabled: !doc, group: 'copies', hidden: !showCopies },
+        { key: 'Alt+1', label: 'Original copy', onClick: () => toggle(PRINT_COPIES[0]), disabled: !doc, group: 'copies' },
+        { key: 'Alt+2', label: 'Duplicate copy', onClick: () => toggle(PRINT_COPIES[1]), disabled: !doc, group: 'copies' },
+        { key: 'Alt+3', label: 'Triplicate copy', onClick: () => toggle(PRINT_COPIES[2]), disabled: !doc, group: 'copies' },
       ]}
     >
       {!validId ? (
@@ -115,7 +114,6 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
             copies={copies}
             onCopies={setCopiesChoice}
             copyLabels={doc.copyLabels}
-            showCopies={showCopies}
           />
           <WarningsBanner warnings={doc.warnings} />
           <PreviewPane
