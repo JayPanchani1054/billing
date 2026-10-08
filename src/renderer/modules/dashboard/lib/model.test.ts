@@ -1,7 +1,27 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { DashboardAgeingBucket, DashboardSummary } from '../../../../shared/types/dashboard.ts';
-import { ageingBars, buildAlerts, changeText, deltaPercent, DRILL, dueText, exportTable, flowKpi, plural, shortMonth, trendChart } from './model.ts';
+import {
+  ageingBars,
+  balanceRange,
+  buildAlerts,
+  cashBankCaption,
+  changeText,
+  compactSigned,
+  deltaPercent,
+  DRILL,
+  dueText,
+  exportTable,
+  flowKpi,
+  gstDueLine,
+  gstItems,
+  plural,
+  shortMonth,
+  signedKpi,
+  startSteps,
+  summaryInput,
+  trendChart,
+} from './model.ts';
 
 const range = (from: string, to: string) => ({ from, to });
 const buckets = (amounts: number[]): DashboardAgeingBucket[] =>
@@ -44,6 +64,7 @@ function sample(over: Partial<DashboardSummary> = {}): DashboardSummary {
     },
     cashBank: { cashTotal: 610_200, cash: [{ ledgerId: 1, name: 'Cash', balance: 610_200, isOverdraft: false, accountTail: null }], bankTotal: 2_987_500, banks: [{ ledgerId: 27, name: 'HDFC Bank', balance: 2_987_500, isOverdraft: false, accountTail: '5678' }] },
     gst: { period: '102026', label: 'Oct 2026', from: '2026-10-01', to: '2026-10-31', dueDate: '2026-11-20', dueForm: 'GSTR-3B', filingFrequency: 'monthly', outputTax: 7_800, reverseChargeTax: 0, inputTax: 54_000, netPayable: 0, creditCarriedForward: 46_200, documentCount: 4 },
+    gstDue: null,
     topCustomers: [{ ledgerId: 19, name: 'Bangalore Retail', amount: 250_000, invoiceCount: 1, sharePercent: 52.08 }],
     topItems: [{ itemId: 2, name: 'Mixer Grinder', unit: 'Nos', qty: 16, amount: 380_000, sharePercent: 79.17 }],
     trend: Array.from({ length: 12 }, (_, i) => {
@@ -143,7 +164,7 @@ test('alerts: most serious first, plain-English, each drills to its screen', () 
   const low = alerts.find((a) => a.id === 'low-stock');
   assert.equal(low?.title, '2 items below reorder level');
   assert.equal(low?.body, 'Steel Tumbler, Mixer Grinder.');
-  assert.deepEqual(low?.target, { screen: 'stock.summary' });
+  assert.deepEqual(low?.target, { screen: 'stock.reorder' });
   const soon = alerts.find((a) => a.id === 'payables-due-soon');
   assert.equal(soon?.body, '1 supplier bill falls due by 15-Oct-2026.');
 });
@@ -203,5 +224,85 @@ test('exportTable: every figure, last year alongside, no bare minus on balances'
   assert.deepEqual(label('SBI'), ['SBI (overdrawn, Cr)', 100, null, null]);
   assert.deepEqual(label('GST payable'), ['GST payable (estimate) — due 20-Nov-2026', 0, null, null]);
   assert.deepEqual(label('Top customer'), ['Top customer: Bangalore Retail', 250_000, null, 52.08]);
+  for (const r of t.rows.slice(8)) if (typeof r[1] === 'number') assert.ok(r[1] >= 0, `${String(r[0])} is negative`);
+});
+
+test('summaryInput: balances as on the working date, or the period end when the period ends earlier', () => {
+  assert.deepEqual(summaryInput('2026-10-08', '2026-04-01', '2026-10-08'), { asOf: '2026-10-08', from: '2026-04-01', to: '2026-10-08' });
+  // Last quarter: the balances the Receivables / Cash-Bank screens show as on 30-Sep.
+  assert.deepEqual(summaryInput('2026-10-08', '2026-07-01', '2026-09-30'), { asOf: '2026-09-30', from: '2026-07-01', to: '2026-09-30' });
+  // A period running past the working date (the whole year): never future balances.
+  assert.deepEqual(summaryInput('2026-10-08', '2026-04-01', '2027-03-31'), { asOf: '2026-10-08', from: '2026-04-01', to: '2027-03-31' });
+  // Balance drill-downs end on asOf (the Cash/Bank Books closing = the tile).
+  assert.deepEqual(balanceRange(sample()), { from: '2026-04-01', to: '2026-10-08' });
+  const future = sample({ asOf: '2026-10-08', ranges: { ...sample().ranges, period: range('2026-11-01', '2026-11-30') } });
+  assert.deepEqual(balanceRange(future), { from: '2026-10-01', to: '2026-10-08' }); // never from > to
+});
+
+test('no bare minus on KPI tiles and captions', () => {
+  assert.deepEqual(signedKpi('Cash & bank', 123_400, 'Cash & bank (overdrawn)'), { label: 'Cash & bank', value: 123_400 });
+  assert.deepEqual(signedKpi('Cash & bank', -123_400, 'Cash & bank (overdrawn)'), { label: 'Cash & bank (overdrawn)', value: 123_400 });
+  assert.deepEqual(signedKpi('Receivables', 0, 'Advances from customers'), { label: 'Receivables', value: 0 });
+  assert.equal(compactSigned(-150_000, 'overdrawn'), '₹1.5 K overdrawn');
+  assert.equal(compactSigned(150_000, 'overdrawn'), '₹1.5 K');
+  assert.equal(cashBankCaption(sample().cashBank), 'Cash ₹6.1 K · Bank ₹29.9 K'); // 6,102 · 29,875
+  assert.equal(cashBankCaption({ ...sample().cashBank, cashTotal: -5_000, bankTotal: -250_000 }), 'Cash ₹50 negative · Bank ₹2.5 K overdrawn');
+  const f = flowKpi({ ...sample().sales, today: -20_000 });
+  assert.equal(f.caption, 'Today ₹200 net returns · This month ₹1.3 K');
+});
+
+test('flowKpi: a past period end labels "today" and "this month" with the date', () => {
+  const k = flowKpi(sample().sales, '2026-09-30', '2026-10-08');
+  assert.equal(k.caption, 'On 30-Sep-2026 ₹300 · Sep 2026 to date ₹1.3 K');
+  assert.equal(flowKpi(sample().sales, '2026-10-08', '2026-10-08').caption, 'Today ₹300 · This month ₹1.3 K');
+});
+
+test("GST: last month's return comes first on the card and in the alerts", () => {
+  const due = { ...sample().gst!, period: '092026', label: 'Sep 2026', from: '2026-09-01', to: '2026-09-30', dueDate: '2026-10-20', outputTax: 45_000, inputTax: 0, netPayable: 45_000, creditCarriedForward: 0, documentCount: 1 };
+  const s = sample({ gstDue: due, gst: { ...sample().gst!, netPayable: 10_000 } });
+  const a = buildAlerts(s).find((x) => x.id === 'gst-due');
+  assert.equal(a?.title, 'GST of ₹450 for Sep 2026');
+  assert.equal(a?.tone, 'info'); // 12 days ahead
+  assert.equal(a?.body, 'Estimated cash payment after input credit. GSTR-3B is due by 20-Oct-2026 (due in 12 days).');
+  assert.deepEqual(a?.target, { screen: 'gst.gstr3b', params: { period: '092026' } });
+  assert.equal(gstDueLine(due, '2026-10-08'), 'GSTR-3B due by 20-Oct-2026 (due in 12 days)');
+  assert.equal(gstDueLine(due, '2026-10-20'), 'GSTR-3B due by 20-Oct-2026 (due today)');
+  assert.deepEqual(gstItems(due).map((i) => [i.key, i.label, i.value]), [
+    ['out', 'Tax on sales', 45_000],
+    ['in', 'Input tax credit', 0],
+    ['pay', 'To pay in cash', 45_000],
+  ]);
+  // Current month: credit left, nothing to pay.
+  assert.deepEqual(gstItems(sample().gst!).map((i) => [i.label, i.value]), [
+    ['Tax on sales', 7_800],
+    ['Input tax credit', 54_000],
+    ['Nothing to pay in cash', 0],
+    ['Credit carried forward', 46_200],
+  ]);
+  // Last month settled from credit: the current month's payable is the alert.
+  const settled = buildAlerts(sample({ gstDue: { ...due, netPayable: 0 }, gst: { ...sample().gst!, netPayable: 10_000 } })).find((x) => x.id === 'gst-due');
+  assert.equal(settled?.title, 'GST of ₹100 for Oct 2026');
+  // Export lists both months.
+  const rows = exportTable(s).rows.map((r) => String(r[0]));
+  assert.ok(rows.includes('GST payable — Sep 2026 — due 20-Oct-2026'));
+  assert.ok(rows.includes('GST payable (estimate) — due 20-Nov-2026'));
+});
+
+test('getting started: first steps a new company can take, by permission', () => {
+  const all = startSteps({ manageCompany: true, createMasters: true, createVouchers: true, importData: true, inventory: true });
+  assert.deepEqual(all.map((x) => x.id), ['features', 'ledgers', 'items', 'sale', 'tally']);
+  assert.deepEqual(all[0].target, { screen: 'company.features' });
+  assert.equal(all[3].target, 'sales-voucher');
+  assert.equal(all[3].shortcut, 'F8');
+  assert.deepEqual(all[4].target, { screen: 'data.tally' });
+  assert.deepEqual(startSteps({ manageCompany: false, createMasters: true, createVouchers: true, importData: false, inventory: false }).map((x) => x.id), ['ledgers', 'sale']);
+  assert.deepEqual(startSteps({ manageCompany: false, createMasters: false, createVouchers: false, importData: false, inventory: true }), []);
+});
+
+test('exportTable: net advances are labelled, not negative', () => {
+  const s = sample({ receivables: { ...sample().receivables, total: -10_000 }, payables: { ...sample().payables, total: -2_000 } });
+  const t = exportTable(s);
+  assert.ok(t.rows.some((r) => r[0] === 'Receivables (net advance from customers)' && r[1] === 10_000));
+  assert.ok(t.rows.some((r) => r[0] === 'Payables (net advance to suppliers)' && r[1] === 2_000));
   for (const r of t.rows.slice(8)) if (typeof r[1] === 'number') assert.ok(r[1] >= 0, `${String(r[0])} is negative`);
 });

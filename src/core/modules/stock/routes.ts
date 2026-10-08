@@ -1,6 +1,7 @@
 /**
- * Stock (inventory reports) routes. All are read-only reports: access reports.view,
- * transactional: false. DTOs: src/shared/types/stock.ts · semantics: README.md in this folder.
+ * Stock (inventory reports) routes. All are read-only reports (transactional: false) open to
+ * reports.view — except Item Profitability, which shows margins and needs reports.financial like
+ * the P&L. DTOs: src/shared/types/stock.ts · semantics: README.md in this folder.
  */
 import { ORDER_KINDS } from '../../../shared/types/stock.ts';
 import type { CompanyCtx } from '../../api/context.ts';
@@ -103,7 +104,8 @@ export const stockRoutes = {
     handler: (ctx, input) => pendingOrders(ctx.db, input),
   }),
   'stock.profitability': companyRoute({
-    access: 'reports.view',
+    // Gross profit by item is financial information (the P&L's gross profit, item by item).
+    access: 'reports.financial',
     transactional: false,
     input: ProfitabilitySchema,
     handler: (ctx, input) => profitability(ctx.db, today(ctx), input),

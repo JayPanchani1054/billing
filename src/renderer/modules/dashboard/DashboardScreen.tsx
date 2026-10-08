@@ -11,10 +11,10 @@
  *
  * Reads 'dashboard.summary' { asOf: working date (F2), from/to: period (Alt+F2) }.
  */
-import { useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import type { DashboardSummary } from '../../../shared/types/dashboard.ts';
-import { ReportScreen, useApiQuery, useNav, usePeriod, userMessage, useWorkingDate } from '../../app/index.ts';
+import { ReportScreen, useApiQuery, useNav, useOptionalScreen, usePeriod, userMessage, useWorkingDate } from '../../app/index.ts';
 import type { ApiQueryResult, ScreenProps } from '../../app/index.ts';
 import { Button, EmptyState, IconButton } from '../../ui/index.ts';
 import {
@@ -32,18 +32,33 @@ import {
   TrendCard,
 } from './components.tsx';
 import type { DashboardLayout } from './components.tsx';
-import { exportTable } from './lib/model.ts';
+import { exportTable, summaryInput } from './lib/model.ts';
 
 export interface DashboardParams {
   /** Rendered inline by the Gateway (compact, no hotkeys). */
   embedded?: boolean;
 }
 
-function useSummary(): { q: ApiQueryResult<DashboardSummary>; asOf: string } {
+/**
+ * The summary for the working date and period (balances as on the earlier of the working date and the
+ * period end — see summaryInput). The Gateway stays mounted under every screen, and not every change
+ * that matters here invalidates 'dashboard.*' (a backup, a new ledger, F11/F12 settings), so the
+ * summary is fetched again whenever the screen becomes visible; unchanged books are served from the
+ * server's memo in under a millisecond.
+ */
+function useSummary(): { q: ApiQueryResult<DashboardSummary>; asOf: string; workingDate: string } {
   const { date } = useWorkingDate();
   const { from, to } = usePeriod();
-  const q = useApiQuery('dashboard.summary', { asOf: date, from, to }, { keepPrevious: true, staleTime: 60_000 });
-  return { q, asOf: date };
+  const input = summaryInput(date, from, to);
+  const q = useApiQuery('dashboard.summary', input, { keepPrevious: true, staleTime: 5_000 });
+  const visible = useOptionalScreen()?.visible ?? true;
+  const wasVisible = useRef(visible);
+  const { refetch } = q;
+  useEffect(() => {
+    if (visible && !wasVisible.current) void refetch();
+    wasVisible.current = visible;
+  }, [visible, refetch]);
+  return { q, asOf: input.asOf, workingDate: date };
 }
 
 export function DashboardScreen({ params }: ScreenProps<DashboardParams>) {
@@ -51,7 +66,7 @@ export function DashboardScreen({ params }: ScreenProps<DashboardParams>) {
 }
 
 function FullDashboard() {
-  const { q } = useSummary();
+  const { q, workingDate } = useSummary();
   const s = q.data;
   return (
     <ReportScreen
@@ -66,7 +81,7 @@ function FullDashboard() {
       hint="Tab Move between cards · Enter Open · Alt+F2 Period · F2 Date · Alt+E Export · Alt+P Print · Esc Back"
     >
       <div className="bx-db bx-db--full">
-        <DashboardBody s={s} loading={q.loading && !s} layout="full" />
+        <DashboardBody s={s} loading={q.loading && !s} layout="full" workingDate={workingDate} />
       </div>
     </ReportScreen>
   );
@@ -75,7 +90,7 @@ function FullDashboard() {
 function EmbeddedDashboard() {
   const nav = useNav();
   const period = usePeriod();
-  const { q, asOf } = useSummary();
+  const { q, asOf, workingDate } = useSummary();
   const s = q.data;
   const titleId = useId();
   return (
@@ -111,13 +126,13 @@ function EmbeddedDashboard() {
           }
         />
       ) : (
-        <DashboardBody s={s} loading={q.loading && !s} layout="compact" />
+        <DashboardBody s={s} loading={q.loading && !s} layout="compact" workingDate={workingDate} />
       )}
     </section>
   );
 }
 
-function DashboardBody({ s, loading, layout }: { s: DashboardSummary | undefined; loading: boolean; layout: DashboardLayout }) {
+function DashboardBody({ s, loading, layout, workingDate }: { s: DashboardSummary | undefined; loading: boolean; layout: DashboardLayout; workingDate: string }) {
   if (s && !s.hasVouchers) {
     return (
       <>
@@ -132,7 +147,7 @@ function DashboardBody({ s, loading, layout }: { s: DashboardSummary | undefined
   if (layout === 'compact') {
     return (
       <>
-        <KpiRow s={s} loading={loading} layout="compact" />
+        <KpiRow s={s} loading={loading} layout="compact" workingDate={workingDate} />
         <div className="bx-db__grid">
           <AlertsCard s={s} loading={loading} className="bx-db__card" />
           <AgeingCard s={s} loading={loading} className="bx-db__card" />
@@ -146,7 +161,7 @@ function DashboardBody({ s, loading, layout }: { s: DashboardSummary | undefined
   }
   return (
     <>
-      <KpiRow s={s} loading={loading} layout="full" />
+      <KpiRow s={s} loading={loading} layout="full" workingDate={workingDate} />
       <div className="bx-db__grid">
         <TrendCard s={s} loading={loading} layout="full" className="bx-db__card bx-db__wide" />
         <AlertsCard s={s} loading={loading} className="bx-db__card" />

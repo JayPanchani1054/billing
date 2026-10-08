@@ -4,15 +4,15 @@ Read-only inventory reports in the Tally mould: Stock Summary (by group, by cate
 Vouchers, Godown Summary, Movement Analysis, Ageing, Reorder Status, Negative Stock, Batch Summary,
 Pending Orders (order processing), Item Profitability and the Physical Stock variance register.
 
-Every value comes from the **inventory module's valuation engine** (`computeStockValuation`, see
-`src/core/modules/inventory/README.md`) — this module has no costing logic of its own. Totals tie
-to the closing stock in the P&L and Balance Sheet.
+Every value comes from, or is proven against, the **inventory module's valuation engine**
+(`computeStockValuation`, see `src/core/modules/inventory/README.md`). Totals tie to the closing
+stock in the P&L and Balance Sheet.
 
 | File | Contents |
 |---|---|
 | `routes.ts` | The 12 `stock.*` routes and their input schemas |
 | `common.ts` | Period check, item / tree (group, category, godown) lookups, movement loader, `QtySum` |
-| `trace.ts` | Per-movement cost values built on the engine (see below) |
+| `trace.ts` | Per-movement cost values: one replay proven against the engine, per-day engine fallback (see below) |
 | `summary.ts` | `stock.summary`, `stock.categorySummary`, `stock.godownSummary` |
 | `itemVouchers.ts` | `stock.itemVouchers` |
 | `movement.ts` | `stock.movement` |
@@ -26,7 +26,9 @@ DTOs: `src/shared/types/stock.ts`. No migration is needed (`070_stock.ts` stays 
 
 ## Routes
 
-All company scope, `reports.view`, `transactional: false` (read-only, nothing is written or audited).
+All company scope, `reports.view`, `transactional: false` (read-only, nothing is written or audited) —
+except `stock.profitability`, which needs `reports.financial` (item margins are P&L information;
+the Data Entry role holds `reports.view` only).
 
 | Route | Input | Output |
 |---|---|---|
@@ -63,16 +65,24 @@ that category (and its sub-categories); `godownId` covers that godown and the go
 does). `showValues: false` adds up quantities straight from the movements (no valuation) and returns
 `valuesShown: false` with every value 0. Groups without listed items are hidden.
 
-**Per-movement values (`trace.ts`).** The engine exports period totals, not per-voucher values, so
-per-line cost is derived on top of it: one engine run per day that has movements (`from = to =
-day`, only the items that moved that day) gives exact day totals; an inward the engine takes at its
-own amount gets that amount (taxable value, else qty × rate less discount); the rest of the day's
-inward value (returns, rejections in, physical gains, production without an amount — at cost) and
-the day's outward value are split over the day's lines by quantity (largest remainder). So lines
-always add up to the engine's day totals to the paisa; only when one item has several outwards on
-the same day can an individual line differ by a paisa from separate valuation. *Helper missing in
-the inventory module:* a `traceStockMovements` export from the engine would make this exact per line
-and remove the per-day runs.
+**Per-movement values (`trace.ts`).** The engine exports period totals, not the cost of each
+voucher line, which the item ledger, profitability, FIFO ageing and the physical register need.
+*Helper missing in the inventory module* (`traceStockMovements`), so it is built here on top of the
+engine:
+1. **Replay** — one pass over the items' movements (and the inputs of the stock journals that make
+   them) in the engine's replay order, with cost states that follow the engine's documented rules
+   operation for operation, giving every line's exact cost and each day's closing.
+2. **Proof** — one engine run for the same items and period; for every item the replay's inward /
+   outward quantity and value and its closing quantity and value must equal the engine's to the
+   paisa. An item that does not match (only possible if the engine's rules change) is valued by:
+3. **Fallback** — one engine run per day with movements; priced inwards at their own amount, the
+   rest of the day's values split over the day's lines by quantity (exact day totals; a line can be
+   a paisa off when one item has several outwards on a day). `fallbackItems` lists such items.
+
+So every figure shown is the engine's figure. The replay is a deliberate, verified copy of the
+engine's per-movement arithmetic: per-day engine runs alone cost one full replay per day (a year of
+22,000 vouchers on 2,000 items took 47 s for Item Profitability; now ~1.2 s). Moving the replay into
+the inventory module as `traceStockMovements` would remove the copy.
 
 **Stock Item Vouchers.** One row per voucher (all its lines of the item). Particulars = party name,
 else "Stock Journal" / "Physical stock count" / voucher type. The running value is re-based on the
@@ -80,21 +90,28 @@ engine's closing at the end of every day, so the last row always equals the Stoc
 (including Average Cost re-pricing after negative stock). A stock-journal transfer between godowns
 shows both its inward and outward.
 
-**Godown Summary.** Quantities per exact godown; values from the engine per godown (exact godown,
-item's overall unit cost), so the godowns add up to the closing stock. A godown's value includes
-its sub-godowns; its quantity is not shown (items differ in units). Empty godowns are hidden unless
-`showZero` (a godown asked for by `godownId` is always shown).
+**Godown Summary.** Quantities per exact godown. Values: one engine run gives each item's closing
+value, split over the godowns holding it by quantity (largest remainder), so the godowns add up to
+the closing stock to the paisa (rounding each godown alone could leave it a paisa or more off). An
+item with negative or zero stock somewhere is valued per godown by the engine instead (godown
+quantity × the item's unit cost). A godown's value includes its sub-godowns; its quantity is not
+shown (items differ in units). Empty godowns are hidden unless `showZero` (a godown asked for by
+`godownId` is always shown).
 
 **Movement Analysis.** Party movements only: inward = purchase, receipt note, rejection in, credit
 note (sales return); outward = sales, delivery note, rejection out, debit note (purchase return).
 Quantity and value come from the lines that physically moved the stock (a delivery note counts when
 the goods left; the invoice billing it is not counted again); value = line value before GST.
-Stock journals and physical stock are reported as `internal` quantities. Rows sorted by value.
+Stock journals and physical stock are reported as `internal` quantities. Vouchers without a party
+ledger are pooled under one row "Without a party ledger". Rows sorted by value.
 
 **Ageing.** FIFO by inward date whatever the costing method: the stock on hand is the latest
 inwards (net positive quantity per voucher, so a godown transfer does not renew the age; opening
-stock dated at the books beginning). Value = engine closing value split by quantity over the
-buckets. Default buckets 0–30, 31–60, 61–90, 91–180, over 180 days. Only items with stock > 0.
+stock dated at the books beginning, each opening row its own layer for FIFO items). Values add up
+to the engine closing value: FIFO items value each slice at the cost of the inward it came from
+(the remaining layers, from `trace.ts`; any rounding residue spread by quantity); other methods
+hold every unit at one cost, so the closing value is split by quantity. Default buckets 0–30,
+31–60, 61–90, 91–180, over 180 days. Only items with stock > 0.
 
 **Orders.** Order lines carry the order number in `order_ref`; fulfilment = delivery notes (sales)
 / receipt notes (purchase) and invoices that do **not** bill a note, with the same `order_ref`, same
@@ -121,14 +138,14 @@ the books (incl. lines billing a delivery note), quantity as billed; returns = c
 lines; cost = each invoice line's own movement cost (credit notes come back at cost and reduce it),
 or — for a line billing a delivery note / rejection in — the note's cost per unit × billed qty,
 wherever the note is dated. Un-invoiced delivery notes, stock journals, physical losses and
-purchase returns are not cost of sales. Items whose only outwards in the period are their own sales
-invoices use the engine's period outward value in one run. GP % = GP ÷ net sales × 100 (2 dp; null
-without net sales). Rows sorted by gross profit.
+purchase returns are not cost of sales. Sales / credit notes use the books filter (`BOOKS_FILTER`).
+GP % = GP ÷ net sales × 100 (2 dp; null without net sales). Rows sorted by gross profit.
 
-**Physical Variance.** Every line of regular physical stock vouchers in the period: counted
+**Physical Variance.** Every count of regular physical stock vouchers in the period: counted
 quantity (from the voucher as entered), book = counted − difference (the posting engine stores
-counted − book; for a second line counting the same item / godown / batch the book shows 0), the
-difference and its value at cost (+ gain, − loss).
+counted − book), the difference and its value at cost (+ gain, − loss). Lines of one voucher counting
+the same item / godown / batch (two racks) are one row: Σ counted, the real book quantity, Σ
+difference, Σ value.
 
 ## Worked numbers (tests)
 
@@ -140,15 +157,18 @@ purchase order 30 worth ₹3,600, 36 days overdue; reorder: 18 + 30 − 6 = 42 <
 
 Run: `node --test "src/core/modules/stock/**/*.test.ts"`.
 
+## Performance (probe: a year, 2,000 items / 22,000 vouchers · 20,000 items / 29,000 vouchers)
+
+Stock Summary 0.4 s / 1.0 s · Godown Summary 0.5 s / 1.2 s · Item Profitability (year) 1.2 s / 2.1 s
+· Ageing 0.6 s / 2.9 s · Movement 0.6 s / 0.9 s · item ledger < 0.1 s · the rest < 0.7 s.
+
 ## Known gaps
 
-- Per-line values within one day are a quantity split of the engine's exact day total (see
-  `trace.ts`); a `traceStockMovements` helper in the inventory module would remove this.
-- Profitability / item vouchers run the engine once per day with movements: fine for normal books
-  (a year of ~800 vouchers on 40 items: item ledger ≈ 0.1 s, profitability ≈ 0.8 s), but heavy
-  items with thousands of movements a year grow quadratically.
+- `trace.ts` copies the engine's per-movement arithmetic (proven on every run, per-day engine
+  fallback otherwise) because the inventory module has no `traceStockMovements` export.
 - Batch Summary is not split by godown; batch values are not shown.
 - Orders have no per-line due date (the voucher's effective date is used); order numbers that
   repeat across years for the same party share fulfilment (same limitation as `vouchers.trackingRefs`).
 - Movement Analysis values notes at their own rate, not at the invoice that later bills them.
+- Ageing treats LIFO items like the others (FIFO ages, value split by quantity).
 - Third-party godowns are valued like own stock (as the engine does).

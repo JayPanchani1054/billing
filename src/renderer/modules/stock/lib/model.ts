@@ -3,7 +3,7 @@
  * targets, quantity text, status labels and the export/print tables of every report. Amounts are
  * integer paise throughout; export amount columns carry paise (the exporter formats them).
  */
-import { formatIndianNumber } from '../../../../shared/format.ts';
+import { formatIndianNumber, formatMoney } from '../../../../shared/format.ts';
 import { formatDate } from '../../../../shared/dates.ts';
 import type {
   BatchRow,
@@ -95,6 +95,16 @@ export function qtyText(qty: number | null | undefined, unit: string | null | un
   return unit ? `${s} ${unit}` : s;
 }
 
+/**
+ * Paise as a report figure: negatives (negative stock, a loss, a shortage) in parentheses, never
+ * with a bare minus — '(1,234.50)'. '' for null, and for zero when blankZero.
+ */
+export function signedAmountText(p: number | null | undefined, blankZero = false): string {
+  if (p === null || p === undefined || !Number.isFinite(p)) return '';
+  if (p === 0) return blankZero ? '' : formatMoney(0);
+  return p < 0 ? `(${formatMoney(-p)})` : formatMoney(p);
+}
+
 /** Rate text (₹ per unit, 2–4 decimals) or ''. */
 export function rateText(rate: number | null | undefined): string {
   if (rate === null || rate === undefined || !Number.isFinite(rate)) return '';
@@ -155,11 +165,12 @@ export interface DrillTarget {
 }
 
 /** Stock Summary / Category Summary row → sub-summary of a group / category, or the item's vouchers. */
-export function summaryDrill(row: StockSummaryRow, ctx: { from: string; to: string; godownId?: number }): DrillTarget | null {
+export function summaryDrill(row: StockSummaryRow, ctx: { from: string; to: string; godownId?: number; categoryId?: number }): DrillTarget | null {
   const base: Record<string, unknown> = { from: ctx.from, to: ctx.to };
   if (ctx.godownId !== undefined) base.godownId = ctx.godownId;
   if (row.kind === 'item' && row.id !== null) return { screen: 'stock.item', params: { ...base, itemId: row.id } };
-  if (row.kind === 'group' && row.id !== null) return { screen: 'stock.summary', params: { ...base, groupId: row.id } };
+  // A group keeps the category filter it was opened under (its total must match the row's).
+  if (row.kind === 'group' && row.id !== null) return { screen: 'stock.summary', params: { ...base, groupId: row.id, ...(ctx.categoryId !== undefined ? { categoryId: ctx.categoryId } : {}) } };
   if (row.kind === 'category' && row.id !== null) return { screen: 'stock.summary', params: { ...base, categoryId: row.id } };
   return null;
 }

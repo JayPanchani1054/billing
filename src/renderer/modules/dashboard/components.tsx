@@ -15,10 +15,28 @@ import type {
   DashboardTopItem,
   DashboardVoucherRow,
 } from '../../../shared/types/dashboard.ts';
-import { useNav, useShell, useCan } from '../../app/index.ts';
+import { useNav, useShell, useCan, useFeatures } from '../../app/index.ts';
 import { Badge, BarChart, Button, Card, DataTable, EmptyState, Icon, KeyValueList, KpiCard, Skeleton } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { ageingBars, buildAlerts, changeText, compact, DRILL, exact, flowKpi, plural, salesSpark, trendChart } from './lib/model.ts';
+import {
+  ageingBars,
+  balanceRange,
+  buildAlerts,
+  cashBankCaption,
+  changeText,
+  compact,
+  compactSigned,
+  DRILL,
+  exact,
+  flowKpi,
+  gstDueLine,
+  gstItems,
+  plural,
+  salesSpark,
+  signedKpi,
+  startSteps,
+  trendChart,
+} from './lib/model.ts';
 import type { DrillTarget } from './lib/model.ts';
 
 export type DashboardLayout = 'full' | 'compact';
@@ -33,19 +51,24 @@ export function useDrill(): (t: DrillTarget) => void {
 
 // ───────────────────────────── KPI row ─────────────────────────────
 
-export function KpiRow({ s, loading, layout }: { s: DashboardSummary | undefined; loading: boolean; layout: DashboardLayout }) {
+export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummary | undefined; loading: boolean; layout: DashboardLayout; workingDate?: string }) {
   const drill = useDrill();
-  const sales = s ? flowKpi(s.sales) : null;
-  const purchases = s ? flowKpi(s.purchases) : null;
+  const sales = s ? flowKpi(s.sales, s.asOf, workingDate) : null;
+  const purchases = s ? flowKpi(s.purchases, s.asOf, workingDate) : null;
   const period = s?.ranges.period;
-  const cashBank = s ? s.cashBank.cashTotal + s.cashBank.bankTotal : 0;
   const purchaseChange = s ? changeText(purchases?.delta ?? null) : null;
+  // A negative figure is relabelled, never shown with a bare minus.
+  const salesK = signedKpi('Sales', sales?.value ?? 0, 'Sales returns (net)');
+  const purchasesK = signedKpi('Purchases', purchases?.value ?? 0, 'Purchase returns (net)');
+  const receivablesK = signedKpi('Receivables', s?.receivables.total ?? 0, 'Advances from customers');
+  const payablesK = signedKpi('Payables', s?.payables.total ?? 0, 'Advances to suppliers');
+  const cashBankK = signedKpi('Cash & bank', s ? s.cashBank.cashTotal + s.cashBank.bankTotal : 0, 'Cash & bank (overdrawn)');
   return (
     <div className="bx-db__kpis" role="group" aria-label="Key figures">
       <KpiCard
-        label="Sales"
+        label={salesK.label}
         icon="rupee"
-        value={sales?.value ?? 0}
+        value={salesK.value}
         amount
         loading={loading}
         delta={sales && sales.delta !== null ? { value: sales.delta, label: 'vs last year', goodWhen: 'up' } : undefined}
@@ -55,9 +78,9 @@ export function KpiRow({ s, loading, layout }: { s: DashboardSummary | undefined
       />
       {layout === 'full' ? (
         <KpiCard
-          label="Purchases"
+          label={purchasesK.label}
           icon="cart"
-          value={purchases?.value ?? 0}
+          value={purchasesK.value}
           amount
           loading={loading}
           caption={purchases ? `${purchases.comparison}${purchaseChange && purchaseChange !== 'no change' ? ` (${purchaseChange})` : ''}` : undefined}
@@ -80,31 +103,31 @@ export function KpiRow({ s, loading, layout }: { s: DashboardSummary | undefined
         />
       ) : null}
       <KpiCard
-        label="Receivables"
+        label={receivablesK.label}
         icon="users"
-        value={s?.receivables.total ?? 0}
+        value={receivablesK.value}
         amount
         loading={loading}
         caption={s ? (s.receivables.overdue > 0 ? `${compact(s.receivables.overdue)} overdue` : 'Nothing overdue') : undefined}
         onClick={() => drill(DRILL.receivables())}
       />
       <KpiCard
-        label="Payables"
+        label={payablesK.label}
         icon="truck"
-        value={s?.payables.total ?? 0}
+        value={payablesK.value}
         amount
         loading={loading}
         caption={s ? (s.payables.dueSoon.count > 0 ? `${compact(s.payables.dueSoon.amount)} due in ${s.payables.dueSoon.days} days` : `Nothing due in ${s.payables.dueSoon.days} days`) : undefined}
         onClick={() => drill(DRILL.payables())}
       />
       <KpiCard
-        label="Cash & bank"
+        label={cashBankK.label}
         icon="wallet"
-        value={cashBank}
+        value={cashBankK.value}
         amount
         loading={loading}
-        caption={s ? `Cash ${compact(s.cashBank.cashTotal)} · Bank ${compact(s.cashBank.bankTotal)}` : undefined}
-        onClick={period ? () => drill(DRILL.cashBank(period)) : undefined}
+        caption={s ? cashBankCaption(s.cashBank) : undefined}
+        onClick={s ? () => drill(DRILL.cashBank(balanceRange(s))) : undefined}
       />
     </div>
   );
@@ -216,7 +239,7 @@ export function AgeingCard({ s, loading, className }: { s: DashboardSummary | un
         <>
           <p className="bx-db__figures">
             <span>
-              Total <strong>{compact(r.total)}</strong>
+              {r.total < 0 ? 'Net advance' : 'Total'} <strong>{compact(Math.abs(r.total))}</strong>
             </span>
             <span>
               Overdue <strong>{compact(r.overdue)}</strong>
@@ -240,7 +263,7 @@ export function AgeingCard({ s, loading, className }: { s: DashboardSummary | un
                       <span className={`bx-db-age__fill${b.overdue ? ' is-overdue' : ''}`} style={{ display: 'block', width: `${b.percent}%` }} />
                     </span>
                     <span className="bx-db-age__amount" title={exact(b.amount)}>
-                      {b.amount === 0 ? '–' : compact(b.amount)}
+                      {b.amount === 0 ? '–' : compactSigned(b.amount, 'credit')}
                     </span>
                   </button>
                 </li>
@@ -249,7 +272,7 @@ export function AgeingCard({ s, loading, className }: { s: DashboardSummary | un
           )}
           {r.advance !== 0 || r.onAccount !== 0 ? (
             <p className="bx-db__note">
-              Also: advances {compact(r.advance)} · on account {compact(r.onAccount)} (not aged).
+              Also: advances {compact(Math.abs(r.advance))} · on account {compactSigned(r.onAccount, 'credit')} (not aged).
             </p>
           ) : null}
         </>
@@ -296,7 +319,7 @@ export function CashBankCard({ s, loading, className }: { s: DashboardSummary | 
       padding="sm"
       actions={
         s ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.cashBank(s.ranges.period))}>
+          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.cashBank(balanceRange(s)))}>
             Cash/Bank books
           </Button>
         ) : undefined
@@ -310,7 +333,7 @@ export function CashBankCard({ s, loading, className }: { s: DashboardSummary | 
         loading={loading && !s}
         skeletonRows={3}
         density="compact"
-        onRowActivate={(r) => drill(DRILL.ledger(r.ledgerId, s?.ranges.period))}
+        onRowActivate={(r) => drill(DRILL.ledger(r.ledgerId, s ? balanceRange(s) : undefined))}
         footerRows={s && rows.length > 1 ? [{ key: 'total', cells: { name: 'Total', balance: formatDrCr(s.cashBank.cashTotal + s.cashBank.bankTotal) } }] : undefined}
         empty={<EmptyState size="sm" icon="bank" title="No cash or bank accounts" body="Create a ledger under Bank Accounts to see its balance here." />}
       />
@@ -323,32 +346,40 @@ export function CashBankCard({ s, loading, className }: { s: DashboardSummary | 
 export function GstCard({ s, className }: { s: DashboardSummary | undefined; className?: string }) {
   const drill = useDrill();
   const g = s?.gst;
-  if (!g) return null;
-  const payable = g.netPayable > 0;
+  const due = s?.gstDue ?? null;
+  if (!s || (!g && !due)) return null;
+  const main = due ?? g;
   return (
     <Card
       className={className}
-      title={`GST — ${g.label}`}
-      subtitle={`${g.dueForm} due by ${formatDate(g.dueDate)} · estimate from your books`}
+      title="GST"
+      subtitle="Estimate from your books"
       padding="sm"
       actions={
-        <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.gstr3b(g.period))}>
-          GSTR-3B
-        </Button>
+        main ? (
+          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.gstr3b(main.period))}>
+            GSTR-3B
+          </Button>
+        ) : undefined
       }
     >
-      <KeyValueList
-        layout="inline"
-        alignValues="right"
-        items={[
-          { key: 'out', label: 'Tax on sales', value: g.outputTax, kind: 'amount' },
-          { key: 'in', label: 'Input tax credit', value: g.inputTax, kind: 'amount' },
-          ...(g.reverseChargeTax !== 0 ? [{ key: 'rcm', label: 'Reverse charge (cash)', value: g.reverseChargeTax, kind: 'amount' as const }] : []),
-          { key: 'pay', label: payable ? 'To pay in cash' : 'Nothing to pay in cash', value: g.netPayable, kind: 'amount', strong: true },
-          ...(g.creditCarriedForward > 0 ? [{ key: 'cf', label: 'Credit carried forward', value: g.creditCarriedForward, kind: 'amount' as const }] : []),
-        ]}
-      />
-      <p className="bx-db__note">{plural(g.documentCount, 'GST document')} this month so far. Interest and late fee are not included.</p>
+      {due ? (
+        <section className="bx-db-gst" aria-label={`GST return for ${due.label}`}>
+          <p className="bx-db-gst__head">
+            <strong>{due.label} return</strong> · {gstDueLine(due, s.asOf)}
+          </p>
+          <KeyValueList layout="inline" alignValues="right" items={gstItems(due)} />
+        </section>
+      ) : null}
+      {g ? (
+        <section className="bx-db-gst" aria-label={`GST for ${g.label} so far`}>
+          <p className="bx-db-gst__head">
+            <strong>{g.label} so far</strong> · {g.dueForm} due by {formatDate(g.dueDate)}
+          </p>
+          <KeyValueList layout="inline" alignValues="right" items={gstItems(g)} />
+          <p className="bx-db__note">{plural(g.documentCount, 'GST document')} this month so far. Interest and late fee are not included.</p>
+        </section>
+      ) : null}
     </Card>
   );
 }
@@ -430,8 +461,8 @@ export function LowStockCard({ s, loading, className }: { s: DashboardSummary | 
       subtitle="Below the reorder level"
       padding="sm"
       actions={
-        <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.stockSummary())}>
-          Stock summary
+        <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.reorder())}>
+          Reorder status
         </Button>
       }
     >
@@ -446,7 +477,7 @@ export function LowStockCard({ s, loading, className }: { s: DashboardSummary | 
         onRowActivate={(r) => drill(DRILL.stockItem(r.itemId))}
         empty={<EmptyState size="sm" icon="check-circle" title="Stock levels are fine" body="Set a reorder level on an item to be warned here." />}
       />
-      {more > 0 ? <p className="bx-db__note">{plural(more, 'more item')} — open the stock summary to see all.</p> : null}
+      {more > 0 ? <p className="bx-db__note">{plural(more, 'more item')} — open Reorder status to see all.</p> : null}
     </Card>
   );
 }
@@ -568,36 +599,47 @@ export function PostDatedCard({ s, loading, className }: { s: DashboardSummary |
 // ───────────────────────────── Getting started ─────────────────────────────
 
 export function GettingStarted({ className }: { className?: string }) {
-  const nav = useNav();
   const shell = useShell();
-  const canPost = useCan('vouchers.create');
-  const canMaster = useCan('masters.create');
+  const drill = useDrill();
+  const features = useFeatures();
+  const steps = startSteps({
+    manageCompany: useCan('company.manage'),
+    createMasters: useCan('masters.create'),
+    createVouchers: useCan('vouchers.create'),
+    importData: useCan('data.import'),
+    inventory: features.inventory,
+  });
   return (
-    <Card className={className} padding="md">
-      <EmptyState
-        icon="chart"
-        title="Your dashboard fills up as you work"
-        body="Record a sale, a purchase or a receipt and your sales, dues, cash and GST appear here."
-        action={
-          <div className="bx-db-start__actions">
-            {canPost ? (
-              <Button variant="primary" icon="invoice" shortcut="F8" onClick={() => shell.openVoucher('sales')}>
-                Sales invoice
+    <Card className={className} padding="md" title="Get started" subtitle="Your dashboard fills up as you record sales, purchases and receipts.">
+      {steps.length === 0 ? (
+        <EmptyState size="sm" icon="chart" title="Nothing recorded yet" body="Figures appear here once vouchers are entered. Ask the company owner if you need to enter them yourself." />
+      ) : (
+        <ol className="bx-db-start" aria-label="First steps">
+          {steps.map((st, i) => (
+            <li key={st.id} className="bx-db-start__step">
+              <span className="bx-db-start__num" aria-hidden="true">
+                {i + 1}
+              </span>
+              <span className="bx-db-start__text">
+                <span className="bx-db-start__title">{st.title}</span>
+                <span className="bx-db-start__body">{st.body}</span>
+              </span>
+              <Button
+                size="sm"
+                variant={st.target === 'sales-voucher' ? 'primary' : 'secondary'}
+                shortcut={st.shortcut}
+                onClick={() => {
+                  const t = st.target;
+                  if (t === 'sales-voucher') shell.openVoucher('sales');
+                  else drill(t);
+                }}
+              >
+                {st.action}
               </Button>
-            ) : null}
-            {canMaster ? (
-              <Button icon="ledger" onClick={() => nav.push('accounts.ledger.form', {})}>
-                Create ledger
-              </Button>
-            ) : null}
-            {canMaster ? (
-              <Button icon="box" onClick={() => nav.push('inventory.item.form', {})}>
-                Create stock item
-              </Button>
-            ) : null}
-          </div>
-        }
-      />
+            </li>
+          ))}
+        </ol>
+      )}
     </Card>
   );
 }

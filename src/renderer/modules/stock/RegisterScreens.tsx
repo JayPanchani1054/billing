@@ -13,7 +13,7 @@ import { Badge, DataTable, Field, SegmentedControl, Stack } from '../../ui/index
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { StockGroupPicker } from '../inventory/pickers.tsx';
 import { amountColumn, NothingHere, qtyColumn, rateColumn, useDrill, useStockPeriod } from './components.tsx';
-import { ORDER_KIND_LABEL, overdueText, paramId, pendingOrdersExport, profitabilityExport, varianceExport } from './lib/model.ts';
+import { ORDER_KIND_LABEL, overdueText, paramId, pendingOrdersExport, profitabilityExport, signedAmountText, varianceExport } from './lib/model.ts';
 
 // ───────────────────────────── Pending orders ─────────────────────────────
 
@@ -46,7 +46,7 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
       qtyColumn<PendingOrderLine>('fulfilledQty', L.fulfilled, (r) => r.fulfilledQty, u, { width: 110, blankZero: true }),
       qtyColumn<PendingOrderLine>('pendingQty', 'Pending', (r) => r.pendingQty, u, { width: 110 }),
       rateColumn<PendingOrderLine>('rate', 'Rate', (r) => r.rate),
-      { ...amountColumn<PendingOrderLine>('pendingValue', 'Pending value', (r) => r.pendingValue), blankZero: false },
+      amountColumn<PendingOrderLine>('pendingValue', 'Pending value', (r) => r.pendingValue, { blankZero: false }),
       {
         key: 'overdueDays',
         header: 'Status',
@@ -127,9 +127,9 @@ export function ProfitabilityScreen({ params }: ScreenProps<{ groupId?: number; 
       qtyColumn<ProfitabilityRow>('netQty', 'Net qty sold', (r) => r.netQty, (r) => r.unit),
       amountColumn<ProfitabilityRow>('salesValue', 'Sales', (r) => r.salesValue),
       amountColumn<ProfitabilityRow>('returnsValue', 'Returns', (r) => r.returnsValue),
-      { ...amountColumn<ProfitabilityRow>('netSales', 'Net sales', (r) => r.netSales), blankZero: false },
-      { ...amountColumn<ProfitabilityRow>('cost', 'Cost of goods sold', (r) => r.cost, { width: 160 }), blankZero: false },
-      { key: 'grossProfit', header: 'Gross profit', kind: 'amount', width: 150, cellClassName: (r) => (r.grossProfit < 0 ? 'bx-stock-loss' : undefined) },
+      amountColumn<ProfitabilityRow>('netSales', 'Net sales', (r) => r.netSales, { blankZero: false }),
+      amountColumn<ProfitabilityRow>('cost', 'Cost of goods sold', (r) => r.cost, { width: 160, blankZero: false }),
+      amountColumn<ProfitabilityRow>('grossProfit', 'Gross profit / (loss)', (r) => r.grossProfit, { width: 160, blankZero: false }),
       {
         key: 'gpPercent',
         header: 'GP %',
@@ -144,7 +144,7 @@ export function ProfitabilityScreen({ params }: ScreenProps<{ groupId?: number; 
   const footer = useMemo<FooterRow[]>(
     () =>
       d && rows.length > 0
-        ? [{ key: 'total', tone: 'total', cells: { name: 'Total', netSales: d.totals.netSales, cost: d.totals.cost, grossProfit: d.totals.grossProfit, gpPercent: d.totals.gpPercent === null ? '' : formatPercent(d.totals.gpPercent) } }]
+        ? [{ key: 'total', tone: 'total', cells: { name: 'Total', netSales: signedAmountText(d.totals.netSales), cost: signedAmountText(d.totals.cost), grossProfit: signedAmountText(d.totals.grossProfit), gpPercent: d.totals.gpPercent === null ? '' : formatPercent(d.totals.gpPercent) } }]
         : [],
     [d, rows.length],
   );
@@ -208,7 +208,7 @@ export function PhysicalVarianceScreen({ params }: ScreenProps<{ from?: string; 
         ...qtyColumn<PhysicalVarianceRow>('differenceQty', 'Difference', (r) => r.differenceQty, u, { width: 120 }),
         cellClassName: (r) => (r.differenceQty < 0 ? 'bx-stock-loss' : undefined),
       },
-      { key: 'value', header: 'Gain / (loss)', kind: 'amount', width: 150, blankZero: true, cellClassName: (r) => (r.value < 0 ? 'bx-stock-loss' : undefined) },
+      amountColumn<PhysicalVarianceRow>('value', 'Gain / (loss)', (r) => r.value, { width: 150 }),
     ];
   }, []);
   const footer = useMemo<FooterRow[]>(
@@ -216,8 +216,8 @@ export function PhysicalVarianceScreen({ params }: ScreenProps<{ from?: string; 
       d && rows.length > 0
         ? [
             { key: 'gain', tone: 'subtle', cells: { itemName: 'Excess found (gain)', value: d.totals.gainValue } },
-            { key: 'loss', tone: 'subtle', cells: { itemName: 'Shortage (loss)', value: -d.totals.lossValue } },
-            { key: 'net', tone: 'total', cells: { itemName: 'Net gain / (loss)', value: d.totals.netValue } },
+            { key: 'loss', tone: 'subtle', cells: { itemName: 'Shortage (loss)', value: signedAmountText(-d.totals.lossValue, true) } },
+            { key: 'net', tone: 'total', cells: { itemName: 'Net gain / (loss)', value: signedAmountText(d.totals.netValue) } },
           ]
         : [],
     [d, rows.length],

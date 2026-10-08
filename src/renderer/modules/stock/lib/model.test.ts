@@ -18,6 +18,7 @@ import {
   qtyDecimals,
   qtyText,
   rateText,
+  signedAmountText,
   summaryDrill,
   summaryExport,
   visibleRows,
@@ -130,6 +131,8 @@ describe('drill-down', () => {
     assert.deepEqual(summaryDrill(TREE[2], { ...ctx, godownId: 3 }), { screen: 'stock.item', params: { ...ctx, godownId: 3, itemId: 7 } });
     assert.deepEqual(summaryDrill(row({ key: 'c:4', kind: 'category', level: 0, id: 4 }), ctx), { screen: 'stock.summary', params: { ...ctx, categoryId: 4 } });
     assert.equal(summaryDrill(row({ key: 'c:none', kind: 'category', level: 0, id: null }), ctx), null);
+    // A group opened under a category filter keeps the filter (the drilled total equals the row).
+    assert.deepEqual(summaryDrill(TREE[0], { ...ctx, categoryId: 4 }), { screen: 'stock.summary', params: { ...ctx, groupId: 1, categoryId: 4 } });
   });
 
   test('godown summary: item → its vouchers in that godown; godown → stock summary of the godown', () => {
@@ -178,5 +181,18 @@ describe('exports', () => {
     assert.ok(e.columns.some((c) => c.header === 'Received'));
     assert.ok(e.columns.some((c) => c.header === 'Supplier'));
     assert.ok(pendingOrdersExport([], 'sales', 0).columns.some((c) => c.header === 'Delivered'));
+  });
+});
+
+describe('signedAmountText (no bare minus in reports)', () => {
+  test('negatives in parentheses, Indian grouping, zero blank only when asked', () => {
+    assert.equal(signedAmountText(1_23_456_78), '1,23,456.78');
+    // negative stock of 5 @ ₹90 = −45,000 paise
+    assert.equal(signedAmountText(-45_000), '(450.00)');
+    assert.equal(signedAmountText(-12_34_567_89), '(12,34,567.89)');
+    assert.equal(signedAmountText(0), '0.00');
+    assert.equal(signedAmountText(0, true), '');
+    assert.equal(signedAmountText(null), '');
+    assert.equal(signedAmountText(undefined), '');
   });
 });

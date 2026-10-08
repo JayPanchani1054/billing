@@ -85,18 +85,22 @@ export function neighbourSection(sections: readonly EntrySection[], current: Ent
 
 /**
  * Where the cursor starts on the entry screen (Tally): a manually numbered new voucher asks for its
- * number first; then the party of an invoice / order / note; then the cash or bank Account of a
+ * number first; a purchase starts on the supplier's invoice no. (then its date and the party); then
+ * the party of an invoice / order / note; then the cash or bank Account of a
  * single-entry payment / receipt / contra; otherwise the first line of the first grid. The date is
  * one key away (F2).
  */
 export function initialFocusId(o: {
   manualNumber: boolean;
+  /** Purchase-side invoice: the supplier's invoice number comes first. */
+  referenceFirst: boolean;
   partyShown: boolean;
   singleAccount: boolean;
   firstSection: EntrySection;
   firstRowKey: string | null;
 }): string {
   if (o.manualNumber) return headerId('number');
+  if (o.referenceFirst) return headerId('referenceNo');
   if (o.partyShown) return headerId('party');
   if (o.singleAccount) return headerId('account');
   if (o.firstRowKey !== null && o.firstSection !== 'narration') {

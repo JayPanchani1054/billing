@@ -41,7 +41,7 @@ export const stockModule: ModuleDef = {
     { id: 'stock.negative', title: 'Negative Stock', component: NegativeStockScreen, access: 'reports.view', feature: 'inventory', keywords: ['minus stock', 'exception'] },
     { id: 'stock.batches', title: 'Batch Summary', component: BatchesScreen, access: 'reports.view', feature: 'batches', keywords: ['expiry', 'expired', 'lot'] },
     { id: 'stock.pendingOrders', title: 'Pending Orders', component: PendingOrdersScreen, access: 'reports.view', feature: 'orderProcessing', keywords: ['order outstanding', 'sales order', 'purchase order', 'due'] },
-    { id: 'stock.profitability', title: 'Item Profitability', component: ProfitabilityScreen, access: 'reports.view', feature: 'inventory', keywords: ['gross profit', 'margin', 'item-wise profit', 'cogs'] },
+    { id: 'stock.profitability', title: 'Item Profitability', component: ProfitabilityScreen, access: 'reports.financial', feature: 'inventory', keywords: ['gross profit', 'margin', 'item-wise profit', 'cogs'] },
     { id: 'stock.physicalVariance', title: 'Physical Stock Register', component: PhysicalVarianceScreen, access: 'reports.view', feature: 'inventory', keywords: ['stock count', 'shortage', 'excess', 'variance'] },
   ],
   menu: [

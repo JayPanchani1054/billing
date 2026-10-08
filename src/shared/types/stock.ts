@@ -1,6 +1,6 @@
 /**
  * DTOs for the stock (inventory reports) module — src/core/modules/stock. All routes are company
- * scope, read-only, `reports.view`, `transactional: false`.
+ * scope, read-only, `transactional: false`, `reports.view` (`stock.profitability`: `reports.financial`).
  *
  *   'stock.summary'           StockSummaryInput        → StockSummaryResult       stock groups → items: opening / inward / outward / closing
  *   'stock.categorySummary'   StockCategorySummaryInput → StockSummaryResult      the same by stock category

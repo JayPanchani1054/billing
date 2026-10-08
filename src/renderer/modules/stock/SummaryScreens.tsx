@@ -13,7 +13,7 @@ import { DataTable, Field, Inline } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { GodownPicker, StockCategoryPicker } from '../inventory/pickers.tsx';
 import { amountColumn, NothingHere, qtyColumn, rateColumn, useDrill, useExpansion, useStockPeriod } from './components.tsx';
-import { filterSubtitle, paramId, summaryDrill, summaryExport, visibleRows } from './lib/model.ts';
+import { filterSubtitle, paramId, signedAmountText, summaryDrill, summaryExport, visibleRows } from './lib/model.ts';
 
 export interface StockSummaryParams {
   from?: string;
@@ -59,14 +59,14 @@ function SummaryReport({ mode, params }: { mode: Mode; params: StockSummaryParam
       amountColumn<StockSummaryRow>('outValue', 'Outward value', (r) => r.outward.value, { hidden: hideDetail || !valuesShown }),
       qtyColumn<StockSummaryRow>('closeQty', 'Closing qty', (r) => r.closing.qty, unit),
       rateColumn<StockSummaryRow>('rate', 'Rate', (r) => r.closing.rate, { hidden: !valuesShown }),
-      { ...amountColumn<StockSummaryRow>('closeValue', 'Closing value', (r) => r.closing.value, { hidden: !valuesShown }), blankZero: false },
+      amountColumn<StockSummaryRow>('closeValue', 'Closing value', (r) => r.closing.value, { hidden: !valuesShown, blankZero: false }),
     ];
   }, [detailed, valuesShown]);
 
   const footer = useMemo<FooterRow[]>(() => {
     if (!data || rows.length === 0 || !valuesShown) return [];
     const t = data.totals;
-    return [{ key: 'total', tone: 'total', cells: { name: 'Grand Total', openValue: t.openingValue, inValue: t.inwardValue, outValue: t.outwardValue, closeValue: t.closingValue } }];
+    return [{ key: 'total', tone: 'total', cells: { name: 'Grand Total', openValue: signedAmountText(t.openingValue, true), inValue: signedAmountText(t.inwardValue, true), outValue: signedAmountText(t.outwardValue, true), closeValue: signedAmountText(t.closingValue) } }];
   }, [data, rows.length, valuesShown]);
 
   const actions: ScreenActionItem[] = [
@@ -120,7 +120,7 @@ function SummaryReport({ mode, params }: { mode: Mode; params: StockSummaryParam
         expandable
         expandedKeys={expansion.expandedKeys}
         onExpandedChange={expansion.onExpandedChange}
-        onRowActivate={(r) => drill(summaryDrill(r, { from: p.from, to: p.to, godownId }))}
+        onRowActivate={(r) => drill(summaryDrill(r, { from: p.from, to: p.to, godownId, categoryId }))}
         footerRows={footer.length > 0 ? footer : undefined}
         loading={q.loading}
         empty={

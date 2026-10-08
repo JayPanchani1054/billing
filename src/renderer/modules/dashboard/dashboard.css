@@ -227,11 +227,65 @@
 }
 
 /* ── Getting started (no vouchers yet) ────────────────────────────── */
-.bx-db-start__actions {
+/* ── GST card: one block per return month ─────────────────────────── */
+.bx-db-gst + .bx-db-gst {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.bx-db-gst__head {
+  margin: 0 0 var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+.bx-db-gst__head strong {
+  color: var(--text-primary);
+}
+
+/* ── Getting started (no vouchers yet) ────────────────────────────── */
+.bx-db-start {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-direction: column;
   gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bx-db-start__step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+.bx-db-start__step + .bx-db-start__step {
+  border-top: 1px solid var(--border-subtle);
+}
+.bx-db-start__num {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-6);
+  height: var(--space-6);
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+}
+.bx-db-start__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.bx-db-start__title {
+  color: var(--text-primary);
+  font-weight: var(--fw-semibold);
+}
+.bx-db-start__body {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
 }
 
 @media print {

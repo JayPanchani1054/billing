@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { entrySections, neighbourSection, nextCell, rowAfterDelete, verticalCell } from './gridNav.ts';
+import { cellId, headerId } from './errorPaths.ts';
+import { entrySections, initialFocusId, neighbourSection, nextCell, rowAfterDelete, verticalCell } from './gridNav.ts';
 import type { GridModel } from './gridNav.ts';
 
 const filled = new Set(['r1', 'r2']);
@@ -60,5 +61,18 @@ describe('entry sections', () => {
     assert.equal(neighbourSection(s, 'items', 'back'), 'header');
     assert.equal(neighbourSection(s, 'narration', 'forward'), 'accept');
     assert.equal(neighbourSection(s, 'narration', 'back'), 'ledgers');
+  });
+});
+
+describe('where the cursor starts', () => {
+  const base = { manualNumber: false, referenceFirst: false, partyShown: false, singleAccount: false, firstSection: 'ledgers' as const, firstRowKey: 'l1' };
+  it('manual number, then the supplier invoice no., then the party, then the Account, else the first line', () => {
+    assert.equal(initialFocusId({ ...base, manualNumber: true, partyShown: true }), headerId('number'));
+    assert.equal(initialFocusId({ ...base, referenceFirst: true, partyShown: true }), headerId('referenceNo'));
+    assert.equal(initialFocusId({ ...base, partyShown: true }), headerId('party'));
+    assert.equal(initialFocusId({ ...base, singleAccount: true }), headerId('account'));
+    assert.equal(initialFocusId(base), cellId('ledgers', 'l1', 'ledger'));
+    assert.equal(initialFocusId({ ...base, firstSection: 'items:src', firstRowKey: 'i2' }), cellId('items', 'i2', 'item'));
+    assert.equal(initialFocusId({ ...base, firstRowKey: null }), headerId('date'));
   });
 });

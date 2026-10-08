@@ -254,8 +254,14 @@ export interface DashboardSummary {
   receivables: DashboardOutstanding;
   payables: DashboardOutstanding;
   cashBank: DashboardCashBank;
-  /** null when GST is off / not a regular registration / no gst.view. */
+  /** The month of asOf so far. null when GST is off / not a regular registration / no gst.view. */
   gst: DashboardGst | null;
+  /**
+   * The previous month's return while it is still due (asOf on or before its due date, e.g. on 8-Oct
+   * September's GSTR-3B due 20-Oct) — the payment the owner has to make next. null otherwise (and in
+   * the cases where `gst` is null, or when that month is before the books begin).
+   */
+  gstDue: DashboardGst | null;
   topCustomers: DashboardTopCustomer[];
   /** Empty when inventory is off. */
   topItems: DashboardTopItem[];

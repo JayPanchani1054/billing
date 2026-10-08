@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { VoucherListRow } from '../../../../shared/types/vouchers.ts';
-import { baseTypesOf, dayBookExportRows, dayBookTotals, toDayBookRow, toggleChip } from './daybook.ts';
+import { baseTypesOf, dayBookExportRows, dayBookExportTotals, dayBookTotals, keyAfterRemoval, openTarget, SEARCH_MAX, searchText, toDayBookRow, toggleChip } from './daybook.ts';
 import { dayBookSide, defaultTypeFor, partyRequired, singleEntryAccountSide, trackingKinds } from './kinds.ts';
 
 const row = (over: Partial<VoucherListRow>): VoucherListRow => ({
@@ -81,5 +81,43 @@ describe('voucher kinds', () => {
     assert.equal(defaultTypeFor(types, 'sales')?.id, 3);
     assert.equal(defaultTypeFor(types.slice(0, 2), 'sales')?.id, 2);
     assert.equal(defaultTypeFor(types, 'payment'), null);
+  });
+});
+
+describe('opening, deleting and exporting from a register', () => {
+  it('Enter alters; cancelled vouchers, generated e-invoices and read-only users get the view', () => {
+    const live = toDayBookRow(row({}));
+    assert.equal(live.irnGenerated, false);
+    assert.equal(openTarget(live, true), 'vouchers.entry');
+    assert.equal(openTarget(live, false), 'vouchers.view');
+    assert.equal(openTarget(toDayBookRow(row({ isCancelled: true })), true), 'vouchers.view');
+    const irn = toDayBookRow(row({ irnStatus: 'generated' }));
+    assert.equal(irn.irnGenerated, true);
+    assert.equal(openTarget(irn, true), 'vouchers.view');
+    assert.equal(openTarget(toDayBookRow(row({ irnStatus: 'pending' })), true), 'vouchers.entry');
+  });
+
+  it('after a delete the next row is highlighted (else the previous one)', () => {
+    const rows = [1, 2, 3].map((id) => toDayBookRow(row({ id })));
+    assert.equal(keyAfterRemoval(rows, 2), '3');
+    assert.equal(keyAfterRemoval(rows, 3), '2');
+    assert.equal(keyAfterRemoval(rows.slice(0, 1), 1), null);
+    assert.equal(keyAfterRemoval(rows, 99), null);
+  });
+
+  it('export totals skip optional and cancelled vouchers, like the screen', () => {
+    const rows = [
+      row({ id: 1, amount: 1180000 }), // sales → Debit 11,800.00
+      row({ id: 2, baseType: 'receipt', voucherTypeName: 'Receipt', amount: 500000 }), // receipt → Credit 5,000.00
+      row({ id: 3, amount: 99900, isOptional: true }), // not counted
+      row({ id: 4, amount: 77700, isCancelled: true }), // not counted (and shown blank)
+    ].map(toDayBookRow);
+    assert.deepEqual(dayBookExportTotals(rows), ['', 'Total (optional and cancelled vouchers not counted)', '', '', 1180000, 500000]);
+  });
+
+  it('search text is trimmed and capped at the route limit (100 characters)', () => {
+    assert.equal(searchText('  INV/42  '), 'INV/42');
+    assert.equal(searchText('x'.repeat(150)).length, SEARCH_MAX);
+    assert.equal(SEARCH_MAX, 100);
   });
 });

@@ -12,7 +12,7 @@ import { DataTable, EmptyState, Field, Inline } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { GodownPicker, ItemPicker } from '../inventory/pickers.tsx';
 import { amountColumn, NothingHere, qtyColumn, useStockPeriod } from './components.tsx';
-import { costingLabel, filterSubtitle, itemVouchersExport, paramId, qtyText } from './lib/model.ts';
+import { costingLabel, filterSubtitle, itemVouchersExport, paramId, qtyText, signedAmountText } from './lib/model.ts';
 
 export interface StockItemParams {
   itemId?: number;
@@ -46,16 +46,16 @@ export function StockItemScreen({ params }: ScreenProps<StockItemParams>) {
       qtyColumn<StockItemVoucherRow>('outQty', 'Outward qty', (r) => r.outward.qty, u, { blankZero: true }),
       amountColumn<StockItemVoucherRow>('outValue', 'Outward value', (r) => r.outward.value),
       qtyColumn<StockItemVoucherRow>('closeQty', 'Closing qty', (r) => r.closing.qty, u),
-      { ...amountColumn<StockItemVoucherRow>('closeValue', 'Closing value', (r) => r.closing.value), blankZero: false },
+      amountColumn<StockItemVoucherRow>('closeValue', 'Closing value', (r) => r.closing.value, { blankZero: false }),
     ];
   }, [unit, features.multipleGodowns]);
 
   const footer = useMemo<FooterRow[]>(() => {
     if (!d) return [];
     return [
-      { key: 'opening', tone: 'subtle', cells: { particulars: `Opening balance on ${formatDate(d.from)}`, closeQty: qtyText(d.opening.qty, unit), closeValue: d.opening.value } },
+      { key: 'opening', tone: 'subtle', cells: { particulars: `Opening balance on ${formatDate(d.from)}`, closeQty: qtyText(d.opening.qty, unit), closeValue: signedAmountText(d.opening.value) } },
       { key: 'total', tone: 'subtle', cells: { particulars: 'Total for the period', inQty: qtyText(d.totals.inwardQty, unit, { blankZero: true }), inValue: d.totals.inwardValue, outQty: qtyText(d.totals.outwardQty, unit, { blankZero: true }), outValue: d.totals.outwardValue } },
-      { key: 'closing', tone: 'total', cells: { particulars: `Closing balance on ${formatDate(d.to)}`, closeQty: qtyText(d.closing.qty, unit), closeValue: d.closing.value } },
+      { key: 'closing', tone: 'total', cells: { particulars: `Closing balance on ${formatDate(d.to)}`, closeQty: qtyText(d.closing.qty, unit), closeValue: signedAmountText(d.closing.value) } },
     ];
   }, [d, unit]);
 

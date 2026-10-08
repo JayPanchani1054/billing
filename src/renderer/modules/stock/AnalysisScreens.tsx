@@ -64,7 +64,7 @@ export function AgeingScreen({ params }: ScreenProps<{ groupId?: number }>) {
       { key: 'name', header: 'Item', minWidth: 200 },
       { key: 'groupName', header: 'Group', width: 150 },
       qtyColumn<StockAgeingRow>('qty', 'In stock', (r) => r.qty, (r) => r.unit),
-      { ...amountColumn<StockAgeingRow>('value', 'Value', (r) => r.value), blankZero: false },
+      amountColumn<StockAgeingRow>('value', 'Value', (r) => r.value, { blankZero: false }),
     ];
     (d?.buckets ?? []).forEach((b, i) => {
       cols.push(
@@ -207,7 +207,7 @@ export function NegativeStockScreen() {
     () => [
       { key: 'name', header: 'Item / godown', tree: true, minWidth: 240 },
       qtyColumn<NegativeTreeRow>('qty', 'Quantity', (r) => r.qty, (r) => r.unit),
-      { key: 'value', header: 'Value', kind: 'amount', width: 160, value: (r) => r.value },
+      amountColumn<NegativeTreeRow>('value', 'Value', (r) => r.value, { width: 160 }),
       { key: 'negativeSince', header: 'Negative since', kind: 'date', width: 130 },
     ],
     [],

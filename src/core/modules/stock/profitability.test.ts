@@ -43,7 +43,7 @@ describe('stock.profitability', () => {
     assert.deepEqual([a.salesQty, a.netSales, a.cost, a.grossProfit, a.gpPercent], [5, 80_000, 59_666, 20_334, 25.42]);
   });
 
-  test('June: simple items take the engine outward value (Rice 30 Kg = 1,82,000; Cable Roll sold short at ₹90 = 45,000)', () => {
+  test('June: Rice 30 Kg costs 1,82,000; Cable Roll sold short is costed at its purchase price ₹90 = 45,000', () => {
     const r = profitability(k.t.db, k.t.today, { from: '2026-06-01', to: '2026-06-30' });
     const by = new Map(r.rows.map((x) => [x.itemId, x]));
     // Rice: 150 Kg worth 6,00,000 + 3,10,000 = 9,10,000 → 30 × 9,10,000/150 = 1,82,000; sales 30 @ 80 = 2,40,000
@@ -108,6 +108,22 @@ describe('stock.physicalVariance', () => {
         ['Copper Bottle', 10, 10, 0, 0],
       ]);
       assert.deepEqual(r.totals, { gainValue: 20_000, lossValue: 0, netValue: 20_000 });
+    } finally {
+      m.t.close();
+    }
+  });
+
+  test('one item counted in two racks (two lines, same godown): one row with the real book quantity', () => {
+    const m = stockMasters();
+    const kk = { ...m, V: {} };
+    try {
+      // A book 10 @ ₹100. Rack 1: 2, rack 2: 3 → counted 5. The posting engine stores 2 − 10 = −8 on the first line
+      // and +3 on the second (net −5). Value: issue 8 at ₹100 = 80,000, then 3 back at the cost then (₹100) = 30,000
+      // → loss 50,000.
+      post(kk, inventoryVoucher(m, 'physical_stock', '2026-06-10', [{ itemId: m.I.A, qty: 2, rate: 0 }, { itemId: m.I.A, qty: 3, rate: 0 }]));
+      const r = physicalVariance(m.t.db, m.t.today, { from: '2026-06-01', to: '2026-06-30' });
+      assert.deepEqual(r.rows.map((x) => [x.itemName, x.countedQty, x.bookQty, x.differenceQty, x.value]), [['Steel Tumbler', 5, 10, -5, -50_000]]);
+      assert.deepEqual(r.totals, { gainValue: 0, lossValue: 50_000, netValue: -50_000 });
     } finally {
       m.t.close();
     }

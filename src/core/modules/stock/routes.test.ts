@@ -20,11 +20,11 @@ const NAMES = [
   'stock.physicalVariance',
 ];
 
-test('every stock route is read-only (transactional: false), reports.view, and registered in the API', () => {
+test('every stock route is read-only (transactional: false), reports.view (profitability: reports.financial), and registered in the API', () => {
   assert.deepEqual(Object.keys(stockRoutes).sort(), [...NAMES].sort());
   for (const [name, r] of Object.entries(stockRoutes)) {
     assert.equal(r.transactional, false, name);
-    assert.equal(r.access, 'reports.view', name);
+    assert.equal(r.access, name === 'stock.profitability' ? 'reports.financial' : 'reports.view', name);
     assert.equal(r.scope, 'company', name);
     assert.ok(name in routes, `${name} is in the route aggregator`);
   }
@@ -74,6 +74,14 @@ describe('stock routes through the dispatcher', () => {
     if (!r.ok) assert.equal(r.error.code, 'FORBIDDEN');
     const de = await k.t.call(stockRoutes, 'stock.summary', APRIL, { session: k.t.sessionAs({ role: 'Data Entry' }) });
     assert.equal(de.ok, true, 'Data Entry holds reports.view');
+  });
+
+  test('item margins need reports.financial: Data Entry is refused Item Profitability, an Accountant is not', async () => {
+    const de = await k.t.call(stockRoutes, 'stock.profitability', APRIL, { session: k.t.sessionAs({ role: 'Data Entry' }) });
+    assert.equal(de.ok, false);
+    if (!de.ok) assert.equal(de.error.code, 'FORBIDDEN');
+    const acc = await k.t.call(stockRoutes, 'stock.profitability', APRIL, { session: k.t.sessionAs({ permissions: ['company.view', 'reports.view', 'reports.financial'] }) });
+    assert.equal(acc.ok, true);
   });
 
   test('bad input: field paths for the user', async () => {

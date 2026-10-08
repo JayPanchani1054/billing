@@ -9,8 +9,10 @@ import type { Paise } from '../../../../shared/money.ts';
 import type {
   DashboardAgeingBucket,
   DashboardFlow,
+  DashboardGst,
   DashboardMonth,
   DashboardSummary,
+  DashboardSummaryInput,
   DateRange,
 } from '../../../../shared/types/dashboard.ts';
 
@@ -59,7 +61,47 @@ export function dueText(date: string, asOf: string): string {
   return `${plural(-d, 'day')} overdue`;
 }
 
+/** '₹1.2 K', or '₹1.2 K overdrawn' for a negative value — never a bare minus. */
+export function compactSigned(p: Paise, negativeWord: string): string {
+  return p < 0 ? `${compact(-p)} ${negativeWord}` : compact(p);
+}
+
+// ───────────────────────────── Request & ranges ─────────────────────────────
+
+/**
+ * The dashboard request. Balances (receivables, payables, cash & bank, stock) are as on the working
+ * date — or the period end when the period ends earlier — because the screens they drill into
+ * (Receivables / Payables, Cash/Bank Books, Reorder Status) report as on the period end: with the
+ * default period (financial year to date) both are the same day, and a past period shows the books
+ * as they stood at its end.
+ */
+export function summaryInput(workingDate: string, from: string, to: string): DashboardSummaryInput {
+  return { asOf: to < workingDate ? to : workingDate, from, to };
+}
+
+/** Range for "balance as on asOf" drill-downs (Cash/Bank Books, a ledger): period start → asOf. */
+export function balanceRange(s: Pick<DashboardSummary, 'asOf' | 'ranges'>): DateRange {
+  const from = s.ranges.period.from <= s.asOf ? s.ranges.period.from : s.ranges.mtd.from;
+  return { from, to: s.asOf };
+}
+
 // ───────────────────────────── KPI captions ─────────────────────────────
+
+/** A KPI tile's label and the (non-negative) value it shows. */
+export interface KpiFigure {
+  label: string;
+  value: Paise;
+}
+
+/** A negative figure gets its own label instead of a minus sign ('Cash & bank (overdrawn)'). */
+export function signedKpi(label: string, p: Paise, negativeLabel: string): KpiFigure {
+  return p < 0 ? { label: negativeLabel, value: -p } : { label, value: p };
+}
+
+/** 'Cash ₹6.1 K · Bank ₹29.9 K' (an overdrawn bank / negative cash in words). */
+export function cashBankCaption(c: DashboardSummary['cashBank']): string {
+  return `Cash ${compactSigned(c.cashTotal, 'negative')} · Bank ${compactSigned(c.bankTotal, 'overdrawn')}`;
+}
 
 export interface FlowKpi {
   value: Paise;
@@ -71,11 +113,18 @@ export interface FlowKpi {
   comparison: string;
 }
 
-export function flowKpi(f: DashboardFlow): FlowKpi {
+/**
+ * `asOf` / `workingDate`: when the balances are as on a past period end (summaryInput), the "today"
+ * and "this month" figures are that day's and that month's — labelled with the date instead.
+ */
+export function flowKpi(f: DashboardFlow, asOf?: string, workingDate?: string): FlowKpi {
+  const past = asOf !== undefined && workingDate !== undefined && asOf !== workingDate;
+  const day = past ? `On ${formatDate(asOf)}` : 'Today';
+  const month = past ? `${monthLong(asOf.slice(0, 7))} to date` : 'This month';
   return {
     value: f.period,
     delta: deltaPercent(f.period, f.lastYear.period),
-    caption: `Today ${compact(f.today)} · This month ${compact(f.mtd)}`,
+    caption: `${day} ${compactSigned(f.today, 'net returns')} · ${month} ${compactSigned(f.mtd, 'net returns')}`,
     comparison: f.lastYear.period === 0 ? 'Nothing in the same period last year' : `Same period last year ${compact(f.lastYear.period)}`,
   };
 }
@@ -167,12 +216,17 @@ export const DRILL = {
   einvoice: (r: DateRange): DrillTarget => ({ screen: 'gst.einvoice', params: { from: r.from, to: r.to } }),
   ewaybill: (r: DateRange): DrillTarget => ({ screen: 'gst.ewaybill', params: { from: r.from, to: r.to } }),
   stockSummary: (): DrillTarget => ({ screen: 'stock.summary' }),
+  reorder: (): DrillTarget => ({ screen: 'stock.reorder' }),
   stockItem: (itemId: number): DrillTarget => ({ screen: 'stock.item', params: { itemId } }),
   voucher: (id: number): DrillTarget => ({ screen: 'vouchers.view', params: { id } }),
   dayBook: (r: DateRange): DrillTarget => ({ screen: 'vouchers.daybook', params: { from: r.from, to: r.to } }),
   pdc: (): DrillTarget => ({ screen: 'banking.pdc' }),
   backup: (): DrillTarget => ({ screen: 'data.backup' }),
   dashboard: (): DrillTarget => ({ screen: 'dashboard.home' }),
+  features: (): DrillTarget => ({ screen: 'company.features' }),
+  newLedger: (): DrillTarget => ({ screen: 'accounts.ledger.form', params: {} }),
+  newItem: (): DrillTarget => ({ screen: 'inventory.item.form', params: {} }),
+  tally: (): DrillTarget => ({ screen: 'data.tally' }),
 } as const;
 
 // ───────────────────────────── Alerts ─────────────────────────────
@@ -231,15 +285,17 @@ export function buildAlerts(s: DashboardSummary): DashboardAlert[] {
       target: DRILL.payablesBills(),
     });
   }
-  if (s.gst && s.gst.netPayable > 0) {
-    const days = diffDays(s.asOf, s.gst.dueDate);
+  // The return to pay next: last month's while it is still due, else this month's estimate so far.
+  const gst = s.gstDue && s.gstDue.netPayable > 0 ? s.gstDue : s.gst && s.gst.netPayable > 0 ? s.gst : null;
+  if (gst) {
+    const days = diffDays(s.asOf, gst.dueDate);
     out.push({
       id: 'gst-due',
       tone: days <= GST_URGENT_DAYS ? 'warning' : 'info',
       icon: 'gst',
-      title: `GST of ${compact(s.gst.netPayable)} for ${s.gst.label}`,
-      body: `Estimated cash payment after input credit. ${s.gst.dueForm} is due by ${formatDate(s.gst.dueDate)}${days >= 0 ? ` (${dueText(s.gst.dueDate, s.asOf).toLowerCase()})` : ''}.`,
-      target: DRILL.gstr3b(s.gst.period),
+      title: `GST of ${compact(gst.netPayable)} for ${gst.label}`,
+      body: `Estimated cash payment after input credit. ${gst.dueForm} is due by ${formatDate(gst.dueDate)}${days >= 0 ? ` (${dueText(gst.dueDate, s.asOf).toLowerCase()})` : ''}.`,
+      target: DRILL.gstr3b(gst.period),
     });
   }
   if (s.cashBank.cashTotal < 0) {
@@ -273,7 +329,7 @@ export function buildAlerts(s: DashboardSummary): DashboardAlert[] {
       icon: 'box',
       title: `${plural(s.lowStock.count, 'item')} below reorder level`,
       body: `${names.join(', ')}${more > 0 ? ` and ${more} more` : ''}.`,
-      target: s.lowStock.count === 1 && s.lowStock.items[0] ? DRILL.stockItem(s.lowStock.items[0].itemId) : DRILL.stockSummary(),
+      target: s.lowStock.count === 1 && s.lowStock.items[0] ? DRILL.stockItem(s.lowStock.items[0].itemId) : DRILL.reorder(),
     });
   }
   const c = s.compliance;
@@ -331,6 +387,64 @@ export function buildAlerts(s: DashboardSummary): DashboardAlert[] {
   return out.map((a, i) => ({ a, i })).sort((x, y) => TONE_ORDER[x.a.tone] - TONE_ORDER[y.a.tone] || x.i - y.i).map((x) => x.a);
 }
 
+// ───────────────────────────── GST card ─────────────────────────────
+
+export interface GstCardItem {
+  key: string;
+  label: string;
+  value: Paise;
+  kind: 'amount';
+  strong?: boolean;
+}
+
+/** Rows of one GST month on the card: tax on sales, ITC, reverse charge, cash to pay, credit left. */
+export function gstItems(g: DashboardGst): GstCardItem[] {
+  const items: GstCardItem[] = [
+    { key: 'out', label: 'Tax on sales', value: g.outputTax, kind: 'amount' },
+    { key: 'in', label: 'Input tax credit', value: g.inputTax, kind: 'amount' },
+  ];
+  if (g.reverseChargeTax !== 0) items.push({ key: 'rcm', label: 'Reverse charge (cash)', value: g.reverseChargeTax, kind: 'amount' });
+  items.push({ key: 'pay', label: g.netPayable > 0 ? 'To pay in cash' : 'Nothing to pay in cash', value: g.netPayable, kind: 'amount', strong: true });
+  if (g.creditCarriedForward > 0) items.push({ key: 'cf', label: 'Credit carried forward', value: g.creditCarriedForward, kind: 'amount' });
+  return items;
+}
+
+/** 'GSTR-3B due by 20-Oct-2026 (due in 12 days)' / '… (3 days overdue)'. */
+export function gstDueLine(g: DashboardGst, asOf: string): string {
+  return `${g.dueForm} due by ${formatDate(g.dueDate)} (${dueText(g.dueDate, asOf).toLowerCase()})`;
+}
+
+// ───────────────────────────── Getting started ─────────────────────────────
+
+export interface StartStep {
+  id: string;
+  title: string;
+  body: string;
+  action: string;
+  /** Screen to open, or `voucher` for the sales invoice (shell.openVoucher). */
+  target: DrillTarget | 'sales-voucher';
+  shortcut?: string;
+}
+
+/** First steps for a company with no vouchers yet, filtered by what the user may do. */
+export function startSteps(o: { manageCompany: boolean; createMasters: boolean; createVouchers: boolean; importData: boolean; inventory: boolean }): StartStep[] {
+  const steps: StartStep[] = [];
+  if (o.manageCompany) {
+    steps.push({ id: 'features', title: 'Switch on what you need', body: 'GST, inventory, bill-wise dues, godowns and more.', action: 'Features', target: DRILL.features(), shortcut: 'F11' });
+  }
+  if (o.createMasters) {
+    steps.push({ id: 'ledgers', title: 'Add your customers, suppliers and bank', body: 'Enter opening balances so dues and bank balances start right.', action: 'Create ledger', target: DRILL.newLedger() });
+    if (o.inventory) steps.push({ id: 'items', title: 'Add the items you sell', body: 'With GST rate, HSN and opening stock.', action: 'Create stock item', target: DRILL.newItem() });
+  }
+  if (o.createVouchers) {
+    steps.push({ id: 'sale', title: 'Record your first sale', body: 'Sales, dues, cash and GST then appear here.', action: 'Sales invoice', target: 'sales-voucher', shortcut: 'F8' });
+  }
+  if (o.importData) {
+    steps.push({ id: 'tally', title: 'Moving from Tally?', body: 'Bring your masters and vouchers across in one go.', action: 'Migrate from Tally', target: DRILL.tally() });
+  }
+  return steps;
+}
+
 // ───────────────────────────── Export ─────────────────────────────
 
 export interface DashboardExport {
@@ -354,13 +468,18 @@ export function exportTable(s: DashboardSummary): DashboardExport {
     rows.push([s.grossProfit.amount < 0 ? 'Gross loss — this period' : 'Gross profit — this period', Math.abs(s.grossProfit.amount), null, null]);
     rows.push(['Gross margin %', null, null, s.grossProfit.marginPercent]);
   }
-  rows.push(['Receivables', s.receivables.total, null, null]);
+  rows.push([s.receivables.total < 0 ? 'Receivables (net advance from customers)' : 'Receivables', Math.abs(s.receivables.total), null, null]);
   rows.push(['Receivables overdue', s.receivables.overdue, null, null]);
-  rows.push(['Payables', s.payables.total, null, null]);
+  rows.push([s.payables.total < 0 ? 'Payables (net advance to suppliers)' : 'Payables', Math.abs(s.payables.total), null, null]);
   rows.push([`Payables due in ${s.payables.dueSoon.days} days`, s.payables.dueSoon.amount, null, null]);
   // Balances: never a bare minus in an accounting report — a credit balance is labelled instead.
   rows.push([s.cashBank.cashTotal < 0 ? 'Cash in hand (Cr balance)' : 'Cash in hand', Math.abs(s.cashBank.cashTotal), null, null]);
   for (const b of s.cashBank.banks) rows.push([`${b.name}${b.balance < 0 ? (b.isOverdraft ? ' (overdraft used)' : ' (overdrawn, Cr)') : ''}`, Math.abs(b.balance), null, null]);
+  if (s.gstDue) {
+    rows.push([`GST output tax — ${s.gstDue.label}`, s.gstDue.outputTax, null, null]);
+    rows.push([`GST input credit — ${s.gstDue.label}`, s.gstDue.inputTax, null, null]);
+    rows.push([`GST payable — ${s.gstDue.label} — due ${formatDate(s.gstDue.dueDate)}`, s.gstDue.netPayable, null, null]);
+  }
   if (s.gst) {
     rows.push([`GST output tax — ${s.gst.label}`, s.gst.outputTax, null, null]);
     rows.push([`GST input credit — ${s.gst.label}`, s.gst.inputTax, null, null]);
@@ -376,6 +495,6 @@ export function exportTable(s: DashboardSummary): DashboardExport {
       { header: 'Change / share %', kind: 'percent', width: 12, decimals: 2 },
     ],
     rows,
-    notes: `Balances as on ${formatDate(s.asOf)}. Sales and purchases are net of returns and exclude GST.`,
+    notes: `Period ${formatDate(s.ranges.period.from)} to ${formatDate(s.ranges.period.to)}. Balances as on ${formatDate(s.asOf)}. Sales and purchases are net of returns and exclude GST.`,
   };
 }

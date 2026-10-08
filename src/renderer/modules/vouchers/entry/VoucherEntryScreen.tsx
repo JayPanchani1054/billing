@@ -167,6 +167,13 @@ export function VoucherEntryScreen({ params }: ScreenProps<VoucherEntryParams>) 
     );
   }
   if (!ctx0) return <Screen title={title} icon="invoice" loading />;
+  if (!detail && !ctx0.permissions.canCreate) {
+    return (
+      <Screen title={title} icon="invoice">
+        <EmptyState icon="lock" title={`You cannot enter ${type.name} vouchers`} body="Your role can view vouchers but not create them. Ask an administrator for the “Create vouchers” permission." />
+      </Screen>
+    );
+  }
   return <EntryForm key={`${type.id}:${params.id ?? ''}:${params.duplicateOf ?? ''}`} type={type} types={types} ctx0={ctx0} detail={detail} dup={dup} params={params} />;
 }
 
@@ -338,7 +345,13 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   // Server check while the user pauses (only when the voucher looks complete).
   const numberingMethod = ctx.voucherType.numberingMethod;
   const referenceRequired = baseType === 'purchase' && ctx.company.gstEnabled && !!party && !!party.gstin && party.registrationType !== 'unregistered' && party.registrationType !== 'consumer';
-  const pre = useMemo(() => clientIssues(deferred, { numberingMethod, referenceRequired }), [deferred, numberingMethod, referenceRequired]);
+  // The party's bill-wise allocation is checked against the invoice total (bill-wise parties only).
+  const partyBillWise = features.billWise && !!party?.billWise && postsParty(baseType);
+  const checksFor = (f: VoucherForm, invoiceTotal: number) => clientIssues(f, partyBillWise && isInvoiceMode(f.mode) ? { numberingMethod, referenceRequired, invoiceTotal } : { numberingMethod, referenceRequired });
+  const pre = useMemo(
+    () => clientIssues(deferred, partyBillWise && isInvoiceMode(deferred.mode) ? { numberingMethod, referenceRequired, invoiceTotal: invoice.grandTotal } : { numberingMethod, referenceRequired }),
+    [deferred, numberingMethod, referenceRequired, partyBillWise, invoice.grandTotal],
+  );
   useEffect(() => {
     if (pre.first !== null || !form.touched) return undefined;
     let alive = true;
@@ -452,6 +465,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     focusId(
       initialFocusId({
         manualNumber: f.id === null && ctxRef.current.voucherType.numberingMethod === 'manual',
+        referenceFirst: isInvoiceMode(f.mode) && (baseType === 'purchase' || (baseType === 'debit_note' && gridEnvRef.current.direction === 'inward')),
         partyShown: showsParty(baseType, f.mode),
         singleAccount: f.mode === 'ledger' && f.layout === 'single' && singleEntryAccountSide(baseType) !== null,
         firstSection: first,
@@ -695,7 +709,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const doSave = async () => {
     if (busy) return;
     const f = formRef.current;
-    const issues = clientIssues(f, { numberingMethod, referenceRequired });
+    const issues = checksFor(f, computeInvoiceTotals(f, totalsEnv).grandTotal);
     if (issues.first) {
       setCellErrors(issues.cells);
       setBanner(null);
@@ -754,6 +768,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   saveRef.current = doSave;
 
   const askAccept = async () => {
+    // Something obvious is missing: show it at once instead of asking "Accept?" first.
+    if (checksFor(formRef.current, computeInvoiceTotals(formRef.current, totalsEnv).grandTotal).first) return saveRef.current();
     const ok = await confirm({ title: 'Accept this voucher?', message: summaryText(), confirmLabel: 'Accept', cancelLabel: 'Go back' });
     if (ok) await saveRef.current();
   };
@@ -839,7 +855,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
 
   const trackKinds = useMemo(() => trackingKinds(baseType, features), [baseType, features]);
 
-  const partyBillsOn = features.billWise && !!party?.billWise && isInvoiceMode(form.mode) && postsParty(baseType);
+  const partyBillsOn = partyBillWise && isInvoiceMode(form.mode);
   const openBills = () => {
     const c = activeCell();
     if (c && c.section === 'ledgers' && form.mode === 'ledger') {

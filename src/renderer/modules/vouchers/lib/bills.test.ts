@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { PendingBill } from '../../../../shared/types/vouchers.ts';
-import { allocationRemaining, autoAllocateFifo, checkAllocations, dueDateFor, fifoOrder } from './bills.ts';
+import { allocationRemaining, autoAllocateFifo, checkAllocations, defaultAllocation, dueDateFor, fifoOrder } from './bills.ts';
 
 const bill = (billName: string, billDate: string, amount: number, dueDate: string | null = null): PendingBill => ({
   billName,
@@ -73,5 +73,26 @@ describe('allocation checks', () => {
     assert.equal(dueDateFor('2026-10-05', 30), '2026-11-04');
     assert.equal(dueDateFor('2026-10-05', 0), null);
     assert.equal(dueDateFor('2026-10-05', null), null);
+  });
+});
+
+describe('default allocation when the dialog opens', () => {
+  const pending = [bill('S/2', '2026-09-10', 300000, '2026-10-10'), bill('S/1', '2026-08-01', 200000, '2026-08-31'), bill('P/9', '2026-08-15', -50000)];
+  it('a receipt (Cr) against a customer who owes settles the oldest Dr bills first, the rest On Account', () => {
+    // ₹6,000 received: S/1 ₹2,000 (oldest) + S/2 ₹3,000, remaining ₹1,000 on account. P/9 (Cr) is not settled by a Cr entry.
+    assert.deepEqual(defaultAllocation({ pending, amount: 600000, side: 'cr', date: '2026-10-05', suggestedName: '17', creditDays: null, invoiceParty: false }), [
+      { refType: 'against', billName: 'S/1', amount: 200000 },
+      { refType: 'against', billName: 'S/2', amount: 300000 },
+      { refType: 'on_account', amount: 100000 },
+    ]);
+  });
+
+  it('an invoice party, or nothing to settle, starts a New Ref named after the voucher with the credit period', () => {
+    assert.deepEqual(defaultAllocation({ pending, amount: 118000, side: 'dr', date: '2026-10-05', suggestedName: 'INV/42', creditDays: 30, invoiceParty: true }), [
+      { refType: 'new', billName: 'INV/42', amount: 118000, creditDays: 30, dueDate: '2026-11-04' },
+    ]);
+    assert.deepEqual(defaultAllocation({ pending: [], amount: -5000, side: 'cr', date: '2026-10-05', suggestedName: '9', creditDays: null, invoiceParty: false }), [
+      { refType: 'new', billName: '9', amount: 5000 },
+    ]);
   });
 });

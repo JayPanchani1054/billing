@@ -186,7 +186,7 @@ matches the voucher type) · `bill_allocations` (bills add up to their entry, sa
 `gst_tax_postings` (gst_lines tax per head = duty-ledger postings; skipped for reverse charge, imports,
 non-claimable tax, ledger-mode vouchers) · `orphans` (vouchers in the books without entries, masters under
 missing parents) · `group_tree` (no cycles) · `opening_difference` (Σ openings + opening stock = 0) ·
-`audit_chain` (hash chain) · `duplicate_numbers` (per voucher type and numbering period).
+`audit_chain` (hash chain) · `duplicate_numbers` (per voucher type and numbering period, for types with "Prevent duplicates" on).
 
 ## Tests
 

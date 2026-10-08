@@ -2,7 +2,8 @@
 
 Inventory reports in the Gateway section **Inventory Reports**. Every screen needs the company's
 **Inventory** feature (F11); Godown Summary also needs *Multiple godowns*, Batch Summary *Batches*
-and Pending Orders *Order processing*. Access: `reports.view`. Core API and rules:
+and Pending Orders *Order processing*. Access: `reports.view` (Item Profitability:
+`reports.financial`, like the P&L). Core API and rules:
 `src/core/modules/stock/README.md`; DTOs: `src/shared/types/stock.ts`.
 
 ## Screens
@@ -32,8 +33,9 @@ screen is registered), so no provider is registered here.
 - Quantities are shown with their own unit and only the decimals they need (`qtyText`): `12.5 Kg`,
   `1,25,000 Nos`. Group rows show a quantity only when the core can add it up (same unit, *Add
   quantities* on), otherwise blank.
-- Values are positive stock values (not Dr/Cr): negative stock and losses show with a minus sign and
-  a semibold weight (no red/green).
+- Values are stock values, not Dr/Cr balances: negative stock, losses and shortages show in
+  parentheses — `(1,234.50)`, never a bare minus (UI kit rule) — in a semibold weight (no
+  red/green); `signedAmountText` / `amountColumn`. Exports keep the signed number.
 - Export / print use exactly what is on screen: visible tree rows (collapsed groups' items are left
   out), the chosen columns (Detailed / values), landscape for wide tables.
 - Every empty state says why it is empty and what to do (change the period, set reorder levels,

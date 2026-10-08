@@ -9,6 +9,10 @@ import { ledgerBalance } from '../accounts/books.ts';
 import { ageing, dueSoon } from '../outstanding/reports.ts';
 import { loadReportEnv } from '../reports/engine.ts';
 import { profitLoss } from '../reports/financials.ts';
+import { cashBank as cashBankReport } from '../reports/trialBalance.ts';
+import { loadCompany } from '../gst/docs.ts';
+import { pendingEinvoices } from '../gst/einvoice.ts';
+import { pendingEwayBills } from '../gst/ewaybill.ts';
 import { createTestCompany } from '../../testing/fixtures.ts';
 import { save } from '../vouchers/testkit.ts';
 import { dashboardRanges, dashboardSummary, gstDueDate, summaryForCtx } from './summary.ts';
@@ -189,6 +193,104 @@ test('gstDueDate: monthly 20th; quarterly PMT-06 25th, quarter end 22nd / 24th b
   assert.deepEqual(gstDueDate('2026-10-01', 'quarterly', '27'), { dueDate: '2026-11-25', form: 'PMT-06' });
   assert.deepEqual(gstDueDate('2026-12-01', 'quarterly', '27'), { dueDate: '2027-01-22', form: 'GSTR-3B' });
   assert.deepEqual(gstDueDate('2027-03-01', 'quarterly', '09'), { dueDate: '2027-04-24', form: 'GSTR-3B' });
+  // Category 1 (22nd) vs category 2 (24th), Notification 76/2020-CT: Ladakh (38), Delhi (07) and J&K (01)
+  // file on the 24th; Gujarat (24), Daman & Diu (25), Telangana (36) on the 22nd.
+  for (const st of ['38', '07', '01', '04', '19']) assert.equal(gstDueDate('2026-09-01', 'quarterly', st).dueDate, '2026-10-24', `state ${st}`);
+  for (const st of ['24', '25', '26', '36', '37', '34']) assert.equal(gstDueDate('2026-09-01', 'quarterly', st).dueDate, '2026-10-22', `state ${st}`);
+});
+
+test("GST due: last month's return is shown until its due date", () => {
+  const b = buildDashboardBooks();
+  // September 2026: S2 blr (29, inter-state) 2,500 @ 18% IGST = 450; no purchases in September → no
+  // credit, so 450 is payable in cash by 20-Oct (monthly filer). X1 is cancelled, RNT carries no GST.
+  const d = summaryForCtx(b.t.ctx, INPUT).gstDue;
+  assert.ok(d);
+  assert.equal(d.period, '092026');
+  assert.equal(d.label, 'Sep 2026');
+  assert.equal(d.dueDate, '2026-10-20');
+  assert.equal(d.outputTax, rs(450));
+  assert.equal(d.inputTax, 0);
+  assert.equal(d.netPayable, rs(450));
+  assert.equal(d.documentCount, 1);
+  // On the due date it is still shown; the day after it is gone.
+  b.t.clock.setToday('2026-10-20');
+  assert.equal(summaryForCtx(b.t.ctx, { asOf: '2026-10-20', from: INPUT.from, to: '2026-10-20' }).gstDue?.period, '092026');
+  b.t.clock.setToday('2026-10-21');
+  assert.equal(summaryForCtx(b.t.ctx, { asOf: '2026-10-21', from: INPUT.from, to: '2026-10-21' }).gstDue, null);
+  // Without gst.view: nothing.
+  b.t.clock.setToday(TODAY);
+  assert.equal(summaryForCtx(b.t.ctxAs({ permissions: ['reports.view'] }), INPUT).gstDue, null);
+  b.t.close();
+});
+
+test('tie-out: sales / purchases = the P&L for the period; cash & bank = the Cash/Bank Books closing', () => {
+  const b = buildDashboardBooks();
+  for (const range of [INPUT, { asOf: TODAY, from: '2026-10-01', to: TODAY }, { asOf: TODAY, from: '2025-04-01', to: '2026-03-31' }]) {
+    const s = summaryForCtx(b.t.ctx, range);
+    const pl = profitLoss(loadReportEnv(b.t.db, b.t.today), { from: range.from, to: range.to });
+    assert.equal(s.sales.period, pl.figures.sales, `sales ${range.from}`);
+    assert.equal(s.purchases.period, pl.figures.purchases, `purchases ${range.from}`);
+    assert.equal(s.grossProfit?.amount, pl.figures.grossProfit, `gross profit ${range.from}`);
+  }
+  const s = summaryForCtx(b.t.ctx, INPUT);
+  const cb = cashBankReport(loadReportEnv(b.t.db, b.t.today), { from: INPUT.from, to: INPUT.asOf });
+  assert.equal(s.cashBank.cashTotal + s.cashBank.bankTotal, cb.totals.closing); // 6,102 + 29,875 = 35,977
+  assert.equal(cb.totals.closing, rs(35_977));
+  b.t.close();
+});
+
+test('nominal opening balances (books begun mid-year) count in the first period, the trend and the P&L alike', () => {
+  // Books from 1-Jul-2026; the year-to-date before that is entered as openings: Sales Cr 1,00,000,
+  // Purchase Dr 60,000. One July sale of 1,000 (cash, rice 20 @ 50).
+  const t = createTestCompany({ today: TODAY, booksFrom: '2026-07-01', features: { inventory: false, integrateInventory: false } });
+  const L = t.ids.ledgers;
+  t.db.run('UPDATE ledgers SET opening_balance = :ob WHERE id = :id', { ob: -rs(100_000), id: L.SALES });
+  t.db.run('UPDATE ledgers SET opening_balance = :ob WHERE id = :id', { ob: rs(60_000), id: L.PURCHASE });
+  const s = summaryForCtx(t.ctx, { asOf: TODAY, from: '2026-04-01', to: TODAY });
+  // Period / YTD contain 1-Jul: 1,00,000 opening; MTD / today do not.
+  assert.equal(s.sales.period, rs(100_000));
+  assert.equal(s.sales.ytd, rs(100_000));
+  assert.equal(s.sales.mtd, 0);
+  assert.equal(s.purchases.period, rs(60_000));
+  // GP = 1,00,000 − 60,000 = 40,000 = the P&L.
+  const pl = profitLoss(loadReportEnv(t.db, t.today), { from: '2026-04-01', to: TODAY });
+  assert.equal(s.sales.period, pl.figures.sales);
+  assert.equal(s.grossProfit?.amount, rs(40_000));
+  assert.equal(s.grossProfit?.amount, pl.figures.grossProfit);
+  // The trend puts them in July 2026 (the month of the books beginning), so Σ trend = YTD.
+  assert.deepEqual(s.trend.find((m) => m.month === '2026-07'), { month: '2026-07', from: '2026-07-01', to: '2026-07-31', sales: rs(100_000), purchases: rs(60_000) });
+  assert.equal(s.trend.reduce((a, m) => a + m.sales, 0), s.sales.ytd);
+  // A period after the books beginning does not repeat them.
+  const later = summaryForCtx(t.ctx, { asOf: TODAY, from: '2026-08-01', to: TODAY });
+  assert.equal(later.sales.period, 0);
+  t.close();
+});
+
+test('compliance tie-out: counts equal the e-Invoice / e-Way Bill screens, incl. vouchers without a stored GST nature', () => {
+  const b = buildDashboardBooks({ features: { einvoice: true, ewayBill: true } });
+  // Big B2B sale: rice 1,000 @ 60 = 60,000 + 5% = 63,000 (needs an IRN and an e-way bill). A second big
+  // B2B sale, mixer 300 @ 200 = 60,000 + 18% = 70,800, is turned into a legacy row without a stored nature.
+  save(b, { voucherTypeId: b.vt.sales, date: TODAY, mode: 'item_invoice', partyLedgerId: b.L.metro, items: [{ itemId: b.I.rice, qty: 1_000, rate: 60 }] });
+  const legacy = save(b, { voucherTypeId: b.vt.sales, date: '2026-10-07', mode: 'item_invoice', partyLedgerId: b.L.acme, items: [{ itemId: b.I.mixer, qty: 300, rate: 200 }] });
+  // A legacy import: no stored nature (gst/docs.ts derives B2B); an unknown stored value is ignored too.
+  b.t.db.run('UPDATE vouchers SET gst_nature = NULL WHERE id = :id', { id: legacy.id });
+  b.t.db.run("UPDATE vouchers SET gst_nature = 'bogus' WHERE id = :id", { id: b.v.S3.id });
+  const s = summaryForCtx(b.t.ctx, INPUT);
+  const company = loadCompany(b.t.db);
+  const ei = pendingEinvoices(b.t.db, company, s.compliance.from, s.compliance.to, b.t.today);
+  const ew = pendingEwayBills(b.t.db, company, s.compliance.from, s.compliance.to, b.t.today);
+  // S1, S2, S3 (derived), S4, CN, big, legacy (derived) = 7; e-way: big 63,000 and legacy 70,800 (> 50,000).
+  assert.equal(ei.rows.length, 7);
+  assert.equal(s.compliance.einvoicePending, ei.rows.length);
+  assert.equal(ew.rows.length, 2);
+  assert.equal(s.compliance.ewayPending, ew.rows.length);
+  // A sale stored with an inward nature is still a sale (outward) for the GST engine.
+  b.t.db.run("UPDATE vouchers SET gst_nature = 'inward_b2b' WHERE id = :id", { id: legacy.id });
+  const s2 = summaryForCtx(b.t.ctx, INPUT);
+  assert.equal(s2.compliance.einvoicePending, pendingEinvoices(b.t.db, company, INPUT.from, TODAY, b.t.today).rows.length);
+  assert.equal(s2.compliance.ewayPending, pendingEwayBills(b.t.db, company, INPUT.from, TODAY, b.t.today).rows.length);
+  assert.equal(s2.compliance.ewayPending, 2);
+  b.t.close();
 });
 
 test('top customers (cash/bank parties excluded) and top items for the period', () => {

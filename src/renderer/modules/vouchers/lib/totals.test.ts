@@ -4,7 +4,7 @@ import { computeInvoice } from '../../../../shared/gst/index.ts';
 import type { InvoiceLineInput } from '../../../../shared/gst/index.ts';
 import { formReducer, newForm } from './formState.ts';
 import type { VoucherForm } from './formState.ts';
-import { computeInvoiceTotals, computeLedgerTotals, computeStockTotals, itemProfile, ledgerProfile } from './totals.ts';
+import { computeInvoiceTotals, computeLedgerTotals, computeStockTotals, itemProfile, ledgerProfile, stabilizeLines } from './totals.ts';
 import type { ClientItemInfo, ClientLedgerTax, TotalsEnv } from './totals.ts';
 
 const RICE: ClientItemInfo = { id: 1, isService: false, unitSymbol: 'KGS', gst: { rate: 5, cessRate: 0, cessPerUnit: 0, taxability: 'taxable', hsnSac: '1006' } };
@@ -200,5 +200,48 @@ describe('computeStockTotals', () => {
     f = formReducer(f, { type: 'item', key: dst, patch: { itemId: 2, qty: 4, rate: 130 } });
     // 10 × 50 = 500.00 consumed; 4 × 130 = 520.00 produced
     assert.deepEqual(computeStockTotals(f), { total: 102000, consumption: 50000, production: 52000, qty: 14 });
+  });
+});
+
+describe('review fixes', () => {
+  it('ledger GST override mirrors the engine: taxability and cess too', () => {
+    const consult = ledger({ gstApplicable: true, taxability: 'taxable', rate: 18, cessRate: 0, hsnSac: '998311', supplyType: 'services' });
+    assert.deepEqual(ledgerProfile(consult, '2026-10-05', { taxability: 'exempt' }), { taxability: 'exempt', rate: 0, cessRate: 0, cessPerUnit: 0, hsnSac: '998311', supplyKind: 'services' });
+    assert.deepEqual(ledgerProfile(consult, '2026-10-05', { rate: 28, cessRate: 12 }), { taxability: 'taxable', rate: 28, cessRate: 12, cessPerUnit: 0, hsnSac: '998311', supplyKind: 'services' });
+    // Not GST-applicable + a rate override → taxable at that rate; supply kind from the HSN.
+    assert.deepEqual(ledgerProfile(ledger(), '2026-10-05', { rate: 5, hsnSac: '1006' }), { taxability: 'taxable', rate: 5, cessRate: 0, cessPerUnit: 0, hsnSac: '1006', supplyKind: 'goods' });
+  });
+
+  it('an additional ledger with a GST override is computed in item mode as well', () => {
+    let f = salesForm();
+    const blank = f.ledgers[f.ledgers.length - 1].key;
+    // Consulting income (50) is not GST-applicable: as an item-invoice charge it would be added after tax…
+    f = formReducer(f, { type: 'ledger', key: blank, patch: { ledgerId: 50, amount: 10000 } });
+    const before = computeInvoiceTotals(f, env());
+    assert.equal(before.lines.get(blank)?.taxability, 'non_gst');
+    // …with an override it joins the GST computation: ₹100 @18% = ₹18.00.
+    f = formReducer(f, { type: 'ledger', key: blank, patch: { gstRate: 18 } });
+    const after = computeInvoiceTotals(f, env());
+    assert.equal(after.lines.get(blank)?.tax, 1800);
+    assert.equal(after.tax - before.tax, 1800);
+  });
+
+  it('stabilizeLines keeps the previous figure objects of unchanged rows (memoised rows do not re-render)', () => {
+    const a = { taxable: 100, tax: 18, rate: 18, total: 118, taxability: 'taxable' as const };
+    const b = { taxable: 200, tax: 10, rate: 5, total: 210, taxability: 'taxable' as const };
+    const prev = new Map([
+      ['i1', a],
+      ['i2', b],
+    ]);
+    const next = stabilizeLines(prev, new Map([
+      ['i1', { ...a }],
+      ['i2', { ...b, tax: 11, total: 211 }],
+      ['i3', { ...b }],
+    ]));
+    assert.equal(next.get('i1'), a, 'same numbers → same object');
+    assert.notEqual(next.get('i2'), b);
+    assert.equal(next.get('i2')?.tax, 11);
+    assert.equal(next.size, 3);
+    assert.equal(stabilizeLines(null, prev).get('i1'), a);
   });
 });

@@ -3,7 +3,9 @@
  * The server repeats every rule; these only catch the obvious gaps early, next to the right cell,
  * in the same words an accountant would use.
  */
+import type { Paise } from '../../../../shared/money.ts';
 import type { NumberingMethod } from '../../../../shared/types/vouchers.ts';
+import { allocationTotal } from './bills.ts';
 import { cellId, headerId } from './errorPaths.ts';
 import { formatMoney } from '../../../../shared/format.ts';
 import { isBlankItem, isBlankLedger, ledgerDifference } from './formState.ts';
@@ -14,6 +16,8 @@ export interface ClientCheckEnv {
   numberingMethod: NumberingMethod;
   /** Purchase from a registered supplier in a GST company: the supplier's invoice number is required. */
   referenceRequired: boolean;
+  /** Invoice total the party's bill-wise allocation must add up to (invoice modes with a bill-wise party). */
+  invoiceTotal?: Paise;
 }
 
 export interface ClientIssues {
@@ -36,6 +40,13 @@ export function clientIssues(f: VoucherForm, env: ClientCheckEnv): ClientIssues 
   if (partyRequired(f.baseType, f.mode) && f.mode !== 'ledger' && f.partyLedgerId === null) add(headerId('party'), 'Choose the party — the customer or supplier this voucher is for.');
   if (env.referenceRequired && f.referenceNo.trim() === '') add(headerId('referenceNo'), "Enter the supplier's invoice number — GST input credit is claimed against it.");
   if (f.mode === 'ledger' && f.layout === 'single' && singleEntryAccountSide(f.baseType) !== null && f.accountLedgerId === null) add(headerId('account'), 'Choose the cash or bank account.');
+  // Bill-wise details typed earlier no longer match after the lines changed (the server would refuse: bill_mismatch).
+  if (isInvoiceMode(f.mode) && env.invoiceTotal !== undefined && f.partyBills && f.partyBills.length > 0) {
+    const alloc = allocationTotal(f.partyBills);
+    if (alloc !== Math.abs(env.invoiceTotal)) {
+      add(headerId('party'), `The bill-wise details add up to ₹ ${formatMoney(alloc)} but the invoice total is ₹ ${formatMoney(Math.abs(env.invoiceTotal))}. Press Alt+B to correct them.`);
+    }
+  }
 
   if (f.mode === 'item_invoice' || f.mode === 'inventory') {
     const filled = f.items.filter((r) => !isBlankItem(r));
@@ -56,6 +67,9 @@ export function clientIssues(f: VoucherForm, env: ClientCheckEnv): ClientIssues 
     for (const r of f.ledgers) {
       if (isBlankLedger(r)) continue;
       if (r.amount === null || r.amount === 0) add(cellId('ledgers', r.key, 'amount'), 'Enter the amount.');
+      else if (f.mode === 'ledger' && r.bills && r.bills.length > 0 && allocationTotal(r.bills) !== Math.abs(r.amount)) {
+        add(cellId('ledgers', r.key, 'amount'), `The bill-wise details add up to ₹ ${formatMoney(allocationTotal(r.bills))}, not ₹ ${formatMoney(Math.abs(r.amount))}. Press Alt+B on this line to correct them.`);
+      }
     }
   }
 

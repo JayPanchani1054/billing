@@ -8,7 +8,7 @@ import { useNav, usePeriod } from '../../app/index.ts';
 import type { Period } from '../../app/index.ts';
 import { EmptyState } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { keysUpToLevel, paramsPeriod, parentKeys, qtyText, rateText } from './lib/model.ts';
+import { keysUpToLevel, paramsPeriod, parentKeys, qtyText, rateText, signedAmountText } from './lib/model.ts';
 import type { DrillTarget, Range, TreeRowLike } from './lib/model.ts';
 
 // ───────────────────────────── Period ─────────────────────────────
@@ -87,8 +87,25 @@ export function qtyColumn<T>(key: string, header: string, get: (r: T) => number 
   };
 }
 
-export function amountColumn<T>(key: string, header: string, get: (r: T) => number | null | undefined, opts: { width?: number; blankZero?: boolean; hidden?: boolean; total?: boolean } = {}): Column<T> {
-  return { key, header, kind: 'amount', width: opts.width ?? 150, blankZero: opts.blankZero ?? true, hidden: opts.hidden, value: (r) => get(r) ?? null, total: opts.total };
+/**
+ * Right-aligned paise. Negatives (negative stock, losses) show in parentheses — never a bare minus
+ * (UI kit rule); `value` stays signed for sorting and export. Zero is blank unless blankZero: false.
+ */
+export function amountColumn<T>(key: string, header: string, get: (r: T) => number | null | undefined, opts: { width?: number; blankZero?: boolean; hidden?: boolean; total?: boolean; cellClassName?: (r: T) => string | undefined } = {}): Column<T> {
+  const blankZero = opts.blankZero ?? true;
+  return {
+    key,
+    header,
+    kind: 'amount',
+    width: opts.width ?? 150,
+    blankZero,
+    hidden: opts.hidden,
+    total: opts.total,
+    value: (r) => get(r) ?? null,
+    render: (r) => signedAmountText(get(r), blankZero),
+    title: (r) => signedAmountText(get(r), blankZero) || undefined,
+    cellClassName: opts.cellClassName ?? ((r) => ((get(r) ?? 0) < 0 ? 'bx-stock-loss' : undefined)),
+  };
 }
 
 export function rateColumn<T>(key: string, header: string, get: (r: T) => number | null | undefined, opts: { width?: number; hidden?: boolean } = {}): Column<T> {

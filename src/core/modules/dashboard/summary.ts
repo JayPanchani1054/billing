@@ -40,13 +40,16 @@ import type {
   FlowSet,
 } from '../../../shared/types/dashboard.ts';
 import type { OutstandingSide } from '../../../shared/types/outstanding.ts';
+import { GST_NATURES } from '../../../shared/types/gst.ts';
+import { isOutwardNature } from '../../../shared/gst/classify.ts';
 import type { CompanyCtx, Session } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { validation } from '../../lib/errors.ts';
 import { BOOKS_FILTER, closingBalances, loadGroupTree, type GroupTree } from '../accounts/books.ts';
 import { getConfig, getFeatures } from '../company/service.ts';
 import { lastBackupAt } from '../data/backup.ts';
-import { loadCompany, loadDocs } from '../gst/docs.ts';
+import { loadCompany, loadDocs, type GstCompany } from '../gst/docs.ts';
+import { einvoiceSupplyType } from '../gst/einvoice.ts';
 import { computeGstr3b } from '../gst/gstr3b.ts';
 import { monthPeriodKey, parsePeriodKey } from '../gst/period.ts';
 import { computeStockValuation, stockByItem } from '../inventory/index.ts';
@@ -132,7 +135,7 @@ interface FlowSums {
   [kind: string]: Record<string, Paise>;
 }
 
-function flowSums(db: Db, cls: Classified, r: DashboardRanges, today: string): FlowSums {
+function flowSums(db: Db, cls: Classified, r: DashboardRanges, today: string, booksFrom: string): FlowSums {
   const ranges: Array<[string, DateRange]> = [];
   for (const k of RANGE_KEYS) {
     ranges.push([k, r[k]]);
@@ -150,8 +153,14 @@ function flowSums(db: Db, cls: Classified, r: DashboardRanges, today: string): F
   params.maxTo = ranges.reduce((m, [, x]) => maxDate(m, x.to), ranges[0][1].to);
   for (const k of ['s', 'p', 'di', 'de'] as const) params[`ids_${k}`] = JSON.stringify(cls.trading.get(k) ?? []);
 
+  // Nominal opening balances belong to the range that contains the books beginning (a company that
+  // starts its books mid-year enters the year-to-date figures as openings) — exactly as the P&L's
+  // nominalMovement does, so every flow ties to the P&L for the same dates.
   const out: FlowSums = {};
-  for (const k of ['s', 'p', 'di', 'de']) out[k] = Object.fromEntries(ranges.map(([key]) => [key, 0]));
+  for (const k of ['s', 'p', 'di', 'de'] as const) {
+    const ob = cls.tradingOpening.get(k) ?? 0;
+    out[k] = Object.fromEntries(ranges.map(([key, range]) => [key, containsDate(range, booksFrom) ? ob : 0]));
+  }
   const rows = db.all<Record<string, number | string | null>>(
     `WITH k(id, kind) AS (
        SELECT value, 's' FROM json_each(:ids_s) UNION ALL SELECT value, 'p' FROM json_each(:ids_p)
@@ -165,10 +174,12 @@ function flowSums(db: Db, cls: Classified, r: DashboardRanges, today: string): F
   );
   for (const row of rows) {
     const kind = String(row.kind);
-    for (const [key] of ranges) out[kind][key] = Number(row[key] ?? 0);
+    for (const [key] of ranges) out[kind][key] += Number(row[key] ?? 0);
   }
   return out;
 }
+
+const containsDate = (r: DateRange, d: string): boolean => r.from <= d && d <= r.to;
 
 /** Side-natural flow: sales/incomes are credits (−), purchases/expenses debits (+). */
 function toFlow(sums: Record<string, Paise>, sign: 1 | -1): DashboardFlow {
@@ -184,7 +195,7 @@ function toFlow(sums: Record<string, Paise>, sign: 1 | -1): DashboardFlow {
 /** Avoid -0 in JSON. */
 const nz = (n: number): number => (n === 0 ? 0 : n);
 
-function trendMonths(db: Db, cls: Classified, to: string, today: string): DashboardMonth[] {
+function trendMonths(db: Db, cls: Classified, to: string, today: string, booksFrom: string): DashboardMonth[] {
   // 12 calendar months ending with the month of `to`.
   const lastMonthStart = startOfMonth(to);
   const from = shiftMonths(lastMonthStart, -11);
@@ -204,6 +215,12 @@ function trendMonths(db: Db, cls: Classified, to: string, today: string): Dashbo
     if (r.kind === 's') slot.s = nz(-r.amt);
     else slot.p = nz(r.amt);
   }
+  // The month of the books beginning carries the nominal opening balances (as the flows and the P&L).
+  const obSlot = byMonth.get(monthKey(booksFrom));
+  if (obSlot) {
+    obSlot.s = nz(obSlot.s - (cls.tradingOpening.get('s') ?? 0));
+    obSlot.p = nz(obSlot.p + (cls.tradingOpening.get('p') ?? 0));
+  }
   return months.map((m) => {
     const f = `${m}-01`;
     const v = byMonth.get(m) as { s: number; p: number };
@@ -221,15 +238,13 @@ function shiftMonths(monthStart: string, n: number): string {
 
 // ───────────────────────────── Gross profit ─────────────────────────────
 
-function grossProfit(db: Db, sums: FlowSums, cls: Classified, period: DateRange, booksFrom: string, integrated: boolean, today: string): DashboardGrossProfit {
-  // Nominal opening balances belong to the first P&L (a company that starts its books mid-year enters
-  // year-to-date figures as openings) — exactly as reports' nominalMovement does.
-  const withOb = period.from <= booksFrom && booksFrom <= period.to;
-  const ob = (k: TradingKind): Paise => (withOb ? (cls.tradingOpening.get(k) ?? 0) : 0);
-  const sales = nz(-(sums.s.period + ob('s')));
-  const purchases = nz(sums.p.period + ob('p'));
-  const directIncomes = nz(-(sums.di.period + ob('di')));
-  const directExpenses = nz(sums.de.period + ob('de'));
+function grossProfit(db: Db, sums: FlowSums, period: DateRange, integrated: boolean, today: string): DashboardGrossProfit {
+  // The period sums already include the nominal opening balances when the period contains the books
+  // beginning (flowSums), exactly as the P&L.
+  const sales = nz(-sums.s.period);
+  const purchases = nz(sums.p.period);
+  const directIncomes = nz(-sums.di.period);
+  const directExpenses = nz(sums.de.period);
   let openingStock: Paise | null = null;
   let closingStock: Paise | null = null;
   if (integrated) {
@@ -328,8 +343,14 @@ function cashBank(db: Db, cls: Classified, asOf: string, today: string): Dashboa
 
 // ───────────────────────────── GST ─────────────────────────────
 
-/** States whose quarterly (QRMP) GSTR-3B is due on the 22nd; the rest on the 24th (Notification 76/2020-CT). */
-const QRMP_22ND_STATES = new Set(['22', '23', '24', '26', '27', '29', '30', '31', '32', '33', '34', '35', '36', '37', '38', '25']);
+/**
+ * States / UTs whose quarterly (QRMP) GSTR-3B is due on the 22nd (Notification 76/2020-CT, category 1):
+ * Chhattisgarh 22, Madhya Pradesh 23, Gujarat 24, Daman & Diu 25, Dadra & Nagar Haveli (and Daman &
+ * Diu) 26, Maharashtra 27, Karnataka 29, Goa 30, Lakshadweep 31, Kerala 32, Tamil Nadu 33,
+ * Puducherry 34, Andaman & Nicobar 35, Telangana 36, Andhra Pradesh 37. Everyone else — including
+ * Ladakh 38, Delhi, J&K, Chandigarh and the northern / eastern states — files on the 24th.
+ */
+export const QRMP_22ND_STATES: ReadonlySet<string> = new Set(['22', '23', '24', '25', '26', '27', '29', '30', '31', '32', '33', '34', '35', '36', '37']);
 
 /**
  * Due date of the tax for a month: monthly filers — GSTR-3B on the 20th of the next month; quarterly
@@ -346,10 +367,9 @@ export function gstDueDate(monthStart: string, frequency: 'monthly' | 'quarterly
   return { dueDate: day(QRMP_22ND_STATES.has(stateCode) ? 22 : 24), form: 'GSTR-3B' };
 }
 
-function gstCard(db: Db, asOf: string, today: string): DashboardGst | null {
-  const company = loadCompany(db);
-  if (!company.features.gst || company.registration !== 'regular') return null;
-  const period = parsePeriodKey(monthPeriodKey(asOf));
+/** The GSTR-3B figures of one calendar month (the GSTR-3B screen's computation, incl. its manual entries). */
+function gstMonth(db: Db, company: GstCompany, monthStart: string, today: string): DashboardGst | null {
+  const period = parsePeriodKey(monthPeriodKey(monthStart));
   if (!period) return null;
   const docs = loadDocs(db, company, { from: period.from, to: period.to, today });
   const s = computeGstr3b(db, company, period, today, undefined, docs);
@@ -374,39 +394,88 @@ function gstCard(db: Db, asOf: string, today: string): DashboardGst | null {
   };
 }
 
-/** e-invoice natures (as gst/einvoice.ts) and inward natures (never need an outward e-way bill). */
+/**
+ * GST cards: the month of asOf (an estimate so far) and — while it is still due (asOf on or before its
+ * due date) — the previous month's return, which is the one the owner has to pay next. Regular
+ * registrations only.
+ */
+type GstPair = { current: DashboardGst | null; due: DashboardGst | null };
+
+function gstCards(db: Db, asOf: string, today: string, booksFrom: string): GstPair {
+  const company = loadCompany(db);
+  if (!company.features.gst || company.registration !== 'regular') return { current: null, due: null };
+  const current = gstMonth(db, company, startOfMonth(asOf), today);
+  const prev = shiftMonths(startOfMonth(asOf), -1);
+  const prevDue = gstDueDate(prev, company.config.gst.filingFrequency, company.stateCode);
+  const due = endOfMonth(prev) >= booksFrom && asOf <= prevDue.dueDate ? gstMonth(db, company, prev, today) : null;
+  return { current, due };
+}
+
+/**
+ * Natures, exactly as gst/docs.ts reads vouchers.gst_nature: a stored value outside the list is ignored
+ * (derived instead); a stored nature decides the direction except for sales (always outward).
+ */
 const EINVOICE_NATURES = ['b2b', 'sez_wpay', 'sez_lut', 'export_wpay', 'export_lut', 'deemed_export'];
-const INWARD_NATURES = ['inward_b2b', 'inward_rcm', 'inward_unregistered', 'inward_composition', 'import_goods', 'import_services', 'inward_sez', 'inward_nil_exempt'];
+const INWARD_NATURES = GST_NATURES.filter((n) => !isOutwardNature(n));
+const EINVOICE_BASES = ['sales', 'credit_note', 'debit_note'] as const;
+const IRN_OPEN = `(v.irn IS NULL OR v.irn = '') AND (v.irn_status IS NULL OR v.irn_status IN ('', 'pending'))`;
+
+/**
+ * Documents waiting for an IRN — the count of gst.einvoice.pending (gst/einvoice.ts needsIrn). Vouchers
+ * with a stored e-invoice nature are counted in SQL; the few whose nature gst/docs.ts would DERIVE
+ * (none stored, an unknown value, or a sale stored with an inward nature) are loaded through loadDocs
+ * and classified by the GST engine itself, so the count always equals the e-Invoice screen's list.
+ */
+function pendingEinvoiceCount(db: Db, range: DateRange, today: string): number {
+  const p = { from: range.from, to: range.to, today, bases: JSON.stringify(EINVOICE_BASES) };
+  const where = `v.base_type IN (SELECT value FROM json_each(:bases)) AND v.date >= :from AND v.date <= :to AND ${BOOKS_FILTER('v')} AND ${IRN_OPEN}`;
+  const stored =
+    db.value<number>(`SELECT COUNT(*) FROM vouchers v WHERE ${where} AND v.gst_nature IN (SELECT value FROM json_each(:natures))`, {
+      ...p,
+      natures: JSON.stringify(EINVOICE_NATURES),
+    }) ?? 0;
+  const derived = db
+    .all<{ id: number }>(
+      `SELECT v.id FROM vouchers v
+        WHERE ${where}
+          AND (v.gst_nature IS NULL OR v.gst_nature NOT IN (SELECT value FROM json_each(:all))
+               OR (v.base_type = 'sales' AND v.gst_nature IN (SELECT value FROM json_each(:inward))))`,
+      { ...p, all: JSON.stringify(GST_NATURES), inward: JSON.stringify(INWARD_NATURES) },
+    )
+    .map((r) => r.id);
+  if (derived.length === 0) return stored;
+  const docs = loadDocs(db, loadCompany(db), { from: range.from, to: range.to, today, ids: derived, baseTypes: [...EINVOICE_BASES] });
+  return stored + docs.filter((d) => d.direction === 'outward' && d.inBooks && einvoiceSupplyType(d) !== null).length;
+}
+
+/**
+ * Sales / sales returns without an e-way bill whose goods consignment (taxable goods value + tax)
+ * exceeds the threshold — the rule of gst.ewaybill.pending (gst/ewaybill.ts needsEway / consignmentValue,
+ * with gst/docs.ts's reading of the line columns: supply type other than 'services' is goods, an
+ * unknown taxability is taxable; a credit note is outward unless it stores an inward nature).
+ */
+function pendingEwayCount(db: Db, range: DateRange, today: string, threshold: Paise): number {
+  return (
+    db.value<number>(
+      `SELECT COUNT(*) FROM (
+         SELECT v.id FROM vouchers v JOIN gst_lines g ON g.voucher_id = v.id
+          WHERE v.base_type IN ('sales', 'credit_note') AND v.date >= :from AND v.date <= :to AND ${BOOKS_FILTER('v')}
+            AND (v.base_type = 'sales' OR v.gst_nature IS NULL OR v.gst_nature NOT IN (SELECT value FROM json_each(:inward)))
+            AND (v.eway_bill_no IS NULL OR v.eway_bill_no = '')
+          GROUP BY v.id
+         HAVING SUM(CASE WHEN COALESCE(g.supply_type, '') <> 'services'
+                          AND COALESCE(g.taxability, '') NOT IN ('exempt', 'nil_rated', 'non_gst')
+                         THEN g.taxable_value + g.igst + g.cgst + g.sgst + g.cess ELSE 0 END) > :threshold)`,
+      { from: range.from, to: range.to, today, inward: JSON.stringify(INWARD_NATURES), threshold },
+    ) ?? 0
+  );
+}
 
 function compliance(db: Db, features: DashboardFeatures, gstAllowed: boolean, range: DateRange, today: string): DashboardCompliance {
   const out: DashboardCompliance = { einvoicePending: null, ewayPending: null, from: range.from, to: range.to };
   if (!features.gst || !gstAllowed) return out;
-  const base = { from: range.from, to: range.to, today };
-  if (features.einvoice) {
-    out.einvoicePending =
-      db.value<number>(
-        `SELECT COUNT(*) FROM vouchers v
-          WHERE v.base_type IN ('sales', 'credit_note', 'debit_note') AND v.date >= :from AND v.date <= :to AND ${BOOKS_FILTER('v')}
-            AND v.gst_nature IN (SELECT value FROM json_each(:natures))
-            AND (v.irn IS NULL OR v.irn = '') AND (v.irn_status IS NULL OR v.irn_status IN ('', 'pending'))`,
-        { ...base, natures: JSON.stringify(EINVOICE_NATURES) },
-      ) ?? 0;
-  }
-  if (features.ewayBill) {
-    const threshold = getConfig(db).gst.ewayThresholdPaise;
-    out.ewayPending =
-      db.value<number>(
-        `SELECT COUNT(*) FROM (
-           SELECT v.id FROM vouchers v JOIN gst_lines g ON g.voucher_id = v.id
-            WHERE v.base_type IN ('sales', 'credit_note') AND v.date >= :from AND v.date <= :to AND ${BOOKS_FILTER('v')}
-              AND (v.gst_nature IS NULL OR v.gst_nature NOT IN (SELECT value FROM json_each(:inward)))
-              AND (v.eway_bill_no IS NULL OR v.eway_bill_no = '')
-              AND g.supply_type = 'goods' AND g.taxability = 'taxable'
-            GROUP BY v.id
-           HAVING SUM(g.taxable_value + g.igst + g.cgst + g.sgst + g.cess) > :threshold)`,
-        { ...base, inward: JSON.stringify(INWARD_NATURES), threshold },
-      ) ?? 0;
-  }
+  if (features.einvoice) out.einvoicePending = pendingEinvoiceCount(db, range, today);
+  if (features.ewayBill) out.ewayPending = pendingEwayCount(db, range, today, getConfig(db).gst.ewayThresholdPaise);
   return out;
 }
 
@@ -621,7 +690,10 @@ export function dashboardSummary(deps: SummaryDeps, input: DashboardSummaryInput
   // Receivables / payables depend on asOf only: a period change (Alt+F2) reuses them.
   const outstanding = (side: OutstandingSide): DashboardOutstanding =>
     memoised(db, side, JSON.stringify([input.asOf, today, change]), memo, () => outstandingFigures(db, today, side, input.asOf)).value;
-  const { value, hit } = memoised(db, 'summary', key, memo, () => compute(db, today, input, flags, outstanding));
+  // The GST months depend on asOf only too (a period change reuses them).
+  const gst = (booksFrom: string): GstPair =>
+    flags.gst ? memoised(db, 'gst', JSON.stringify([input.asOf, today, booksFrom, change]), memo, () => gstCards(db, input.asOf, today, booksFrom)).value : { current: null, due: null };
+  const { value, hit } = memoised(db, 'summary', key, memo, () => compute(db, today, input, flags, outstanding, gst));
   return { ...value, backup: backupInfo(db, deps.now), cached: hit, elapsedMs: Math.round(performance.now() - started) };
 }
 
@@ -631,6 +703,7 @@ function compute(
   input: DashboardSummaryInput,
   flags: { gp: boolean; gst: boolean },
   outstanding: (side: OutstandingSide) => DashboardOutstanding,
+  gstFor: (booksFrom: string) => GstPair,
 ): Cached {
   const company = db.get<{ books_from: string; fy_start_month: number }>('SELECT books_from, fy_start_month FROM company WHERE id = 1');
   const booksFrom = company?.books_from ?? input.asOf;
@@ -647,7 +720,8 @@ function compute(
   const ranges = dashboardRanges(input, fyStartMonth, booksFrom);
   const tree = loadGroupTree(db);
   const cls = classify(db.all<LedgerRow>('SELECT id, name, group_id, opening_balance, bank_account_no FROM ledgers'), tree);
-  const sums = flowSums(db, cls, ranges, today);
+  const sums = flowSums(db, cls, ranges, today, booksFrom);
+  const gst = gstFor(booksFrom);
   const sales = toFlow(sums.s, -1);
   const purchases = toFlow(sums.p, 1);
   return {
@@ -659,14 +733,15 @@ function compute(
     hasVouchers: db.value<number>('SELECT 1 FROM vouchers LIMIT 1') !== undefined,
     sales,
     purchases,
-    grossProfit: flags.gp ? grossProfit(db, sums, cls, ranges.period, booksFrom, features.integrated, today) : null,
+    grossProfit: flags.gp ? grossProfit(db, sums, ranges.period, features.integrated, today) : null,
     receivables: outstanding('receivable'),
     payables: outstanding('payable'),
     cashBank: cashBank(db, cls, input.asOf, today),
-    gst: flags.gst ? gstCard(db, input.asOf, today) : null,
+    gst: gst.current,
+    gstDue: gst.due,
     topCustomers: topCustomers(db, cls, ranges.period, sales.period, today),
     topItems: features.inventory ? topItems(db, ranges.period, sales.period, today) : [],
-    trend: trendMonths(db, cls, input.to, today),
+    trend: trendMonths(db, cls, input.to, today, booksFrom),
     lowStock: features.inventory ? lowStock(db, input.asOf, today) : { count: 0, items: [] },
     compliance: compliance(db, features, flags.gst, ranges.ytd, today),
     recentVouchers: recentVouchers(db),

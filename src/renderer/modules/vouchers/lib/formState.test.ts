@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { balanceLast, formReducer, isBlankItem, isBlankLedger, itemLineValue, ledgerDifference, newForm } from './formState.ts';
-import type { VoucherForm } from './formState.ts';
+import { balanceLast, blankLedger, formReducer, isBlankItem, isBlankLedger, itemLineValue, ledgerDifference, newForm, splitForSingle } from './formState.ts';
+import type { LedgerRow, VoucherForm } from './formState.ts';
 
 const sales = (): VoucherForm => newForm({ voucherTypeId: 5, baseType: 'sales', mode: 'item_invoice', date: '2026-10-05' });
 const journal = (): VoucherForm => newForm({ voucherTypeId: 7, baseType: 'journal', mode: 'ledger', date: '2026-10-05' });
@@ -135,5 +135,36 @@ describe('form reducer — double entry (Tally behaviour)', () => {
     f = formReducer(f, { type: 'ledger', key: f.ledgers[2].key, patch: { ledgerId: 3, amount: -50 } });
     const s = formReducer(f, { type: 'setLayout', layout: 'single' });
     assert.equal(s.layout, 'double');
+  });
+});
+
+describe('form reducer — review fixes', () => {
+  it('the next voucher after a save keeps the date and starts with the default party (e.g. Cash for Cash Sales)', () => {
+    let f = newForm({ voucherTypeId: 5, baseType: 'sales', mode: 'item_invoice', date: '2026-10-05', partyLedgerId: 1 });
+    f = formReducer(f, { type: 'item', key: f.items[0].key, patch: { itemId: 3, qty: 1, rate: 10 } });
+    const next = formReducer(f, { type: 'next', date: '2026-10-06', partyLedgerId: 1 });
+    assert.equal(next.partyLedgerId, 1);
+    assert.equal(next.date, '2026-10-06');
+    assert.equal(next.items.filter((r) => !isBlankItem(r)).length, 0);
+    assert.equal(next.touched, false);
+    assert.equal(formReducer(f, { type: 'next' }).partyLedgerId, null);
+  });
+
+  it('a bank line with a narration or cost centres is not squeezed into the single-entry Account', () => {
+    const rows = (account: Partial<LedgerRow>): LedgerRow[] => [
+      { ...blankLedger('l1'), ledgerId: 8, amount: 5000 },
+      { ...blankLedger('l2'), ledgerId: 4, amount: -5000, ...account },
+    ];
+    assert.ok(splitForSingle(rows({}), 'cr'));
+    assert.equal(splitForSingle(rows({ narration: 'NEFT 8812' }), 'cr'), null);
+    assert.equal(splitForSingle(rows({ costs: [{ costCentreId: 1, amount: 5000 }] }), 'cr'), null);
+    assert.equal(splitForSingle(rows({ bills: [{ refType: 'on_account', amount: 5000 }] }), 'cr'), null);
+  });
+
+  it('new rows carry the alteration-only fields empty', () => {
+    const f = sales();
+    assert.equal(f.items[0].altQty, null);
+    assert.equal(f.items[0].autoRate, null);
+    assert.equal(f.ledgers[0].gstExtra, null);
   });
 });

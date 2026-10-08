@@ -10,8 +10,8 @@ import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, DataTable, Field } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { GodownPicker } from '../inventory/pickers.tsx';
-import { NothingHere, qtyColumn, rateColumn, useDrill, useExpansion } from './components.tsx';
-import { godownDrill, godownExport, paramId, visibleRows } from './lib/model.ts';
+import { amountColumn, NothingHere, qtyColumn, rateColumn, useDrill, useExpansion } from './components.tsx';
+import { godownDrill, godownExport, paramId, signedAmountText, visibleRows } from './lib/model.ts';
 
 export interface GodownsParams {
   godownId?: number;
@@ -47,11 +47,11 @@ export function GodownsScreen({ params }: ScreenProps<GodownsParams>) {
       },
       qtyColumn<GodownSummaryRow>('qty', 'Quantity', (r) => r.qty, (r) => r.unit),
       rateColumn<GodownSummaryRow>('rate', 'Rate', (r) => r.rate),
-      { key: 'value', header: 'Value', kind: 'amount', width: 160 },
+      amountColumn<GodownSummaryRow>('value', 'Value', (r) => r.value, { width: 160, blankZero: false }),
     ],
     [],
   );
-  const footer = useMemo<FooterRow[]>(() => (q.data && rows.length > 0 ? [{ key: 'total', tone: 'total', cells: { name: 'Grand Total', value: q.data.totalValue } }] : []), [q.data, rows.length]);
+  const footer = useMemo<FooterRow[]>(() => (q.data && rows.length > 0 ? [{ key: 'total', tone: 'total', cells: { name: 'Grand Total', value: signedAmountText(q.data.totalValue) } }] : []), [q.data, rows.length]);
   const actions: ScreenActionItem[] = [
     { key: 'Alt+Z', label: showZero ? 'Hide empty godowns' : 'Show empty godowns', icon: 'eye', onClick: () => setShowZero(!showZero), group: 'view' },
     { key: 'Alt+X', label: expansion.allOpen ? 'Collapse all' : 'Expand all', icon: 'chevrons-up-down', onClick: expansion.toggleAll, group: 'view' },

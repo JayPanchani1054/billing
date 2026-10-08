@@ -11,19 +11,19 @@
  *                cost per unit × the billed quantity, wherever the note is dated;
  *   gross profit = (sales − returns) − cost; GP % = gross profit ÷ net sales × 100.
  * Delivery notes not yet invoiced, stock journals, physical stock losses and purchase returns are
- * not cost of sales. When an item's only outwards in the period are its own sales invoices (no
- * notes billed, no returns, no other outward), its cost is the engine's period outward value in one
- * run; otherwise each line's cost comes from trace.ts.
+ * not cost of sales. Each line's cost comes from trace.ts (one replay of the items' movements,
+ * proven against the inventory engine's figures for the period).
  *
- * Physical variance: every line of the physical stock vouchers in the period (optional and
- * cancelled ones excluded): counted quantity (as entered), book quantity at the count (counted −
- * difference), the difference and its value at cost (+ gain, − loss).
+ * Physical variance: every count of the physical stock vouchers in the period (optional and
+ * cancelled ones excluded; lines of one voucher counting the same item / godown / batch added up):
+ * counted quantity (as entered), book quantity at the count (counted − difference), the difference
+ * and its value at cost (+ gain, − loss).
  */
 import { roundPaise, roundTo } from '../../../shared/money.ts';
 import type { PhysicalVarianceInput, PhysicalVarianceResult, PhysicalVarianceRow, ProfitabilityInput, ProfitabilityResult, ProfitabilityRow } from '../../../shared/types/stock.ts';
 import type { Db } from '../../db/db.ts';
-import { computeStockValuation } from '../inventory/index.ts';
-import { assertPeriod, EPS, itemsInGroup, jsonIds, loadItems, loadMovements, loadTree, mainGodown, roundQty, type MovementRow } from './common.ts';
+import { BOOKS_FILTER } from '../accounts/books.ts';
+import { assertPeriod, EPS, itemsInGroup, jsonIds, loadItems, loadTree, mainGodown, roundQty } from './common.ts';
 import { traceMovementValues } from './trace.ts';
 
 export function gpPercent(gp: number, net: number): number | null {
@@ -52,7 +52,7 @@ export function profitability(db: Db, today: string, input: ProfitabilityInput):
     `SELECT ie.id, ie.item_id, v.base_type, v.party_ledger_id AS party, ie.tracking_ref, ie.qty, ie.billed_qty, ie.amount,
             ie.affects_stock, ie.date
        FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
-      WHERE v.base_type IN ('sales', 'credit_note') AND v.affects_books = 1 AND (v.is_post_dated = 0 OR v.date <= :today)
+      WHERE v.base_type IN ('sales', 'credit_note') AND ${BOOKS_FILTER('v')}
         AND ie.date >= :from AND ie.date <= :to
         AND (:filter = 0 OR ie.item_id IN (SELECT value FROM json_each(:ids)))
       ORDER BY ie.date, ie.voucher_id, ie.line_no`,
@@ -91,76 +91,51 @@ export function profitability(db: Db, today: string, input: ProfitabilityInput):
   const moving = lines.filter((l) => l.affects_stock === 1 && Number(l.qty) !== 0);
   const tracked = lines.filter((l) => l.affects_stock === 0 && l.tracking_ref !== null && Number(l.qty) !== 0);
   const noteKey = (base: string, party: number | null, ref: string, item: number): string => `${base}|${party ?? 0}|${ref}|${item}`;
-  const sources = new Map<string, MovementRow[]>();
+  const noteIds = new Map<number, string>();
+  let traceFrom = input.from;
+  let traceTo = input.to;
   if (tracked.length > 0) {
-    const noteRows = db.all<{ id: number; base_type: string; party: number | null; ref: string; item_id: number }>(
-      `SELECT ie.id, v.base_type, v.party_ledger_id AS party, ie.tracking_ref AS ref, ie.item_id
+    const wanted = new Set(tracked.map((l) => noteKey(l.base_type === 'sales' ? 'delivery_note' : 'rejection_in', l.party, l.tracking_ref as string, l.item_id)));
+    for (const r of db.all<{ id: number; base_type: string; party: number | null; ref: string; item_id: number; date: string }>(
+      `SELECT ie.id, v.base_type, v.party_ledger_id AS party, ie.tracking_ref AS ref, ie.item_id, ie.date
          FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
-        WHERE v.base_type IN ('delivery_note', 'rejection_in') AND ie.tracking_ref IS NOT NULL AND ie.affects_stock = 1
+        WHERE v.base_type IN ('delivery_note', 'rejection_in') AND ie.tracking_ref IS NOT NULL AND ie.affects_stock = 1 AND ie.qty <> 0
           AND v.is_cancelled = 0 AND v.is_optional = 0 AND ie.item_id IN (SELECT value FROM json_each(:ids))`,
       { ids: jsonIds(new Set(tracked.map((l) => l.item_id))) },
-    );
-    const wanted = new Set(tracked.map((l) => noteKey(l.base_type === 'sales' ? 'delivery_note' : 'rejection_in', l.party, l.tracking_ref as string, l.item_id)));
-    const ids = new Set<number>();
-    for (const r of noteRows) if (wanted.has(noteKey(r.base_type, r.party, r.ref, r.item_id))) ids.add(r.id);
-    if (ids.size > 0) {
-      const byId = new Map(noteRows.map((r) => [r.id, r]));
-      // The note's own movements (dated whenever the goods moved, possibly before the period).
-      for (const m of loadMovements(db, { to: input.to, today, itemIds: new Set(tracked.map((l) => l.item_id)) })) {
-        if (!ids.has(m.id)) continue;
-        const r = byId.get(m.id) as (typeof noteRows)[number];
-        const key = noteKey(r.base_type, r.party, r.ref, r.item_id);
-        const list = sources.get(key) ?? [];
-        list.push(m);
-        sources.set(key, list);
-      }
+    )) {
+      const key = noteKey(r.base_type, r.party, r.ref, r.item_id);
+      if (!wanted.has(key)) continue;
+      noteIds.set(r.id, key);
+      if (r.date < traceFrom) traceFrom = r.date;
+      if (r.date > traceTo) traceTo = r.date;
     }
   }
 
-  // Cost: one engine run for items whose only outwards in the period are their own sales invoices
-  // (nothing billed from notes, no returns, no other outward); the rest per movement (trace.ts).
-  const periodMoves = scope && scope.size === 0 ? [] : loadMovements(db, { from: input.from, to: input.to, today, itemIds: scope });
-  const complex = new Set<number>(tracked.map((l) => l.item_id));
-  for (const m of periodMoves) if ((m.qty < 0 && m.baseType !== 'sales') || (m.qty > 0 && m.baseType === 'credit_note')) complex.add(m.itemId);
-  const simple = [...new Set(moving.map((l) => l.item_id))].filter((id) => !complex.has(id));
-  if (simple.length > 0) {
-    const res = computeStockValuation(db, { from: input.from, to: input.to, today, itemIds: simple });
-    for (const r of res.rows) acc(r.itemId).cost += r.outward.value;
-  }
-  const needIds = new Set<number>();
-  const needDates = new Set<string>();
-  let minDate = input.from;
-  for (const l of moving) {
-    if (!complex.has(l.item_id)) continue;
-    needIds.add(l.id);
-    needDates.add(l.date);
-  }
-  for (const list of sources.values()) {
-    for (const m of list) {
-      needIds.add(m.id);
-      needDates.add(m.date);
-      if (m.date < minDate) minDate = m.date;
+  // Cost of every moving invoice line and of every billed note's lines, at the item's costing
+  // method (trace.ts: one replay proven against the inventory engine).
+  const itemIds = new Set<number>(moving.map((l) => l.item_id));
+  if (noteIds.size > 0) for (const l of tracked) itemIds.add(l.item_id);
+  const tr = itemIds.size > 0 ? traceMovementValues(db, { itemIds: [...itemIds], from: traceFrom, to: traceTo, today }) : null;
+  const sources = new Map<string, { qty: number; value: number }>();
+  if (tr) {
+    for (const m of tr.movements) {
+      const key = noteIds.get(m.id);
+      if (key === undefined) continue;
+      const s = sources.get(key) ?? { qty: 0, value: 0 };
+      s.qty += Math.abs(m.qty);
+      s.value += tr.values.get(m.id) ?? 0;
+      sources.set(key, s);
     }
-  }
-  if (needIds.size > 0) {
-    const tr = traceMovementValues(db, { itemIds: [...complex], from: minDate, to: input.to, today, onlyDates: needDates });
     for (const l of moving) {
-      if (!complex.has(l.item_id)) continue;
       const v = tr.values.get(l.id) ?? 0;
       acc(l.item_id).cost += l.base_type === 'sales' ? v : -v;
     }
-    for (const l of tracked) {
-      const src = sources.get(noteKey(l.base_type === 'sales' ? 'delivery_note' : 'rejection_in', l.party, l.tracking_ref as string, l.item_id)) ?? [];
-      let q = 0;
-      let v = 0;
-      for (const m of src) {
-        q += Math.abs(m.qty);
-        v += tr.values.get(m.id) ?? 0;
-      }
-      if (q < EPS) continue;
-      const cost = roundPaise((Math.abs(Number(l.qty)) * v) / q);
-      acc(l.item_id).cost += l.base_type === 'sales' ? cost : -cost;
-    }
+  }
+  for (const l of tracked) {
+    const src = sources.get(noteKey(l.base_type === 'sales' ? 'delivery_note' : 'rejection_in', l.party, l.tracking_ref as string, l.item_id));
+    if (!src || src.qty < EPS) continue;
+    const cost = roundPaise((Math.abs(Number(l.qty)) * src.value) / src.qty);
+    acc(l.item_id).cost += l.base_type === 'sales' ? cost : -cost;
   }
 
   const rows: ProfitabilityRow[] = [];
@@ -247,6 +222,7 @@ export function physicalVariance(db: Db, today: string, input: PhysicalVarianceI
       : null;
   const countsCache = new Map<number, number[]>();
   const rows: PhysicalVarianceRow[] = [];
+  const merged = new Map<string, PhysicalVarianceRow>();
   const totals = { gainValue: 0, lossValue: 0, netValue: 0 };
   for (const l of lines) {
     let counts = countsCache.get(l.voucher_id);
@@ -258,26 +234,42 @@ export function physicalVariance(db: Db, today: string, input: PhysicalVarianceI
     const diff = roundQty(Number(l.qty));
     const cost = l.affects_stock === 1 ? (tr?.values.get(l.id) ?? 0) : 0;
     const value = diff < 0 ? -cost : cost;
-    const it = items.get(l.item_id);
     const hasCount = typeof counted === 'number' && Number.isFinite(counted);
-    rows.push({
-      key: `pv:${l.voucher_id}:${l.line_no}`,
-      voucherId: l.voucher_id,
-      date: l.date,
-      number: l.number,
-      itemId: l.item_id,
-      itemName: it?.name ?? '',
-      unit: it?.unit ?? '',
-      godownName: l.godown_id === null ? null : (godownNames.get(l.godown_id) ?? null),
-      batchName: l.batch_name,
-      countedQty: hasCount ? counted : null,
-      bookQty: hasCount ? roundQty(counted - diff) : null,
-      differenceQty: diff,
-      value,
-    });
-    if (value > 0) totals.gainValue += value;
-    else totals.lossValue += -value;
-    totals.netValue += value;
+    // Lines of one voucher counting the same item / godown / batch (two racks) were posted as one
+    // difference (the first line carries counted − book, later ones their count): show them as one
+    // row, so "as per books" is the real book quantity.
+    const groupKey = `${l.voucher_id}|${l.item_id}|${l.godown_id ?? ''}|${l.batch_name ?? ''}`;
+    const prev = merged.get(groupKey);
+    if (prev) {
+      prev.countedQty = prev.countedQty !== null && hasCount ? roundQty(prev.countedQty + counted) : null;
+      prev.differenceQty = roundQty(prev.differenceQty + diff);
+      prev.bookQty = prev.countedQty !== null ? roundQty(prev.countedQty - prev.differenceQty) : null;
+      prev.value += value;
+    } else {
+      const it = items.get(l.item_id);
+      const row: PhysicalVarianceRow = {
+        key: `pv:${l.voucher_id}:${l.line_no}`,
+        voucherId: l.voucher_id,
+        date: l.date,
+        number: l.number,
+        itemId: l.item_id,
+        itemName: it?.name ?? '',
+        unit: it?.unit ?? '',
+        godownName: l.godown_id === null ? null : (godownNames.get(l.godown_id) ?? null),
+        batchName: l.batch_name,
+        countedQty: hasCount ? counted : null,
+        bookQty: hasCount ? roundQty(counted - diff) : null,
+        differenceQty: diff,
+        value,
+      };
+      merged.set(groupKey, row);
+      rows.push(row);
+    }
+  }
+  for (const r of rows) {
+    if (r.value > 0) totals.gainValue += r.value;
+    else totals.lossValue += -r.value;
+    totals.netValue += r.value;
   }
   return { from: input.from, to: input.to, rows, totals };
 }

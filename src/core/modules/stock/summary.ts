@@ -9,7 +9,7 @@
  * its items' quantities only when the group has "Add quantities" on and all its items share one
  * unit; otherwise null (values always add up). Categories add quantities whenever the units agree.
  */
-import { roundPaise } from '../../../shared/money.ts';
+import { allocate, roundPaise } from '../../../shared/money.ts';
 import type {
   GodownSummaryInput,
   GodownSummaryResult,
@@ -363,20 +363,66 @@ function godownQuantities(db: Db, asOf: string, today: string): Map<number, Map<
   return out;
 }
 
+/**
+ * Value of each (godown, item) holding as of a date. One engine run values every item (the Balance
+ * Sheet's closing stock); an item's closing value is then split over the godowns holding it by
+ * quantity (largest remainder), so the godowns add up to the closing stock to the paisa. An item
+ * whose holdings are not all positive (negative stock somewhere, or nothing in total) is valued per
+ * godown by the engine instead (godown quantity × the item's unit cost).
+ */
+function godownValues(
+  db: Db,
+  asOf: string,
+  today: string,
+  qtys: Map<number, Map<number, number>>,
+  items: Map<number, ItemMeta>,
+): Map<number, Map<number, { qty: number; value: number }>> {
+  const holdings = new Map<number, Array<{ godownId: number; qty: number }>>();
+  for (const [gid, perItem] of qtys) {
+    for (const [itemId, qty] of perItem) {
+      if (items.get(itemId)?.isService !== false) continue;
+      const list = holdings.get(itemId) ?? [];
+      list.push({ godownId: gid, qty });
+      holdings.set(itemId, list);
+    }
+  }
+  const out = new Map<number, Map<number, { qty: number; value: number }>>();
+  const put = (gid: number, itemId: number, qty: number, value: number): void => {
+    const m = out.get(gid) ?? new Map<number, { qty: number; value: number }>();
+    m.set(itemId, { qty, value });
+    out.set(gid, m);
+  };
+  if (holdings.size === 0) return out;
+  const total = new Map(computeStockValuation(db, { from: asOf, to: asOf, today, itemIds: [...holdings.keys()] }).rows.map((r) => [r.itemId, r.closing]));
+  const perGodown = new Map<number, number[]>();
+  for (const [itemId, list] of holdings) {
+    const c = total.get(itemId);
+    const sum = list.reduce((a, h) => a + h.qty, 0);
+    if (c && c.qty > EPS && list.every((h) => h.qty > EPS) && Math.abs(sum - c.qty) < 1e-6) {
+      const parts = allocate(c.value, list.map((h) => h.qty));
+      list.forEach((h, k) => put(h.godownId, itemId, h.qty, parts[k]));
+      continue;
+    }
+    for (const h of list) {
+      const ids = perGodown.get(h.godownId) ?? [];
+      ids.push(itemId);
+      perGodown.set(h.godownId, ids);
+    }
+  }
+  for (const [gid, ids] of perGodown) {
+    const res = computeStockValuation(db, { from: asOf, to: asOf, today, godownId: gid, includeSubGodowns: false, itemIds: ids });
+    for (const r of res.rows) put(gid, r.itemId, r.closing.qty, r.closing.value);
+  }
+  return out;
+}
+
 /** 'stock.godownSummary' — godowns (tree) → items held there, with closing quantity and value. */
 export function godownSummary(db: Db, today: string, input: GodownSummaryInput): GodownSummaryResult {
   const tree = loadTree(db, 'godown');
   if (input.godownId !== undefined) requireNode(tree, 'godown', input.godownId);
   const items = loadItems(db);
   const qtys = godownQuantities(db, input.asOf, today);
-  // Values: the engine per godown (exact godown), for the items held there.
-  const values = new Map<number, Map<number, { qty: number; value: number }>>();
-  for (const [gid, perItem] of qtys) {
-    const ids = [...perItem.keys()].filter((id) => items.get(id)?.isService === false);
-    if (ids.length === 0) continue;
-    const res = computeStockValuation(db, { from: input.asOf, to: input.asOf, today, godownId: gid, includeSubGodowns: false, itemIds: ids });
-    values.set(gid, new Map(res.rows.map((r) => [r.itemId, { qty: r.closing.qty, value: r.closing.value }])));
-  }
+  const values = godownValues(db, input.asOf, today, qtys, items);
 
   const childNodes = new Map<number | null, TreeNode[]>();
   for (const n of tree.values()) {

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { closingStockValue, openingStockValue } from '../inventory/index.ts';
+import { saveGodown } from '../inventory/masters.ts';
 import { categorySummary, godownSummary, stockSummary } from './summary.ts';
-import { APRIL, post, invoice, stockMasters, stockScenario, type StockKit } from './testkit.ts';
+import { APRIL, inventoryVoucher, post, invoice, stockMasters, stockScenario, type StockKit } from './testkit.ts';
 
 describe('stock.summary — April (inventory README worked example)', () => {
   let k: StockKit;
@@ -223,6 +224,29 @@ describe('stock.godownSummary', () => {
     assert.equal(g.rows.some((r) => r.godownId === k.godowns.shop), false);
     const z = godownSummary(k.t.db, k.t.today, { asOf: '2026-06-14', showZero: true });
     assert.deepEqual(z.rows.find((r) => r.godownId === k.godowns.shop)?.value, 0);
+  });
+
+  test('an item spread over three godowns: its value is split by quantity so the godowns add up to the paisa', () => {
+    const m = stockMasters();
+    try {
+      const kk = { ...m, V: {} };
+      const annex = saveGodown(m.t.ctx, { name: 'Annex' }).id;
+      // 3 Nos worth ₹10.00 (opening 3 @ ₹3.3333 = 999.99 → 1,000 paise), one in each godown.
+      const odd = m.t.addStockItem({ name: 'Odd Lot', gstRate: 18, hsnSac: '7323', openingQty: 3, openingRate: 3.3333 });
+      post(kk, inventoryVoucher(m, 'stock_journal', '2026-04-02', [
+        { itemId: odd, qty: 2, rate: 0, isConsumption: true, godownId: m.godowns.main },
+        { itemId: odd, qty: 1, rate: 0, godownId: m.godowns.shop },
+        { itemId: odd, qty: 1, rate: 0, godownId: annex },
+      ]));
+      const g = godownSummary(m.t.db, m.t.today, { asOf: '2026-04-30' });
+      const parts = g.rows.filter((r) => r.itemId === odd).map((r) => r.value);
+      // 1,000 ÷ 3 = 333.33 each; each godown rounded alone would give 3 × 333 = 999 (a paisa short of the Balance Sheet);
+      // largest remainder → 334 + 333 + 333 = 1,000
+      assert.deepEqual([...parts].sort((a, b) => b - a), [334, 333, 333]);
+      assert.equal(g.totalValue, closingStockValue(m.t.db, { asOf: '2026-04-30', today: m.t.today }));
+    } finally {
+      m.t.close();
+    }
   });
 });
 

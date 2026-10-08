@@ -97,11 +97,15 @@ describe('stock.ageing', () => {
     const r = stockAgeing(k.t.db, k.t.today, { asOf: '2026-06-30', buckets: [75] });
     const f = r.rows.find((x) => x.itemId === k.I.F);
     assert.ok(f);
-    // value 2,02,330 split 3 : 13 → 37,936.875 / 1,64,393.125 → largest remainder → 37,937 + 1,64,393
+    // FIFO: the stock on hand IS the remaining layers, each valued at its own inward's cost (engine):
+    //   0–75 days : return 3 on 20-Apr, re-entered at the oldest layer's rate ₹115 → 3 × 11,500 = 34,500
+    //   over 75   : purchase 10 on 15-Apr = 1,33,330 + 3 left of the 05-Apr purchase @ ₹115 = 34,500 → 1,67,830
+    //   34,500 + 1,67,830 = 2,02,330 = the engine's closing value (a quantity split would give 37,937 / 1,64,393)
     assert.deepEqual(f.buckets, [
-      { qty: 3, value: 37_937 },
-      { qty: 13, value: 1_64_393 },
+      { qty: 3, value: 34_500 },
+      { qty: 13, value: 1_67_830 },
     ]);
+    assert.equal(f.value, 2_02_330);
     // (3 × 71 + 10 × 76 + 3 × 86) / 16 = 1,231 / 16 = 76.9 → 77
     assert.equal(f.averageAgeDays, 77);
     assert.equal(f.oldestDate, '2026-04-05');

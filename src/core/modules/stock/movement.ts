@@ -102,7 +102,8 @@ export function stockMovement(db: Db, today: string, input: StockMovementInput):
     const accs = m.qty > 0 ? inward : outward;
     let a = accs.get(key);
     if (!a) {
-      a = { ledgerId, name: p?.ledger_name || p?.party_name || 'Without a party', vouchers: new Set(), items: new Map() };
+      // Vouchers without a party ledger are pooled under one row (never under one buyer's name).
+      a = { ledgerId, name: ledgerId === null ? 'Without a party ledger' : p?.ledger_name || p?.party_name || 'Without a party ledger', vouchers: new Set(), items: new Map() };
       accs.set(key, a);
     }
     a.vouchers.add(m.voucherId);

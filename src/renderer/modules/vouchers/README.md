@@ -6,7 +6,7 @@ Voucher entry, Day Book, voucher view and the generic voucher list. Core API: `s
 
 | id | params | what |
 |---|---|---|
-| `vouchers.entry` | `{ baseType? \| voucherTypeId?, id?, duplicateOf?, date?, partyId? }` | Create (by base type or voucher type), alter (`id`), or create pre-filled from another voucher (`duplicateOf`). A cancelled voucher, or a user without `vouchers.alter`, is redirected to `vouchers.view`. |
+| `vouchers.entry` | `{ baseType? \| voucherTypeId?, id?, duplicateOf?, date?, partyId? }` | Create (by base type or voucher type), alter (`id`), or create pre-filled from another voucher (`duplicateOf`). A cancelled voucher, one whose e-invoice (IRN) is generated, or a user without `vouchers.alter`, is redirected to `vouchers.view`; a user without `vouchers.create` gets an explanation instead of an empty form. |
 | `vouchers.daybook` | `{ from?, to? }` | Day Book. Defaults to the working date and follows F2 until a range is picked. |
 | `vouchers.view` | `{ id }` | Read-only voucher: header, party, items, Dr/Cr entries with bills / cost centres / bank details, GST by rate, e-invoice / e-way bill, cancellation, audit stamps. |
 | `vouchers.list` | `{ from?, to?, voucherTypeIds?, baseTypes?, partyLedgerId?, ledgerId?, search?, includeOptional?, includeCancelled?, onlyPostDated?, title? }` | Generic register for drill-downs (party, ledger, type, period). Defaults to the global period. |
@@ -38,19 +38,26 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 
 ## Behaviour
 
+- **Where the cursor starts** (`lib/gridNav.ts › initialFocusId`, Tally): the number of a manually numbered new voucher, else the supplier's invoice no. of a purchase, else the party, else the single-entry Account, else the first grid line. The shell focuses a screen once when it is pushed — before this form has its data — so the form places the cursor itself on mount and after each save.
+
 - **Totals** are computed live with the shared GST engine (`lib/totals.ts` → `computeInvoice`), using the same line treatment as the posting engine (apportioned charges, computed lines, non-GST charges after tax, round-off on the whole value). While the user pauses (0.9 s) and the voucher looks complete, `vouchers.preview` re-checks on the server: its warnings appear in the **Checks** panel and on the rows; if its grand total differs, the panel says what the books will record.
 - **Saving** goes through the shell's `withConfirmation`: only `confirm`-level warnings are asked about (`lib/errorPaths.ts › confirmationRequest`); `info` ones stay inline. `VALIDATION` paths (`items[2].qty`, `ledgers[0].ledgerId`, `partyLedgerId`, …) are mapped to cells through the row keys of the input that was sent (`buildVoucherInput` → `itemKeys` / `ledgerKeys`) and the first one is focused. Blocking warnings show in a banner and on their rows.
 - **After creating**: toast with the number (View action), the screen resets for the next voucher of the same type keeping the date (Tally), and opens `print.voucher` when F12 or the voucher type says print after saving. **After altering**: toast and back.
+- **Client checks before saving** (`lib/validate.ts`): party, number, supplier invoice no., Account, quantities, amounts, Dr = Cr in the Dr/Cr layout (with the difference and the Ctrl+B hint on the last line), and bill-wise details that no longer add up to their line / to the invoice total. Enter in the narration runs them before asking "Accept?".
+- **Bill-wise dialog**: a receipt / payment line whose party has pending bills on the other side opens allocated against the oldest bills first (rest On Account); an invoice party or a ledger with nothing to settle opens with a New Ref named after the voucher (purchase: supplier invoice no.) and the credit period. Alt+F re-runs FIFO, Alt+N adds, Ctrl+D removes the focused line.
+- **Alteration round trip**: everything `vouchers.get().input` carries comes back on save — including fields without a column (`altQty`, a ledger line's GST override taxability / cess / supply kind, an item-invoice charge's GST override). A payment / receipt / contra opens in the single-entry layout only when the cash/bank line has nothing the Account field cannot show (bills, cost centres, narration). `lib/coreContract.test.ts` proves it against the real engine.
 - **Pickers** (`pickers/`): one cached `accounts.ledger.picker { asOf }` / `inventory.item.picker { asOf, priceLevelId? }` list per screen, narrowed per place (`lib/masters.ts › ledgerAllowed`: parties, sales/purchase ledgers, invoice lines without cash/bank or parties, contra cash/bank only, journal without cash/bank, no credit note to a supplier). Empty grid rows do not open the list on focus, so Enter on them leaves the grid.
-- **Item defaults**: rate from the price level slab (sales side) or the item's selling / purchase price; godown from the voucher type's default godown.
-- **Performance**: rows are memoised and get only their own data; shared masters/callbacks come from a stable context; totals use `useDeferredValue`, so typing re-renders one row.
+- **Item defaults**: rate from the price level slab (sales side) or the item's selling / purchase price; godown from the voucher type's default godown. With a price level, committing the quantity re-reads the slab for that quantity (`inventory.item.priceFor`) — only while the rate is still the one the screen filled in.
+- **After a save** the next voucher keeps the date, the layout, the single-entry Account and the voucher type's default party (e.g. Cash for "Cash Sales").
+- **Performance**: rows are memoised and get only their own data; shared masters/callbacks come from a context whose value only changes with the masters (`pickers/hooks.ts` memoises its results); per-row tax figures keep their identity while unchanged (`lib/totals.ts › stabilizeLines`); totals use `useDeferredValue`, so typing re-renders one row.
 
 ## Pure logic (tested: `node --test "src/renderer/modules/vouchers/**/*.test.ts"`)
 
-`lib/formState.ts` reducer · `lib/buildInput.ts` form ⇄ VoucherInput · `lib/errorPaths.ts` server paths ⇄ cells, warnings protocol · `lib/bills.ts` FIFO allocation · `lib/totals.ts` client totals (parity with `computeInvoice`) · `lib/gridNav.ts` keyboard model and section order · `lib/validate.ts` pre-save checks · `lib/masters.ts` picker slots, ledger GST profile, item defaults, tracking rows, tax breakup · `lib/menu.ts` menu and Go To items · `lib/daybook.ts` Day Book rows and export · `lib/kinds.ts` per-base-type layout.
+`lib/formState.ts` reducer · `lib/buildInput.ts` form ⇄ VoucherInput · `lib/errorPaths.ts` server paths ⇄ cells, warnings protocol · `lib/bills.ts` FIFO allocation · `lib/totals.ts` client totals (parity with `computeInvoice`) · `lib/gridNav.ts` keyboard model and section order · `lib/validate.ts` pre-save checks · `lib/masters.ts` picker slots, ledger GST profile, item defaults, tracking rows, tax breakup · `lib/menu.ts` menu and Go To items · `lib/coreContract.test.ts` the form model against the real posting engine (totals parity, alteration round trip, error/warning placement) · `lib/daybook.ts` Day Book rows and export · `lib/kinds.ts` per-base-type layout.
 
 ## Known gaps
 
-- The sales/purchase ledger of an item line is the voucher type's default (no per-line ledger column).
-- Price-level quantity slabs: the rate is taken for quantity 1 when the item is chosen; changing the quantity does not re-read the slab (the server does not re-price either).
+- The sales/purchase ledger of an item line is the voucher type's default (no per-line ledger column; a saved line's own ledger is kept on alteration).
+- Live totals assume rates exclusive of tax unless the line says otherwise: the item picker does not deliver the item master's "rate inclusive of tax" flag. `vouchers.preview` reports the server figure ("The books will record …") when it differs.
+- Checks shown from the last `vouchers.preview` stay until the voucher looks complete again (they are not cleared while a line is half-typed).
 - Multi-currency and TDS/TCS computation are not offered (the engine does not support them).
