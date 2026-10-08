@@ -124,6 +124,12 @@ export interface GstIssue {
   message: string;
   /** How to fix it. */
   fix: string;
+  /** Party ledger of the document (fix link: accounts.ledger.form); null on period-level issues. */
+  partyLedgerId?: number | null;
+  /** Stock item of the first offending line (HSN / rate issues; fix link: inventory.item.form). */
+  itemId?: number | null;
+  /** Ledger of the first offending accounting-mode line (HSN / rate issues; fix link: accounts.ledger.form). */
+  lineLedgerId?: number | null;
 }
 
 // ───────────────────────────── GSTR-1 ─────────────────────────────
@@ -607,6 +613,32 @@ export interface EinvoicePendingResult {
   rows: EinvoicePendingRow[];
   /** Cancelled in the books but the IRN is still active: cancel it on the IRP, then mark it cancelled. */
   cancelRequired: GstCancelRequiredRow[];
+}
+
+/** A document whose IRN is active ('gst.einvoice.generated'). */
+export interface EinvoiceGeneratedRow {
+  voucherId: number;
+  number: string | null;
+  date: string;
+  voucherTypeName: string;
+  partyName: string | null;
+  gstin: string | null;
+  docType: EinvoiceDocType;
+  invoiceValue: Paise;
+  irn: string;
+  ackNo: string | null;
+  /** As recorded from the IRP ('YYYY-MM-DD HH:mm:ss', Indian time). */
+  ackDate: string | null;
+  /** The voucher is cancelled in the books (its IRN must be cancelled on the IRP too). */
+  cancelledInBooks: boolean;
+  /** ISO UTC instant 24 hours after the acknowledgement (IRP cancellation limit); null without an ack date. */
+  cancellableUntil: string | null;
+  /** The 24-hour cancellation window is still open. */
+  cancelWindowOpen: boolean;
+}
+
+export interface EinvoiceGeneratedResult {
+  rows: EinvoiceGeneratedRow[];
 }
 
 export interface GstBulkJsonFile extends GstJsonFile {

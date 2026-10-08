@@ -9,7 +9,7 @@
  *   'banking.brs'                     reports.view       BrsInput               → BrsResult
  *   'banking.setBankDates'            banking.reconcile  SetBankDatesInput      → SetBankDatesResult
  *   'banking.statement.presets'       reports.view       {}                     → BankPresetInfo[]
- *   'banking.statement.preview'       banking.reconcile  StatementPreviewInput  → StatementPreview
+ *   'banking.statement.preview'       banking.reconcile  StatementPreviewInput  → StatementPreview (no writes)
  *   'banking.statement.import'        banking.reconcile  StatementImportInput   → StatementImportResult
  *   'banking.statement.lines'         reports.view       StatementLinesInput    → StatementLinesResult
  *   'banking.statement.batches'       reports.view       { ledgerId? }          → StatementBatch[]
@@ -134,11 +134,16 @@ export interface BrsResult {
   /** Running balance of the latest imported statement line dated ≤ asOf (null when none was imported). */
   statementBalance: Paise | null;
   statementDate: string | null;
-  /** statementBalance − balanceAsPerBank (null without a statement). */
+  /**
+   * Balance as per bank (from the books) on statementDate: opening + entries with bank date ≤ statementDate.
+   * Equals balanceAsPerBank when the statement runs up to asOf. Null without a statement.
+   */
+  balanceAsPerBankOnStatementDate: Paise | null;
+  /** statementBalance − balanceAsPerBankOnStatementDate (null without a statement). */
   difference: Paise | null;
   /**
-   * Statement lines dated ≤ asOf that are not linked to any voucher (unmatched or ignored): bank charges,
-   * interest, direct credits … — "amounts not reflected in the company's books".
+   * Statement lines dated ≤ statementDate (≤ asOf without a statement) that are not linked to any voucher
+   * (unmatched or ignored): bank charges, interest, direct credits … — "amounts not reflected in the books".
    */
   amountsNotInBooks: { count: number; deposits: Paise; withdrawals: Paise };
   /** difference − (amountsNotInBooks.deposits − amountsNotInBooks.withdrawals); 0 when everything is explained. */
@@ -250,6 +255,8 @@ export interface StatementPreviewInput {
   bytes: Uint8Array;
   /** Omit to auto-detect (the ledger's saved mapping first, then bank presets, then fuzzy header matching). */
   mapping?: StatementMapping;
+  /** XLSX without `mapping`: auto-detect within this worksheet only (the user picked it). Ignored for CSV. */
+  sheet?: string;
 }
 
 export interface StatementImportInput {
@@ -320,6 +327,8 @@ export interface StatementPreview {
   encoding: string | null;
   /** XLSX: all worksheet names. */
   sheets: string[];
+  /** XLSX: the worksheet that was read (the one rawPreview shows); null for CSV. */
+  sheet: string | null;
   preset: BankPresetInfo;
   /** given = the mapping in the request; saved = the ledger's last mapping; preset = a bank layout; auto = fuzzy headers. */
   detectedBy: 'given' | 'saved' | 'preset' | 'auto';
@@ -635,6 +644,10 @@ export interface BankSummaryRow extends BankLedgerRef {
   };
   /** Latest bank date set on this ledger (≤ asOf). */
   lastReconciledDate: string | null;
-  lastStatement: { date: string; balance: Paise | null; importedAt: string } | null;
+  /**
+   * Latest imported statement line dated ≤ asOf. difference = its running balance − the balance as per bank
+   * (from the books) on that date; null when the line has no balance.
+   */
+  lastStatement: { date: string; balance: Paise | null; importedAt: string; difference: Paise | null } | null;
   statementLines: Record<StatementLineStatus, number>;
 }

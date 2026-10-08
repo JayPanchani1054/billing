@@ -1,0 +1,296 @@
+/* GST returns screens. Semantic design tokens only (no raw colours). Prefix: bx-gst- */
+
+/* ── Layout ───────────────────────────────────────────────────────── */
+.bx-gst-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: var(--space-4);
+}
+.bx-gst-fill {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+.bx-gst-fill > .bx-table {
+  flex: 1;
+}
+
+.bx-gst-help {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-snug);
+}
+.bx-gst-help .bx-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--info-icon);
+}
+
+.bx-gst-period {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.bx-gst-period__label {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.bx-gst-list {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+.bx-gst-list li + li {
+  margin-top: var(--space-1);
+}
+
+.bx-gst-section-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+}
+
+/* ── GSTR-1 table tiles ───────────────────────────────────────────── */
+.bx-gst-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: var(--space-3);
+}
+.bx-gst-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+.bx-gst-tile:hover {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-1);
+}
+.bx-gst-tile:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.bx-gst-tile.is-empty {
+  background: var(--surface-0);
+}
+.bx-gst-tile.is-empty .bx-gst-tile__figures {
+  color: var(--text-muted);
+}
+.bx-gst-tile.has-errors {
+  border-color: var(--danger-solid);
+}
+.bx-gst-tile__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.bx-gst-tile__table {
+  flex: none;
+  min-width: 2.5em;
+  padding: 0 var(--space-1-5);
+  border-radius: var(--radius-sm);
+  background: var(--brand-subtle);
+  color: var(--brand-text);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  text-align: center;
+}
+.bx-gst-tile__title {
+  overflow: hidden;
+  font-weight: var(--fw-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bx-gst-tile__help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+.bx-gst-tile__figures {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-0-5) var(--space-3);
+  margin: 0;
+  font-size: var(--fs-12);
+}
+.bx-gst-tile__label {
+  color: var(--text-secondary);
+}
+.bx-gst-tile__value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.bx-gst-tile__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-height: 20px;
+}
+
+/* ── Issues ───────────────────────────────────────────────────────── */
+.bx-gst-issues {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bx-gst-issue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bx-gst-issue:last-child {
+  border-bottom: 0;
+}
+.bx-gst-issue__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.bx-gst-issue__code {
+  font-weight: var(--fw-medium);
+}
+.bx-gst-issue__message {
+  margin: 0;
+}
+.bx-gst-issue__fix {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+
+/* ── Portal-style form tables (GSTR-3B, GSTR-9) ───────────────────── */
+/* Wide tables scroll sideways inside their panel instead of stretching the screen. */
+.bx-gst-wide {
+  overflow-x: auto;
+}
+.bx-gst-wide > .bx-gst-form {
+  min-width: 960px;
+}
+.bx-gst-form {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface-1);
+  font-size: var(--fs-13);
+}
+.bx-gst-form caption {
+  padding: 0 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  text-align: left;
+}
+.bx-gst-form th,
+.bx-gst-form td {
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.bx-gst-form thead th {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  text-align: left;
+}
+.bx-gst-form thead th.is-num,
+.bx-gst-form td.is-num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.bx-gst-form tbody th {
+  font-weight: var(--fw-regular);
+  text-align: left;
+}
+.bx-gst-form__row {
+  width: 5.5em;
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+  white-space: nowrap;
+}
+.bx-gst-form__help {
+  display: block;
+  margin-top: var(--space-0-5);
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+.bx-gst-form tr.is-total th,
+.bx-gst-form tr.is-total td {
+  border-top: 1px solid var(--border-default);
+  font-weight: var(--fw-semibold);
+}
+.bx-gst-form tr.is-sub th {
+  padding-left: var(--space-6);
+}
+.bx-gst-form td.is-input {
+  width: 140px;
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+.bx-gst-form td.is-blank {
+  background: var(--surface-2);
+}
+.bx-gst-form .bx-gst-cash {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-weight: var(--fw-bold);
+}
+
+.bx-gst-cashline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--accent-solid);
+  border-radius: var(--radius-lg);
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+}
+.bx-gst-cashline__amount {
+  font-size: var(--fs-20);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.bx-gst-setoff {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+
+@media print {
+  .bx-gst-tile,
+  .bx-gst-form tr {
+    break-inside: avoid;
+  }
+}

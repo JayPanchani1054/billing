@@ -34,6 +34,7 @@ import type {
   CostAllocationView,
   GstLineView,
   InstrumentInput,
+  ItemLineInput,
   LedgerEntryRole,
   PreviewEntry,
   PreviewInventoryLine,
@@ -528,8 +529,48 @@ class PostingBuilder {
     return OUTWARD.has(this.base);
   }
 
-  private activeCheck(kind: 'Ledger' | 'Stock item', name: string, active: boolean, path: string): void {
-    if (!active && this.opts.voucherId === null) throw fieldError(path, `${kind} ${name} is inactive. Activate it before using it in a voucher.`);
+  /**
+   * An inactive master cannot be used in a new voucher. An alter may keep the inactive masters the voucher
+   * already uses (so an old voucher stays editable), but cannot add another one.
+   */
+  private activeCheck(kind: 'Ledger' | 'Stock item', id: number, name: string, active: boolean, path: string): void {
+    if (active || this.usedBefore(kind, id)) return;
+    throw fieldError(path, `${kind} ${name} is inactive. Activate it before using it in a voucher.`);
+  }
+
+  private previousMasters: { ledgers: ReadonlySet<number>; items: ReadonlySet<number> } | null = null;
+
+  /** Did the voucher being altered already use this master (as saved)? */
+  private usedBefore(kind: 'Ledger' | 'Stock item', id: number): boolean {
+    const vid = this.opts.voucherId;
+    if (vid === null) return false;
+    if (!this.previousMasters) {
+      const ledgers = this.db.all<{ id: number }>(
+        `SELECT ledger_id AS id FROM ledger_entries WHERE voucher_id = :vid
+         UNION SELECT party_ledger_id FROM vouchers WHERE id = :vid AND party_ledger_id IS NOT NULL
+         UNION SELECT ledger_id FROM inventory_entries WHERE voucher_id = :vid AND ledger_id IS NOT NULL`,
+        { vid },
+      );
+      const items = this.db.all<{ id: number }>('SELECT DISTINCT item_id AS id FROM inventory_entries WHERE voucher_id = :vid', { vid });
+      this.previousMasters = { ledgers: new Set(ledgers.map((r) => r.id)), items: new Set(items.map((r) => r.id)) };
+    }
+    return (kind === 'Ledger' ? this.previousMasters.ledgers : this.previousMasters.items).has(id);
+  }
+
+  /** Quantities within the decimal places of the item's unit (Nos: whole numbers). */
+  private checkQtyDecimals(it: ItemLineInput, item: ItemRow, index: number): void {
+    const dp = Math.max(0, Math.min(6, item.unit_decimals | 0));
+    const fits = (q: number): boolean => Math.abs(roundTo(q, dp) - q) < 1e-9;
+    const bad: Array<['qty' | 'billedQty', number]> = [];
+    if (!fits(it.qty)) bad.push(['qty', it.qty]);
+    if (typeof it.billedQty === 'number' && !fits(it.billedQty)) bad.push(['billedQty', it.billedQty]);
+    if (bad.length === 0) return;
+    const [field, q] = bad[0];
+    const allowed = dp === 0 ? 'whole numbers only' : `at most ${dp} decimal place${dp === 1 ? '' : 's'}`;
+    throw fieldError(
+      `items[${index}].${field}`,
+      `Line ${index + 1} (${item.name}): quantity ${q} is not valid — ${item.unit_symbol} allows ${allowed}. Correct the quantity, or change the unit's decimal places.`,
+    );
   }
 
   // ── Invoice modes ──
@@ -550,7 +591,7 @@ class PostingBuilder {
     const items = input.items ?? [];
     const ledgers = input.ledgers ?? [];
     const party = this.party as LedgerInfo;
-    this.activeCheck('Ledger', party.name, party.row.is_active === 1, 'partyLedgerId');
+    this.activeCheck('Ledger', party.id, party.name, party.row.is_active === 1, 'partyLedgerId');
     const snap = partySnapshot(party, input);
     const postEntries = this.accounting;
     const defaultLedger = this.defaultItemLedgerId();
@@ -562,7 +603,8 @@ class PostingBuilder {
 
     items.forEach((it, i) => {
       const item = masters.item(it.itemId);
-      this.activeCheck('Stock item', item.name, item.is_active === 1, `items[${i}].itemId`);
+      this.activeCheck('Stock item', item.id, item.name, item.is_active === 1, `items[${i}].itemId`);
+      this.checkQtyDecimals(it, item, i);
       const ledgerId = it.ledgerId ?? defaultLedger;
       const ledger = ledgerId ? masters.ledger(ledgerId) : null;
       if (postEntries && !ledger) {
@@ -571,10 +613,10 @@ class PostingBuilder {
           `Line ${i + 1} (${item.name}): select the ${outward ? 'sales' : 'purchase'} ledger (no default ${outward ? 'Sales' : 'Purchase'} ledger exists).`,
         );
       }
-      if (ledger && (ledger.isGstDuty || ledger.id === party.id)) {
+      if (ledger && (ledger.isGstDuty || ledger.id === party.id || ledger.isCashBank || ledger.isDebtor || ledger.isCreditor)) {
         throw fieldError(`items[${i}].ledgerId`, `Line ${i + 1} (${item.name}): ${ledger.name} cannot be used as the ${outward ? 'sales' : 'purchase'} ledger.`);
       }
-      if (ledger && it.ledgerId !== undefined) this.activeCheck('Ledger', ledger.name, ledger.row.is_active === 1, `items[${i}].ledgerId`);
+      if (ledger && it.ledgerId !== undefined) this.activeCheck('Ledger', ledger.id, ledger.name, ledger.row.is_active === 1, `items[${i}].ledgerId`);
       const profile = gstOn
         ? resolveItemTaxProfile(this.lookup, { itemId: item.id, date: this.date, ledgerId: ledger?.id ?? null, gstRateOverride: it.gstRateOverride })
         : NON_GST_PROFILE;
@@ -613,17 +655,33 @@ class PostingBuilder {
     const outside: Array<{ index: number; ledger: LedgerInfo; amount: Paise }> = [];
     ledgers.forEach((ll, i) => {
       const L = masters.ledger(ll.ledgerId);
-      this.activeCheck('Ledger', L.name, L.row.is_active === 1, `ledgers[${i}].ledgerId`);
+      this.activeCheck('Ledger', L.id, L.name, L.row.is_active === 1, `ledgers[${i}].ledgerId`);
       if (L.isGstDuty) {
         throw fieldError(`ledgers[${i}].ledgerId`, `${L.name} is a GST tax ledger. GST on an invoice is calculated automatically — remove this line.`);
       }
       if (L.id === party.id) throw fieldError(`ledgers[${i}].ledgerId`, `${L.name} is the party of this invoice and cannot also be an invoice line.`);
+      // Money received/paid, or another party's account, is not part of an invoice's value: as a line it
+      // would credit Cash on a sale (or debit another customer) and inflate what the party owes.
+      if (L.isCashBank) {
+        throw fieldError(
+          `ledgers[${i}].ledgerId`,
+          `${L.name} is a cash or bank ledger and cannot be an invoice line. Record the money received or paid in a Receipt or Payment voucher, or select Cash as the party for a cash sale.`,
+        );
+      }
+      if (L.isDebtor || L.isCreditor) {
+        throw fieldError(
+          `ledgers[${i}].ledgerId`,
+          `${L.name} is a customer/supplier ledger and cannot be an invoice line. Enter it as the party of its own invoice, or adjust balances between parties with a Journal.`,
+        );
+      }
       if (ll.amount === 0) return;
       const plAccount = L.nature === 'income' || L.nature === 'expenses' || L.isFixedAsset;
       let treatment: InvoiceLineMeta['treatment'] | 'outside';
       if (L.row.include_in_assessable === 'goods') treatment = 'apportion';
       else if (gstOn && (ll.gst !== undefined || ledgerIsGstApplicable(this.lookup, L.id, this.date))) treatment = 'computed';
-      else if (L.isSalesAccount || L.isPurchaseAccount || (mode === 'accounting_invoice' && plAccount)) treatment = 'computed';
+      // A negative P&L line that is neither GST-applicable nor a sales/purchase account (a discount or
+      // deduction) is applied after tax, as in item mode: it is not a negative non-GST supply.
+      else if (L.isSalesAccount || L.isPurchaseAccount || (mode === 'accounting_invoice' && plAccount && ll.amount > 0)) treatment = 'computed';
       else treatment = 'outside';
 
       if (treatment === 'outside') {
@@ -710,7 +768,20 @@ class PostingBuilder {
       for (const m of comp.warnings) {
         if (ENGINE_DUPLICATES.some((re) => re.test(m))) continue;
         if (hasMissingRate && /GST rate is 0% on a taxable line/.test(m)) continue;
-        this.warn('gst', m, engineWarningLevel(m));
+        // The engine numbers lines across items and ledgers ("Line 4 (Freight): …"): point the warning at
+        // the input cell, and name a ledger line by its ledger.
+        // The label is rebuilt from the line's own name (as the engine builds it), so names containing
+        // brackets or colons — "Rice (25 kg)" — still match.
+        const at = /^Line (\d+)\b/.exec(m);
+        const line = at ? meta[Number(at[1]) - 1] : undefined;
+        const name = line ? (line.kind === 'item' ? (line.item?.name ?? '') : (line.ledger?.name ?? '')).trim() : '';
+        const prefix = at && line ? `${at[0]}${name ? ` (${name})` : ''}:` : null;
+        if (at && line && prefix && m.startsWith(prefix)) {
+          const text = line.kind === 'ledger' && line.ledger ? `${line.ledger.name}:${m.slice(prefix.length)}` : m;
+          this.warn('gst', text, engineWarningLevel(m), line.kind === 'item' ? `items[${line.index}]` : `ledgers[${line.index}]`);
+        } else {
+          this.warn('gst', m, engineWarningLevel(m));
+        }
       }
     }
 
@@ -882,22 +953,28 @@ class PostingBuilder {
       // HSN/SAC: mandatory on B2B / export / SEZ / deemed-export lines (confirm); on other outward
       // documents it is still needed for the GSTR-1 HSN summary (Table 12), so it is shown (info).
       // A code shorter than F12 › GST › HSN digits (4 up to ₹5 crore turnover, 6 above) is reported the same way.
-      const hsnLevel: VoucherWarningLevel | null = HSN_REQUIRED.has(nature) ? 'confirm' : outward ? 'info' : null;
+      // Notification 78/2020: up to ₹5 crore turnover (4 digits) HSN is mandatory on B2B invoices and
+      // optional on B2C ones; above ₹5 crore (6 digits) it is mandatory on every tax invoice.
       const minDigits = Math.max(0, Math.min(8, Number(env.config.gst.hsnDigits) || 0));
-      if (hsnLevel) {
+      const b2bLike = HSN_REQUIRED.has(nature);
+      const everyInvoice = outward && minDigits >= 6;
+      if (b2bLike || outward) {
         meta.forEach((m, j) => {
           const cl = computed[j];
           if (cl.absorbed || cl.taxableValue === 0) return;
-          if (hsnLevel === 'info' && cl.taxability === 'non_gst') return;
+          if (!b2bLike && cl.taxability === 'non_gst') return;
           const digits = cl.hsnSac.replace(/\D/g, '').length;
           if (cl.hsnSac && digits >= minDigits) return;
+          const level: VoucherWarningLevel = b2bLike || everyInvoice ? 'confirm' : 'info';
           const label = m.kind === 'item' ? `Line ${m.index + 1} (${m.item?.name ?? ''})` : (m.ledger?.name ?? `Ledger line ${m.index + 1}`);
           const msg = cl.hsnSac
             ? `${label}: HSN/SAC ${cl.hsnSac} has ${digits} digit${digits === 1 ? '' : 's'}; GST returns need at least ${minDigits} (F12 › GST › HSN digits).`
-            : hsnLevel === 'confirm'
+            : b2bLike
               ? `${label}: HSN/SAC code is required on this invoice.`
-              : `${label}: no HSN/SAC code; it is needed for the HSN summary of GSTR-1.`;
-          this.warn('gst_missing_hsn', msg, hsnLevel, m.kind === 'item' ? `items[${m.index}]` : `ledgers[${m.index}]`);
+              : everyInvoice
+                ? `${label}: HSN/SAC code is required on every invoice when turnover is above ₹5 crore (F12 › GST › HSN digits: ${minDigits}).`
+                : `${label}: no HSN/SAC code; it is needed for the HSN summary of GSTR-1.`;
+          this.warn('gst_missing_hsn', msg, level, m.kind === 'item' ? `items[${m.index}]` : `ledgers[${m.index}]`);
         });
       }
       if (base === 'purchase' && isRegisteredParty(snap.registrationType) && !txt(input.referenceNo)) {
@@ -987,12 +1064,12 @@ class PostingBuilder {
     const lines: Array<{ L: LedgerInfo; index: number }> = [];
     ledgers.forEach((ll, i) => {
       const L = masters.ledger(ll.ledgerId);
-      this.activeCheck('Ledger', L.name, L.row.is_active === 1, `ledgers[${i}].ledgerId`);
+      this.activeCheck('Ledger', L.id, L.name, L.row.is_active === 1, `ledgers[${i}].ledgerId`);
       if (ll.amount === 0) return;
       lines.push({ L, index: i });
     });
     if (this.party && this.input.partyLedgerId !== undefined) {
-      this.activeCheck('Ledger', this.party.name, this.party.row.is_active === 1, 'partyLedgerId');
+      this.activeCheck('Ledger', this.party.id, this.party.name, this.party.row.is_active === 1, 'partyLedgerId');
     }
 
     // Party: explicit, else inferred (payment: first debited non-cash ledger; receipt: first credited one;
@@ -1089,7 +1166,7 @@ class PostingBuilder {
     const { input, masters, base } = this;
     const items = input.items ?? [];
     if (items.length === 0) throw fieldError('items', 'Enter at least one stock item line.');
-    if (this.party) this.activeCheck('Ledger', this.party.name, this.party.row.is_active === 1, 'partyLedgerId');
+    if (this.party) this.activeCheck('Ledger', this.party.id, this.party.name, this.party.row.is_active === 1, 'partyLedgerId');
     const dir = STOCK_DIRECTION[base];
     // Physical stock: lines counting the same item / godown / batch are added up (counted in two racks):
     // the first such line carries counted − book, later ones their counted quantity, so the voucher's
@@ -1097,7 +1174,8 @@ class PostingBuilder {
     const counted = new Set<string>();
     items.forEach((it, i) => {
       const item = masters.item(it.itemId);
-      this.activeCheck('Stock item', item.name, item.is_active === 1, `items[${i}].itemId`);
+      this.activeCheck('Stock item', item.id, item.name, item.is_active === 1, `items[${i}].itemId`);
+      this.checkQtyDecimals(it, item, i);
       const loc = this.locate(it, item, i);
       const rate = it.rate ?? 0;
       let qty: number;
@@ -1432,7 +1510,13 @@ class PostingBuilder {
       excludeVoucherId: this.opts.voucherId,
       partyLedgerId: this.party?.id ?? null,
       referenceNo: txt(this.input.referenceNo) ?? null,
-      entries: this.accounting ? this.entries : [],
+      entries: this.accounting
+        ? this.entries.map((e) => ({
+            ledgerId: e.ledgerId,
+            amount: e.amount,
+            path: e.source.kind === 'party' ? 'partyLedgerId' : e.source.kind === 'ledger' ? `ledgers[${e.source.index}].ledgerId` : undefined,
+          }))
+        : [],
       stock: this.inventory,
       inventoryOn: env.features.inventory,
     });

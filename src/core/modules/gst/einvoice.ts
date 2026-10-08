@@ -21,6 +21,7 @@ import { isKnownStateCode, isStandardRate, POS_OTHER_COUNTRIES, validateGstin } 
 import { lineAmount } from '../../../shared/money.ts';
 import type {
   EinvoiceDocType,
+  EinvoiceGeneratedResult,
   EinvoiceImportResult,
   EinvoicePendingResult,
   EinvoicePendingRow,
@@ -419,6 +420,72 @@ export function cancelledWithActiveRef(db: Db, kind: 'irn' | 'eway', from: strin
       { from, to },
     )
     .map((r) => ({ voucherId: r.id, number: r.number, date: r.date, voucherTypeName: r.vt_name, partyName: r.party_name, refNo: r.ref, refDate: r.ref_date }));
+}
+
+const DOC_TYPE_BY_BASE: Readonly<Record<string, EinvoiceDocType>> = { sales: 'INV', credit_note: 'CRN', debit_note: 'DBN' };
+
+/**
+ * IRP acknowledgement date-time ('YYYY-MM-DD HH:mm:ss', Indian time as the IRP gives it; a bare date
+ * counts as midnight) + 24 hours → ISO UTC instant until which the IRN can be cancelled; null when the
+ * ack date is missing or unreadable.
+ */
+export function irnCancellableUntil(ackDate: string | null): string | null {
+  if (!ackDate) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(ackDate.trim());
+  if (!m || !isValidDate(m[1])) return null;
+  const t = Date.parse(`${m[1]}T${m[2] ?? '00'}:${m[3] ?? '00'}:${m[4] ?? '00'}+05:30`);
+  return Number.isFinite(t) ? new Date(t + 24 * 3600 * 1000).toISOString() : null;
+}
+
+/**
+ * Sales / credit / debit notes in the range whose IRN is active (irn_status 'generated'), whether or
+ * not they count in the books — so an IRN can be marked cancelled after it was cancelled on the IRP.
+ */
+export function generatedEinvoices(db: Db, from: string, to: string, now: Date): EinvoiceGeneratedResult {
+  const rows = db
+    .all<{
+      id: number;
+      number: string | null;
+      date: string;
+      base_type: string;
+      vt_name: string;
+      party_name: string | null;
+      party_gstin: string | null;
+      total_amount: number;
+      irn: string;
+      irn_ack_no: string | null;
+      irn_ack_date: string | null;
+      is_cancelled: number;
+    }>(
+      `SELECT v.id, v.number, v.date, v.base_type, vt.name AS vt_name, v.party_name, v.party_gstin, v.total_amount,
+              v.irn, v.irn_ack_no, v.irn_ack_date, v.is_cancelled
+         FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+        WHERE v.base_type IN ('sales', 'credit_note', 'debit_note')
+          AND v.irn IS NOT NULL AND v.irn <> '' AND v.irn_status = 'generated'
+          AND v.date >= :from AND v.date <= :to
+        ORDER BY v.date, v.id`,
+      { from, to },
+    )
+    .map((r) => {
+      const until = irnCancellableUntil(r.irn_ack_date);
+      return {
+        voucherId: r.id,
+        number: r.number,
+        date: r.date,
+        voucherTypeName: r.vt_name,
+        partyName: r.party_name,
+        gstin: r.party_gstin,
+        docType: DOC_TYPE_BY_BASE[r.base_type] ?? 'INV',
+        invoiceValue: r.total_amount,
+        irn: r.irn,
+        ackNo: r.irn_ack_no,
+        ackDate: r.irn_ack_date,
+        cancelledInBooks: r.is_cancelled === 1,
+        cancellableUntil: until,
+        cancelWindowOpen: until !== null && Date.parse(until) > now.getTime(),
+      };
+    });
+  return { rows };
 }
 
 /** Log a document event (e-invoice / e-way bill trail). */

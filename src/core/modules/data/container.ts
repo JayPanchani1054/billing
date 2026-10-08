@@ -125,7 +125,7 @@ export async function writeContainer(opts: {
       const cipher = createCipheriv('aes-256-gcm', key, iv);
       cipher.setAAD(encHeader);
       await handle.write(Buffer.concat([encHeader, Buffer.alloc(TAG_BYTES)]), 0, ENC_PREFIX, payloadOffset);
-      const out = handle.createWriteStream({ start: payloadOffset + ENC_PREFIX, autoClose: false });
+      const out = fs.createWriteStream(tmp, { flags: 'r+', start: payloadOffset + ENC_PREFIX });
       const ctTap = new HashTap();
       await pipeline(fs.createReadStream(opts.dbPath), dbTap, gzip, cipher, ctTap, out);
       await handle.write(cipher.getAuthTag(), 0, TAG_BYTES, payloadOffset + ENC_HEADER);
@@ -136,7 +136,7 @@ export async function writeContainer(opts: {
       payloadBytes = h.bytes;
       if (payloadBytes !== ENC_PREFIX + ctTap.bytes) throw new AppError('INTERNAL', 'Backup payload size mismatch');
     } else {
-      const out = handle.createWriteStream({ start: payloadOffset, autoClose: false });
+      const out = fs.createWriteStream(tmp, { flags: 'r+', start: payloadOffset });
       const payloadTap = new HashTap();
       await pipeline(fs.createReadStream(opts.dbPath), dbTap, gzip, payloadTap, out);
       payloadSha256 = payloadTap.hash.digest('hex');
@@ -214,9 +214,9 @@ function checkManifest(raw: unknown): BackupManifest {
     kind: m.kind === 'auto' ? 'auto' : 'manual',
     encrypted: m.encrypted as boolean,
     compression: 'gzip',
-    payloadSha256: m.payloadSha256,
+    payloadSha256: m.payloadSha256 as string,
     payloadBytes: m.payloadBytes as number,
-    dbSha256: m.dbSha256,
+    dbSha256: m.dbSha256 as string,
     dbBytes: m.dbBytes as number,
   };
 }

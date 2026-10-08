@@ -32,6 +32,7 @@ import {
   bankRef,
   fmtDate,
   loadEntry,
+  paramsFor,
   particularsResolver,
   requireBankLedger,
   unlinkLine,
@@ -64,6 +65,16 @@ function statementBalanceAsOf(db: Db, ledgerId: number, asOf: string): { date: s
 
 const NOT_LINKED = `(s.status IN ('unmatched', 'ignored') OR s.matched_entry_id IS NULL)`;
 
+/** Opening balance + entries (books filter) the bank has cleared on or before `date`: the bank's balance per the books. */
+function bankBalanceOn(db: Db, ledgerId: number, opening: Paise, date: string, today: string): Paise {
+  const sum = db.value<number>(
+    `SELECT COALESCE(SUM(le.amount), 0) FROM ledger_entries le
+      WHERE le.ledger_id = :l AND ${IN_BOOKS} AND le.bank_date IS NOT NULL AND le.bank_date <= :d`,
+    { l: ledgerId, d: date, today },
+  );
+  return opening + (sum ?? 0);
+}
+
 export function brs(db: Db, today: string, input: BrsInput): BrsResult {
   const bank = requireBankLedger(db, input.ledgerId, 'Bank reconciliation');
   const asOf = input.asOf;
@@ -94,10 +105,8 @@ export function brs(db: Db, today: string, input: BrsInput): BrsResult {
   const where: string[] = [];
   if (show !== 'reconciled') where.push(`(${UNRECONCILED})`, `(${CLEARED_EARLY})`);
   if (show !== 'unreconciled') where.push(`(le.date >= :from AND le.date <= :asOf AND ${IN_BOOKS} AND le.bank_date IS NOT NULL AND le.bank_date <= :asOf)`);
-  const rows = db.all<EntryRow>(
-    `${ENTRY_SELECT} WHERE le.ledger_id = :l AND (${where.join(' OR ')}) ORDER BY le.date, le.voucher_id, le.id LIMIT ${BRS_MAX_ROWS + 1}`,
-    { ...p, from },
-  );
+  const listSql = `${ENTRY_SELECT} WHERE le.ledger_id = :l AND (${where.join(' OR ')}) ORDER BY le.date, le.voucher_id, le.id LIMIT ${BRS_MAX_ROWS + 1}`;
+  const rows = db.all<EntryRow>(listSql, paramsFor(listSql, { ...p, from }));
   const truncated = rows.length > BRS_MAX_ROWS;
   if (truncated) rows.length = BRS_MAX_ROWS;
   const particulars = particularsResolver(
@@ -127,15 +136,18 @@ export function brs(db: Db, today: string, input: BrsInput): BrsResult {
     };
   });
 
+  // The statement is compared on ITS last date: bank dates entered for later days (statement downloaded on the
+  // 25th, BRS as on the 30th) are not in the statement balance and must not show up as a difference.
   const stmt = statementBalanceAsOf(db, bank.id, asOf);
+  const bankOnStatementDate = stmt === null ? null : stmt.date >= asOf ? balanceAsPerBank : bankBalanceOn(db, bank.id, bank.openingBalance, stmt.date, today);
   const notInBooks = db.get<{ n: number; dep: number | null; wd: number | null }>(
     `SELECT COUNT(*) AS n, SUM(CASE WHEN s.amount > 0 THEN s.amount ELSE 0 END) AS dep,
             SUM(CASE WHEN s.amount < 0 THEN -s.amount ELSE 0 END) AS wd
-       FROM bank_statement_lines s WHERE s.ledger_id = :l AND s.txn_date <= :asOf AND ${NOT_LINKED}`,
-    p,
+       FROM bank_statement_lines s WHERE s.ledger_id = :l AND s.txn_date <= :upTo AND ${NOT_LINKED}`,
+    { l: bank.id, upTo: stmt?.date ?? asOf },
   );
   const amountsNotInBooks = { count: notInBooks?.n ?? 0, deposits: notInBooks?.dep ?? 0, withdrawals: notInBooks?.wd ?? 0 };
-  const difference = stmt ? stmt.balance - balanceAsPerBank : null;
+  const difference = stmt && bankOnStatementDate !== null ? stmt.balance - bankOnStatementDate : null;
   return {
     ledger: bankRef(bank),
     asOf,
@@ -148,6 +160,7 @@ export function brs(db: Db, today: string, input: BrsInput): BrsResult {
     balanceAsPerBank,
     statementBalance: stmt?.balance ?? null,
     statementDate: stmt?.date ?? null,
+    balanceAsPerBankOnStatementDate: bankOnStatementDate,
     difference,
     amountsNotInBooks,
     unexplainedDifference: difference === null ? null : difference - (amountsNotInBooks.deposits - amountsNotInBooks.withdrawals),
@@ -177,6 +190,9 @@ export function setBankDates(ctx: CompanyCtx, input: SetBankDatesInput): SetBank
       const name = db.value<string>('SELECT name FROM ledgers WHERE id = :id', { id: r.ledger_id }) ?? '';
       throw rule(`Bank dates can only be set on Bank Accounts / Bank OD ledgers. ${voucherLabel(r)} line "${name}" is not a bank ledger.`);
     }
+    // Rows sent back unchanged (the grid may resend them) are not re-validated: an auto-match within the
+    // 2-day early tolerance legitimately holds a bank date just before the voucher date.
+    if (r.bank_date === e.bankDate) return { input: e, row: r, bank };
     assertEntryInBooks(r, today);
     if (e.bankDate !== null) {
       const chequeEarlier = r.instrument_date !== null && r.instrument_date < r.date;
@@ -203,12 +219,16 @@ export function setBankDates(ctx: CompanyCtx, input: SetBankDatesInput): SetBank
       unchanged++;
       continue;
     }
-    if (e.bankDate === null && r.line_id !== null) {
-      unlinkLine(db, { id: r.line_id, matched_entry_id: r.entry_id });
-      unmatchedLines++;
-    } else {
-      db.run('UPDATE ledger_entries SET bank_date = :d WHERE id = :id', { d: e.bankDate, id: r.entry_id });
+    // A statement line linked to the entry stays linked only while the bank date is the line's date: clearing
+    // the date, or moving it to another day, unmatches the line (it is then "not in the books" in the BRS).
+    if (r.line_id !== null) {
+      const lineDate = db.value<string>('SELECT txn_date FROM bank_statement_lines WHERE id = :id', { id: r.line_id });
+      if (e.bankDate === null || e.bankDate !== lineDate) {
+        unlinkLine(db, { id: r.line_id, matched_entry_id: r.entry_id });
+        unmatchedLines++;
+      }
     }
+    db.run('UPDATE ledger_entries SET bank_date = :d WHERE id = :id', { d: e.bankDate, id: r.entry_id });
     updated++;
     const a = audit.get(bank.id) ?? { name: bank.name, before: [], after: [] };
     a.before.push([r.entry_id, voucherLabel(r), r.amount, r.bank_date]);
@@ -281,7 +301,7 @@ export function bankSummary(db: Db, today: string, asOf: string): BankSummaryRow
        FROM bank_statement_lines s
       WHERE s.ledger_id IN (SELECT value FROM json_each(:ids)) AND s.txn_date <= :asOf
       GROUP BY s.ledger_id, st`,
-    p,
+    { ids, asOf },
   )) {
     const c = lineCounts.get(r.ledger_id) ?? ZERO_COUNTS();
     if (r.st in c) c[r.st as StatementLineStatus] += r.n;
@@ -308,7 +328,14 @@ export function bankSummary(db: Db, today: string, asOf: string): BankSummaryRow
       balanceAsPerBank: books + issued - deposited + (early.get(b.id) ?? 0),
       unreconciled: { count, depositsCount: u?.deposited_n ?? 0, deposits: deposited, issuedCount: u?.issued_n ?? 0, issued },
       lastReconciledDate: lastRec.get(b.id) ?? null,
-      lastStatement: last ? { date: last.txn_date, balance: last.balance, importedAt: last.imported_at } : null,
+      lastStatement: last
+        ? {
+            date: last.txn_date,
+            balance: last.balance,
+            importedAt: last.imported_at,
+            difference: last.balance === null ? null : last.balance - bankBalanceOn(db, b.id, b.openingBalance, last.txn_date, today),
+          }
+        : null,
       statementLines: lineCounts.get(b.id) ?? ZERO_COUNTS(),
     });
   }

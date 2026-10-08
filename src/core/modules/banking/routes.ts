@@ -29,23 +29,26 @@ import { deleteBatch, importStatement, listPresets, previewStatement, statementB
 
 const col = v.int({ min: 0, max: 16_383 });
 
+/** Optional roles accept null as well (StatementColumnMap allows null = column not used). */
+const optCol = col.nullable().optional();
+
 export const ColumnMapSchema = v.object({
   date: col,
-  valueDate: col.optional(),
-  description: col.optional(),
-  reference: col.optional(),
-  debit: col.optional(),
-  credit: col.optional(),
-  amount: col.optional(),
-  drCr: col.optional(),
-  balance: col.optional(),
-  balanceDrCr: col.optional(),
+  valueDate: optCol,
+  description: optCol,
+  reference: optCol,
+  debit: optCol,
+  credit: optCol,
+  amount: optCol,
+  drCr: optCol,
+  balance: optCol,
+  balanceDrCr: optCol,
 });
 
 export const MappingSchema = v.object({
   preset: v.enum(BANK_PRESET_IDS),
-  sheet: v.string({ max: 200, trim: false }).optional(),
-  delimiter: v.enum(STATEMENT_DELIMITERS).optional(),
+  sheet: v.string({ max: 200, trim: false }).nullable().optional(),
+  delimiter: v.enum(STATEMENT_DELIMITERS).nullable().optional(),
   headerRow: v.int({ min: 0, max: 1_000_000 }),
   columns: ColumnMapSchema,
   dateOrder: v.enum(STATEMENT_DATE_ORDERS).default('auto'),
@@ -140,7 +143,7 @@ export const bankingRoutes = {
   'banking.statement.preview': companyRoute({
     access: 'banking.reconcile',
     transactional: false,
-    input: v.object({ ledgerId: v.id(), fileName, bytes, mapping: MappingSchema.optional() }),
+    input: v.object({ ledgerId: v.id(), fileName, bytes, mapping: MappingSchema.optional(), sheet: v.string({ min: 1, max: 200, trim: false }).optional() }),
     handler: (ctx, input) => previewStatement(ctx.db, input),
   }),
   'banking.statement.import': companyRoute({

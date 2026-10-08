@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Permission } from '../../../shared/constants.ts';
 import { formatDate } from '../../../shared/dates.ts';
+import { formatQty } from '../../../shared/format.ts';
 import type { CompanyRegistrationType } from '../../../shared/types/gst.ts';
 import type {
   ItemLineInput,
@@ -132,6 +133,25 @@ export function parseJson<T>(raw: string | null): T | null {
 }
 
 const can = (ctx: CompanyCtx, p: Permission): boolean => ctx.session.isOwner || ctx.session.permissions.has(p);
+
+/** vouchers.backdate: needed to enter, alter, cancel or delete a voucher dated before today. */
+function assertMayTouchDate(ctx: CompanyCtx, date: string, today: string, action: 'enter' | 'alter' | 'cancel' | 'delete'): void {
+  if (date >= today || can(ctx, 'vouchers.backdate')) return;
+  throw forbidden(
+    action === 'enter'
+      ? `You do not have permission to enter vouchers dated before today (${formatDate(today)}).`
+      : `You do not have permission to ${action} vouchers dated before today (${formatDate(today)}); this voucher is dated ${formatDate(date)}.`,
+  );
+}
+
+/** Optimistic concurrency: the caller saw `expected` (VoucherDetail.updatedAt); someone else changed it since. */
+function assertFresh(row: VoucherRow, expected: string | undefined): void {
+  if (expected && expected !== row.updated_at) {
+    throw conflict('This voucher was changed by someone else after you opened it. Reopen it to see the latest version.', {
+      updatedAt: row.updated_at,
+    });
+  }
+}
 
 export function loadCompanyEssentials(db: Db): CompanyEssentials {
   const r = db.get<{
@@ -343,6 +363,16 @@ export function previewVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherPrevi
   const plan = buildPosting(env, input, { voucherType: vt, number, voucherId: existing?.id ?? null });
   const locked = env.config.lockedUpTo;
   const warnings = [...plan.warnings];
+  const earliest = existing !== undefined && existing.date < input.date ? existing.date : input.date;
+  if (earliest < env.today && !can(ctx, 'vouchers.backdate')) {
+    warnings.unshift({
+      code: 'backdate_not_allowed',
+      message: `You do not have permission to enter or alter vouchers dated before today (${formatDate(env.today)}). Ask an administrator, or date the voucher today.`,
+      blocking: true,
+      level: 'block',
+      path: 'date',
+    });
+  }
   if (locked && (input.date <= locked || (existing !== undefined && existing.date <= locked))) {
     warnings.unshift({
       code: 'period_locked',
@@ -387,16 +417,12 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
   if (input.id && !existing) throw notFound('Voucher', input.id);
   if (existing && !can(ctx, 'vouchers.alter')) throw forbidden('You do not have permission to alter vouchers.');
   if (!existing && !can(ctx, 'vouchers.create')) throw forbidden('You do not have permission to create vouchers.');
-  if (input.date < today && !can(ctx, 'vouchers.backdate')) {
-    throw forbidden(`You do not have permission to enter vouchers dated before today (${formatDate(today)}).`);
-  }
+  assertMayTouchDate(ctx, input.date, today, existing ? 'alter' : 'enter');
   if (existing) {
+    // Altering an earlier voucher is back-dated work even when it is moved to today.
+    assertMayTouchDate(ctx, existing.date, today, 'alter');
     if (existing.is_cancelled === 1) throw rule('A cancelled voucher cannot be altered.');
-    if (input.expectedUpdatedAt && input.expectedUpdatedAt !== existing.updated_at) {
-      throw conflict('This voucher was changed by someone else after you opened it. Reopen it to see the latest version.', {
-        updatedAt: existing.updated_at,
-      });
-    }
+    assertFresh(existing, input.expectedUpdatedAt);
     if (existing.voucher_type_id !== input.voucherTypeId) {
       throw fieldError('voucherTypeId', 'The voucher type of a saved voucher cannot be changed. Delete it and enter a new voucher instead.');
     }
@@ -842,6 +868,29 @@ function assertAlterKeepsLinks(db: Db, existing: VoucherRow, plan: PostingPlan):
   if (missing) {
     throw rule(`${missing.item_name} of this note has been billed in ${missing.type_name} ${missing.number ?? ''} dated ${formatDate(missing.date)}; it cannot be removed from the note.`);
   }
+  // The invoices tracked against the note do not move stock themselves: the note must still carry at
+  // least the quantity they bill, or the difference would never leave (or enter) stock.
+  const billedQty = db.all<{ item_id: number; item_name: string; unit: string; decimals: number; qty: number }>(
+    `SELECT ie.item_id, si.name AS item_name, u.symbol AS unit, u.decimal_places AS decimals, SUM(ABS(ie.qty)) AS qty
+       FROM inventory_entries ie
+       JOIN vouchers v ON v.id = ie.voucher_id
+       JOIN stock_items si ON si.id = ie.item_id
+       JOIN units u ON u.id = si.unit_id
+      WHERE ie.tracking_ref = :ref AND v.base_type = :billBase AND v.party_ledger_id IS :party AND v.id <> :id
+        AND v.is_cancelled = 0 AND v.is_optional = 0
+      GROUP BY ie.item_id, si.name, u.symbol, u.decimal_places`,
+    { ref: existing.number, billBase, party: existing.party_ledger_id, id: existing.id },
+  );
+  for (const b of billedQty) {
+    const onNote = plan.inventory.filter((l) => l.itemId === b.item_id).reduce((a, l) => a + Math.abs(l.qty), 0);
+    if (Math.round((onNote - b.qty) * 1e6) < 0) {
+      const dp = Math.max(0, Math.min(6, b.decimals | 0));
+      throw rule(
+        `${formatQty(b.qty, dp, b.unit)} of ${b.item_name} on this note has been billed (first in ${by}); ` +
+          `the note cannot be reduced to ${formatQty(onNote, dp, b.unit)}. Reduce the tracked invoice lines first.`,
+      );
+    }
+  }
 }
 
 function loadForChange(ctx: CompanyCtx, id: number): { row: VoucherRow; vt: VoucherTypeInfo } {
@@ -850,10 +899,12 @@ function loadForChange(ctx: CompanyCtx, id: number): { row: VoucherRow; vt: Vouc
   return { row, vt: loadVoucherType(ctx.db, row.voucher_type_id) };
 }
 
-export function deleteVoucher(ctx: CompanyCtx, id: number, reason?: string): { id: number; number: string | null } {
+export function deleteVoucher(ctx: CompanyCtx, id: number, reason?: string, expectedUpdatedAt?: string): { id: number; number: string | null } {
   const { db } = ctx;
   if (!can(ctx, 'vouchers.delete')) throw forbidden('You do not have permission to delete vouchers.');
   const { row, vt } = loadForChange(ctx, id);
+  assertMayTouchDate(ctx, row.date, ctx.clock.today(), 'delete');
+  assertFresh(row, expectedUpdatedAt);
   assertDateUnlocked(db, row.date);
   if (row.irn_status === 'generated') throw rule('An e-invoice (IRN) has been generated for this voucher. Cancel the IRN before deleting it.');
   assertBillsNotSettled(db, id);
@@ -872,10 +923,17 @@ export function deleteVoucher(ctx: CompanyCtx, id: number, reason?: string): { i
   return { id, number: row.number };
 }
 
-export function cancelVoucher(ctx: CompanyCtx, id: number, reason: string): { id: number; number: string | null; updatedAt: string } {
+export function cancelVoucher(
+  ctx: CompanyCtx,
+  id: number,
+  reason: string,
+  expectedUpdatedAt?: string,
+): { id: number; number: string | null; updatedAt: string } {
   const { db } = ctx;
   if (!can(ctx, 'vouchers.alter')) throw forbidden('You do not have permission to cancel vouchers.');
   const { row, vt } = loadForChange(ctx, id);
+  assertMayTouchDate(ctx, row.date, ctx.clock.today(), 'cancel');
+  assertFresh(row, expectedUpdatedAt);
   if (row.is_cancelled === 1) throw rule('This voucher is already cancelled.');
   assertDateUnlocked(db, row.date);
   assertBillsNotSettled(db, id);
@@ -915,7 +973,13 @@ export function cancelVoucher(ctx: CompanyCtx, id: number, reason: string): { id
 
 // ───────────────────────────── Optional / duplicate / number ─────────────────────────────
 
-export function setVoucherOptional(ctx: CompanyCtx, id: number, optional: boolean, acknowledgeWarnings = false): VoucherSaveResult {
+export function setVoucherOptional(
+  ctx: CompanyCtx,
+  id: number,
+  optional: boolean,
+  acknowledgeWarnings = false,
+  expectedUpdatedAt?: string,
+): VoucherSaveResult {
   const { row } = loadForChange(ctx, id);
   if (row.is_cancelled === 1) throw rule('A cancelled voucher cannot be changed.');
   const input = storedInput(ctx.db, row);
@@ -925,6 +989,7 @@ export function setVoucherOptional(ctx: CompanyCtx, id: number, optional: boolea
     number: row.number ?? undefined,
     isOptional: optional,
     acknowledgeWarnings,
+    expectedUpdatedAt: expectedUpdatedAt ?? row.updated_at,
   });
 }
 
@@ -938,6 +1003,8 @@ export function duplicateVoucher(ctx: CompanyCtx, id: number): VoucherInput {
   delete out.acknowledgeWarnings;
   delete out.effectiveDate;
   delete out.partyBillAllocations;
+  // The copy is dated today, so it is not post-dated.
+  delete out.isPostDated;
   if (row.base_type === 'purchase') {
     delete out.referenceNo;
     delete out.referenceDate;

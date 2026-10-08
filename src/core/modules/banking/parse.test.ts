@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 import type { StatementMapping } from '../../../shared/types/banking.ts';
 import { FileFormatError } from '../../lib/text.ts';
 import { dateToSerial, writeXlsx } from '../../lib/xlsx.ts';
-import { parseStatement, type ParsedStatement } from './parse.ts';
+import { parseStatement, referenceKey, type ParsedStatement } from './parse.ts';
 import { classifyHeader, headerKey } from './presets.ts';
 import { detectDateOrder, parseStatementAmount, parseStatementDate } from './values.ts';
 import { rs, textBytes } from './testkit.ts';
@@ -180,7 +180,8 @@ describe('bank layouts', () => {
     assert.deepEqual(lines(p).map((l) => [l[0], l[1], l[2], l[3]]), [
       ['2026-04-01', rs(25_000), rs(1_25_000), ''],
       ['2026-04-03', -rs(40_000), rs(85_000), '000501'],
-      ['2026-04-30', 31250, 8531250],
+      // ₹312.50 interest credit; 85,000 + 312.50 = 85,312.50 ✓ (blank cheque number → '').
+      ['2026-04-30', 31250, 8531250, ''],
     ]);
     assert.equal(p.extract?.lines[1].valueDate, '2026-04-02');
   });
@@ -348,6 +349,20 @@ describe('statement checks', () => {
     const b = parseStatement('u.csv', textBytes(csv)).extract?.lines.map((l) => l.hash) ?? [];
     assert.equal(new Set(a).size, 3);
     assert.deepEqual(a, b);
+  });
+
+  it('the CSV and the Excel download of the same statement give the same hashes (cheque no. 000501 vs the number 501)', () => {
+    const csv = ['Date,Narration,Chq No,Debit,Credit,Balance', '06/04/2026,CHQ PAID SUPREME,000501,"40,000.00",,"85,000.00"'].join('\n');
+    const xlsx = writeXlsx({
+      sheets: [{ name: 'Statement', rows: [['Date', 'Narration', 'Chq No', 'Debit', 'Credit', 'Balance'], ['06/04/2026', 'CHQ PAID SUPREME', 501, 40000, null, 85000]] }],
+    });
+    const a = parseStatement('s.csv', textBytes(csv)).extract?.lines ?? [];
+    const b = parseStatement('s.xlsx', xlsx).extract?.lines ?? [];
+    assert.deepEqual([a[0]?.reference, b[0]?.reference], ['000501', '501']);
+    assert.equal(a[0]?.hash, b[0]?.hash);
+    assert.equal(referenceKey('000501'), '501');
+    assert.equal(referenceKey('N0912-60001'), 'N091260001');
+    assert.equal(referenceKey('0'), '0');
   });
 
   it('reads Excel serial dates in a General-format column', () => {

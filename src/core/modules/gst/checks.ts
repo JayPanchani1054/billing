@@ -48,6 +48,7 @@ export function issue(
   message: string,
   fix: string,
   section: Gstr1SectionId | null = null,
+  line: GstDocLine | null = null,
 ): GstIssue {
   return {
     code,
@@ -60,6 +61,9 @@ export function issue(
     section,
     message,
     fix,
+    partyLedgerId: d?.partyLedgerId ?? null,
+    itemId: line?.itemId ?? null,
+    lineLedgerId: line && line.itemId === null ? line.ledgerId : null,
   };
 }
 
@@ -202,6 +206,7 @@ export function outwardIssues(d: GstDoc, company: GstCompany, cx: OutwardCheckCo
         `${label}: ${lineList(e.lines)} ${e.lines.length === 1 ? e.text : e.text.replace(/^has/, 'have')}${e.lines.length > 1 && e.code !== 'hsn_missing' ? ' (first one shown)' : ''}.`,
         `Enter a ${company.config.gst.hsnDigits}-digit (or longer) HSN/SAC in the stock item or ledger and re-save the voucher. Table 12 (HSN summary) needs it.`,
         sec,
+        e.lines[0],
       ),
     );
   }
@@ -216,6 +221,7 @@ export function outwardIssues(d: GstDoc, company: GstCompany, cx: OutwardCheckCo
         `${label}: ${lineList(badRates)} use${badRates.length === 1 ? 's' : ''} ${badRates[0].rate}% which is not a GST rate.`,
         'Correct the GST rate in the stock item / ledger (or the line override) and re-save the voucher.',
         sec,
+        badRates[0],
       ),
     );
   }
@@ -423,6 +429,8 @@ export function inwardIssues(d: GstDoc, rcmLiability: ReadonlySet<number>): GstI
         'warning',
         `${label}: ${lineList(badRates)} use${badRates.length === 1 ? 's' : ''} ${badRates[0].rate}% which is not a GST rate.`,
         'Correct the GST rate in the stock item / ledger and re-save the voucher.',
+        null,
+        badRates[0],
       ),
     );
   }

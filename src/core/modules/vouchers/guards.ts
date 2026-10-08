@@ -18,6 +18,8 @@ import type { Masters } from './masters.ts';
 export interface GuardEntry {
   ledgerId: number;
   amount: number;
+  /** Input path of the line that produced the entry (e.g. 'ledgers[1].ledgerId', 'partyLedgerId'). */
+  path?: string;
 }
 
 export interface GuardStockLine {
@@ -131,7 +133,11 @@ export function runGuards(g: GuardInput): VoucherWarning[] {
 
   // ── Net effect of this voucher per ledger ──
   const perLedger = new Map<number, number>();
-  for (const e of g.entries) perLedger.set(e.ledgerId, (perLedger.get(e.ledgerId) ?? 0) + e.amount);
+  const pathOf = new Map<number, string>();
+  for (const e of g.entries) {
+    perLedger.set(e.ledgerId, (perLedger.get(e.ledgerId) ?? 0) + e.amount);
+    if (e.path && !pathOf.has(e.ledgerId)) pathOf.set(e.ledgerId, e.path);
+  }
 
   // ── Negative cash ──
   if (g.policies.negativeCash !== 'allow') {
@@ -142,10 +148,13 @@ export function runGuards(g: GuardInput): VoucherWarning[] {
       const before = ledgerBalanceAsOf(g.db, ledgerId, g.date, g.today, g.excludeVoucherId);
       const after = before + amount;
       if (after < 0) {
-        add(g.policies.negativeCash, {
+        const w: Omit<VoucherWarning, 'blocking' | 'level'> = {
           code: 'negative_cash',
           message: `${L.name} will go negative: balance ${money(before)} before this voucher, ${money(after)} after it.`,
-        });
+        };
+        const path = pathOf.get(ledgerId);
+        if (path) w.path = path;
+        add(g.policies.negativeCash, w);
       }
     }
   }

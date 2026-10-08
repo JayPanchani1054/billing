@@ -1,0 +1,153 @@
+/* Outstanding module screens. Semantic design tokens only (no raw colours). Prefix: bx-os- */
+
+/* ── Small stacked ageing bar (one per party row) ─────────────────── */
+.bx-os-agebar {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+}
+.bx-os-agebar__seg {
+  height: 100%;
+  min-width: 2px;
+}
+.bx-os-agebar__seg + .bx-os-agebar__seg {
+  border-left: 1px solid var(--surface-1);
+}
+.bx-os-lvl-0 { background: var(--chart-3); }
+.bx-os-lvl-1 { background: var(--chart-4); }
+.bx-os-lvl-2 { background: var(--chart-2); }
+.bx-os-lvl-3 { background: var(--chart-5); }
+.bx-os-lvl-4 { background: var(--danger-solid); }
+
+.bx-os-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+.bx-os-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+.bx-os-legend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+/* ── Two-pane layouts (reminders: list | letter) ──────────────────── */
+.bx-os-split {
+  display: grid;
+  grid-template-columns: minmax(320px, 2fr) minmax(360px, 3fr);
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+}
+.bx-os-split > * {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 960px) {
+  .bx-os-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Letter preview (rendered as React text, never as HTML) ───────── */
+.bx-os-letter {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-6);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  line-height: var(--lh-relaxed);
+}
+.bx-os-letter p {
+  margin: 0 0 var(--space-3);
+}
+.bx-os-letter__head {
+  text-align: center;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+}
+.bx-os-letter__company {
+  font-size: var(--fs-16);
+  font-weight: var(--fw-bold);
+}
+.bx-os-letter__line {
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+.bx-os-letter__date {
+  text-align: right;
+  margin-bottom: var(--space-3);
+}
+.bx-os-letter__to {
+  margin-bottom: var(--space-4);
+}
+.bx-os-letter__subject {
+  font-weight: var(--fw-semibold);
+  margin-bottom: var(--space-3);
+}
+.bx-os-letter table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-1) 0 var(--space-4);
+  font-size: var(--text-base);
+}
+.bx-os-letter th,
+.bx-os-letter td {
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bx-os-letter th {
+  font-weight: var(--fw-semibold);
+  background: var(--surface-2);
+}
+.bx-os-letter .is-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bx-os-letter tr.is-total td {
+  font-weight: var(--fw-semibold);
+  border-top: 1px solid var(--border-strong);
+}
+.bx-os-letter__signoff {
+  margin-top: var(--space-4);
+}
+.bx-os-letter__gap {
+  height: var(--space-6);
+}
+
+/* ── Due-soon widget ──────────────────────────────────────────────── */
+.bx-os-due__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+.bx-os-due__when {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.bx-os-due__when.is-today {
+  color: var(--warning-text);
+  font-weight: var(--fw-medium);
+}

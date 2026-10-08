@@ -223,13 +223,13 @@ export const vouchersRoutes = {
   }),
   'vouchers.delete': companyRoute({
     access: 'vouchers.delete',
-    input: v.object({ id: v.id(), reason: optText(500) }),
-    handler: (ctx, input) => deleteVoucher(ctx, input.id, input.reason),
+    input: v.object({ id: v.id(), reason: optText(500), expectedUpdatedAt: optText(40) }),
+    handler: (ctx, input) => deleteVoucher(ctx, input.id, input.reason, input.expectedUpdatedAt),
   }),
   'vouchers.cancel': companyRoute({
     access: 'vouchers.alter',
-    input: v.object({ id: v.id(), reason: v.string({ min: 1, max: 500 }) }),
-    handler: (ctx, input) => cancelVoucher(ctx, input.id, input.reason),
+    input: v.object({ id: v.id(), reason: v.string({ min: 1, max: 500 }), expectedUpdatedAt: optText(40) }),
+    handler: (ctx, input) => cancelVoucher(ctx, input.id, input.reason, input.expectedUpdatedAt),
   }),
   'vouchers.duplicate': companyRoute({
     access: 'vouchers.view',
@@ -243,8 +243,8 @@ export const vouchersRoutes = {
   }),
   'vouchers.setOptional': companyRoute({
     access: 'vouchers.alter',
-    input: v.object({ id: v.id(), optional: v.boolean(), acknowledgeWarnings: v.boolean().optional() }),
-    handler: (ctx, input) => setVoucherOptional(ctx, input.id, input.optional, input.acknowledgeWarnings === true),
+    input: v.object({ id: v.id(), optional: v.boolean(), acknowledgeWarnings: v.boolean().optional(), expectedUpdatedAt: optText(40) }),
+    handler: (ctx, input) => setVoucherOptional(ctx, input.id, input.optional, input.acknowledgeWarnings === true, input.expectedUpdatedAt),
   }),
   'vouchers.trackingRefs': companyRoute({
     access: 'vouchers.view',

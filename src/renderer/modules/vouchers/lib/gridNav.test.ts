@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { nextCell, rowAfterDelete, verticalCell } from './gridNav.ts';
+import type { GridModel } from './gridNav.ts';
+
+const filled = new Set(['r1', 'r2']);
+const model: GridModel = {
+  columns: ['item', 'batch', 'qty', 'rate', 'amount'],
+  rowKeys: ['r1', 'r2', 'r3'],
+  isBlank: (k) => !filled.has(k),
+  skip: (k, c) => c === 'batch' && k !== 'r2', // only r2's item keeps batches
+};
+
+describe('grid keyboard model', () => {
+  it('Enter walks the cells of a row, skipping cells that do not apply', () => {
+    assert.deepEqual(nextCell(model, { rowKey: 'r1', column: 'item' }, 'forward'), { kind: 'cell', rowKey: 'r1', column: 'qty' });
+    assert.deepEqual(nextCell(model, { rowKey: 'r2', column: 'item' }, 'forward'), { kind: 'cell', rowKey: 'r2', column: 'batch' });
+  });
+
+  it('Enter on the last cell goes to the next row first cell', () => {
+    assert.deepEqual(nextCell(model, { rowKey: 'r1', column: 'amount' }, 'forward'), { kind: 'cell', rowKey: 'r2', column: 'item' });
+  });
+
+  it('Enter on the item cell of an empty row leaves the grid', () => {
+    assert.deepEqual(nextCell(model, { rowKey: 'r3', column: 'item' }, 'forward'), { kind: 'exit-forward' });
+  });
+
+  it('Shift+Enter goes back, across rows, and out of the first cell of the first row', () => {
+    assert.deepEqual(nextCell(model, { rowKey: 'r2', column: 'item' }, 'back'), { kind: 'cell', rowKey: 'r1', column: 'amount' });
+    assert.deepEqual(nextCell(model, { rowKey: 'r1', column: 'qty' }, 'back'), { kind: 'cell', rowKey: 'r1', column: 'item' });
+    assert.deepEqual(nextCell(model, { rowKey: 'r1', column: 'item' }, 'back'), { kind: 'exit-back' });
+  });
+
+  it('a stale row key exits instead of throwing', () => {
+    assert.deepEqual(nextCell(model, { rowKey: 'gone', column: 'item' }, 'forward'), { kind: 'exit-forward' });
+  });
+
+  it('focus after delete and vertical moves', () => {
+    assert.equal(rowAfterDelete(['a', 'b', 'c'], 'b'), 'c');
+    assert.equal(rowAfterDelete(['a', 'b', 'c'], 'c'), 'b');
+    assert.equal(rowAfterDelete(['a'], 'a'), null);
+    assert.deepEqual(verticalCell(model, { rowKey: 'r2', column: 'batch' }, 'up'), { kind: 'cell', rowKey: 'r1', column: 'item' });
+    assert.deepEqual(verticalCell(model, { rowKey: 'r1', column: 'qty' }, 'down'), { kind: 'cell', rowKey: 'r2', column: 'qty' });
+    assert.equal(verticalCell(model, { rowKey: 'r3', column: 'qty' }, 'down'), null);
+  });
+});

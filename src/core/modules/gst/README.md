@@ -59,6 +59,7 @@ JSON exports need a month or a quarter (not a range).
 | `gst.itc` | view | `{ from, to }` | `GstItcResult` (by supplier and by eligibility) |
 | `gst.exceptions` | view | `{ from, to }` | `GstExceptionsResult { issues, counts }` |
 | `gst.einvoice.pending` | view | `{ from, to }` | `EinvoicePendingResult { enabled, rows: EinvoicePendingRow[] (ready, errors, warnings) }` |
+| `gst.einvoice.generated` | view | `{ from, to }` | `EinvoiceGeneratedResult { rows: EinvoiceGeneratedRow[] }` — documents whose IRN is active (in the books or cancelled), ack date, `cancellableUntil` (ack + 24 h, IST) and `cancelWindowOpen` |
 | `gst.einvoice.json` | **file** | `{ voucherIds }` (1–1000) | `GstBulkJsonFile { fileName, json (array of IRP documents), documents, rejected[], warnings }` — logged per voucher + audited |
 | `gst.einvoice.importResponse` | **file** | `EinvoiceImportInput { fileName, bytes }` (JSON or .xlsx) | `EinvoiceImportResult { records, updated, unchanged, skipped, failed, warnings }` — each voucher change audited |
 | `gst.einvoice.markCancelled` | **file** | `{ voucherId, reason }` | `GstDocStatusResult` — audited (`cancel`, `einvoice`) |
@@ -128,6 +129,10 @@ Document nature → table (lines with taxability `taxable`):
   GSTR-3B 3.1(a) + 3.1(b).
 
 ### Uncertain transactions (`checks.ts`; also in `gst.exceptions`)
+
+Every issue also carries fix-link ids for the UI: `partyLedgerId` (the document's party ledger; null on
+period-level issues) and, for HSN / rate issues, `itemId` (stock item of the first offending line) or
+`lineLedgerId` (its ledger when the line is in accounting mode).
 
 | Code | Severity | When | Fix hint |
 |---|---|---|---|
@@ -307,6 +312,11 @@ cancelled in the books → applied + warning (cancel the IRN within 24 hours).
 
 `cancelRequired` (in the pending result) lists vouchers cancelled in the books whose IRN is still
 active — cancel those IRNs on the IRP (within 24 hours of generation), then mark them here.
+
+**Generated**: `gst.einvoice.generated` lists sales / credit / debit notes in the range with `irn_status = 'generated'`
+(whether or not they count in the books), so an IRN cancelled on the IRP can be recorded here for any voucher. The
+IRP accepts cancellation within 24 hours of the acknowledgement: `cancellableUntil` = ack date-time (Indian time)
++ 24 h as an ISO UTC instant, `cancelWindowOpen` compares it with the clock.
 
 **Cancel**: `markCancelled` records an IRN cancelled on the IRP (`irn_status = 'cancelled'`) with the
 reason in the trail. The voucher then no longer appears as pending (a new IRN needs a new document

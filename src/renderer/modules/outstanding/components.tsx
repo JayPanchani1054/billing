@@ -5,14 +5,16 @@
 import { useMemo } from 'react';
 import type { CSSProperties, ReactNode, Ref } from 'react';
 import { todayLocal } from '../../../shared/dates.ts';
-import { formatDrCr } from '../../../shared/format.ts';
+import { formatDrCr, formatMoney } from '../../../shared/format.ts';
 import type { OutstandingSide, PartySummaryResult } from '../../../shared/types/outstanding.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { native } from '../../app/bridge.ts';
 import { showInFolder } from '../../app/export.ts';
 import { userMessage } from '../../app/lib/apiErrors.ts';
+import { useCan } from '../../app/state.tsx';
 import { Badge, Grid, Inline, KpiCard, Picker, ProgressBar, Select, Spacer, useToast } from '../../ui/index.ts';
 import type { SelectOption } from '../../ui/index.ts';
+import { ageingBarText, ageingLevel, ageingSegments } from './lib/ageingBars.ts';
 import { overdueText, overdueTone, summaryKpis, utilisationTone } from './lib/model.ts';
 
 // ───────────────────────────── Layout ─────────────────────────────
@@ -58,6 +60,39 @@ export function UtilisationBar({ percent, partyName }: { percent: number | null;
       />
       <span className="bx-num">{text}</span>
     </Inline>
+  );
+}
+
+// ───────────────────────────── Ageing bars ─────────────────────────────
+
+/**
+ * Small stacked bar of a party's outstanding by age (positive amounts only). The bar is an image
+ * with a full text alternative; the colour levels are explained by <AgeingLegend>.
+ */
+export function AgeingBar({ labels, amounts, partyName }: { labels: readonly string[]; amounts: readonly number[]; partyName: string }) {
+  const segs = ageingSegments(amounts);
+  const text = ageingBarText(labels, amounts, (p) => formatMoney(p, { symbol: true }));
+  if (segs.length === 0) return <span className="bx-muted">—</span>;
+  return (
+    <div className="bx-os-agebar" role="img" aria-label={`${partyName}: ${text}`} title={text}>
+      {segs.map((s) => (
+        <span key={s.index} className={`bx-os-agebar__seg bx-os-lvl-${s.level}`} style={{ width: `${s.percent}%` }} />
+      ))}
+    </div>
+  );
+}
+
+/** Colour key of the ageing bars (text labels carry the meaning). */
+export function AgeingLegend({ labels }: { labels: readonly string[] }) {
+  return (
+    <ul className="bx-os-legend" aria-label="Ageing colour key">
+      {labels.map((l, i) => (
+        <li key={l} className="bx-os-legend__item">
+          <span className={`bx-os-legend__swatch bx-os-lvl-${ageingLevel(i, labels.length)}`} aria-hidden="true" />
+          {l}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -156,7 +191,9 @@ export function PartyPicker({
  * Empty when the user may not list groups (masters.view) — the filter is then hidden.
  */
 export function useGroupOptions(side: OutstandingSide | 'both'): SelectOption[] {
-  const q = useApiQuery('accounts.group.list', {}, { staleTime: 5 * 60_000 });
+  // Listing groups needs masters.view; without it the filter is simply hidden (no refused request).
+  const canList = useCan('masters.view');
+  const q = useApiQuery('accounts.group.list', {}, { staleTime: 5 * 60_000, enabled: canList });
   return useMemo(() => {
     const rows = q.data?.rows ?? [];
     const roots = rows.filter((g) => (side !== 'payable' && g.reservedCode === 'SUNDRY_DEBTORS') || (side !== 'receivable' && g.reservedCode === 'SUNDRY_CREDITORS'));

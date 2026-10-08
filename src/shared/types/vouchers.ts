@@ -70,7 +70,8 @@ export type VoucherWarningCode =
   | 'period_locked'
   | 'gst_lut'
   | 'gst_invoice_number'
-  | 'negative_value';
+  | 'negative_value'
+  | 'backdate_not_allowed';
 
 export interface VoucherWarning {
   code: VoucherWarningCode;

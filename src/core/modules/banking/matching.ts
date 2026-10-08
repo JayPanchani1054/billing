@@ -168,23 +168,35 @@ export function autoMatch(ctx: CompanyCtx, input: AutoMatchInput): AutoMatchResu
   return { applied, suggestions, considered: lineRows.length, withoutCandidates: result.withoutCandidates.length, dryRun };
 }
 
-/** Candidate entries for one statement line (same amount, best first, ≤ 10). */
-export function suggestions(db: Db, today: string, lineId: number, dateWindowDays?: number): MatchCandidate[] {
-  const line = loadLine(db, lineId);
+/**
+ * Open entries (in the books, not linked to any statement line) that could be this line: same signed amount
+ * and eligible under the matcher's date rules, best first. An entry already linked to THIS line is included
+ * when `includeOwn` (so the current match can be compared).
+ */
+export function lineCandidates(
+  db: Db,
+  today: string,
+  line: Pick<LineRow, 'id' | 'ledger_id' | 'txn_date' | 'amount' | 'description' | 'reference' | 'matched_entry_id'>,
+  opts: { dateWindowDays: number; includeOwn?: boolean; limit?: number },
+): MatchCandidate[] {
   const minDate = addDays(line.txn_date, -(CHEQUE_WINDOW_DAYS + 1));
   const rows = openEntries(db, line.ledger_id, today, minDate, line.amount);
-  // An entry already linked to THIS line is shown too (so the current match can be compared).
-  if (line.matched_entry_id !== null) {
+  if (opts.includeOwn && line.matched_entry_id !== null) {
     const own = db.get<EntryRow>(`${ENTRY_SELECT} WHERE le.id = :id`, { id: line.matched_entry_id });
     if (own) rows.push(own);
   }
+  if (rows.length === 0) return [];
   const { entries, particulars } = toMatchEntries(db, rows);
   const byId = new Map(rows.map((r) => [r.entry_id, r]));
-  const opts = matchOptions({ dateWindowDays: dateWindowDays ?? 30 });
   const ownEntries = entries.map((e) => (e.id === line.matched_entry_id ? { ...e, bankDate: null } : e));
-  return scoreAll([toMatchLine(line)], ownEntries, opts)
-    .slice(0, 10)
+  return scoreAll([toMatchLine(line)], ownEntries, matchOptions({ dateWindowDays: opts.dateWindowDays }))
+    .slice(0, opts.limit ?? 10)
     .map((p) => toCandidate(byId.get(p.entryId) as EntryRow, particulars.get(p.entryId) ?? '', p));
+}
+
+/** Candidate entries for one statement line (same amount, best first, ≤ 10). */
+export function suggestions(db: Db, today: string, lineId: number, dateWindowDays?: number): MatchCandidate[] {
+  return lineCandidates(db, today, loadLine(db, lineId), { dateWindowDays: dateWindowDays ?? 30, includeOwn: true });
 }
 
 const EARLY_TOLERANCE_DAYS = DEFAULT_MATCH_OPTIONS.earlyToleranceDays;

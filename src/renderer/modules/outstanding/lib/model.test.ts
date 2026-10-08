@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { AgeingResult, LedgerBillsResult, OutstandingBillRow, PartySummaryResult } from '../../../../shared/types/outstanding.ts';
+import type { AgeingResult, InterestBillRow, InterestResult, LedgerBillsResult, OutstandingBillRow, PartySummaryResult } from '../../../../shared/types/outstanding.ts';
 import {
   ageingExport,
   billsExport,
   bucketText,
+  interestExport,
   keyBills,
   overdueText,
   overdueTone,
@@ -178,5 +179,64 @@ describe('exports and KPIs', () => {
     );
     assert.equal(k[0].label, 'Total receivable');
     assert.equal(k[1].caption, '67% of bills'); // 80,000 ÷ 1,20,000
+  });
+});
+
+describe('interestExport', () => {
+  const ir = (over: Partial<InterestBillRow>): InterestBillRow => ({
+    ledgerId: 1,
+    ledgerName: 'Acme Traders',
+    side: 'receivable',
+    billName: 'INV-1',
+    billDate: '2026-04-01',
+    dueDate: '2026-04-30',
+    refType: 'new',
+    interestFrom: '2026-04-30',
+    ratePercent: 18,
+    principal: 1_00_000_00,
+    pendingAtEnd: 60_000_00,
+    days: 45,
+    interest: 1_94_301, // core README §3.3 example 2: ₹1,943.01
+    segments: [],
+    ...over,
+  });
+  const result = (rows: InterestBillRow[]): InterestResult => ({
+    from: '2026-04-01',
+    to: '2026-06-14',
+    basis: 'due_date',
+    graceDays: 0,
+    method: 'simple_365',
+    rows,
+    totals: {
+      receivable: rows.filter((r) => r.side === 'receivable').reduce((s, r) => s + r.interest, 0),
+      payable: rows.filter((r) => r.side === 'payable').reduce((s, r) => s + r.interest, 0),
+      billCount: rows.length,
+    },
+    skipped: [],
+  });
+
+  it('one side: rows aligned with the columns and a plain total', () => {
+    // ₹1,943.01 + ₹2,219.18 (example 1: 1,00,000 × 18% × 45 ÷ 365) = ₹4,162.19
+    const e = interestExport(result([ir({}), ir({ billName: 'INV-2', interest: 2_21_918 })]));
+    assert.equal(e.rows.length, 2);
+    assert.equal(e.rows[0].length, e.columns.length);
+    assert.deepEqual(e.rows[0], ['Acme Traders', 'INV-1', '2026-04-01', '2026-04-30', '2026-04-30', 1_00_000_00, 18, 45, 1_94_301, 'Receivable']);
+    assert.deepEqual(e.totals, ['Total', '', null, null, null, null, null, null, 4_16_219, '']);
+  });
+
+  it('both sides: never adds interest to charge and interest payable together', () => {
+    // To charge: ₹1,943.01; payable to the supplier (MSME): ₹500.00. A grand total of ₹2,443.01 would mean nothing.
+    const e = interestExport(result([ir({ ledgerName: 'Supplier Co', side: 'payable', billName: 'P-9', interest: 50_000 }), ir({})]));
+    assert.equal(e.totals, undefined);
+    assert.deepEqual(
+      e.rows.map((r) => [r[0], r[1], r[8], r[9]]),
+      [
+        ['Acme Traders', 'INV-1', 1_94_301, 'Receivable'],
+        ['Total interest to charge customers', '', 1_94_301, 'Receivable'],
+        ['Supplier Co', 'P-9', 50_000, 'Payable'],
+        ['Total interest payable to suppliers', '', 50_000, 'Payable'],
+      ],
+    );
+    assert.ok(e.rows.every((r) => r.length === e.columns.length));
   });
 });

@@ -4,6 +4,7 @@
  * their audit entry in their own small transaction). See README.md for inputs and outputs.
  */
 import type {
+  EinvoiceGeneratedResult,
   EinvoiceImportResult,
   EinvoicePendingResult,
   EwayPendingResult,
@@ -27,7 +28,7 @@ import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { rule } from '../../lib/errors.ts';
 import { v, type Schema } from '../../lib/validate.ts';
 import { loadCompany, loadDocs, type GstCompany } from './docs.ts';
-import { einvoiceJson, importIrpResponse, markIrnCancelled, pendingEinvoices } from './einvoice.ts';
+import { einvoiceJson, generatedEinvoices, importIrpResponse, markIrnCancelled, pendingEinvoices } from './einvoice.ts';
 import { ewayJson, pendingEwayBills, updateEwayBill } from './ewaybill.ts';
 import { computeGstr1, gstr1Section, gstr1Summary } from './gstr1.ts';
 import { buildGstr1Json } from './gstr1-json.ts';
@@ -184,6 +185,15 @@ export const gstRoutes = {
     transactional: false,
     input: RangeInput,
     handler: (ctx, input): EinvoicePendingResult => pendingEinvoices(ctx.db, gstCompany(ctx), input.from, input.to, ctx.clock.today()),
+  }),
+  'gst.einvoice.generated': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: RangeInput,
+    handler: (ctx, input): EinvoiceGeneratedResult => {
+      gstCompany(ctx);
+      return generatedEinvoices(ctx.db, input.from, input.to, ctx.clock.now());
+    },
   }),
   'gst.einvoice.json': companyRoute({
     access: 'gst.file',

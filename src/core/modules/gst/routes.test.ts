@@ -43,6 +43,7 @@ describe('GST routes', () => {
       'gst.itc': 'gst.view',
       'gst.exceptions': 'gst.view',
       'gst.einvoice.pending': 'gst.view',
+      'gst.einvoice.generated': 'gst.view',
       'gst.einvoice.json': 'gst.file',
       'gst.einvoice.importResponse': 'gst.file',
       'gst.einvoice.markCancelled': 'gst.file',

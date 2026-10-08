@@ -304,7 +304,28 @@ export function ageingExport(r: AgeingResult): ExportTable {
   };
 }
 
+/**
+ * Interest bill list. Interest to charge customers and interest payable to suppliers are never
+ * added together: with both sides present the rows are grouped by side, each group closed by its own
+ * total line (and there is no grand total); with one side the usual totals row is used.
+ */
 export function interestExport(r: InterestResult): ExportTable {
+  const row = (x: InterestResult['rows'][number]): ExportCell[] => [
+    x.ledgerName,
+    x.billName,
+    x.billDate,
+    x.dueDate,
+    x.interestFrom,
+    x.principal,
+    x.ratePercent,
+    x.days,
+    x.interest,
+    x.side === 'receivable' ? 'Receivable' : 'Payable',
+  ];
+  const rec = r.rows.filter((x) => x.side === 'receivable');
+  const pay = r.rows.filter((x) => x.side === 'payable');
+  const mixed = rec.length > 0 && pay.length > 0;
+  const total = (label: string, amount: number, side: string): ExportCell[] => [label, '', null, null, null, null, null, null, amount, side];
   return {
     subtitle: `Simple interest, 365-day year, from the ${r.basis === 'due_date' ? 'due date' : 'bill date'}${r.graceDays ? ` + ${r.graceDays} grace days` : ''}`,
     landscape: true,
@@ -320,19 +341,15 @@ export function interestExport(r: InterestResult): ExportTable {
       { header: 'Interest', kind: 'amount' },
       { header: 'Side', width: 10 },
     ],
-    rows: r.rows.map((x) => [
-      x.ledgerName,
-      x.billName,
-      x.billDate,
-      x.dueDate,
-      x.interestFrom,
-      x.principal,
-      x.ratePercent,
-      x.days,
-      x.interest,
-      x.side === 'receivable' ? 'Receivable' : 'Payable',
-    ]),
-    totals: ['Total', '', '', '', '', null, null, null, r.totals.receivable + r.totals.payable, ''],
+    rows: mixed
+      ? [
+          ...rec.map(row),
+          total('Total interest to charge customers', r.totals.receivable, 'Receivable'),
+          ...pay.map(row),
+          total('Total interest payable to suppliers', r.totals.payable, 'Payable'),
+        ]
+      : r.rows.map(row),
+    totals: mixed ? undefined : ['Total', '', null, null, null, null, null, null, r.totals.receivable + r.totals.payable, ''],
   };
 }
 

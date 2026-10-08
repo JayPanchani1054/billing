@@ -5,15 +5,21 @@
  *
  *   deposit    → Receipt: Dr Bank / Cr contra ledger     or Contra: Dr Bank / Cr Cash (or another bank)
  *   withdrawal → Payment: Dr contra ledger / Cr Bank     or Contra: Dr Cash (or another bank) / Cr Bank
+ *
+ * Duplicate guard: when the books already hold an unmatched entry that could be this line (same signed amount
+ * within the auto-match date rules), creating another voucher would very likely double-count it. Unless
+ * `acknowledgeWarnings` is set, the request fails with BUSINESS_RULE { needsConfirmation: true, warnings: string[],
+ * possibleDuplicates } naming those vouchers — match the line instead, or confirm to create it anyway.
  */
-import type { CreateFromLineInput, CreateFromLineResult } from '../../../shared/types/banking.ts';
+import type { CreateFromLineInput, CreateFromLineResult, MatchCandidate, StatementLineStatus } from '../../../shared/types/banking.ts';
 import type { InstrumentInput, VoucherInput } from '../../../shared/types/vouchers.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import { AppError, notFound, rule, validation } from '../../lib/errors.ts';
 import { ledgerClass } from '../accounts/books.ts';
-import { saveVoucher } from '../vouchers/service.ts';
-import { effectiveStatus, lineLabel, linkLine, loadLine, requireBankLedger, requirePermission } from './common.ts';
-import { instrumentFromNarration } from './matcher.ts';
+import { previewVoucher, saveVoucher } from '../vouchers/service.ts';
+import { effectiveStatus, fmtDate, lineLabel, linkLine, loadLine, money, requireBankLedger, requirePermission, type BankLedger, type LineRow } from './common.ts';
+import { DEFAULT_MATCH_OPTIONS, instrumentFromNarration } from './matcher.ts';
+import { lineCandidates } from './matching.ts';
 
 const KIND_LABEL = { receipt: 'Receipt', payment: 'Payment', contra: 'Contra' } as const;
 
@@ -43,10 +49,16 @@ function instrumentOf(description: string, reference: string): InstrumentInput |
   return { type: type ?? 'other', number };
 }
 
-export function createFromLine(ctx: CompanyCtx, input: CreateFromLineInput): CreateFromLineResult {
+/** Everything checked and prepared for one line, before anything is written. */
+interface LinePlan {
+  line: LineRow;
+  status: StatementLineStatus;
+  bank: BankLedger;
+  voucher: VoucherInput;
+}
+
+function planFromLine(ctx: CompanyCtx, input: CreateFromLineInput): LinePlan {
   const { db } = ctx;
-  requirePermission(ctx, 'vouchers.create', 'create vouchers');
-  requirePermission(ctx, 'banking.reconcile', 'reconcile bank accounts');
   const line = loadLine(db, input.lineId);
   const status = effectiveStatus(line);
   if (status === 'matched' || status === 'created') {
@@ -84,14 +96,50 @@ export function createFromLine(ctx: CompanyCtx, input: CreateFromLineInput): Cre
         { ledgerId: bank.id, amount: -amount, instrument },
       ];
   const narration = (input.narration?.trim() || description).slice(0, 4000) || undefined;
-  const res = saveVoucher(ctx, {
-    voucherTypeId: voucherTypeFor(ctx, input.kind, input.voucherTypeId),
-    date: line.txn_date,
-    mode: 'ledger',
-    narration,
-    ledgers,
-    acknowledgeWarnings: input.acknowledgeWarnings === true,
-  });
+  return {
+    line,
+    status,
+    bank,
+    voucher: { voucherTypeId: voucherTypeFor(ctx, input.kind, input.voucherTypeId), date: line.txn_date, mode: 'ledger', narration, ledgers },
+  };
+}
+
+/**
+ * Unmatched book entries that could be this statement line (same signed amount, auto-match date rules with
+ * the default 7-day window; cheques named in the statement up to 92 days), best first, at most 3.
+ */
+export function possibleDuplicates(ctx: CompanyCtx, line: LineRow): MatchCandidate[] {
+  return lineCandidates(ctx.db, ctx.clock.today(), line, { dateWindowDays: DEFAULT_MATCH_OPTIONS.dateWindowDays, limit: 3 });
+}
+
+function duplicateText(c: MatchCandidate): string {
+  return `${c.voucherType}${c.number ? ` ${c.number}` : ''} dated ${fmtDate(c.date)} — ${c.particulars}, ${money(Math.abs(c.amount))} — is already in the books and not matched with any statement line.`;
+}
+
+/**
+ * What the user must accept before this line's voucher is saved: possible duplicates and, only when there are
+ * any, the voucher engine's own 'confirm' warnings (so one confirmation covers both). [] = nothing to confirm.
+ */
+function confirmationsFor(ctx: CompanyCtx, plan: LinePlan, prefix: string): { warnings: string[]; dups: MatchCandidate[] } {
+  const dups = possibleDuplicates(ctx, plan.line);
+  if (dups.length === 0) return { warnings: [], dups };
+  const warnings = dups.map((c) => `${prefix}${duplicateText(c)}`);
+  try {
+    for (const w of previewVoucher(ctx, plan.voucher).warnings) if (w.level === 'confirm') warnings.push(`${prefix}${w.message}`);
+  } catch {
+    // Field/rule errors surface from saveVoucher itself.
+  }
+  return { warnings, dups };
+}
+
+function duplicateError(message: string, warnings: string[], possible: Array<{ lineId: number; candidates: MatchCandidate[] }>): AppError {
+  return rule(message, { needsConfirmation: true, warnings, possibleDuplicates: possible });
+}
+
+function saveFromPlan(ctx: CompanyCtx, plan: LinePlan, acknowledgeWarnings: boolean): CreateFromLineResult {
+  const { db } = ctx;
+  const { line, bank, status } = plan;
+  const res = saveVoucher(ctx, { ...plan.voucher, acknowledgeWarnings });
   const entryId = db.value<number>(
     'SELECT id FROM ledger_entries WHERE voucher_id = :v AND ledger_id = :l AND amount = :a ORDER BY line_no LIMIT 1',
     { v: res.id, l: bank.id, a: line.amount },
@@ -109,8 +157,34 @@ export function createFromLine(ctx: CompanyCtx, input: CreateFromLineInput): Cre
   return { lineId: line.id, voucherId: res.id, number: res.number, ledgerEntryId: entryId, warnings: res.warnings };
 }
 
-/** All-or-nothing: any failure rolls back every voucher of the batch (numbers are not consumed). */
+function requireCreatePermissions(ctx: CompanyCtx): void {
+  requirePermission(ctx, 'vouchers.create', 'create vouchers');
+  requirePermission(ctx, 'banking.reconcile', 'reconcile bank accounts');
+}
+
+export function createFromLine(ctx: CompanyCtx, input: CreateFromLineInput): CreateFromLineResult {
+  requireCreatePermissions(ctx);
+  const plan = planFromLine(ctx, input);
+  const ack = input.acknowledgeWarnings === true;
+  if (!ack) {
+    const { warnings, dups } = confirmationsFor(ctx, plan, '');
+    if (dups.length > 0) {
+      throw duplicateError(
+        `Statement line ${lineLabel(plan.line)} may already be entered in the books. Match the line with that voucher instead of creating another one, or confirm to create a new voucher anyway.`,
+        warnings,
+        [{ lineId: plan.line.id, candidates: dups }],
+      );
+    }
+  }
+  return saveFromPlan(ctx, plan, ack);
+}
+
+/**
+ * All-or-nothing: any failure rolls back every voucher of the batch (numbers are not consumed). Without
+ * acknowledgement, every item is checked for possible duplicates first and ONE confirmation lists them all.
+ */
 export function createFromLines(ctx: CompanyCtx, items: readonly CreateFromLineInput[], acknowledgeWarnings?: boolean): CreateFromLineResult[] {
+  requireCreatePermissions(ctx);
   const seen = new Map<number, number>();
   items.forEach((it, i) => {
     const prev = seen.get(it.lineId);
@@ -119,20 +193,46 @@ export function createFromLines(ctx: CompanyCtx, items: readonly CreateFromLineI
     }
     seen.set(it.lineId, i);
   });
-  return ctx.db.transaction(() =>
-    items.map((it, i) => {
+  const fail = (err: unknown, i: number): never => {
+    if (err instanceof AppError) {
+      // Field issues (VALIDATION) keep their array shape; other details gain the failing item's index.
+      const details = Array.isArray(err.details) ? err.details : { ...(err.details && typeof err.details === 'object' ? err.details : {}), index: i };
+      throw new AppError(err.code, `Item ${i + 1} of ${items.length}: ${err.message} Nothing was saved.`, details);
+    }
+    throw err;
+  };
+  const acks = items.map((it) => (it.acknowledgeWarnings ?? acknowledgeWarnings) === true);
+  return ctx.db.transaction(() => {
+    const plans = items.map((it, i) => {
       try {
-        return createFromLine(ctx, { ...it, acknowledgeWarnings: it.acknowledgeWarnings ?? acknowledgeWarnings });
+        return planFromLine(ctx, it);
       } catch (err) {
-        if (err instanceof AppError) {
-          // Field issues (VALIDATION) keep their array shape; other details gain the failing item's index.
-          const details = Array.isArray(err.details)
-            ? err.details
-            : { ...(err.details && typeof err.details === 'object' ? err.details : {}), index: i };
-          throw new AppError(err.code, `Item ${i + 1} of ${items.length}: ${err.message} Nothing was saved.`, details);
-        }
-        throw err;
+        return fail(err, i);
       }
-    }),
-  );
+    });
+    const warnings: string[] = [];
+    const possible: Array<{ lineId: number; candidates: MatchCandidate[] }> = [];
+    plans.forEach((plan, i) => {
+      if (acks[i]) return;
+      const c = confirmationsFor(ctx, plan, `Item ${i + 1} (${lineLabel(plan.line)}): `);
+      if (c.dups.length === 0) return;
+      warnings.push(...c.warnings);
+      possible.push({ lineId: plan.line.id, candidates: c.dups });
+    });
+    if (possible.length > 0) {
+      throw duplicateError(
+        `${possible.length} of the ${items.length} statement line${items.length === 1 ? '' : 's'} may already be entered in the books. ` +
+          'Match those lines with the vouchers listed instead, or confirm to create every voucher anyway. Nothing was saved.',
+        warnings,
+        possible,
+      );
+    }
+    return plans.map((plan, i) => {
+      try {
+        return saveFromPlan(ctx, plan, acks[i]);
+      } catch (err) {
+        return fail(err, i);
+      }
+    });
+  });
 }

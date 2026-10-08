@@ -4,7 +4,7 @@
  *   Parties — KPI strip + party-wise outstanding with credit-limit use (Tally "Group Outstandings")
  *   Bills   — every pending bill with due date and overdue days (Tally "Bills Receivable/Payable")
  *   Ageing  — party amounts in ageing buckets (editable periods, due-date or bill-date basis) + chart
- * "As on" = the period's end date (Alt+F2). Enter opens the party (bills: the voucher).
+ * "As on" = the period's end date (Alt+F2). Enter opens the party (bills: the voucher; Alt+V the party).
  * Amounts are shown ledger-signed with Dr/Cr; parties without bill-wise details are aged FIFO
  * (Alt+N switches to a single "On Account" line).
  */
@@ -18,6 +18,7 @@ import type { ScreenProps } from '../../app/registry.ts';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { usePeriod } from '../../app/working.tsx';
 import { formatDate } from '../../../shared/dates.ts';
+import { formatMoney } from '../../../shared/format.ts';
 import {
   Badge,
   BarChart,
@@ -32,7 +33,7 @@ import {
   useDebouncedValue,
 } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { Fill, GroupSelect, KpiStrip, OverdueBadge, UtilisationBar, VGap, useGroupOptions } from './components.tsx';
+import { AgeingBar, AgeingLegend, Fill, GroupSelect, KpiStrip, OverdueBadge, UtilisationBar, VGap, useGroupOptions } from './components.tsx';
 import {
   OUTSTANDING_VIEWS,
   SIDE_TEXT,
@@ -46,6 +47,7 @@ import {
   refTypeLabel,
 } from './lib/model.ts';
 import type { KeyedBillRow, OutstandingView } from './lib/model.ts';
+import { ageingBarText } from './lib/ageingBars.ts';
 
 export interface OutstandingParams {
   view?: OutstandingView;
@@ -98,7 +100,19 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
 
   const partyRows = useMemo(() => (summary.data?.rows ?? []).filter((r) => !overLimitOnly || r.overLimit), [summary.data, overLimitOnly]);
   const billRows = useMemo(() => keyBills(bills.data?.rows ?? []), [bills.data]);
-  const ageRows = ageing.data?.rows ?? [];
+  const ageRows = useMemo(() => ageing.data?.rows ?? [], [ageing.data]);
+
+  // The highlighted party drives Alt+S / Alt+L / Alt+I / Alt+V. It must be a row of the table on
+  // screen: switching views or filtering must never leave an invisible party behind.
+  const visibleIds = useMemo(
+    () => new Set<number>((view === 'parties' ? partyRows : view === 'bills' ? billRows : ageRows).map((r) => r.ledgerId)),
+    [view, partyRows, billRows, ageRows],
+  );
+  const party = cursor !== null && visibleIds.has(cursor.ledgerId) ? cursor : null;
+  const changeView = (v: OutstandingView): void => {
+    setView(v);
+    setCursor(null);
+  };
 
   const applyBuckets = (): void => {
     const parsed = parseBucketText(bucketDraft);
@@ -183,6 +197,16 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
     const labels = bucketLabels ? bucketLabels.split('|') : [];
     return [
       { key: 'ledgerName', header: t.party, sortable: true, minWidth: 200 },
+      {
+        key: 'profile',
+        header: 'Age profile',
+        width: 130,
+        // Text (hover / copy) describes every bucket; sorting puts the oldest money first.
+        value: (r) => ageingBarText(labels, r.amounts, (p) => formatMoney(p, { symbol: true })),
+        sortValue: (r) => r.amounts.findLastIndex((a) => a > 0),
+        sortable: true,
+        render: (r) => <AgeingBar labels={labels} amounts={r.amounts} partyName={r.ledgerName} />,
+      },
       ...labels.map(
         (label, i): Column<AgeingRow> => ({ key: `b${i}`, header: label, kind: 'drcr', width: 130, value: (r) => r.amounts[i] * sign, total: true, sortable: true }),
       ),
@@ -197,7 +221,7 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
     nav.push('outstanding.party', { ledgerId });
   };
   const actions: ScreenActionItem[] = [
-    ...OUTSTANDING_VIEWS.map((v) => ({ key: v.key, label: `${v.label} view`, onClick: () => setView(v.value), group: 'view', disabled: view === v.value })),
+    ...OUTSTANDING_VIEWS.map((v) => ({ key: v.key, label: `${v.label} view`, onClick: () => changeView(v.value), group: 'view', disabled: view === v.value })),
     { key: 'Ctrl+F', label: 'Search', icon: 'search', onClick: () => searchRef.current?.focus(), group: 'view' },
     { key: 'Alt+O', label: overdueOnly ? 'Show all bills' : 'Overdue only', icon: 'filter', onClick: () => setOverdueOnly((x) => !x), hidden: view !== 'bills', group: 'filter' },
     { key: 'Alt+B', label: 'Ageing periods', icon: 'sliders', onClick: () => bucketRef.current?.focus(), hidden: view !== 'ageing', group: 'filter' },
@@ -216,9 +240,26 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       group: 'filter',
       hint: 'Parties without bill-wise details: age their balance FIFO against the latest invoices, or show it as one On Account line',
     },
-    { key: 'Alt+S', label: 'Statement', icon: 'file', onClick: () => cursor && nav.push('outstanding.statement', { ledgerId: cursor.ledgerId }), disabled: !cursor, group: 'party', hint: cursor ? `Statement of account for ${cursor.ledgerName}` : 'Select a party first' },
-    { key: 'Alt+L', label: 'Ledger', icon: 'ledger', onClick: () => cursor && nav.push('reports.ledger', { ledgerId: cursor.ledgerId }), disabled: !cursor, group: 'party' },
-    { key: 'Alt+I', label: 'Interest', icon: 'percent', onClick: () => nav.push('outstanding.interest', cursor ? { ledgerId: cursor.ledgerId } : groupId !== undefined ? { groupId } : {}), group: 'go' },
+    {
+      key: 'Alt+V',
+      label: 'Party outstanding',
+      icon: 'list',
+      onClick: () => party && openParty(party.ledgerId),
+      disabled: !party,
+      hidden: view === 'parties',
+      group: 'party',
+      hint: party ? `All bills of ${party.ledgerName}` : 'Select a bill first',
+    },
+    { key: 'Alt+S', label: 'Statement', icon: 'file', onClick: () => party && nav.push('outstanding.statement', { ledgerId: party.ledgerId }), disabled: !party, group: 'party', hint: party ? `Statement of account for ${party.ledgerName}` : 'Select a party first' },
+    { key: 'Alt+L', label: 'Ledger', icon: 'ledger', onClick: () => party && nav.push('reports.ledger', { ledgerId: party.ledgerId }), disabled: !party, group: 'party' },
+    {
+      key: 'Alt+I',
+      label: 'Interest',
+      icon: 'percent',
+      onClick: () => nav.push('outstanding.interest', party ? { ledgerId: party.ledgerId } : groupId !== undefined ? { groupId } : {}),
+      group: 'go',
+      hint: party ? `Interest for ${party.ledgerName}` : 'Interest for all parties in view',
+    },
     { key: 'Alt+R', label: 'Reminders', icon: 'mail', onClick: () => nav.push('outstanding.reminders', groupId !== undefined ? { groupId } : {}), hidden: side !== 'receivable', group: 'go' },
     { key: 'Alt+W', label: t.otherTitle, icon: 'arrow-right', onClick: () => nav.replace(t.otherScreen), group: 'go' },
   ];
@@ -244,10 +285,14 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       error={active.error ?? summary.error}
       onRetry={() => void active.refetch()}
       actions={actions}
-      hint="Enter Open · Ctrl+1/2/3 Views · Ctrl+F Search · Alt+F2 As on · Alt+E Export · Alt+P Print · Esc Back"
+      hint={
+        view === 'bills'
+          ? 'Enter Open voucher · Alt+V Party · Alt+O Overdue only · Ctrl+1/2/3 Views · Ctrl+F Search · Alt+F2 As on · Alt+E Export · Esc Back'
+          : 'Enter Open party · Ctrl+1/2/3 Views · Ctrl+F Search · Alt+S Statement · Alt+F2 As on · Alt+E Export · Alt+P Print · Esc Back'
+      }
       filters={
         <Inline gap={2}>
-          <SegmentedControl<OutstandingView> aria-label="View" size="sm" value={view} onChange={setView} options={OUTSTANDING_VIEWS.map((v) => ({ value: v.value, label: v.label }))} />
+          <SegmentedControl<OutstandingView> aria-label="View" size="sm" value={view} onChange={changeView} options={OUTSTANDING_VIEWS.map((v) => ({ value: v.value, label: v.label }))} />
           <TextInput
             ref={searchRef}
             size="sm"
@@ -265,11 +310,11 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
         summary={summary.data}
         loading={summary.loading}
         onOverdue={() => {
-          setView('bills');
+          changeView('bills');
           setOverdueOnly(true);
         }}
         onOverLimit={() => {
-          setView('parties');
+          changeView('parties');
           setOverLimitOnly(true);
         }}
       />
@@ -362,6 +407,8 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
                 valueFormat="inr"
                 height={170}
               />
+              <VGap />
+              <AgeingLegend labels={ageing.data.buckets.map((b) => b.label)} />
               <VGap />
             </>
           ) : null}

@@ -16,7 +16,7 @@ import type {
 import type { InstrumentType } from '../../../shared/types/vouchers.ts';
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { CompanyCtx } from '../../api/context.ts';
-import type { Db } from '../../db/db.ts';
+import type { BindValue, Db } from '../../db/db.ts';
 import { forbidden, notFound, rule } from '../../lib/errors.ts';
 import { BOOKS_FILTER, loadGroupTree } from '../accounts/books.ts';
 
@@ -24,6 +24,16 @@ export const can = (ctx: CompanyCtx, p: Permission): boolean => ctx.session.isOw
 
 export function requirePermission(ctx: CompanyCtx, p: Permission, what: string): void {
   if (!can(ctx, p)) throw forbidden(`You do not have permission to ${what}.`);
+}
+
+/**
+ * Only the named parameters the SQL uses (node:sqlite rejects unknown names), so one parameter object can be
+ * shared by queries assembled from optional fragments.
+ */
+export function paramsFor(sql: string, params: Record<string, BindValue>): Record<string, BindValue> {
+  const out: Record<string, BindValue> = {};
+  for (const [k, val] of Object.entries(params)) if (new RegExp(`:${k}\\b`).test(sql)) out[k] = val;
+  return out;
 }
 
 export const money = (p: Paise): string => formatMoney(p, { symbol: true });

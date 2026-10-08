@@ -27,6 +27,8 @@ export interface LineSpec {
   rc?: boolean;
   itc?: 'inputs' | 'capital_goods' | 'input_services' | 'ineligible' | null;
   itemId?: number;
+  /** Ledger of an accounting-mode line (gst_lines.ledger_id; used when there is no item). */
+  ledgerId?: number;
 }
 
 export interface DocSpec {
@@ -60,6 +62,8 @@ export interface DocSpec {
   dispatch?: Record<string, unknown>;
   irn?: string | null;
   irnStatus?: string | null;
+  /** IRP acknowledgement ('YYYY-MM-DD HH:mm:ss'). */
+  irnAckDate?: string | null;
   ewayBillNo?: string | null;
   /** Post Dr Input / Cr "Payable (Reverse Charge)" entries for the RCM tax. */
   rcmLiability?: boolean;
@@ -115,6 +119,7 @@ export function insertDoc(t: TestCompany, d: DocSpec): number {
     original_invoice_date: d.origDate ?? null,
     irn: d.irn ?? null,
     irn_status: d.irnStatus ?? null,
+    irn_ack_date: d.irnAckDate ?? null,
     eway_bill_no: d.ewayBillNo ?? null,
     consignee: d.consignee ? JSON.stringify(d.consignee) : null,
     dispatch: d.dispatch ? JSON.stringify(d.dispatch) : null,
@@ -129,14 +134,15 @@ export function insertDoc(t: TestCompany, d: DocSpec): number {
     d.lines.forEach((l, i) => {
       const kind = l.kind ?? (l.hsn?.startsWith('99') ? 'services' : 'goods');
       t.db.run(
-        `INSERT INTO gst_lines (voucher_id, line_no, source, item_id, description, hsn_sac, uqc, qty, supply_type, taxability, rate, cess_rate,
+        `INSERT INTO gst_lines (voucher_id, line_no, source, item_id, ledger_id, description, hsn_sac, uqc, qty, supply_type, taxability, rate, cess_rate,
                                 taxable_value, igst, cgst, sgst, cess, is_reverse_charge, itc_eligibility, date, affects_books, is_post_dated)
-         VALUES (:v, :n, :src, :item, :desc, :hsn, :uqc, :qty, :kind, :tax, :rate, :cr, :tv, :ig, :cg, :sg, :cs, :rc, :itc, :date, :ab, :pd)`,
+         VALUES (:v, :n, :src, :item, :ledger, :desc, :hsn, :uqc, :qty, :kind, :tax, :rate, :cr, :tv, :ig, :cg, :sg, :cs, :rc, :itc, :date, :ab, :pd)`,
         {
           v: id,
           n: i + 1,
-          src: l.itemId ? 'item' : kind === 'services' ? 'ledger' : 'item',
+          src: l.itemId ? 'item' : l.ledgerId || kind === 'services' ? 'ledger' : 'item',
           item: l.itemId ?? null,
+          ledger: l.ledgerId ?? null,
           desc: l.desc ?? null,
           hsn: l.hsn === undefined ? null : l.hsn,
           uqc: l.uqc ?? (kind === 'services' ? 'NA' : 'NOS'),

@@ -13,7 +13,8 @@
  *               + instrument kind agrees (NEFT/RTGS/IMPS/UPI/cheque/ATM/card in the narration) 5
  *               + hand-entered bank date equal to the statement date 20 (within 2 days: 10)
  * A pair is applied automatically when score ≥ threshold (70) and it beats every competing pair (same line or
- * same entry, not taken by an applied match) by ≥ 10 points. Pairs are taken in descending score with
+ * same entry, not taken by an applied match) by ≥ 10 points. The displayed score is capped at 100; ordering and
+ * the 10-point lead use the uncapped sum, so a reference-backed pair is not called ambiguous next to a plain one. Pairs are taken in descending score with
  * deterministic tie-breaks, one-to-one.
  */
 import { formatMoney } from '../../../shared/format.ts';
@@ -82,6 +83,11 @@ export interface ScoredPair {
   /** Statement date − voucher date (days). */
   dayGap: number;
   reasons: MatchReason[];
+  /**
+   * Sum of the points before the cap at 100. Ordering and the ambiguity margin use it, so a candidate backed
+   * by its UTR / cheque number still beats a merely plausible one when both reach 100.
+   */
+  rawScore: number;
 }
 
 /** Words that say nothing about who the party is. */
@@ -188,13 +194,13 @@ export function scorePair(line: MatchLine, entry: MatchEntry, opts: MatchOptions
     score += bankDatePoints;
     reasons.push({ code: 'bank_date', points: bankDatePoints, text: bankDatePoints === POINTS.bankDateSame ? 'Bank date already entered for this date' : 'Bank date already entered within 2 days' });
   }
-  return { lineId: line.id, entryId: entry.id, lineDate: line.txnDate, entryDate: entry.date, score: Math.min(100, score), dayGap: gap, reasons };
+  return { lineId: line.id, entryId: entry.id, lineDate: line.txnDate, entryDate: entry.date, score: Math.min(100, score), dayGap: gap, reasons, rawScore: score };
 }
 
-/** Deterministic order: score ↓, |day gap| ↑, statement date ↑, line id ↑, voucher date ↑, entry id ↑. */
+/** Deterministic order: raw score ↓, |day gap| ↑, statement date ↑, line id ↑, voucher date ↑, entry id ↑. */
 export function comparePairs(a: ScoredPair, b: ScoredPair): number {
   return (
-    b.score - a.score ||
+    b.rawScore - a.rawScore ||
     Math.abs(a.dayGap) - Math.abs(b.dayGap) ||
     (a.lineDate < b.lineDate ? -1 : a.lineDate > b.lineDate ? 1 : 0) ||
     a.lineId - b.lineId ||
@@ -256,16 +262,18 @@ export function assignMatches(lines: readonly MatchLine[], entries: readonly Mat
     if (p.score < opts.threshold) break; // sorted: nothing further can qualify
     if (doneLines.has(p.lineId) || doneEntries.has(p.entryId)) continue;
     let alt = 0;
-    for (const q of byLine.get(p.lineId) ?? []) if (q !== p && !doneEntries.has(q.entryId)) alt = Math.max(alt, q.score);
-    for (const q of byEntry.get(p.entryId) ?? []) if (q !== p && !doneLines.has(q.lineId)) alt = Math.max(alt, q.score);
-    if (p.score - alt < opts.margin) continue;
+    for (const q of byLine.get(p.lineId) ?? []) if (q !== p && !doneEntries.has(q.entryId)) alt = Math.max(alt, q.rawScore);
+    for (const q of byEntry.get(p.entryId) ?? []) if (q !== p && !doneLines.has(q.lineId)) alt = Math.max(alt, q.rawScore);
+    if (p.rawScore - alt < opts.margin) continue;
     applied.push(p);
     doneLines.add(p.lineId);
     doneEntries.add(p.entryId);
   }
   const pending: PendingLine[] = [];
   const withoutCandidates: number[] = [];
-  for (const l of lines) {
+  // Statement order (date, id) so the result does not depend on the order the lines were passed in.
+  const ordered = [...lines].sort((a, b) => (a.txnDate < b.txnDate ? -1 : a.txnDate > b.txnDate ? 1 : a.id - b.id));
+  for (const l of ordered) {
     if (doneLines.has(l.id)) continue;
     const candidates = (byLine.get(l.id) ?? []).filter((q) => !doneEntries.has(q.entryId)).slice(0, 3);
     if (candidates.length === 0) withoutCandidates.push(l.id);

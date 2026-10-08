@@ -274,7 +274,7 @@ function fullTable(file: LoadedStatementFile, c: Candidate): StatementTable {
  */
 export function resolveLayout(
   file: LoadedStatementFile,
-  opts: { mapping?: StatementMapping; saved?: SavedStatementMapping | null; bankHint?: string | null },
+  opts: { mapping?: StatementMapping; saved?: SavedStatementMapping | null; bankHint?: string | null; sheet?: string | null },
 ): ResolvedLayout {
   if (opts.mapping) {
     const m = opts.mapping;
@@ -296,7 +296,14 @@ export function resolveLayout(
     return { table, delimiter: file.delimiter, preset: presetById(m.preset), detectedBy: 'given', mapping };
   }
 
-  const cands = candidates(file, opts.saved?.sheet ?? null);
+  let cands = candidates(file, opts.saved?.sheet ?? null);
+  if (file.format === 'xlsx' && opts.sheet) {
+    const wanted = opts.sheet;
+    cands = cands.filter((c) => c.table.name === wanted);
+    if (cands.length === 0) {
+      throw new FileFormatError('statement', `The worksheet "${wanted}" is not in this file (or it is empty). Choose one of: ${file.tables.map((t) => t.name).join(', ')}.`);
+    }
+  }
   if (opts.saved) {
     for (const c of cands) {
       const hit = findSavedHeader(c.table.rows, opts.saved);
@@ -442,9 +449,22 @@ function preHeaderOpening(rows: readonly Cell[][], headerRow: number): Paise | n
   return null;
 }
 
-/** Dedupe key of a line: SHA-256 of date|amount|reference|normalised description|balance|occurrence. */
+/**
+ * Reference as compared for dedupe: letters/digits only, and leading zeros dropped from an all-digit reference —
+ * the same cheque reads '000501' in the CSV download but 501 in the Excel one (a number cell).
+ */
+export function referenceKey(reference: string): string {
+  const k = squash(reference);
+  return /^\d+$/.test(k) ? k.replace(/^0+(?=\d)/, '') : k;
+}
+
+function lineKey(l: { txnDate: string; amount: Paise; reference: string; description: string; balance: Paise | null }): string {
+  return `${l.txnDate}|${l.amount}|${referenceKey(l.reference)}|${squash(l.description)}|${l.balance ?? ''}`;
+}
+
+/** Dedupe key of a line: SHA-256 of date|amount|reference key|normalised description|balance|occurrence. */
 export function lineHash(l: { txnDate: string; amount: Paise; reference: string; description: string; balance: Paise | null }, occurrence: number): string {
-  return sha256Hex(`${l.txnDate}|${l.amount}|${squash(l.reference)}|${squash(l.description)}|${l.balance ?? ''}|${occurrence}`);
+  return sha256Hex(`${lineKey(l)}|${occurrence}`);
 }
 
 /** Read the transaction lines below the header row with a mapping. */
@@ -549,7 +569,7 @@ export function extractLines(rows: readonly Cell[][], mapping: StatementMapping)
 
   const occurrences = new Map<string, number>();
   const lines: StatementLineDraft[] = chrono.map((l, seq) => {
-    const key = `${l.txnDate}|${l.amount}|${squash(l.reference)}|${squash(l.description)}|${l.balance ?? ''}`;
+    const key = lineKey(l);
     const occ = occurrences.get(key) ?? 0;
     occurrences.set(key, occ + 1);
     return { ...l, seq, hash: lineHash(l, occ) };
@@ -647,7 +667,7 @@ export interface ParsedStatement {
 export function parseStatement(
   fileName: string,
   bytes: Uint8Array,
-  opts: { mapping?: StatementMapping; saved?: SavedStatementMapping | null; bankHint?: string | null } = {},
+  opts: { mapping?: StatementMapping; saved?: SavedStatementMapping | null; bankHint?: string | null; sheet?: string | null } = {},
 ): ParsedStatement {
   const file = loadStatementFile(fileName, bytes, opts.mapping?.delimiter ?? null);
   const layout = resolveLayout(file, opts);

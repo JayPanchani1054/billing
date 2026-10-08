@@ -138,18 +138,19 @@ function treeOrder<T extends { id: number; parent_id: number | null; name: strin
 function groupsSheet(db: Db): Sheet {
   const tree = loadGroupTree(db);
   const aliases = new Map(db.all<{ id: number; alias: string | null }>('SELECT id, alias FROM groups').map((r) => [r.id, r.alias]));
-  const rows = tree.order.map((id) => {
+  const rows: Array<Record<string, Value>> = [];
+  for (const id of tree.order) {
     const g = tree.byId.get(id);
-    if (!g) return {};
+    if (!g) continue;
     const parent = g.parentId === null ? null : tree.byId.get(g.parentId);
-    return {
+    rows.push({
       name: g.name,
       parent: parent ? parent.name : 'Primary',
       alias: aliases.get(id) ?? null,
       nature: g.parentId === null ? cap(g.nature) : null,
       affectsGrossProfit: g.parentId === null && (g.nature === 'income' || g.nature === 'expenses') ? yesNo(g.affectsGrossProfit ? 1 : 0) : null,
-    };
-  });
+    });
+  }
   return specSheet('groups', rows);
 }
 
@@ -258,7 +259,7 @@ function unitsSheet(db: Db): Sheet {
   );
   return specSheet(
     'units',
-    rows.map((u) =>
+    rows.map((u): Record<string, Value> =>
       u.is_compound === 1
         ? { firstUnit: u.first, conversion: u.conversion, secondUnit: u.second }
         : { symbol: u.symbol, formalName: u.formal_name, uqc: u.uqc, decimals: u.decimal_places },

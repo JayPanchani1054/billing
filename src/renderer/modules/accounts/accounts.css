@@ -1,0 +1,166 @@
+/* Accounts module screens. Semantic design tokens only (no raw colours). Prefix: bx-acc- */
+
+/* ── Editable grids (opening bills, multiple ledgers) ─────────────── */
+.bx-acc-grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.bx-acc-grid th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  padding: var(--space-1-5) var(--space-2);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+.bx-acc-grid th.is-num {
+  text-align: right;
+}
+.bx-acc-grid td {
+  padding: var(--space-1) var(--space-1-5);
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bx-acc-grid tr:last-child td {
+  border-bottom: 0;
+}
+.bx-acc-grid__index {
+  width: 36px;
+  padding-top: var(--space-2) !important;
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+  text-align: right;
+}
+.bx-acc-grid__actions {
+  width: 40px;
+  text-align: center;
+}
+.bx-acc-grid__error {
+  display: block;
+  margin-top: var(--space-0-5);
+  color: var(--danger-text);
+  font-size: var(--fs-11);
+  line-height: var(--lh-snug);
+}
+.bx-acc-grid tfoot td {
+  background: var(--surface-2);
+  font-weight: var(--fw-medium);
+}
+.bx-acc-grid-wrap {
+  max-height: 420px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+}
+
+/* ── Status lines ─────────────────────────────────────────────────── */
+.bx-acc-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-13);
+}
+.bx-acc-check.is-ok {
+  color: var(--success-text);
+}
+.bx-acc-check.is-off {
+  color: var(--warning-text);
+}
+
+.bx-acc-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--success-text);
+}
+
+/* ── Chart / lists ────────────────────────────────────────────────── */
+.bx-acc-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+.bx-acc-name__alias {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+.bx-acc-name.is-inactive {
+  color: var(--text-muted);
+}
+.bx-acc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.bx-acc-toolbar__search {
+  flex: 1 1 260px;
+  max-width: 420px;
+}
+.bx-acc-fill {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+.bx-acc-fill__table {
+  flex: 1 1 auto;
+  min-height: 240px;
+}
+
+/* ── Voucher type numbering preview ───────────────────────────────── */
+.bx-acc-preview {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.bx-acc-preview__number {
+  font-family: var(--font-mono);
+  font-size: var(--fs-16);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+.bx-acc-preview__meta {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+
+/* ── Two-pane masters (cost centres, currencies) ──────────────────── */
+.bx-acc-split {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(320px, 2fr);
+  gap: var(--space-4);
+  min-height: 0;
+  height: 100%;
+}
+@media (max-width: 900px) {
+  .bx-acc-split {
+    grid-template-columns: 1fr;
+  }
+}
+.bx-acc-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+}
+.bx-acc-pane__table {
+  flex: 1 1 auto;
+  min-height: 200px;
+}

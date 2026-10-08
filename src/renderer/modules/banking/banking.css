@@ -1,0 +1,217 @@
+/* Banking module screens. Semantic design tokens only (no raw colours). Prefix: bx-bk- */
+
+/* ── Two-column layout: grid | balances panel ─────────────────────── */
+.bx-bk-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .bx-bk-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── BRS bank-date entry grid ─────────────────────────────────────── */
+.bx-bk-grid-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 260px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.bx-bk-grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-base);
+}
+.bx-bk-grid th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-weight: var(--fw-semibold);
+  text-align: left;
+  padding: var(--space-1-5) var(--cell-px, var(--space-2));
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+.bx-bk-grid td {
+  padding: var(--space-0-5) var(--cell-px, var(--space-2));
+  border-bottom: 1px solid var(--border-subtle);
+  height: var(--row-h);
+  vertical-align: middle;
+}
+.bx-bk-grid tr:hover td {
+  background: var(--row-hover);
+}
+.bx-bk-grid tr.is-active td {
+  background: var(--row-selected);
+}
+.bx-bk-grid tr.is-active td:first-child {
+  box-shadow: inset 3px 0 0 var(--row-selected-indicator);
+}
+.bx-bk-grid tr.is-changed td {
+  background: var(--brand-subtle);
+}
+.bx-bk-grid .bx-bk-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bx-bk-grid th.bx-bk-num {
+  text-align: right;
+}
+.bx-bk-grid .bx-bk-date {
+  width: 150px;
+  min-width: 140px;
+}
+.bx-bk-grid .bx-bk-particulars {
+  max-width: 280px;
+}
+.bx-bk-sub {
+  display: block;
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+.bx-bk-cell-error {
+  display: block;
+  font-size: var(--fs-11);
+  color: var(--danger-text);
+  white-space: normal;
+}
+
+/* ── Balances panel ───────────────────────────────────────────────── */
+.bx-bk-balances {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bx-bk-balances__row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-1) 0;
+}
+.bx-bk-balances__row--strong {
+  font-weight: var(--fw-semibold);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-1-5);
+}
+.bx-bk-balances__op {
+  color: var(--text-muted);
+  text-align: center;
+}
+.bx-bk-balances__amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+.bx-bk-balances__note {
+  display: block;
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+
+/* ── Import wizard ────────────────────────────────────────────────── */
+.bx-bk-steps {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+.bx-bk-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.bx-bk-steps li[aria-current='step'] {
+  color: var(--brand-text);
+  font-weight: var(--fw-semibold);
+}
+.bx-bk-mapping {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+}
+.bx-bk-mapping th,
+.bx-bk-mapping td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: middle;
+}
+.bx-bk-mapping th {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-weight: var(--fw-semibold);
+}
+.bx-bk-sample {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  max-width: 320px;
+}
+.bx-bk-raw {
+  overflow: auto;
+  max-height: 240px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.bx-bk-raw table {
+  border-collapse: collapse;
+  font-size: var(--fs-12);
+}
+.bx-bk-raw td {
+  padding: var(--space-0-5) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bx-bk-raw tr.is-header td {
+  background: var(--brand-subtle);
+  font-weight: var(--fw-semibold);
+}
+.bx-bk-raw td.bx-bk-rowno {
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* ── Fixed-height table areas ─────────────────────────────────────── */
+.bx-bk-table {
+  height: 360px;
+  min-height: 200px;
+}
+.bx-bk-table--tall {
+  height: calc(100vh - 300px);
+  min-height: 260px;
+}
+
+/* ── Deposit slip preview ─────────────────────────────────────────── */
+.bx-bk-slip {
+  max-width: 820px;
+}
+.bx-bk-slip__words {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+@media print {
+  .bx-bk-grid-wrap {
+    max-height: none;
+    overflow: visible;
+  }
+}

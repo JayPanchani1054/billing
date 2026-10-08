@@ -1,0 +1,343 @@
+/**
+ * Balance engine shared by every report in this module.
+ *
+ *  - `loadReportEnv(db, today)`  company essentials, the group tree and every ledger (one query each)
+ *  - `yearStartOf(env, date)`    start of the financial year containing `date` (never before the books)
+ *  - `ledgerSums(env, q)`        ONE aggregate query over ledger_entries (books filter) per ledger
+ *  - `buildSnapshot(env, q)`     Trial-Balance style per-ledger / per-group opening, Dr, Cr, closing with
+ *                                Tally's year-end treatment of nominal ledgers (see README §1)
+ *  - `stockAt(env, date)`        value of stock at the START of `date` (integrated inventory only)
+ *
+ * Money: integer paise, Dr + / Cr −; `debit` / `credit` are unsigned period totals.
+ */
+import type { GroupCode } from '../../../shared/constants.ts';
+import { addDays, financialYear } from '../../../shared/dates.ts';
+import type { Paise } from '../../../shared/money.ts';
+import type { Db } from '../../db/db.ts';
+import { validation } from '../../lib/errors.ts';
+import { BOOKS_FILTER, loadGroupTree, type GroupTree, type GroupTreeNode } from '../accounts/books.ts';
+import { getFeatures } from '../company/service.ts';
+import { closingStockValue, openingStockValue } from '../inventory/index.ts';
+
+export interface LedgerMeta {
+  id: number;
+  name: string;
+  alias: string | null;
+  groupId: number;
+  reservedCode: string | null;
+  openingBalance: Paise;
+  isActive: boolean;
+  /** Ledger sits under an income / expense group: its balance closes into the P&L A/c every year. */
+  isNominal: boolean;
+}
+
+export interface ReportEnv {
+  db: Db;
+  today: string;
+  booksFrom: string;
+  fyStartMonth: number;
+  /** F11 inventory + "integrate accounts with inventory": closing stock comes from the stock valuation. */
+  integrated: boolean;
+  tree: GroupTree;
+  ledgers: LedgerMeta[];
+  ledgerById: Map<number, LedgerMeta>;
+  /** Reserved 'Profit & Loss A/c' ledger (null if it was somehow removed). */
+  plLedgerId: number | null;
+  groupByCode: Map<GroupCode, number>;
+  /** Memo of stock values by date (valuation replays are not cheap). */
+  stockMemo: Map<string, Paise>;
+}
+
+interface LedgerDbRow {
+  id: number;
+  name: string;
+  alias: string | null;
+  group_id: number;
+  reserved_code: string | null;
+  opening_balance: number;
+  is_active: number;
+}
+
+/** Load everything a report needs about the company's masters (a handful of small queries). */
+export function loadReportEnv(db: Db, today: string): ReportEnv {
+  const company = db.get<{ books_from: string; fy_start_month: number }>('SELECT books_from, fy_start_month FROM company WHERE id = 1');
+  const booksFrom = company?.books_from ?? today;
+  const fyStartMonth = company?.fy_start_month ?? 4;
+  const features = getFeatures(db);
+  const tree = loadGroupTree(db);
+  const ledgers: LedgerMeta[] = [];
+  const ledgerById = new Map<number, LedgerMeta>();
+  let plLedgerId: number | null = null;
+  for (const r of db.all<LedgerDbRow>('SELECT id, name, alias, group_id, reserved_code, opening_balance, is_active FROM ledgers ORDER BY name COLLATE NOCASE, id')) {
+    const g = tree.byId.get(r.group_id);
+    const meta: LedgerMeta = {
+      id: r.id,
+      name: r.name,
+      alias: r.alias,
+      groupId: r.group_id,
+      reservedCode: r.reserved_code,
+      openingBalance: r.opening_balance,
+      isActive: r.is_active === 1,
+      isNominal: g ? g.cls.isIncome || g.cls.isExpense : false,
+    };
+    ledgers.push(meta);
+    ledgerById.set(r.id, meta);
+    if (r.reserved_code === 'PROFIT_LOSS') plLedgerId = r.id;
+  }
+  const groupByCode = new Map<GroupCode, number>();
+  for (const g of tree.byId.values()) if (g.reservedCode) groupByCode.set(g.reservedCode, g.id);
+  return {
+    db,
+    today,
+    booksFrom,
+    fyStartMonth,
+    integrated: features.inventory && features.integrateInventory,
+    tree,
+    ledgers,
+    ledgerById,
+    plLedgerId,
+    groupByCode,
+    stockMemo: new Map(),
+  };
+}
+
+/** VALIDATION when the period is reversed. */
+export function assertPeriod(from: string, to: string, path = 'to'): void {
+  if (from > to) throw validation([{ path, message: 'The period ends before it starts. Choose an end date on or after the start date.' }]);
+}
+
+/** Start of the financial year containing `date`, never before the books beginning. */
+export function yearStartOf(env: ReportEnv, date: string): string {
+  const fy = financialYear(date, env.fyStartMonth).start;
+  return fy < env.booksFrom ? env.booksFrom : fy;
+}
+
+/** Value of stock at the START of `date` (= closing value of the previous day); 0 when not integrated. */
+export function stockAt(env: ReportEnv, date: string): Paise {
+  if (!env.integrated) return 0;
+  const key = `o:${date}`;
+  const hit = env.stockMemo.get(key);
+  if (hit !== undefined) return hit;
+  const v = openingStockValue(env.db, { from: date, today: env.today });
+  env.stockMemo.set(key, v);
+  return v;
+}
+
+/** Value of stock at the END of `date`; 0 when not integrated. */
+export function stockAtEnd(env: ReportEnv, date: string): Paise {
+  if (!env.integrated) return 0;
+  const key = `c:${date}`;
+  const hit = env.stockMemo.get(key);
+  if (hit !== undefined) return hit;
+  const v = closingStockValue(env.db, { asOf: date, today: env.today });
+  env.stockMemo.set(key, v);
+  return v;
+}
+
+/** Opening stock at the books beginning (S0 in the README). */
+export function openingStockAtBooks(env: ReportEnv): Paise {
+  return stockAt(env, env.booksFrom);
+}
+
+export interface LedgerSums {
+  /** Σ entries dated before `cf`. */
+  pre: Paise;
+  /** Σ entries dated in [cf, from). */
+  before: Paise;
+  /** Σ debits in [from, to]. */
+  dr: Paise;
+  /** Σ |credits| in [from, to]. */
+  cr: Paise;
+}
+
+const ZERO_SUMS: LedgerSums = { pre: 0, before: 0, dr: 0, cr: 0 };
+
+/**
+ * One aggregate query over ledger_entries (books filter, `date <= to`), grouped by ledger.
+ * Requires cf ≤ from ≤ to. Ledgers without entries are absent from the map.
+ */
+export function ledgerSums(env: ReportEnv, q: { cf: string; from: string; to: string }): Map<number, LedgerSums> {
+  const out = new Map<number, LedgerSums>();
+  for (const r of env.db.all<{ ledger_id: number; pre: number | null; before: number | null; dr: number | null; cr: number | null }>(
+    `SELECT ledger_id,
+            SUM(CASE WHEN date < :cf THEN amount ELSE 0 END) AS pre,
+            SUM(CASE WHEN date >= :cf AND date < :from THEN amount ELSE 0 END) AS before,
+            SUM(CASE WHEN date >= :from AND amount > 0 THEN amount ELSE 0 END) AS dr,
+            SUM(CASE WHEN date >= :from AND amount < 0 THEN -amount ELSE 0 END) AS cr
+       FROM ledger_entries
+      WHERE date <= :to AND ${BOOKS_FILTER()}
+      GROUP BY ledger_id`,
+    { cf: q.cf, from: q.from, to: q.to, today: env.today },
+  )) {
+    out.set(r.ledger_id, { pre: r.pre ?? 0, before: r.before ?? 0, dr: r.dr ?? 0, cr: r.cr ?? 0 });
+  }
+  return out;
+}
+
+export interface Balance {
+  opening: Paise;
+  debit: Paise;
+  credit: Paise;
+  closing: Paise;
+}
+
+export interface GroupBalance extends Balance {
+  ledgerCount: number;
+}
+
+export interface Snapshot {
+  from: string;
+  to: string;
+  /** Carry-forward date: nominal ledgers start here; their earlier results are in the P&L A/c. */
+  yearStart: string;
+  ledgers: Map<number, Balance>;
+  /** Rolled up over sub-groups. */
+  groups: Map<number, GroupBalance>;
+  /** Profit of the years before `yearStart` (Cr-signed: negative = profit), added to the P&L A/c ledger. */
+  retained: Paise;
+  /** Stock value at the start of `yearStart` (the Trial Balance's Opening Stock). */
+  openingStock: Paise;
+  /** −(Σ ledger openings + opening stock at the books beginning). */
+  openingDifference: Paise;
+}
+
+const zeroBalance = (): GroupBalance => ({ opening: 0, debit: 0, credit: 0, closing: 0, ledgerCount: 0 });
+
+/** −(Σ ledger opening balances + opening stock at the books beginning): the "Difference in opening balances". */
+export function openingDifference(env: ReportEnv): Paise {
+  let sum = 0;
+  for (const l of env.ledgers) sum += l.openingBalance;
+  // `0 - x` (not `-x`) so a balanced company reports 0, never -0.
+  return 0 - (sum + openingStockAtBooks(env));
+}
+
+/**
+ * Trial-Balance balances for [from, to] with Tally's year-end treatment:
+ *  - real (asset/liability) ledgers: opening = opening balance + every entry before `from`;
+ *  - nominal (income/expense) ledgers start again at the financial year containing `from`
+ *    (`yearStart`): opening = entries in [yearStart, from) (+ their opening balance in the first year);
+ *  - everything a nominal ledger accumulated before `yearStart`, less the stock movement over those
+ *    years, is the profit brought forward — added to the opening/closing of the 'Profit & Loss A/c'.
+ * `yearStart` may be forced (Balance Sheet uses the year of `asOf`).
+ */
+export function buildSnapshot(env: ReportEnv, q: { from: string; to: string; yearStart?: string }): Snapshot {
+  assertPeriod(q.from, q.to);
+  const cf = q.yearStart ?? yearStartOf(env, q.from);
+  const from = q.from < cf ? cf : q.from;
+  const sums = ledgerSums(env, { cf, from, to: q.to });
+  const firstYear = cf <= env.booksFrom;
+  const ledgers = new Map<number, Balance>();
+  let retainedNominal = 0;
+  for (const l of env.ledgers) {
+    const s = sums.get(l.id) ?? ZERO_SUMS;
+    let opening: number;
+    if (l.isNominal) {
+      opening = (firstYear ? l.openingBalance : 0) + s.before;
+      retainedNominal += (firstYear ? 0 : l.openingBalance) + s.pre;
+    } else {
+      opening = l.openingBalance + s.pre + s.before;
+    }
+    ledgers.set(l.id, { opening, debit: s.dr, credit: s.cr, closing: opening + s.dr - s.cr });
+  }
+  const openingStock = stockAt(env, cf);
+  const retained = firstYear ? 0 : retainedNominal - (openingStock - openingStockAtBooks(env));
+  if (env.plLedgerId !== null && retained !== 0) {
+    const b = ledgers.get(env.plLedgerId);
+    if (b) {
+      b.opening += retained;
+      b.closing += retained;
+    }
+  }
+  const groups = new Map<number, GroupBalance>();
+  for (const id of env.tree.order) groups.set(id, zeroBalance());
+  for (const l of env.ledgers) {
+    const b = ledgers.get(l.id) as Balance;
+    const g = env.tree.byId.get(l.groupId);
+    if (!g) continue;
+    for (const gid of g.chainIds) {
+      const t = groups.get(gid) as GroupBalance;
+      t.opening += b.opening;
+      t.debit += b.debit;
+      t.credit += b.credit;
+      t.closing += b.closing;
+      t.ledgerCount += 1;
+    }
+  }
+  return { from, to: q.to, yearStart: cf, ledgers, groups, retained, openingStock, openingDifference: openingDifference(env) };
+}
+
+/**
+ * P&L value (Dr-signed) of every nominal ledger for [from, to]: the period's movement, plus the
+ * ledger's opening balance when the period starts on or before the books beginning (a company that
+ * started its books mid-year enters the year-to-date figures as opening balances).
+ */
+export function nominalMovement(env: ReportEnv, from: string, to: string): Map<number, Paise> {
+  assertPeriod(from, to);
+  const sums = ledgerSums(env, { cf: from, from, to });
+  const includeOb = from <= env.booksFrom;
+  const out = new Map<number, Paise>();
+  for (const l of env.ledgers) {
+    if (!l.isNominal) continue;
+    const s = sums.get(l.id) ?? ZERO_SUMS;
+    out.set(l.id, (includeOb ? l.openingBalance : 0) + s.dr - s.cr);
+  }
+  return out;
+}
+
+/** Roll Dr-signed per-ledger values up the group tree (every group, including empty ones). */
+export function rollUp(env: ReportEnv, values: ReadonlyMap<number, Paise>): Map<number, Paise> {
+  const out = new Map<number, Paise>();
+  for (const id of env.tree.order) out.set(id, 0);
+  for (const [ledgerId, v] of values) {
+    if (v === 0) continue;
+    const l = env.ledgerById.get(ledgerId);
+    const g = l ? env.tree.byId.get(l.groupId) : undefined;
+    if (!g) continue;
+    for (const gid of g.chainIds) out.set(gid, (out.get(gid) ?? 0) + v);
+  }
+  return out;
+}
+
+/** Ledgers placed directly in each group, in name order. */
+export function ledgersByGroup(env: ReportEnv): Map<number, LedgerMeta[]> {
+  const out = new Map<number, LedgerMeta[]>();
+  for (const l of env.ledgers) {
+    const list = out.get(l.groupId);
+    if (list) list.push(l);
+    else out.set(l.groupId, [l]);
+  }
+  return out;
+}
+
+/** Group node or a VALIDATION/NOT_FOUND style error for a report input. */
+export function groupNode(env: ReportEnv, groupId: number): GroupTreeNode {
+  const g = env.tree.byId.get(groupId);
+  if (!g) throw validation([{ path: 'groupId', message: 'This group does not exist. It may have been deleted — pick another group.' }]);
+  return g;
+}
+
+export function ledgerMeta(env: ReportEnv, ledgerId: number): LedgerMeta {
+  const l = env.ledgerById.get(ledgerId);
+  if (!l) throw validation([{ path: 'ledgerId', message: 'This ledger does not exist. It may have been deleted — pick another ledger.' }]);
+  return l;
+}
+
+/** Month slices of [from, to]: { month: 'YYYY-MM', from, to } clipped to the period. */
+export function monthSlices(from: string, to: string): Array<{ month: string; from: string; to: string }> {
+  const out: Array<{ month: string; from: string; to: string }> = [];
+  let cur = from;
+  while (cur <= to) {
+    const y = Number(cur.slice(0, 4));
+    const m = Number(cur.slice(5, 7));
+    const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    const end = addDays(next, -1);
+    out.push({ month: cur.slice(0, 7), from: cur, to: end < to ? end : to });
+    cur = next;
+  }
+  return out;
+}
+
+/** Number of days in [from, to] inclusive. */
+export function daysIn(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+}

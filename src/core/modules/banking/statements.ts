@@ -80,12 +80,14 @@ export function previewStatement(db: Db, input: StatementPreviewInput): Statemen
     mapping: input.mapping,
     saved: input.mapping ? null : loadSavedMapping(db, bank.id),
     bankHint: bankHint(bank),
+    sheet: input.mapping ? null : (input.sheet ?? null),
   });
   const { file, layout, extract } = parsed;
   const base = {
     format: file.format,
     encoding: file.encoding,
     sheets: file.format === 'xlsx' ? file.tables.map((t) => t.name) : [],
+    sheet: file.format === 'xlsx' ? layout.table.name : null,
     preset: presetInfo(layout.preset),
     detectedBy: layout.detectedBy,
     mapping: layout.mapping,
