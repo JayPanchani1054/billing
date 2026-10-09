@@ -117,11 +117,19 @@ and otherwise with `npm install` plus a warning annotation (see §5.2).
    with exit code 0/1, see `src/main/smoke.ts`), checks exit code and log, uninstalls. This is the
    only check of the real packaged binary: Playwright cannot drive it because the
    `EnableNodeCliInspectArguments` fuse is off. The app log is uploaded on failure.
-4. **e2e** (matrix: ubuntu-latest under `xvfb-run` with unprivileged user namespaces re-enabled for
+4. **electron-node** (ubuntu-latest, needs verify): the whole unit suite again *inside Electron's
+   bundled Node* (`ELECTRON_RUN_AS_NODE=1 npx electron --test …`). The packaged app runs the core on
+   that newer runtime, which validates some `node:sqlite`/`node:*` arguments more strictly than Node 22
+   (e.g. `backup({ rate: -1 })` passed every Node 22 test but made every backup fail in the app).
+5. **e2e** (matrix: ubuntu-latest under `xvfb-run` with unprivileged user namespaces re-enabled for
    Chromium's sandbox, and windows-latest): `npm run build`, then `npx playwright test` against `out/`
    with the unfused Electron from `node_modules`. On failure the Playwright report, the window
    screenshot of every failing test and `trace.zip` (open with `npx playwright show-trace`) are
-   uploaded as `playwright-report-<os>`.
+   uploaded as `playwright-report-<os>`, and the failing test's alerts, toasts, top-screen text and
+   focused element are printed to the job log (`e2e/support.ts`).
+
+A run already in progress on a branch always finishes; newer pushes queue and only the newest waiting
+run is kept (pull requests cancel superseded runs).
 
 npm, Electron and electron-builder downloads are cached (keys include the lockfile).
 
