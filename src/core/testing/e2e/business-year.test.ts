@@ -19,6 +19,7 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
+import { makeGstin, testPan } from '../fixtures.ts';
 import { FY_MONTHS, P, periodKey, startRuntime, sum, type E2E } from './harness.ts';
 import {
   BOOKS_FROM,
@@ -30,6 +31,7 @@ import {
   createCompany,
   createMasters,
   gstr2bJuly,
+  post,
   postYear,
   type BankStep,
   type World,
@@ -60,6 +62,7 @@ interface GstLine extends Heads { taxableValue: number; isReverseCharge: boolean
 interface VDetail { id: number; voucherType: { baseType: string }; gstNature: string | null; gstLines: GstLine[]; affectsBooks?: boolean }
 
 const FY = { from: BOOKS_FROM, to: FY_END };
+const SEZ_SUPPLIER_GSTIN = makeGstin('27', testPan(32));
 
 describe('business year FY 2026-27 through runtime.dispatch', () => {
   let e: E2E;
@@ -472,6 +475,72 @@ describe('business year FY 2026-27 through runtime.dispatch', () => {
     assert.equal(cancels.total, 1);
   });
 
+  it('GSTR-1 and GSTR-3B JSON files carry exactly the summary figures, every month', async () => {
+    const r2 = (x: number | undefined): number => Math.round((x ?? 0) * 100);
+    for (const ym of FY_MONTHS) {
+      const period = periodKey(ym);
+      const s = await e.call<G1>('gst.gstr1.summary', { period });
+      const f = await e.call<{ json: string | Record<string, any> }>('gst.gstr1.json', { period });
+      const J: Record<string, any> = typeof f.json === 'string' ? JSON.parse(f.json) : f.json;
+      const t = { taxable: 0, igst: 0, cgst: 0, sgst: 0 };
+      const take = (it: any, sign = 1): void => {
+        const d = it.itm_det ?? it;
+        t.taxable += sign * r2(d.txval);
+        t.igst += sign * r2(d.iamt);
+        t.cgst += sign * r2(d.camt);
+        t.sgst += sign * r2(d.samt);
+      };
+      for (const c of J.b2b ?? []) for (const i of c.inv) if (i.rchrg !== 'Y') for (const it of i.itms) take(it);
+      for (const c of J.b2cl ?? []) for (const i of c.inv) for (const it of i.itms) take(it);
+      for (const c of J.exp ?? []) for (const i of c.inv) for (const it of i.itms) take(it);
+      for (const r of J.b2cs ?? []) take(r);
+      for (const c of J.cdnr ?? []) for (const n of c.nt) for (const it of n.itms) take(it, n.ntty === 'C' ? -1 : 1);
+      for (const n of J.cdnur ?? []) for (const it of n.itms) take(it, n.ntty === 'C' ? -1 : 1);
+      assert.deepEqual(t, { taxable: s.totals.taxable, igst: s.totals.igst, cgst: s.totals.cgst, sgst: s.totals.sgst }, `GSTR-1 JSON ${period}`);
+
+      const g = await e.call<{ json: string | Record<string, any> }>('gst.gstr3b.json', { period });
+      const K: Record<string, any> = typeof g.json === 'string' ? JSON.parse(g.json) : g.json;
+      const s3 = await e.call<G3b>('gst.gstr3b.summary', { period });
+      const a = s3.supplies.find((x) => x.key === 'osup_det')!;
+      const b = s3.supplies.find((x) => x.key === 'osup_zero')!;
+      const od = K.sup_details.osup_det;
+      const oz = K.sup_details.osup_zero;
+      assert.deepEqual([r2(od.txval), r2(od.iamt), r2(od.camt), r2(od.samt)], [a.taxable, a.igst, a.cgst, a.sgst], `3B JSON 3.1(a) ${period}`);
+      assert.deepEqual([r2(oz.txval), r2(oz.iamt)], [b.taxable, b.igst], `3B JSON 3.1(b) ${period}`);
+      const net = K.itc_elg.itc_net;
+      assert.deepEqual([r2(net.iamt), r2(net.camt), r2(net.samt)], [s3.itc.net.igst, s3.itc.net.cgst, s3.itc.net.sgst], `3B JSON 4(C) ${period}`);
+    }
+  });
+
+  // ── Assertions the application fails today. Each is a reported audit finding (node:test `todo`: the
+  //    assertion runs and is reported, without failing the suite; it turns green once the defect is fixed).
+
+  it(
+    'GSTR-3B carries the unused ITC of June into July (electronic credit ledger brought forward)',
+    { todo: 'FINDING: GSTR-3B 6.1 set-off ignores the credit balance carried forward from the previous month' },
+    async () => {
+      const jun = await e.call<G3b & { payment: { setOff: { creditBalance: Heads }; creditAvailable: Heads; cashTotal: number } }>('gst.gstr3b.summary', { period: '062026' });
+      const jul = await e.call<G3b & { payment: { creditAvailable: Heads; cashTotal: number } }>('gst.gstr3b.summary', { period: '072026' });
+      // June: capital goods ITC (C 45,000 + S 45,000) exceeds June's output tax → credit left after set-off.
+      assert.ok(jun.payment.setOff.creditBalance.cgst > 0, 'June leaves CGST credit unused');
+      for (const h of HEADS) {
+        assert.equal(jul.payment.creditAvailable[h], Math.max(0, jul.itc.net[h]) + jun.payment.setOff.creditBalance[h], `July ${h}: 4(C) + June's closing credit`);
+      }
+    },
+  );
+
+  it(
+    'GSTR-1 Table 13 reports only the deleted invoice as missing (the optional voucher is not an issued or cancelled invoice)',
+    { todo: 'FINDING: Optional sales vouchers are reported as missing/cancelled invoice numbers in GSTR-1 Table 13' },
+    async () => {
+      const g1 = await e.call<G1>('gst.gstr1.summary', FY);
+      const sales = g1.docs.find((d) => d.docNum === 1)!;
+      // Sales 1–45: one deleted (Nov cash sale), one cancelled (Dec), one optional (Dec, still a draft).
+      assert.equal(sales.missing, 1, 'only the deleted number is missing');
+      assert.equal(sales.cancelled, 2, 'cancelled = the cancelled invoice + the deleted number');
+    },
+  );
+
   it('backup → verify → restore as a new company → identical books', async () => {
     const bk = await e.call<{ path: string; encrypted: boolean }>('data.backup.create', { password: 'Backup#Pass1', note: 'Year end FY 2026-27' });
     assert.equal(bk.encrypted, true);
@@ -509,4 +578,73 @@ describe('business year FY 2026-27 through runtime.dispatch', () => {
     const back = await e.call<{ session: unknown }>('app.company.open', { id: w.companyId });
     if (!back.session) await e.call('app.auth.login', { username: OWNER.username, password: OWNER.password });
   });
+});
+
+describe('audit findings reproduced on a fresh company (todo until fixed)', () => {
+  let e: E2E;
+  let w: World;
+  before(async () => {
+    e = startRuntime('2026-06-30');
+    w = await createCompany(e);
+    await createMasters(w);
+  });
+  after(async () => {
+    await e?.close();
+  });
+
+  it(
+    'a debit note to a customer for a price revision does not move stock again',
+    { todo: 'FINDING: Item-mode debit note to a customer (price revision) moves stock out a second time' },
+    async () => {
+      const { L, I, VT } = w;
+      const sale = await post(w, 'fx-sale', { voucherTypeId: VT.sales, date: '2026-04-11', mode: 'item_invoice', partyLedgerId: L.blr, items: [{ itemId: I.mixer, qty: 2, rate: 3000 }] });
+      const before = await e.call<{ qty: number }>('inventory.stockOnHand', { itemId: I.mixer, asOf: '2026-06-30' });
+      assert.equal(before.qty, 98, 'opening 100 − 2 sold');
+      // Upward price revision of ₹100 per unit on the same 2 mixers (s.34 debit note): value only.
+      await post(w, 'fx-dn', {
+        voucherTypeId: VT.debit_note,
+        date: '2026-04-20',
+        mode: 'item_invoice',
+        partyLedgerId: L.blr,
+        items: [{ itemId: I.mixer, qty: 2, rate: 100 }],
+        originalInvoiceNo: sale.number!,
+        originalInvoiceDate: '2026-04-11',
+        noteReason: 'Price revision',
+      });
+      const after = await e.call<{ qty: number }>('inventory.stockOnHand', { itemId: I.mixer, asOf: '2026-06-30' });
+      assert.equal(after.qty, 98, 'the goods were delivered once, with the invoice');
+      const pl = await e.call<Pl>('reports.profitLoss', { from: BOOKS_FROM, to: '2026-06-30' });
+      const prof = await e.call<{ totals: { netSales: number } }>('stock.profitability', { from: BOOKS_FROM, to: '2026-06-30' });
+      assert.equal(prof.totals.netSales, pl.figures.sales, 'item profitability sales = P&L sales (6,000 + 200)');
+    },
+  );
+
+  it(
+    'goods bought from an SEZ unit are posted like an import (IGST at customs), as GSTR-3B reports them',
+    { todo: 'FINDING: Goods from an SEZ unit: IGST posted as payable to the supplier, but GSTR-3B/GSTR-9 report it as import of goods' },
+    async () => {
+      const { L, I, VT, G } = w;
+      const sup = await e.call<{ id: number }>('accounts.ledger.save', {
+        name: 'Pune SEZ Supplier',
+        groupId: G.SUNDRY_CREDITORS,
+        gstin: SEZ_SUPPLIER_GSTIN,
+        registrationType: 'sez',
+      });
+      const v = await post(w, 'fx-sez-in', {
+        voucherTypeId: VT.purchase,
+        date: '2026-05-12',
+        mode: 'item_invoice',
+        partyLedgerId: sup.id,
+        items: [{ itemId: I.mixer, qty: 2, rate: 2000 }],
+        referenceNo: 'SZS-1',
+      });
+      const d = await e.call<{ entries: Array<{ ledgerId: number; amount: number }> }>('vouchers.get', { id: v.id });
+      const g3 = await e.call<G3b>('gst.gstr3b.summary', { period: '052026' });
+      assert.equal(g3.itc.available.find((r) => r.ty === 'IMPG')!.igst, P(720), 'GSTR-3B: 4,000 × 18% under 4(A)(1) import of goods');
+      // Then the books must treat it as an import too: the SEZ supplier is owed the value only, and the IGST
+      // is booked from the bill of entry (as for import of goods).
+      assert.equal(d.entries.find((x) => x.ledgerId === sup.id)!.amount, -P(4_000), 'supplier credited with the value only');
+      assert.equal(d.entries.find((x) => x.ledgerId === L.INPUT_IGST), undefined, 'no IGST posted from the supplier invoice');
+    },
+  );
 });
