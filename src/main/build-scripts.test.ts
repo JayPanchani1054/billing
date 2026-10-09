@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url);
 
 interface FusesModule {
   WANTED_FUSES: Record<string, boolean>;
-  fuseProblems(wire: Record<string | number, unknown>, fuses: { FuseV1Options: Record<string, number>; FuseState: Record<string, number> }): string[];
+  fuseProblems(wire: Record<string | number, unknown>, fuses: { FuseV1Options: Record<string, number>; FuseState?: Record<string, number> }): string[];
 }
 const { WANTED_FUSES, fuseProblems } = require(path.join(root, 'scripts/fuses.cjs')) as FusesModule;
 
@@ -58,6 +58,13 @@ describe('Electron fuses (scripts/fuses.cjs)', () => {
     assert.equal(fuseProblems(missing, FAKE).length, 1);
     const older = { ...FAKE, FuseV1Options: { ...FAKE.FuseV1Options, GrantFileProtocolExtraPrivileges: undefined as unknown as number } };
     assert.match(fuseProblems(wireFor(WANTED_FUSES), older)[0], /unknown to the installed @electron\/fuses/);
+  });
+
+  it('works with the real @electron/fuses 1.x exports, which do not include FuseState (regression: CI packaging threw "reading DISABLE")', () => {
+    const { FuseState: _omitted, ...realShape } = FAKE;
+    assert.deepEqual(fuseProblems(wireFor(WANTED_FUSES), realShape), []);
+    const stock = wireFor({ ...WANTED_FUSES, RunAsNode: true });
+    assert.deepEqual(fuseProblems(stock, realShape), ['RunAsNode: enabled, expected disabled']);
   });
 
   it('the afterPack hook fails closed (no warn-and-continue path without the explicit opt-out)', () => {

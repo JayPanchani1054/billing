@@ -14,13 +14,20 @@ const WANTED_FUSES = Object.freeze({
 });
 
 /**
+ * Byte values of a fuse on the wire ('0' disabled, '1' enabled, 'r' removed). @electron/fuses 1.x uses
+ * these internally but does not export its FuseState enum, so fall back to them when it is missing.
+ */
+const FUSE_STATE_V1 = Object.freeze({ DISABLE: 48, ENABLE: 49, REMOVED: 114, INHERIT: 144 });
+
+/**
  * Compare a fuse wire read with @electron/fuses getCurrentFuseWire() against WANTED_FUSES.
  * @param {Record<string|number, unknown>} wire  getCurrentFuseWire() result
- * @param {{ FuseV1Options: Record<string, number>, FuseState: Record<string, number> }} fuses  the @electron/fuses module
+ * @param {{ FuseV1Options: Record<string, number>, FuseState?: Record<string, number> }} fuses  the @electron/fuses module
  * @returns {string[]} human-readable problems (empty when every fuse is as wanted)
  */
 function fuseProblems(wire, fuses) {
   const problems = [];
+  const state = fuses.FuseState ?? FUSE_STATE_V1;
   for (const [name, enabled] of Object.entries(WANTED_FUSES)) {
     const index = fuses.FuseV1Options[name];
     if (index === undefined) {
@@ -28,13 +35,13 @@ function fuseProblems(wire, fuses) {
       continue;
     }
     const actual = wire[index];
-    const expected = enabled ? fuses.FuseState.ENABLE : fuses.FuseState.DISABLE;
+    const expected = enabled ? state.ENABLE : state.DISABLE;
     if (actual !== expected) {
-      const label = actual === fuses.FuseState.ENABLE ? 'enabled' : actual === fuses.FuseState.DISABLE ? 'disabled' : `state ${String(actual)}`;
+      const label = actual === state.ENABLE ? 'enabled' : actual === state.DISABLE ? 'disabled' : `state ${String(actual)}`;
       problems.push(`${name}: ${label}, expected ${enabled ? 'enabled' : 'disabled'}`);
     }
   }
   return problems;
 }
 
-module.exports = { WANTED_FUSES, fuseProblems };
+module.exports = { WANTED_FUSES, FUSE_STATE_V1, fuseProblems };

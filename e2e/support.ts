@@ -68,6 +68,28 @@ export function captureFailures(getLaunched: () => LaunchedApp | undefined): voi
     } catch {
       /* the window may already be gone */
     }
+    // The CI log is often all there is to read: print what the user would see — alerts, toasts and the
+    // top screen's text — so a failure explains itself without downloading the trace.
+    try {
+      const messages = await page.locator('[role=alert], [role=status], [role=alertdialog]').allInnerTexts();
+      const top = page.locator('[data-screen]').last();
+      const screenId = (await top.count()) > 0 ? await top.getAttribute('data-screen') : null;
+      const text = (await top.count()) > 0 ? await top.innerText() : await page.locator('body').innerText();
+      const focused = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        return el ? `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''} ${el.getAttribute('aria-label') ?? ''}`.trim() : 'none';
+      });
+      console.log(
+        [
+          `[e2e] FAILED: ${testInfo.title}`,
+          `[e2e] top screen: ${screenId ?? '(none)'} · focus: ${focused}`,
+          ...messages.filter((m) => m.trim() !== '').map((m) => `[e2e] message: ${m.replace(/\s+/g, ' ').slice(0, 400)}`),
+          `[e2e] screen text: ${text.replace(/\s+/g, ' ').slice(0, 1500)}`,
+        ].join('\n'),
+      );
+    } catch {
+      /* best effort */
+    }
   });
 }
 
