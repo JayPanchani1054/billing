@@ -106,6 +106,13 @@ function companyFacts(db: Db): CompanyFacts {
 // ───────────────────────────── Create ─────────────────────────────
 
 /** Consistent copy of the live database into `target` (rollback-journal mode, self-contained). */
+/**
+ * Pages copied per sqlite3_backup_step: more than any company file has, so the whole copy is one step.
+ * Must be a positive 32-bit integer — newer Node (Electron 44) rejects SQLite's own "-1 = all pages"
+ * with ERR_OUT_OF_RANGE, which made every backup fail in the packaged app.
+ */
+export const BACKUP_PAGES_PER_STEP = 0x7fffffff;
+
 async function snapshotDatabase(ctx: Pick<CompanyCtx, 'db' | 'company'>, target: string): Promise<void> {
   const live = ctx.company.dbPath;
   const backupFn = (sqlite as { backup?: typeof sqlite.backup }).backup;
@@ -113,9 +120,9 @@ async function snapshotDatabase(ctx: Pick<CompanyCtx, 'db' | 'company'>, target:
     const reader = new DatabaseSync(live, { readOnly: true });
     try {
       reader.exec('PRAGMA busy_timeout = 10000');
-      // rate -1: all pages in one step = one read transaction → a consistent snapshot even while the
-      // main connection keeps writing (WAL readers never block writers).
-      await backupFn(reader, target, { rate: -1 });
+      // All pages in one step = one read transaction → a consistent snapshot even while the main
+      // connection keeps writing (WAL readers never block writers).
+      await backupFn(reader, target, { rate: BACKUP_PAGES_PER_STEP });
     } finally {
       reader.close();
     }

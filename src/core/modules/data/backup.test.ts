@@ -18,7 +18,7 @@ import { AppError } from '../../lib/errors.ts';
 import { createTestCompany, makeGstin, type TestCompany } from '../../testing/fixtures.ts';
 import { companyRoutes } from '../company/routes.ts';
 import { saveConfig } from '../company/service.ts';
-import { autoBackup, createBackup, defaultBackupFolder, lastBackupAt, listBackups, verifyBackup } from './backup.ts';
+import { autoBackup, BACKUP_PAGES_PER_STEP, createBackup, defaultBackupFolder, lastBackupAt, listBackups, verifyBackup } from './backup.ts';
 import { BACKUP_MAGIC, readContainerInfo, writeContainer } from './container.ts';
 import { dataRoutes } from './routes.ts';
 import { securityRoutes } from '../security/routes.ts';
@@ -760,5 +760,13 @@ describe('backup: decompression bombs', () => {
     const file = await bomb(60 * 1024 ** 3);
     const v = await verifyBackup(t.ctx, file, undefined);
     assert.match(v.checks.find((c) => c.name === 'decompress')?.message ?? '', /impossibly large/);
+  });
+});
+
+describe('online backup step size (regression: Electron 44 rejected rate -1 and every backup failed)', () => {
+  it('is a positive 32-bit integer large enough to copy any company file in one step', () => {
+    assert.ok(Number.isInteger(BACKUP_PAGES_PER_STEP) && BACKUP_PAGES_PER_STEP > 0 && BACKUP_PAGES_PER_STEP <= 0x7fffffff);
+    // 0x7fffffff pages of the 4 KiB default page size is 8 TiB: far beyond any company file.
+    assert.ok(BACKUP_PAGES_PER_STEP * 4096 > 1024 ** 4);
   });
 });
