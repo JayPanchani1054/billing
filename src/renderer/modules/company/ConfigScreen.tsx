@@ -1,50 +1,52 @@
 /**
- * 'company.config' (F12) — Configuration: invoices & printing, GST, warnings & checks, display,
- * backup, round-off, and the period lock summary.
+ * 'company.config' (F12) {tab?: 'invoice' | 'gst' | 'guards' | 'display' | 'backup'} — Configuration:
+ * round-off and a summary of invoice printing, GST, warnings & checks, display, backup, and the period
+ * lock summary. `tab` opens that tab first (Backup › Backup settings passes 'backup').
+ *
+ * Invoice printing (config.invoice) is edited ONLY on Invoice Printing ('print.settings', live
+ * preview); the Invoices tab summarises it and opens that screen (Alt+I). F12 saves only its own
+ * sections (lib/configForm.ts), so it never overwrites a print-settings change.
+ *
+ * Enter / Shift+Enter move through the fields of the open tab (Tally); Enter on the last field saves.
  */
 import { useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
-import type { CompanyConfig, GuardPolicy, InvoiceTemplate, RoundOffMethod } from '../../../shared/settings.ts';
-import type { CompanyConfigInput } from '../../../shared/types/company.ts';
-import { validateUpiId } from '../../../shared/validators.ts';
-import { api } from '../../app/api.ts';
+import type { CompanyConfig, GuardPolicy, RoundOffMethod } from '../../../shared/settings.ts';
 import { native } from '../../app/bridge.ts';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
+import type { ScreenProps } from '../../app/registry.ts';
 import { ReadOnlyNotice, Screen } from '../../app/Screen.tsx';
 import { useAppState } from '../../app/state.tsx';
-import { bankLedgerQuery, parseBankLedgers } from './lib/bankLedgers.ts';
-import type { BankOption } from './lib/bankLedgers.ts';
+import { configDirty, configEdited, configFormKey, configSaveInput, configTabOf, invoiceSummary, tabOfErrorPath } from './lib/configForm.ts';
+import type { ConfigEdited, ConfigScreenParams, ConfigTabId } from './lib/configForm.ts';
 import {
   AmountInput,
   Banner,
   Button,
-  Checkbox,
   DateInput,
   Field,
   FieldGroup,
+  KeyValueList,
   NumberInput,
-  Picker,
   SegmentedControl,
   Select,
   Stack,
   Switch,
   Tabs,
-  TextArea,
   TextInput,
+  useEnterAdvance,
   useToast,
 } from '../../ui/index.ts';
 
-type TabId = 'invoice' | 'gst' | 'guards' | 'display' | 'backup';
-
-const TAB_OF_PATH: Readonly<Record<string, TabId>> = { invoice: 'invoice', roundOff: 'invoice', gst: 'gst', guards: 'guards', display: 'display', backup: 'backup' };
-
-export function ConfigScreen() {
+export function ConfigScreen({ params }: ScreenProps<ConfigScreenParams>) {
   const q = useApiQuery('company.config.get', {});
+  // Held here so the open tab survives the form remounting after a save.
+  const [tab, setTab] = useState<ConfigTabId>(() => configTabOf(params?.tab));
   if (!q.data) return <Screen title="Configuration" loading={q.loading} error={q.error} onRetry={() => void q.refetch()} />;
-  return <ConfigForm key={JSON.stringify(q.data)} saved={q.data} />;
+  return <ConfigForm key={configFormKey(q.data)} saved={q.data} tab={tab} setTab={setTab} />;
 }
 
 const GUARDS: ReadonlyArray<{ key: keyof CompanyConfig['guards']; label: string; description: string }> = [
@@ -60,54 +62,46 @@ const GUARD_OPTIONS: ReadonlyArray<{ value: GuardPolicy; label: string }> = [
   { value: 'block', label: 'Block' },
 ];
 
-function ConfigForm({ saved }: { saved: CompanyConfig }) {
+function ConfigForm({ saved, tab, setTab }: { saved: CompanyConfig; tab: ConfigTabId; setTab: (t: ConfigTabId) => void }) {
   const app = useAppState();
   const nav = useNav();
   const toast = useToast();
   const canEdit = app.can('company.manage');
   const readOnly = !canEdit;
-  const [c, setC] = useState<CompanyConfig>(saved);
-  const [tab, setTab] = useState<TabId>('invoice');
+  const [c, setC] = useState<ConfigEdited>(() => configEdited(saved));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const save = useApiMutation('company.config.save');
-  const dirty = JSON.stringify(c) !== JSON.stringify(saved);
+  const dirty = configDirty(c, saved);
+  const canOpenPrinting = nav.canOpen('print.settings');
+  const banks = useApiQuery('print.bankLedgers', {}, { enabled: canOpenPrinting });
+  const summary = useMemo(() => invoiceSummary(saved.invoice, banks.error ? undefined : banks.data), [saved.invoice, banks.data, banks.error]);
+  const openPrinting = () => nav.push('print.settings');
 
-  const patch = <K extends keyof CompanyConfig>(section: K, value: Partial<CompanyConfig[K]>) => {
-    setC((x) => ({ ...x, [section]: { ...(x[section] as object), ...(value as object) } as CompanyConfig[K] }));
+  const patch = <K extends keyof ConfigEdited>(section: K, value: Partial<ConfigEdited[K]>) => {
+    setC((x) => ({ ...x, [section]: { ...(x[section] as object), ...(value as object) } as ConfigEdited[K] }));
     setError(null);
   };
 
   const submit = async () => {
     if (!dirty || readOnly || save.pending) return;
-    const upi = c.invoice.upiId.trim() ? validateUpiId(c.invoice.upiId.trim()) : null;
-    if (upi) {
-      setErrors({ 'invoice.upiId': upi });
-      setTab('invoice');
-      return;
-    }
-    if (c.invoice.copies.length === 0) {
-      setErrors({ 'invoice.copies': 'Choose at least one copy to print' });
-      setTab('invoice');
-      return;
-    }
     setErrors({});
-    const { lockedUpTo: _locked, ...rest } = c;
-    const input: CompanyConfigInput = rest;
     try {
-      await save.mutate(input);
+      await save.mutate(configSaveInput(c));
       toast.success('Configuration saved');
     } catch (err) {
       const f = fieldErrorsOf(err);
       const paths = Object.keys(f);
       if (paths.length) {
         setErrors(f);
-        setTab(TAB_OF_PATH[paths[0].split('.')[0]] ?? 'invoice');
+        setTab(tabOfErrorPath(paths[0]));
       } else {
         setError(userMessage(err));
       }
     }
   };
+
+  const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => void submit() });
 
   const chooseBackupFolder = async () => {
     try {
@@ -118,78 +112,20 @@ function ConfigForm({ saved }: { saved: CompanyConfig }) {
     }
   };
 
-  const bankValue = useMemo<BankOption | null>(() => (c.invoice.bankLedgerId === null ? null : { id: c.invoice.bankLedgerId, name: `Ledger #${c.invoice.bankLedgerId}` }), [c.invoice.bankLedgerId]);
-
   const invoiceTab = (
     <Stack gap={5}>
-      <FieldGroup legend="Invoice printing" columns={2}>
-        <Field label="Layout">
-          <SegmentedControl<InvoiceTemplate>
-            aria-label="Invoice layout"
-            value={c.invoice.template}
-            disabled={readOnly}
-            onChange={(v) => patch('invoice', { template: v })}
-            options={[
-              { value: 'modern', label: 'Modern' },
-              { value: 'classic', label: 'Classic' },
-              { value: 'compact', label: 'Compact' },
-            ]}
-          />
-        </Field>
-        <Field label="Copies" error={errors['invoice.copies']}>
-          <div className="bx-inline-checks">
-            {(['original', 'duplicate', 'triplicate'] as const).map((copy) => (
-              <Checkbox
-                key={copy}
-                label={copy[0].toUpperCase() + copy.slice(1)}
-                checked={c.invoice.copies.includes(copy)}
-                disabled={readOnly}
-                onChange={(on) =>
-                  patch('invoice', { copies: (['original', 'duplicate', 'triplicate'] as const).filter((x) => (x === copy ? on : c.invoice.copies.includes(x))) })
-                }
-              />
-            ))}
+      <FieldGroup
+        legend="Invoice printing"
+        description="Template, copies, bank details, UPI QR code and wording are set on Invoice Printing, with a live preview."
+      >
+        <KeyValueList items={summary} labelWidth={200} aria-label="Invoice printing settings" />
+        {canOpenPrinting ? (
+          <div>
+            <Button icon="print" onClick={openPrinting} shortcut="Alt+I">
+              {canEdit ? 'Change invoice printing…' : 'View invoice printing…'}
+            </Button>
           </div>
-        </Field>
-        <Switch label="Print right after saving an invoice (sales, credit / debit note, delivery note)" checked={c.invoice.printAfterSave} disabled={readOnly} onChange={(v) => patch('invoice', { printAfterSave: v })} />
-        <Switch label="HSN/SAC summary on invoices" checked={c.invoice.showHsnSummary} disabled={readOnly} onChange={(v) => patch('invoice', { showHsnSummary: v })} />
-        <Switch label="Tax columns per item (CGST/SGST/IGST)" checked={c.invoice.itemwiseTax} disabled={readOnly} onChange={(v) => patch('invoice', { itemwiseTax: v })} />
-        <Field label="Signature caption">
-          <TextInput value={c.invoice.signatoryLabel} readOnly={readOnly} maxLength={100} onChange={(e) => patch('invoice', { signatoryLabel: e.target.value })} />
-        </Field>
-      </FieldGroup>
-      <FieldGroup legend="Payment details on invoices" columns={2}>
-        <Switch label="Show bank account details" checked={c.invoice.showBankDetails} disabled={readOnly} onChange={(v) => patch('invoice', { showBankDetails: v })} />
-        <Field label="Bank account" error={errors['invoice.bankLedgerId']} hint="The bank ledger whose account number and IFSC are printed.">
-          <Picker<BankOption>
-            loadItems={async (query) => {
-              try {
-                return parseBankLedgers(await api('accounts.ledger.list', bankLedgerQuery(query)));
-              } catch {
-                return [];
-              }
-            }}
-            getKey={(b) => String(b.id)}
-            getLabel={(b) => b.name}
-            value={bankValue}
-            onChange={(b) => patch('invoice', { bankLedgerId: b?.id ?? null })}
-            disabled={readOnly || !c.invoice.showBankDetails}
-            placeholder="Type to find a bank ledger"
-            emptyText="No bank ledger found — create one under Bank Accounts first."
-          />
-        </Field>
-        <Switch label="UPI QR code for payment" checked={c.invoice.showUpiQr} disabled={readOnly} onChange={(v) => patch('invoice', { showUpiQr: v })} />
-        <Field label="UPI ID" error={errors['invoice.upiId']} hint="e.g. business@okhdfcbank">
-          <TextInput value={c.invoice.upiId} readOnly={readOnly} disabled={!c.invoice.showUpiQr} maxLength={100} onChange={(e) => patch('invoice', { upiId: e.target.value.trim() })} mono />
-        </Field>
-      </FieldGroup>
-      <FieldGroup legend="Wording">
-        <Field label="Declaration">
-          <TextArea value={c.invoice.declaration} readOnly={readOnly} rows={2} autoGrow maxRows={5} maxLength={2000} onChange={(e) => patch('invoice', { declaration: e.target.value })} />
-        </Field>
-        <Field label="Terms and conditions" optional>
-          <TextArea value={c.invoice.terms} readOnly={readOnly} rows={3} autoGrow maxRows={8} maxLength={4000} onChange={(e) => patch('invoice', { terms: e.target.value })} />
-        </Field>
+        ) : null}
       </FieldGroup>
       <FieldGroup legend="Rounding off invoice totals" columns={3}>
         <Switch label="Round off totals" checked={c.roundOff.enabled} disabled={readOnly} onChange={(v) => patch('roundOff', { enabled: v })} />
@@ -271,7 +207,7 @@ function ConfigForm({ saved }: { saved: CompanyConfig }) {
         <Field label="Large B2C invoice limit (B2CL)" hint="Inter-state sales to unregistered buyers above this are reported invoice-wise.">
           <AmountInput value={c.gst.b2clThresholdPaise} readOnly={readOnly} onChange={(v) => patch('gst', { b2clThresholdPaise: v ?? 0 })} min={0} />
         </Field>
-        <Field label="e-Way bill limit" hint="Consignments above this value need an e-way bill.">
+        <Field label="e-Way Bill limit" hint="Consignments above this value need an e-Way Bill.">
           <AmountInput value={c.gst.ewayThresholdPaise} readOnly={readOnly} onChange={(v) => patch('gst', { ewayThresholdPaise: v ?? 0 })} min={0} />
         </Field>
       </FieldGroup>
@@ -365,13 +301,14 @@ function ConfigForm({ saved }: { saved: CompanyConfig }) {
   return (
     <Screen
       title="Configuration"
-      subtitle="How invoices print, GST settings, warnings and backups."
+      subtitle="Round-off, GST settings, warnings, display and backups. Invoice printing has its own screen."
       icon="settings"
       width="form"
       dirty={dirty}
-      hint="Ctrl+Tab Next tab · Ctrl+A Save · Esc Back"
+      hint="Enter Next field · Ctrl+Tab Next tab · Alt+I Invoice printing · Ctrl+A Save · Esc Back"
       actions={[
         { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: !dirty || readOnly },
+        { key: 'Alt+I', label: 'Invoice printing', icon: 'print', onClick: openPrinting, hidden: !canOpenPrinting, group: 'more' },
         { key: 'F11', label: 'Features', icon: 'sliders', onClick: () => nav.push('company.features'), group: 'more' },
       ]}
       footer={
@@ -392,18 +329,20 @@ function ConfigForm({ saved }: { saved: CompanyConfig }) {
             {error}
           </Banner>
         ) : null}
-        <Tabs
-          aria-label="Configuration sections"
-          value={tab}
-          onChange={(id) => setTab(id as TabId)}
-          items={[
-            { id: 'invoice', label: 'Invoices', icon: 'invoice', content: invoiceTab },
-            { id: 'gst', label: 'GST', icon: 'gst', content: gstTab },
-            { id: 'guards', label: 'Checks', icon: 'shield', content: guardsTab },
-            { id: 'display', label: 'Display', icon: 'eye', content: displayTab },
-            { id: 'backup', label: 'Backup', icon: 'database', content: backupTab },
-          ]}
-        />
+        <div ref={formRef}>
+          <Tabs
+            aria-label="Configuration sections"
+            value={tab}
+            onChange={(id) => setTab(configTabOf(id))}
+            items={[
+              { id: 'invoice', label: 'Invoices', icon: 'invoice', content: invoiceTab },
+              { id: 'gst', label: 'GST', icon: 'gst', content: gstTab },
+              { id: 'guards', label: 'Checks', icon: 'shield', content: guardsTab },
+              { id: 'display', label: 'Display', icon: 'eye', content: displayTab },
+              { id: 'backup', label: 'Backup', icon: 'database', content: backupTab },
+            ]}
+          />
+        </div>
       </Stack>
     </Screen>
   );

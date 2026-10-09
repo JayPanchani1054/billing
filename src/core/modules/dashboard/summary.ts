@@ -52,11 +52,12 @@ import { loadCompany, loadDocs, type GstCompany } from '../gst/docs.ts';
 import { einvoiceSupplyType } from '../gst/einvoice.ts';
 import { computeGstr3b } from '../gst/gstr3b.ts';
 import { monthPeriodKey, parsePeriodKey } from '../gst/period.ts';
-import { computeStockValuation, stockByItem } from '../inventory/index.ts';
+import { stockByItem, stockValuesAt } from '../inventory/index.ts';
 import { billAge, bucketIndex, makeBuckets } from '../outstanding/ageing.ts';
 import { overdueDays, sideSign } from '../outstanding/engine.ts';
 import { sideParties } from '../outstanding/reports.ts';
 import { comparePeriod } from '../reports/financials.ts';
+import { setupFacts } from './setup.ts';
 import { outwardDebitNoteLineSql } from '../vouchers/direction.ts';
 
 /** Bills falling due within this many days count as "due soon". */
@@ -249,9 +250,10 @@ function grossProfit(db: Db, sums: FlowSums, period: DateRange, integrated: bool
   let openingStock: Paise | null = null;
   let closingStock: Paise | null = null;
   if (integrated) {
-    const v = computeStockValuation(db, { from: period.from, to: period.to, today });
-    openingStock = v.totals.openingValue;
-    closingStock = v.totals.closingValue;
+    // The P&L's own figures (one replay; shared with the reports until the books change).
+    const v = stockValuesAt(db, { opening: [period.from], closing: [period.to], today });
+    openingStock = v.opening.get(period.from) ?? 0;
+    closingStock = v.closing.get(period.to) ?? 0;
   }
   const costOfSales = (openingStock ?? 0) + purchases + directExpenses - (closingStock ?? 0);
   const amount = sales + directIncomes - costOfSales;
@@ -658,15 +660,13 @@ export interface SummaryDeps {
 // (rows changed through this connection — every save, cancel, delete, import or settings change) and
 // PRAGMA data_version (commits by any other connection). Any change, even one rolled back, simply
 // invalidates. The working date and the caller's permission flags are part of the key; the backup age
-// (clock time) is recomputed on every call.
+// (clock time) is recomputed on every call. The key is Db.dataRevision(): null while a transaction is
+// open, and then nothing is cached or reused (uncommitted data could still be rolled back).
 
 type Cached = Omit<DashboardSummary, 'backup' | 'elapsedMs' | 'cached'>;
 const MEMO = new WeakMap<Db, Map<string, Array<{ key: string; value: unknown }>>>();
 const MEMO_SIZE = 6;
 
-function changeKey(db: Db): string {
-  return `${db.value<number>('SELECT total_changes()') ?? 0}:${db.value<number>('PRAGMA data_version') ?? 0}`;
-}
 
 /** Memo of one kind of result per database (most recent first, MEMO_SIZE entries). */
 function memoised<T>(db: Db, kind: string, key: string, enabled: boolean, fn: () => T): { value: T; hit: boolean } {
@@ -686,8 +686,8 @@ export function dashboardSummary(deps: SummaryDeps, input: DashboardSummaryInput
   const { db, today, session } = deps;
   if (input.from > input.to) throw validation([{ path: 'to', message: 'The period ends before it starts. Choose an end date on or after the start date.' }]);
   const flags = { gp: can(session, 'reports.financial'), gst: can(session, 'gst.view') };
-  const memo = opts.memo !== false;
-  const change = changeKey(db);
+  const change = db.dataRevision();
+  const memo = opts.memo !== false && change !== null;
   const key = JSON.stringify([input.asOf, input.from, input.to, today, flags.gp, flags.gst, change]);
   // Receivables / payables depend on asOf only: a period change (Alt+F2) reuses them.
   const outstanding = (side: OutstandingSide): DashboardOutstanding =>
@@ -733,6 +733,7 @@ function compute(
     ranges,
     features,
     hasVouchers: db.value<number>('SELECT 1 FROM vouchers LIMIT 1') !== undefined,
+    setup: setupFacts(db),
     sales,
     purchases,
     grossProfit: flags.gp ? grossProfit(db, sums, ranges.period, features.integrated, today) : null,

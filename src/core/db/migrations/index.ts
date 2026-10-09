@@ -1,7 +1,9 @@
 /**
- * Ordered migration list. Versions are pre-assigned per module (10, 20, … 140) so modules
- * can evolve their own tables without clashing. Never edit a migration that has shipped —
- * add a follow-up within your module's range (e.g. 31, 32 for accounts).
+ * Ordered migration list. Versions were pre-assigned per module (10, 20, … 140) so modules could
+ * build their tables without clashing. Never edit a migration that has shipped. NOTE: migrations
+ * are driven by PRAGMA user_version (migrate.ts), so a follow-up must be numbered ABOVE the highest
+ * version already shipped — a new 031 would never run on a company already at 140. Follow-ups go
+ * after 150 (150: duplicate-index clean-up).
  */
 import { migration001 } from './001_init.ts';
 import { migration010 } from './010_company.ts';
@@ -18,6 +20,7 @@ import { migration110 } from './110_banking.ts';
 import { migration120 } from './120_data.ts';
 import { migration130 } from './130_dashboard.ts';
 import { migration140 } from './140_print.ts';
+import { migration150 } from './150_indexes.ts';
 
 export interface Migration {
   version: number;
@@ -41,4 +44,5 @@ export const migrations: readonly Migration[] = [
   migration120,
   migration130,
   migration140,
+  migration150,
 ];

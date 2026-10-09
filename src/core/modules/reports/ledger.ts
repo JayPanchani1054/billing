@@ -17,7 +17,7 @@ import type {
 } from '../../../shared/types/reports.ts';
 import { validation } from '../../lib/errors.ts';
 import { BOOKS_FILTER } from '../accounts/books.ts';
-import { assertPeriod, buildSnapshot, groupNode, ledgerMeta, monthSlices, type ReportEnv } from './engine.ts';
+import { assertPeriod, buildSnapshot, groupNode, ledgerMeta, ledgersUnder, monthSlices, type ReportEnv } from './engine.ts';
 
 const DEFAULT_LIMIT = 20_000;
 export const AS_PER_DETAILS = '(as per details)';
@@ -37,13 +37,7 @@ interface VoucherHead {
 
 /** Ledger ids of a group and all its sub-groups (never the reserved Profit & Loss A/c, a line of its own). */
 export function ledgerIdsUnder(env: ReportEnv, groupId: number): number[] {
-  const out: number[] = [];
-  for (const l of env.ledgers) {
-    if (l.id === env.plLedgerId) continue;
-    const g = env.tree.byId.get(l.groupId);
-    if (g && g.chainIds.includes(groupId)) out.push(l.id);
-  }
-  return out;
+  return ledgersUnder(env, [groupId]);
 }
 
 /** Per-voucher Dr/Cr sums of the given ledgers in [from, to] (books filter), in date order. */
@@ -68,7 +62,8 @@ function voucherSums(env: ReportEnv, ledgerIds: readonly number[], from: string,
 export function ledgerReport(env: ReportEnv, input: LedgerReportInput): LedgerReportResult {
   assertPeriod(input.from, input.to);
   const l = ledgerMeta(env, input.ledgerId);
-  const snap = buildSnapshot(env, { from: input.from, to: input.to });
+  // This ledger only (its range of the covering index), never the whole company.
+  const snap = buildSnapshot(env, { from: input.from, to: input.to, ledgerIds: [l.id] });
   const bal = snap.ledgers.get(l.id) ?? { opening: 0, debit: 0, credit: 0, closing: 0 };
   const heads = voucherSums(env, [l.id], snap.from, snap.to);
   const limit = input.limit ?? DEFAULT_LIMIT;
@@ -149,9 +144,9 @@ export function particularsFor(net: Paise, others: ReadonlyArray<{ ledgerName: s
 export function groupVouchers(env: ReportEnv, input: GroupVouchersInput): GroupVouchersResult {
   assertPeriod(input.from, input.to);
   const g = groupNode(env, input.groupId);
-  const snap = buildSnapshot(env, { from: input.from, to: input.to });
-  const gb = snap.groups.get(g.id) ?? { opening: 0, debit: 0, credit: 0, closing: 0 };
   const ids = ledgerIdsUnder(env, g.id);
+  const snap = buildSnapshot(env, { from: input.from, to: input.to, ledgerIds: ids });
+  const gb = snap.groups.get(g.id) ?? { opening: 0, debit: 0, credit: 0, closing: 0 };
   const heads = voucherSums(env, ids, snap.from, snap.to);
   const limit = input.limit ?? DEFAULT_LIMIT;
   const shown = heads.slice(0, limit);
@@ -206,19 +201,21 @@ export function monthlySummary(env: ReportEnv, input: MonthlySummaryInput): Mont
   if ((input.ledgerId === undefined) === (input.groupId === undefined)) {
     throw validation([{ path: 'ledgerId', message: 'Choose either a ledger or a group for the monthly summary.' }]);
   }
-  const snap = buildSnapshot(env, { from: input.from, to: input.to });
   let subject: MonthlySummaryResult['subject'];
   let ids: number[];
   let opening: Paise;
+  let snap: ReturnType<typeof buildSnapshot>;
   if (input.ledgerId !== undefined) {
     const l = ledgerMeta(env, input.ledgerId);
     subject = { kind: 'ledger', id: l.id, name: l.name };
     ids = [l.id];
+    snap = buildSnapshot(env, { from: input.from, to: input.to, ledgerIds: ids });
     opening = snap.ledgers.get(l.id)?.opening ?? 0;
   } else {
     const g = groupNode(env, input.groupId as number);
     subject = { kind: 'group', id: g.id, name: g.name };
     ids = ledgerIdsUnder(env, g.id);
+    snap = buildSnapshot(env, { from: input.from, to: input.to, ledgerIds: ids });
     opening = snap.groups.get(g.id)?.opening ?? 0;
   }
   const byMonth = new Map<string, { dr: number; cr: number; n: number }>();

@@ -58,6 +58,10 @@ describe('key conventions across modules', () => {
     // A form never deletes the master on Ctrl+D (in a form's grid Ctrl+D would mean "remove the line").
     const formsWithCtrlD = deletes.filter((a) => a.keys.includes('ctrl+d') && /Form/.test(a.file));
     assert.deepEqual(formsWithCtrlD.map(show), []);
+    // The company list deletes through a hotkey map (no rail): Alt+D first, Ctrl+D kept as the alias.
+    const companies = files.find((f) => f.file === 'company/CompanySelect.tsx')?.text ?? '';
+    assert.match(companies, /'Alt\+D, Ctrl\+D': \(\) => \{/);
+    assert.doesNotMatch(companies, /'Ctrl\+D': /);
   });
 
   test('Alter (voucher / master from a list) is Alt+A', () => {
@@ -104,6 +108,11 @@ describe('key conventions across modules', () => {
     assert.match(entry, /key: 'Alt\+P',\s*label: printTarget\?\.label \?\? 'Print'/);
     assert.match(entry, /hidden: printTarget === null/);
     assert.match(entry, /const printNow = afterSavePrint\(out\.id, printAfterSave\)/);
+    assert.match(entry, /const printAfterSave = ctx\.config\.printAfterSave && nav\.isRegistered\('print\.voucher'\)/);
+    assert.match(entry, /nav\.push\('print\.voucher', printNow\)/, 'the preview is opened with { id, autoPrint: true }');
+    // Voucher view: Alt+P only when the print module is there (like entry and the Day Book).
+    const view = files.find((f) => f.file === 'vouchers/VoucherViewScreen.tsx')?.text ?? '';
+    assert.match(view, /key: 'Alt\+P', label: 'Print'[^\n]*hidden: !v \|\| !nav\.isRegistered\('print\.voucher'\)/);
     assert.doesNotMatch(entry, /Printing is not available yet/);
   });
 

@@ -19,5 +19,7 @@ describe('printing from the voucher screens', () => {
     assert.equal(savedToastMessage('1,180.00', [], false), '₹ 1,180.00 · Alt+P to print');
     assert.equal(savedToastMessage('1,180.00', ['Credit limit is close.'], true), '₹ 1,180.00 · Printing… · Credit limit is close.');
     assert.equal(voucherRefLabel({ typeName: 'Sales', number: ' 12 ' }), 'Sales 12');
+    // Without the print module Alt+P is hidden, so the toast does not advertise it.
+    assert.equal(savedToastMessage('1,180.00', ['Credit limit is close.'], false, false), '₹ 1,180.00 · Credit limit is close.');
   });
 });

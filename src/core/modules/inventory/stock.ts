@@ -153,6 +153,28 @@ export interface StockByItemQuery {
   excludeVoucherId?: number | null;
 }
 
+/**
+ * stockByItem SQL, one constant per shape: with an item list the item index answers it (a catch-all
+ * `(:filter = 0 OR item_id IN …)` would hide that index from the planner); without one it is a single
+ * pass over the movements.
+ */
+function stockByItemSql(filterItems: boolean): string {
+  const items = (col: string): string => (filterItems ? `AND ${col} IN (SELECT value FROM json_each(:ids))` : '');
+  return `SELECT item_id, SUM(qty) AS qty FROM (
+       SELECT item_id, qty FROM stock_openings
+        WHERE ${OPENING_GODOWN_IN} ${items('item_id')}
+       UNION ALL
+       SELECT ie.item_id, ie.qty FROM inventory_entries ie ${filterItems ? 'INDEXED BY idx_ie_item_date' : ''} JOIN vouchers v ON v.id = ie.voucher_id
+        WHERE ie.date <= :asOf AND ${STOCK_MOVEMENT_FILTER}
+          AND ${GODOWN_IN}
+          ${items('ie.item_id')}
+          AND ie.voucher_id IS NOT :exclude
+     ) GROUP BY item_id`;
+}
+const STOCK_BY_ITEM_ALL_SQL = stockByItemSql(false);
+/** Exported for the query-plan regression tests (engine.test.ts). */
+export const STOCK_BY_ITEM_SOME_SQL = stockByItemSql(true);
+
 /** Quantity on hand per item (items with no stock rows are absent → 0). One query for any number of items. */
 export function stockByItem(db: Db, q: StockByItemQuery): Map<number, number> {
   const filterItems = q.itemIds !== undefined;
@@ -161,23 +183,11 @@ export function stockByItem(db: Db, q: StockByItemQuery): Map<number, number> {
     today: q.today ?? q.asOf,
     ...godownParams(db, q.godownId, q.includeSubGodowns),
     main: mainGodown(db),
-    ids: filterItems ? jsonIds(q.itemIds ?? []) : '[]',
-    filter: filterItems ? 1 : 0,
     exclude: q.excludeVoucherId ?? null,
   };
   const rows = db.all<{ item_id: number; qty: number }>(
-    `SELECT item_id, SUM(qty) AS qty FROM (
-       SELECT item_id, qty FROM stock_openings
-        WHERE ${OPENING_GODOWN_IN}
-          AND (:filter = 0 OR item_id IN (SELECT value FROM json_each(:ids)))
-       UNION ALL
-       SELECT ie.item_id, ie.qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
-        WHERE ie.date <= :asOf AND ${STOCK_MOVEMENT_FILTER}
-          AND ${GODOWN_IN}
-          AND (:filter = 0 OR ie.item_id IN (SELECT value FROM json_each(:ids)))
-          AND ie.voucher_id IS NOT :exclude
-     ) GROUP BY item_id`,
-    params,
+    filterItems ? STOCK_BY_ITEM_SOME_SQL : STOCK_BY_ITEM_ALL_SQL,
+    filterItems ? { ...params, ids: jsonIds(q.itemIds ?? []) } : params,
   );
   const out = new Map<number, number>();
   for (const r of rows) out.set(r.item_id, roundQty(Number(r.qty)));

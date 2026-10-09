@@ -81,7 +81,7 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
           <Inline gap={2}>
             {doc.status.cancelled ? <Badge tone="danger">Cancelled</Badge> : null}
             {doc.status.optional ? <Badge tone="warning">Optional</Badge> : null}
-            {doc.einvoice ? <Badge tone="success">E-invoice</Badge> : null}
+            {doc.einvoice ? <Badge tone="success">e-Invoice</Badge> : null}
           </Inline>
         ) : undefined
       }

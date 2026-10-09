@@ -3,7 +3,7 @@
  * Queries (summary, results, supplier-wise, suggestions) are in queries.ts; exports in export.ts.
  */
 import { createHash } from 'node:crypto';
-import { addDays } from '../../../shared/dates.ts';
+import { addDays, formatDate, localDateOf } from '../../../shared/dates.ts';
 import type {
   ImportBatchView,
   ReconDecisionInput,
@@ -138,7 +138,7 @@ export function importPortalFile(ctx: CompanyCtx, input: ReconImportInput): Reco
         period,
       };
       throw conflict(
-        `The ${label} for ${periodLabel(period)} was already imported on ${e.importedAt.slice(0, 10)} (${e.meta.docCount} documents${e.fileName ? `, ${e.fileName}` : ''}). This file has ${parsed.docs.length} documents. Import again with "Replace" to use the new file; your links, accepted and ignored documents are kept.`,
+        `The ${label} for ${periodLabel(period)} was already imported on ${formatDate(localDateOf(e.importedAt))} (${e.meta.docCount} documents${e.fileName ? `, ${e.fileName}` : ''}). This file has ${parsed.docs.length} documents. Import again with "Replace" to use the new file; your links, accepted and ignored documents are kept.`,
         details,
       );
     }

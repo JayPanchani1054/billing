@@ -108,7 +108,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
 
 /** 'e-Invoice · IRN generated'. */
 export function docEventLabel(e: Pick<GstDocEvent, 'kind' | 'action'>): string {
-  const kind = e.kind === 'einvoice' ? 'e-Invoice' : 'e-Way bill';
+  const kind = e.kind === 'einvoice' ? 'e-Invoice' : 'e-Way Bill';
   const action = ACTION_LABELS[e.action] ?? e.action.charAt(0).toUpperCase() + e.action.slice(1);
   return `${kind} · ${action}`;
 }

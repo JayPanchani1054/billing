@@ -574,19 +574,19 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
               <Field label="Title on the document" optional error={cfgErr.printTitle} hint={baseType === 'sales' ? 'e.g. Tax Invoice, Bill of Supply.' : undefined}>
                 <TextInput value={d.config.printTitle ?? ''} onChange={(e) => setCfg('printTitle', e.target.value)} readOnly={readOnly} maxLength={100} />
               </Field>
-              <Field label="Bank details printed" optional error={cfgErr.bankLedgerId} hint="Overrides the bank chosen in F12 for this type.">
+              <Field label="Bank details printed" optional error={cfgErr.bankLedgerId} hint="Overrides the bank chosen in Invoice Printing for this type.">
                 <LedgerPicker classes={['bank']} value={d.config.bankLedgerId ?? null} onChange={(id) => setCfg('bankLedgerId', id)} readOnly={readOnly} showBalance={false} allowCreate={false} />
               </Field>
-              <Field label="Layout" error={cfgErr.printTemplate}>
+              <Field label="Template" error={cfgErr.printTemplate}>
                 <Select
                   value={d.config.printTemplate ?? ''}
                   onChange={(v) => setCfg('printTemplate', v === '' ? null : v)}
                   disabled={readOnly}
                   options={[
-                    { value: '', label: 'As set in F12' },
-                    { value: 'classic', label: 'Classic' },
+                    { value: '', label: 'As set in Invoice Printing' },
                     { value: 'modern', label: 'Modern' },
-                    { value: 'compact', label: 'Compact' },
+                    { value: 'classic', label: 'Classic' },
+                    { value: 'compact', label: 'Compact 80 mm' },
                   ]}
                 />
               </Field>
@@ -594,7 +594,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
               <Field label="Declaration" optional error={cfgErr.declaration}>
                 <TextArea value={d.config.declaration ?? ''} onChange={(e) => setCfg('declaration', e.target.value)} readOnly={readOnly} rows={2} autoGrow maxRows={5} maxLength={2000} placeholder="We declare that this invoice shows the actual price of the goods described…" />
               </Field>
-              <Field label="Terms and conditions" optional error={cfgErr.terms}>
+              <Field label="Terms & conditions" optional error={cfgErr.terms}>
                 <TextArea value={d.config.terms ?? ''} onChange={(e) => setCfg('terms', e.target.value)} readOnly={readOnly} rows={2} autoGrow maxRows={6} maxLength={4000} />
               </Field>
             </FieldGroup>

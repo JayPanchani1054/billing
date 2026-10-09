@@ -301,8 +301,27 @@ without a type, a monthly summary without (or with both) ledger and group, and `
 Performance (`perf.test.ts`, in-memory): 20,000 vouchers / 213 ledgers — Trial Balance (detailed) and a
 ledger of the whole year well under 1 s; 20,000 item invoices / 2,000+ ledgers / 51 items with
 integrated inventory — Trial Balance < 1 s (≈ 40 ms), Balance Sheet / P&L with comparison, Group
-Summary, a 10,000-voucher ledger, Group Vouchers, Cash Flow, Funds Flow and Ratios each < 2 s (≈ 0.1–0.3 s).
-Stock values are memoised per request; each distinct date replays the stock valuation once.
+Summary, a 10,000-voucher ledger, Group Vouchers, Cash Flow, Funds Flow and Ratios each < 2 s (≈ 0.1–0.3 s);
+8,000 items / 60,000 item invoices over two years — Balance Sheet with comparison ≈ 0.27 s (one stock
+replay), then P&L / Trial Balance / Ratios / Funds Flow with no replay at all, Ledger Vouchers ≈ 2 ms.
+
+How the stock part stays cheap (`engine.ts`):
+- **One replay per report.** `prepareStock(env, { opening, closing })` gets every stock value a report
+  needs (P&L: opening at `from`, closing at `to`, both periods when comparing; Balance Sheet: year
+  start and `asOf` for each date; always the books-beginning opening) from ONE valuation pass
+  (`inventory.stockValuesAt`); `stockAt` / `stockAtEnd` then read the request's memo.
+- **Across requests.** The inventory module keeps those values per open database until anything in
+  the books changes (`Db.dataRevision()`), so Balance Sheet → P&L → Balance Sheet replays once.
+- **Drill-downs never value stock.** A snapshot's stock-dependent parts (`openingStock`, `retained`,
+  `openingDifference` and the P&L A/c ledger's opening / closing) are computed on first read. Ledger
+  Vouchers, Monthly Summary, Group Summary / Group Vouchers, Cash/Bank Books and Cash Flow build a
+  snapshot of their own ledgers only (`buildSnapshot({ ledgerIds })`: their range of the
+  `idx_le_books` covering index) — a ledger of 40 vouchers on a 60,000-voucher company takes ≈ 5 ms
+  (was 0.8–1.0 s). The P&L A/c itself always gets the full snapshot (its brought-forward profit needs
+  every nominal ledger).
+On the auditors' 60,000-voucher file company: Balance Sheet 0.45–0.55 s cold (was 2.1 s), ≈ 80 ms when
+the stock values are memoised; with comparison 0.4 s (was 3.1 s); P&L ≈ 80 ms after either (1.5 s
+cold before); Trial Balance ≈ 75 ms; Ratios ≈ 0.16 s (was 1.8 s).
 
 ## 18. Known gaps
 

@@ -391,9 +391,9 @@ export function EInvoiceBlock({ doc, qr }: { doc: PrintVoucherData; qr: string |
   const src = safeImage(qr);
   return (
     <div className="bp-einv">
-      {src ? <img className="bp-qr-lg" src={src} alt="E-invoice QR code" /> : null}
+      {src ? <img className="bp-qr-lg" src={src} alt="e-Invoice QR code" /> : null}
       <div>
-        <div className="bp-cap">E-invoice</div>
+        <div className="bp-cap">e-Invoice</div>
         <div>
           IRN: <span className="bp-irn">{doc.einvoice.irn}</span>
         </div>

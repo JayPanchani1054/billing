@@ -22,6 +22,7 @@ import {
   daysIn,
   ledgersByGroup,
   nominalMovement,
+  prepareStock,
   stockAt,
   stockAtEnd,
   yearStartOf,
@@ -180,6 +181,7 @@ interface PlParts {
 }
 
 function plParts(env: ReportEnv, from: string, to: string): PlParts {
+  prepareStock(env, { opening: [from], closing: [to] });
   return { values: nominalMovement(env, from, to), openingStock: stockAt(env, from), closingStock: stockAtEnd(env, to) };
 }
 
@@ -248,8 +250,10 @@ export function netProfitFor(env: ReportEnv, from: string, to: string): Paise {
 export function profitLoss(env: ReportEnv, input: ProfitLossInput): ProfitLossResult {
   assertPeriod(input.from, input.to);
   const mode = input.mode ?? 'condensed';
-  const cur = plParts(env, input.from, input.to);
   const cmpPeriod = input.compareWith ? comparePeriod(input.from, input.to, input.compareWith) : null;
+  // Every stock figure of both periods from one valuation replay.
+  prepareStock(env, { opening: [input.from, ...(cmpPeriod ? [cmpPeriod.from] : [])], closing: [input.to, ...(cmpPeriod ? [cmpPeriod.to] : [])] });
+  const cur = plParts(env, input.from, input.to);
   const cmp = cmpPeriod ? plParts(env, cmpPeriod.from, cmpPeriod.to) : null;
   const f = profitFigures(env, cur);
   const cf = cmp ? profitFigures(env, cmp) : null;
@@ -342,6 +346,11 @@ export function profitLoss(env: ReportEnv, input: ProfitLossInput): ProfitLossRe
 
 // ───────────────────────────── Balance Sheet ─────────────────────────────
 
+/** Stock values a Balance Sheet as at each date needs: the year-start opening and the closing. */
+export function bsStockPoints(env: ReportEnv, dates: readonly string[]): { opening: string[]; closing: string[] } {
+  return { opening: dates.map((d) => yearStartOf(env, d)), closing: [...dates] };
+}
+
 export interface BsParts {
   closings: Map<number, Paise>;
   closingStock: Paise;
@@ -354,6 +363,7 @@ export interface BsParts {
 /** Real-ledger closings and P&L A/c parts as at the end of `asOf` (README §6). */
 export function bsParts(env: ReportEnv, asOf: string): BsParts {
   const yearStart = yearStartOf(env, asOf);
+  prepareStock(env, bsStockPoints(env, [asOf]));
   if (asOf < env.booksFrom) {
     // Before the books begin only the opening balances exist.
     // Opening balances of income/expense ledgers (books started mid-year) are year-to-date results.
@@ -393,6 +403,8 @@ export function balanceSheet(env: ReportEnv, input: BalanceSheetInput): BalanceS
   if (input.compareAsOf && input.compareAsOf === input.asOf) {
     throw validation([{ path: 'compareAsOf', message: 'Choose a different date to compare with.' }]);
   }
+  // Every stock figure of both dates from one valuation replay.
+  prepareStock(env, bsStockPoints(env, input.compareAsOf ? [input.asOf, input.compareAsOf] : [input.asOf]));
   const cur = bsParts(env, input.asOf);
   const cmp = input.compareAsOf ? bsParts(env, input.compareAsOf) : null;
   const plId = env.plLedgerId;

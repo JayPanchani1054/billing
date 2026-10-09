@@ -757,7 +757,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       const saved: SavedVoucherRef = { id: out.id, number: out.number, typeName };
       const printNow = afterSavePrint(out.id, printAfterSave);
       toast.success(`${voucherRefLabel(saved)} saved`, {
-        message: savedToastMessage(formatMoney(out.totals.grandTotal), infos.map((w) => w.message), printNow !== null),
+        message: savedToastMessage(formatMoney(out.totals.grandTotal), infos.map((w) => w.message), printNow !== null, nav.isRegistered('print.voucher')),
         action: { label: 'View', onClick: () => nav.push('vouchers.view', { id: out.id }) },
       });
       setLastSaved(saved);
@@ -934,7 +934,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       icon: 'print',
       onClick: () => printTarget && nav.push('print.voucher', { id: printTarget.id }),
       hidden: printTarget === null || !nav.isRegistered('print.voucher'),
-      hint:!isAlter && printTarget ? 'The voucher you just saved' : undefined,
+      hint: !isAlter && printTarget ? 'The voucher you just saved' : undefined,
       group: 'saved',
     },
     { key: 'Alt+2', label: 'Duplicate', icon: 'copy', onClick: () => detail && nav.push('vouchers.entry', { duplicateOf: detail.id }), hidden: !isAlter || !ctx.permissions.canCreate, group: 'saved' },

@@ -51,7 +51,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
       if (!path) return;
       setSelected(new Set());
       setResult({
-        title: 'e-Way bill file saved',
+        title: 'e-Way Bill file saved',
         path,
         summary: bulkFileMessage(file),
         warnings: file.warnings,
@@ -119,7 +119,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
       hint: canFile ? 'Bulk file for the e-way bill portal' : 'You need the "File GST returns" permission',
       group: 'file',
     },
-    { key: 'Alt+N', label: 'Record e-way bill no.', icon: 'edit', onClick: () => current && setRecording(current), disabled: !current || !canFile, group: 'row' },
+    { key: 'Alt+N', label: 'Record e-Way Bill no.', icon: 'edit', onClick: () => current && setRecording(current), disabled: !current || !canFile, group: 'row' },
     { key: 'Alt+H', label: 'History', icon: 'clock', onClick: () => current && setHistory({ id: current.voucherId, title: `${current.voucherTypeName} ${current.number ?? ''}` }), disabled: !current, group: 'row' },
     { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }), disabled: !current, group: 'row' },
   ];
@@ -176,7 +176,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
             record the e-way bill number it gives you.
           </GstHelp>
           {!enabled ? (
-            <Banner tone="info" title="e-Way bills are turned off">
+            <Banner tone="info" title="e-Way Bills are turned off">
               Turn on e-Way Bill under Features (F11) to track them. Invoices above the limit are still listed below.
             </Banner>
           ) : null}
@@ -187,7 +187,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
             </Banner>
           ) : null}
           <DataTable<EwayPendingRow>
-            aria-label="Invoices that need an e-way bill"
+            aria-label="Invoices that need an e-Way Bill"
             autoFocus
             columns={columns}
             rows={rows}
@@ -202,7 +202,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
               }
             }}
             height="45vh"
-            empty={<EmptyState icon="check-circle" title="No e-way bills pending" body={`No invoice in this period is above ${threshold} without an e-way bill. Change the period with Alt+F2.`} />}
+            empty={<EmptyState icon="check-circle" title="No e-Way Bills pending" body={`No invoice in this period is above ${threshold} without an e-way bill. Change the period with Alt+F2.`} />}
           />
           {current && (current.errors.length > 0 || current.warnings.length > 0) ? (
             <Panel
@@ -259,7 +259,7 @@ function RecordEwbDialog({ row, onClose }: { row: EwayPendingRow; onClose: () =>
     if (Object.keys(e).length > 0 || !date) return;
     try {
       await update.mutate({ voucherId: row.voucherId, ewayBillNo: normaliseEwbNo(no), date, validUpto });
-      toast.success(`e-Way bill recorded on ${row.number ?? 'the invoice'}`);
+      toast.success(`e-Way Bill recorded on ${row.number ?? 'the invoice'}`);
       onClose();
     } catch (err) {
       const fe = fieldErrorsOf(err);
@@ -271,7 +271,7 @@ function RecordEwbDialog({ row, onClose }: { row: EwayPendingRow; onClose: () =>
     <Modal
       open
       onClose={onClose}
-      title={`Record e-way bill — ${row.voucherTypeName} ${row.number ?? ''}`}
+      title={`Record e-Way Bill — ${row.voucherTypeName} ${row.number ?? ''}`}
       description={`${row.partyName ?? ''} · goods value ${formatMoney(row.consignmentValue, { symbol: true })}`}
       size="md"
       footer={
@@ -305,7 +305,7 @@ function EwbForm(p: {
   return (
     <form ref={ref} onSubmit={(e) => e.preventDefault()}>
       <Stack gap={3}>
-        <Field label="e-Way bill no." required error={p.errors.ewayBillNo} hint="12 digits, as shown on the EWB portal.">
+        <Field label="e-Way Bill no." required error={p.errors.ewayBillNo} hint="12 digits, as shown on the EWB portal.">
           <TextInput data-autofocus="" mono inputMode="numeric" value={p.no} maxLength={16} onChange={(e) => p.setNo(e.target.value)} />
         </Field>
         <Field label="Generated on" required error={p.errors.date}>

@@ -18,7 +18,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import * as sqlite from 'node:sqlite';
 import { DatabaseSync } from 'node:sqlite';
-import { formatDate } from '../../../shared/dates.ts';
+import { formatDate, localDateOf } from '../../../shared/dates.ts';
 import {
   BACKUP_EXTENSION,
   type BackupAutoInput,
@@ -445,7 +445,7 @@ async function withWorkDir<T>(dataDir: string, fn: (dir: string) => Promise<T>):
 }
 
 function describeManifest(m: BackupManifest): string {
-  const when = formatDate(m.createdAt.slice(0, 10));
+  const when = formatDate(localDateOf(m.createdAt)); // local day, not the UTC one
   return `Backup of "${m.companyName}" made on ${when}${m.createdBy ? ` by ${m.createdBy}` : ''} (Bahi ERP ${m.appVersion})${m.encrypted ? ', password-protected' : ''}.`;
 }
 

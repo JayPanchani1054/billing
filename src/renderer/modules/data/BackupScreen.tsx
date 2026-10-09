@@ -149,7 +149,7 @@ export function BackupScreen() {
         { key: 'Alt+V', label: 'Check backup', icon: 'check-circle', onClick: () => current && setVerifying(current), disabled: !current, group: 'file' },
         { key: 'Alt+R', label: 'Restore…', icon: 'undo', onClick: () => restore(current), disabled: !current || !canRestore, hint: canRestore ? undefined : 'You do not have permission to restore.', group: 'file' },
         { key: 'Alt+F', label: 'Change folder', icon: 'folder', onClick: () => void chooseFolder(), group: 'file' },
-        { key: 'Alt+S', label: 'Backup settings', icon: 'settings', onClick: () => nav.push('company.config'), group: 'more' },
+        { key: 'Alt+S', label: 'Backup settings', icon: 'settings', onClick: () => nav.push('company.config', { tab: 'backup' }), group: 'more' },
         { key: 'Alt+K', label: 'Check books', icon: 'shield', onClick: () => nav.push('data.verify'), group: 'more' },
       ]}
     >

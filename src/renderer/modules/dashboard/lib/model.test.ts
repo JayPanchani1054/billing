@@ -17,8 +17,12 @@ import {
   gstItems,
   plural,
   shortMonth,
+  parseStartPrefs,
   signedKpi,
+  startCardMode,
+  startProgress,
   startSteps,
+  toggleTicked,
   summaryInput,
   trendChart,
 } from './model.ts';
@@ -49,6 +53,7 @@ function sample(over: Partial<DashboardSummary> = {}): DashboardSummary {
     },
     features: { inventory: true, integrated: true, gst: true, billWise: true, einvoice: false, ewayBill: false },
     hasVouchers: true,
+    setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true },
     sales: flow,
     purchases: { today: 0, mtd: 300_000, ytd: 875_000, period: 875_000, lastYear: { today: 0, mtd: 250_000, ytd: 250_000, period: 250_000 } },
     grossProfit: { method: 'stock_valuation', sales: 480_000, purchases: 875_000, directIncomes: 0, directExpenses: 0, openingStock: 1_454_000, closingStock: 1_989_000, costOfSales: 340_000, amount: 140_000, marginPercent: 29.17 },
@@ -182,7 +187,8 @@ test('alerts: GST, compliance, overdraft, negative cash, post-dated cheques, sta
   assert.equal(byId.get('gst-due')?.title, 'GST of ₹438 for Oct 2026');
   assert.equal(byId.get('gst-due')?.body, 'Estimated cash payment after input credit. GSTR-3B is due by 11-Oct-2026 (due in 3 days).');
   assert.deepEqual(byId.get('gst-due')?.target, { screen: 'gst.gstr3b', params: { period: '102026' } });
-  assert.equal(byId.get('einvoice-pending')?.title, '3 invoices without an e-invoice');
+  assert.equal(byId.get('einvoice-pending')?.title, '3 invoices without an e-Invoice');
+  assert.equal(byId.get('eway-pending')?.title, '1 invoice without an e-Way Bill');
   assert.deepEqual(byId.get('eway-pending')?.target, { screen: 'gst.ewaybill', params: { from: '2026-04-01', to: '2026-10-08' } });
   assert.equal(byId.get('cash-negative')?.tone, 'danger');
   assert.equal(byId.get('cash-negative')?.body, 'The cash books show ₹ 50.00 Cr — a payment may have been entered twice or a receipt is missing.');
@@ -288,15 +294,82 @@ test("GST: last month's return comes first on the card and in the alerts", () =>
   assert.ok(rows.includes('GST payable (estimate) — due 20-Nov-2026'));
 });
 
-test('getting started: first steps a new company can take, by permission', () => {
-  const all = startSteps({ manageCompany: true, createMasters: true, createVouchers: true, importData: true, inventory: true });
-  assert.deepEqual(all.map((x) => x.id), ['features', 'ledgers', 'items', 'sale', 'tally']);
-  assert.deepEqual(all[0].target, { screen: 'company.features' });
-  assert.equal(all[3].target, 'sales-voucher');
-  assert.equal(all[3].shortcut, 'F8');
-  assert.deepEqual(all[4].target, { screen: 'data.tally' });
-  assert.deepEqual(startSteps({ manageCompany: false, createMasters: true, createVouchers: true, importData: false, inventory: false }).map((x) => x.id), ['ledgers', 'sale']);
+const ALL = { manageCompany: true, createMasters: true, createVouchers: true, importData: true, inventory: true } as const;
+const NOTHING_DONE = { profileComplete: false, featuresReviewed: false, invoicePrintingSet: false, hasOwnLedgers: false, hasItems: false, hasSales: false, backupFolderSet: false };
+
+test('getting started: one list — company details, features, printing, ledgers, items, sale, backups (+ Tally while empty)', () => {
+  const all = startSteps({ ...ALL, setup: NOTHING_DONE, hasVouchers: false });
+  assert.deepEqual(all.map((x) => x.id), ['profile', 'features', 'printing', 'ledgers', 'items', 'sale', 'backup', 'tally']);
+  const by = new Map(all.map((x) => [x.id, x]));
+  assert.deepEqual(by.get('profile')?.target, { screen: 'company.profile' });
+  assert.deepEqual(by.get('features')?.target, { screen: 'company.features' });
+  assert.deepEqual(by.get('printing')?.target, { screen: 'print.settings' });
+  assert.deepEqual(by.get('backup')?.target, { screen: 'company.config', params: { tab: 'backup' } });
+  assert.equal(by.get('sale')?.target, 'sales-voucher');
+  assert.equal(by.get('sale')?.shortcut, 'F8');
+  assert.deepEqual(by.get('tally')?.target, { screen: 'data.tally' });
+  assert.equal(by.get('tally')?.optional, true);
+  assert.ok(all.every((x) => !x.done));
+  assert.deepEqual(startProgress(all), { done: 0, total: 7, complete: false }, 'Tally is optional, not counted');
+  // Once there are vouchers the Tally step goes; the rest stay until done.
+  assert.ok(!startSteps({ ...ALL, setup: NOTHING_DONE, hasVouchers: true }).some((x) => x.id === 'tally'));
+});
+
+test('getting started: by permission and by what the user may open', () => {
+  assert.deepEqual(startSteps({ ...ALL, manageCompany: false, importData: false, inventory: false }).map((x) => x.id), ['ledgers', 'sale']);
   assert.deepEqual(startSteps({ manageCompany: false, createMasters: false, createVouchers: false, importData: false, inventory: true }), []);
+  // A screen the user cannot open (no permission / feature off) is left out.
+  const blocked = new Set(['print.settings', 'data.tally']);
+  assert.deepEqual(startSteps({ ...ALL, canOpen: (id) => !blocked.has(id) }).map((x) => x.id), ['profile', 'features', 'ledgers', 'items', 'sale', 'backup']);
+});
+
+test('getting started: done from the books, or ticked by hand — never by clicking the step', () => {
+  const setup = { ...NOTHING_DONE, profileComplete: true, hasOwnLedgers: true, hasSales: true };
+  const steps = startSteps({ ...ALL, setup, hasVouchers: true, ticked: ['features', 'nonsense'] });
+  const done = steps.filter((x) => x.done).map((x) => x.id);
+  assert.deepEqual(done, ['profile', 'features', 'ledgers', 'sale']);
+  assert.equal(steps.find((x) => x.id === 'features')?.doneFromBooks, false);
+  assert.equal(steps.find((x) => x.id === 'profile')?.doneFromBooks, true);
+  assert.deepEqual(startProgress(steps), { done: 4, total: 7, complete: false });
+  // While the summary loads nothing is done (no flash of "done").
+  assert.ok(startSteps({ ...ALL, ticked: [] }).every((x) => !x.done));
+});
+
+test('getting started card: stays after the first voucher until all done or hidden', () => {
+  const some = startSteps({ ...ALL, setup: { ...NOTHING_DONE, hasSales: true }, hasVouchers: true });
+  assert.equal(startCardMode(some, { hidden: false, hasVouchers: true }), 'steps', 'regression: it vanished at the first voucher');
+  assert.equal(startCardMode(some, { hidden: true, hasVouchers: true }), null);
+  const allDone = startSteps({ ...ALL, setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true }, hasVouchers: true });
+  assert.equal(startCardMode(allDone, { hidden: false, hasVouchers: true }), null);
+  // Nothing the user can do: an empty note while the books are empty, nothing afterwards.
+  assert.equal(startCardMode([], { hidden: false, hasVouchers: false }), 'empty');
+  assert.equal(startCardMode([], { hidden: false, hasVouchers: true }), null);
+  // Only the optional Tally step: shown while the books are empty.
+  const tallyOnly = startSteps({ manageCompany: false, createMasters: false, createVouchers: false, importData: true, inventory: false, hasVouchers: false });
+  assert.equal(startCardMode(tallyOnly, { hidden: false, hasVouchers: false }), 'steps');
+});
+
+test('getting started prefs: per company, tolerant of junk', () => {
+  assert.deepEqual(parseStartPrefs(null), { hidden: false, ticked: [] });
+  assert.deepEqual(parseStartPrefs('{not json'), { hidden: false, ticked: [] });
+  assert.deepEqual(parseStartPrefs('{"hidden":true,"ticked":["features",3]}'), { hidden: true, ticked: ['features'] });
+  const p = toggleTicked({ hidden: false, ticked: ['features'] }, 'printing', true);
+  assert.deepEqual(p.ticked, ['features', 'printing']);
+  assert.deepEqual(toggleTicked(p, 'features', false).ticked, ['printing']);
+});
+
+test('alerts respect what the viewer may open (backup alert for a role without Backup)', () => {
+  const noBackup = buildAlerts(sample(), { canOpen: (id) => id !== 'data.backup' });
+  const backup = noBackup.find((a) => a.id === 'backup');
+  assert.equal(backup?.target, null, 'not clickable');
+  assert.equal(backup?.body, 'Ask the company owner to take a backup and keep a copy on another drive or a pen drive.');
+  assert.deepEqual(noBackup.find((a) => a.id === 'low-stock')?.target, { screen: 'stock.reorder' });
+  const stale = buildAlerts(sample({ backup: { lastBackupAt: '2026-09-28T04:30:00.000Z', daysSince: 10 } }), { canOpen: (id) => id !== 'data.backup' }).find((a) => a.id === 'backup');
+  assert.equal(stale?.body, 'Ask the company owner to back up — at least once a week.');
+  // Any other screen the viewer cannot open: the alert stays, without a target.
+  const noStock = buildAlerts(sample(), { canOpen: (id) => id !== 'stock.reorder' });
+  assert.equal(noStock.find((a) => a.id === 'low-stock')?.target, null);
+  assert.equal(noStock.find((a) => a.id === 'backup')?.body, 'Take a backup now and keep a copy on another drive or a pen drive.');
 });
 
 test('exportTable: net advances are labelled, not negative', () => {

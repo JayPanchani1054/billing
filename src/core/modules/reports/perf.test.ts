@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { computeStockValuation, stockReplayCount } from '../inventory/index.ts';
 import { balanceSheet, profitLoss } from './financials.ts';
 import { cashFlow, fundsFlow } from './flows.ts';
-import { groupVouchers, ledgerReport } from './ledger.ts';
+import { groupVouchers, ledgerReport, monthlySummary } from './ledger.ts';
 import { ratiosReport } from './ratios.ts';
 import { bulkTrade, bulkVouchers, makeBooks } from './testkit.ts';
-import { groupSummary, trialBalance } from './trialBalance.ts';
+import { cashBank, groupSummary, trialBalance } from './trialBalance.ts';
 
 const YEAR = { from: '2026-04-01', to: '2027-03-31' };
 
@@ -77,4 +78,87 @@ test('performance: 2,000 ledgers, 20,000 item invoices, integrated inventory —
     const [, ms] = timed(run);
     assert.ok(ms < 2000, `${label} took ${ms.toFixed(0)} ms`);
   }
+});
+
+test('performance: 8,000 items, 60,000 item invoices over two years — one stock replay per report, none for drill-downs', () => {
+  const b = makeBooks({ today: '2027-03-31', booksFrom: '2025-04-01', skipVouchers: true });
+  const t = b.t;
+  const parties: number[] = [];
+  for (let i = 0; i < 1_000; i++) parties.push(t.addLedger({ name: `Party ${i}`, group: i % 2 === 0 ? 'SUNDRY_DEBTORS' : 'SUNDRY_CREDITORS' }));
+  const items: number[] = [];
+  for (let i = 0; i < 8_000; i++) items.push(t.addStockItem({ name: `Item ${i}`, gstRate: 18, hsnSac: '8471', openingQty: 100, openingRate: 100 + (i % 50) }));
+  bulkTrade(t, 30_000, { parties, items, salesLedger: b.L.sales, purchaseLedger: b.L.purchase, from: '2025-04-01', batch: 'a' });
+  bulkTrade(t, 30_000, { parties, items, salesLedger: b.L.sales, purchaseLedger: b.L.purchase, from: '2026-04-01', batch: 'b' });
+  const env = () => b.env();
+  const today = t.today;
+  /** Run `f`: result, milliseconds and the number of stock valuation replays it caused. */
+  const run = <T>(f: () => T): { out: T; ms: number; replays: number } => {
+    const r0 = stockReplayCount();
+    const t0 = performance.now();
+    const out = f();
+    return { out, ms: performance.now() - t0, replays: stockReplayCount() - r0 };
+  };
+  const FY = { from: '2026-04-01', to: '2027-03-31' };
+  const debtor = parties[0];
+  const times: string[] = [];
+  const note = (label: string, r: { ms: number; replays: number }): void => void times.push(`${label} ${r.ms.toFixed(0)} ms/${r.replays}`);
+
+  // Drill-downs first, while nothing is memoised: a ledger, a group and the cash book never value stock.
+  const led = run(() => ledgerReport(env(), { ...FY, ledgerId: debtor }));
+  note('ledger', led);
+  assert.equal(led.replays, 0, 'Ledger Vouchers values no stock');
+  assert.equal(led.out.rows.at(-1)?.balance ?? led.out.opening, led.out.closing);
+  assert.ok(led.ms < 300, `Ledger took ${led.ms.toFixed(0)} ms`);
+  const monthly = run(() => monthlySummary(env(), { ...FY, ledgerId: debtor }));
+  assert.equal(monthly.replays, 0);
+  assert.equal(monthly.out.closing, led.out.closing);
+  const debtors = run(() => groupSummary(env(), { ...FY, groupId: t.ids.groups.SUNDRY_DEBTORS }));
+  note('group summary', debtors);
+  assert.equal(debtors.replays, 0, 'Group Summary of a group without stock values no stock');
+  assert.ok(debtors.ms < 500, `Group Summary took ${debtors.ms.toFixed(0)} ms`);
+  assert.equal(run(() => cashBank(env(), FY)).replays, 0);
+  assert.equal(run(() => cashFlow(env(), FY)).replays, 0);
+
+  // Balance Sheet with a comparison: every stock figure (two year starts, two closings, the books
+  // beginning) from ONE replay.
+  const bs = run(() => balanceSheet(env(), { asOf: FY.to, compareAsOf: '2026-03-31' }));
+  note('balance sheet', bs);
+  assert.equal(bs.out.balanced, true);
+  assert.equal(bs.replays, 1);
+  assert.ok(bs.ms < 2000, `Balance Sheet took ${bs.ms.toFixed(0)} ms`);
+  const closing = computeStockValuation(t.db, { from: FY.to, to: FY.to, today }).totals.closingValue;
+  assert.equal(bs.out.closingStock, closing, 'Balance Sheet stock = the Stock Summary closing');
+
+  // The P&L (with last year) and the Trial Balance reuse those values: no replay at all.
+  const pl = run(() => profitLoss(env(), { ...FY, compareWith: 'previous_year' }));
+  note('P&L', pl);
+  assert.equal(pl.replays, 0);
+  assert.equal(pl.out.figures.closingStock, closing);
+  assert.ok(pl.ms < 1000, `P&L took ${pl.ms.toFixed(0)} ms`);
+  const tb = run(() => trialBalance(env(), { ...FY, mode: 'detailed' }));
+  note('trial balance', tb);
+  assert.equal(tb.out.balanced, true);
+  assert.equal(tb.replays, 0);
+  // Ratios and funds flow need the same dates.
+  assert.equal(run(() => ratiosReport(env(), FY)).replays, 0);
+  assert.equal(run(() => fundsFlow(env(), FY).difference).out, 0);
+
+  // Any change to the books invalidates: the next Balance Sheet replays once and sees the purchase.
+  const vt = t.ids.voucherTypes.purchase;
+  t.db.transaction(() => {
+    const vid = t.db.run(
+      `INSERT INTO vouchers (guid, voucher_type_id, base_type, number, number_seq, date, total_amount, created_at, updated_at)
+       VALUES ('late', :vt, 'purchase', 'late-1', 1, '2027-03-31', 50000, :ts, :ts)`,
+      { vt, ts: new Date().toISOString() },
+    ).lastInsertRowid;
+    t.db.run("INSERT INTO ledger_entries (voucher_id, line_no, ledger_id, amount, date) VALUES (:v, 1, :l, 50000, '2027-03-31')", { v: vid, l: b.L.purchase });
+    t.db.run("INSERT INTO ledger_entries (voucher_id, line_no, ledger_id, amount, date) VALUES (:v, 2, :l, -50000, '2027-03-31')", { v: vid, l: b.L.cash });
+    t.db.run("INSERT INTO inventory_entries (voucher_id, line_no, item_id, qty, rate, amount, date) VALUES (:v, 1, :it, 1, 500, 50000, '2027-03-31')", { v: vid, it: items[0] });
+  });
+  const again = run(() => balanceSheet(env(), { asOf: FY.to }));
+  assert.equal(again.replays, 1);
+  assert.equal(again.out.balanced, true);
+  assert.equal(again.out.closingStock, computeStockValuation(t.db, { from: FY.to, to: FY.to, today }).totals.closingValue);
+  assert.notEqual(again.out.closingStock, closing);
+  console.log(`reports on 8,000 items / 60,000 invoices (ms / stock replays): ${times.join(' · ')}`);
 });

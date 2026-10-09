@@ -12,7 +12,7 @@ import type {
   TrialBalanceMode,
   TrialBalanceResult,
 } from '../../../shared/types/reports.ts';
-import { buildSnapshot, groupNode, ledgersByGroup, stockAt, stockAtEnd, type Balance, type ReportEnv, type Snapshot } from './engine.ts';
+import { buildSnapshot, groupNode, ledgersByGroup, ledgersUnder, prepareStock, stockAt, stockAtEnd, type Balance, type ReportEnv, type Snapshot } from './engine.ts';
 
 const isZero = (b: Balance): boolean => b.opening === 0 && b.debit === 0 && b.credit === 0 && b.closing === 0;
 
@@ -134,11 +134,14 @@ export function groupSummary(env: ReportEnv, input: GroupSummaryInput): GroupSum
   // P&L basis: nominal ledgers restart at `from` (opening = their opening balance only when `from` is on
   // or before the books beginning — exactly nominalMovement), so the summary agrees with the P&L line.
   const basis = input.basis === 'profitLoss' && isNominal ? 'profitLoss' : 'trialBalance';
-  const snap = buildSnapshot(env, basis === 'profitLoss' ? { from: input.from, to: input.to, yearStart: input.from } : { from: input.from, to: input.to });
+  // The group's own ledgers only (its sub-tree is all this report shows).
+  const ledgerIds = ledgersUnder(env, [g.id]);
+  const snap = buildSnapshot(env, basis === 'profitLoss' ? { from: input.from, to: input.to, yearStart: input.from, ledgerIds } : { from: input.from, to: input.to, ledgerIds });
   const showZero = input.showZero ?? false;
   const stockGroupId = env.groupByCode.get('STOCK_IN_HAND');
   const stockInside = env.integrated && stockGroupId !== undefined && (env.tree.byId.get(stockGroupId)?.chainIds.includes(g.id) ?? false);
   const stockRow = (level: number, parentKey: string | null): TbRow => {
+    prepareStock(env, { opening: [snap.from], closing: [snap.to] });
     const opening = stockAt(env, snap.from);
     const closing = stockAtEnd(env, snap.to);
     return {
@@ -203,12 +206,12 @@ export function groupSummary(env: ReportEnv, input: GroupSummaryInput): GroupSum
 
 /** Cash-in-Hand, Bank Accounts and Bank OD A/c with their ledgers (Tally "Cash/Bank Book(s)"). */
 export function cashBank(env: ReportEnv, input: { from: string; to: string }): CashBankResult {
-  const snap = buildSnapshot(env, { from: input.from, to: input.to });
   const roots: number[] = [];
   for (const code of ['CASH_IN_HAND', 'BANK_ACCOUNTS', 'BANK_OD'] as const) {
     const id = env.groupByCode.get(code);
     if (id !== undefined) roots.push(id);
   }
+  const snap = buildSnapshot(env, { from: input.from, to: input.to, ledgerIds: ledgersUnder(env, roots) });
   const rows = tbTree(env, snap, roots, 0, null, { withLedgers: true, showZero: true });
   // Hide groups without a ledger anywhere below them, but keep zero-balance ledgers: a new bank account
   // shows up. Pre-order, so walking backwards sees every child before its parent.

@@ -91,7 +91,7 @@ describe('IRP response import summary', () => {
 describe('document trail', () => {
   it('labels events and flattens details as text', () => {
     assert.equal(docEventLabel({ kind: 'einvoice', action: 'generated' }), 'e-Invoice · IRN generated');
-    assert.equal(docEventLabel({ kind: 'ewaybill', action: 'reissued' }), 'e-Way bill · Reissued');
+    assert.equal(docEventLabel({ kind: 'ewaybill', action: 'reissued' }), 'e-Way Bill · Reissued');
     assert.equal(docEventDetail({ detail: { fileName: 'EINV_x.json', ackNo: '1234', empty: '' } }), 'File name: EINV_x.json · Ack no: 1234');
     assert.equal(docEventDetail({ detail: null }), '');
   });

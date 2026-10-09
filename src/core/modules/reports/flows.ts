@@ -4,7 +4,7 @@
 import type { Paise } from '../../../shared/money.ts';
 import type { CashFlowGroupRow, CashFlowMonth, CashFlowResult, FundsFlowLine, FundsFlowResult, WorkingCapitalRow } from '../../../shared/types/reports.ts';
 import { BOOKS_FILTER } from '../accounts/books.ts';
-import { assertPeriod, buildSnapshot, ledgersByGroup, monthSlices, stockAt, stockAtEnd, type ReportEnv, type Snapshot } from './engine.ts';
+import { assertPeriod, buildSnapshot, ledgersByGroup, monthSlices, prepareStock, stockAt, stockAtEnd, type ReportEnv, type Snapshot } from './engine.ts';
 import { neg } from './financials.ts';
 
 /**
@@ -32,8 +32,9 @@ export function cashBankLedgerIds(env: ReportEnv): number[] {
  */
 export function cashFlow(env: ReportEnv, input: { from: string; to: string }): CashFlowResult {
   assertPeriod(input.from, input.to);
-  const snap = buildSnapshot(env, { from: input.from, to: input.to });
   const cash = cashBankLedgerIds(env);
+  // The cash & bank ledgers only (never a stock valuation).
+  const snap = buildSnapshot(env, { from: input.from, to: input.to, ledgerIds: cash });
   const cashSet = new Set(cash);
   let opening = 0;
   let closing = 0;
@@ -133,6 +134,9 @@ export function fundsFlow(env: ReportEnv, input: { from: string; to: string }): 
     else if (change < 0) applications.push({ key, label, groupId, amount: -change });
   };
   const stockGroupId = env.groupByCode.get('STOCK_IN_HAND');
+  // Every stock figure (period opening / closing, and the year start the P&L A/c's brought-forward
+  // profit needs) from one valuation replay.
+  prepareStock(env, { opening: [snap.from, snap.yearStart], closing: [snap.to] });
   const openStock = stockAt(env, snap.from);
   const closeStock = stockAtEnd(env, snap.to);
   // Profit earned by the period's transactions: −Σ nominal movements + stock movement. This equals the

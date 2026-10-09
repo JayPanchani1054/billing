@@ -5,8 +5,8 @@
 import type { GroupCode } from '../../../shared/constants.ts';
 import type { Paise } from '../../../shared/money.ts';
 import type { RatioItem, RatiosResult } from '../../../shared/types/reports.ts';
-import { assertPeriod, daysIn, nominalMovement, stockAt, stockAtEnd, type ReportEnv } from './engine.ts';
-import { bsParts, neg, profitFigures } from './financials.ts';
+import { assertPeriod, daysIn, nominalMovement, prepareStock, stockAt, stockAtEnd, type ReportEnv } from './engine.ts';
+import { bsParts, bsStockPoints, neg, profitFigures } from './financials.ts';
 
 const round2 = (x: number): number => Math.round(x * 100) / 100;
 
@@ -88,6 +88,9 @@ export function computeRatios(x: RatioInputs, groupIds: Partial<Record<GroupCode
 
 export function ratiosReport(env: ReportEnv, input: { from: string; to: string }): RatiosResult {
   assertPeriod(input.from, input.to);
+  // Every stock figure (Balance Sheet at `to`, P&L for the period) from one valuation replay.
+  const points = bsStockPoints(env, [input.to]);
+  prepareStock(env, { opening: [...points.opening, input.from], closing: points.closing });
   const bs = bsParts(env, input.to);
   const sumUnder = (code: GroupCode): Paise => {
     const id = env.groupByCode.get(code);

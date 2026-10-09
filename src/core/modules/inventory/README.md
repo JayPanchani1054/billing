@@ -201,6 +201,30 @@ Item A, opening 10 Nos @ ₹100 (`V = 1,00,000` p). Product B has no opening.
 April stock summary for A (Average Cost): opening 10 / 1,00,000; inward 33 / 3,99,130; outward 35 /
 4,03,664; closing 8 / 95,466 (1,00,000 + 3,99,130 − 4,03,664 = 95,466).
 
+### Engine performance
+
+- **One replay serves many figures.** `stockValuesAt` takes several whole-company value points
+  (opening at the start of a date, closing at the end of one) during one pass — each equal to
+  `openingStockValue` / `closingStockValue` for its date. `traceStockMovements` records the cost the
+  replay applied to each line of the traced items (and each item's day closings) in the same pass as
+  the valuation, so the stock reports never value twice.
+- **Memo across requests.** Results (value points; the last 4 full valuations, deep-frozen) are kept
+  per open database and keyed on `Db.dataRevision()` — `total_changes()` of the app's connection
+  (every save / cancel / delete / import / settings change, even one later rolled back) plus
+  `PRAGMA data_version` (commits by any other connection) — and the working date. Nothing is cached
+  inside a transaction (uncommitted data could be rolled back). Callers must copy before changing a
+  result (`computeStockValuation` returns a frozen object).
+- **Index-friendly SQL, no catch-all flags.** Each statement is a constant chosen by shape: the
+  whole company is one sequential scan of `inventory_entries` (`NOT INDEXED`, `CROSS JOIN` so the
+  plan cannot flip to a per-voucher scan), vouchers by primary key; a few items (up to a quarter of
+  the company's items) read their own lines through `idx_ie_item_date` (pinned with `INDEXED BY`)
+  plus the other lines of the stock journals they appear in; more items share the scan and the
+  replay skips the rest. A `(:filter = 0 OR item_id IN …)` flag would hide the index and, once
+  ANALYZE statistics exist, become a skip-scan over every item id (`engine.test.ts` runs ANALYZE and
+  checks the plans). The same rule applies to `stockByItem` and the price-list look-ups.
+- On the auditors' 60,000-voucher company (8,000 items, 130,000 movements): a whole-company replay
+  ≈ 0.35–0.5 s, one item ≈ 3 ms (was 64–80 ms; 0.4 s with statistics).
+
 ## Exported helpers (`index.ts`)
 
 ```ts
@@ -220,10 +244,13 @@ itemHasTransactions(db, itemId): boolean
 roundQty(q): number                      // 6 decimals
 
 // Values (paise)
-computeStockValuation(db, { from, to, itemIds?, godownId?, includeSubGodowns?, today }): StockValuationResult
+computeStockValuation(db, { from, to, itemIds?, godownId?, includeSubGodowns?, today }): StockValuationResult  // memoised, FROZEN result
+stockValuesAt(db, { opening?: dates, closing?: dates, today }): { opening: Map, closing: Map }  // whole company, ONE replay
 closingStockValue(db, { asOf, today, godownId?, includeSubGodowns? }): number   // Balance Sheet / P&L closing stock
 openingStockValue(db, { from, today, godownId?, includeSubGodowns? }): number   // value at the start of `from` (entered values at books beginning)
 currentUnitCost(db, { itemId, asOf, today }): number          // rupees per base unit
+traceStockMovements(db, { …valuation options, traceItemIds, traceFrom? }): StockTraceResult  // valuation + cost of every traced line + day closings, ONE replay
+stockReplayCount(): number                                    // replays run in this process (tests: "one replay per request")
 
 // Prices & masters
 priceFor(db, { itemId, priceLevelId?, date, qty, side? }): PriceForResult

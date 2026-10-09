@@ -6,7 +6,8 @@
  * Screens:
  *   'print.voucher'  {id, copies?, template?, pageSize?, autoPrint?}  preview + print one voucher
  *   'print.batch'    {ids?, template?}                                 pick / print many vouchers
- *   'print.settings' —                                                 F12 › Invoice printing, live preview
+ *   'print.settings' —                                                 Invoice Printing (the only editor of config.invoice;
+ *                                                                      F12 › Invoices links here), live preview
  */
 import type { ModuleDef } from '../../app/registry.ts';
 import { PrintBatchScreen } from './PrintBatchScreen.tsx';

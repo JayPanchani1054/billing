@@ -98,7 +98,7 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
           ) : null}
           {doc.ewayBill ? (
             <tr>
-              <td colSpan={2}>E-way bill: {doc.ewayBill.number}</td>
+              <td colSpan={2}>e-Way Bill: {doc.ewayBill.number}</td>
             </tr>
           ) : null}
         </tbody>
@@ -206,7 +206,7 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
       ) : null}
       {doc.einvoice ? (
         <div className="bp-c-center">
-          {einv ? <img className="bp-qr" src={einv} alt="E-invoice QR code" /> : null}
+          {einv ? <img className="bp-qr" src={einv} alt="e-Invoice QR code" /> : null}
           <div className="bp-small bp-irn">IRN: {doc.einvoice.irn}</div>
           {doc.einvoice.ackNo ? <div className="bp-small">Ack No. {doc.einvoice.ackNo}</div> : null}
         </div>

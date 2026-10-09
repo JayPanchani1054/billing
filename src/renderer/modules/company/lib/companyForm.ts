@@ -3,7 +3,7 @@
  * mistakes are caught before submitting), GSTIN-driven auto-fill, and the route input.
  * Pure — tested in companyForm.test.ts.
  */
-import { financialYear, isValidDate } from '../../../../shared/dates.ts';
+import { financialYear, formatDate, isValidDate, localDateOf } from '../../../../shared/dates.ts';
 import { getState } from '../../../../shared/gst/states.ts';
 import { normalizeGstin, validateGstin } from '../../../../shared/gst/gstin.ts';
 import type { CompanyFeatures } from '../../../../shared/settings.ts';
@@ -228,3 +228,14 @@ export const MONTH_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   'November',
   'December',
 ].map((m, i) => ({ value: String(i + 1), label: m }));
+
+/**
+ * Company Details subtitle: 'Created 10-Oct-2026 · last changed 2 hours ago'. Both stamps are
+ * ISO-8601 UTC timestamps, shown in LOCAL time (`localDateOf` / `formatRelative`), never by slicing
+ * the UTC string (one day early for IST evenings and nights).
+ */
+export function profileStampText(createdAt: string, updatedAt: string, relative: (iso: string) => string): string {
+  const created = formatDate(localDateOf(createdAt));
+  const changed = relative(updatedAt);
+  return [created ? `Created ${created}` : '', changed ? `last changed ${changed}` : ''].filter(Boolean).join(' · ');
+}

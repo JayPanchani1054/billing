@@ -132,20 +132,24 @@ interface SlabRow {
 
 const toSlab = (r: SlabRow): PriceSlab => ({ qtyFrom: r.qty_from, qtyTo: r.qty_to, rate: r.rate, discountPct: r.discount_pct });
 
-/** Applicable slabs per item for a level on a date (latest list dated ≤ date). Optional item restriction. */
-function applicableSlabs(db: Db, levelId: number, date: string, itemIds?: readonly number[]): Map<number, { from: string; slabs: PriceSlab[] }> {
-  const rows = db.all<SlabRow>(
-    `WITH latest AS (
+/** Latest price list per item dated ≤ :date, for every item or (index-friendly, no catch-all flag) only :ids. */
+function slabsSql(filterItems: boolean): string {
+  return `WITH latest AS (
        SELECT item_id, MAX(applicable_from) AS af FROM price_list
         WHERE price_level_id = :lvl AND applicable_from <= :date
-          AND (:filter = 0 OR item_id IN (SELECT value FROM json_each(:ids)))
+          ${filterItems ? 'AND item_id IN (SELECT value FROM json_each(:ids))' : ''}
         GROUP BY item_id)
      SELECT p.item_id, p.applicable_from, p.qty_from, p.qty_to, p.rate, p.discount_pct
        FROM price_list p JOIN latest l ON l.item_id = p.item_id AND l.af = p.applicable_from
       WHERE p.price_level_id = :lvl
-      ORDER BY p.item_id, p.qty_from`,
-    { lvl: levelId, date, filter: itemIds ? 1 : 0, ids: jsonIds(itemIds ?? []) },
-  );
+      ORDER BY p.item_id, p.qty_from`;
+}
+const SLABS_ALL_SQL = slabsSql(false);
+const SLABS_SOME_SQL = slabsSql(true);
+
+/** Applicable slabs per item for a level on a date (latest list dated ≤ date). Optional item restriction. */
+function applicableSlabs(db: Db, levelId: number, date: string, itemIds?: readonly number[]): Map<number, { from: string; slabs: PriceSlab[] }> {
+  const rows = db.all<SlabRow>(itemIds ? SLABS_SOME_SQL : SLABS_ALL_SQL, itemIds ? { lvl: levelId, date, ids: jsonIds(itemIds) } : { lvl: levelId, date });
   const out = new Map<number, { from: string; slabs: PriceSlab[] }>();
   for (const r of rows) {
     let e = out.get(r.item_id);

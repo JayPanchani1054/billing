@@ -29,6 +29,17 @@ export function todayLocal(now: Date = new Date()): string {
   return toIso(now.getFullYear(), now.getMonth() + 1, now.getDate());
 }
 
+/**
+ * Local calendar date ('YYYY-MM-DD') of an ISO-8601 timestamp such as `created_at`
+ * ('2026-10-09T19:30:00.000Z' is 10-Oct-2026 in India). Never slice a UTC timestamp to get a date:
+ * that is the UTC day, one day early for IST evenings after 18:30 UTC. '' when unparsable.
+ */
+export function localDateOf(timestamp: string | null | undefined): string {
+  if (!timestamp) return '';
+  const d = new Date(timestamp);
+  return Number.isNaN(d.getTime()) ? '' : todayLocal(d);
+}
+
 export function daysInMonth(y: number, m: number): number {
   return new Date(Date.UTC(y, m, 0)).getUTCDate();
 }

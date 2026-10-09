@@ -225,22 +225,17 @@ export interface MovementQuery {
  * id, line, entry id.
  */
 export function loadMovements(db: Db, q: MovementQuery): MovementRow[] {
-  const filter = q.itemIds === undefined || q.itemIds === null ? 0 : 1;
+  const filter = q.itemIds !== undefined && q.itemIds !== null;
+  const params = { from: q.from ?? '0000-01-01', to: q.to, today: q.today, main: mainGodown(db) };
+  // One constant statement per shape (an item list uses the item index; no catch-all flag).
   const rows = db.all<MovementDbRow>(
     `SELECT ie.id, ie.voucher_id, ie.line_no, ie.item_id, COALESCE(ie.godown_id, :main) AS godown_id, ie.batch_name, ie.qty,
             ie.amount, ie.rate, ie.discount_pct, ie.date, v.base_type
        FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
       WHERE ie.date >= :from AND ie.date <= :to AND ie.qty <> 0 AND ${STOCK_MOVEMENT_FILTER}
-        AND (:filter = 0 OR ie.item_id IN (SELECT value FROM json_each(:ids)))
+        ${filter ? 'AND ie.item_id IN (SELECT value FROM json_each(:ids))' : ''}
       ORDER BY ie.date, ie.voucher_id, ie.line_no, ie.id`,
-    {
-      from: q.from ?? '0000-01-01',
-      to: q.to,
-      today: q.today,
-      main: mainGodown(db),
-      filter,
-      ids: filter ? jsonIds(q.itemIds as Iterable<number>) : '[]',
-    },
+    filter ? { ...params, ids: jsonIds(q.itemIds as Iterable<number>) } : params,
   );
   return rows.map((r) => ({
     id: r.id,

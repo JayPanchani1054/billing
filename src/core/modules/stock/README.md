@@ -12,7 +12,7 @@ stock in the P&L and Balance Sheet.
 |---|---|
 | `routes.ts` | The 12 `stock.*` routes and their input schemas |
 | `common.ts` | Period check, item / tree (group, category, godown) lookups, movement loader, `QtySum` |
-| `trace.ts` | Per-movement cost values: one replay proven against the engine, per-day engine fallback (see below) |
+| `trace.ts` | Per-movement cost values: a thin wrapper over the engine's own replay (`traceStockMovements`, see below) |
 | `summary.ts` | `stock.summary`, `stock.categorySummary`, `stock.godownSummary` |
 | `itemVouchers.ts` | `stock.itemVouchers` |
 | `movement.ts` | `stock.movement` |
@@ -65,24 +65,15 @@ that category (and its sub-categories); `godownId` covers that godown and the go
 does). `showValues: false` adds up quantities straight from the movements (no valuation) and returns
 `valuesShown: false` with every value 0. Groups without listed items are hidden.
 
-**Per-movement values (`trace.ts`).** The engine exports period totals, not the cost of each
-voucher line, which the item ledger, profitability, FIFO ageing and the physical register need.
-*Helper missing in the inventory module* (`traceStockMovements`), so it is built here on top of the
-engine:
-1. **Replay** — one pass over the items' movements (and the inputs of the stock journals that make
-   them) in the engine's replay order, with cost states that follow the engine's documented rules
-   operation for operation, giving every line's exact cost and each day's closing.
-2. **Proof** — one engine run for the same items and period; for every item the replay's inward /
-   outward quantity and value and its closing quantity and value must equal the engine's to the
-   paisa. An item that does not match (only possible if the engine's rules change) is valued by:
-3. **Fallback** — one engine run per day with movements; priced inwards at their own amount, the
-   rest of the day's values split over the day's lines by quantity (exact day totals; a line can be
-   a paisa off when one item has several outwards on a day). `fallbackItems` lists such items.
-
-So every figure shown is the engine's figure. The replay is a deliberate, verified copy of the
-engine's per-movement arithmetic: per-day engine runs alone cost one full replay per day (a year of
-22,000 vouchers on 2,000 items took 47 s for Item Profitability; now ~1.2 s). Moving the replay into
-the inventory module as `traceStockMovements` would remove the copy.
+**Per-movement values (`trace.ts`).** The item ledger, profitability, FIFO ageing and the physical
+register need the cost of each voucher line, not only period totals. The inventory engine records
+them during its own replay (`traceStockMovements` in `inventory/valuation.ts`): the cost it applied
+to every line of the traced items and each item's closing at the end of every day with a movement,
+together with the valuation itself — ONE replay, no second "proof" run and no per-day fallback.
+The figures are the engine's by construction (`trace.test.ts` and `inventory/engine.test.ts` keep the
+equivalence with independent per-day engine runs as a property test). Stock Item Vouchers and Ageing
+take the valuation and the line costs from that same pass; profitability and the physical register
+trace the items they need.
 
 **Stock Item Vouchers.** One row per voucher (all its lines of the item). Particulars = party name,
 else "Stock Journal" / "Physical stock count" / voucher type. The running value is re-based on the
@@ -158,15 +149,18 @@ purchase order 30 worth ₹3,600, 36 days overdue; reorder: 18 + 30 − 6 = 42 <
 
 Run: `node --test "src/core/modules/stock/**/*.test.ts"`.
 
-## Performance (probe: a year, 2,000 items / 22,000 vouchers · 20,000 items / 29,000 vouchers)
+## Performance
 
-Stock Summary 0.4 s / 1.0 s · Godown Summary 0.5 s / 1.2 s · Item Profitability (year) 1.2 s / 2.1 s
-· Ageing 0.6 s / 2.9 s · Movement 0.6 s / 0.9 s · item ledger < 0.1 s · the rest < 0.7 s.
+Every report runs at most ONE valuation replay (`perf.test.ts` asserts the count, the deterministic
+part of the budget). On 8,000 items / 60,000 item invoices over two years (in-memory, `perf.test.ts`):
+Item Profitability (year) ≈ 0.3 s · Stock Item Vouchers ≈ 5 ms (the item index) · Ageing ≈ 0.45 s ·
+Stock Summary ≈ 0.25 s. On the auditors' 60,000-voucher file company (8,000 items, 130,000 movements
+since 2021): profitability 0.6–0.8 s (was 2.2–3.2 s), item vouchers 3–5 ms (was 0.1–0.26 s), ageing
+≈ 0.6 s (was 1.1–1.7 s); a repeated Stock Summary / valuation with unchanged books comes from the
+inventory memo (≈ 20 ms).
 
 ## Known gaps
 
-- `trace.ts` copies the engine's per-movement arithmetic (proven on every run, per-day engine
-  fallback otherwise) because the inventory module has no `traceStockMovements` export.
 - Batch Summary is not split by godown; batch values are not shown.
 - Orders have no per-line due date (the voucher's effective date is used); order numbers that
   repeat across years for the same party share fulfilment (same limitation as `vouchers.trackingRefs`).

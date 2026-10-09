@@ -90,7 +90,7 @@ describe('addresses and header', () => {
       { label: 'Dated', value: '15-Apr-2026' },
       { label: 'Place of Supply', value: '27-Maharashtra' },
       { label: 'Reverse Charge', value: 'No' },
-      { label: 'E-way Bill No.', value: '321009876543 dated 15-Apr-2026' },
+      { label: 'e-Way Bill No.', value: '321009876543 dated 15-Apr-2026' },
       { label: 'Vehicle No.', value: 'MH12AB1234' },
     ]);
     const note = headerRefs(sampleDoc({ kind: 'credit_note', baseType: 'credit_note', originalInvoice: { number: 'INV/3', date: '2026-04-01', reason: 'Rate difference' } }));

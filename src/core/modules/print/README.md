@@ -12,7 +12,7 @@ Templates never call the API and never compute money.
 | `print.voucherData` | vouchers.view | `{ id, overrides? }` | `PrintVoucherData` |
 | `print.batchData` | vouchers.view | `{ ids }` (1–500) | `{ documents: PrintVoucherData[], notFound: number[] }` (order kept, duplicates dropped) |
 | `print.sample` | company.view | `{ overrides? }` | `PrintVoucherData` of a sample invoice (`sample: true`, `id: 0`) for the settings preview |
-| `print.bankLedgers` | company.view | `{}` | `PrintBank[]` — Bank Accounts / Bank OD ledgers with account details |
+| `print.bankLedgers` | company.view | `{}` | `PrintBank[]` — active ledgers under Bank Accounts / Bank OD **and their sub-groups**, with account details (the Invoice Printing bank select and the F12 › Invoices summary) |
 
 All are read-only and `transactional: false`. `overrides` is a partial `CompanyConfig['invoice']`
 applied for this call only (live preview of the print settings); it is validated like the config
@@ -113,7 +113,7 @@ printing; the preview shows them under "Before you print".
 
 ## Options
 
-`options` = F12 › Invoice printing, then the voucher type's `config` (`printTemplate`,
+`options` = config.invoice (edited only on Invoice Printing, `print.settings`; F12 › Invoices summarises it), then the voucher type's `config` (`printTemplate`,
 `bankLedgerId`, `declaration`, `terms`), then `overrides`. `defaultTemplate` is `options.template`.
 
 - Bank details: outward invoices / debit notes / sales orders when `showBankDetails` and a bank
@@ -123,7 +123,7 @@ printing; the preview shows them under "Before you print".
   accounts) → `upi.uri` =
   `upi://pay?pa=<vpa>&pn=<company>&am=<rupees.paise>&cu=INR&tn=<title number>` (percent-encoded).
 - Declaration only on sales documents and outward debit notes; terms as above.
-- E-invoice (`irn`, `ackNo`, `ackDate`, `signedQr`) and e-way bill come from the voucher.
+- e-Invoice (`irn`, `ackNo`, `ackDate`, `signedQr`) and e-Way Bill come from the voucher (printed as "e-Invoice" / "e-Way Bill No.", GSTN's spelling).
 - `navigation.prevId / nextId`: same voucher type, ordered by date, number sequence, id.
 
 ## Known gaps

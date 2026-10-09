@@ -118,6 +118,13 @@
 .bx-db-alert:hover {
   background: var(--row-hover);
 }
+/* An alert the viewer may not open (no permission): informational, not clickable. */
+.bx-db-alert.is-static {
+  cursor: default;
+}
+.bx-db-alert.is-static:hover {
+  background: transparent;
+}
 .bx-db-alert:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
@@ -286,6 +293,16 @@
 .bx-db-start__body {
   color: var(--text-secondary);
   font-size: var(--fs-12);
+}
+.bx-db-start__tick {
+  margin-top: var(--space-1);
+  font-size: var(--fs-12);
+}
+.bx-db-start__step.is-done .bx-db-start__num {
+  color: var(--success-icon);
+}
+.bx-db-start__step.is-done .bx-db-start__title {
+  color: var(--text-secondary);
 }
 
 @media print {

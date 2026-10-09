@@ -3,7 +3,9 @@
  * 12-month sparkline, purchases, gross profit, receivables, payables, cash & bank), the 12-month sales /
  * purchases chart, receivables ageing, cash & bank balances, the GST estimate for the month, top
  * customers and items, alerts, low stock, recent vouchers and post-dated cheques. Every card drills
- * down to its report.
+ * down to its report — when the viewer may open it (useDrill: nav.canOpen); otherwise it is not
+ * clickable. A "Get started" card (company details, features, invoice printing, ledgers, items, first
+ * sale, backups; steps done from the books via `summary.setup`) shows until done or hidden.
  *
  * Embedded (the Gateway's right panel): compact layout with its own small header; it binds NO hotkeys
  * (plain letters belong to the Gateway menu). Standalone: a ReportScreen — Alt+F2 period, Alt+E export,
@@ -133,10 +135,12 @@ function EmbeddedDashboard() {
 }
 
 function DashboardBody({ s, loading, layout, workingDate }: { s: DashboardSummary | undefined; loading: boolean; layout: DashboardLayout; workingDate: string }) {
+  // Getting started (one list for the app: company details, features, invoice printing, ledgers,
+  // items, first sale, backups) stays — also after the first voucher — until done or hidden.
   if (s && !s.hasVouchers) {
     return (
       <>
-        <GettingStarted />
+        <GettingStarted s={s} />
         <div className="bx-db__grid">
           <AlertsCard s={s} loading={false} className="bx-db__card" />
           <CashBankCard s={s} loading={false} className="bx-db__card" />
@@ -147,6 +151,7 @@ function DashboardBody({ s, loading, layout, workingDate }: { s: DashboardSummar
   if (layout === 'compact') {
     return (
       <>
+        <GettingStarted s={s} />
         <KpiRow s={s} loading={loading} layout="compact" workingDate={workingDate} />
         <div className="bx-db__grid">
           <AlertsCard s={s} loading={loading} className="bx-db__card" />
@@ -161,6 +166,7 @@ function DashboardBody({ s, loading, layout, workingDate }: { s: DashboardSummar
   }
   return (
     <>
+      <GettingStarted s={s} />
       <KpiRow s={s} loading={loading} layout="full" workingDate={workingDate} />
       <div className="bx-db__grid">
         <TrendCard s={s} loading={loading} layout="full" className="bx-db__card bx-db__wide" />

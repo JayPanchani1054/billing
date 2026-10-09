@@ -26,7 +26,7 @@ count once their date is reached.
 |---|---|
 | Ranges | `today` = asOf; `mtd` = 1st of asOf's month → asOf; `ytd` = start of asOf's financial year (the books beginning in the first year) → asOf; `period` = from → to. `lastYear.*` = the same ranges a year earlier (`comparePeriod(…, 'previous_year')`: a month end stays a month end, 29-Feb → 28-Feb). |
 | Sales / purchases | Net movement of ledgers under **Sales Accounts** (credits − debits, so credit notes reduce it) / **Purchase Accounts** (debits − credits), i.e. the P&L's sales and purchases, before GST. Nominal opening balances (books begun mid-year) count in every range that contains the books beginning, as `nominalMovement` does — so `period` always equals the P&L (tested for three periods and for a mid-year start). ONE aggregate over `ledger_entries` (`idx_le_books`) for all eight ranges. |
-| Gross profit | `sales + direct incomes − (opening stock + purchases + direct expenses − closing stock)` for the period — exactly the P&L's gross profit (tested against `reports.profitLoss`). With integrated inventory (F11 inventory + integrate) the stock values come from ONE `computeStockValuation(from, to)` replay (`method: 'stock_valuation'`); otherwise stock is 0 (`method: 'purchases'`: sales − purchases). Nominal opening balances are included when the period contains the books beginning (as `nominalMovement` does). `marginPercent` = GP ÷ sales × 100, 2 decimals, null when sales are 0. |
+| Gross profit | `sales + direct incomes − (opening stock + purchases + direct expenses − closing stock)` for the period — exactly the P&L's gross profit (tested against `reports.profitLoss`). With integrated inventory (F11 inventory + integrate) the stock values come from ONE `stockValuesAt` replay — the P&L's own figures, shared with the reports through the inventory memo until the books change (`method: 'stock_valuation'`); otherwise stock is 0 (`method: 'purchases'`: sales − purchases). Nominal opening balances are included when the period contains the books beginning (as `nominalMovement` does). `marginPercent` = GP ÷ sales × 100, 2 decimals, null when sales are 0. |
 | Receivables / payables | The outstanding engine (`outstanding/reports.ts sideParties`, **FIFO for ledgers not maintained bill-wise**, like the Receivables / Payables screens' default): `total` = Σ party balances on the side; due-date ageing with the default buckets (Not due · 1–30 · 31–60 · 61–90 · 91–180 · > 180); `overdue` / `notDue` from the bills; advances and on-account amounts separately (not aged); `dueSoon` = bills with pending > 0 due from asOf to asOf + 7 days (due today included). Tested equal to `outstanding.ageing` and `outstanding.dueSoon`. |
 | Cash & bank | `closingBalances` as at asOf for ledgers under Cash-in-Hand / Bank Accounts / Bank OD (signed Dr + / Cr −; banks: normal accounts first, then OD; `accountTail` = last 4 digits of the account number). |
 | GST due | `gstDue`: the **previous** month's return (same figures) while asOf is on or before its due date — on 8-Oct, September's GSTR-3B due 20-Oct, the payment to make next. Null after the due date, before the books begin, and wherever `gst` is null. |
@@ -39,6 +39,7 @@ count once their date is reached.
 | Recent vouchers | The last 8 vouchers entered (highest id), any status, flagged cancelled / optional / post-dated; a cancelled voucher shows amount 0. |
 | Post-dated | Vouchers marked post-dated, dated after the working date, not cancelled / optional, whose net cash/bank movement is non-zero: `direction` in (receipt) / out (payment), `inflow` / `outflow` totals, the main bank ledger and cheque number; earliest first (10 listed, `count` = all). |
 | Backup | `data/backup.ts lastBackupAt` (backup history, else the edit log) and whole days since then on the clock. |
+| Setup | `setup.ts setupFacts` — the "Get started" card's steps, done from the books (never from a click): `profileComplete` (company address and state), `featuresReviewed` (an F11 save in the edit log that changed something other than password protection), `invoicePrintingSet` (config.invoice differs from the defaults), `hasOwnLedgers` (a non-predefined ledger), `hasItems`, `hasSales` (any sales voucher), `backupFolderSet` (F12 › Backup folder chosen). A few one-row reads inside the memo, so any save refreshes them. The renderer (`modules/dashboard/lib/model.ts startSteps`) adds the steps the user ticked and filters by permission / `nav.canOpen`. |
 
 ## Performance
 
@@ -53,16 +54,19 @@ receipts, 5,000 payments; 1,000 customers, 200 suppliers, 50 items, integrated i
 
 Breakdown of a cold call: the outstanding bill aggregate (receivables ≈ 0.22–0.25 s, payables ≈ 0.09 s;
 `outstanding/engine.ts loadBillAggregates` — GROUP BY over a UNION of opening bills and allocations)
-and the stock valuation replay for the gross profit (≈ 0.3 s; `inventory/valuation.ts`). Everything the
+and the stock valuation replay for the gross profit (≈ 0.1–0.3 s; `inventory/valuation.ts` — one replay
+for the period's opening and closing, kept by the inventory memo until the books change, so it is
+free when the P&L / Balance Sheet already asked for those dates). Everything the
 dashboard queries itself (flows, trend, tops, the two GST months, compliance, low stock, recent, PDC) is ≈ 150 ms.
 The 200 ms target is therefore met for repeat calls on large books and for cold calls on typical books
-(a few thousand vouchers); a period change at 50,000 vouchers pays the valuation replay again (≈ 0.3 s), and a **cold call at
+(a few thousand vouchers); a period change at 50,000 vouchers pays the valuation replay again (≈ 0.1–0.3 s), and a **cold call at
 50,000 vouchers does not meet it**: that needs the two shared engines to get faster (see Known gaps).
 
 **Memo.** Results are kept per open database (most recent 6, per kind) and reused while the books are
-unchanged. The change key is SQLite's own counters: `total_changes()` (every row changed through the
-app's connection — saves, cancels, deletes, imports, settings) and `PRAGMA data_version` (commits by
-any other connection). Any change, even one rolled back, simply invalidates. The working date and the
+unchanged. The change key is `Db.dataRevision()`, i.e. SQLite's own counters: `total_changes()` (every
+row changed through the app's connection — saves, cancels, deletes, imports, settings) and `PRAGMA
+data_version` (commits by any other connection). Any change, even one rolled back, simply invalidates;
+while a transaction is open nothing is cached or reused (uncommitted data may still roll back). The working date and the
 caller's permission flags are part of the key; the backup age is recomputed on every call. The DTO
 says whether it was served from the memo (`cached`) and how long the call took (`elapsedMs`).
 
@@ -106,9 +110,10 @@ node --test "src/core/modules/dashboard/**/*.test.ts" "src/renderer/modules/dash
 - Cold call at 50,000 vouchers ≈ 0.8 s (target 200 ms), dominated by code other modules own: the
   outstanding bill aggregate (≈ 0.25 s receivables + 0.09 s payables; most of it is materialising
   ~15,000 open-bill rows into JS — a covering index on `bill_allocations` was measured and gains
-  < 10 %, so migration 130 stays empty) and the stock valuation replay for the gross profit (≈ 0.25–0.33 s,
-  the same cost the P&L pays). Getting under 200 ms needs an aggregate-only outstanding entry point
-  (buckets in SQL) and a valuation cache keyed by the books' change counter in those modules. The core
+  < 10 %, so migration 130 stays empty), the GST set-off chain (`gstr3b.creditBroughtForward`, every
+  month since the books beginning — ≈ 0.8 s cold on a 60,000-voucher company) and the stock valuation
+  replay for the gross profit (now shared with the P&L through the inventory memo). Getting under
+  200 ms needs an aggregate-only outstanding entry point (buckets in SQL) and a memoised GST chain. The core
   runs on Electron's main process, so a cold call blocks other API calls for that long (the renderer
   keeps the previous figures on screen meanwhile).
 - The Receivables / Payables screens take no `asOf` parameter (they use the period end): when the

@@ -291,6 +291,23 @@ describe('company routes', () => {
     t.close();
   });
 
+  it("F12's save (its own sections, no `invoice`) keeps what Invoice Printing saved meanwhile", async () => {
+    const t = createTestCompany();
+    const bank = t.addLedger({ name: 'HDFC Current', group: 'BANK_ACCOUNTS' });
+    // F12 opened first (holds the old config), then Invoice Printing saves on top of it…
+    const f12View = getConfig(t.db);
+    await t.callOk(companyRoutes, 'company.config.save', { invoice: { template: 'classic', showBankDetails: true, bankLedgerId: bank, upiId: 'shop@okhdfcbank' } });
+    // …then F12 saves exactly what the renderer sends (lib/configForm.ts configSaveInput: no invoice, no lockedUpTo).
+    const { roundOff, gst, guards, display, backup } = f12View;
+    await t.callOk(companyRoutes, 'company.config.save', { roundOff, gst, guards, display: { ...display, showZeroBalances: !display.showZeroBalances }, backup });
+    const after = getConfig(t.db);
+    assert.equal(after.invoice.template, 'classic');
+    assert.equal(after.invoice.bankLedgerId, bank);
+    assert.equal(after.invoice.upiId, 'shop@okhdfcbank');
+    assert.equal(after.display.showZeroBalances, !display.showZeroBalances);
+    t.close();
+  });
+
   it('validate inputs (patch semantics for config, explicit null for unlock)', async () => {
     const t = createTestCompany();
     assert.equal(errCode(await t.call(companyRoutes, 'company.periodLock.set', {})), 'VALIDATION');

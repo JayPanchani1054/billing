@@ -8,6 +8,7 @@
 import { useMemo, useState } from 'react';
 import { formatIndianNumber } from '../../../shared/format.ts';
 import type { LedgerListRow } from '../../../shared/types/accounts.ts';
+import { api } from '../../app/api.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { useNav } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
@@ -68,6 +69,20 @@ export function LedgerListScreen({ params }: ScreenProps<{ chip?: LedgerChip; se
     if (current) await deleteLedger({ id: current.id, name: current.name, isActive: current.isActive, isPredefined: current.isPredefined });
   };
 
+  /**
+   * Alt+H: the ledger's Edit history, scoped by its guid (read from the ledger: list rows carry no guid)
+   * so a ledger id reused after a delete does not mix in the deleted ledger's entries.
+   */
+  const openHistory = async (r: LedgerListRow): Promise<void> => {
+    let entityGuid: string | undefined;
+    try {
+      entityGuid = (await api('accounts.ledger.get', { id: r.id })).guid;
+    } catch {
+      // Not readable (just deleted elsewhere…): the history by id still shows what happened.
+    }
+    nav.push('security.audit', { entityType: 'ledger', entityId: r.id, label: r.name, ...(entityGuid ? { entityGuid } : {}) });
+  };
+
   const filtered = debounced !== '' || chip !== 'all' || !showInactive;
   const chipLabel = LEDGER_CHIPS.find((c) => c.id === chip)?.label ?? 'All';
 
@@ -89,7 +104,7 @@ export function LedgerListScreen({ params }: ScreenProps<{ chip?: LedgerChip; se
           key: 'Alt+H',
           label: 'Edit history',
           icon: 'clock',
-          onClick: () => current && nav.push('security.audit', { entityType: 'ledger', entityId: current.id, label: current.name }),
+          onClick: () => current && void openHistory(current),
           disabled: !current,
           hidden: !canAudit,
           group: 'more',

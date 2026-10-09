@@ -1,7 +1,10 @@
 /**
- * 'print.settings' — Invoice printing options (F12 › Invoice printing), with a live preview of the
- * latest sales invoice (or a sample invoice when there is none yet). Saves company config.invoice
- * through 'company.config.save' (needs Company › Manage). Ctrl+A saves, Alt+P prints the preview.
+ * 'print.settings' — Invoice printing options, with a live preview of the latest sales invoice (or a
+ * sample invoice when there is none yet). The ONLY editor of company config.invoice: F12 › Invoices
+ * shows a read-only summary and opens this screen (Alt+I). Saves `{ invoice }` alone through
+ * 'company.config.save' (needs Company › Manage), so it never overwrites F12's other sections.
+ * Ctrl+A saves, Alt+P prints the preview. The bank select lists 'print.bankLedgers' (active ledgers
+ * under Bank Accounts and its sub-groups); a blank UPI ID uses the chosen bank ledger's UPI ID.
  */
 import { useMemo, useRef, useState } from 'react';
 import type { InvoiceTemplate } from '../../../shared/settings.ts';
@@ -36,7 +39,7 @@ import {
 } from '../../ui/index.ts';
 import { PreviewPane } from './components.tsx';
 import { pageSizeFor, resolveCopies, toggleCopy } from './lib/layout.ts';
-import { normaliseOptions, previewOverrides, sameOptions, settingsErrors, type SettingsErrors } from './lib/screenState.ts';
+import { bankSelectOptions, normaliseOptions, previewOverrides, sameOptions, settingsErrors, type SettingsErrors } from './lib/screenState.ts';
 import { qrsOf, useDocumentQrs, usePrintActions } from './usePrinting.ts';
 
 const TEMPLATE_OPTIONS: ReadonlyArray<{ value: InvoiceTemplate; label: string }> = [
@@ -67,7 +70,10 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const save = useApiMutation('company.config.save', { invalidates: ['print', 'vouchers'] });
   const dirty = !sameOptions(normaliseOptions(draft), normaliseOptions(saved));
-  const errors: SettingsErrors = showErrors ? settingsErrors(draft) : {};
+  const banks = useApiQuery('print.bankLedgers', {});
+  const bankOptions = useMemo(() => bankSelectOptions(banks.data, draft.bankLedgerId), [banks.data, draft.bankLedgerId]);
+  const chosenBank = banks.data?.find((b) => b.ledgerId === draft.bankLedgerId) ?? null;
+  const errors: SettingsErrors = showErrors ? settingsErrors(draft, chosenBank?.upiId ?? null) : {};
   const errorOf = (k: keyof InvoicePrintOptions): string | undefined => errors[k] ?? serverErrors[`invoice.${k}`];
 
   const patch = (p: Partial<InvoicePrintOptions>): void => {
@@ -77,7 +83,7 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
 
   const submit = async (): Promise<void> => {
     if (readOnly || !dirty || save.pending) return;
-    const errs = settingsErrors(draft);
+    const errs = settingsErrors(draft, chosenBank?.upiId ?? null);
     if (Object.keys(errs).length > 0) {
       setShowErrors(true);
       return;
@@ -115,12 +121,6 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
   const copies = doc ? resolveCopies(doc) : (['original'] as PrintCopy[]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const printing = usePrintActions(rootRef, { docs: docs ?? [], pageSize, documents: 1, ready });
-  const banks = useApiQuery('print.bankLedgers', {});
-  const bankOptions = useMemo(
-    () => [{ value: '', label: 'None' }, ...(banks.data ?? []).map((b) => ({ value: String(b.ledgerId), label: b.accountNo ? `${b.ledgerName} · A/c ${b.accountNo}` : b.ledgerName }))],
-    [banks.data],
-  );
-  const chosenBank = banks.data?.find((b) => b.ledgerId === draft.bankLedgerId) ?? null;
 
   const formRef = useEnterAdvance<HTMLFormElement>({ onComplete: () => void submit() });
 

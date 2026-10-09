@@ -370,6 +370,9 @@ function movementSql(filtered: boolean, withBatch: boolean): string {
       ORDER BY date, voucher_id, line_no, id`;
 }
 
+/** The two movement statements, exported for the query-plan regression tests (engine.test.ts). */
+export const VALUATION_MOVEMENT_SQL = { all: movementSql(false, false), items: movementSql(true, false) } as const;
+
 const ITEM_COLUMNS = `SELECT i.id, i.name, u.symbol AS unit, i.group_id, i.costing_method, i.standard_cost, i.purchase_price, i.is_service
        FROM stock_items i JOIN units u ON u.id = i.unit_id`;
 const ITEMS_ALL_SQL = `${ITEM_COLUMNS} ORDER BY i.name COLLATE NOCASE`;

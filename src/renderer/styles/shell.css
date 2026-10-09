@@ -721,52 +721,6 @@ body:has(.bx-shell) {
   flex: 1;
   font-weight: var(--fw-semibold);
 }
-.bx-checklist {
-  display: flex;
-  flex-direction: column;
-  margin-top: var(--space-3);
-}
-.bx-checklist__item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  border-top: 1px solid var(--border-subtle);
-}
-.bx-checklist__link {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-  padding: var(--space-2-5) var(--space-1);
-  border-radius: var(--radius-md);
-  text-align: left;
-}
-.bx-checklist__link:hover {
-  background: var(--row-hover);
-}
-.bx-checklist__icon {
-  color: var(--text-muted);
-}
-.bx-checklist__text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-.bx-checklist__label {
-  font-weight: var(--fw-medium);
-}
-.bx-checklist__item.is-done .bx-checklist__label {
-  color: var(--text-secondary);
-}
-.bx-checklist__body {
-  color: var(--text-secondary);
-  font-size: var(--text-small);
-}
-.bx-checklist__chevron {
-  color: var(--text-muted);
-}
 
 /* ── Gate screens (before a company is open) ────────────────────────────── */
 .bx-gate {

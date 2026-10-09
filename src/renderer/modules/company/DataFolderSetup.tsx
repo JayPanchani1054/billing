@@ -59,7 +59,7 @@ export function DataFolderSetup() {
         <ul className="bx-tips">
           <li>Pick a folder that is included in your backups.</li>
           <li>If you can, avoid the C: drive where Windows is installed — a Windows reinstall can wipe it.</li>
-          <li>Bahi also makes its own encrypted backups; you can choose where in Configuration (F12).</li>
+          <li>Bahi also makes its own encrypted backups; you can choose where in Configuration (F12) › Backup.</li>
         </ul>
         {error ? (
           <Banner tone="danger" title="That folder can't be used">

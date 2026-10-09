@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createTestCompany } from '../../testing/fixtures.ts';
+import { stockReplayCount } from '../inventory/index.ts';
 import { dashboardSummary } from './summary.ts';
 import { bulkBusiness } from './testkit.ts';
 
@@ -30,7 +31,11 @@ test('performance: 50,000 vouchers — cold summary < 3 s, repeat < 50 ms, perio
   const deps = { db: t.db, today: t.today, now: t.clock.now(), session: t.ctx.session };
   const input = { asOf: '2026-10-08', from: '2026-04-01', to: '2026-10-08' };
 
+  const replays = stockReplayCount();
   const cold = dashboardSummary(deps, input);
+  // Deterministic part of the budget (independent of the machine's load): the cold summary values
+  // the stock ONCE (opening and closing of the period from the same replay).
+  assert.equal(stockReplayCount() - replays, 1, 'one stock valuation replay for the cold summary');
   const warm = dashboardSummary(deps, input);
   const period = dashboardSummary(deps, { ...input, from: '2026-07-01', to: '2026-09-30' });
   const uncached = dashboardSummary(deps, input, { memo: false });
@@ -38,6 +43,8 @@ test('performance: 50,000 vouchers — cold summary < 3 s, repeat < 50 ms, perio
 
   assert.equal(cold.cached, false);
   assert.equal(warm.cached, true);
+  // About 0.9 s, alone or under the fully parallel suite (3.3 s before the stock valuation ran once per
+  // request); 3 s leaves room for a loaded CI runner while still catching a return of the old cost.
   assert.ok(cold.elapsedMs < 3_000, `cold summary took ${cold.elapsedMs} ms`);
   assert.ok(warm.elapsedMs < 50, `repeat took ${warm.elapsedMs} ms`);
   assert.ok(period.elapsedMs < cold.elapsedMs, 'a period change reuses receivables / payables');

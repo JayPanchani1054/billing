@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, it } from 'node:test';
 import { Db } from './db.ts';
 
@@ -129,6 +132,52 @@ describe('Db read rows (array rows → plain objects)', () => {
       assert.deepEqual(db.all('SELECT * FROM t'), [{ a: 1, b: 'x' }]);
     } finally {
       db.close();
+    }
+  });
+});
+
+describe('Db.dataRevision (cache key of the read-model memos)', () => {
+  it('changes on any write here or any commit elsewhere, and is null while a transaction is open', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-rev-'));
+    const file = path.join(dir, 'rev.db');
+    const a = new Db(file);
+    const b = new Db(file);
+    try {
+      a.exec('CREATE TABLE t (x INTEGER)');
+      const r0 = a.dataRevision();
+      assert.ok(r0 !== null);
+      assert.equal(a.dataRevision(), r0, 'stable while nothing changes (reads do not move it)');
+      a.all('SELECT * FROM t');
+      assert.equal(a.dataRevision(), r0);
+
+      a.run('INSERT INTO t VALUES (1)');
+      const r1 = a.dataRevision();
+      assert.notEqual(r1, r0, 'a write through this connection');
+
+      b.run('INSERT INTO t VALUES (2)');
+      const r2 = a.dataRevision();
+      assert.notEqual(r2, r1, 'a commit by another connection to the same file');
+
+      assert.throws(() =>
+        a.transaction(() => {
+          a.run('INSERT INTO t VALUES (3)');
+          assert.equal(a.dataRevision(), null, 'null inside transaction()');
+          throw new Error('roll back');
+        }),
+      );
+      const r3 = a.dataRevision();
+      assert.ok(r3 !== null);
+      assert.notEqual(r3, r2, 'a rolled-back write still invalidates');
+
+      // A raw BEGIN (e.g. the export's read transaction) also counts as open.
+      (a as unknown as { raw: { exec(sql: string): void } }).raw.exec('BEGIN');
+      assert.equal(a.dataRevision(), null);
+      (a as unknown as { raw: { exec(sql: string): void } }).raw.exec('COMMIT');
+      assert.equal(a.dataRevision(), r3);
+    } finally {
+      a.close();
+      b.close();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

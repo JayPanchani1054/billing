@@ -228,6 +228,27 @@ export interface DashboardBackup {
   daysSince: number | null;
 }
 
+/**
+ * Facts behind the dashboard's "Get started" steps — each step is done when the books say so, not
+ * when it was clicked (core/modules/dashboard/setup.ts).
+ */
+export interface DashboardSetup {
+  /** Company Details has an address and a state. */
+  profileComplete: boolean;
+  /** Features (F11) were saved at least once with a change other than password protection. */
+  featuresReviewed: boolean;
+  /** Invoice printing differs from the defaults (template, copies, bank, UPI, wording…). */
+  invoicePrintingSet: boolean;
+  /** At least one ledger the user created (beyond the predefined ones). */
+  hasOwnLedgers: boolean;
+  /** At least one stock item. */
+  hasItems: boolean;
+  /** At least one sales voucher (any status). */
+  hasSales: boolean;
+  /** A backup folder is chosen in F12 › Backup. */
+  backupFolderSet: boolean;
+}
+
 export interface DashboardFeatures {
   inventory: boolean;
   /** Inventory integrated with accounts (closing stock from the stock valuation). */
@@ -245,8 +266,10 @@ export interface DashboardSummary {
   booksFrom: string;
   ranges: DashboardRanges;
   features: DashboardFeatures;
-  /** At least one voucher exists (else the UI shows a getting-started panel). */
+  /** At least one voucher exists. */
   hasVouchers: boolean;
+  /** Getting-started progress (the "Get started" card). */
+  setup: DashboardSetup;
   sales: DashboardFlow;
   purchases: DashboardFlow;
   /** null without reports.financial. */

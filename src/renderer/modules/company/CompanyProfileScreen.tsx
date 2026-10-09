@@ -3,12 +3,12 @@
  * Alt+H shows who changed the company details (Edit Log).
  */
 import { useMemo, useState } from 'react';
-import { formatDate } from '../../../shared/dates.ts';
 import type { CompanyProfile, CompanyProfileInput, GstRegistrationType } from '../../../shared/types/company.ts';
 import { COMPANY_LOGO_MAX_BYTES } from '../../../shared/types/company.ts';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { native } from '../../app/bridge.ts';
+import { formatRelative } from '../../app/display.ts';
 import { bytesToBase64, formatBytes, sniffImageMime } from '../../app/lib/exportFormat.ts';
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
@@ -16,7 +16,7 @@ import { ReadOnlyNotice, Screen } from '../../app/Screen.tsx';
 import { useAppState, useCan } from '../../app/state.tsx';
 import { Banner, Button, DateInput, Field, FieldGroup, Select, Stack, TextArea, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import { GstinOk, StatePicker } from './fields.tsx';
-import { EMAIL_RE, gstinAutofill, gstinError, MONTH_OPTIONS, PAN_RE, PINCODE_RE } from './lib/companyForm.ts';
+import { EMAIL_RE, gstinAutofill, gstinError, MONTH_OPTIONS, PAN_RE, PINCODE_RE, profileStampText } from './lib/companyForm.ts';
 import { normalizeGstin, validateGstin } from '../../../shared/gst/gstin.ts';
 
 const TAN_RE = /^[A-Z]{4}[0-9]{5}[A-Z]$/;
@@ -184,7 +184,7 @@ function ProfileForm({ profile }: { profile: CompanyProfile }) {
   return (
     <Screen
       title="Company Details"
-      subtitle={`Created ${formatDate(profile.createdAt.slice(0, 10))} · last changed ${formatDate(profile.updatedAt.slice(0, 10))}`}
+      subtitle={profileStampText(profile.createdAt, profile.updatedAt, (iso) => formatRelative(iso))}
       icon="building"
       width="form"
       dirty={dirty}

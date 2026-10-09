@@ -11,6 +11,7 @@ import type {
   DashboardFlow,
   DashboardGst,
   DashboardMonth,
+  DashboardSetup,
   DashboardSummary,
   DashboardSummaryInput,
   DateRange,
@@ -224,6 +225,9 @@ export const DRILL = {
   backup: (): DrillTarget => ({ screen: 'data.backup' }),
   dashboard: (): DrillTarget => ({ screen: 'dashboard.home' }),
   features: (): DrillTarget => ({ screen: 'company.features' }),
+  profile: (): DrillTarget => ({ screen: 'company.profile' }),
+  invoicePrinting: (): DrillTarget => ({ screen: 'print.settings' }),
+  backupSettings: (): DrillTarget => ({ screen: 'company.config', params: { tab: 'backup' } }),
   newLedger: (): DrillTarget => ({ screen: 'accounts.ledger.form', params: {} }),
   newItem: (): DrillTarget => ({ screen: 'inventory.item.form', params: {} }),
   tally: (): DrillTarget => ({ screen: 'data.tally' }),
@@ -239,7 +243,13 @@ export interface DashboardAlert {
   icon: 'clock' | 'alert' | 'box' | 'receipt' | 'truck' | 'database' | 'gst' | 'calendar' | 'wallet' | 'bank';
   title: string;
   body: string;
-  target: DrillTarget;
+  /** Screen the alert opens; null when the viewer may not open it (shown, but not clickable). */
+  target: DrillTarget | null;
+}
+
+/** What the viewer may open (nav.canOpen: screen permission and feature). Default: everything. */
+export interface AlertViewer {
+  canOpen: (screen: string) => boolean;
 }
 
 /** Last backup older than this many days is flagged. */
@@ -249,9 +259,14 @@ export const GST_URGENT_DAYS = 5;
 
 const TONE_ORDER: Record<AlertTone, number> = { danger: 0, warning: 1, info: 2 };
 
-/** Things that need the owner's attention, most serious first. */
-export function buildAlerts(s: DashboardSummary): DashboardAlert[] {
+/**
+ * Things that need the owner's attention, most serious first. An alert whose screen the viewer may
+ * not open stays (it is still true) but gets no target; the backup alerts then ask the viewer to
+ * get the owner to back up instead of pointing at a screen they cannot use.
+ */
+export function buildAlerts(s: DashboardSummary, viewer: AlertViewer = { canOpen: () => true }): DashboardAlert[] {
   const out: DashboardAlert[] = [];
+  const canBackup = viewer.canOpen(DRILL.backup().screen);
   const r = s.receivables;
   if (r.overdue > 0) {
     const old = r.ageing.filter((b) => (b.minDays ?? 0) > 90).reduce((t, b) => t + b.amount, 0);
@@ -338,7 +353,7 @@ export function buildAlerts(s: DashboardSummary): DashboardAlert[] {
       id: 'einvoice-pending',
       tone: 'warning',
       icon: 'receipt',
-      title: `${plural(c.einvoicePending, 'invoice')} without an e-invoice`,
+      title: `${plural(c.einvoicePending, 'invoice')} without an e-Invoice`,
       body: 'Generate the IRN for these B2B / export invoices (Gateway › GST › e-Invoice).',
       target: DRILL.einvoice({ from: c.from, to: c.to }),
     });
@@ -348,8 +363,8 @@ export function buildAlerts(s: DashboardSummary): DashboardAlert[] {
       id: 'eway-pending',
       tone: 'warning',
       icon: 'truck',
-      title: `${plural(c.ewayPending, 'invoice')} without an e-way bill`,
-      body: 'Goods worth more than ₹50,000 need an e-way bill before they move.',
+      title: `${plural(c.ewayPending, 'invoice')} without an e-Way Bill`,
+      body: 'Goods worth more than ₹50,000 need an e-Way Bill before they move.',
       target: DRILL.ewaybill({ from: c.from, to: c.to }),
     });
   }
@@ -371,7 +386,9 @@ export function buildAlerts(s: DashboardSummary): DashboardAlert[] {
       tone: s.hasVouchers ? 'danger' : 'warning',
       icon: 'database',
       title: 'Your books have never been backed up',
-      body: 'Take a backup now and keep a copy on another drive or a pen drive.',
+      body: canBackup
+        ? 'Take a backup now and keep a copy on another drive or a pen drive.'
+        : 'Ask the company owner to take a backup and keep a copy on another drive or a pen drive.',
       target: DRILL.backup(),
     });
   } else if (bk.daysSince !== null && bk.daysSince >= BACKUP_WARN_DAYS) {
@@ -380,11 +397,14 @@ export function buildAlerts(s: DashboardSummary): DashboardAlert[] {
       tone: 'warning',
       icon: 'database',
       title: `Last backup was ${plural(bk.daysSince, 'day')} ago`,
-      body: 'Back up at least once a week so you never lose your entries.',
+      body: canBackup ? 'Back up at least once a week so you never lose your entries.' : 'Ask the company owner to back up — at least once a week.',
       target: DRILL.backup(),
     });
   }
-  return out.map((a, i) => ({ a, i })).sort((x, y) => TONE_ORDER[x.a.tone] - TONE_ORDER[y.a.tone] || x.i - y.i).map((x) => x.a);
+  return out
+    .map((a, i) => ({ a: a.target && !viewer.canOpen(a.target.screen) ? { ...a, target: null } : a, i }))
+    .sort((x, y) => TONE_ORDER[x.a.tone] - TONE_ORDER[y.a.tone] || x.i - y.i)
+    .map((x) => x.a);
 }
 
 // ───────────────────────────── GST card ─────────────────────────────
@@ -416,33 +436,125 @@ export function gstDueLine(g: DashboardGst, asOf: string): string {
 
 // ───────────────────────────── Getting started ─────────────────────────────
 
+export type StartStepId = 'profile' | 'features' | 'printing' | 'ledgers' | 'items' | 'sale' | 'backup' | 'tally';
+
 export interface StartStep {
-  id: string;
+  id: StartStepId;
   title: string;
   body: string;
   action: string;
-  /** Screen to open, or `voucher` for the sales invoice (shell.openVoucher). */
+  /** Screen to open, or `sales-voucher` for the sales invoice (shell.openVoucher). */
   target: DrillTarget | 'sales-voucher';
   shortcut?: string;
+  /** Done — from the books (`setup`), or ticked by the user. Clicking the step never marks it. */
+  done: boolean;
+  /** Done because the books say so (the user cannot untick it). */
+  doneFromBooks: boolean;
+  /** Not counted in the progress (e.g. migrating from Tally). */
+  optional?: boolean;
 }
 
-/** First steps for a company with no vouchers yet, filtered by what the user may do. */
-export function startSteps(o: { manageCompany: boolean; createMasters: boolean; createVouchers: boolean; importData: boolean; inventory: boolean }): StartStep[] {
+export interface StartStepsInput {
+  manageCompany: boolean;
+  createMasters: boolean;
+  createVouchers: boolean;
+  importData: boolean;
+  inventory: boolean;
+  /** nav.canOpen — a step whose screen the user may not open is left out. Default: everything. */
+  canOpen?: (screen: string) => boolean;
+  /** dashboard.summary `setup`; undefined while loading (nothing is done yet). */
+  setup?: DashboardSetup;
+  hasVouchers?: boolean;
+  /** Steps the user ticked by hand ("Mark as done"), per company. */
+  ticked?: readonly string[];
+}
+
+/**
+ * The company's first steps — one list for the whole app (the Gateway shows it through the
+ * dashboard): company details, features, invoice printing, ledgers, items, the first sale and
+ * backups, plus the Tally migration while the books are empty. Filtered by what the user may do
+ * and open; each step is done when the books say so (`setup`) or when the user ticked it.
+ */
+export function startSteps(o: StartStepsInput): StartStep[] {
+  const canOpen = o.canOpen ?? (() => true);
+  const f = o.setup;
+  const ticked = new Set(o.ticked ?? []);
   const steps: StartStep[] = [];
+  const add = (step: Omit<StartStep, 'done' | 'doneFromBooks'>, fromBooks: boolean | undefined): void => {
+    if (step.target !== 'sales-voucher' && !canOpen(step.target.screen)) return;
+    const books = fromBooks === true;
+    steps.push({ ...step, doneFromBooks: books, done: books || ticked.has(step.id) });
+  };
   if (o.manageCompany) {
-    steps.push({ id: 'features', title: 'Switch on what you need', body: 'GST, inventory, bill-wise dues, godowns and more.', action: 'Features', target: DRILL.features(), shortcut: 'F11' });
+    add({ id: 'profile', title: 'Check your company details', body: 'Address, GSTIN and logo appear on every invoice.', action: 'Company details', target: DRILL.profile() }, f?.profileComplete);
+    add({ id: 'features', title: 'Switch on what you need', body: 'GST, inventory, bill-wise dues, godowns and more.', action: 'Features', target: DRILL.features(), shortcut: 'F11' }, f?.featuresReviewed);
+    add(
+      { id: 'printing', title: 'Set up invoice printing', body: 'Template, bank details, UPI QR code and declaration — with a preview.', action: 'Invoice printing', target: DRILL.invoicePrinting() },
+      f?.invoicePrintingSet,
+    );
   }
   if (o.createMasters) {
-    steps.push({ id: 'ledgers', title: 'Add your customers, suppliers and bank', body: 'Enter opening balances so dues and bank balances start right.', action: 'Create ledger', target: DRILL.newLedger() });
-    if (o.inventory) steps.push({ id: 'items', title: 'Add the items you sell', body: 'With GST rate, HSN and opening stock.', action: 'Create stock item', target: DRILL.newItem() });
+    add({ id: 'ledgers', title: 'Add your customers, suppliers and bank', body: 'Enter opening balances so dues and bank balances start right.', action: 'Create ledger', target: DRILL.newLedger() }, f?.hasOwnLedgers);
+    if (o.inventory) add({ id: 'items', title: 'Add the items you sell', body: 'With GST rate, HSN and opening stock.', action: 'Create stock item', target: DRILL.newItem() }, f?.hasItems);
   }
   if (o.createVouchers) {
-    steps.push({ id: 'sale', title: 'Record your first sale', body: 'Sales, dues, cash and GST then appear here.', action: 'Sales invoice', target: 'sales-voucher', shortcut: 'F8' });
+    add({ id: 'sale', title: 'Record your first sale', body: 'Sales, dues, cash and GST then appear here.', action: 'Sales invoice', target: 'sales-voucher', shortcut: 'F8' }, f?.hasSales);
   }
-  if (o.importData) {
-    steps.push({ id: 'tally', title: 'Moving from Tally?', body: 'Bring your masters and vouchers across in one go.', action: 'Migrate from Tally', target: DRILL.tally() });
+  if (o.manageCompany) {
+    add({ id: 'backup', title: 'Set up backups', body: 'Choose a backup folder — ideally on another drive or a USB disk.', action: 'Backup settings', target: DRILL.backupSettings() }, f?.backupFolderSet);
+  }
+  if (o.importData && !o.hasVouchers) {
+    add({ id: 'tally', title: 'Moving from Tally?', body: 'Bring your masters and vouchers across in one go.', action: 'Migrate from Tally', target: DRILL.tally(), optional: true }, false);
   }
   return steps;
+}
+
+export interface StartProgress {
+  done: number;
+  total: number;
+  complete: boolean;
+}
+
+/** Progress over the steps that count (optional ones excluded). */
+export function startProgress(steps: readonly StartStep[]): StartProgress {
+  const counted = steps.filter((x) => !x.optional);
+  const done = counted.filter((x) => x.done).length;
+  return { done, total: counted.length, complete: done === counted.length };
+}
+
+/**
+ * What the dashboard shows for getting started — with or without vouchers (the guidance no longer
+ * vanishes at the first sale): the steps until every counted step is done or the user hid the card.
+ * With no steps the user can take and no vouchers yet: a short "nothing recorded yet".
+ */
+export function startCardMode(steps: readonly StartStep[], o: { hidden: boolean; hasVouchers: boolean }): 'steps' | 'empty' | null {
+  if (steps.length === 0) return o.hasVouchers ? null : 'empty';
+  if (o.hidden) return null;
+  const p = startProgress(steps);
+  if (p.total === 0) return o.hasVouchers ? null : 'steps'; // only optional steps (Tally migration)
+  return p.complete ? null : 'steps';
+}
+
+/** Per-company "Get started" preferences kept in the browser (localStorage). */
+export interface StartPrefs {
+  hidden: boolean;
+  ticked: string[];
+}
+
+export const startPrefsKey = (companyId: string): string => `bahi.dashboard.start.${companyId}`;
+
+export function parseStartPrefs(raw: string | null | undefined): StartPrefs {
+  try {
+    const p = raw ? (JSON.parse(raw) as Partial<StartPrefs>) : {};
+    return { hidden: p.hidden === true, ticked: Array.isArray(p.ticked) ? p.ticked.filter((x): x is string => typeof x === 'string') : [] };
+  } catch {
+    return { hidden: false, ticked: [] };
+  }
+}
+
+export function toggleTicked(prefs: StartPrefs, id: string, on: boolean): StartPrefs {
+  const ticked = prefs.ticked.filter((x) => x !== id);
+  return { ...prefs, ticked: on ? [...ticked, id] : ticked };
 }
 
 // ───────────────────────────── Export ─────────────────────────────

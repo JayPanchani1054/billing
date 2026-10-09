@@ -64,15 +64,22 @@ Gateway (Go To lists them side by side; `lib/gatewayLabels.test.ts` scans every 
 |---|---|---|
 | `dashboard.home` | `{ embedded: true }` when shown inside the Gateway | Gateway right panel |
 | `vouchers.entry` | `{ baseType: VoucherBaseType, voucherTypeId?: number, id?: number }` | F4–F9, Ctrl+F8/F9, Alt+F5/F6/F7/F8/F9, F10 picker (custom types pass `voucherTypeId`), Go To vouchers |
-| `accounts.ledger.form` | `{ id?, initialName?, forResult? }` | Gateway quick action, checklist, Go To ledgers (when the Ledger report is not allowed) |
+| `accounts.ledger.form` | `{ id?, initialName?, forResult? }` | Gateway quick action, dashboard "Get started", Go To ledgers (when the Ledger report is not allowed) |
 | `accounts.ledger.list` | — | |
 | `inventory.item.form` | `{ id?, initialName?, forResult? }` | Gateway quick action, Go To items |
 | `reports.ledger` | `{ ledgerId }` | Go To ledgers (preferred when registered) |
 | `vouchers.daybook`, `reports.balanceSheet`, `reports.profitLoss`, `reports.trialBalance` | — | Gateway quick actions (`WELL_KNOWN_SCREENS`) |
 
 Until a screen is registered, opening it shows "This screen isn't available yet" — nothing crashes.
-The company module owns `company.profile`, `company.features` (F11), `company.config` (F12),
-`company.periodLock` (dialog), `company.changePassword` (dialog), `company.about`, `company.shortcuts`.
+The company module owns `company.profile`, `company.features` (F11), `company.config` (F12, params
+`{ tab?: 'invoice' | 'gst' | 'guards' | 'display' | 'backup' }`), `company.periodLock` (dialog),
+`company.changePassword` (dialog), `company.about`, `company.shortcuts`. Invoice printing options
+(`config.invoice`) have one editor, `print.settings`; F12 › Invoices shows a summary and links there.
+
+**Onboarding** lives in one place: the dashboard's "Get started" card (`modules/dashboard/lib/model.ts`
+`startSteps`: company details, features, invoice printing, ledgers, items, first sale, backups — each
+done from the books via `dashboard.summary` `setup`, or ticked by the user; never by clicking it). The
+Gateway's welcome panel (shown only to users who may not open the dashboard) has quick actions only.
 
 ---
 

@@ -3,7 +3,7 @@
  * selection, and the invoice print settings form (validation, dirty check, preview overrides).
  */
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
-import type { InvoicePrintOptions, InvoicePrintOverrides } from '../../../../shared/types/print.ts';
+import type { InvoicePrintOptions, InvoicePrintOverrides, PrintBank } from '../../../../shared/types/print.ts';
 import { PRINT_BATCH_MAX, PRINT_COPIES } from '../../../../shared/types/print.ts';
 import { validateUpiId } from '../../../../shared/validators.ts';
 
@@ -56,11 +56,16 @@ export function batchKind(value: string): BatchKindOption {
 
 export type SettingsErrors = Partial<Record<keyof InvoicePrintOptions, string>>;
 
-export function settingsErrors(o: InvoicePrintOptions): SettingsErrors {
+/**
+ * `bankUpiId`: the UPI ID saved on the chosen bank ledger. The invoice uses it when the UPI ID here
+ * is blank (print/data.ts), so a blank UPI ID is only an error when there is nothing to fall back to.
+ */
+export function settingsErrors(o: InvoicePrintOptions, bankUpiId: string | null = null): SettingsErrors {
   const e: SettingsErrors = {};
   if (o.copies.length === 0) e.copies = 'Choose at least one copy to print.';
   const upi = o.upiId.trim();
-  if (o.showUpiQr && !upi) e.upiId = 'Enter the UPI ID that customers should pay to (e.g. shop@okhdfcbank), or turn off the UPI QR code.';
+  if (o.showUpiQr && !upi && !bankUpiId?.trim())
+    e.upiId = 'Enter the UPI ID that customers should pay to (e.g. shop@okhdfcbank), or turn off the UPI QR code.';
   else if (upi) {
     const err = validateUpiId(upi);
     if (err) e.upiId = `${err}.`;
@@ -96,5 +101,20 @@ export function previewOverrides(o: InvoicePrintOptions): InvoicePrintOverrides 
   out.declaration = n.declaration.slice(0, 2000);
   out.terms = n.terms.slice(0, 4000);
   out.signatoryLabel = n.signatoryLabel.slice(0, 100);
+  return out;
+}
+
+/**
+ * Options of the Bank account select (from 'print.bankLedgers': active ledgers under Bank Accounts and
+ * its sub-groups, with account numbers). A saved bank ledger that is no longer listed (made inactive,
+ * moved out of Bank Accounts or deleted) stays visible as such instead of the select showing a blank
+ * or a wrong bank — the user sees it and picks another.
+ */
+export function bankSelectOptions(banks: readonly PrintBank[] | undefined, selectedId: number | null): Array<{ value: string; label: string }> {
+  const out = [{ value: '', label: 'None' }];
+  for (const b of banks ?? []) out.push({ value: String(b.ledgerId), label: b.accountNo ? `${b.ledgerName} · A/c ${b.accountNo}` : b.ledgerName });
+  if (banks && selectedId !== null && !banks.some((b) => b.ledgerId === selectedId)) {
+    out.push({ value: String(selectedId), label: 'A ledger that is no longer an active bank account — choose another' });
+  }
   return out;
 }

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { isDeletedRecord, recordLink } from './recordLinks.ts';
+import { isDeletedRecord, listRowRecordLink, recordLink } from './recordLinks.ts';
 
 const modulesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -26,6 +26,24 @@ describe('Edit Log → the record (Alt+A Open record)', () => {
     assert.equal(isDeletedRecord([{ action: 'create' }, { action: 'alter' }, { action: 'delete' }]), true);
     assert.equal(isDeletedRecord([{ action: 'create' }, { action: 'alter' }]), false);
     assert.equal(isDeletedRecord([]), false);
+  });
+
+  it('from an Edit Log list row, a record deleted after that entry does not open (ids can be reused)', () => {
+    const row = { entityType: 'ledger', entityId: 7, action: 'alter' as const };
+    // Still there: its history (by the row's guid) does not end with a delete.
+    assert.deepEqual(listRowRecordLink(row, [{ action: 'create' }, { action: 'alter' }]), { screen: 'accounts.ledger.form', params: { id: 7 }, label: 'Open ledger' });
+    // Deleted later: an old "alter" entry must not open ledger #7 — which may now be another ledger.
+    assert.equal(listRowRecordLink(row, [{ action: 'create' }, { action: 'alter' }, { action: 'delete' }]), null);
+    // The delete entry itself never opens; an unreadable history falls back to the row.
+    assert.equal(listRowRecordLink({ ...row, action: 'delete' }, null), null);
+    assert.deepEqual(listRowRecordLink(row, null)?.screen, 'accounts.ledger.form');
+  });
+
+  it('the Edit Log list checks the record history before Alt+A opens a record', () => {
+    const src = fs.readFileSync(path.join(modulesDir, 'security/AuditScreen.tsx'), 'utf8');
+    assert.match(src, /api\('security\.audit\.entityHistory', \{ entityType: r\.entityType, entityId: r\.entityId, entityGuid: r\.entityGuid \?\? undefined \}\)/);
+    assert.match(src, /const link = listRowRecordLink\(r, history\)/);
+    assert.match(src, /onClick: \(\) => selected && selectedLink && void openRecord\(selected\)/);
   });
 
   it('every target screen is registered by its module with the same id', () => {
@@ -59,4 +77,12 @@ describe('master forms → their Edit history (Alt+H)', () => {
       assert.match(src, /useCan\('audit\.view'\)/, 'hidden without the Edit Log permission');
     });
   }
+});
+
+describe('list screens → Edit history scoped to the record (guid)', () => {
+  it('the ledger list reads the ledger guid before opening its history (list rows carry no guid)', () => {
+    const src = fs.readFileSync(path.join(modulesDir, 'accounts/LedgerListScreen.tsx'), 'utf8');
+    assert.match(src, /entityGuid = \(await api\('accounts\.ledger\.get', \{ id: r\.id \}\)\)\.guid/);
+    assert.match(src, /nav\.push\('security\.audit', \{ entityType: 'ledger', entityId: r\.id, label: r\.name, \.\.\.\(entityGuid \? \{ entityGuid \} : \{\}\) \}\)/);
+  });
 });

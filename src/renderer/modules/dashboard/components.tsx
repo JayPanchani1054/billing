@@ -3,7 +3,7 @@
  * (Enter / double-click opens the row), chart months activate with Enter. Text wears text tokens; the
  * only colours are the chart / tone tokens of the UI kit.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatDrCr, formatQty } from '../../../shared/format.ts';
 import type {
@@ -15,8 +15,8 @@ import type {
   DashboardTopItem,
   DashboardVoucherRow,
 } from '../../../shared/types/dashboard.ts';
-import { useNav, useShell, useCan, useFeatures } from '../../app/index.ts';
-import { Badge, BarChart, Button, Card, DataTable, EmptyState, Icon, KeyValueList, KpiCard, Skeleton } from '../../ui/index.ts';
+import { useCan, useCompany, useFeatures, useNav, useShell } from '../../app/index.ts';
+import { Badge, BarChart, Button, Card, Checkbox, DataTable, EmptyState, Icon, KeyValueList, KpiCard, ProgressBar, Skeleton } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import {
   ageingBars,
@@ -31,22 +31,43 @@ import {
   flowKpi,
   gstDueLine,
   gstItems,
+  parseStartPrefs,
   plural,
   salesSpark,
   signedKpi,
+  startCardMode,
+  startPrefsKey,
+  startProgress,
   startSteps,
+  toggleTicked,
   trendChart,
 } from './lib/model.ts';
-import type { DrillTarget } from './lib/model.ts';
+import type { DashboardAlert, DrillTarget, StartPrefs, StartStep } from './lib/model.ts';
 
 export type DashboardLayout = 'full' | 'compact';
 
-/** nav.push for a DrillTarget (a screen that is not registered yet shows the shell's toast). */
-export function useDrill(): (t: DrillTarget) => void {
+/**
+ * Drill-downs that respect the viewer's permissions (nav.canOpen: screen access and feature). A
+ * target the viewer may not open is not offered — tiles and rows are not clickable, "→" buttons are
+ * hidden — instead of leading to the shell's refusal toast.
+ */
+export interface Drill {
+  /** Open the target (no-op when the viewer may not open it). */
+  open: (t: DrillTarget) => void;
+  can: (screen: string) => boolean;
+  /** onClick handler for the target, or undefined (not clickable) when the viewer may not open it. */
+  to: (t: DrillTarget | null | undefined) => (() => void) | undefined;
+}
+
+export function useDrill(): Drill {
   const nav = useNav();
-  return (t) => {
-    nav.push(t.screen, t.params ?? {});
-  };
+  return useMemo(() => {
+    const can = (screen: string): boolean => nav.canOpen(screen);
+    const open = (t: DrillTarget): void => {
+      if (can(t.screen)) nav.push(t.screen, t.params ?? {});
+    };
+    return { open, can, to: (t: DrillTarget | null | undefined) => (t && can(t.screen) ? () => open(t) : undefined) };
+  }, [nav]);
 }
 
 // ───────────────────────────── KPI row ─────────────────────────────
@@ -74,7 +95,7 @@ export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummar
         delta={sales && sales.delta !== null ? { value: sales.delta, label: 'vs last year', goodWhen: 'up' } : undefined}
         caption={sales ? (sales.delta === null ? sales.comparison : sales.caption) : undefined}
         sparkline={s ? salesSpark(s.trend) : undefined}
-        onClick={period ? () => drill(DRILL.salesRegister(period)) : undefined}
+        onClick={period ? drill.to(DRILL.salesRegister(period)) : undefined}
       />
       {layout === 'full' ? (
         <KpiCard
@@ -84,7 +105,7 @@ export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummar
           amount
           loading={loading}
           caption={purchases ? `${purchases.comparison}${purchaseChange && purchaseChange !== 'no change' ? ` (${purchaseChange})` : ''}` : undefined}
-          onClick={period ? () => drill(DRILL.purchaseRegister(period)) : undefined}
+          onClick={period ? drill.to(DRILL.purchaseRegister(period)) : undefined}
         />
       ) : null}
       {s?.grossProfit ? (
@@ -99,7 +120,7 @@ export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummar
               ? 'No sales in this period'
               : `Margin ${s.grossProfit.marginPercent.toFixed(1)}%${s.grossProfit.method === 'purchases' ? ' · sales − purchases' : ''}`
           }
-          onClick={period ? () => drill(DRILL.profitLoss(period)) : undefined}
+          onClick={period ? drill.to(DRILL.profitLoss(period)) : undefined}
         />
       ) : null}
       <KpiCard
@@ -109,7 +130,7 @@ export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummar
         amount
         loading={loading}
         caption={s ? (s.receivables.overdue > 0 ? `${compact(s.receivables.overdue)} overdue` : 'Nothing overdue') : undefined}
-        onClick={() => drill(DRILL.receivables())}
+        onClick={drill.to(DRILL.receivables())}
       />
       <KpiCard
         label={payablesK.label}
@@ -118,7 +139,7 @@ export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummar
         amount
         loading={loading}
         caption={s ? (s.payables.dueSoon.count > 0 ? `${compact(s.payables.dueSoon.amount)} due in ${s.payables.dueSoon.days} days` : `Nothing due in ${s.payables.dueSoon.days} days`) : undefined}
-        onClick={() => drill(DRILL.payables())}
+        onClick={drill.to(DRILL.payables())}
       />
       <KpiCard
         label={cashBankK.label}
@@ -127,7 +148,7 @@ export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummar
         amount
         loading={loading}
         caption={s ? cashBankCaption(s.cashBank) : undefined}
-        onClick={s ? () => drill(DRILL.cashBank(balanceRange(s))) : undefined}
+        onClick={s ? drill.to(DRILL.cashBank(balanceRange(s))) : undefined}
       />
     </div>
   );
@@ -137,7 +158,7 @@ export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummar
 
 export function AlertsCard({ s, loading, className }: { s: DashboardSummary | undefined; loading: boolean; className?: string }) {
   const drill = useDrill();
-  const alerts = useMemo(() => (s ? buildAlerts(s) : []), [s]);
+  const alerts = useMemo(() => (s ? buildAlerts(s, { canOpen: drill.can }) : []), [s, drill.can]);
   return (
     <Card
       className={className}
@@ -156,21 +177,35 @@ export function AlertsCard({ s, loading, className }: { s: DashboardSummary | un
         <ul className="bx-db-alerts" aria-label="Alerts">
           {alerts.map((a) => (
             <li key={a.id}>
-              <button type="button" className="bx-db-alert" onClick={() => drill(a.target)}>
-                <span className={`bx-db-alert__icon bx-db-alert__icon--${a.tone}`}>
-                  <Icon name={a.icon} size="sm" label={a.tone === 'danger' ? 'Urgent' : a.tone === 'warning' ? 'Warning' : 'Note'} />
-                </span>
-                <span>
-                  <span className="bx-db-alert__title">{a.title}</span>
-                  <span className="bx-db-alert__body">{a.body}</span>
-                </span>
-                <Icon name="chevron-right" size="sm" className="bx-db-alert__chevron" />
-              </button>
+              {a.target ? (
+                <button type="button" className="bx-db-alert" onClick={drill.to(a.target)}>
+                  <AlertContent a={a} />
+                  <Icon name="chevron-right" size="sm" className="bx-db-alert__chevron" />
+                </button>
+              ) : (
+                <div className="bx-db-alert is-static">
+                  <AlertContent a={a} />
+                </div>
+              )}
             </li>
           ))}
         </ul>
       )}
     </Card>
+  );
+}
+
+function AlertContent({ a }: { a: DashboardAlert }) {
+  return (
+    <>
+      <span className={`bx-db-alert__icon bx-db-alert__icon--${a.tone}`}>
+        <Icon name={a.icon} size="sm" label={a.tone === 'danger' ? 'Urgent' : a.tone === 'warning' ? 'Warning' : 'Note'} />
+      </span>
+      <span>
+        <span className="bx-db-alert__title">{a.title}</span>
+        <span className="bx-db-alert__body">{a.body}</span>
+      </span>
+    </>
   );
 }
 
@@ -187,8 +222,8 @@ export function TrendCard({ s, loading, layout, className }: { s: DashboardSumma
       subtitle="Net of returns, before GST"
       padding="sm"
       actions={
-        s ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.salesRegister(s.ranges.period))}>
+        s && drill.can('reports.register') ? (
+          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.salesRegister(s.ranges.period))}>
             Sales register
           </Button>
         ) : undefined
@@ -204,10 +239,14 @@ export function TrendCard({ s, loading, layout, className }: { s: DashboardSumma
           series={chart.series}
           valueFormat="inr"
           height={layout === 'full' ? 260 : 190}
-          onCategoryActivate={(i) => {
-            const m = s.trend[i];
-            if (m) drill(DRILL.salesRegister({ from: m.from, to: m.to }));
-          }}
+          onCategoryActivate={
+            drill.can('reports.register')
+              ? (i) => {
+                  const m = s.trend[i];
+                  if (m) drill.open(DRILL.salesRegister({ from: m.from, to: m.to }));
+                }
+              : undefined
+          }
           empty={chart.empty ? <EmptyState size="sm" icon="chart" title="No sales or purchases yet" body="Press F8 for a sales invoice or F9 for a purchase." /> : undefined}
         />
       ) : null}
@@ -228,9 +267,11 @@ export function AgeingCard({ s, loading, className }: { s: DashboardSummary | un
       subtitle="By due date"
       padding="sm"
       actions={
-        <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.receivablesAgeing())}>
-          Ageing
-        </Button>
+        drill.can('outstanding.receivables') ? (
+          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.receivablesAgeing())}>
+            Ageing
+          </Button>
+        ) : undefined
       }
     >
       {loading && !r ? (
@@ -256,7 +297,8 @@ export function AgeingCard({ s, loading, className }: { s: DashboardSummary | un
                     type="button"
                     className="bx-db-age__row"
                     aria-label={`${b.label}: ${exact(b.amount)}${b.overdue ? ' overdue' : ''}`}
-                    onClick={() => drill(b.overdue ? DRILL.receivablesAgeing() : DRILL.receivables())}
+                    disabled={!drill.can('outstanding.receivables')}
+                    onClick={drill.to(b.overdue ? DRILL.receivablesAgeing() : DRILL.receivables())}
                   >
                     <span className="bx-db-age__label">{b.label}</span>
                     <span className="bx-db-age__track" aria-hidden="true">
@@ -318,8 +360,8 @@ export function CashBankCard({ s, loading, className }: { s: DashboardSummary | 
       subtitle={s ? `As on ${formatDate(s.asOf)}` : undefined}
       padding="sm"
       actions={
-        s ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.cashBank(balanceRange(s)))}>
+        s && drill.can('reports.cashBank') ? (
+          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.cashBank(balanceRange(s)))}>
             Cash/Bank books
           </Button>
         ) : undefined
@@ -333,7 +375,7 @@ export function CashBankCard({ s, loading, className }: { s: DashboardSummary | 
         loading={loading && !s}
         skeletonRows={3}
         density="compact"
-        onRowActivate={(r) => drill(DRILL.ledger(r.ledgerId, s ? balanceRange(s) : undefined))}
+        onRowActivate={drill.can('reports.ledger') ? (r) => drill.open(DRILL.ledger(r.ledgerId, s ? balanceRange(s) : undefined)) : undefined}
         footerRows={s && rows.length > 1 ? [{ key: 'total', cells: { name: 'Total', balance: formatDrCr(s.cashBank.cashTotal + s.cashBank.bankTotal) } }] : undefined}
         empty={<EmptyState size="sm" icon="bank" title="No cash or bank accounts" body="Create a ledger under Bank Accounts to see its balance here." />}
       />
@@ -356,8 +398,8 @@ export function GstCard({ s, className }: { s: DashboardSummary | undefined; cla
       subtitle="Estimate from your books"
       padding="sm"
       actions={
-        main ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.gstr3b(main.period))}>
+        main && drill.can('gst.gstr3b') ? (
+          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.gstr3b(main.period))}>
             GSTR-3B
           </Button>
         ) : undefined
@@ -406,7 +448,7 @@ export function TopCustomersCard({ s, loading, className }: { s: DashboardSummar
         loading={loading && !s}
         skeletonRows={5}
         density="compact"
-        onRowActivate={(r) => drill(DRILL.ledger(r.ledgerId, s?.ranges.period))}
+        onRowActivate={drill.can('reports.ledger') ? (r) => drill.open(DRILL.ledger(r.ledgerId, s?.ranges.period)) : undefined}
         empty={<EmptyState size="sm" icon="users" title="No credit sales in this period" body="Cash sales are not listed by customer. Change the period with Alt+F2." />}
       />
     </Card>
@@ -434,7 +476,7 @@ export function TopItemsCard({ s, loading, className }: { s: DashboardSummary | 
         loading={loading && !s}
         skeletonRows={5}
         density="compact"
-        onRowActivate={(r) => drill(DRILL.stockItem(r.itemId))}
+        onRowActivate={drill.can('stock.item') ? (r) => drill.open(DRILL.stockItem(r.itemId)) : undefined}
         empty={<EmptyState size="sm" icon="box" title="No items sold in this period" body="Item invoices (F8) show their items here." />}
       />
     </Card>
@@ -461,9 +503,11 @@ export function LowStockCard({ s, loading, className }: { s: DashboardSummary | 
       subtitle="Below the reorder level"
       padding="sm"
       actions={
-        <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.reorder())}>
-          Reorder status
-        </Button>
+        drill.can('stock.reorder') ? (
+          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.reorder())}>
+            Reorder status
+          </Button>
+        ) : undefined
       }
     >
       <DataTable<DashboardLowStockItem>
@@ -474,7 +518,7 @@ export function LowStockCard({ s, loading, className }: { s: DashboardSummary | 
         loading={loading && !s}
         skeletonRows={3}
         density="compact"
-        onRowActivate={(r) => drill(DRILL.stockItem(r.itemId))}
+        onRowActivate={drill.can('stock.item') ? (r) => drill.open(DRILL.stockItem(r.itemId)) : undefined}
         empty={<EmptyState size="sm" icon="check-circle" title="Stock levels are fine" body="Set a reorder level on an item to be warned here." />}
       />
       {more > 0 ? <p className="bx-db__note">{plural(more, 'more item')} — open Reorder status to see all.</p> : null}
@@ -522,8 +566,8 @@ export function RecentVouchersCard({ s, loading, className }: { s: DashboardSumm
       subtitle="Last entered"
       padding="sm"
       actions={
-        s ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.dayBook(s.ranges.today))}>
+        s && drill.can('vouchers.daybook') ? (
+          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.dayBook(s.ranges.today))}>
             Day Book
           </Button>
         ) : undefined
@@ -537,7 +581,7 @@ export function RecentVouchersCard({ s, loading, className }: { s: DashboardSumm
         loading={loading && !s}
         skeletonRows={5}
         density="compact"
-        onRowActivate={(r) => drill(DRILL.voucher(r.id))}
+        onRowActivate={drill.can('vouchers.view') ? (r) => drill.open(DRILL.voucher(r.id)) : undefined}
         empty={<EmptyState size="sm" icon="journal" title="No vouchers yet" body="Vouchers you enter appear here." />}
       />
     </Card>
@@ -575,9 +619,11 @@ export function PostDatedCard({ s, loading, className }: { s: DashboardSummary |
       subtitle={p ? `To receive ${compact(p.inflow)} · to pay ${compact(p.outflow)}` : undefined}
       padding="sm"
       actions={
-        <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => drill(DRILL.pdc())}>
-          All cheques
-        </Button>
+        drill.can('banking.pdc') ? (
+          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.pdc())}>
+            All cheques
+          </Button>
+        ) : undefined
       }
     >
       <DataTable<DashboardPdcRow>
@@ -588,7 +634,7 @@ export function PostDatedCard({ s, loading, className }: { s: DashboardSummary |
         loading={loading && !s}
         skeletonRows={3}
         density="compact"
-        onRowActivate={(r) => drill(DRILL.voucher(r.id))}
+        onRowActivate={drill.can('vouchers.view') ? (r) => drill.open(DRILL.voucher(r.id)) : undefined}
         empty={<EmptyState size="sm" icon="calendar" title="No post-dated cheques" body="Receipts and payments marked post-dated appear here until their date." />}
       />
       {p && p.count > p.rows.length ? <p className="bx-db__note">{plural(p.count - p.rows.length, 'more cheque')} — see All cheques.</p> : null}
@@ -598,48 +644,130 @@ export function PostDatedCard({ s, loading, className }: { s: DashboardSummary |
 
 // ───────────────────────────── Getting started ─────────────────────────────
 
-export function GettingStarted({ className }: { className?: string }) {
+function loadStartPrefs(companyId: string): StartPrefs {
+  try {
+    return parseStartPrefs(window.localStorage.getItem(startPrefsKey(companyId)));
+  } catch {
+    return parseStartPrefs(null);
+  }
+}
+
+function saveStartPrefs(companyId: string, prefs: StartPrefs): void {
+  try {
+    window.localStorage.setItem(startPrefsKey(companyId), JSON.stringify(prefs));
+  } catch {
+    // not remembered (storage blocked)
+  }
+}
+
+/**
+ * The company's getting-started steps (lib/model.ts startSteps — the app's one onboarding list) and
+ * whether the card shows (startCardMode). Hide and "Mark as done" are remembered per company.
+ */
+export function useStartSteps(s: DashboardSummary | undefined): {
+  steps: StartStep[];
+  mode: 'steps' | 'empty' | null;
+  hide: () => void;
+  tick: (id: string, on: boolean) => void;
+} {
+  const drill = useDrill();
+  const companyId = useCompany().id;
+  const features = useFeatures();
+  const manageCompany = useCan('company.manage');
+  const createMasters = useCan('masters.create');
+  const createVouchers = useCan('vouchers.create');
+  const importData = useCan('data.import');
+  const [prefs, setPrefs] = useState<StartPrefs>(() => loadStartPrefs(companyId));
+  useEffect(() => setPrefs(loadStartPrefs(companyId)), [companyId]);
+  const update = (next: (p: StartPrefs) => StartPrefs) =>
+    setPrefs((p) => {
+      const v = next(p);
+      saveStartPrefs(companyId, v);
+      return v;
+    });
+  const steps = startSteps({
+    manageCompany,
+    createMasters,
+    createVouchers,
+    importData,
+    inventory: features.inventory,
+    canOpen: drill.can,
+    setup: s?.setup,
+    hasVouchers: s?.hasVouchers ?? false,
+    ticked: prefs.ticked,
+  });
+  return {
+    steps,
+    mode: s ? startCardMode(steps, { hidden: prefs.hidden, hasVouchers: s.hasVouchers }) : null,
+    hide: () => update((p) => ({ ...p, hidden: true })),
+    tick: (id, on) => update((p) => toggleTicked(p, id, on)),
+  };
+}
+
+export function GettingStarted({ s, className }: { s: DashboardSummary | undefined; className?: string }) {
   const shell = useShell();
   const drill = useDrill();
-  const features = useFeatures();
-  const steps = startSteps({
-    manageCompany: useCan('company.manage'),
-    createMasters: useCan('masters.create'),
-    createVouchers: useCan('vouchers.create'),
-    importData: useCan('data.import'),
-    inventory: features.inventory,
-  });
-  return (
-    <Card className={className} padding="md" title="Get started" subtitle="Your dashboard fills up as you record sales, purchases and receipts.">
-      {steps.length === 0 ? (
+  const { steps, mode, hide, tick } = useStartSteps(s);
+  if (mode === null) return null;
+  if (mode === 'empty') {
+    return (
+      <Card className={className} padding="md" title="Get started">
         <EmptyState size="sm" icon="chart" title="Nothing recorded yet" body="Figures appear here once vouchers are entered. Ask the company owner if you need to enter them yourself." />
-      ) : (
-        <ol className="bx-db-start" aria-label="First steps">
-          {steps.map((st, i) => (
-            <li key={st.id} className="bx-db-start__step">
-              <span className="bx-db-start__num" aria-hidden="true">
-                {i + 1}
+      </Card>
+    );
+  }
+  const progress = startProgress(steps);
+  return (
+    <Card
+      className={className}
+      padding="md"
+      title="Get started"
+      subtitle={progress.total > 0 ? `${progress.done} of ${progress.total} done · steps tick themselves off as you complete them` : 'Your dashboard fills up as you record sales, purchases and receipts.'}
+      actions={
+        <Button size="sm" variant="ghost" onClick={hide}>
+          Hide
+        </Button>
+      }
+    >
+      {progress.total > 0 ? <ProgressBar value={progress.done} max={progress.total} aria-label="Getting started progress" /> : null}
+      <ol className="bx-db-start" aria-label="First steps">
+        {steps.map((st, i) => (
+          <li key={st.id} className={st.done ? 'bx-db-start__step is-done' : 'bx-db-start__step'}>
+            <span className="bx-db-start__num" aria-hidden="true">
+              {st.done ? <Icon name="check" size="sm" /> : i + 1}
+            </span>
+            <span className="bx-db-start__text">
+              <span className="bx-db-start__title">
+                {st.title}
+                {st.optional ? <span className="bx-muted"> (optional)</span> : null}
               </span>
-              <span className="bx-db-start__text">
-                <span className="bx-db-start__title">{st.title}</span>
-                <span className="bx-db-start__body">{st.body}</span>
-              </span>
-              <Button
-                size="sm"
-                variant={st.target === 'sales-voucher' ? 'primary' : 'secondary'}
-                shortcut={st.shortcut}
-                onClick={() => {
-                  const t = st.target;
-                  if (t === 'sales-voucher') shell.openVoucher('sales');
-                  else drill(t);
-                }}
-              >
-                {st.action}
-              </Button>
-            </li>
-          ))}
-        </ol>
-      )}
+              <span className="bx-db-start__body">{st.body}</span>
+              {st.optional ? null : (
+                <Checkbox
+                  className="bx-db-start__tick"
+                  label={st.doneFromBooks ? 'Done' : 'Mark as done'}
+                  checked={st.done}
+                  disabled={st.doneFromBooks}
+                  onChange={(on) => tick(st.id, on)}
+                  aria-label={st.doneFromBooks ? `“${st.title}” is done` : `Mark “${st.title}” as done`}
+                />
+              )}
+            </span>
+            <Button
+              size="sm"
+              variant={st.done ? 'ghost' : st.target === 'sales-voucher' ? 'primary' : 'secondary'}
+              shortcut={st.shortcut}
+              onClick={() => {
+                const t = st.target;
+                if (t === 'sales-voucher') shell.openVoucher('sales');
+                else drill.open(t);
+              }}
+            >
+              {st.action}
+            </Button>
+          </li>
+        ))}
+      </ol>
     </Card>
   );
 }

@@ -357,7 +357,7 @@ export function DocEventsDrawer({ voucherId, title, onClose }: { voucherId: numb
   if (voucherId === null) return null;
   const events = q.data ?? [];
   return (
-    <Drawer open onClose={onClose} title="e-Invoice and e-way bill history" description={title} size="md">
+    <Drawer open onClose={onClose} title="e-Invoice and e-Way Bill history" description={title} size="md">
       {q.loading ? (
         <p className="bx-muted">Loading…</p>
       ) : q.error ? (

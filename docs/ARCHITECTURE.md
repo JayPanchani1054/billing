@@ -162,7 +162,12 @@ export const accountsRoutes = {
 
 ### Db (`core/db/db.ts`)
 `db.get/all/run/value(sql, params)`, `db.iterate(sql, params)` (one row at a time, for large exports),
-`db.transaction(fn)` (nestable, synchronous), `db.exec(ddl)`.
+`db.transaction(fn)` (nestable, synchronous), `db.exec(ddl)`, `db.dataRevision()` (cache key that changes
+on any write or another connection's commit; null inside a transaction — read-model memos key on it).
+Rows are ordinary plain objects (built from SQLite array rows, no per-row copy).
+Optional filters are separate constant statements, never `(:flag = 0 OR col IN …)` (that hides the
+index from the planner); migrations are driven by `PRAGMA user_version`, so a follow-up migration is
+numbered above the highest version already shipped (see `migrations/index.ts`).
 Use `:name` placeholders with an object. Always parameterise — **never interpolate user input into SQL**.
 
 ---

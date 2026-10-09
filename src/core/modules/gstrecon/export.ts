@@ -3,7 +3,7 @@
  * Missing in Books, Missing in Portal, Duplicates, Accepted & Ignored, Supplier-wise) or one CSV of every
  * row; and the plain-text follow-up e-mail for a supplier. Amounts are written in RUPEES (paise / 100).
  */
-import { formatDate } from '../../../shared/dates.ts';
+import { formatDate, localDateOf } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import { normalizeGstin } from '../../../shared/gst/index.ts';
 import type {
@@ -183,7 +183,7 @@ export function exportReconFile(db: Db, input: { period: string; source: ReconSo
     `${company.name}${company.gstin ? ` (GSTIN ${company.gstin})` : ''}`,
     `${label} vs books — ${summary.periodLabel}`,
     summary.run
-      ? `Reconciled on ${summary.run.runAt.slice(0, 10)}; tolerance ₹ ${formatMoney(tol?.amountPaise ?? 100)} per head, ${tol?.dateDays ?? 0} day(s)${summary.stale ? ` — ${summary.staleReason}` : ''}`
+      ? `Reconciled on ${formatDate(localDateOf(summary.run.runAt))}; tolerance ₹ ${formatMoney(tol?.amountPaise ?? 100)} per head, ${tol?.dateDays ?? 0} day(s)${summary.stale ? ` — ${summary.staleReason}` : ''}`
       : 'Not reconciled yet',
   ];
 

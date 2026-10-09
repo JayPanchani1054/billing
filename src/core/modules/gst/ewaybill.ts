@@ -316,7 +316,7 @@ export function updateEwayBill(ctx: CompanyCtx, input: EwayUpdateInput): GstDocS
       WHERE v.eway_bill_no = :no AND v.id <> :id LIMIT 1`,
     { no, id: v.id },
   );
-  if (other) throw rule(`E-way bill ${no} is already recorded on ${other.vt_name} ${other.number ?? ''}.`);
+  if (other) throw rule(`e-Way Bill ${no} is already recorded on ${other.vt_name} ${other.number ?? ''}.`);
   ctx.db.run(`UPDATE vouchers SET eway_bill_no = :no, eway_bill_date = :d, eway_valid_upto = :u, updated_at = :ts, updated_by = :uid WHERE id = :id`, {
     id: v.id,
     no,

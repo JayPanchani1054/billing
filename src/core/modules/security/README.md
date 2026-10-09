@@ -219,10 +219,15 @@ Optional: the controller's company-delete throttle still uses the fixed 5 / 5 mi
 
 - Record history (`security.audit { entityType, entityId, entityGuid?, label? }`) is opened with **Alt+H "Edit
   history"** from voucher entry / view, users and roles, and the master forms: ledger (also the ledger list),
-  group (also the group list), voucher type, stock item and company details (`entityType` = the type the
-  core audits: `ledger`, `group`, `voucher_type`, `stock_item`, `company` #1). Hidden without `audit.view`.
+  group (also the group list), voucher type, stock item, the inventory dialog masters (stock group, stock
+  category, godown, unit) and company details (`entityType` = the type the core audits: `ledger`, `group`,
+  `voucher_type`, `stock_item`, `stock_group`, `stock_category`, `godown`, `unit`, `company` #1), passing the
+  record's guid so a record id reused after a delete does not mix in another record's entries (the ledger
+  list reads the guid with `accounts.ledger.get`). Hidden without `audit.view`.
 - The other way, **Alt+A "Open record"** in the history (and on a selected Edit Log row) opens the voucher view
-  or the master's form (`lib/recordLinks.ts`); hidden when the record was deleted or has no screen.
+  or the master's form (`lib/recordLinks.ts`); hidden when the record was deleted or has no screen. From a
+  list row the record's history (by the row's guid) is read first, so an older entry of a record deleted
+  later says so instead of opening another record that reused the id.
 
 ## Limitations
 

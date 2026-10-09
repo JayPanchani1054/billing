@@ -86,7 +86,7 @@ import {
   withGroup,
 } from './lib/auditQuery.ts';
 import type { ActionGroup, AuditFilterState, AuditScreenParams, HistoryTarget } from './lib/auditQuery.ts';
-import { isDeletedRecord, recordLink } from './lib/recordLinks.ts';
+import { isDeletedRecord, listRowRecordLink, recordLink } from './lib/recordLinks.ts';
 import { diffSummary } from './lib/diffFormat.ts';
 import { formatDateTime, relativeTime } from './lib/time.ts';
 
@@ -345,6 +345,22 @@ function EditLogView({ params }: { params: Params }) {
 
   const hasRecord = !!selected?.entityType && selected.entityId !== null;
   const selectedLink = selected ? recordLink(selected.entityType, selected.entityId, selected.action === 'delete') : null;
+  /** Alt+A: open the record unless it was deleted since this entry (its history says so; ids can be reused). */
+  const openRecord = async (r: AuditListRow): Promise<void> => {
+    if (!r.entityType || r.entityId === null) return;
+    let history: AuditHistoryVersion[] | null = null;
+    try {
+      history = (await api('security.audit.entityHistory', { entityType: r.entityType, entityId: r.entityId, entityGuid: r.entityGuid ?? undefined })).versions;
+    } catch {
+      // History unreadable: open from the row alone (the screen explains a missing record).
+    }
+    const link = listRowRecordLink(r, history);
+    if (!link) {
+      toast.info('This record was deleted', { message: 'Alt+H shows its history up to the deletion.' });
+      return;
+    }
+    nav.push(link.screen, link.params);
+  };
   useScreenActions([
     { key: 'Alt+V', label: verify.busy ? 'Verifying…' : 'Verify edit log', icon: 'shield', primary: true, onClick: () => void verify.run(), disabled: verify.busy, hint: 'Check that no entry was changed, inserted or removed.' },
     { key: 'Alt+H', label: 'Record history', icon: 'clock', onClick: () => selected && openHistory(selected), disabled: !hasRecord, hint: 'Every change to the selected record.' },
@@ -352,7 +368,7 @@ function EditLogView({ params }: { params: Params }) {
       key: 'Alt+A',
       label: selectedLink?.label ?? 'Open record',
       icon: 'edit',
-      onClick: () => selectedLink && nav.push(selectedLink.screen, selectedLink.params),
+      onClick: () => selected && selectedLink && void openRecord(selected),
       disabled: !selectedLink || !nav.canOpen(selectedLink.screen),
       hint: selected && !selectedLink ? 'This entry has no record to open (deleted, or not a voucher or master).' : undefined,
     },

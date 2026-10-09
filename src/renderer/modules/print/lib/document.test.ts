@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { DEFAULT_CONFIG } from '../../../../shared/settings.ts';
 import { assertPrintableMarkup, buildPrintHtml } from './document.ts';
 import { DOCUMENT_CSS, pageCss, previewCss } from './styles.ts';
-import { normaliseOptions, previewOverrides, sameOptions, settingsErrors, cycle, orderedSelection, toggleAll, toggleId, batchKind } from './screenState.ts';
+import { bankSelectOptions, normaliseOptions, previewOverrides, sameOptions, settingsErrors, cycle, orderedSelection, toggleAll, toggleId, batchKind } from './screenState.ts';
 
 describe('printable HTML document', () => {
   it('is self-contained: doctype, charset, escaped title, inline CSS, page rules', () => {
@@ -80,6 +80,23 @@ describe('screen state helpers', () => {
     assert.match(settingsErrors({ ...base, showUpiQr: true, upiId: '' }).upiId ?? '', /Enter the UPI ID/);
     assert.match(settingsErrors({ ...base, upiId: 'shop' }).upiId ?? '', /UPI ID is invalid/);
     assert.deepEqual(settingsErrors({ ...base, showUpiQr: true, upiId: 'shop@okhdfcbank' }), {});
+    // Regression: a blank UPI ID falls back to the bank ledger's (print/data.ts), so it is not an error then.
+    assert.deepEqual(settingsErrors({ ...base, showUpiQr: true, upiId: '' }, 'shop@okicici'), {});
+    assert.match(settingsErrors({ ...base, showUpiQr: true, upiId: '' }, '  ').upiId ?? '', /Enter the UPI ID/);
+  });
+  it('bank select: names with account numbers; a saved ledger that is no longer listed stays visible', () => {
+    const bank = (ledgerId: number, ledgerName: string, accountNo: string | null) => ({ ledgerId, ledgerName, accountNo, accountHolder: null, ifsc: null, bankName: null, branch: null, upiId: null });
+    const banks = [bank(7, 'HDFC Bank', '50100012345678'), bank(9, 'SBI Current', null)];
+    assert.deepEqual(bankSelectOptions(banks, 7), [
+      { value: '', label: 'None' },
+      { value: '7', label: 'HDFC Bank · A/c 50100012345678' },
+      { value: '9', label: 'SBI Current' },
+    ]);
+    const stale = bankSelectOptions(banks, 42);
+    assert.equal(stale.length, 4);
+    assert.deepEqual(stale[3], { value: '42', label: 'A ledger that is no longer an active bank account — choose another' });
+    // Still loading: only None (nothing is called stale before the list arrives).
+    assert.deepEqual(bankSelectOptions(undefined, 42), [{ value: '', label: 'None' }]);
   });
   it('dirty check and preview overrides', () => {
     const base = DEFAULT_CONFIG.invoice;

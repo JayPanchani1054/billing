@@ -58,9 +58,9 @@ export function profitability(db: Db, today: string, input: ProfitabilityInput):
        FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
       WHERE (v.base_type IN ('sales', 'credit_note') OR ${outwardDebitNoteLineSql('v', 'ie')}) AND ${BOOKS_FILTER('v')}
         AND ie.date >= :from AND ie.date <= :to
-        AND (:filter = 0 OR ie.item_id IN (SELECT value FROM json_each(:ids)))
+        ${scope ? 'AND ie.item_id IN (SELECT value FROM json_each(:ids))' : ''}
       ORDER BY ie.date, ie.voucher_id, ie.line_no`,
-    { today, from: input.from, to: input.to, filter: scope ? 1 : 0, ids: scope ? jsonIds(scope) : '[]' },
+    scope ? { today, from: input.from, to: input.to, ids: jsonIds(scope) } : { today, from: input.from, to: input.to },
   );
 
   interface Acc {

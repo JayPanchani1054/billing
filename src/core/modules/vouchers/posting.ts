@@ -1001,7 +1001,7 @@ class PostingBuilder {
       if (outward && this.accounting && number !== null && !GST_INVOICE_NUMBER.test(number)) {
         this.warn(
           'gst_invoice_number',
-          `Invoice number ${number} is not valid for GST: use at most 16 characters — letters, digits, "-" and "/" only (CGST Rule 46). E-invoices with such numbers are rejected.`,
+          `Invoice number ${number} is not valid for GST: use at most 16 characters — letters, digits, "-" and "/" only (CGST Rule 46). e-Invoices with such numbers are rejected.`,
           'confirm',
           'number',
         );

@@ -500,6 +500,30 @@ test('memo: identical requests reuse the result until anything in the books chan
   b.t.close();
 });
 
+test('memo: nothing is cached or reused while a transaction is open (uncommitted data may roll back)', () => {
+  const b = buildDashboardBooks();
+  const deps = { db: b.t.db, today: b.t.today, now: b.t.clock.now(), session: b.t.ctx.session };
+  const committed = dashboardSummary(deps, INPUT);
+  assert.equal(dashboardSummary(deps, INPUT).cached, true);
+  let inside = 0;
+  assert.throws(() =>
+    b.t.db.transaction(() => {
+      // S4-like 1 mixer @ 300 → YTD 4,800 + 300, visible inside the transaction only.
+      save(b, { voucherTypeId: b.vt.sales, date: TODAY, mode: 'item_invoice', partyLedgerId: b.L.acme, items: [{ itemId: b.I.mixer, qty: 1, rate: 300 }] });
+      const s = dashboardSummary(deps, INPUT);
+      assert.equal(s.cached, false);
+      assert.equal(dashboardSummary(deps, INPUT).cached, false, 'never reused inside the transaction');
+      inside = s.sales.ytd;
+      throw new Error('roll back');
+    }),
+  );
+  assert.equal(inside, rs(5_100));
+  const after = dashboardSummary(deps, INPUT);
+  assert.equal(after.cached, false, 'the rolled-back write invalidated the earlier result');
+  assert.equal(after.sales.ytd, committed.sales.ytd, 'the rolled-back sale was never remembered');
+  b.t.close();
+});
+
 test('ranges: last year keeps month ends and maps 29-Feb; YTD starts at the books beginning in the first year', () => {
   const r = dashboardRanges({ asOf: '2028-02-29', from: '2027-04-01', to: '2028-02-29' }, 4, '2020-04-01');
   assert.deepEqual(r.lastYear.today, { from: '2027-02-28', to: '2027-02-28' });

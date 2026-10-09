@@ -134,7 +134,11 @@ export function bulkVouchers(t: TestCompany, count: number, opts: { from?: strin
  * ledger, 1 unit out) and a purchase (Dr purchase ledger / Cr party, 1 unit in), spread over 360 days,
  * parties and items taken in turn. Each voucher balances; stock moves through inventory_entries.
  */
-export function bulkTrade(t: TestCompany, count: number, opts: { parties: number[]; items: number[]; salesLedger: number; purchaseLedger: number; from?: string }): void {
+export function bulkTrade(
+  t: TestCompany,
+  count: number,
+  opts: { parties: number[]; items: number[]; salesLedger: number; purchaseLedger: number; from?: string; /** guid / number prefix for a second batch */ batch?: string },
+): void {
   const { parties, items } = opts;
   if (parties.length === 0 || items.length === 0) throw new Error('bulkTrade: need parties and items');
   const start = Date.parse(`${opts.from ?? '2026-04-01'}T00:00:00Z`);
@@ -147,7 +151,7 @@ export function bulkTrade(t: TestCompany, count: number, opts: { parties: number
       const vid = t.db.run(
         `INSERT INTO vouchers (guid, voucher_type_id, base_type, number, number_seq, date, total_amount, created_at, updated_at)
          VALUES (:guid, :vt, :bt, :num, :seq, :date, :amt, :ts, :ts)`,
-        { guid: `trade-${i}`, vt: sale ? t.ids.voucherTypes.sales : t.ids.voucherTypes.purchase, bt: sale ? 'sales' : 'purchase', num: String(i + 1), seq: i + 1, date, amt: amount, ts },
+        { guid: `${opts.batch ?? ''}trade-${i}`, vt: sale ? t.ids.voucherTypes.sales : t.ids.voucherTypes.purchase, bt: sale ? 'sales' : 'purchase', num: `${opts.batch ?? ''}${i + 1}`, seq: i + 1, date, amt: amount, ts },
       ).lastInsertRowid;
       const party = parties[(i * 7) % parties.length];
       const ledger = sale ? opts.salesLedger : opts.purchaseLedger;

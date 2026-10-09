@@ -182,7 +182,7 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   const irnGenerated = v?.irn.status === 'generated';
   const actions: ScreenActionItem[] = [
     { key: 'Alt+A', label: 'Alter', icon: 'edit', primary: true, onClick: () => v && nav.push('vouchers.entry', { id: v.id }), hidden: !live || !canAlter, disabled: irnGenerated, hint: irnGenerated ? 'An e-invoice has been generated: cancel it instead of altering.' : undefined },
-    { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => v && nav.push('print.voucher', { id: v.id }), hidden: !v, group: 'output' },
+    { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => v && nav.push('print.voucher', { id: v.id }), hidden: !v || !nav.isRegistered('print.voucher'), group: 'output' },
     { key: 'Alt+2', label: 'Duplicate', icon: 'copy', onClick: () => v && nav.push('vouchers.entry', { duplicateOf: v.id }), hidden: !v || !canCreate, group: 'output' },
     {
       key: 'Alt+H',
@@ -268,7 +268,7 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
                     { label: 'Vehicle', value: dispatch?.vehicleNo ?? '', hideEmpty: true },
                     { label: 'Transporter', value: dispatch?.transporterName ?? '', hideEmpty: true },
                     { label: 'Distance', value: dispatch?.distanceKm ? `${dispatch.distanceKm} km` : '', hideEmpty: true },
-                    { label: 'e-Way bill', value: v.ewayBill.number ? `${v.ewayBill.number}${v.ewayBill.validUpto ? ` (valid up to ${formatDate(v.ewayBill.validUpto)})` : ''}` : '', hideEmpty: true },
+                    { label: 'e-Way Bill', value: v.ewayBill.number ? `${v.ewayBill.number}${v.ewayBill.validUpto ? ` (valid up to ${formatDate(v.ewayBill.validUpto)})` : ''}` : '', hideEmpty: true },
                     { label: 'IRN', value: v.irn.irn ?? '', hideEmpty: true },
                     { label: 'Ack no.', value: v.irn.ackNo ? `${v.irn.ackNo}${v.irn.ackDate ? ` · ${formatDate(v.irn.ackDate.slice(0, 10))}` : ''}` : '', hideEmpty: true },
                   ]}

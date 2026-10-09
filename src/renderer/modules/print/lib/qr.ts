@@ -1,7 +1,7 @@
 /**
  * QR images for printed documents, as PNG data URLs (self-contained, allowed by the print CSP).
  *  - UPI: the upi://pay link from the print data (amount and invoice number pre-filled).
- *  - E-invoice: the signed QR string returned by the IRP, printed as is (Rule 48(4)).
+ *  - e-Invoice: the signed QR string returned by the IRP, printed as is (Rule 48(4)).
  */
 import QRCode from 'qrcode';
 import type { PrintVoucherData } from '../../../../shared/types/print.ts';

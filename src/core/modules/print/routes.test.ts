@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { PrintBankOption, PrintBatchResult, PrintVoucherData } from '../../../shared/types/print.ts';
 import { save, setupKit } from '../vouchers/testkit.ts';
+import { accountsRoutes } from '../accounts/routes.ts';
 import { printRoutes } from './routes.ts';
 import { sampleGstin } from './sample.ts';
 import { validateGstin } from '../../../shared/gst/index.ts';
@@ -74,6 +75,17 @@ describe('print routes (through the dispatcher)', () => {
     const hdfc = banks.find((b) => b.ledgerName === 'HDFC Bank');
     assert.equal(hdfc?.accountNo, '50100012345678');
     assert.equal(banks.some((b) => b.ledgerName === 'Cash'), false);
+    k.t.close();
+  });
+
+  it('print.bankLedgers includes bank ledgers in sub-groups of Bank Accounts (the invoice bank select)', async () => {
+    const k = setupKit();
+    const parentId = k.t.db.value<number>(`SELECT id FROM groups WHERE reserved_code = 'BANK_ACCOUNTS'`);
+    const sub = await k.t.callOk<{ id: number }>(accountsRoutes, 'accounts.group.save', { name: 'Current Accounts', parentId });
+    const id = k.t.addLedger({ name: 'Axis Current', group: 'BANK_ACCOUNTS' });
+    k.t.db.run('UPDATE ledgers SET group_id = :g WHERE id = :id', { g: sub.id, id });
+    const banks = await k.t.callOk<PrintBankOption[]>(printRoutes, 'print.bankLedgers', {});
+    assert.ok(banks.some((b) => b.ledgerId === id && b.ledgerName === 'Axis Current'), 'regression: F12 kept only ledgers whose own group name contained "bank"');
     k.t.close();
   });
 });

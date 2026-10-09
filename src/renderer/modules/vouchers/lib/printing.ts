@@ -35,8 +35,11 @@ export function afterSavePrint(id: number, printAfterSave: boolean): { id: numbe
   return printAfterSave ? { id, autoPrint: true } : null;
 }
 
-/** Second line of the "saved" toast: the amount, Alt+P, and any info warnings. */
-export function savedToastMessage(amount: string, infos: readonly string[], printOpens: boolean): string {
-  const parts = [`₹ ${amount}`, printOpens ? 'Printing…' : 'Alt+P to print', ...infos];
-  return parts.join(' · ');
+/**
+ * Second line of the "saved" toast: the amount, Alt+P, and any info warnings. `canPrint` false (no
+ * print module registered) leaves the Alt+P hint out, as the action is hidden then.
+ */
+export function savedToastMessage(amount: string, infos: readonly string[], printOpens: boolean, canPrint = true): string {
+  const print = printOpens ? ['Printing…'] : canPrint ? ['Alt+P to print'] : [];
+  return [`₹ ${amount}`, ...print, ...infos].join(' · ');
 }

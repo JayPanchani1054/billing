@@ -164,7 +164,7 @@ export function headerRefs(doc: PrintVoucherData): LabelValue[] {
   }
   if (doc.placeOfSupply && doc.layout !== 'voucher') out.push({ label: 'Place of Supply', value: doc.placeOfSupply.label });
   if (doc.layout === 'invoice' && doc.gst.showTax) out.push({ label: 'Reverse Charge', value: doc.reverseCharge ? 'Yes' : 'No' });
-  if (doc.ewayBill) out.push({ label: 'E-way Bill No.', value: doc.ewayBill.date ? `${doc.ewayBill.number} dated ${dateText(doc.ewayBill.date)}` : doc.ewayBill.number });
+  if (doc.ewayBill) out.push({ label: 'e-Way Bill No.', value: doc.ewayBill.date ? `${doc.ewayBill.number} dated ${dateText(doc.ewayBill.date)}` : doc.ewayBill.number });
   return [...out, ...doc.references];
 }
 

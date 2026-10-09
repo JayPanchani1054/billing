@@ -48,3 +48,16 @@ export function isDeletedRecord(versions: ReadonlyArray<{ action: AuditActionNam
   return versions.length > 0 && versions[versions.length - 1].action === 'delete';
 }
 
+/**
+ * "Open record" from an Edit Log list row (Alt+A): an older entry of a record deleted later must not
+ * open — record ids can be reused after a delete (SQLite rowids), so the form would show another record
+ * or "not found". The row's record history (`security.audit.entityHistory` with the row's guid, oldest
+ * first) decides; null history (could not be read) falls back to the row alone.
+ */
+export function listRowRecordLink(
+  row: { entityType: string | null; entityId: number | null; action: AuditActionName },
+  history: ReadonlyArray<{ action: AuditActionName }> | null,
+): RecordLink | null {
+  return recordLink(row.entityType, row.entityId, row.action === 'delete' || (history !== null && isDeletedRecord(history)));
+}
+

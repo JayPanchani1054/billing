@@ -3,7 +3,7 @@
  * filters, the side-by-side compare table with highlighted differences, ITC tiles, import and
  * conflict messages, tolerance form validation and the results export definition.
  */
-import { formatDate } from '../../../../shared/dates.ts';
+import { formatDate, localDateOf } from '../../../../shared/dates.ts';
 import { formatMoney } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import type {
@@ -297,7 +297,7 @@ export function conflictMessage(c: ReconImportConflict): { title: string; messag
   return {
     title: `Replace the ${label} for ${periodLabelOf(c.period)}?`,
     message:
-      `It was imported on ${formatDate(c.existingImportedAt.slice(0, 10))}${c.existingFileName ? ` from ${c.existingFileName}` : ''} with ${c.existingDocCount} documents. ` +
+      `It was imported on ${formatDate(localDateOf(c.existingImportedAt))}${c.existingFileName ? ` from ${c.existingFileName}` : ''} with ${c.existingDocCount} documents. ` +
       `The new file has ${c.newDocCount}. Replacing removes the earlier results; your links, accepted and ignored documents are kept.`,
   };
 }
