@@ -99,7 +99,7 @@ export function CurrenciesScreen() {
       loading={cq.loading}
       error={cq.error}
       onRetry={() => void cq.refetch()}
-      hint="Enter Alter · Alt+C New currency · Alt+R New rate · Ctrl+D Delete · Esc Back"
+      hint="Enter Alter · Alt+C Create Currency · Alt+R Enter Rate · Ctrl+D Delete · Esc Back"
       actions={[
         { key: 'Alt+C', label: 'Create currency', icon: 'plus', primary: true, disabled: !canCreate, onClick: () => setCurDialog('new') },
         { key: 'Alt+R', label: 'Enter rate', icon: 'calendar', disabled: !canCreate || !currency || currency.isBase, onClick: () => setRateDialog('new') },

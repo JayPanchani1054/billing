@@ -13,9 +13,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, Menu, nativeTheme, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, nativeTheme, protocol, safeStorage, session, shell } from 'electron';
 import { APP_ID, APP_NAME } from '../shared/constants.ts';
 import { CORE_RESTARTED_COMMAND } from '../shared/bridge.ts';
+import { loadAnchorKeyForWorker } from './anchor-key.ts';
 import { onUserChoice } from './user-choices.ts';
 import { absoluteEnvPath, APP_START_URL, bakedVersion, bundlePaths, resolveDevServer } from './config.ts';
 import { registerIpc } from './ipc.ts';
@@ -180,6 +181,9 @@ function faultError(error: { name: string; message: string; stack?: string }): E
  */
 async function bootRuntime(): Promise<CoreProxy | null> {
   const dataDirOverride = absoluteEnvPath(process.env.BAHI_DATA_DIR);
+  // The edit-log anchor key is sealed with the OS here (safeStorage exists only on this thread) and
+  // handed to the worker; see anchor-key.ts and docs/SECURITY.md T4.
+  const auditAnchorKey = loadAnchorKeyForWorker(app.getPath('userData'), safeStorage, log);
   const proxy = createCoreProxy({
     appVersion: appVersion(),
     spawn: nodeWorkerSpawner(workerScriptPath(__dirname), {
@@ -188,6 +192,7 @@ async function bootRuntime(): Promise<CoreProxy | null> {
       appVersion: appVersion(),
       logDir: app.getPath('logs'),
       consoleLog: !app.isPackaged,
+      ...(auditAnchorKey ? { auditAnchorKey } : {}),
     }),
     log,
     onRestarted: () => windows?.broadcast('command', { id: CORE_RESTARTED_COMMAND }),

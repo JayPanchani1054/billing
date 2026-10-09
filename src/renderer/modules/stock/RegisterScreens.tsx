@@ -69,9 +69,9 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
     [totals, rows.length],
   );
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+S', label: 'Sales orders', icon: 'invoice', onClick: () => setKind('sales'), disabled: kind === 'sales', group: 'view' },
-    { key: 'Alt+U', label: 'Purchase orders', icon: 'cart', onClick: () => setKind('purchase'), disabled: kind === 'purchase', group: 'view' },
-    { key: 'Alt+C', label: kind === 'sales' ? 'New sales order' : 'New purchase order', icon: 'plus', onClick: () => shell.openVoucher(base), disabled: !avail.ok, hint: avail.reason, group: 'go' },
+    { key: 'Ctrl+1', label: 'Sales orders', icon: 'invoice', onClick: () => setKind('sales'), disabled: kind === 'sales', group: 'view' },
+    { key: 'Ctrl+2', label: 'Purchase orders', icon: 'cart', onClick: () => setKind('purchase'), disabled: kind === 'purchase', group: 'view' },
+    { key: 'Alt+C', label: kind === 'sales' ? 'Create sales order' : 'Create purchase order', icon: 'plus', onClick: () => shell.openVoucher(base), disabled: !avail.ok, hint: avail.reason, group: 'go' },
   ];
 
   return (
@@ -84,7 +84,7 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
       error={q.error}
       onRetry={q.refetch}
       actions={actions}
-      hint="Enter Open order · Alt+S Sales · Alt+U Purchase · Alt+C New order · Alt+F2 Date · Alt+E Export · Alt+P Print"
+      hint="Enter Open Order · Ctrl+1 Sales · Ctrl+2 Purchase · Alt+C Create Order · Alt+F2 Date · Alt+E Export · Alt+P Print"
       filters={<SegmentedControl<OrderKind> aria-label="Order type" size="sm" options={KINDS} value={kind} onChange={setKind} />}
       exportDef={() => pendingOrdersExport(rows, kind, totals?.pendingValue ?? 0)}
     >
@@ -223,7 +223,7 @@ export function PhysicalVarianceScreen({ params }: ScreenProps<{ from?: string; 
     [d, rows.length],
   );
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+C', label: 'New count', icon: 'plus', onClick: () => shell.openVoucher('physical_stock'), disabled: !avail.ok, hint: avail.reason ?? 'Enter a physical stock count', group: 'go' },
+    { key: 'Alt+C', label: 'Create count', icon: 'plus', onClick: () => shell.openVoucher('physical_stock'), disabled: !avail.ok, hint: avail.reason ?? 'Enter a physical stock count', group: 'go' },
   ];
   return (
     <ReportScreen
@@ -235,7 +235,7 @@ export function PhysicalVarianceScreen({ params }: ScreenProps<{ from?: string; 
       error={q.error}
       onRetry={q.refetch}
       actions={actions}
-      hint="Enter Open voucher · Alt+C New count · Alt+F2 Period · Alt+E Export · Alt+P Print"
+      hint="Enter Open Voucher · Alt+C Create Count · Alt+F2 Period · Alt+E Export · Alt+P Print"
       exportDef={() => varianceExport(rows, d?.totals.netValue ?? 0)}
     >
       <DataTable<PhysicalVarianceRow>

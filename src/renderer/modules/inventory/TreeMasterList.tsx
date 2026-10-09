@@ -122,9 +122,9 @@ export function TreeMasterList<T extends TreeMasterRow>(props: TreeMasterListPro
       refreshing={refreshing}
       error={error}
       onRetry={onRetry}
-      hint="Type to search · Enter alter · Alt+C create · Ctrl+D delete · →/← expand/collapse"
+      hint={`Type to Search · Enter Alter · Alt+C Create ${noun.replace(/\b\w/g, (c) => c.toUpperCase())} · Ctrl+D Delete · →/← Expand/Collapse`}
       actions={[
-        { key: 'Alt+C', label: 'Create', icon: 'plus', primary: true, onClick: () => create(), hidden: !canCreate },
+        { key: 'Alt+C', label: `Create ${noun}`, icon: 'plus', primary: true, onClick: () => create(), hidden: !canCreate },
         { key: 'Alt+Shift+C', label: 'Create under selected', icon: 'plus', onClick: () => create(current?.id), hidden: !canCreate, disabled: !current },
         ...(extraActions?.(current) ?? []),
         {

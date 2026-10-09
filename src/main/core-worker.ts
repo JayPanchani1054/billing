@@ -34,6 +34,7 @@ const host = startCoreHost({
       consoleLog: init.consoleLog,
       authorizeDataDir: authorizers.authorizeDataDir,
       authorizePath: authorizers.authorizePath,
+      ...(init.auditAnchorKey ? { auditAnchorKey: init.auditAnchorKey } : {}),
     }),
   post,
   choices: init.choices,

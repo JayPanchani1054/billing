@@ -30,7 +30,7 @@ export function createRuntimeWithRoutes(opts: RuntimeOptions, routes: RouteMap):
     idleTimeoutMs: opts.idleTimeoutMs,
     authorizeDataDir: opts.authorizeDataDir,
     authorizePath: opts.authorizePath,
-    auditAnchors: new FileAuditAnchorStore({ dir: opts.userDataDir, log: (l, m, meta) => logger.log(l, m, meta), sealer: opts.secretSealer }),
+    auditAnchors: new FileAuditAnchorStore({ dir: opts.userDataDir, log: (l, m, meta) => logger.log(l, m, meta), sealer: opts.secretSealer, key: opts.auditAnchorKey }),
   });
   const dispatcher = createDispatcher(routes, () => controller.dispatchState());
   logger.log('info', 'Runtime started', { version: opts.appVersion, platform: process.platform });

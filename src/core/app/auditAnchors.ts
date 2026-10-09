@@ -42,6 +42,68 @@ function isAnchor(v: unknown, companyId: string): v is AuditAnchor {
   );
 }
 
+/**
+ * Read this installation's anchor key from `<dir>/audit-anchor.key`, creating it on first use. With a
+ * `sealer` (Electron safeStorage → DPAPI on Windows) the key is stored sealed, so the file is useless
+ * when copied to another account or computer; a key stored unsealed earlier is re-sealed. Electron main
+ * calls this (safeStorage exists only on the main thread) and hands the key to the core worker
+ * (RuntimeOptions.auditAnchorKey); without main, FileAuditAnchorStore calls it itself.
+ */
+export function loadOrCreateAnchorKey(opts: { dir: string; log: Logger['log']; sealer?: SecretSealer }): Buffer {
+  const keyFile = path.join(opts.dir, ANCHOR_KEY_FILE);
+  const { log, sealer } = opts;
+  const r = readJsonFile<{ v?: unknown; sealed?: unknown; key?: unknown }>(keyFile);
+  if (r.status === 'ok' && r.value && typeof r.value.key === 'string') {
+    try {
+      const sealed = r.value.sealed === true;
+      const hex = sealed ? (sealer ? sealer.unseal(r.value.key) : '') : r.value.key;
+      if (HEX64.test(hex)) {
+        if (!sealed && sealer) {
+          // Upgrade a key written before OS protection was available (never fatal).
+          try {
+            writeJsonAtomic(keyFile, { v: 1, sealed: true, key: sealer.seal(hex) });
+          } catch (err) {
+            log('warn', 'Could not protect the edit-log anchor key with the operating system', { error: err });
+          }
+        }
+        return Buffer.from(hex, 'hex');
+      }
+      if (sealed && !sealer) {
+        // Sealed by Electron main but read without it (e.g. a headless tool): never replace it.
+        log('warn', 'The edit-log anchor key is protected by the operating system; anchors cannot be confirmed here');
+        return randomBytes(32);
+      }
+    } catch {
+      /* fall through: a key sealed for another Windows account / computer */
+    }
+  }
+  if (r.status === 'unreadable') {
+    // Never replace a key we merely could not read right now: use a throw-away key for this run.
+    log('warn', 'The edit-log anchor key could not be read; anchors cannot be confirmed this session');
+    return randomBytes(32);
+  }
+  if (r.status !== 'missing') {
+    try {
+      fs.renameSync(keyFile, `${keyFile}.unusable-${fileTimestamp()}`);
+    } catch {
+      /* ignore */
+    }
+    log('warn', 'The edit-log anchor key was unusable and has been replaced; existing anchors cannot be confirmed');
+  }
+  const fresh = randomBytes(32);
+  const hex = fresh.toString('hex');
+  let stored: { v: 1; sealed: boolean; key: string } = { v: 1, sealed: false, key: hex };
+  if (sealer) {
+    try {
+      stored = { v: 1, sealed: true, key: sealer.seal(hex) };
+    } catch (err) {
+      log('warn', 'OS protection for the edit-log anchor key is unavailable; stored with owner-only file permissions', { error: err });
+    }
+  }
+  writeJsonAtomic(keyFile, stored);
+  return fresh;
+}
+
 export class FileAuditAnchorStore implements AuditAnchorStore {
   readonly file: string;
   readonly keyFile: string;
@@ -50,54 +112,21 @@ export class FileAuditAnchorStore implements AuditAnchorStore {
   private keyBytes: Buffer | null = null;
   private anchors: Record<string, AuditAnchor> | null = null;
 
-  constructor(opts: { dir: string; log: Logger['log']; sealer?: SecretSealer }) {
+  /**
+   * `key`: the installation key already loaded by Electron main (loadOrCreateAnchorKey with the OS
+   * sealer); when omitted the key file is read (or created) here on first use, with `sealer` if given.
+   */
+  constructor(opts: { dir: string; log: Logger['log']; sealer?: SecretSealer; key?: Uint8Array }) {
     this.file = path.join(opts.dir, ANCHORS_FILE);
     this.keyFile = path.join(opts.dir, ANCHOR_KEY_FILE);
     this.log = opts.log;
     this.sealer = opts.sealer;
+    if (opts.key && opts.key.length === 32) this.keyBytes = Buffer.from(opts.key);
   }
 
   private key(): Buffer {
-    if (this.keyBytes) return this.keyBytes;
-    const r = readJsonFile<{ v?: unknown; sealed?: unknown; key?: unknown }>(this.keyFile);
-    if (r.status === 'ok' && r.value && typeof r.value.key === 'string') {
-      try {
-        const hex = r.value.sealed === true ? (this.sealer ? this.sealer.unseal(r.value.key) : '') : r.value.key;
-        if (HEX64.test(hex)) {
-          this.keyBytes = Buffer.from(hex, 'hex');
-          return this.keyBytes;
-        }
-      } catch {
-        /* fall through: a key sealed for another Windows account / computer */
-      }
-    }
-    if (r.status === 'unreadable') {
-      // Never replace a key we merely could not read right now: use a throw-away key for this run.
-      this.log('warn', 'The edit-log anchor key could not be read; anchors cannot be confirmed this session');
-      this.keyBytes = randomBytes(32);
-      return this.keyBytes;
-    }
-    if (r.status !== 'missing') {
-      try {
-        fs.renameSync(this.keyFile, `${this.keyFile}.unusable-${fileTimestamp()}`);
-      } catch {
-        /* ignore */
-      }
-      this.log('warn', 'The edit-log anchor key was unusable and has been replaced; existing anchors cannot be confirmed');
-    }
-    const fresh = randomBytes(32);
-    const hex = fresh.toString('hex');
-    let stored: { v: 1; sealed: boolean; key: string } = { v: 1, sealed: false, key: hex };
-    if (this.sealer) {
-      try {
-        stored = { v: 1, sealed: true, key: this.sealer.seal(hex) };
-      } catch (err) {
-        this.log('warn', 'OS protection for the edit-log anchor key is unavailable; stored with owner-only file permissions', { error: err });
-      }
-    }
-    writeJsonAtomic(this.keyFile, stored);
-    this.keyBytes = fresh;
-    return fresh;
+    if (!this.keyBytes) this.keyBytes = loadOrCreateAnchorKey({ dir: path.dirname(this.keyFile), log: this.log, sealer: this.sealer });
+    return this.keyBytes;
   }
 
   private all(): Record<string, AuditAnchor> {

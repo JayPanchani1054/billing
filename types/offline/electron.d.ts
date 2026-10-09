@@ -500,6 +500,15 @@ export interface NativeTheme extends EventEmitter {
 }
 export const nativeTheme: NativeTheme;
 
+// ───────────── safeStorage ─────────────
+export interface SafeStorage {
+  decryptString(encrypted: Buffer): string;
+  encryptString(plainText: string): Buffer;
+  getSelectedStorageBackend(): 'basic_text' | 'gnome_libsecret' | 'kwallet' | 'kwallet5' | 'kwallet6' | 'unknown';
+  isEncryptionAvailable(): boolean;
+}
+export const safeStorage: SafeStorage;
+
 // ───────────── Misc ─────────────
 export interface Screen {
   getPrimaryDisplay(): { workAreaSize: { width: number; height: number }; scaleFactor: number; bounds: Rectangle; workArea: Rectangle };

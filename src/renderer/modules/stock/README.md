@@ -19,7 +19,7 @@ and Pending Orders *Order processing*. Access: `reports.view` (Item Profitabilit
 | `stock.reorder` | — | Reorder Status: in stock, level, on order, promised, net, shortfall, order now | Alt+O new Purchase Order · Enter → item |
 | `stock.negative` | — | Negative Stock: item → godowns below zero, since when; guidance banner | Enter → item (in that godown) · Alt+X |
 | `stock.batches` | `{ itemId? }` | Batch Summary: batches with mfg / expiry, days left, status badge; expired-stock banner | Alt+W expiry filter (all → 30 → 90 days) · Enter → item |
-| `stock.pendingOrders` | `{ kind?: 'sales' \| 'purchase' }` | Pending orders as on: ordered / delivered (received) / pending, value, due date, overdue badge | Alt+S Sales · Alt+U Purchase · Alt+C new order · Enter → `vouchers.view` (the order) |
+| `stock.pendingOrders` | `{ kind?: 'sales' \| 'purchase' }` | Pending orders as on: ordered / delivered (received) / pending, value, due date, overdue badge | Ctrl+1 Sales · Ctrl+2 Purchase · Alt+C create order · Enter → `vouchers.view` (the order) |
 | `stock.profitability` | `{ groupId?, from?, to? }` | Item Profitability: net qty, sales, returns, net sales, COGS, GP, GP % | Enter → item |
 | `stock.physicalVariance` | `{ from?, to? }` | Physical Stock Register: counted vs books, difference, gain / loss at cost | Alt+C new count · Enter → voucher |
 

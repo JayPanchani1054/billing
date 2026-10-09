@@ -41,6 +41,11 @@ export interface CoreWorkerInit {
   consoleLog: boolean;
   /** Files/folders the user already picked in a native dialog (see 'authorize-choice'). */
   choices: UserChoice[];
+  /**
+   * Edit-log anchor key (32 bytes) loaded by main with Electron safeStorage (anchor-key.ts); the
+   * worker cannot use safeStorage. Absent: the core reads/creates the key file itself (unsealed).
+   */
+  auditAnchorKey?: Uint8Array;
 }
 
 // ───────────────────────────── main → worker ─────────────────────────────

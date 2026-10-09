@@ -88,7 +88,7 @@ export function CostCentresScreen() {
       loading={cats.loading}
       error={cats.error}
       onRetry={() => void cats.refetch()}
-      hint="Enter Alter · Alt+C New centre · Alt+N New category · Ctrl+D Delete · Esc Back"
+      hint="Enter Alter · Alt+C Create Centre · Alt+N Create Category · Ctrl+D Delete · Esc Back"
       actions={[
         { key: 'Alt+C', label: 'Create centre', icon: 'plus', primary: true, disabled: !canCreate || !category, onClick: () => setCentreDialog({ row: null, parentId: centre?.id ?? null }) },
         { key: 'Alt+N', label: 'Create category', icon: 'layers', disabled: !canCreate, onClick: () => setCatDialog('new') },

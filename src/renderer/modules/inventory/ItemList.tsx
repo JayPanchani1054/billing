@@ -170,9 +170,9 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Type to search · Enter alter · Alt+C create · Ctrl+D delete · Alt+E export"
+      hint="Type to Search · Enter Alter · Alt+C Create Stock Item · Ctrl+D Delete · Alt+E Export"
       actions={[
-        { key: 'Alt+C', label: 'Create', icon: 'plus', primary: true, onClick: create, hidden: !canCreate },
+        { key: 'Alt+C', label: 'Create stock item', icon: 'plus', primary: true, onClick: create, hidden: !canCreate },
         { key: 'Alt+M', label: 'Multiple items', icon: 'layers', onClick: () => nav.push('inventory.item.bulk', groupId !== null ? { groupId } : {}), hidden: !canCreate },
         { key: 'Ctrl+D, Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(current), hidden: !canDelete, disabled: !current, group: 'danger' },
       ]}

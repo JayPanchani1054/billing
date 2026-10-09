@@ -46,6 +46,13 @@ export interface RuntimeOptions {
    */
   secretSealer?: SecretSealer;
   /**
+   * The per-installation edit-log anchor key (32 bytes), already loaded — and sealed on disk with the
+   * OS — by Electron main (app/auditAnchors.ts loadOrCreateAnchorKey). The core runs on a worker
+   * thread where safeStorage does not exist, so main loads the key and passes it in. Takes precedence
+   * over `secretSealer`.
+   */
+  auditAnchorKey?: Uint8Array;
+  /**
    * Routes dispatched (in order, as the current session) before the open company is closed on
    * shutdown — each bounded by `shutdownStepTimeoutMs`, failures only logged. createRuntime() passes
    * DEFAULT_SHUTDOWN_ROUTES: the F12 automatic backup, so closing the window or quitting the app
