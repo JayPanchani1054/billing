@@ -205,4 +205,6 @@ export const BASE_TYPE_LABELS: Readonly<Record<VoucherBaseType, string>> = {
   physical_stock: 'Physical Stock',
   memorandum: 'Memorandum',
   reversing_journal: 'Reversing Journal',
+  quotation: 'Quotation',
+  proforma: 'Proforma Invoice',
 };

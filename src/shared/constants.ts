@@ -25,6 +25,9 @@ export const VOUCHER_BASE_TYPES = [
   'physical_stock',
   'memorandum',
   'reversing_journal',
+  // Non-accounting pre-sale documents (documents module): own numbering, never in the books or GST returns.
+  'quotation',
+  'proforma',
 ] as const;
 export type VoucherBaseType = (typeof VOUCHER_BASE_TYPES)[number];
 
@@ -35,7 +38,7 @@ export const ACCOUNTING_BASE_TYPES: readonly VoucherBaseType[] = [
 /** Base types that never affect ledger balances. */
 export const NON_ACCOUNTING_BASE_TYPES: readonly VoucherBaseType[] = [
   'sales_order', 'purchase_order', 'delivery_note', 'receipt_note', 'rejection_in', 'rejection_out',
-  'stock_journal', 'physical_stock', 'memorandum', 'reversing_journal',
+  'stock_journal', 'physical_stock', 'memorandum', 'reversing_journal', 'quotation', 'proforma',
 ];
 /** Base types that can carry GST (and therefore gst_lines). */
 export const GST_BASE_TYPES: readonly VoucherBaseType[] = ['sales', 'purchase', 'credit_note', 'debit_note'];
@@ -67,6 +70,9 @@ export const PREDEFINED_VOUCHER_TYPES: readonly PredefinedVoucherType[] = [
   { name: 'Physical Stock', baseType: 'physical_stock', abbreviation: 'Phy Stk', hotkey: 'Ctrl+F7' },
   { name: 'Memorandum', baseType: 'memorandum', abbreviation: 'Memo', hotkey: 'Ctrl+F10' },
   { name: 'Reversing Journal', baseType: 'reversing_journal', abbreviation: 'Rev Jrn', hotkey: 'F10' },
+  // No hotkey (Tally has none either): Gateway › Transactions, Go To and F10 open them.
+  { name: 'Quotation', baseType: 'quotation', abbreviation: 'Quote' },
+  { name: 'Proforma Invoice', baseType: 'proforma', abbreviation: 'Pro Inv' },
 ];
 
 // ───────────────────────────── Accounting groups ─────────────────────────────

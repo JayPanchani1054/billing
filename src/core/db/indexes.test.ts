@@ -27,7 +27,8 @@ describe('migration 150: duplicate indexes', () => {
       assert.equal(getSchemaVersion(db), 140);
       for (const n of DROPPED) assert.ok(indexes(db).has(n), `${n} exists before`);
       const r = migrate(db);
-      assert.deepEqual(r.applied, [150]);
+      // Later follow-up migrations (190+) run in the same upgrade; 150 is the first.
+      assert.equal(r.applied[0], 150);
       const after = indexes(db);
       for (const n of DROPPED) assert.ok(!after.has(n), `${n} dropped`);
       for (const n of KEPT) assert.ok(after.has(n), `${n} kept`);

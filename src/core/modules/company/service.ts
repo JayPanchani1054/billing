@@ -246,8 +246,11 @@ export function normalizeFeatures(f: CompanyFeatures): CompanyFeatures {
     out.rejectionNotes = false;
     out.actualAndBilledQty = false;
     out.priceLevels = false;
+    out.manufacturing = false;
   }
   if (!out.batches) out.expiryDates = false;
+  // Job work needs third-party godowns (mfg module).
+  if (!out.multipleGodowns) out.jobWork = false;
   return out;
 }
 

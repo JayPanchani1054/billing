@@ -51,6 +51,7 @@ import { PendingBillCache } from './bills.ts';
 import { runGuards, stockQtyAsOf } from './guards.ts';
 import { Masters, type ItemRow, type LedgerInfo } from './masters.ts';
 import type { VoucherTypeInfo } from './numbering.ts';
+import { voucherHooks, type HookInvoiceLine, type PostingAdjustContext, type VoucherHook } from './hooks.ts';
 import { dbTaxLookup, ledgerIsGstApplicable, resolveItemTaxProfile, resolveLedgerTaxProfile, type TaxLookup, type TaxProfile } from './taxprofile.ts';
 
 // ───────────────────────────── Static rules ─────────────────────────────
@@ -75,6 +76,9 @@ export const ALLOWED_MODES: Readonly<Record<VoucherBaseType, readonly VoucherMod
   rejection_out: ['item_invoice', 'inventory'],
   stock_journal: ['inventory'],
   physical_stock: ['inventory'],
+  // Quotation / proforma (documents module): priced like an invoice for printing; no books, no stock.
+  quotation: ['item_invoice', 'accounting_invoice'],
+  proforma: ['item_invoice', 'accounting_invoice'],
 };
 
 /** Base types whose voucher must name a party ledger. */
@@ -85,6 +89,8 @@ const PARTY_REQUIRED: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>([
   'receipt_note',
   'rejection_in',
   'rejection_out',
+  'quotation',
+  'proforma',
 ]);
 
 /** Stock direction of item lines: +1 inward, −1 outward, 0 = set per line (stock journal / physical stock). */
@@ -107,10 +113,12 @@ export const STOCK_DIRECTION: Readonly<Record<VoucherBaseType, number>> = {
   journal: 0,
   memorandum: 0,
   reversing_journal: 0,
+  quotation: -1,
+  proforma: -1,
 };
 
 /** Base types whose item lines never move stock. */
-const NO_STOCK_MOVEMENT: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['sales_order', 'purchase_order']);
+const NO_STOCK_MOVEMENT: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['sales_order', 'purchase_order', 'quotation', 'proforma']);
 
 /** Note base types whose own lines carry their number as tracking_ref, and the invoice type that bills them. */
 export const TRACKING_NOTE_FOR: Partial<Record<VoucherBaseType, VoucherBaseType>> = {
@@ -122,7 +130,7 @@ export const TRACKING_NOTE_FOR: Partial<Record<VoucherBaseType, VoucherBaseType>
 const NOTE_TYPES: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['delivery_note', 'receipt_note', 'rejection_in', 'rejection_out']);
 const ORDER_TYPES: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['sales_order', 'purchase_order']);
 
-const OUTWARD: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['sales', 'credit_note', 'sales_order', 'delivery_note', 'rejection_in']);
+const OUTWARD: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['sales', 'credit_note', 'sales_order', 'delivery_note', 'rejection_in', 'quotation', 'proforma']);
 
 const HEADS: readonly GstDutyHead[] = ['IGST', 'CGST', 'SGST', 'CESS'];
 const OUTPUT_CODE: Record<GstDutyHead, LedgerCode> = { IGST: 'OUTPUT_IGST', CGST: 'OUTPUT_CGST', SGST: 'OUTPUT_SGST', CESS: 'OUTPUT_CESS' };
@@ -210,7 +218,9 @@ export type EntrySource =
   | { kind: 'items'; ledgerId: number }
   | { kind: 'ledger'; index: number }
   | { kind: 'tax' }
-  | { kind: 'round_off' };
+  | { kind: 'round_off' }
+  /** Posted by a voucher hook (hooks.ts), e.g. TDS/TCS payable. */
+  | { kind: 'hook'; hook: string };
 
 export interface PlanEntry {
   ledgerId: number;
@@ -222,6 +232,8 @@ export interface PlanEntry {
   bills: PlanBill[];
   costs: PlanCost[];
   source: EntrySource;
+  /** Set when a voucher hook changed the amount (hooks.ts › adjustEntry): the amount before that. */
+  originalAmount?: Paise;
 }
 
 export interface PlanInventory {
@@ -286,6 +298,8 @@ export interface PostingPlan {
   /** The voucher as entered (normalised), stored in vouchers.meta for alter/duplicate. */
   normalizedInput: VoucherInput;
   masters: Masters;
+  /** Data stashed by voucher hooks (hooks.ts › setData), handed to their write()/preview(). */
+  hookData: Map<VoucherHook, unknown>;
 }
 
 /** Company fields the engine needs (loaded without the logo). */
@@ -392,6 +406,10 @@ class PostingBuilder {
   private readonly entries: PlanEntry[] = [];
   private readonly inventory: PlanInventory[] = [];
   private readonly gstLines: PlanGstLine[] = [];
+  /** Voucher hooks (hooks.ts): computed invoice lines, invoice-value additions and stashed data. */
+  private hookLines: HookInvoiceLine[] = [];
+  private hookTotal = 0;
+  private readonly hookData = new Map<VoucherHook, unknown>();
 
   constructor(env: PostingEnv, input: VoucherInput, opts: PostingOptions) {
     this.env = env;
@@ -440,6 +458,7 @@ class PostingBuilder {
 
     if (this.party || this.input.party) this.snap = partySnapshot(this.party, this.input);
 
+    this.runAdjustHooks();
     if (this.accounting) {
       this.applyBills();
       this.applyCosts();
@@ -449,6 +468,68 @@ class PostingBuilder {
     this.checkTrackingRefs();
     if (!this.isOptional) this.runGuards();
     return this.assemble();
+  }
+
+  // ── Voucher hooks (hooks.ts › adjust) ──
+
+  private runAdjustHooks(): void {
+    const hooks = voucherHooks();
+    if (hooks.every((h) => !h.adjust)) return;
+    const invoice = this.mode === 'item_invoice' || this.mode === 'accounting_invoice';
+    for (const hook of hooks) {
+      if (!hook.adjust) continue;
+      const name = hook.name ?? 'hook';
+      const self = this;
+      const ctx: PostingAdjustContext = {
+        env: this.env,
+        input: this.input,
+        baseType: this.base,
+        mode: this.mode,
+        voucherType: this.vt,
+        voucherId: this.opts.voucherId,
+        number: this.opts.number,
+        date: this.date,
+        isOptional: this.isOptional,
+        masters: this.masters,
+        party: this.party,
+        outward: this.outward,
+        invoiceLines: invoice ? this.hookLines : [],
+        invoiceValue: this.computation ? this.grandTotal : null,
+        entries: this.entries,
+        addEntry(e) {
+          const entry: PlanEntry = {
+            ledgerId: e.ledgerId,
+            amount: e.amount,
+            role: e.role,
+            gstDutyHead: null,
+            narration: e.narration ?? null,
+            instrument: null,
+            bills: [],
+            costs: [],
+            source: { kind: 'hook', hook: name },
+          };
+          if (e.amount !== 0) self.entries.push(entry);
+          return entry;
+        },
+        adjustEntry(entry, delta) {
+          if (delta === 0) return;
+          if (entry.originalAmount === undefined) entry.originalAmount = entry.amount;
+          entry.amount += delta;
+        },
+        addToInvoiceValue(delta) {
+          self.hookTotal += delta;
+        },
+        warn(code, message, level = 'confirm', path) {
+          self.warn(code, message, level, path);
+        },
+        setData(data) {
+          self.hookData.set(hook, data);
+        },
+      };
+      hook.adjust(ctx);
+    }
+    // An entry a hook brought to zero is dropped (a zero ledger entry is never written).
+    for (let i = this.entries.length - 1; i >= 0; i--) if (this.entries[i].amount === 0) this.entries.splice(i, 1);
   }
 
   // ── Header validation ──
@@ -473,7 +554,7 @@ class PostingBuilder {
     const needsParty = mode === 'item_invoice' || mode === 'accounting_invoice' || PARTY_REQUIRED.has(base);
     if (needsParty && !this.input.partyLedgerId) {
       const who =
-        base === 'sales' || base === 'credit_note' || base === 'sales_order' || base === 'delivery_note' || base === 'rejection_in'
+        base === 'sales' || base === 'credit_note' || base === 'sales_order' || base === 'delivery_note' || base === 'rejection_in' || base === 'quotation' || base === 'proforma'
           ? 'the customer ledger (or Cash for a cash sale)'
           : base === 'debit_note'
             ? 'the supplier (purchase return) or customer (supplementary invoice) ledger'
@@ -841,6 +922,17 @@ class PostingBuilder {
       // else: import of goods — IGST is paid at customs (bill of entry), not posted here.
     });
     for (const o of outside) ledgerLineAmt.set(o.index, o.amount);
+    // Lines handed to voucher hooks (hooks.ts): computed lines (taxable value, GST) + non-GST charges.
+    this.hookLines = [
+      ...meta.map((m, j): HookInvoiceLine => ({
+        kind: m.kind,
+        index: m.index,
+        ledgerId: m.ledger?.id ?? (m.kind === 'item' ? (items[m.index].ledgerId ?? defaultLedger) : null),
+        taxableValue: computed[j].taxableValue,
+        tax: computed[j].tax,
+      })),
+      ...outside.map((o): HookInvoiceLine => ({ kind: 'ledger', index: o.index, ledgerId: o.ledger.id, taxableValue: o.amount, tax: 0 })),
+    ];
 
     if (postEntries) {
       const itemRole: LedgerEntryRole = outward ? 'sales' : 'purchase';
@@ -1286,6 +1378,15 @@ class PostingBuilder {
             dueDate: a.refType === 'new' ? (txt(a.dueDate) ?? dueFor(days)) : (txt(a.dueDate) ?? null),
           });
         }
+        // A voucher hook (TDS/TCS) changed the entry: allocations typed for the amount before it are rescaled.
+        const typed = e.originalAmount === undefined ? null : Math.abs(e.originalAmount);
+        if (sum !== abs && typed !== null && sum === typed && sum > 0 && abs > 0) {
+          const scaled = allocate(abs, e.bills.map((b) => Math.abs(b.amount)));
+          e.bills.forEach((b, k) => {
+            b.amount = sign * scaled[k];
+          });
+          sum = abs;
+        }
         if (sum !== abs) {
           this.warn('bill_mismatch', `Bill-wise details of ${L.name} total ${money(sum)} but its amount is ${money(abs)}.`, 'block', path);
         }
@@ -1547,7 +1648,7 @@ class PostingBuilder {
     const cr = this.entries.reduce((a, e) => a + (e.amount < 0 ? -e.amount : 0), 0);
     const comp = this.computation;
     let grandTotal: Paise;
-    if (comp) grandTotal = this.grandTotal;
+    if (comp) grandTotal = this.grandTotal + this.hookTotal;
     else if (mode === 'ledger') grandTotal = dr;
     else {
       const produced = this.inventory.filter((l) => !l.isConsumption);
@@ -1603,6 +1704,7 @@ class PostingBuilder {
       warnings: this.warnings,
       normalizedInput,
       masters: this.masters,
+      hookData: this.hookData,
     };
   }
 }

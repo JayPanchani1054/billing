@@ -13,6 +13,8 @@ import {
 } from '../../../shared/types/vouchers.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { v, type Schema } from '../../lib/validate.ts';
+import { VoucherTdsInputSchema } from '../tds/schemas.ts';
+import { VoucherGstDetailsSchema } from '../gst/schemas.ts';
 import { pendingBills } from './bills.ts';
 import { entryContext, getVoucher, listVouchers, MAX_LIST_LIMIT, partyContext, trackingRefs } from './queries.ts';
 import {
@@ -162,6 +164,15 @@ export const VoucherInputSchema = v.object({
   ledgers: v.array(LedgerLineSchema, { max: 2000 }).optional(),
   acknowledgeWarnings: v.boolean().optional(),
   expectedUpdatedAt: optText(40),
+  // TDS/TCS (checked and posted by the tds module's voucher hook, vouchers/hooks.ts).
+  tds: VoucherTdsInputSchema.optional(),
+  // Documents module fields (checked by its voucher hook, vouchers/hooks.ts).
+  validUntil: v.date().optional(),
+  applicableUpto: v.date().optional(),
+  convertedFromId: v.id().optional(),
+  recurring: v.object({ templateId: v.id(), periodKey: v.string({ min: 7, max: 10, pattern: /^\d{4}-\d{2}(-\d{2})?$/, patternMessage: 'Period key must be YYYY-MM or YYYY-MM-DD' }) }).optional(),
+  // GST details (advances, bill of entry, stat adjustment, challan, set-off): gst module's voucher hook.
+  gstDetails: VoucherGstDetailsSchema.optional(),
 }) as unknown as Schema<VoucherInput>;
 
 const ListSchema = v.object({

@@ -47,6 +47,8 @@ export const FEATURE_CATALOG: readonly FeatureInfo[] = [
   { key: 'actualAndBilledQty', group: 'inventory', requires: 'inventory', label: 'Actual and billed quantity', description: 'Bill a different quantity from what was actually shipped, for free items or wastage.' },
   { key: 'priceLevels', group: 'inventory', requires: 'inventory', label: 'Price levels', description: 'Keep separate price lists, for example wholesale and retail.' },
   { key: 'discountColumn', group: 'inventory', label: 'Discount column on invoices', description: 'Show a discount % column on invoice lines.' },
+  { key: 'manufacturing', group: 'inventory', requires: 'inventory', label: 'Bill of materials and manufacturing', description: 'Keep bills of materials for the goods you make and record production in a Manufacturing Journal that works out the cost of the finished goods.' },
+  { key: 'jobWork', group: 'inventory', requires: 'multipleGodowns', label: 'Job work', description: 'Send material to job workers or process material for principals: job work orders, Material Out / In challans, pending job work with the one-year / three-year return limits, and ITC-04.' },
   // Taxation
   { key: 'gst', group: 'taxation', label: 'GST', description: 'Charge and track GST on sales and purchases, and prepare GST returns. Turning it on creates the GST tax ledgers.' },
   { key: 'einvoice', group: 'taxation', requires: 'gst', label: 'e-Invoicing', description: 'Prepare e-invoice (IRN) data, needed once your turnover crosses the e-invoicing limit.' },

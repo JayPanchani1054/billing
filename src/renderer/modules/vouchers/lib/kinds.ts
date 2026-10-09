@@ -26,12 +26,14 @@ export const ALLOWED_MODES: Readonly<Record<VoucherBaseType, readonly VoucherMod
   rejection_out: ['item_invoice', 'inventory'],
   stock_journal: ['inventory'],
   physical_stock: ['inventory'],
+  quotation: ['item_invoice', 'accounting_invoice'],
+  proforma: ['item_invoice', 'accounting_invoice'],
 };
 
-const PARTY_REQUIRED = new Set<VoucherBaseType>(['sales_order', 'purchase_order', 'delivery_note', 'receipt_note', 'rejection_in', 'rejection_out']);
+const PARTY_REQUIRED = new Set<VoucherBaseType>(['sales_order', 'purchase_order', 'delivery_note', 'receipt_note', 'rejection_in', 'rejection_out', 'quotation', 'proforma']);
 const ORDERS = new Set<VoucherBaseType>(['sales_order', 'purchase_order']);
 const NOTES = new Set<VoucherBaseType>(['delivery_note', 'receipt_note', 'rejection_in', 'rejection_out']);
-const OUTWARD = new Set<VoucherBaseType>(['sales', 'credit_note', 'sales_order', 'delivery_note', 'rejection_in']);
+const OUTWARD = new Set<VoucherBaseType>(['sales', 'credit_note', 'sales_order', 'delivery_note', 'rejection_in', 'quotation', 'proforma']);
 const ACCOUNTING = new Set<VoucherBaseType>(['sales', 'purchase', 'payment', 'receipt', 'contra', 'journal', 'credit_note', 'debit_note']);
 
 export const isGstBase = (b: VoucherBaseType): boolean => GST_BASE_TYPES.includes(b);

@@ -9,6 +9,8 @@ import type { GstDutyHead, VoucherBaseType } from '../constants.ts';
 import type { Paise } from '../money.ts';
 import type { CompanyConfig, CompanyFeatures } from '../settings.ts';
 import type { GstNature, InvoiceComputation, RegistrationType, SupplyKind, Taxability } from './gst.ts';
+import type { TdsVoucherPreview, VoucherTdsInput } from './tds.ts';
+import type { VoucherGstDetailsInput } from './gst-plus.ts';
 
 // ───────────────────────────── Enumerations ─────────────────────────────
 
@@ -71,7 +73,9 @@ export type VoucherWarningCode =
   | 'gst_lut'
   | 'gst_invoice_number'
   | 'negative_value'
-  | 'backdate_not_allowed';
+  | 'backdate_not_allowed'
+  /** TDS/TCS computation notes (tds module voucher hook). */
+  | 'tds';
 
 export interface VoucherWarning {
   code: VoucherWarningCode;
@@ -260,6 +264,25 @@ export interface VoucherInput {
   acknowledgeWarnings?: boolean;
   /** Alter only: reject with CONFLICT when the voucher's updatedAt differs (optimistic concurrency). */
   expectedUpdatedAt?: string;
+  /** TDS/TCS (tds module voucher hook): nature for an advance, overrides with reasons, challan details. */
+  tds?: VoucherTdsInput;
+  // ── Documents module (src/core/modules/documents) — validated and stored by its voucher hook ──
+  /** Quotation / Proforma Invoice: last date the offer holds (on or after `date`). */
+  validUntil?: string;
+  /** Reversing Journal: counts in scenario reports only while the report date is on or before this date (on or after `date`). */
+  applicableUpto?: string;
+  /** Create only: the quotation / proforma (or sales order) this voucher converts; linked back, one live conversion per document. */
+  convertedFromId?: number;
+  /** Create only: posted for this occurrence of a recurring-voucher template (never twice for the same occurrence). */
+  recurring?: RecurringOccurrenceRef;
+  /** GST details (gst module hook): advance received / adjusted / refunded, bill of entry, stat adjustment, challan, set-off. */
+  gstDetails?: VoucherGstDetailsInput;
+}
+
+/** One occurrence of a recurring-voucher template (documents module): `periodKey` 'YYYY-MM' or 'YYYY-MM-DD'. */
+export interface RecurringOccurrenceRef {
+  templateId: number;
+  periodKey: string;
 }
 
 // ───────────────────────────── Output: preview / save ─────────────────────────────
@@ -372,6 +395,8 @@ export interface VoucherPreview {
   affectsStock: boolean;
   /** Warnings and (blocking) rule violations. Preview never throws for these; save does. */
   warnings: VoucherWarning[];
+  /** TDS/TCS computed on this voucher (present when the TDS or TCS feature is on and it applies). */
+  tds?: TdsVoucherPreview;
 }
 
 export interface VoucherSaveResult {

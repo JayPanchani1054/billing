@@ -22,6 +22,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { conflict, forbidden, notFound, rule } from '../../lib/errors.ts';
 import { assertDateUnlocked, getConfig, getFeatures } from '../company/service.ts';
+import { voucherHooks } from './hooks.ts';
 import {
   commitNumber,
   decideNumber,
@@ -361,6 +362,7 @@ export function previewVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherPrevi
     number = previewNextNumber(db, vt, input.date, env.company.fyStartMonth) || null;
   }
   const plan = buildPosting(env, input, { voucherType: vt, number, voucherId: existing?.id ?? null });
+  runValidateHooks(ctx, input, existing ?? null, vt.baseType, plan.header.partyLedgerId);
   const locked = env.config.lockedUpTo;
   const warnings = [...plan.warnings];
   const earliest = existing !== undefined && existing.date < input.date ? existing.date : input.date;
@@ -396,7 +398,20 @@ export function previewVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherPrevi
     affectsBooks: plan.header.affectsBooks,
     affectsStock: plan.header.affectsStock,
     warnings,
+    ...hookPreviewFields(plan),
   };
+}
+
+/** Extension point (hooks.ts › preview): extra VoucherPreview fields of other modules (e.g. `tds`). */
+function hookPreviewFields(plan: PostingPlan): Partial<VoucherPreview> {
+  const out: Partial<VoucherPreview> = {};
+  for (const hook of voucherHooks()) if (hook.preview) Object.assign(out, hook.preview(plan.hookData.get(hook)));
+  return out;
+}
+
+/** Extension point (hooks.ts › validate): hard field checks of other modules' voucher fields, before any write. */
+function runValidateHooks(ctx: CompanyCtx, input: VoucherInput, existing: VoucherRow | null, baseType: VoucherRow['base_type'], partyLedgerId: number | null): void {
+  for (const hook of voucherHooks()) hook.validate?.(ctx, { input, existing, baseType: baseType as Parameters<typeof isAccountingBase>[0], partyLedgerId });
 }
 
 // ───────────────────────────── Save ─────────────────────────────
@@ -440,8 +455,11 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
     typed: input.number,
     existing: existing ? { id: existing.id, number: existing.number, seq: existing.number_seq, date: existing.date } : null,
   });
+  // Extension point (hooks.ts › prepare): masters the posting needs, created in this transaction.
+  for (const hook of voucherHooks()) hook.prepare?.(env, input, vt);
   const plan = buildPosting(env, input, { voucherType: vt, number: decision.number, voucherId: existing?.id ?? null });
   if (existing) assertAlterKeepsLinks(db, existing, plan);
+  runValidateHooks(ctx, input, existing ?? null, vt.baseType, plan.header.partyLedgerId);
   enforceWarnings(plan.warnings, input.acknowledgeWarnings === true);
 
   // The number was found free by decideNumber inside this same (synchronous) transaction: nothing can
@@ -551,6 +569,21 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
 
   writeChildren(db, id, plan, input.date);
   if (bankKeep) restoreBankLinks(db, id, bankKeep, plan.header.affectsBooks);
+  // Extension point (hooks.ts › afterSave): links / state of other modules that depend on this voucher.
+  for (const hook of voucherHooks()) {
+    hook.afterSave?.(ctx, {
+      input: plan.normalizedInput,
+      existing: existing ?? null,
+      baseType: vt.baseType,
+      partyLedgerId: plan.header.partyLedgerId,
+      id,
+      isNew: !existing,
+      number: decision.number,
+      affectsBooks: plan.header.affectsBooks,
+      isOptional: plan.header.isOptional,
+      isPostDated: plan.header.isPostDated,
+    });
+  }
 
   const guid = existing?.guid ?? db.value<string>('SELECT guid FROM vouchers WHERE id = :id', { id }) ?? '';
   ctx.audit({
@@ -586,6 +619,8 @@ function deleteChildren(db: Db, id: number): void {
   db.run('DELETE FROM ledger_entries WHERE voucher_id = :id', { id });
   db.run('DELETE FROM inventory_entries WHERE voucher_id = :id', { id });
   db.run('DELETE FROM gst_lines WHERE voucher_id = :id', { id });
+  // Extension point (hooks.ts › clear): derived rows of other modules (rebuilt by write() on save).
+  for (const hook of voucherHooks()) hook.clear?.(db, id);
 }
 
 function writeChildren(db: Db, id: number, plan: PostingPlan, date: string): void {
@@ -698,6 +733,10 @@ function writeChildren(db: Db, id: number, plan: PostingPlan, date: string): voi
       },
     );
   });
+  // Extension point (hooks.ts › write): derived per-voucher rows of other modules, same transaction.
+  for (const hook of voucherHooks()) {
+    hook.write?.({ db, voucherId: id, plan, date, affectsBooks: books, isPostDated: pdc, data: plan.hookData.get(hook) });
+  }
 }
 
 // ── Bank reconciliation links survive an alter (entries are rewritten) ──
@@ -910,6 +949,7 @@ export function deleteVoucher(ctx: CompanyCtx, id: number, reason?: string, expe
   assertNoteNotBilled(db, row);
   const before = snapshotFromDb(db, row, vt.name);
   unmatchBankLines(db, id);
+  for (const hook of voucherHooks()) hook.clear?.(db, id);
   db.run('DELETE FROM vouchers WHERE id = :id', { id });
   ctx.audit({
     action: 'delete',
@@ -1011,6 +1051,9 @@ export function duplicateVoucher(ctx: CompanyCtx, id: number): VoucherInput {
   // A note's original invoice is specific to that note (a copy would settle the same bill again).
   delete out.originalInvoiceNo;
   delete out.originalInvoiceDate;
+  // A copy is a new document: not a conversion of the source's quotation, not a recurring occurrence.
+  delete out.convertedFromId;
+  delete out.recurring;
   if (out.ledgers) {
     out.ledgers = out.ledgers.map((l): LedgerLineInput => {
       const copy = { ...l };

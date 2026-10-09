@@ -25,6 +25,10 @@ export interface CompanyFeatures {
   actualAndBilledQty: boolean;
   priceLevels: boolean;
   discountColumn: boolean;
+  /** Bill of Materials and Manufacturing Journal (mfg module). */
+  manufacturing: boolean;
+  /** Job work: third-party godowns, Material In/Out, job work orders, ITC-04 (mfg module; needs multiple godowns). */
+  jobWork: boolean;
   // Taxation
   gst: boolean;
   einvoice: boolean;
@@ -52,6 +56,8 @@ export const DEFAULT_FEATURES: CompanyFeatures = {
   actualAndBilledQty: false,
   priceLevels: false,
   discountColumn: true,
+  manufacturing: false,
+  jobWork: false,
   gst: true,
   einvoice: false,
   ewayBill: false,

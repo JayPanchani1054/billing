@@ -132,13 +132,13 @@ describe('seedCompany', () => {
     db.close();
   });
 
-  it('creates the 18 voucher types with automatic yearly numbering and default ledgers', () => {
+  it('creates every predefined voucher type with automatic yearly numbering and default ledgers', () => {
     const db = freshDb();
     const r = seedCompany(db, input(), { now: NOW });
     const vts = db.all<{ id: number; name: string; base_type: string; numbering_method: string; numbering_restart: string; config: string; is_predefined: number }>(
       'SELECT * FROM voucher_types ORDER BY id',
     );
-    assert.equal(vts.length, 18);
+    assert.equal(vts.length, PREDEFINED_VOUCHER_TYPES.length);
     assert.deepEqual(vts.map((x) => x.name), PREDEFINED_VOUCHER_TYPES.map((x) => x.name));
     for (const vt of vts) {
       assert.equal(vt.numbering_method, 'automatic');
