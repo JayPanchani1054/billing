@@ -603,6 +603,8 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
   );
   const gst = gstLinesView(db, row.id);
   const importGoods = row.gst_nature === 'import_goods';
+  // IGST on imported goods — and on goods from an SEZ unit (an import on a bill of entry) — is paid at customs, not to the supplier.
+  const atCustoms = (g: GstLineView | null): boolean => importGoods || (row.gst_nature === 'inward_sez' && g?.supplyType === 'goods');
   const lines: PrintLine[] = [];
   const usedInv = new Set<number>();
   const itemLine = (r: StoredInv | null, g: GstLineView | null): void => {
@@ -635,7 +637,7 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
       igst: g?.igst ?? 0,
       cess: g?.cess ?? 0,
       tax,
-      taxPayable: tax === 0 || !(g?.isReverseCharge || importGoods),
+      taxPayable: tax === 0 || !(g?.isReverseCharge || atCustoms(g)),
       absorbed: false,
       reverseCharge: g?.isReverseCharge ?? false,
       section: null,
@@ -671,7 +673,7 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
         igst: g.igst,
         cess: g.cess,
         tax,
-        taxPayable: tax === 0 || !(g.isReverseCharge || importGoods),
+        taxPayable: tax === 0 || !(g.isReverseCharge || atCustoms(g)),
         absorbed: false,
         reverseCharge: g.isReverseCharge,
         section: null,

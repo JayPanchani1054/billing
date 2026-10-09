@@ -66,6 +66,7 @@ registerGotoProvider({
   id: 'items',
   label: 'Stock Items',
   minQuery: 2,
+  screens: ['stock.item', 'inventory.item.form'],
   search: async (query, signal) => {
     // Providers cannot read React state: ask for the company's features (a local call) so items are
     // not offered while Inventory is turned off in F11.

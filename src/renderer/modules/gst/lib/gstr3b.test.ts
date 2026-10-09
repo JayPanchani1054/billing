@@ -94,6 +94,13 @@ describe('GSTR-3B 6.1 set-off explanation', () => {
     assert.equal(setOffSentence(lines[0]), 'IGST credit ₹ 600.00: ₹ 100.00 paid CGST, ₹ 500.00 paid SGST/UTGST · nothing left.');
     assert.equal(setOffSentence(lines[1]), 'CGST credit ₹ 500.00: ₹ 400.00 paid CGST · ₹ 100.00 carried forward.');
     assert.equal(setOffSentence(lines[2]), 'SGST/UTGST credit ₹ 0.00: none available.');
+    assert.deepEqual(lines.map((l) => l.broughtForward), [0, 0, 0, 0], 'nothing brought forward when not given');
+  });
+
+  it('shows the credit brought forward from the previous period', () => {
+    const lines = setOffLines(setOff, available, { igst: 0, cgst: 30_000, sgst: 0, cess: 0 });
+    assert.equal(lines[1].broughtForward, 30_000);
+    assert.equal(setOffSentence(lines[1]), 'CGST credit ₹ 500.00 (incl. ₹ 300.00 brought forward): ₹ 400.00 paid CGST · ₹ 100.00 carried forward.');
   });
 
   it('knows which credit may pay which tax (s.49(5))', () => {
@@ -149,6 +156,7 @@ describe('GSTR-3B tables', () => {
         rows: [{ head: 'igst', label: 'IGST', liability: 18_000, paidIgst: 0, paidCgst: 0, paidSgst: 0, paidCess: 0, cash: 18_000, rcmLiability: 0, interest: 0, lateFee: 0, totalCash: 18_000 }],
         setOff: emptySetOff,
         creditAvailable: z(),
+        broughtForward: z(),
         itcUsed: z(),
         cashTotal: 18_000,
       },
@@ -195,6 +203,7 @@ describe('GSTR-3B 6.1 as on the portal', () => {
     ],
     setOff: { utilisation: { igst: z(), cgst: z(), sgst: z(), cess: z() }, paidByItc: z(), cash: z(), creditBalance: z() },
     creditAvailable: z(),
+    broughtForward: z(),
     itcUsed: z(),
     cashTotal: 121_000,
   } as Gstr3bSummary['payment'];

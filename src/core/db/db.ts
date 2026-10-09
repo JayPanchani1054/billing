@@ -56,6 +56,9 @@ export class Db {
       this.raw.exec('PRAGMA synchronous = FULL');
     }
     this.raw.exec('PRAGMA foreign_keys = ON');
+    // Schema objects (triggers, indexes, CHECK/DEFAULT expressions) may call only innocuous SQL
+    // functions: a crafted company file cannot reach functions with side effects (see schemaCheck.ts).
+    this.raw.exec('PRAGMA trusted_schema = OFF');
   }
 
   private stmt(sql: string): StatementSync {
@@ -140,6 +143,37 @@ export class Db {
     } finally {
       this.depth--;
     }
+  }
+
+  /**
+   * ONE transaction around an asynchronous job (e.g. an import that yields to the event loop between
+   * chunks to report progress). Only for a DEDICATED connection that nothing else uses meanwhile —
+   * anything else run on this Db while `fn` awaits would silently join the transaction. Inside `fn`,
+   * transaction() nests as savepoints as usual. Not nestable itself.
+   */
+  async transactionAsync<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.depth !== 0) throw new Error('Db.transactionAsync cannot run inside another transaction');
+    this.raw.exec('BEGIN IMMEDIATE');
+    this.depth++;
+    try {
+      const out = await fn();
+      this.raw.exec('COMMIT');
+      return out;
+    } catch (err) {
+      try {
+        this.raw.exec('ROLLBACK');
+      } catch {
+        /* already rolled back */
+      }
+      throw err;
+    } finally {
+      this.depth--;
+    }
+  }
+
+  /** False once close() ran (long jobs on another connection check this to stop early). */
+  get isOpen(): boolean {
+    return this.raw.isOpen;
   }
 
   /** Register a deterministic scalar SQL function. */

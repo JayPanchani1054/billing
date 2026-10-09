@@ -20,8 +20,10 @@
  *
  * The whole masters phase is one transaction; vouchers follow in chunks of CHUNK vouchers, each its
  * own transaction, yielding to the event loop between chunks (progress: 'data.tally.progress').
- * Per-master / per-voucher audit entries are not written; the import writes ONE 'import' audit entry
- * with the counts (and the import_batches row id).
+ * Every master created or altered is audited by its service (run.ctx is the caller's audited context),
+ * every voucher written gets its own 'create' / 'alter' entry (before/after snapshot, source 'tally',
+ * importBatchId), F11 changes need company.manage and are audited, and a final 'import' entry records
+ * the counts (and the import_batches row id). Nothing bypasses the edit log.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -33,7 +35,7 @@ import {
   type GroupNature,
   type VoucherBaseType,
 } from '../../../shared/constants.ts';
-import { addDays } from '../../../shared/dates.ts';
+import { addDays, formatDate } from '../../../shared/dates.ts';
 import { classifySupply, findState, GST_RATES, isKnownStateCode, isStandardRate, normalizeStateCode } from '../../../shared/gst/index.ts';
 import { allocate } from '../../../shared/money.ts';
 import type { LedgerSaveInput, OpeningBillInput, VoucherTypeSaveInput } from '../../../shared/types/accounts.ts';
@@ -63,6 +65,7 @@ import { mainGodownId, saveGodown, saveStockCategory, saveStockGroup } from '../
 import { saveItem } from '../inventory/items.ts';
 import { saveUnit } from '../inventory/units.ts';
 import { loadVoucherType, parseVoucherSeq, periodKey, periodRange, type VoucherTypeInfo } from '../vouchers/numbering.ts';
+import { loadVoucherRow, snapshotFromDb } from '../vouchers/service.ts';
 import { dbTaxLookup, resolveItemTaxProfile, resolveLedgerTaxProfile, type TaxLookup } from '../vouchers/taxprofile.ts';
 import { hasPermission, plural, requirePermission, yieldToEventLoop } from './common.ts';
 import {
@@ -329,9 +332,8 @@ type MasterKind = keyof TallyImportResult['masters'];
 const zero = (): TallyCounts => ({ created: 0, updated: 0, skipped: 0, failed: 0 });
 
 interface Run {
+  /** Audited context: every master the import creates or alters gets its own edit-log entry. */
   ctx: CompanyCtx;
-  /** ctx whose audit() is a no-op: the import writes one summary entry instead. */
-  quiet: CompanyCtx;
   db: Db;
   file: TallyFile;
   update: boolean;
@@ -456,7 +458,7 @@ function importGroups(run: Run): void {
           c.skipped++;
           continue;
         }
-        saveTolerant(run, object, { id: existing, parentId, alias: g.aliases[0] ?? undefined }, ['id'], (i) => saveGroup(run.quiet, i));
+        saveTolerant(run, object, { id: existing, parentId, alias: g.aliases[0] ?? undefined }, ['id'], (i) => saveGroup(run.ctx, i));
         c.updated++;
         continue;
       }
@@ -474,7 +476,7 @@ function importGroups(run: Run): void {
           ...(parentId === null ? { nature: nature ?? 'assets', affectsGrossProfit: g.affectsGrossProfit === true && (nature === 'income' || nature === 'expenses') } : {}),
         },
         ['name', 'parentId', 'nature'],
-        (i) => saveGroup(run.quiet, i),
+        (i) => saveGroup(run.ctx, i),
       );
       run.groupIds.set(key(g.name), created.id);
       c.created++;
@@ -500,11 +502,11 @@ function importUnits(run: Run): void {
           continue;
         }
         const symbol = run.db.value<string>('SELECT symbol FROM units WHERE id = :id', { id: existing }) as string;
-        saveTolerant(run, object, { id: existing, kind: 'simple' as const, symbol, ...fields }, ['id', 'kind', 'symbol'], (i) => saveUnit(run.quiet, i));
+        saveTolerant(run, object, { id: existing, kind: 'simple' as const, symbol, ...fields }, ['id', 'kind', 'symbol'], (i) => saveUnit(run.ctx, i));
         c.updated++;
         continue;
       }
-      saveTolerant(run, object, { kind: 'simple' as const, symbol: u.name, ...fields }, ['kind', 'symbol'], (i) => saveUnit(run.quiet, i));
+      saveTolerant(run, object, { kind: 'simple' as const, symbol: u.name, ...fields }, ['kind', 'symbol'], (i) => saveUnit(run.ctx, i));
       c.created++;
     } catch (err) {
       c.failed++;
@@ -532,7 +534,7 @@ function importUnits(run: Run): void {
     }
     try {
       saveTolerant(run, object, { kind: 'compound' as const, firstUnitId: first, conversion: u.conversion, secondUnitId: second }, ['kind', 'firstUnitId', 'conversion', 'secondUnitId'], (i) =>
-        saveUnit(run.quiet, i),
+        saveUnit(run.ctx, i),
       );
       c.created++;
     } catch (err) {
@@ -764,7 +766,7 @@ function importLedgers(run: Run): void {
           // Predefined ledgers take over the opening balance only (their settings are fixed).
           if (l.opening !== 0 && (row.opening_balance === 0 || run.update)) {
             const bills = openingBillsOf(run, l, object);
-            saveTolerant(run, object, { id: existing, openingBalance: l.opening, ...(bills ? { openingBills: bills } : {}) }, ['id', 'openingBalance'], (i) => saveLedger(run.quiet, i));
+            saveTolerant(run, object, { id: existing, openingBalance: l.opening, ...(bills ? { openingBills: bills } : {}) }, ['id', 'openingBalance'], (i) => saveLedger(run.ctx, i));
             c.updated++;
           } else c.skipped++;
           continue;
@@ -777,7 +779,7 @@ function importLedgers(run: Run): void {
         if (gid === null) throw validation([{ path: 'groupId', message: `Group "${l.parent}" does not exist` }]);
         const bills = openingBillsOf(run, l, object);
         saveTolerant(run, object, { ...ledgerFields(run, l, gid), id: existing, groupId: gid, ...(bills ? { openingBills: bills } : {}) }, ['id', 'groupId', 'openingBalance'], (i) =>
-          saveLedger(run.quiet, i),
+          saveLedger(run.ctx, i),
         );
         c.updated++;
         continue;
@@ -790,7 +792,7 @@ function importLedgers(run: Run): void {
       }
       const bills = openingBillsOf(run, l, object);
       const saved = saveTolerant(run, object, { ...ledgerFields(run, l, gid), name: l.name, groupId: gid, ...(bills ? { openingBills: bills } : {}) }, ['name', 'groupId', 'openingBalance'], (i) =>
-        saveLedger(run.quiet, i),
+        saveLedger(run.ctx, i),
       );
       run.ledgerIds.set(key(l.name), saved.id);
       c.created++;
@@ -866,10 +868,10 @@ function importStockItems(run: Run): void {
       });
       if (openings.length > 0) input.openings = openings;
       if (existing !== undefined) {
-        saveTolerant(run, object, { ...input, id: existing }, ['id'], (i) => saveItem(run.quiet, i));
+        saveTolerant(run, object, { ...input, id: existing }, ['id'], (i) => saveItem(run.ctx, i));
         c.updated++;
       } else {
-        const res = saveTolerant(run, object, { ...input, name: it.name }, ['name', 'unitId'], (i) => saveItem(run.quiet, i));
+        const res = saveTolerant(run, object, { ...input, name: it.name }, ['name', 'unitId'], (i) => saveItem(run.ctx, i));
         for (const w of res.warnings) run.add({ severity: 'info', code: 'item_note', message: w, object });
         c.created++;
       }
@@ -905,7 +907,7 @@ function importVoucherTypes(run: Run, baseOf: (name: string) => VoucherBaseType 
       numbering: { method: method === 'manual' ? 'manual' : method === 'none' ? 'none' : 'automatic_override' },
     };
     try {
-      saveTolerant(run, object, input, ['name', 'baseType'], (i) => saveVoucherType(run.quiet, i));
+      saveTolerant(run, object, input, ['name', 'baseType'], (i) => saveVoucherType(run.ctx, i));
       existing.add(key(t.name));
       c.created++;
     } catch (err) {
@@ -923,8 +925,14 @@ function enableNeededFeatures(run: Run): void {
   if (!f.batches && run.file.stockItems.some((i) => i.maintainBatches && i.openings.some((o) => o.batch))) want.batches = true;
   const keys = Object.keys(want);
   if (keys.length === 0) return;
-  saveFeatures(run.quiet, want);
-  run.add({ severity: 'info', code: 'features_enabled', message: `Turned on in F11 (used in the Tally data): ${keys.map((k) => ({ costCentres: 'Cost centres', multipleGodowns: 'Multiple godowns', batches: 'Batches' })[k as 'costCentres']).join(', ')}.` });
+  const names = keys.map((k) => ({ costCentres: 'Cost centres', multipleGodowns: 'Multiple godowns', batches: 'Batches' })[k as 'costCentres']).join(', ');
+  // Changing F11 needs the same right as on the Features screen; without it the data is still imported.
+  if (!hasPermission(run.ctx, 'company.manage')) {
+    run.add({ severity: 'warning', code: 'features_not_enabled', message: `The Tally data uses: ${names}. Ask a user who can manage the company to turn ${keys.length === 1 ? 'it' : 'them'} on in Features (F11).` });
+    return;
+  }
+  saveFeatures(run.ctx, want); // audited ('settings' entry with before/after)
+  run.add({ severity: 'info', code: 'features_enabled', message: `Turned on in F11 (used in the Tally data): ${names}.` });
 }
 
 function importMasters(run: Run, baseOf: (name: string) => VoucherBaseType | null): void {
@@ -937,10 +945,10 @@ function importMasters(run: Run, baseOf: (name: string) => VoucherBaseType | nul
     'GODOWN',
     run.file.godowns,
     'godowns',
-    (g, parentId) => saveTolerant(run, `GODOWN ${g.name}`, { name: g.name, parentId, alias: g.aliases[0] ?? undefined, address: g.address ?? undefined }, ['name'], (i) => saveGodown(run.quiet, i)),
+    (g, parentId) => saveTolerant(run, `GODOWN ${g.name}`, { name: g.name, parentId, alias: g.aliases[0] ?? undefined, address: g.address ?? undefined }, ['name'], (i) => saveGodown(run.ctx, i)),
     (g, id, parentId) => {
       const name = run.db.value<string>('SELECT name FROM godowns WHERE id = :id', { id }) as string;
-      return saveTolerant(run, `GODOWN ${g.name}`, { id, name, parentId, address: g.address ?? undefined }, ['id', 'name'], (i) => saveGodown(run.quiet, i));
+      return saveTolerant(run, `GODOWN ${g.name}`, { id, name, parentId, address: g.address ?? undefined }, ['id', 'name'], (i) => saveGodown(run.ctx, i));
     },
   );
   importTree(
@@ -949,10 +957,10 @@ function importMasters(run: Run, baseOf: (name: string) => VoucherBaseType | nul
     'STOCKGROUP',
     run.file.stockGroups,
     'stock_groups',
-    (g, parentId) => saveTolerant(run, `STOCKGROUP ${g.name}`, { name: g.name, parentId, alias: g.aliases[0] ?? undefined, ...gstFields(g.gst) }, ['name'], (i) => saveStockGroup(run.quiet, i)),
+    (g, parentId) => saveTolerant(run, `STOCKGROUP ${g.name}`, { name: g.name, parentId, alias: g.aliases[0] ?? undefined, ...gstFields(g.gst) }, ['name'], (i) => saveStockGroup(run.ctx, i)),
     (g, id, parentId) => {
       const name = run.db.value<string>('SELECT name FROM stock_groups WHERE id = :id', { id }) as string;
-      return saveTolerant(run, `STOCKGROUP ${g.name}`, { id, name, parentId, ...gstFields(g.gst) }, ['id', 'name'], (i) => saveStockGroup(run.quiet, i));
+      return saveTolerant(run, `STOCKGROUP ${g.name}`, { id, name, parentId, ...gstFields(g.gst) }, ['id', 'name'], (i) => saveStockGroup(run.ctx, i));
     },
   );
   importTree(
@@ -961,7 +969,7 @@ function importMasters(run: Run, baseOf: (name: string) => VoucherBaseType | nul
     'STOCKCATEGORY',
     run.file.stockCategories,
     'stock_categories',
-    (g, parentId) => saveTolerant(run, `STOCKCATEGORY ${g.name}`, { name: g.name, parentId, alias: g.aliases[0] ?? undefined }, ['name'], (i) => saveStockCategory(run.quiet, i)),
+    (g, parentId) => saveTolerant(run, `STOCKCATEGORY ${g.name}`, { name: g.name, parentId, alias: g.aliases[0] ?? undefined }, ['name'], (i) => saveStockCategory(run.ctx, i)),
     null,
   );
   // Cost categories (flat).
@@ -973,7 +981,7 @@ function importMasters(run: Run, baseOf: (name: string) => VoucherBaseType | nul
       continue;
     }
     try {
-      saveTolerant(run, `COSTCATEGORY ${cat.name}`, { name: cat.name }, ['name'], (i) => saveCostCategory(run.quiet, i));
+      saveTolerant(run, `COSTCATEGORY ${cat.name}`, { name: cat.name }, ['name'], (i) => saveCostCategory(run.ctx, i));
       cats.created++;
     } catch (err) {
       cats.failed++;
@@ -992,7 +1000,7 @@ function importMasters(run: Run, baseOf: (name: string) => VoucherBaseType | nul
         (cc.category ? categories.get(key(cc.category)) : undefined) ??
         (parentId !== null ? run.db.value<number>('SELECT category_id FROM cost_centres WHERE id = :id', { id: parentId }) : undefined) ??
         (run.db.value<number>('SELECT id FROM cost_categories ORDER BY is_predefined DESC, id LIMIT 1') as number);
-      return saveTolerant(run, `COSTCENTRE ${cc.name}`, { name: cc.name, categoryId, parentId, alias: cc.aliases[0] ?? undefined }, ['name', 'categoryId'], (i) => saveCostCentre(run.quiet, i));
+      return saveTolerant(run, `COSTCENTRE ${cc.name}`, { name: cc.name, categoryId, parentId, alias: cc.aliases[0] ?? undefined }, ['name', 'categoryId'], (i) => saveCostCentre(run.ctx, i));
     },
     null,
   );
@@ -1282,7 +1290,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     const rows = db.all<{ id: number; source: unknown; tguid: unknown }>(
       `SELECT id, CASE WHEN json_valid(meta) THEN json_extract(meta, '$.source') END AS source,
               CASE WHEN json_valid(meta) THEN json_extract(meta, '$.tally.guid') END AS tguid
-         FROM vouchers WHERE voucher_type_id = :t AND number = :n AND date BETWEEN :from AND :to ORDER BY id`,
+         FROM vouchers INDEXED BY idx_vouchers_number WHERE voucher_type_id = :t AND number = :n AND date BETWEEN :from AND :to ORDER BY id`,
       { t: typeId, n: v.number, from, to },
     );
     const same = rows.find((r) => !(v.guid && r.source === 'tally' && typeof r.tguid === 'string' && r.tguid !== '' && r.tguid !== v.guid));
@@ -1291,6 +1299,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
       matchedByNumber = true;
     }
   }
+  let before: ReturnType<typeof snapshotFromDb> | undefined;
   if (existingId !== undefined) {
     const ex = db.get<{ source: unknown; date: string; is_cancelled: number }>(
       `SELECT CASE WHEN json_valid(meta) THEN json_extract(meta, '$.source') END AS source, date, is_cancelled FROM vouchers WHERE id = :id`,
@@ -1320,6 +1329,8 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     if (ex && env.lockedUpTo && ex.date <= env.lockedUpTo) {
       throw new SkipVoucher('locked', `The voucher already imported is in the locked period (up to ${env.lockedUpTo}); it was not updated.`, 'warning');
     }
+    const row = loadVoucherRow(db, existingId);
+    if (row) before = snapshotFromDb(db, row, db.value<string>('SELECT name FROM voucher_types WHERE id = :id', { id: row.voucher_type_id }) ?? vt.name);
   }
 
   const isAccounting = ACCOUNTING_BASE_TYPES.includes(base);
@@ -1707,6 +1718,20 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
       },
     );
   });
+  // One edit-log entry per voucher, in the same shape as a voucher saved on screen (vouchers/service.ts),
+  // so the voucher's history shows the import (and, on "update", the amounts before and after).
+  const saved = loadVoucherRow(db, id);
+  if (saved) {
+    run.ctx.audit({
+      action: existingId !== undefined ? 'alter' : 'create',
+      entityType: 'voucher',
+      entityId: id,
+      entityGuid: saved.guid,
+      entityLabel: `${vt.name} ${v.number ?? '(no number)'} dated ${formatDate(v.date)}`,
+      before,
+      after: { ...snapshotFromDb(db, saved, vt.name), source: 'tally', importBatchId: env.batchId, tallyGuid: v.guid ?? null },
+    });
+  }
   return existingId !== undefined ? 'updated' : 'created';
 }
 
@@ -1817,11 +1842,9 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
     const file = parseTallyFile(input.bytes);
     for (const i of file.issues) add(i);
     const db = ctx.db;
-    const quiet: CompanyCtx = { ...ctx, audit: () => undefined };
     const booksFrom = db.value<string>('SELECT books_from FROM company WHERE id = 1') as string;
     const run: Run = {
       ctx,
-      quiet,
       db,
       file,
       update: opts.onDuplicate === 'update',

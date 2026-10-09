@@ -153,7 +153,7 @@ export async function enableSecurity(ctx: CompanyCtx, input: SecurityEnableInput
       }
       owner = { id: current.id, username: current.username };
     }
-    saveFeatures(ctx, { security: true });
+    saveFeatures(ctx, { security: true }, { securityToggle: true });
     ctx.audit({
       action: 'security',
       entityType: 'company_security',
@@ -190,7 +190,7 @@ export async function disableSecurity(ctx: CompanyCtx, input: SecurityDisableInp
     if (!current || current.password_hash !== account.password_hash || current.is_active !== 1)
       throw new AppError('CONFLICT', 'Your account was changed meanwhile. Please try again.');
     db.run('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = :id', { id: userId });
-    saveFeatures(ctx, { security: false });
+    saveFeatures(ctx, { security: false }, { securityToggle: true });
     ctx.audit({
       action: 'security',
       entityType: 'company_security',

@@ -4,15 +4,16 @@
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { VOUCHER_BASE_TYPES } from '../../shared/constants.ts';
 import type { VoucherBaseType } from '../../shared/constants.ts';
 import { Icon, Kbd, Modal, Spinner, splitHighlight, useDebouncedValue, useListNavigation } from '../ui/index.ts';
 import { cx } from '../ui/lib/cx.ts';
-import { getGotoProviders, onGotoProvidersChange, pushRecent, rankGoto, searchProviders } from './lib/goto.ts';
+import { useVoucherChoices } from './hooks/useVoucherChoices.ts';
+import { getGotoProviders, onGotoProvidersChange, pushRecent, rankGoto, resolveGotoTarget, searchProviders, usableProviders } from './lib/goto.ts';
 import type { GotoItem, GotoProvider, RankedGoto } from './lib/goto.ts';
 import { buildStaticGotoItems, parseRecent } from './lib/gotoItems.ts';
+import { customVoucherGotoItems, parseVoucherCommand } from './lib/voucherTypes.ts';
 import { useModules, useNav } from './nav.tsx';
-import { useShell } from './shell.tsx';
+import { useShell, VOUCHER_ENTRY_SCREEN } from './shell.tsx';
 import { useAppState } from './state.tsx';
 import { usePeriod, useWorkingDate } from './working.tsx';
 
@@ -70,29 +71,44 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listId = useId();
 
-  const staticItems = useMemo(
-    () => buildStaticGotoItems(modules, { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null }),
-    [modules, app.can, app.company],
-  );
+  const voucherTypes = useVoucherChoices();
+  const staticItems = useMemo(() => {
+    const available = (b: VoucherBaseType) => shell.voucherAvailability(b).ok;
+    return buildStaticGotoItems(
+      modules,
+      { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null },
+      {
+        // The vouchers module's Transactions menu already lists every voucher type (filtered by
+        // permission and features) — the shell's own commands would show each one twice.
+        includeVouchers: !nav.isRegistered(VOUCHER_ENTRY_SCREEN),
+        voucherAvailable: available,
+        extra: customVoucherGotoItems(voucherTypes.filter((t) => available(t.baseType))),
+      },
+    );
+  }, [modules, app.can, app.company, nav, shell, voucherTypes]);
+
+  // Only providers whose results this user may open (no forbidden or pointless API calls).
+  const usable = useMemo(() => usableProviders(providers, nav.canOpen), [providers, nav, app.can, app.company]);
 
   useEffect(() => {
     const q = debounced.trim();
-    if (q.length < 2 || providers.length === 0) {
+    if (q.length < 2 || usable.length === 0) {
       setAsyncItems([]);
       setSearching(false);
       return undefined;
     }
     const ctrl = new AbortController();
     setSearching(true);
-    searchProviders(q, ctrl.signal, providers)
+    searchProviders(q, ctrl.signal, usable)
       .then((items) => {
-        if (!ctrl.signal.aborted) setAsyncItems(items);
+        // A result opens its screen, else its fallback; results the user cannot open are dropped.
+        if (!ctrl.signal.aborted) setAsyncItems(items.map((i) => resolveGotoTarget(i, nav.canOpen)).filter((i): i is GotoItem => i !== null));
       })
       .finally(() => {
         if (!ctrl.signal.aborted) setSearching(false);
       });
     return () => ctrl.abort();
-  }, [debounced, providers]);
+  }, [debounced, usable, nav]);
 
   const ranked = useMemo<RankedGoto[]>(() => {
     const q = query.trim();
@@ -153,9 +169,9 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
     else if (command === 'switch-company') void shell.closeCompany();
     else if (command === 'shortcuts') shell.openShortcuts();
     else if (command === 'vouchers') shell.openVoucherPicker();
-    else if (command.startsWith('voucher:')) {
-      const bt = command.slice('voucher:'.length);
-      if ((VOUCHER_BASE_TYPES as readonly string[]).includes(bt)) shell.openVoucher(bt as VoucherBaseType);
+    else {
+      const v = parseVoucherCommand(command);
+      if (v) shell.openVoucher(v.baseType, v.voucherTypeId !== undefined ? { voucherTypeId: v.voucherTypeId } : {});
     }
   };
 

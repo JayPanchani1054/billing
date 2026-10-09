@@ -23,7 +23,7 @@ import { AppError, toErrorPayload } from '../core/lib/errors.ts';
 import type { Runtime } from '../core/app/runtime.ts';
 import { openExternalUrl, parseExternalUrl } from './external.ts';
 import { isPathInside, PathSet, sanitizeFileName, writeFileAtomic } from './files.ts';
-import { chosenFolders } from './user-choices.ts';
+import { rememberChosenFile, rememberChosenFolder } from './user-choices.ts';
 import { describeError, log } from './log.ts';
 import { isThemeMode } from './prefs.ts';
 import type { PageSize, PdfMargins, PrintService } from './print.ts';
@@ -225,7 +225,7 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
       if (res.canceled || res.filePaths.length === 0) return null;
       const folder = path.resolve(res.filePaths[0]);
       remember(folder, true);
-      chosenFolders.add(folder);
+      rememberChosenFolder(folder); // also authorises it inside the core worker (see user-choices.ts)
       return { path: folder };
     },
 
@@ -250,6 +250,7 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
       }
       if (bytes.byteLength > MAX_OPEN_BYTES) throw new AppError('BUSINESS_RULE', 'Files larger than 100 MB cannot be opened.');
       remember(file, false);
+      rememberChosenFile(file); // e.g. a backup file the renderer then asks the core to check or restore
       const result = { name: path.basename(file), size: bytes.byteLength, bytes: standaloneBytes(bytes) };
       return withPath ? { ...result, path: file } : result;
     },
@@ -337,7 +338,8 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
       if (raw.includes('\0') || !path.isAbsolute(raw)) throw invalid('Invalid path.');
       const target = path.resolve(raw);
       const dataDir = deps.runtime.app.dataDir;
-      if (!isPathInside(dataDir, target) && !chosen.covers(target)) {
+      // An empty data folder (core not started) must not resolve to the working directory.
+      if (!(dataDir !== '' && isPathInside(dataDir, target)) && !chosen.covers(target)) {
         log('warn', 'Refused to reveal a path outside the data folder');
         throw new AppError('FORBIDDEN', 'Only files in the Bahi ERP data folder, or files you chose in this session, can be shown.');
       }

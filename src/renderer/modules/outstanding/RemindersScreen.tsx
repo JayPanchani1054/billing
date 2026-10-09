@@ -11,13 +11,13 @@ import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { ReminderLetter, ReminderParty } from '../../../shared/types/outstanding.ts';
 import { useConfirm } from '../../app/confirm.tsx';
-import { exportTable, savePdf, showInFolder } from '../../app/export.ts';
+import { EXPORT_PERMISSION, exportTable, savePdf, showInFolder } from '../../app/export.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
 import type { ScreenActionItem } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
-import { ExportDialog, ReportScreen } from '../../app/Screen.tsx';
+import { EXPORT_DENIED_HINT, ExportDialog, ReportScreen } from '../../app/Screen.tsx';
 import { usePeriod } from '../../app/working.tsx';
 import { useAppState } from '../../app/state.tsx';
 import { Badge, Button, DataTable, EmptyState, Field, Grid, Icon, Inline, KpiCard, NumberInput, Tag, useDebouncedValue, useToast } from '../../ui/index.ts';
@@ -131,7 +131,7 @@ export function RemindersScreen({ params }: ScreenProps<RemindersParams>) {
       const r = format === 'pdf' ? await savePdf(def) : await exportTable(def, format);
       if (r) {
         const name = r.path.split(/[\\/]/).pop() ?? r.path;
-        toast.success(r.fellBackToCsv ? `Saved as CSV: ${name}` : `Saved ${name}`, { action: { label: 'Show in folder', onClick: () => showInFolder(r.path) } });
+        toast.success(`Saved ${name}`, { action: { label: 'Show in folder', onClick: () => showInFolder(r.path) } });
       }
     } catch (err) {
       toast.error('Could not export', { message: userMessage(err) });
@@ -148,7 +148,7 @@ export function RemindersScreen({ params }: ScreenProps<RemindersParams>) {
     { key: 'Alt+F', label: 'Overdue by', icon: 'filter', onClick: () => minRef.current?.focus(), group: 'filter' },
     { key: 'Alt+W', label: 'All customers', icon: 'users', onClick: () => setLedgerId(undefined), hidden: ledgerId === undefined, group: 'filter', hint: 'Show every customer with overdue bills, not just this one' },
     { key: 'Alt+O', label: 'Party outstanding', icon: 'list', onClick: () => current && nav.push('outstanding.party', { ledgerId: current.ledgerId }), disabled: !current, group: 'party' },
-    { key: 'Alt+E', label: 'Export list', icon: 'export', onClick: () => setExportOpen(true), disabled: !d || parties.length === 0, group: 'output' },
+    { key: 'Alt+E', label: 'Export list', icon: 'export', onClick: () => setExportOpen(true), disabled: !d || parties.length === 0 || !app.can(EXPORT_PERMISSION), group: 'output', hint: app.can(EXPORT_PERMISSION) ? undefined : EXPORT_DENIED_HINT },
   ];
 
   const filtered = ledgerId !== undefined || groupId !== undefined || min > 1;

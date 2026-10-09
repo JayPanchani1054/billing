@@ -8,19 +8,21 @@
  *   'data.backup.create'          BackupCreateInput      → BackupCreateResult       data.backup     (async)
  *   'data.backup.list'            BackupListInput        → BackupListResult         data.backup
  *   'data.backup.verify'          BackupVerifyInput      → BackupVerifyResult       data.backup     (async)
- *   'data.backup.auto'            none                   → BackupAutoResult         authenticated   (async)
+ *   'data.backup.auto'            BackupAutoInput        → BackupAutoResult         authenticated   (async; shell: after open, before close/quit)
  *   'data.backup.restore'         BackupRestoreInput     → BackupRestoreResult      data.restore    (async)
  *   'data.backup.restoreFromFile' BackupRestoreInput     → BackupRestoreResult      app scope, public, only with NO company open
  *   'data.backup.inspectFile'     BackupInspectInput     → BackupFileInfo           app scope, public, only with NO company open
  *
  *   'data.export.table'           ExportTableInput       → ExportFileResult         authenticated + data.export
+ *   'data.export.audit'           ExportAuditInput       → ExportAuditResult        authenticated + data.export (PDF / print of a report)
  *   'data.export.masters'         ExportMastersInput     → ExportFileResult         data.export
  *   'data.export.vouchers'        ExportVouchersInput    → ExportFileResult         data.export
  *
  *   'data.import.kinds'           none                   → ImportKindInfo[]         data.import
  *   'data.import.template'        ImportTemplateInput    → ExportFileResult         data.import
- *   'data.import.preview'         ImportPreviewInput     → ImportPreviewResult      data.import     (no writes)
- *   'data.import.commit'          ImportCommitInput      → ImportCommitResult       data.import
+ *   'data.import.preview'         ImportPreviewInput     → ImportPreviewResult      data.import     (no writes; async, chunked)
+ *   'data.import.commit'          ImportCommitInput      → ImportCommitResult       data.import     (async, chunked)
+ *   'data.import.progress'        none                   → TallyProgress            data.import     (preview / import progress)
  *
  *   'data.tally.preview'          TallyPreviewInput      → TallyPreviewResult       data.import     (no writes)
  *   'data.tally.import'           TallyImportInput       → TallyImportResult        data.import     (async, chunked)
@@ -67,6 +69,12 @@ export interface BackupManifest {
   /** SHA-256 (hex) and size of the uncompressed SQLite database. */
   dbSha256: string;
   dbBytes: number;
+  /**
+   * Newest edit-log entry in the backed-up data, signed (HMAC) with the key of the installation that
+   * made the backup (never stored in the backup). Lets that installation detect an edit log rewritten
+   * inside the backup. Absent in backups made before this field existed.
+   */
+  auditHead?: { lastId: number; lastHash: string; mac: string | null };
 }
 
 export interface BackupCreateInput {
@@ -121,7 +129,7 @@ export interface BackupVerifyInput {
 }
 
 export interface BackupCheck {
-  name: 'container' | 'checksum' | 'password' | 'decompress' | 'database_checksum' | 'integrity' | 'schema' | 'company';
+  name: 'container' | 'checksum' | 'password' | 'decompress' | 'database_checksum' | 'integrity' | 'schema' | 'company' | 'edit_log';
   /** null = could not be checked (e.g. password not given). */
   ok: boolean | null;
   message: string;
@@ -142,9 +150,20 @@ export interface BackupVerifyResult {
   counts: { ledgers: number; vouchers: number; stockItems: number } | null;
 }
 
+/**
+ * When the shell asks for the automatic backup:
+ *  - 'open'  — after the company is opened / a user logs in (catch-up after a session that ended
+ *              without one); skipped for a company that was created less than 24 hours ago and has
+ *              never been backed up (reason 'new' — nothing worth a copy yet);
+ *  - 'close' — before the company is closed or the app quits (the default).
+ */
+export interface BackupAutoInput {
+  trigger?: 'open' | 'close';
+}
+
 export interface BackupAutoResult {
   ran: boolean;
-  reason: 'disabled' | 'recent' | 'created' | 'failed';
+  reason: 'disabled' | 'recent' | 'new' | 'created' | 'failed';
   lastBackupAt: string | null;
   backup?: BackupCreateResult;
   /** User-facing message when reason is 'failed'. */
@@ -207,6 +226,24 @@ export interface ExportTableInput {
   levels?: number[];
   notes?: string;
   format: ExportFormat;
+}
+
+/**
+ * A report printed or saved as PDF in the renderer (the HTML is built there): checks the
+ * data.export permission and records the 'export' edit-log entry before the shell prints.
+ */
+export interface ExportAuditInput {
+  title: string;
+  subtitle?: string;
+  /** ISO range or a ready label. */
+  period?: { from: string; to: string } | string;
+  /** Number of data rows in the printed table. */
+  rows: number;
+  format: 'pdf' | 'print';
+}
+
+export interface ExportAuditResult {
+  ok: true;
 }
 
 export interface ExportFileResult {

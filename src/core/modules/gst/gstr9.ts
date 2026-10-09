@@ -12,7 +12,8 @@
  *   Table 6  ITC: 6A = Σ GSTR-3B 4(A) of the months · 6B inputs / capital goods / input services ·
  *            6C RCM from unregistered · 6D RCM from registered · 6E import of goods · 6F import of services ·
  *            6G ISD · 6I sub-total · 6J difference (6I − 6A) · 7E blocked under s.17(5) (shown for reference).
- *   Table 9  tax payable and paid (cash / ITC by credit head) = Σ of the monthly GSTR-3B computations.
+ *   Table 9  tax payable and paid (cash / ITC by credit head) = Σ of the monthly GSTR-3B computations,
+ *            each month starting with the credit the previous month left (electronic credit ledger).
  *   Tables 17 / 18  HSN summaries of outward / inward supplies for the year.
  */
 import { addMonths } from '../../../shared/dates.ts';
@@ -23,7 +24,7 @@ import { validation } from '../../lib/errors.ts';
 import type { GstCompany } from './docs.ts';
 import { addTax, addTV, lineTV, loadDocs, zeroTax, zeroTV } from './docs.ts';
 import { computeGstr1 } from './gstr1.ts';
-import { computeGstr3b } from './gstr3b.ts';
+import { computeGstr3b, creditBroughtForward } from './gstr3b.ts';
 import { fyRange, monthsOf } from './period.ts';
 import { hsnSummary } from './reports.ts';
 
@@ -45,8 +46,13 @@ export function computeGstr9(db: Db, company: GstCompany, fy: string, today: str
   const isd = zeroTax();
   // The year's documents are loaded once and shared by every table.
   const all = loadDocs(db, company, { from, to, today, includeCancelled: true });
-  for (const m of monthsOf({ from, to })) {
-    const s = computeGstr3b(db, company, m, today, undefined, all.filter((d) => d.inBooks && d.date >= m.from && d.date <= m.to));
+  const yearMonths = monthsOf({ from, to });
+  // The electronic credit ledger carries unused credit from month to month (and into the year from the
+  // previous one), so each month starts with the credit the month before left.
+  let carry = creditBroughtForward(db, company, yearMonths[0], today);
+  for (const m of yearMonths) {
+    const s = computeGstr3b(db, company, m, today, undefined, all.filter((d) => d.inBooks && d.date >= m.from && d.date <= m.to), { broughtForward: carry });
+    carry = s.payment.setOff.creditBalance;
     const outTax = zeroTax();
     let outTaxable = 0;
     for (const r of s.supplies) {

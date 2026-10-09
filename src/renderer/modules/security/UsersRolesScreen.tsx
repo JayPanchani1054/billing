@@ -44,10 +44,10 @@ export function UsersRolesScreen({ params }: ScreenProps<{ tab?: TabId }>) {
       title="Users & Roles"
       subtitle="Who can open this company and what each person may do."
       icon="users"
-      hint={tab === 'users' ? 'Enter Alter · Alt+C New user · Alt+R Reset password · Alt+U Unlock · Alt+V Deactivate · Alt+H History · Alt+2 Roles' : 'Enter Open · Alt+C New role · Alt+K Copy · Alt+D Delete · Alt+H History · Alt+1 Users'}
+      hint={tab === 'users' ? 'Enter Alter · Alt+C Create User · Alt+R Reset Password · Alt+U Unlock · Alt+V Deactivate · Alt+H History · Ctrl+2 Roles' : 'Enter Open · Alt+C Create Role · Alt+K Copy · Alt+D Delete · Alt+H History · Ctrl+1 Users'}
       actions={[
-        { key: 'Alt+1', label: 'Users', icon: 'user', onClick: () => setTab('users'), group: 'view', disabled: tab === 'users' },
-        { key: 'Alt+2', label: 'Roles', icon: 'shield', onClick: () => setTab('roles'), group: 'view', disabled: tab === 'roles' },
+        { key: 'Ctrl+1', label: 'Users', icon: 'user', onClick: () => setTab('users'), group: 'view', disabled: tab === 'users' },
+        { key: 'Ctrl+2', label: 'Roles', icon: 'shield', onClick: () => setTab('roles'), group: 'view', disabled: tab === 'roles' },
         { key: 'Alt+S', label: 'Security settings', icon: 'settings', onClick: () => nav.push('security.settings'), group: 'more' },
       ]}
     >
@@ -188,7 +188,7 @@ function UsersTab() {
   };
 
   useScreenActions([
-    { key: 'Alt+C', label: 'New user', icon: 'plus', primary: true, onClick: () => void openForm() },
+    { key: 'Alt+C', label: 'Create user', icon: 'plus', primary: true, onClick: () => void openForm() },
     { key: 'Alt+A', label: 'Alter user', icon: 'edit', onClick: () => selected && void openForm(selected.id), disabled: !selected },
     {
       key: 'Alt+R',
@@ -327,7 +327,7 @@ function UsersTab() {
               icon="users"
               title={debounced ? 'No user matches your search' : 'No users yet'}
               body={debounced ? 'Check the spelling or clear the search.' : 'Press Alt+C to add the first user.'}
-              action={debounced ? undefined : <Button icon="plus" onClick={() => void openForm()}>New user</Button>}
+              action={debounced ? undefined : <Button icon="plus" onClick={() => void openForm()}>Create user</Button>}
             />
           }
         />
@@ -375,7 +375,7 @@ function RolesTab() {
   };
 
   useScreenActions([
-    { key: 'Alt+C', label: 'New role', icon: 'plus', primary: true, onClick: () => void open({}) },
+    { key: 'Alt+C', label: 'Create role', icon: 'plus', primary: true, onClick: () => void open({}) },
     { key: 'Alt+A', label: selected?.isSystem ? 'View role' : 'Alter role', icon: selected?.isSystem ? 'eye' : 'edit', onClick: () => selected && void open({ id: selected.id }), disabled: !selected },
     { key: 'Alt+K', label: 'Copy as new role', icon: 'copy', onClick: () => selected && void open({ copyFrom: selected.id }), disabled: !selected, hint: 'Start a new role from the selected role’s permissions.' },
     {

@@ -1,14 +1,17 @@
 /**
  * Root component: providers + the top-level routing decided by the app state
  * (no bridge → explanation; first run → data folder; login; company list; forced password
- * change; otherwise the workspace).
+ * change; otherwise the workspace — kept mounted behind the lock screen after an idle timeout).
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { CORE_RESTARTED_COMMAND } from '../../shared/bridge.ts';
 import { modules as featureModules } from '../modules/index.ts';
 import { CompanySelect, DataFolderSetup, ForcedChangePassword, LoginScreen } from '../modules/company/gate.ts';
 import { Button, EmptyState, Icon, Spinner, ToastProvider, useToast } from '../ui/index.ts';
+import { onBridgeEvent } from './bridge.ts';
 import { ConfirmProvider } from './confirm.tsx';
 import { isApiError, userMessage } from './lib/apiErrors.ts';
+import { LockScreen } from './LockScreen.tsx';
 import type { ModuleDef } from './registry.ts';
 import { shellModule } from './shellModule.ts';
 import { AppStateProvider, useAppState } from './state.tsx';
@@ -20,6 +23,7 @@ export function App() {
       <ConfirmProvider>
         <AppStateProvider>
           <GlobalErrorToasts />
+          <CoreRestartNotice />
           <Root />
         </AppStateProvider>
       </ConfirmProvider>
@@ -45,9 +49,20 @@ function Root() {
       return <CompanySelect />;
     case 'change-password':
       return <ForcedChangePassword />;
-    case 'workspace': {
+    case 'workspace':
+    case 'locked': {
+      // Same element tree in both phases, so locking never remounts the workspace: it is only
+      // hidden and made inert behind the lock screen (lib/sessionLock.ts).
+      const locked = app.phase === 'locked';
       const key = `${app.company?.id ?? ''}:${app.session?.userId ?? 'implicit'}:${app.session?.username ?? ''}`;
-      return <Workspace key={key} modules={modules} />;
+      return (
+        <>
+          <div className="bx-workspace-host" hidden={locked} inert={locked} aria-hidden={locked || undefined}>
+            <Workspace key={key} modules={modules} />
+          </div>
+          {locked ? <LockScreen /> : null}
+        </>
+      );
     }
     default:
       return <Splash />;
@@ -96,6 +111,30 @@ function StartupError() {
       />
     </div>
   );
+}
+
+/**
+ * The accounting engine (core worker thread) crashed and main restarted it: nothing is open any more.
+ * Say so, and reload the app state (back to the company list) instead of failing on the next action.
+ */
+function CoreRestartNotice() {
+  const toast = useToast();
+  const app = useAppState();
+  const refreshRef = useRef(app.refresh);
+  refreshRef.current = app.refresh;
+  useEffect(
+    () =>
+      onBridgeEvent('command', ({ id }) => {
+        if (id !== CORE_RESTARTED_COMMAND) return;
+        toast.error('Bahi ERP recovered from a problem', {
+          message: 'The accounting engine stopped unexpectedly and was restarted. Open the company again and check your last entry. Saved data is safe.',
+          id: 'core-restarted',
+        });
+        void refreshRef.current();
+      }),
+    [toast],
+  );
+  return null;
 }
 
 /** Unhandled promise rejections and script errors become a calm toast (never a blank screen). */

@@ -23,3 +23,10 @@ test('results carry group, stock and search keywords', () => {
   assert.equal(out[1].description, 'Stock item · Service');
   assert.equal(out[1].screen, 'inventory.item.form');
 });
+
+test('a result opening the stock report carries the item form as fallback (users without reports.view)', () => {
+  const [r] = itemGotoResults([{ id: 9, name: 'Steel Bolt M8' }], (id) => id === 'stock.item', formatQty);
+  assert.equal(r.screen, 'stock.item');
+  assert.deepEqual(r.fallback, { screen: 'inventory.item.form', params: { id: 9 } });
+  assert.equal(itemGotoResults([{ id: 9, name: 'Steel Bolt M8' }], () => false, formatQty)[0].fallback, undefined);
+});

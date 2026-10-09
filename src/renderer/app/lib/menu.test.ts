@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { Permission } from '../../../shared/constants.ts';
 import type { ModuleDef } from '../registry.ts';
-import { assignAccelerators, buildGateway, collectMenu, filterMenu, sortMenu, splitAccelerator } from './menu.ts';
+import { acceleratorOrder, assignAccelerators, buildGateway, collectMenu, filterMenu, sortMenu, splitAccelerator } from './menu.ts';
 
 const Dummy = () => null;
 
@@ -102,7 +102,9 @@ describe('buildGateway', () => {
       ['Masters', 'Reports', 'Inventory Reports', 'GST'],
     );
     const accels = sections.flatMap((s) => s.items.map((i) => i.accelerator));
-    assert.deepEqual(accels, ['c', 'l', 'g', 'b', 'd', 's', 't']);
+    // Priority screens (GATEWAY_PRIORITY: Stock Summary, GSTR-1) claim their letters first, so
+    // GSTR-1 keeps G and Groups takes its next letter.
+    assert.deepEqual(accels, ['c', 'l', 'r', 'b', 'd', 's', 'g']);
     assert.equal(new Set(accels).size, accels.length);
   });
 
@@ -112,5 +114,37 @@ describe('buildGateway', () => {
       sections.map((s) => s.id),
       ['masters', 'reports'],
     );
+  });
+});
+
+describe('accelerator priority', () => {
+  const items = [
+    { section: 'masters' as const, label: 'Ledgers', screen: 'accounts.ledger.list' },
+    { section: 'transactions' as const, label: 'Sales', screen: 'vouchers.entry', params: { baseType: 'sales' }, hotkey: 'F8' },
+    { section: 'transactions' as const, label: 'Day Book', screen: 'vouchers.daybook' },
+    { section: 'reports' as const, label: 'Receivables Ageing', screen: 'outstanding.receivables', params: { view: 'ageing' } },
+    { section: 'reports' as const, label: 'Balance Sheet', screen: 'reports.balanceSheet' },
+  ];
+
+  test('priority screens first (in priority order), items with a global hotkey never, then display order', () => {
+    // Balance Sheet (prio 0), Day Book (3), Ledgers (12), then the rest; Sales (F8) is skipped.
+    assert.deepEqual(acceleratorOrder(items), [4, 2, 0, 3]);
+  });
+
+  test('buildGateway: Balance Sheet keeps B even when an earlier section has a B item; F-key items get none', () => {
+    const mods: ModuleDef[] = [
+      { id: 'm', screens: [], menu: [{ section: 'masters', label: 'Bank Overview', screen: 'banking.summary', order: 1 }, ...items] },
+    ];
+    const built = buildGateway(mods, { can: all, gstEnabled: true }).flatMap((s) => s.items);
+    const accel = (label: string) => built.find((i) => i.label === label)?.accelerator;
+    assert.equal(accel('Balance Sheet'), 'b');
+    assert.equal(accel('Day Book'), 'd');
+    assert.equal(accel('Sales'), null);
+    assert.notEqual(accel('Bank Overview'), 'b');
+  });
+
+  test('a digit is the last resort (GSTR-3B after G, S, T, R and B are taken)', () => {
+    const idx = assignAccelerators(['G', 'S', 'T', 'R', 'B', 'GSTR-3B']);
+    assert.equal('GSTR-3B'[idx[5]], '3');
   });
 });

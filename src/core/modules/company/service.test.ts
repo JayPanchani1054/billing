@@ -174,19 +174,46 @@ describe('features (F11)', () => {
     t.close();
   });
 
-  it('security can be turned on only with an Owner user and only by a security manager', () => {
+  it('security can be turned on only with an Owner user and only by a security manager (via the toggle)', () => {
     const t = createTestCompany();
-    assert.throws(() => saveFeatures(t.ctx, { security: true }), isCode('BUSINESS_RULE', /Owner user/));
+    const toggle = { securityToggle: true };
+    assert.throws(() => saveFeatures(t.ctx, { security: true }, toggle), isCode('BUSINESS_RULE', /Owner user/));
     const manager = t.ctxAs({ permissions: ['company.manage'] });
     // Not touching the security flag needs only company.manage.
     assert.equal(saveFeatures(manager, { security: false, billWise: false }).billWise, false);
     t.close();
 
     const s = createTestCompany({ security: true });
-    assert.throws(() => saveFeatures(s.ctxAs({ permissions: ['company.manage'] }), { security: false }), isCode('FORBIDDEN'));
-    assert.equal(saveFeatures(s.ctx, { security: false }).security, false);
-    assert.equal(saveFeatures(s.ctx, { security: true }).security, true);
+    assert.throws(() => saveFeatures(s.ctxAs({ permissions: ['company.manage'] }), { security: false }, toggle), isCode('FORBIDDEN'));
+    assert.equal(saveFeatures(s.ctx, { security: false }, toggle).security, false);
+    assert.equal(saveFeatures(s.ctx, { security: true }, toggle).security, true);
     s.close();
+  });
+
+  it('F11 can never switch security on or off: only security.enable / security.disable (Owner password) can', async () => {
+    const s = createTestCompany({ security: true });
+    const before = s.db.value('SELECT COUNT(*) FROM audit_log');
+    // A non-Owner holding company.manage + security.manage (the audit's privilege-escalation probe) …
+    const manager = { session: s.sessionAs({ permissions: ['company.view', 'company.manage', 'security.manage'] }) };
+    let r = await s.call(companyRoutes, 'company.features.save', { security: false }, manager);
+    assert.equal(errCode(r), 'BUSINESS_RULE');
+    // … and even the Owner (an unattended session must not be switched off without the password).
+    r = await s.call(companyRoutes, 'company.features.save', { security: false, billWise: false });
+    assert.equal(errCode(r), 'BUSINESS_RULE');
+    assert.match(r.ok ? '' : r.error.message, /Security Settings/);
+    assert.throws(() => saveFeatures(s.ctx, { security: false }), isCode('BUSINESS_RULE', /Owner password/));
+    assert.equal(getFeatures(s.db).security, true);
+    assert.equal(getFeatures(s.db).billWise, true, 'the whole save is rolled back');
+    assert.equal(s.db.value('SELECT COUNT(*) FROM audit_log'), before);
+    // Re-sending the unchanged value alongside other changes is fine.
+    await s.callOk(companyRoutes, 'company.features.save', { security: true, costCentres: true });
+    assert.equal(getFeatures(s.db).costCentres, true);
+    s.close();
+
+    const t = createTestCompany(); // security off: turning it on through F11 is refused too
+    assert.equal(errCode(await t.call(companyRoutes, 'company.features.save', { security: true })), 'BUSINESS_RULE');
+    assert.equal(getFeatures(t.db).security, false);
+    t.close();
   });
 });
 

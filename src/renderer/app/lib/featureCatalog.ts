@@ -14,6 +14,11 @@ export interface FeatureInfo {
   group: 'accounting' | 'inventory' | 'taxation' | 'security';
   /** Feature that must be on for this one to be available. */
   requires?: FeatureKey;
+  /**
+   * Changed on another screen, never by the F11 save (the server refuses it there). Security needs the
+   * Owner's password, so it is turned on/off under Security Settings (security.enable / security.disable).
+   */
+  managedOn?: { screen: string; screenLabel: string; note: string };
 }
 
 export const FEATURE_GROUP_LABELS: Readonly<Record<FeatureInfo['group'], string>> = {
@@ -49,7 +54,17 @@ export const FEATURE_CATALOG: readonly FeatureInfo[] = [
   { key: 'tds', group: 'taxation', label: 'TDS', description: 'Deduct tax at source on payments such as rent, contracts and professional fees.' },
   { key: 'tcs', group: 'taxation', label: 'TCS', description: 'Collect tax at source on specified sales.' },
   // Security
-  { key: 'security', group: 'security', label: 'Password protection', description: 'Ask for a username and password to open this company. Needs an Owner user with a password.' },
+  {
+    key: 'security',
+    group: 'security',
+    label: 'Password protection',
+    description: 'Ask for a username and password to open this company. Needs an Owner user with a password.',
+    managedOn: {
+      screen: 'security.settings',
+      screenLabel: 'Security Settings',
+      note: 'Turned on or off under Security Settings, which asks for the Owner password.',
+    },
+  },
 ];
 
 const BY_KEY: ReadonlyMap<FeatureKey, FeatureInfo> = new Map(FEATURE_CATALOG.map((f) => [f.key, f]));
@@ -90,7 +105,12 @@ export function normalizeFeatureToggles(f: Readonly<CompanyFeatures>): CompanyFe
   return out;
 }
 
-/** Keys whose value differs between two feature sets. */
+/** Where a feature is changed when it is not changed on the F11 screen (null = F11 changes it). */
+export function featureManagedOn(key: FeatureKey): FeatureInfo['managedOn'] | null {
+  return BY_KEY.get(key)?.managedOn ?? null;
+}
+
+/** Keys whose value differs between two feature sets (features managed on another screen never count). */
 export function changedFeatures(a: Readonly<CompanyFeatures>, b: Readonly<CompanyFeatures>): FeatureKey[] {
-  return (Object.keys(a) as FeatureKey[]).filter((k) => a[k] !== b[k]);
+  return (Object.keys(a) as FeatureKey[]).filter((k) => a[k] !== b[k] && !featureManagedOn(k));
 }

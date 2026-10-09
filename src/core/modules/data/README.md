@@ -29,12 +29,13 @@ contains its own history row.
 | `data.backup.create` | `BackupCreateInput` → `BackupCreateResult` | `data.backup` | async, `transactional:false` |
 | `data.backup.list` | `BackupListInput` → `BackupListResult` | `data.backup` | newest first; flags unreadable files |
 | `data.backup.verify` | `BackupVerifyInput` → `BackupVerifyResult` | `data.backup` | async |
-| `data.backup.auto` | none → `BackupAutoResult` | authenticated | async; never throws (reason `failed`) |
+| `data.backup.auto` | `BackupAutoInput` → `BackupAutoResult` | authenticated | async; never throws (reason `failed`); `trigger` open/close |
 | `data.backup.restore` | `BackupRestoreInput` → `BackupRestoreResult` | `data.restore` | async; cannot replace the open company |
 | `data.backup.restoreFromFile` | `BackupRestoreInput` → `BackupRestoreResult` | app scope, public | only while NO company is open |
 | `data.backup.inspectFile` | `{path}` → `BackupFileInfo` | app scope, public | only while NO company is open |
 | `data.backup.verifyFile` | `BackupVerifyInput` → `BackupVerifyResult` | app scope, public | only while NO company is open |
 | `data.export.table` | `ExportTableInput` → `ExportFileResult` | authenticated + `data.export` (service) | audited `export` |
+| `data.export.audit` | `ExportAuditInput` → `{ok:true}` | authenticated + `data.export` (service) | print / PDF of a report: audited `export` |
 | `data.export.masters` | `ExportMastersInput` → `ExportFileResult` | `data.export` | |
 | `data.export.vouchers` | `ExportVouchersInput` → `ExportFileResult` | `data.export` | |
 | `data.import.kinds` | none → `ImportKindInfo[]` | `data.import` | column help for the wizard |
@@ -79,8 +80,15 @@ Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersio
   → `schema` (not newer than this app: `supported`) → `company` (name, counts). AES-GCM catches
   deliberate tampering of encrypted backups even when the checksum is forged; an unencrypted backup can be
   rewritten consistently by anyone with write access (say so to users who need tamper evidence).
-- **Auto** (`data.backup.auto`, called by the shell after login/open): runs when F12 `backup.auto` is on
-  and the last backup is older than 24 hours; failures come back as `{reason:'failed', error}`.
+- **Auto** (`data.backup.auto {trigger?: 'open'|'close'}`): runs when F12 `backup.auto` is on and the last
+  backup is older than 24 hours. Callers: the shell a few seconds after the company opens / a user logs
+  in (`open` — a company created less than 24 hours ago that was never backed up is skipped with reason
+  `new`), the shell before F3 / Ctrl+Q close the company (`close`, waited for at most 15 s; the core
+  finishes it before the database closes), and the core runtime itself on shutdown
+  (`DEFAULT_SHUTDOWN_ROUTES`, bounded at 20 s) — so closing the window or quitting from Windows backs up
+  too. Access `authenticated`: it is a company-wide policy, not tied to the user's `data.backup`
+  permission. Failures come back as `{reason:'failed', error}` (never thrown); the shell shows them with
+  an "Open Backup" action.
 - **Restore**: verify → extract to a temporary database → append a `restore` audit entry to the restored
   database's own edit log → `controllerFor(app).installCompanyDatabase(...)` as a new company (`mode:'new'`)
   or over a CLOSED company (`mode:'replace'`, `replaceId`; its folder is moved to the trash first;
@@ -97,7 +105,12 @@ Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersio
   (Excel: real numbers with the Indian `##,##,##0.00` format); `drcr` = signed paise → magnitude + a `Dr/Cr`
   column in Excel, one signed column in CSV; `percent` 18 = 18 %; `date` ISO → Excel dates. CSV: UTF-8
   with BOM, CRLF, and any text starting with `= + - @ TAB CR` is prefixed with `'` (formula injection).
-  Audited as `export`.
+  Audited as `export`. The shell sends Excel AND CSV through this route (no renderer-built CSV), so a
+  user without `data.export` (e.g. the built-in Data Entry role) cannot export either.
+- `data.export.audit {title, subtitle?, period?, rows, format:'pdf'|'print'}` — the shell builds the
+  printable HTML itself; before printing or saving a report as PDF it calls this route, which checks
+  `data.export` and writes the same `export` edit-log entry. Excel, CSV, PDF and Print are one permission
+  and one trail.
 - `data.export.masters {kinds, format}` — one sheet per kind with exactly the import template columns, so
   an exported workbook imports back (tested round trip). CSV with several kinds → `.zip`.
 - `data.export.vouchers {from, to, baseTypes?, includeOptional?=true, includeCancelled?=false, format}` —

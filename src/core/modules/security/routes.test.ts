@@ -28,6 +28,7 @@ const SAMPLE_INPUT: Record<string, unknown> = {
   'security.audit.get': { id: 1 },
   'security.audit.entityHistory': { entityType: 'ledger', entityId: 1 },
   'security.audit.verify': {},
+  'security.audit.resetAnchor': {},
   'security.audit.export': { format: 'csv' },
   'security.mySession': {},
 };
@@ -54,6 +55,7 @@ const EXPECTED_ACCESS: Record<string, string> = {
   'security.audit.get': 'audit.view',
   'security.audit.entityHistory': 'audit.view',
   'security.audit.verify': 'audit.view',
+  'security.audit.resetAnchor': 'audit.view',
   'security.audit.export': 'audit.view',
   'security.mySession': 'authenticated',
 };
@@ -70,6 +72,7 @@ describe('security routes: access control through the real dispatcher', () => {
     assert.equal(R['security.enable'].transactional, false);
     assert.equal(R['security.disable'].transactional, false);
     assert.equal(R['security.audit.export'].transactional, false);
+    assert.equal(R['security.audit.resetAnchor'].transactional, false);
   });
 
   it('refuses every permission-guarded route to a session lacking that permission (FORBIDDEN before validation)', async () => {

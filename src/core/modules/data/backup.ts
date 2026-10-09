@@ -21,6 +21,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { formatDate } from '../../../shared/dates.ts';
 import {
   BACKUP_EXTENSION,
+  type BackupAutoInput,
   type BackupAutoResult,
   type BackupCheck,
   type BackupCreateInput,
@@ -32,19 +33,22 @@ import {
   type BackupRestoreResult,
   type BackupVerifyResult,
 } from '../../../shared/types/data.ts';
-import type { AppRuntime, Clock, CompanyCtx, Session } from '../../api/context.ts';
+import type { AppRuntime, Clock, CompanyCtx, PathUse, Session } from '../../api/context.ts';
 import { COMPANY_DB_FILE, COMPANY_ID_RE } from '../../app/companies.ts';
 import { controllerFor } from '../../app/controller.ts';
-import { verifyOwnerCredentials } from '../../app/auth.ts';
+import { confirmOwnerPassword } from '../../app/auth.ts';
 import { Db } from '../../db/db.ts';
 import { assertSupportedVersion, getSchemaVersion, SCHEMA_VERSION } from '../../db/migrate.ts';
+import { UNEXPECTED_OBJECTS_MESSAGE, validateCompanySchema } from '../../db/schemaCheck.ts';
 import { BACKUP_HISTORY_DDL } from '../../db/migrations/120_data.ts';
-import { appendAudit } from '../../lib/audit.ts';
+import { appendAudit, verifyAuditChain } from '../../lib/audit.ts';
+import { auditHead } from '../../lib/auditAnchor.ts';
 import { randomToken } from '../../lib/crypto.ts';
 import { AppError, notFound, validation } from '../../lib/errors.ts';
 import { ensureDir, exists, probeWritable } from '../../lib/fsutil.ts';
+import { authorizeUserPath } from '../../lib/paths.ts';
 import { getConfig } from '../company/service.ts';
-import { absolutePath, localStamp, safeFileNamePart } from './common.ts';
+import { localStamp, safeFileNamePart } from './common.ts';
 import { BackupFileError, checkPayloadDigest, extractPayload, readContainerInfo, writeContainer, type ContainerInfo } from './container.ts';
 
 export const BACKUP_PASSWORD_MIN = 8;
@@ -52,15 +56,24 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ───────────────────────────── Folders & history ─────────────────────────────
 
-/** F12 backup folder, else <data folder>/backups/<company id>. */
-export function defaultBackupFolder(ctx: Pick<CompanyCtx, 'db' | 'app' | 'company'>): string {
-  const configured = getConfig(ctx.db).backup.folder;
-  if (configured && path.isAbsolute(configured)) return path.resolve(configured);
-  return path.join(ctx.app.dataDir, 'backups', ctx.company.id);
+/** The F12 backup folder when one is configured (authorised when it was saved), else null. */
+export function configuredBackupFolder(db: Db): string | null {
+  const configured = getConfig(db).backup.folder;
+  return configured && path.isAbsolute(configured) ? path.resolve(configured) : null;
 }
 
-function resolveFolder(ctx: Pick<CompanyCtx, 'db' | 'app' | 'company'>, folder: string | undefined): string {
-  return folder === undefined ? defaultBackupFolder(ctx) : absolutePath(folder, 'folder', 'backup folder');
+/** F12 backup folder, else <data folder>/backups/<company id>. */
+export function defaultBackupFolder(ctx: Pick<CompanyCtx, 'db' | 'app' | 'company'>): string {
+  return configuredBackupFolder(ctx.db) ?? path.join(ctx.app.dataDir, 'backups', ctx.company.id);
+}
+
+/**
+ * The default folder, or a renderer-supplied one that the user picked in a dialog this session (or that
+ * lies in the data folder / the configured backup folder) — see core/lib/paths.ts.
+ */
+function resolveFolder(ctx: Pick<CompanyCtx, 'db' | 'app' | 'company'>, folder: string | undefined, use: PathUse): string {
+  if (folder === undefined) return defaultBackupFolder(ctx);
+  return authorizeUserPath(ctx.app, folder, use, { field: 'folder', what: 'backup folder', trusted: [configuredBackupFolder(ctx.db)] });
 }
 
 function hasHistoryTable(db: Db): boolean {
@@ -117,6 +130,54 @@ async function snapshotDatabase(ctx: Pick<CompanyCtx, 'db' | 'company'>, target:
   }
 }
 
+/**
+ * Newest edit-log entry of the snapshot, signed with this installation's anchor key (the key is never
+ * written into the backup), for BackupManifest.auditHead.
+ */
+function snapshotAuditHead(ctx: Pick<CompanyCtx, 'app' | 'company'>, snapshot: string, companyGuid: string, at: string): BackupManifest['auditHead'] | null {
+  const db = new Db(snapshot, { readOnly: true });
+  try {
+    const head = auditHead(db);
+    if (!head) return null;
+    const store = ctx.app.auditAnchors;
+    return { ...head, mac: store ? store.sign({ companyId: ctx.company.id, companyGuid, ...head, at }) : null };
+  } finally {
+    db.close();
+  }
+}
+
+/** Edit-log check of an extracted (schema-validated) backup database; see verifyBackup. */
+function backupEditLogCheck(app: Pick<AppRuntime, 'auditAnchors'>, file: string, m: BackupManifest): { ok: boolean; message: string; signedMismatch: boolean } {
+  const db = new Db(file, { readOnly: true });
+  try {
+    const signed = signedHeadMatches(app, db, m);
+    if (signed === false) return { ok: false, signedMismatch: true, message: 'The edit log inside this backup was changed after the backup was made. Do not restore it; use another backup.' };
+    const chain = verifyAuditChain(db);
+    if (!chain.ok) return { ok: false, signedMismatch: false, message: `The edit log inside this backup has been tampered with (entry #${chain.brokenAtId}).` };
+    return {
+      ok: true,
+      signedMismatch: false,
+      message: `The edit log (${chain.count.toLocaleString('en-IN')} entries) is intact${signed === true ? ' and matches the fingerprint recorded when this backup was made' : ''}.`,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * true/false when the manifest's signed edit-log head can be checked on this installation (it was signed
+ * here) and does / does not match the data; null when it cannot be checked (older backup, made on
+ * another computer, or no anchor key).
+ */
+function signedHeadMatches(app: Pick<AppRuntime, 'auditAnchors'>, db: Db, m: BackupManifest): boolean | null {
+  const h = m.auditHead;
+  const store = app.auditAnchors;
+  if (!h || !h.mac || !store) return null;
+  if (!store.verify({ companyId: m.companyId, companyGuid: m.companyGuid, lastId: h.lastId, lastHash: h.lastHash, at: m.createdAt, mac: h.mac })) return null;
+  const row = db.get<{ hash: string }>('SELECT hash FROM audit_log WHERE id = :id', { id: h.lastId });
+  return row?.hash === h.lastHash;
+}
+
 function uniqueTarget(folder: string, base: string): string {
   let candidate = path.join(folder, `${base}${BACKUP_EXTENSION}`);
   for (let i = 2; exists(candidate); i++) candidate = path.join(folder, `${base}-${i}${BACKUP_EXTENSION}`);
@@ -129,7 +190,7 @@ export async function createBackup(ctx: CompanyCtx, input: BackupCreateInput, ki
     throw validation([{ path: 'password', message: `The backup password must be at least ${BACKUP_PASSWORD_MIN} characters long` }]);
   }
   const note = input.note?.trim() ? input.note.trim().slice(0, 1000) : null;
-  const folder = resolveFolder(ctx, input.folder);
+  const folder = resolveFolder(ctx, input.folder, 'write-dir');
   const problem = probeWritable(folder);
   if (problem) throw new AppError('BUSINESS_RULE', `Bahi ERP cannot write to the backup folder ${folder} (${problem}). Choose another folder or reconnect the drive.`);
 
@@ -144,6 +205,7 @@ export async function createBackup(ctx: CompanyCtx, input: BackupCreateInput, ki
   let written: { manifest: BackupManifest; sizeBytes: number };
   try {
     await snapshotDatabase(ctx, snapshot);
+    const auditHead = snapshotAuditHead(ctx, snapshot, facts.guid, createdAt);
     written = await writeContainer({
       dbPath: snapshot,
       target,
@@ -160,6 +222,7 @@ export async function createBackup(ctx: CompanyCtx, input: BackupCreateInput, ki
         createdBy: ctx.session.displayName || ctx.session.username || null,
         note,
         kind,
+        ...(auditHead ? { auditHead } : {}),
       },
     });
   } finally {
@@ -206,7 +269,8 @@ export async function createBackup(ctx: CompanyCtx, input: BackupCreateInput, ki
       after: { file: path.basename(target), folder, sizeBytes: written.sizeBytes, encrypted: Boolean(password), kind, note, removed: removed.length },
     });
   });
-  ctx.app.log('info', 'Backup written', { company: ctx.company.id, file: path.basename(target), bytes: written.sizeBytes, kind });
+  // No file name: it carries the company name, and business data stays out of the app log (§8).
+  ctx.app.log('info', 'Backup written', { company: ctx.company.id, bytes: written.sizeBytes, kind });
 
   return { path: target, fileName: path.basename(target), folder, sizeBytes: written.sizeBytes, createdAt, encrypted: Boolean(password), removed };
 }
@@ -288,7 +352,7 @@ function scanFolder(folder: string, current?: { companyId: string; companyGuid: 
 }
 
 export function listBackups(ctx: CompanyCtx, folderInput: string | undefined): BackupListResult {
-  const folder = resolveFolder(ctx, folderInput);
+  const folder = resolveFolder(ctx, folderInput, 'read-dir');
   const facts = companyFacts(ctx.db);
   const backups = scanFolder(folder, { companyId: ctx.company.id, companyGuid: facts.guid }).sort(
     (a, b) => (b.manifest?.createdAt ?? b.modifiedAt).localeCompare(a.manifest?.createdAt ?? a.modifiedAt) || a.fileName.localeCompare(b.fileName),
@@ -296,15 +360,22 @@ export function listBackups(ctx: CompanyCtx, folderInput: string | undefined): B
   return { folder, backups, lastBackupAt: lastBackupAt(ctx.db) };
 }
 
-export function inspectBackupFile(rawPath: string): BackupFileInfo {
-  const file = backupPath(rawPath);
+/** Where a backup file may be read from: the app (data folder + dialog choices) plus trusted roots. */
+export interface BackupFileAccess {
+  app: Pick<AppRuntime, 'dataDir' | 'authorizePath' | 'log' | 'auditAnchors'>;
+  /** Extra trusted roots, e.g. the open company's configured backup folder. */
+  trusted?: ReadonlyArray<string | null>;
+}
+
+export function inspectBackupFile(access: BackupFileAccess, rawPath: string): BackupFileInfo {
+  const file = backupPath(access, rawPath);
   const info = describeBackupFile(file);
   if (!info.manifest) throw new AppError('VALIDATION', info.problem ?? 'This is not a Bahi ERP backup file.');
   return info;
 }
 
-function backupPath(raw: string): string {
-  const file = absolutePath(raw, 'path', 'backup file');
+function backupPath(access: BackupFileAccess, raw: string): string {
+  const file = authorizeUserPath(access.app, raw, 'read-file', { field: 'path', what: 'backup file', trusted: access.trusted });
   if (!file.toLowerCase().endsWith(BACKUP_EXTENSION)) {
     throw validation([{ path: 'path', message: `Choose a Bahi ERP backup file (*${BACKUP_EXTENSION})` }]);
   }
@@ -319,20 +390,29 @@ interface ExtractedFacts {
   guid: string | null;
   schemaVersion: number;
   integrity: string[];
+  /** Unexpected schema objects (views, foreign triggers, …): when non-empty nothing else was queried. */
+  schemaProblems: string[];
   counts: { ledgers: number; vouchers: number; stockItems: number } | null;
 }
 
-/** Read facts from an extracted database file (read-only). `full` runs integrity_check, else quick_check. */
+/**
+ * Read facts from an extracted (UNTRUSTED) database file, read-only. `full` runs integrity_check, else
+ * quick_check. The schema is validated before any table is queried (schemaCheck.ts): a view shadowing
+ * `ledgers` could otherwise hang the process, and a foreign trigger would survive a restore.
+ */
 function inspectDatabase(file: string, full: boolean): ExtractedFacts {
   let db: DatabaseSync | null = null;
   try {
     db = new DatabaseSync(file, { readOnly: true });
+    db.exec('PRAGMA trusted_schema = OFF');
     const pragma = full ? 'PRAGMA integrity_check(50)' : 'PRAGMA quick_check(50)';
     const integrity = db
       .prepare(pragma)
       .all()
       .map((r) => String(Object.values(r)[0]));
     const schemaVersion = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
+    const schemaProblems = validateCompanySchema(db);
+    if (schemaProblems.length > 0) return { name: null, guid: null, schemaVersion, integrity, schemaProblems, counts: null };
     let name: string | null = null;
     let guid: string | null = null;
     let counts: ExtractedFacts['counts'] = null;
@@ -345,9 +425,9 @@ function inspectDatabase(file: string, full: boolean): ExtractedFacts {
     } catch {
       /* not a company database — reported by the caller */
     }
-    return { name, guid, schemaVersion, integrity, counts };
+    return { name, guid, schemaVersion, integrity, schemaProblems, counts };
   } catch {
-    return { name: null, guid: null, schemaVersion: 0, integrity: ['The file is not a readable SQLite database'], counts: null };
+    return { name: null, guid: null, schemaVersion: 0, integrity: ['The file is not a readable SQLite database'], schemaProblems: [], counts: null };
   } finally {
     db?.close();
   }
@@ -370,8 +450,9 @@ function describeManifest(m: BackupManifest): string {
 }
 
 /** Full verification of a backup file. Never throws for problems with the file — they come back as checks. */
-export async function verifyBackup(dataDir: string, rawPath: string, password: string | undefined): Promise<BackupVerifyResult> {
-  const file = backupPath(rawPath);
+export async function verifyBackup(access: BackupFileAccess, rawPath: string, password: string | undefined): Promise<BackupVerifyResult> {
+  const dataDir = access.app.dataDir;
+  const file = backupPath(access, rawPath);
   const checks: BackupCheck[] = [];
   const result = (manifest: BackupManifest | null, extra: Partial<BackupVerifyResult> = {}): BackupVerifyResult => ({
     ok: checks.length > 0 && checks.every((c) => c.ok === true),
@@ -428,6 +509,10 @@ export async function verifyBackup(dataDir: string, rawPath: string, password: s
       ok: intact,
       message: intact ? 'The database passed SQLite’s integrity check.' : `The database is damaged: ${facts.integrity.slice(0, 3).join('; ')}`,
     });
+    if (facts.schemaProblems.length > 0) {
+      checks.push({ name: 'schema', ok: false, message: `${UNEXPECTED_OBJECTS_MESSAGE} (${facts.schemaProblems.slice(0, 5).join(', ')})` });
+      return result(m, { supported: false });
+    }
     const supported = facts.schemaVersion > 0 && facts.schemaVersion <= SCHEMA_VERSION;
     checks.push({
       name: 'schema',
@@ -445,19 +530,34 @@ export async function verifyBackup(dataDir: string, rawPath: string, password: s
       ok: facts.name !== null,
       message: facts.name !== null ? `Company "${facts.name}" with ${facts.counts?.ledgers ?? 0} ledgers and ${facts.counts?.vouchers ?? 0} vouchers.` : 'The company details are missing.',
     });
+    if (intact && facts.name !== null) {
+      const log = backupEditLogCheck(access.app, out, m);
+      checks.push({ name: 'edit_log', ok: log.ok, message: log.message });
+    }
     return result(m, { companyName: facts.name ?? m.companyName, schemaVersion: facts.schemaVersion, supported, counts: facts.counts });
   });
 }
 
 // ───────────────────────────── Auto backup ─────────────────────────────
 
-export async function autoBackup(ctx: CompanyCtx): Promise<BackupAutoResult> {
+/**
+ * The F12 automatic backup (`data.backup.auto`): at most one per 24 hours, written when the shell
+ * opens the company ('open': catch-up after a session that ended without one) and before it closes
+ * the company or quits ('close'). A brand-new company (created < 24 h ago, never backed up) is not
+ * copied on open — it is on close. Never throws: failures come back as reason 'failed'.
+ */
+export async function autoBackup(ctx: CompanyCtx, input: BackupAutoInput = {}): Promise<BackupAutoResult> {
   const cfg = getConfig(ctx.db).backup;
   const last = lastBackupAt(ctx.db);
   if (!cfg.auto) return { ran: false, reason: 'disabled', lastBackupAt: last };
+  const nowMs = ctx.clock.now().getTime();
   if (last !== null) {
-    const age = ctx.clock.now().getTime() - Date.parse(last);
+    const age = nowMs - Date.parse(last);
     if (Number.isFinite(age) && age < DAY_MS) return { ran: false, reason: 'recent', lastBackupAt: last };
+  } else if (input.trigger === 'open') {
+    const created = ctx.db.value<string>('SELECT created_at FROM company WHERE id = 1');
+    const age = typeof created === 'string' ? nowMs - Date.parse(created) : Number.NaN;
+    if (Number.isFinite(age) && age < DAY_MS) return { ran: false, reason: 'new', lastBackupAt: null };
   }
   try {
     const backup = await createBackup(ctx, {}, 'auto');
@@ -470,13 +570,13 @@ export async function autoBackup(ctx: CompanyCtx): Promise<BackupAutoResult> {
 
 // ───────────────────────────── Restore ─────────────────────────────
 
-/** Owner-password guesses when replacing a secured company (same policy as login: 5 → 5 minutes). */
-const replaceFailures = new Map<string, { count: number; lockedUntil: number }>();
-const MAX_OWNER_FAILURES = 5;
-const OWNER_LOCKOUT_MS = 5 * 60_000;
-
-async function assertOwnerForReplace(dbPath: string, companyId: string, input: BackupRestoreInput, clock: Clock): Promise<void> {
-  const db = new Db(dbPath, { readOnly: true, timeoutMs: 2000 });
+/**
+ * Replacing a password-protected company needs one of its Owners' passwords, checked against that
+ * company's own database with its login lockout (shared budget, survives restarts) and recorded in its
+ * edit log (auth.ts confirmOwnerPassword).
+ */
+async function assertOwnerForReplace(dbPath: string, input: BackupRestoreInput, clock: Clock): Promise<void> {
+  const db = new Db(dbPath, { timeoutMs: 2000 });
   try {
     let secured = false;
     const raw = db.value<string>(`SELECT value FROM settings WHERE key = 'features'`);
@@ -489,19 +589,14 @@ async function assertOwnerForReplace(dbPath: string, companyId: string, input: B
     if (!input.ownerPassword) {
       throw validation([{ path: 'ownerPassword', message: 'The company being replaced is password-protected. Enter its owner password.' }]);
     }
-    const nowMs = clock.now().getTime();
-    const f = replaceFailures.get(companyId);
-    if (f && f.lockedUntil > nowMs) {
-      const minutes = Math.max(1, Math.ceil((f.lockedUntil - nowMs) / 60_000));
-      throw new AppError('LOCKED', `Too many incorrect owner passwords. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
+    try {
+      await confirmOwnerPassword(db, { password: input.ownerPassword, username: input.ownerUsername, context: 'restore.replace' }, clock.now());
+    } catch (err) {
+      if (err instanceof AppError && err.code === 'UNAUTHENTICATED') {
+        throw new AppError('UNAUTHENTICATED', 'Owner username or password of the company being replaced is incorrect.');
+      }
+      throw err;
     }
-    if (!(await verifyOwnerCredentials(db, input.ownerPassword, input.ownerUsername))) {
-      const count = (f && f.lockedUntil === 0 ? f.count : 0) + 1;
-      const locked = count >= MAX_OWNER_FAILURES;
-      replaceFailures.set(companyId, { count: locked ? 0 : count, lockedUntil: locked ? nowMs + OWNER_LOCKOUT_MS : 0 });
-      throw new AppError('UNAUTHENTICATED', 'Owner username or password of the company being replaced is incorrect.');
-    }
-    replaceFailures.delete(companyId);
   } finally {
     db.close();
   }
@@ -513,10 +608,12 @@ export interface RestoreEnv {
   session: Session | null;
   /** Company open in this window (refused as a replace target), or null. */
   openCompanyId: string | null;
+  /** Extra roots the backup file may come from (the open company's configured backup folder). */
+  trusted?: ReadonlyArray<string | null>;
 }
 
 export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput): Promise<BackupRestoreResult> {
-  const file = backupPath(input.path);
+  const file = backupPath({ app: env.app, trusted: env.trusted }, input.path);
   let replaceDbPath: string | null = null;
   if (input.mode === 'replace') {
     const id = input.replaceId;
@@ -544,6 +641,7 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
     let targetGuid: string | undefined;
     let targetName: string | undefined;
     try {
+      if (validateCompanySchema(target).length > 0) throw new AppError('CONFLICT', UNEXPECTED_OBJECTS_MESSAGE);
       const row = target.get<{ guid: string; name: string }>('SELECT guid, name FROM company WHERE id = 1');
       targetGuid = row?.guid;
       targetName = row?.name;
@@ -557,7 +655,8 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
         `This backup belongs to "${m.companyName}", not to "${targetName ?? input.replaceId}". Restore it as a new company instead.`,
       );
     }
-    await assertOwnerForReplace(replaceDbPath, input.replaceId, input, env.clock);
+    controllerFor(env.app).throttleCredentialCheck(input.replaceId, 'owner');
+    await assertOwnerForReplace(replaceDbPath, input, env.clock);
   }
 
   await checkPayloadDigest(file, info);
@@ -568,7 +667,21 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
     if (!(facts.integrity.length === 1 && facts.integrity[0] === 'ok')) {
       throw new AppError('CONFLICT', 'The data inside this backup is damaged and cannot be restored. Use another backup.');
     }
+    if (facts.schemaProblems.length > 0) {
+      env.app.log('warn', 'Refused a backup with unexpected database objects', { objects: facts.schemaProblems.slice(0, 20) });
+      throw new AppError('VALIDATION', `${UNEXPECTED_OBJECTS_MESSAGE} Use another backup.`);
+    }
     if (facts.name === null) throw new AppError('VALIDATION', 'This backup does not contain Bahi ERP company data.');
+    {
+      const check = new Db(extracted, { readOnly: true });
+      try {
+        if (signedHeadMatches(env.app, check, m) === false) {
+          throw new AppError('CONFLICT', 'The edit log inside this backup was changed after the backup was made, so it was not restored. Use another backup.');
+        }
+      } finally {
+        check.close();
+      }
+    }
     assertSupportedVersion(facts.schemaVersion);
     // The manifest is plain JSON (not covered by AES-GCM): check the company inside the data itself
     // before it replaces anything.

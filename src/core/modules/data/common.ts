@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Permission } from '../../../shared/constants.ts';
 import type { AppCtx, CompanyCtx } from '../../api/context.ts';
-import { AppError, forbidden, validation } from '../../lib/errors.ts';
+import { AppError, forbidden } from '../../lib/errors.ts';
 
 const PERMISSION_TEXT: Partial<Record<Permission, string>> = {
   'data.export': 'export data',
@@ -50,14 +50,6 @@ export function fileSlug(text: string): string {
 export function localStamp(d: Date): string {
   const p = (n: number): string => String(n).padStart(2, '0');
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-}
-
-/** An absolute path given by the renderer (chosen in a native dialog) — normalised, never relative. */
-export function absolutePath(raw: string, field: string, what: string): string {
-  if (typeof raw !== 'string' || raw.trim() === '' || raw.includes('\0') || !path.isAbsolute(raw.trim())) {
-    throw validation([{ path: field, message: `Choose the ${what} with the Browse button (a full path is required)` }]);
-  }
-  return path.resolve(raw.trim());
 }
 
 export function isFile(p: string): boolean {

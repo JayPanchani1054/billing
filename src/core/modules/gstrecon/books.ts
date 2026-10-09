@@ -7,7 +7,9 @@
  *   document no.  = reference_no (supplier invoice no.), else the voucher number
  *   document date = reference_date (supplier invoice date), else the voucher date
  *   left out: imports, unregistered / composition suppliers, documents with no taxable line (nil/exempt
- *   supplies are reported in summary tables, not invoice-wise).
+ *   supplies are reported in summary tables, not invoice-wise), and the goods lines of a purchase from
+ *   an SEZ unit (an import on a bill of entry: GSTR-2B shows it under IMPGSEZ, not B2B; the services
+ *   on an SEZ unit's invoice are B2B and are matched).
  * Outward (GSTR-1): sales, credit notes and debit notes reported invoice-wise (B2B, SEZ, deemed export,
  *   B2CL, exports); document no./date = voucher number/date. B2CL and export documents have no
  *   counterparty GSTIN on the portal, so their GSTIN is ''.
@@ -77,6 +79,7 @@ interface VoucherRow {
 
 interface LineRow {
   voucher_id: number;
+  supply_type: string | null;
   rate: number;
   taxability: string;
   itc_eligibility: string | null;
@@ -150,11 +153,11 @@ export function loadBooksDocs(db: Db, opts: LoadBooksOptions): BooksDoc[] {
   );
   if (vouchers.length === 0) return [];
   const lines = db.all<LineRow>(
-    `SELECT g.voucher_id, g.rate, g.taxability, g.itc_eligibility, MAX(g.is_reverse_charge) AS is_reverse_charge,
+    `SELECT g.voucher_id, g.supply_type, g.rate, g.taxability, g.itc_eligibility, MAX(g.is_reverse_charge) AS is_reverse_charge,
             SUM(g.taxable_value) AS taxable, SUM(g.igst) AS igst, SUM(g.cgst) AS cgst, SUM(g.sgst) AS sgst, SUM(g.cess) AS cess
        FROM gst_lines g
       WHERE g.voucher_id IN (SELECT v.id FROM vouchers v WHERE ${where})
-      GROUP BY g.voucher_id, g.rate, g.taxability, g.itc_eligibility`,
+      GROUP BY g.voucher_id, g.supply_type, g.rate, g.taxability, g.itc_eligibility`,
     params,
   );
   const byVoucher = new Map<number, LineRow[]>();
@@ -168,7 +171,10 @@ export function loadBooksDocs(db: Db, opts: LoadBooksOptions): BooksDoc[] {
   for (const v of vouchers) {
     const nature = v.gst_nature && NATURE_SET.has(v.gst_nature) ? (v.gst_nature as GstNature) : null;
     if (directionOf(v.base_type, nature) !== opts.side) continue;
-    const ls = byVoucher.get(v.id) ?? [];
+    // Goods from an SEZ unit are imports: they reach GSTR-2B through the bill of entry (IMPGSEZ), not
+    // the supplier's B2B invoice, so only the services part of such a document is matched invoice-wise.
+    const sezGoods = opts.side === 'inward' && nature === 'inward_sez';
+    const ls = (byVoucher.get(v.id) ?? []).filter((l) => !(sezGoods && l.supply_type === 'goods'));
     const taxableLines = ls.filter((l) => l.taxability === 'taxable');
     if (taxableLines.length === 0) continue;
 

@@ -19,6 +19,7 @@ import { appendAudit } from '../lib/audit.ts';
 import { AppError, toErrorPayload } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
 import type { AppCtx, AppRuntime, Clock, CompanyCtx, OpenCompanyInfo, Session } from './context.ts';
+import { exclusiveJobFor } from './jobs.ts';
 import type { AnyRoute, RouteAccess, RouteMap } from './route.ts';
 
 /** Snapshot of runtime state the dispatcher needs for one call. */
@@ -82,6 +83,26 @@ function sqliteConstraintPayload(err: unknown): ApiErrorPayload | null {
   return null;
 }
 
+/**
+ * Strict route input: when on, a key that a route's input schema does not declare is a VALIDATION error
+ * ("Unknown field …") instead of being dropped, so a misspelt filter (`action` for `actions`) fails
+ * loudly rather than returning unfiltered data.
+ *   - Off in production builds, where a renderer that sends an extra key must keep working.
+ *   - On under `node --test` (NODE_TEST_CONTEXT is set in every test process), i.e. the whole test suite,
+ *     and in development (`BAHI_STRICT_INPUT=1`, set by scripts/dev.mjs).
+ * Schemas built with `v.strictObject` (e.g. the edit-log filters) reject unknown keys in production too.
+ */
+let strictRouteInput =
+  typeof process !== 'undefined' && (process.env?.BAHI_STRICT_INPUT === '1' || process.env?.NODE_TEST_CONTEXT !== undefined);
+
+export function setStrictRouteInput(on: boolean): void {
+  strictRouteInput = on;
+}
+
+export function isStrictRouteInput(): boolean {
+  return strictRouteInput;
+}
+
 export function createDispatcher(routes: RouteMap, getState: () => DispatchState): Dispatcher {
   return {
     async dispatch(name: string, input: unknown): Promise<ApiResult<unknown>> {
@@ -113,6 +134,9 @@ export function createDispatcher(routes: RouteMap, getState: () => DispatchState
         if (route.scope === 'company') {
           if (!st.company || !st.db) throw new AppError('NO_COMPANY', 'Open a company first.');
           if (!session) throw unauthenticated(expired);
+          // A long job (import) holds one open transaction on this connection: nothing else may join it.
+          const job = exclusiveJobFor(st.db);
+          if (job && !job.allow.has(name)) throw new AppError('CONFLICT', job.message);
           if (st.mustChangePassword)
             throw new AppError('UNAUTHENTICATED', 'Please change your password to continue.', { reason: 'must_change_password' });
         } else if (route.access !== 'public' && !session) {
@@ -121,7 +145,7 @@ export function createDispatcher(routes: RouteMap, getState: () => DispatchState
         if (session && !hasAccess(session, route.access)) throw new AppError('FORBIDDEN', 'You do not have permission to perform this action.');
         if (session && route.access !== 'public') st.touch?.(nowMs);
 
-        const parsed: unknown = parse(route.input, input);
+        const parsed: unknown = parse(route.input, input, { unknownKeys: strictRouteInput ? 'reject' : 'strip' });
 
         let data: unknown;
         if (route.scope === 'company') {

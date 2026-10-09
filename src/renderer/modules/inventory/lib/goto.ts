@@ -24,6 +24,8 @@ export interface GotoResult {
   keywords: string[];
   screen: string;
   params: Record<string, unknown>;
+  /** The item form, for a user who may not open the stock report (the palette checks nav.canOpen). */
+  fallback?: { screen: string; params: Record<string, unknown> };
 }
 
 export const STOCK_ITEM_REPORT = 'stock.item';
@@ -58,6 +60,7 @@ export function itemGotoResults(
       keywords: [r.alias ?? '', r.partNo ?? '', r.barcode ?? ''].filter((k) => k.trim() !== ''),
       screen: target.screen,
       params: target.params,
+      ...(target.screen !== ITEM_FORM ? { fallback: { screen: ITEM_FORM, params: { id: r.id } } } : {}),
     };
   });
 }

@@ -150,6 +150,8 @@ describe('GSTR-1 summary — April 2026 dataset', () => {
       s.issues.map((i) => [i.severity, i.code, i.voucherNumber, i.section]),
       [
         ['warning', 'export_shipping_bill_missing', 'S-9', 'exp_wop'],
+        // The optional S-16 holds a number of the Sales series: regularise or delete it before filing.
+        ['warning', 'optional_in_series', 'S-16', 'doc'],
         ['warning', 'note_without_original', 'CN-3', 'b2cs'],
       ],
     );
@@ -261,6 +263,37 @@ describe('GSTR-1 periods and edge cases', () => {
     const s = gstr1Summary(computeGstr1(t.db, loadCompany(t.db), resolvePeriod({ period: '042026' }), t.today));
     assert.deepEqual(s.docs.map((d) => [d.from, d.to, d.total, d.cancelled, d.missing, d.net]), [['INV-1', 'INV-5', 5, 2, 2, 3]]);
     assert.deepEqual(s.issues.map((i) => [i.code, i.voucherId]), [['doc_series_gap', null]]);
+    t.close();
+  });
+
+  it('table 13: numbers held by an optional voucher or a purchase return are neither missing nor cancelled', () => {
+    const { t, P } = setupParties({ today: '2026-05-10' });
+    const line = { hsn: '8471', rate: 18, taxable: 1000, cgst: 90, sgst: 90 };
+    // Sales INV-1, INV-2, INV-5 issued; INV-3 is an optional (draft) voucher; INV-4 was deleted.
+    // Before the fix INV-3 counted as missing too: missing 2 / cancelled 2, blamed on deletion.
+    for (const n of [1, 2, 5]) insertDoc(t, { type: 'sales', number: `INV-${n}`, date: `2026-04-0${n}`, party: P.acme, nature: 'b2b', pos: '27', lines: [line] });
+    const optionalId = insertDoc(t, { type: 'sales', number: 'INV-3', date: '2026-04-03', party: P.acme, nature: 'b2b', pos: '27', optional: true, lines: [line] });
+    // Debit Note series shared by debit notes to customers (D-1, D-3) and a purchase return to a supplier (D-2).
+    insertDoc(t, { type: 'debit_note', number: 'D-1', date: '2026-04-06', party: P.acme, nature: 'b2b', pos: '27', origNo: 'INV-1', origDate: '2026-04-01', lines: [line] });
+    insertDoc(t, { type: 'debit_note', number: 'D-2', date: '2026-04-07', party: P.steel, nature: 'inward_b2b', lines: [line] });
+    insertDoc(t, { type: 'debit_note', number: 'D-3', date: '2026-04-08', party: P.acme, nature: 'b2b', pos: '27', origNo: 'INV-2', origDate: '2026-04-02', lines: [line] });
+    const s = gstr1Summary(computeGstr1(t.db, loadCompany(t.db), resolvePeriod({ period: '042026' }), t.today));
+    // Sales: range 1–5 less the held INV-3 = 4 numbers; 3 issued; INV-4 missing → cancelled 1, net 3.
+    // Debit notes: range 1–3 less the purchase return D-2 = 2; both issued.
+    assert.deepEqual(
+      s.docs.map((d) => [d.docNum, d.from, d.to, d.total, d.cancelled, d.missing, d.net]),
+      [
+        [1, 'INV-1', 'INV-5', 4, 1, 1, 3],
+        [4, 'D-1', 'D-3', 2, 0, 0, 2],
+      ],
+    );
+    const series = s.issues.filter((i) => i.code === 'doc_series_gap' || i.code === 'optional_in_series');
+    assert.deepEqual(series.map((i) => [i.code, i.voucherId, i.voucherNumber]), [
+      ['doc_series_gap', null, null],
+      ['optional_in_series', optionalId, 'INV-3'],
+    ]);
+    assert.match(series[0].message, /1 number is missing between INV-1 and INV-5/);
+    assert.match(series[1].fix, /make it regular/);
     t.close();
   });
 

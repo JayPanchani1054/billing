@@ -9,7 +9,7 @@
  *  - text cells starting with = + - @ TAB CR are neutralised in CSV; Excel text is always a shared string.
  */
 import { formatDate } from '../../../shared/dates.ts';
-import type { ExportColumnKind, ExportFileResult, ExportTableCell, ExportTableColumn, ExportTableInput } from '../../../shared/types/data.ts';
+import type { ExportAuditInput, ExportAuditResult, ExportColumnKind, ExportFileResult, ExportTableCell, ExportTableColumn, ExportTableInput } from '../../../shared/types/data.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import { neutraliseFormula, toCsv } from '../../lib/csv.ts';
 import { encodeUtf8WithBom } from '../../lib/text.ts';
@@ -160,4 +160,20 @@ export function exportTable(ctx: CompanyCtx, input: ExportTableInput): ExportFil
     }),
   );
   return out;
+}
+
+/**
+ * 'data.export.audit': a report printed or saved as PDF by the shell (the printable HTML is built in
+ * the renderer). Same rule and trail as Excel/CSV: the data.export permission, and an 'export' entry
+ * in the edit log. Runs inside the route's transaction.
+ */
+export function auditReportOutput(ctx: CompanyCtx, input: ExportAuditInput): ExportAuditResult {
+  requirePermission(ctx, 'data.export');
+  ctx.audit({
+    action: 'export',
+    entityType: 'report',
+    entityLabel: input.title.slice(0, 200),
+    after: { format: input.format, rows: input.rows, period: periodText(input.period) || undefined },
+  });
+  return { ok: true };
 }

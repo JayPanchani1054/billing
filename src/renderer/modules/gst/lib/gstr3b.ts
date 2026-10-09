@@ -64,8 +64,8 @@ export const ADJUSTMENT_FIELDS: readonly AdjustmentField[] = [
   {
     key: 'creditLedgerBalance',
     row: '6.1',
-    label: 'Credit ledger balance brought forward',
-    help: 'Unused ITC from earlier months as shown in your electronic credit ledger on the portal.',
+    label: 'Credit not in the books (credit ledger)',
+    help: 'Unused ITC of earlier months is brought forward from the books automatically. Enter only credit the books do not hold — e.g. your electronic credit ledger balance when you started using Bahi ERP.',
     heads: TAX_HEADS,
     group: 'payment',
   },
@@ -164,6 +164,8 @@ export interface SetOffLine {
   credit: TaxHead;
   /** Credit available for set-off. */
   available: number;
+  /** Part of `available` brought forward from the previous return period (books). */
+  broughtForward: number;
   /** Uses in the order they are applied: [liability head, amount]. */
   uses: Array<{ against: TaxHead; amount: number }>;
   used: number;
@@ -179,14 +181,14 @@ const USE_ORDER: Readonly<Record<TaxHead, readonly TaxHead[]>> = {
 };
 
 /** One line per credit head: what it paid, in order, and what is carried forward. */
-export function setOffLines(setOff: SetOffResult, creditAvailable: TaxAmounts): SetOffLine[] {
+export function setOffLines(setOff: SetOffResult, creditAvailable: TaxAmounts, broughtForward?: TaxAmounts): SetOffLine[] {
   return TAX_HEADS.map((credit) => {
     const row = setOff.utilisation[credit];
     const uses = USE_ORDER[credit].map((against) => ({ against, amount: row[against] ?? 0 })).filter((u) => u.amount > 0);
     // Anything the order table does not list (should not happen) is still shown.
     for (const h of TAX_HEADS) if (!USE_ORDER[credit].includes(h) && (row[h] ?? 0) > 0) uses.push({ against: h, amount: row[h] });
     const used = uses.reduce((a, u) => a + u.amount, 0);
-    return { credit, available: creditAvailable[credit], uses, used, carriedForward: setOff.creditBalance[credit] };
+    return { credit, available: creditAvailable[credit], broughtForward: broughtForward?.[credit] ?? 0, uses, used, carriedForward: setOff.creditBalance[credit] };
   });
 }
 
@@ -201,7 +203,7 @@ const rs = (p: number): string => formatMoney(p, { symbol: true });
 
 /** "IGST credit ₹ 600.00: ₹ 500.00 paid SGST, ₹ 100.00 paid CGST · nothing left." */
 export function setOffSentence(l: SetOffLine): string {
-  const head = `${HEAD_LABELS[l.credit]} credit ${rs(l.available)}`;
+  const head = `${HEAD_LABELS[l.credit]} credit ${rs(l.available)}${l.broughtForward > 0 ? ` (incl. ${rs(l.broughtForward)} brought forward)` : ''}`;
   if (l.available <= 0) return `${head}: none available.`;
   const uses = l.uses.length === 0 ? 'not needed this period' : l.uses.map((u) => `${rs(u.amount)} paid ${HEAD_LABELS[u.against]}`).join(', ');
   const left = l.carriedForward > 0 ? `${rs(l.carriedForward)} carried forward` : 'nothing left';

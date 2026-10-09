@@ -22,10 +22,12 @@ import { confirmDialog } from './confirm.tsx';
 import { errorDetailsText, userMessage } from './lib/apiErrors.ts';
 import { featureLabel } from './lib/featureCatalog.ts';
 import { KeyedStore } from './lib/keyedStore.ts';
+import { FOCUS_RANK, INITIAL_FOCUS_WATCH_MS, needsFocusWatch, shouldUpgradeFocus } from './lib/initialFocus.ts';
 import { isAllowed, screenIndex } from './lib/menu.ts';
 import { createRootStack, makeEntry, mountedKeys, MAX_MOUNTED, ResultBroker, ROOT_SCREEN, topFullIndex, transition } from './lib/navStack.ts';
 import type { NavAction, NavEntry, NavParams } from './lib/navStack.ts';
 import type { ModuleDef, ScreenDef } from './registry.ts';
+import { ScreenVisibilityContext } from './screenVisibility.ts';
 import { useAppState } from './state.tsx';
 
 export type { NavEntry, NavParams };
@@ -517,25 +519,83 @@ export function ScreenStack() {
 
 const FIELD_SELECTOR = 'input:not([type=hidden]):not([readonly]):not([disabled]), textarea:not([readonly]):not([disabled]), select:not([disabled]), [role=combobox]:not([aria-disabled=true])';
 
+interface FocusPick {
+  el: HTMLElement;
+  rank: number;
+}
+
 /**
- * Initial focus for a newly opened screen: [data-autofocus] → first editable field → first grid
- * (reports/lists: arrow keys work at once) → first tabbable → the heading.
+ * Best initial-focus candidate of a screen: [data-autofocus] → first editable field → first grid
+ * (reports/lists: arrow keys work at once) → first tabbable → the heading (lib/initialFocus.ts).
  */
-function focusFirst(container: HTMLElement): void {
+function bestFocusCandidate(container: HTMLElement, includeFallbacks: boolean): FocusPick | null {
+  const auto = container.querySelector<HTMLElement>('[data-autofocus]');
+  if (auto && !auto.closest('[hidden]')) return { el: auto, rank: FOCUS_RANK.autofocus };
   const tabbables = getTabbables(container);
-  const pick =
-    container.querySelector<HTMLElement>('[data-autofocus]') ??
-    tabbables.find((el) => el.matches(FIELD_SELECTOR)) ??
-    tabbables.find((el) => el.matches('[role=grid], [role=treegrid]')) ??
-    tabbables[0];
-  if (pick) {
-    pick.focus();
-    return;
-  }
-  const heading = container.querySelector<HTMLElement>('h1, h2');
-  const target = heading ?? container;
+  const field = tabbables.find((el) => el.matches(FIELD_SELECTOR));
+  if (field) return { el: field, rank: FOCUS_RANK.field };
+  const grid = tabbables.find((el) => el.matches('[role=grid], [role=treegrid]'));
+  if (grid) return { el: grid, rank: FOCUS_RANK.grid };
+  if (!includeFallbacks) return null;
+  if (tabbables[0]) return { el: tabbables[0], rank: FOCUS_RANK.tabbable };
+  const target = container.querySelector<HTMLElement>('h1, h2') ?? container;
   if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
-  target.focus();
+  return { el: target, rank: FOCUS_RANK.heading };
+}
+
+/** Focus the best candidate now; returns what was focused. */
+function focusFirst(container: HTMLElement): FocusPick | null {
+  const pick = bestFocusCandidate(container, true);
+  pick?.el.focus();
+  return pick;
+}
+
+/**
+ * The first pick was only provisional (the screen was still loading): watch the screen and move
+ * focus to [data-autofocus] / the first field / the first grid as soon as it renders — unless the
+ * user (keyboard or mouse) or the screen itself moved focus meanwhile. Returns a stop function.
+ */
+function watchInitialFocus(container: HTMLElement, first: FocusPick): () => void {
+  if (!needsFocusWatch(first.rank) || typeof MutationObserver === 'undefined') return () => undefined;
+  let current = first;
+  let done = false;
+  let frame = 0;
+  const check = () => {
+    frame = 0;
+    if (done) return;
+    const active = document.activeElement;
+    const stillFocused = active === current.el || active === null || active === document.body;
+    if (!stillFocused || !container.isConnected || container.hidden) {
+      stop();
+      return;
+    }
+    const next = bestFocusCandidate(container, false);
+    if (next && shouldUpgradeFocus({ rank: current.rank, stillFocused }, next.rank)) {
+      next.el.focus();
+      current = next;
+      if (!needsFocusWatch(next.rank)) stop();
+    }
+  };
+  const schedule = () => {
+    if (!done && frame === 0) frame = requestAnimationFrame(check);
+  };
+  const observer = new MutationObserver(schedule);
+  const onUser = () => stop();
+  const timer = setTimeout(() => stop(), INITIAL_FOCUS_WATCH_MS);
+  function stop() {
+    if (done) return;
+    done = true;
+    observer.disconnect();
+    if (frame) cancelAnimationFrame(frame);
+    clearTimeout(timer);
+    window.removeEventListener('keydown', onUser, true);
+    window.removeEventListener('pointerdown', onUser, true);
+  }
+  observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-autofocus', 'disabled', 'readonly', 'hidden', 'aria-busy'] });
+  window.addEventListener('keydown', onUser, true);
+  window.addEventListener('pointerdown', onUser, true);
+  schedule(); // the content may already have changed since the first pick
+  return stop;
 }
 
 function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; index: number; isTop: boolean; visible: boolean; def: ScreenDef }) {
@@ -552,6 +612,7 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
       mountedOnce.current = true;
       const restore = firstTime ? null : internal.takeFocusRestore();
       if (!isDialog) {
+        let stopWatch: () => void = () => undefined;
         const raf = requestAnimationFrame(() => {
           const c = containerRef.current;
           if (!c) return;
@@ -560,10 +621,15 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
             return;
           }
           if (c.contains(document.activeElement)) return; // the screen focused something itself
-          focusFirst(c);
+          const pick = focusFirst(c);
+          // Still loading (skeleton → only the heading or a toolbar button): follow the content in.
+          if (pick) stopWatch = watchInitialFocus(c, pick);
         });
         wasTop.current = isTop;
-        return () => cancelAnimationFrame(raf);
+        return () => {
+          cancelAnimationFrame(raf);
+          stopWatch();
+        };
       }
     }
     wasTop.current = isTop;
@@ -575,25 +641,27 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
 
   return (
     <ScreenContext.Provider value={ctx}>
-      <HotkeyScope active={isTop}>
-        {index > 0 && !isDialog ? <EscapeToBack /> : null}
-        <HotkeyScope>
-          {isDialog ? (
-            <ScreenErrorBoundary title={def.title}>{content}</ScreenErrorBoundary>
-          ) : (
-            <div
-              ref={containerRef}
-              className="bx-screen"
-              hidden={!visible}
-              data-screen={entry.screenId}
-              role="region"
-              aria-label={def.title}
-            >
+      <ScreenVisibilityContext.Provider value={visible}>
+        <HotkeyScope active={isTop}>
+          {index > 0 && !isDialog ? <EscapeToBack /> : null}
+          <HotkeyScope>
+            {isDialog ? (
               <ScreenErrorBoundary title={def.title}>{content}</ScreenErrorBoundary>
-            </div>
-          )}
+            ) : (
+              <div
+                ref={containerRef}
+                className="bx-screen"
+                hidden={!visible}
+                data-screen={entry.screenId}
+                role="region"
+                aria-label={def.title}
+              >
+                <ScreenErrorBoundary title={def.title}>{content}</ScreenErrorBoundary>
+              </div>
+            )}
+          </HotkeyScope>
         </HotkeyScope>
-      </HotkeyScope>
+      </ScreenVisibilityContext.Provider>
     </ScreenContext.Provider>
   );
 }

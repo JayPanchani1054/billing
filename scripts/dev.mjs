@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Development loop:
 //   1. Vite dev server for the renderer (HMR) on http://127.0.0.1:5173
-//   2. esbuild watch for main + preload (unminified, linked source maps)
-//   3. Electron, started once both bundles exist and restarted whenever either bundle changes
+//   2. esbuild watch for main, the core worker and preload (unminified, linked source maps)
+//   3. Electron, started once all three bundles exist and restarted whenever one of them changes
 // Ctrl+C (or closing the app window) shuts everything down cleanly.
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { context } from 'esbuild';
 import { createServer } from 'vite';
-import { DEV_HOST, DEV_PORT, electronBuildOptions, forbiddenPreloadRequires, root, viteConfigFile } from './build-config.mjs';
+import { DEV_HOST, DEV_PORT, electronBuildOptions, forbiddenPreloadRequires, forbiddenWorkerRequires, root, viteConfigFile } from './build-config.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -22,7 +22,7 @@ let expectedExit = false;
 let shuttingDown = false;
 /** @type {NodeJS.Timeout | null} */
 let restartTimer = null;
-const ready = { main: false, preload: false };
+const ready = { main: false, coreWorker: false, preload: false };
 /** @type {import('esbuild').BuildContext[]} */
 const contexts = [];
 /** @type {import('vite').ViteDevServer | null} */
@@ -44,7 +44,9 @@ function killTree(child) {
 }
 
 function startElectron() {
-  const env = { ...process.env, NODE_ENV: 'development', BAHI_DEV_SERVER_URL: devUrl };
+  // BAHI_STRICT_INPUT: route inputs with keys the schema does not declare fail with VALIDATION in
+  // development (src/core/api/dispatch.ts › setStrictRouteInput), so renderer typos surface at once.
+  const env = { ...process.env, NODE_ENV: 'development', BAHI_DEV_SERVER_URL: devUrl, BAHI_STRICT_INPUT: '1' };
   // Some shells/IDEs export this; it would make Electron behave like plain Node.
   delete env.ELECTRON_RUN_AS_NODE;
   log('starting Electron');
@@ -78,7 +80,7 @@ function scheduleRestart() {
   }, 150);
 }
 
-/** esbuild plugin: start/restart Electron after successful rebuilds of main or preload. */
+/** esbuild plugin: start/restart Electron after successful rebuilds of main, the core worker or preload. */
 function onRebuild(name) {
   return {
     name: `bahi-dev-${name}`,
@@ -87,6 +89,14 @@ function onRebuild(name) {
         if (result.errors.length > 0) {
           log(`${name} build failed — keeping the current Electron session`);
           return;
+        }
+        if (name === 'coreWorker') {
+          const file = path.join(root, 'out/main/core-worker.cjs');
+          const bad = forbiddenWorkerRequires(readFileSync(file, 'utf8'));
+          if (bad.length > 0) {
+            log(`core worker requires modules unavailable on a worker thread: ${bad.join(', ')}`);
+            return;
+          }
         }
         if (name === 'preload') {
           const file = path.join(root, 'out/preload/index.cjs');
@@ -97,7 +107,7 @@ function onRebuild(name) {
           }
         }
         ready[name] = true;
-        if (!ready.main || !ready.preload) return;
+        if (!ready.main || !ready.coreWorker || !ready.preload) return;
         if (electron) log(`${name} rebuilt — restarting Electron`);
         scheduleRestart();
       });
@@ -129,12 +139,12 @@ async function main() {
   vite.printUrls();
 
   const opts = electronBuildOptions('development');
-  for (const name of /** @type {const} */ (['main', 'preload'])) {
+  for (const name of /** @type {const} */ (['main', 'coreWorker', 'preload'])) {
     const ctx = await context({ ...opts[name], plugins: [onRebuild(name)] });
     contexts.push(ctx);
     await ctx.watch();
   }
-  log('watching src/main, src/preload, src/core and src/shared — Ctrl+C to stop');
+  log('watching src/main (incl. the core worker), src/preload, src/core and src/shared — Ctrl+C to stop');
 }
 
 main().catch(async (err) => {

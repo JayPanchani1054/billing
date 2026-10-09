@@ -24,6 +24,11 @@ export interface GotoItem {
   params?: Readonly<Record<string, unknown>>;
   /** Shell command instead of a screen ('date', 'period', 'switch-company', 'shortcuts', …). */
   command?: string;
+  /**
+   * Where to go instead when the user may not open `screen` (e.g. a ledger → its Ledger report,
+   * else its master form). Results that can be opened neither way are not offered.
+   */
+  fallback?: { screen: string; params?: Readonly<Record<string, unknown>> };
 }
 
 export interface RankedGoto {
@@ -115,6 +120,11 @@ export interface GotoProvider {
   minQuery?: number;
   /** Return matches for the query. Throwing/rejecting is treated as "no results" (silent). */
   search: (query: string, signal: AbortSignal) => Promise<readonly GotoItem[]>;
+  /**
+   * Screens its results open. The palette runs the provider only when the user may open at least
+   * one of them (no pointless — or forbidden — API calls for users without access).
+   */
+  screens?: readonly string[];
 }
 
 const providers = new Map<string, GotoProvider>();
@@ -163,4 +173,21 @@ export async function searchProviders(query: string, signal: AbortSignal, list: 
     });
   const results = await Promise.all(runs);
   return uniqueById(results.flat());
+}
+
+/** Providers worth running for this user (see GotoProvider.screens). */
+export function usableProviders(list: readonly GotoProvider[], canOpen: (screen: string) => boolean): GotoProvider[] {
+  return list.filter((p) => !p.screens || p.screens.length === 0 || p.screens.some((s) => canOpen(s)));
+}
+
+/**
+ * An async result as the user may open it: commands as they are; a screen the user may open as it
+ * is; otherwise its fallback (when allowed); otherwise null (not offered).
+ */
+export function resolveGotoTarget(item: GotoItem, canOpen: (screen: string) => boolean): GotoItem | null {
+  if (item.command) return item;
+  if (item.screen && canOpen(item.screen)) return item;
+  const f = item.fallback;
+  if (f && canOpen(f.screen)) return { ...item, screen: f.screen, params: f.params, fallback: undefined };
+  return null;
 }

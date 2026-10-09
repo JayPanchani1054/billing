@@ -1,47 +1,24 @@
 // Smoke tests for the packaged-equivalent build (out/). Each run uses a throw-away profile and data
 // folder via BAHI_USER_DATA / BAHI_DATA_DIR so it never touches a developer's real data.
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { _electron as electron, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import type { ApiResult } from '../src/shared/api.ts';
+import { captureFailures, closeApp, launchApp } from './support.ts';
+import type { LaunchedApp } from './support.ts';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
+let launched: LaunchedApp | undefined;
 let app: ElectronApplication;
 let page: Page;
-let tmp: string;
-
-function childEnv(extra: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE' && key !== 'BAHI_DEV_SERVER_URL') env[key] = value;
-  }
-  return { ...env, ...extra };
-}
 
 test.beforeAll(async () => {
-  tmp = await mkdtemp(path.join(tmpdir(), 'bahi-e2e-'));
-  app = await electron.launch({
-    args: ['out/main/index.cjs'],
-    cwd: repoRoot,
-    env: childEnv({
-      BAHI_USER_DATA: path.join(tmp, 'user-data'),
-      BAHI_DATA_DIR: path.join(tmp, 'data'),
-      BAHI_E2E: '1',
-    }),
-  });
-  app.process().stdout?.on('data', (d: Buffer) => process.stdout.write(`[electron] ${d.toString()}`));
-  app.process().stderr?.on('data', (d: Buffer) => process.stderr.write(`[electron] ${d.toString()}`));
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
+  launched = await launchApp('bahi-e2e-');
+  ({ app, page } = launched);
 });
 
-test.afterAll(async () => {
-  await app?.close();
-  if (tmp) await rm(tmp, { recursive: true, force: true });
+captureFailures(() => launched);
+
+test.afterAll(async ({}, testInfo) => {
+  await closeApp(launched, testInfo);
 });
 
 test('main window opens with the product title', async () => {

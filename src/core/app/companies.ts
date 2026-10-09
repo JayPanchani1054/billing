@@ -18,6 +18,7 @@ import type { CompanyListItem, CreateCompanyInput } from '../../shared/types/app
 import type { Clock } from '../api/context.ts';
 import { Db } from '../db/db.ts';
 import { getSchemaVersion, migrate, SCHEMA_VERSION, assertSupportedVersion, type MigrateResult } from '../db/migrate.ts';
+import { ensureAuditTriggers, UNEXPECTED_OBJECTS_MESSAGE, validateCompanySchema } from '../db/schemaCheck.ts';
 import { seedCompany } from '../db/seed.ts';
 import { randomBase36, randomToken } from '../lib/crypto.ts';
 import { AppError, notFound, validation } from '../lib/errors.ts';
@@ -28,6 +29,8 @@ import { CompanyRegistry } from './registry.ts';
 
 export const COMPANY_ID_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export const COMPANY_DB_FILE = 'company.db';
+/** Temporary files younger than this are never swept (an operation may still be using them). */
+export const SWEEP_MIN_AGE_MS = 60 * 60_000;
 
 export interface CompanyPaths {
   id: string;
@@ -96,6 +99,60 @@ export class CompanyStore {
     ensureDir(this.trashDir);
   }
 
+  /**
+   * Remove temporary files left behind by a crash or power cut: decrypted backup copies being checked
+   * or restored (<data>/.restore-*), staged restores (<data>/.staging-*), database snapshots taken for
+   * a backup (companies/<id>/.backup-*.db) and half-written files (*.tmp*) in company and backup
+   * folders. Only items older than `minAgeMs` are touched (an operation running in another window on a
+   * shared data folder is never disturbed), and nothing inside a company folder that another process
+   * holds open. Returns how many items were removed (logged).
+   */
+  sweepTemporaryFiles(minAgeMs = SWEEP_MIN_AGE_MS): number {
+    const cutoff = this.clock.now().getTime() - minAgeMs;
+    let removed = 0;
+    const old = (p: string): boolean => {
+      try {
+        return fs.statSync(p).mtimeMs < cutoff;
+      } catch {
+        return false;
+      }
+    };
+    const rm = (p: string): void => {
+      try {
+        fs.rmSync(p, { recursive: true, force: true });
+        removed++;
+      } catch (err) {
+        this.log('warn', 'Could not remove a leftover temporary file', { name: path.basename(p), error: err });
+      }
+    };
+    const list = (dir: string): string[] => {
+      try {
+        return fs.readdirSync(dir);
+      } catch {
+        return [];
+      }
+    };
+    const isTmp = (n: string): boolean => /\.tmp(-[\w-]+)?$/i.test(n) || /^\..+\.tmp$/i.test(n);
+    for (const n of list(this.dataDir)) {
+      if ((n.startsWith('.restore-') || n.startsWith('.staging-')) && old(path.join(this.dataDir, n))) rm(path.join(this.dataDir, n));
+    }
+    for (const id of list(this.companiesDir)) {
+      if (!COMPANY_ID_RE.test(id)) continue;
+      const dir = path.join(this.companiesDir, id);
+      if (lockHolder(dir, this.clock.now())) continue;
+      for (const n of list(dir)) {
+        const p = path.join(dir, n);
+        if ((/^\.backup-[\w-]+\.db(-journal|-wal|-shm)?$/.test(n) || isTmp(n)) && old(p)) rm(p);
+      }
+    }
+    for (const id of list(this.backupsDir)) {
+      const dir = path.join(this.backupsDir, id);
+      for (const n of list(dir)) if (isTmp(n) && old(path.join(dir, n))) rm(path.join(dir, n));
+    }
+    if (removed > 0) this.log('info', 'Removed leftover temporary files', { count: removed });
+    return removed;
+  }
+
   /** Null when the data folder is usable, else a user-facing explanation (re-checked on every call). */
   availabilityProblem(): string | null {
     try {
@@ -143,6 +200,12 @@ export class CompanyStore {
     if (!exists(p.dbPath)) throw notFound('Company', id);
     const db = new Db(p.dbPath, { readOnly: true, timeoutMs: 2000 });
     try {
+      // Before any query: a file dropped into the data folder is untrusted (views, foreign triggers).
+      const problems = validateCompanySchema(db);
+      if (problems.length > 0) {
+        this.log('warn', 'Company database has unexpected objects', { id, objects: problems.slice(0, 20) });
+        throw new AppError('CONFLICT', UNEXPECTED_OBJECTS_MESSAGE);
+      }
       const row = db.get<{ name: string; gstin: string | null; state_code: string | null; books_from: string; fy_start_month: number }>(
         'SELECT name, gstin, state_code, books_from, fy_start_month FROM company WHERE id = 1',
       );
@@ -267,6 +330,8 @@ export class CompanyStore {
       if (before > 0 && before < SCHEMA_VERSION) this.safetyCopy(db, id, before);
       const migration = migrate(db);
       if (migration.applied.length) this.log('info', 'Company data upgraded', { id, from: migration.from, to: migration.to });
+      const recreated = ensureAuditTriggers(db);
+      if (recreated.length) this.log('warn', 'Edit log protection was missing and has been restored', { id, triggers: recreated });
       ensureDir(p.attachmentsDir);
       return { ...p, name: meta.name, db, lock, migration };
     } catch (err) {
@@ -308,6 +373,11 @@ export class CompanyStore {
     let found: { name: string; schemaVersion: number };
     try {
       db = new Db(file, { readOnly: true, timeoutMs: 2000 });
+      const problems = validateCompanySchema(db);
+      if (problems.length > 0) {
+        this.log('warn', 'Rejected company data file with unexpected objects', { objects: problems.slice(0, 20) });
+        throw new AppError('VALIDATION', UNEXPECTED_OBJECTS_MESSAGE);
+      }
       if (db.value<string>('PRAGMA quick_check') !== 'ok') throw notCompany();
       const name = db.value<string>('SELECT name FROM company WHERE id = 1');
       if (typeof name !== 'string' || name.trim() === '') throw notCompany();

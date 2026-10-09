@@ -326,7 +326,7 @@ cells: amount + fixed-width `Dr`/`Cr` suffix in `--dr`/`--cr`. Define `columns` 
   rail={<ActionRail items={[
     { key: 'F2', label: 'Date', onClick: changeDate },
     { key: 'Alt+F2', label: 'Period', onClick: openPeriod },
-    { key: 'Alt+F5', label: view === 'detailed' ? 'Condensed' : 'Detailed', onClick: toggleView, group: 'view' },
+    { key: 'Alt+F1', label: view === 'detailed' ? 'Condensed' : 'Detailed', onClick: toggleView, group: 'view' },
     { key: 'Alt+E', label: 'Export', onClick: exportIt, group: 'output' },
     { key: 'Alt+P', label: 'Print', onClick: printIt, group: 'output' },
   ]} />}

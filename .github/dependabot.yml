@@ -1,0 +1,18 @@
+# Dependency updates arrive as reviewed pull requests (CI runs on them) instead of floating in
+# through caret ranges: npm packages (package.json + package-lock.json) and the SHA-pinned actions.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      build-tooling:
+        patterns: ['electron', 'electron-builder', '@electron/*', 'esbuild', 'vite', '@vitejs/*', 'typescript', '@playwright/test']
+      react:
+        patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

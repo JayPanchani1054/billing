@@ -44,7 +44,10 @@ valid date are skipped with one grouped warning per problem ("… (and 41 more l
 
 Inward (2A/2B): purchases, purchase returns (debit notes = the supplier's credit notes) and purchases
 booked against an original invoice (= supplier debit notes) from suppliers with a GSTIN; imports,
-unregistered/composition suppliers and nil/exempt-only documents are left out. Document no. =
+unregistered/composition suppliers and nil/exempt-only documents are left out. A purchase from an
+SEZ unit is matched on its **services** lines only: SEZ goods are an import on a bill of entry
+(GSTR-2B `impgsez`, not `b2b`; IGST paid at customs — see vouchers README §3), so they are neither
+expected in 2B B2B nor reported `missing_in_portal`. Document no. =
 supplier invoice no. (`reference_no`, else the voucher number); date = `reference_date`, else the
 voucher date (noted on the row). Outward (GSTR-1): sales, credit and debit notes reported
 invoice-wise (B2B, SEZ, deemed export, B2CL, exports). Only vouchers in the books count:

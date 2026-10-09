@@ -97,6 +97,7 @@ export const ISSUE_CODE_LABELS: Readonly<Record<GstIssueCode, string>> = {
   doc_no_missing: 'Document number missing',
   doc_no_invalid: 'Document number not accepted',
   doc_series_gap: 'Gap in number series',
+  optional_in_series: 'Optional voucher holds an invoice number',
   rate_not_slab: 'Not a GST rate',
   nature_mismatch: 'B2CS / B2CL classification',
   tax_head_mismatch: 'Wrong tax type (IGST vs CGST/SGST)',

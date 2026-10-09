@@ -269,6 +269,24 @@ export function verifyTone(r: AuditVerifyReport): 'success' | 'danger' | 'info' 
   return r.count === 0 ? 'info' : 'success';
 }
 
+/**
+ * One line about the check-point kept outside the company file (null when there is nothing to add:
+ * no check-point store, or a mismatch, which the report's detail already explains).
+ */
+export function anchorSummary(r: AuditVerifyReport): string | null {
+  const a = r.anchor;
+  if (!a) return null;
+  if (a.status === 'missing') return 'No check-point of this edit log is saved on this computer yet; one is saved automatically from now on.';
+  if (a.status === 'match') return `Matches the check-point saved on this computer${a.entryId !== null ? ` (entry #${a.entryId})` : ''}.`;
+  return null;
+}
+
+/** Text of the tampering banner's second line (the chain break, or the check-point mismatch). */
+export function tamperScope(r: AuditVerifyReport): string {
+  if (r.brokenAtId !== null) return `${r.count.toLocaleString('en-IN')} of ${r.totalEntries.toLocaleString('en-IN')} entries were intact before the break (the problem is at entry #${r.brokenAtId}).`;
+  return `All ${r.totalEntries.toLocaleString('en-IN')} entries link up, but the log differs from the check-point saved on this computer${r.anchor?.entryId != null ? ` at entry #${r.anchor.entryId}` : ''}.`;
+}
+
 /** Default export file name when the server's suggestion is missing. */
 export function exportFallbackName(format: 'xlsx' | 'csv', today: string): string {
   return `Edit log ${today}.${format}`;

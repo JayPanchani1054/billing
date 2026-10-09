@@ -32,6 +32,12 @@ describe('ledgerGotoItems', () => {
     assert.deepEqual(item.keywords, ['ST', '27AAPFU0939F1ZV']);
   });
 
+  it('carries the ledger form as fallback for users who may not open reports', () => {
+    const [item] = ledgerGotoItems([row], true);
+    assert.deepEqual(item.fallback, { screen: 'accounts.ledger.form', params: { id: 7 } });
+    assert.equal(ledgerGotoItems([row], false)[0].fallback, undefined);
+  });
+
   it('falls back to the ledger form; marks inactive ledgers', () => {
     const [item] = ledgerGotoItems([{ ...row, isActive: false, closingBalance: 0, alias: null, gstin: null }], false);
     assert.equal(item.screen, 'accounts.ledger.form');

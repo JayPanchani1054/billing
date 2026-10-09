@@ -18,12 +18,19 @@ files:
 # No native modules (SQLite is node:sqlite, built into Electron) → nothing to rebuild.
 npmRebuild: false
 asar: true
+# The accounting core runs on a worker thread (out/main/core-worker.cjs, see docs/BUILD.md §3). A
+# worker thread loads its script with plain file I/O, which cannot read inside app.asar, so this one
+# file is shipped next to the archive in resources/app.asar.unpacked/ (src/main/core-proxy.ts →
+# workerScriptPath). It requires only node:* builtins.
+asarUnpack:
+  - out/main/core-worker.cjs
 # Keep only the Chromium UI locales the app needs (smaller install).
 electronLanguages:
   - en-US
   - en-GB
 # Hardens the packaged binary with Electron fuses (no ELECTRON_RUN_AS_NODE, no NODE_OPTIONS,
-# no --inspect, app code only from app.asar). See scripts/after-pack.cjs.
+# no --inspect, app code only from app.asar). See scripts/after-pack.cjs; it fails the build when the
+# fuses cannot be applied, and scripts/check-fuses.cjs reads them back in CI.
 afterPack: scripts/after-pack.cjs
 
 win:

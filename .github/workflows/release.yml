@@ -1,56 +1,46 @@
 name: Release
 
-# Push a tag like v0.2.0 (matching package.json "version") to build the Windows installer and
-# publish it as a GitHub Release with SHA-256 checksums.
+# Push a tag like v0.2.0 (matching package.json "version") to build the Windows installer, smoke-test
+# the installed app and publish it as a GitHub Release with SHA-256 checksums.
+#
+# Secret hygiene (docs/BUILD.md §7, docs/SECURITY.md):
+#   - The build job has a READ-ONLY token, and checkout does not persist it in .git/config.
+#   - Dependencies are installed (and typecheck/tests run) with NO secrets in the environment, so no
+#     npm lifecycle script can read the signing certificate or its password.
+#   - The certificate reaches only the single packaging step, which runs the already-installed
+#     electron-builder (`npx --no`: nothing is downloaded or installed at that point).
+#   - Only the publish job can write to the repository; it checks out nothing and runs no npm code —
+#     it downloads the built, smoke-tested artifact and creates the release.
+#   - No caches are restored: a release is built from the lockfile/registry, never from a cache that
+#     another workflow run could have written.
 on:
   push:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  windows:
-    name: Build and publish Windows installer
+  build:
+    name: Build Windows installer
     runs-on: windows-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      # Optional code signing: add WIN_CSC_LINK (base64 .pfx or https URL) and WIN_CSC_KEY_PASSWORD
-      # repository secrets and electron-builder signs the app and the installer (docs/BUILD.md).
-      # The variables are exported only when the secrets exist, so unsigned builds stay unaffected.
-      - name: Configure code signing (optional)
-        shell: bash
-        env:
-          CSC_LINK_SECRET: ${{ secrets.WIN_CSC_LINK }}
-          CSC_PASSWORD_SECRET: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: |
-          if [ -n "${CSC_LINK_SECRET}" ]; then
-            {
-              echo "WIN_CSC_LINK<<__BAHI_EOF__"
-              echo "${CSC_LINK_SECRET}"
-              echo "__BAHI_EOF__"
-              echo "WIN_CSC_KEY_PASSWORD<<__BAHI_EOF__"
-              echo "${CSC_PASSWORD_SECRET}"
-              echo "__BAHI_EOF__"
-            } >> "${GITHUB_ENV}"
-            echo "Code signing enabled."
-          else
-            echo "No signing certificate configured; building an unsigned installer."
-          fi
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: package.json
 
       - name: Check tag matches package.json version
         shell: bash
@@ -61,17 +51,10 @@ jobs:
             exit 1
           fi
 
-      - name: Cache Electron and electron-builder downloads
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~\AppData\Local\electron\Cache
-            ~\AppData\Local\electron-builder\Cache
-          key: electron-win-${{ hashFiles('package.json') }}
-          restore-keys: electron-win-
-
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
+      - name: Install dependencies (no secrets in this environment)
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
       - name: Typecheck
         run: npm run typecheck
@@ -82,22 +65,102 @@ jobs:
       - name: Ensure app icon
         run: node scripts/make-icon.mjs --if-missing
 
-      - name: Build installer
-        run: npm run dist:win
+      - name: Build (main, core worker, preload, renderer)
+        run: npm run build
+
+      # Optional code signing: add WIN_CSC_LINK (base64 .pfx or https URL) and WIN_CSC_KEY_PASSWORD
+      # repository secrets. They exist only in this step's environment; without them the installer is
+      # built unsigned. after-pack.cjs fails the build if the Electron fuses cannot be applied.
+      - name: Package (and sign, when a certificate is configured)
+        shell: bash
+        env:
+          SIGNING_CERT: ${{ secrets.WIN_CSC_LINK }}
+          SIGNING_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if [ -n "${SIGNING_CERT}" ]; then
+            export WIN_CSC_LINK="${SIGNING_CERT}" WIN_CSC_KEY_PASSWORD="${SIGNING_PASSWORD}"
+            echo "Code signing enabled."
+          else
+            echo "No signing certificate configured; building an unsigned installer."
+          fi
+          unset SIGNING_CERT SIGNING_PASSWORD
+          npx --no -- electron-builder --win --x64 --publish never
+
+      - name: Verify Electron fuses on the packaged binary
+        run: npm run check:fuses
 
       - name: Checksums
         shell: bash
         run: |
           cd release
-          sha256sum *.exe | tee SHA256SUMS.txt
+          sha256sum Bahi-ERP-Setup-*.exe | tee SHA256SUMS.txt
+
+      - name: Upload installer
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: release-installer
+          path: |
+            release/Bahi-ERP-Setup-*.exe
+            release/SHA256SUMS.txt
+          retention-days: 7
+          if-no-files-found: error
+
+  smoke:
+    name: Install and launch the installer (Windows)
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Download installer
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-installer
+          path: release
+
+      - name: Smoke-test the installed app
+        shell: pwsh
+        run: ./scripts/smoke-installed.ps1 -Installer (Get-ChildItem release/Bahi-ERP-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence
+
+      - name: Upload smoke evidence
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: release-smoke-evidence
+          path: smoke-evidence/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish GitHub Release
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download installer
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-installer
+          path: release
+
+      - name: Verify checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS.txt
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           name: Bahi ERP ${{ github.ref_name }}
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
           files: |
-            release/*.exe
+            release/Bahi-ERP-Setup-*.exe
             release/SHA256SUMS.txt

@@ -540,9 +540,26 @@ describe('inward supplies and reverse charge', () => {
     assert.equal(r.totals.payableToParty, 118000);
   });
 
-  test('purchase from SEZ: IGST charged by the SEZ supplier', () => {
+  test('services from an SEZ unit: IGST charged by the SEZ supplier on its invoice', () => {
     const r = check(computeInvoice([ledger('s', 100000, 18)], ctx({ direction: 'inward', partyRegistration: 'sez' })));
     assert.deepEqual([r.nature, r.taxMode, r.totals.igst, r.totals.payableToParty], ['inward_sez', 'igst', 18000, 118000]);
+    assert.equal(line(r, 's').taxPayableToParty, true);
+  });
+
+  test('goods from an SEZ unit: treated as an import — IGST computed (bill of entry) but not payable to the supplier', () => {
+    // 10 × ₹100 = ₹1,000 @18% → IGST ₹180 paid at customs; the SEZ supplier is owed ₹1,000.
+    // Before the fix the supplier was credited ₹1,180 while GSTR-3B reported the IGST as import of goods.
+    const r = check(computeInvoice([item('a', 10, 100, 18)], ctx({ direction: 'inward', partyRegistration: 'sez' })));
+    assert.deepEqual([r.nature, r.taxMode, r.totals.igst, r.totals.payableToParty], ['inward_sez', 'igst', 18000, 100000]);
+    assert.deepEqual([line(r, 'a').taxCharged, line(r, 'a').taxPayableToParty, line(r, 'a').reverseCharge], [true, false, false]);
+    // A mixed invoice: the goods' IGST goes to customs, the service's IGST is paid to the SEZ unit.
+    // goods 1,000 + services 500 = 1,500; IGST 180 + 90; payable 1,500 + 90 = 1,590.
+    const mixed = check(computeInvoice([item('a', 10, 100, 18), ledger('s', 50000, 18)], ctx({ direction: 'inward', partyRegistration: 'sez' })));
+    assert.deepEqual([mixed.totals.igst, mixed.totals.payableToParty], [27000, 159000]);
+    // An inclusive rate cannot apply to goods whose IGST is not paid to the supplier.
+    const inc = check(computeInvoice([item('a', 1, 118, 18, { rateInclusiveOfTax: true })], ctx({ direction: 'inward', partyRegistration: 'sez' })));
+    assert.deepEqual([line(inc, 'a').taxableValue, inc.totals.payableToParty], [11800, 11800]);
+    assert.ok(inc.warnings.some((w) => /bill of entry/.test(w)));
   });
 
   test('import of goods: IGST computed (customs) but not payable to the supplier', () => {

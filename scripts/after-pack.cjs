@@ -1,61 +1,48 @@
-// electron-builder afterPack hook (runs before signing): flip Electron fuses on the packaged binary.
-// https://www.electronjs.org/docs/latest/tutorial/fuses
+// electron-builder afterPack hook (runs before signing): flip Electron fuses on the packaged binary,
+// then read them back. The wanted fuses and why: scripts/fuses.cjs and docs/SECURITY.md §3.7.
 //
-//  RunAsNode=false                       ELECTRON_RUN_AS_NODE cannot turn Bahi ERP.exe into a Node runtime
-//  EnableNodeOptionsEnvironmentVariable  NODE_OPTIONS is ignored (no --require injection)
-//  EnableNodeCliInspectArguments=false   --inspect / --inspect-brk are ignored (no debugger attach)
-//  OnlyLoadAppFromAsar=true              code is only loaded from resources/app.asar
-//  EnableCookieEncryption=true           Chromium cookie store encrypted with the OS key store
-//  GrantFileProtocolExtraPrivileges=false file:// pages get no extra privileges (we never use file://)
-//
-// @electron/fuses ships as a dependency of electron-builder. If it cannot be loaded the build continues
-// with a loud warning, unless BAHI_REQUIRE_FUSES=1 (recommended for release pipelines once verified).
+// Fails closed: if @electron/fuses (a declared devDependency) cannot be loaded, a wanted fuse is
+// unknown to it, flipping fails, or the read-back differs, the build FAILS — a release can never ship
+// an unhardened binary with a green log. For a throw-away local experiment only, BAHI_ALLOW_UNFUSED=1
+// downgrades this to a warning; CI never sets it.
 'use strict';
 
 const path = require('node:path');
+const { WANTED_FUSES, fuseProblems } = require('./fuses.cjs');
 
-async function afterPack(context) {
-  const required = process.env.BAHI_REQUIRE_FUSES === '1';
-  let fuses;
-  try {
-    fuses = require('@electron/fuses');
-  } catch (err) {
-    const message = `@electron/fuses could not be loaded (${err && err.message}); Electron fuses NOT applied`;
-    if (required) throw new Error(message);
-    console.warn(`  • WARNING: ${message}`);
-    return;
-  }
-
-  const { flipFuses, FuseVersion, FuseV1Options } = fuses;
+function binaryPath(context) {
   const platform = context.electronPlatformName;
   const productFilename = context.packager.appInfo.productFilename;
-  const binary =
-    platform === 'win32'
-      ? path.join(context.appOutDir, `${productFilename}.exe`)
-      : platform === 'darwin'
-        ? path.join(context.appOutDir, `${productFilename}.app`)
-        : path.join(context.appOutDir, context.packager.executableName);
+  if (platform === 'win32') return path.join(context.appOutDir, `${productFilename}.exe`);
+  if (platform === 'darwin') return path.join(context.appOutDir, `${productFilename}.app`);
+  return path.join(context.appOutDir, context.packager.executableName);
+}
 
-  const wanted = {
-    RunAsNode: false,
-    EnableCookieEncryption: true,
-    EnableNodeOptionsEnvironmentVariable: false,
-    EnableNodeCliInspectArguments: false,
-    OnlyLoadAppFromAsar: true,
-    GrantFileProtocolExtraPrivileges: false,
-  };
-  const config = { version: FuseVersion.V1, resetAdHocDarwinSignature: platform === 'darwin' };
-  for (const [name, value] of Object.entries(wanted)) {
-    // Skip fuses unknown to the installed @electron/fuses version instead of failing.
-    if (FuseV1Options[name] !== undefined) config[FuseV1Options[name]] = value;
+async function applyFuses(context) {
+  const fuses = require('@electron/fuses');
+  const { flipFuses, getCurrentFuseWire, FuseVersion, FuseV1Options } = fuses;
+  const binary = binaryPath(context);
+  const config = { version: FuseVersion.V1, resetAdHocDarwinSignature: context.electronPlatformName === 'darwin' };
+  for (const [name, value] of Object.entries(WANTED_FUSES)) {
+    if (FuseV1Options[name] === undefined) throw new Error(`Fuse ${name} is unknown to the installed @electron/fuses`);
+    config[FuseV1Options[name]] = value;
   }
+  await flipFuses(binary, config);
+  const problems = fuseProblems(await getCurrentFuseWire(binary), fuses);
+  if (problems.length > 0) throw new Error(`Fuses not as wanted after flipping: ${problems.join('; ')}`);
+  console.log(`  • Electron fuses applied and verified on ${path.basename(binary)}`);
+}
 
+async function afterPack(context) {
   try {
-    await flipFuses(binary, config);
-    console.log(`  • Electron fuses applied to ${path.basename(binary)}`);
+    await applyFuses(context);
   } catch (err) {
-    if (required) throw err;
-    console.warn(`  • WARNING: could not apply Electron fuses: ${err && err.message}`);
+    const message = `Electron fuses could not be applied: ${err && err.message ? err.message : String(err)}`;
+    if (process.env.BAHI_ALLOW_UNFUSED === '1') {
+      console.warn(`  • WARNING (BAHI_ALLOW_UNFUSED=1): ${message} — this build must not be distributed`);
+      return;
+    }
+    throw new Error(message);
   }
 }
 

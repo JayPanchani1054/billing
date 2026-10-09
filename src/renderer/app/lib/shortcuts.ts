@@ -55,18 +55,34 @@ export const GLOBAL_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'Ctrl+Q', label: 'Quit Bahi ERP', group: 'Help', global: true },
 ];
 
-/** Conventions every screen follows (documented, registered by screens/the UI kit — not global). */
+/**
+ * Conventions every screen follows (documented, registered by screens/the UI kit — not global).
+ * One meaning per key across modules; screens must not bind reservedGlobalKeys() (the voucher
+ * screen's own F-keys and the GST screens' documented exceptions aside). Labels use Tally verbs
+ * ("Create …", "Alter …", "Delete"); hints read "<Key> <Title Case action>".
+ */
 export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'Enter', label: 'Next field', group: 'Forms', global: false },
   { keys: 'Shift+Enter', label: 'Previous field', group: 'Forms', global: false },
   { keys: 'Ctrl+A', label: 'Accept / save', group: 'Forms', global: false },
   { keys: 'Ctrl+Enter', label: 'Next field from a multi-line box', group: 'Forms', global: false },
+  { keys: 'Alt+D', label: 'Delete the master or voucher on screen', group: 'Forms', global: false },
+  { keys: 'Ctrl+D', label: 'Remove the line (voucher and grid rows)', group: 'Forms', global: false },
+  { keys: 'Alt+N, Ctrl+N', label: 'Insert a line above', group: 'Forms', global: false },
+  { keys: 'Alt+2', label: 'Duplicate the voucher', group: 'Forms', global: false },
+  { keys: 'Alt+X', label: 'Cancel the voucher (keeps its number)', group: 'Forms', global: false },
   { keys: 'Alt+C', label: 'Create a new master from a list (ledger, item…)', group: 'Pickers & dates', global: false },
   { keys: 'Alt+ArrowDown', label: 'Open the list or calendar', group: 'Pickers & dates', global: false },
   { keys: 't', label: 'Today (in a date box)', group: 'Pickers & dates', global: false, description: 'Also: 5 = 5th of this month, 5-10 = 5 Oct, + / − change by a day' },
   { keys: 'ArrowUp, ArrowDown', label: 'Move in lists and reports', group: 'Lists & reports', global: false },
   { keys: 'Enter', label: 'Open / drill down', group: 'Lists & reports', global: false },
-  { keys: 'Alt+E', label: 'Export (Excel / CSV / PDF)', group: 'Lists & reports', global: false },
+  { keys: 'Alt+Enter', label: 'View the voucher (read-only)', group: 'Lists & reports', global: false },
+  { keys: 'Alt+A', label: 'Alter the selected voucher or master', group: 'Lists & reports', global: false },
+  { keys: 'Alt+M', label: "Open the report subject's master (ledger, item)", group: 'Lists & reports', global: false },
+  { keys: 'Alt+F1', label: 'Detailed / condensed', group: 'Lists & reports', global: false },
+  { keys: 'Ctrl+1, Ctrl+2, Ctrl+3', label: 'Switch view or tab (Ctrl+1…9)', group: 'Lists & reports', global: false },
+  { keys: 'Ctrl+F', label: "Search box of the screen", group: 'Lists & reports', global: false },
+  { keys: 'Alt+E', label: 'Export (Excel / CSV / PDF)', group: 'Lists & reports', global: false, description: 'Needs the Data › Export permission (also for Print)' },
   { keys: 'Alt+P', label: 'Print', group: 'Lists & reports', global: false },
   { keys: 'Y, Ctrl+A', label: 'Yes / confirm', group: 'Dialogs', global: false },
   { keys: 'N, Escape', label: 'No / cancel', group: 'Dialogs', global: false },

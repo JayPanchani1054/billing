@@ -23,12 +23,16 @@ import {
   type AuditListInput,
   type AuditListResult,
   type AuditListRow,
+  type AuditAnchorReport,
+  type AuditAnchorResetResult,
   type AuditVerifyReport,
   type JsonValue,
 } from '../../../shared/types/security.ts';
 import type { CompanyCtx } from '../../api/context.ts';
+import { controllerFor } from '../../app/controller.ts';
 import type { Db } from '../../db/db.ts';
 import { verifyAuditChain } from '../../lib/audit.ts';
+import { checkAuditAnchor, type AnchorCheck } from '../../lib/auditAnchor.ts';
 import { toCsv } from '../../lib/csv.ts';
 import { forbidden, notFound, rule } from '../../lib/errors.ts';
 import { encodeUtf8WithBom } from '../../lib/text.ts';
@@ -316,14 +320,67 @@ export function entityHistory(db: Db, input: AuditEntityHistoryInput): AuditEnti
   };
 }
 
-export function verifyAuditLog(db: Db, now: Date): AuditVerifyReport {
+/** The open company's edit log against its out-of-database check-point (null: no check-point store). */
+export function anchorCheckFor(ctx: Pick<CompanyCtx, 'app' | 'company' | 'db' | 'session'>): (AnchorCheck & { canReset: boolean }) | null {
+  const store = ctx.app.auditAnchors;
+  if (!store) return null;
+  const anchor = store.get(ctx.company.id);
+  const guid = ctx.db.value<string>('SELECT guid FROM company WHERE id = 1') ?? '';
+  return { ...checkAuditAnchor(ctx.db, anchor, anchor ? store.verify(anchor) : false, guid), canReset: ctx.session.isOwner };
+}
+
+const ANCHOR_REASON: Record<AnchorCheck['reason'], string> = {
+  ok: '',
+  no_anchor: '',
+  bad_mac: 'the saved check-point itself was altered, or it was made with another computer’s security key',
+  other_company: 'the company file was replaced by a different company’s file',
+  entry_removed: 'entries recorded up to then have been removed',
+  entry_rewritten: 'entries recorded up to then have been rewritten',
+};
+
+/**
+ * Verify the hash chain and, when given, compare it with the check-point kept outside the company file
+ * (core/lib/auditAnchor.ts). `anchor` is null when the app keeps no check-points.
+ */
+export function verifyAuditLog(db: Db, now: Date, anchor: (AnchorCheck & { canReset: boolean }) | null = null): AuditVerifyReport {
   const result = verifyAuditChain(db);
   const totalEntries = db.value<number>('SELECT COUNT(*) FROM audit_log') ?? 0;
   const last = db.get<{ id: number; hash: string }>('SELECT id, hash FROM audit_log ORDER BY id DESC LIMIT 1');
-  const base = { totalEntries, checkedAt: now.toISOString(), lastEntryId: last?.id ?? null, lastHash: last?.hash ?? null };
+  const anchorReport: AuditAnchorReport | undefined = anchor
+    ? { status: anchor.status, recordedAt: anchor.at, entryId: anchor.anchoredId, canReset: anchor.canReset && (anchor.status === 'mismatch' || anchor.status === 'invalid') }
+    : undefined;
+  const base = {
+    totalEntries,
+    checkedAt: now.toISOString(),
+    lastEntryId: last?.id ?? null,
+    lastHash: last?.hash ?? null,
+    ...(anchorReport ? { anchor: anchorReport } : {}),
+  };
+  const anchorBad = anchor !== null && (anchor.status === 'mismatch' || anchor.status === 'invalid');
+  const anchorText = anchorBad
+    ? `This computer saved a check-point of the edit log on ${anchor.at ? localDateTime(anchor.at) : 'an earlier date'} (entry #${anchor.anchoredId ?? '?'}), but ${ANCHOR_REASON[anchor.reason]}. `
+    : '';
+  if (result.ok && anchorBad) {
+    return {
+      ok: false,
+      count: result.count,
+      brokenAtId: null,
+      reason: null,
+      message: 'The edit log has been tampered with: it no longer matches the check-point saved on this computer.',
+      detail:
+        anchorText +
+        'The entries are consistent with each other, so the log was rewritten as a whole outside Bahi ERP. Compare with a backup taken before that date. ' +
+        'If you copied this company’s files back yourself (not with Restore), an Owner can accept the current log as the new check-point.',
+      ...base,
+    };
+  }
   if (result.ok) {
     if (result.count === 0)
       return { ok: true, count: 0, brokenAtId: null, reason: null, message: 'The edit log is empty.', detail: 'Entries appear as soon as anything is created, changed or deleted.', ...base };
+    const anchored =
+      anchor?.status === 'match'
+        ? `It also matches the check-point this computer saved on ${anchor.at ? localDateTime(anchor.at) : 'an earlier date'}, so nothing recorded up to then has been removed or rewritten. `
+        : '';
     return {
       ok: true,
       count: result.count,
@@ -332,7 +389,8 @@ export function verifyAuditLog(db: Db, now: Date): AuditVerifyReport {
       message: `Edit log verified: all ${result.count.toLocaleString('en-IN')} entries are intact.`,
       detail:
         "Every entry's fingerprint matches its content and links to the entry before it, so no entry has been altered, inserted or removed in between. " +
-        `Removing the newest entries cannot be detected from the log alone: keep the latest fingerprint (${(last?.hash ?? '').slice(0, 16)}…) or an export of the log with your backups to check this later.`,
+        anchored +
+        `Keep backups: each one also records the latest fingerprint (${(last?.hash ?? '').slice(0, 16)}…).`,
       ...base,
     };
   }
@@ -350,9 +408,30 @@ export function verifyAuditLog(db: Db, now: Date): AuditVerifyReport {
     message,
     detail:
       `${result.count.toLocaleString('en-IN')} earlier ${result.count === 1 ? 'entry is' : 'entries are'} intact. ` +
+      anchorText +
       'Someone changed the company file outside Bahi ERP. Compare with a backup taken before this date, and review who has access to the company files.',
     ...base,
   };
+}
+
+/**
+ * Owner accepts the current edit log as the new check-point after a reported mismatch (e.g. the
+ * company files were copied back by hand). Recorded in the edit log itself, with the old check-point.
+ */
+export function resetAuditAnchor(ctx: CompanyCtx): AuditAnchorResetResult {
+  if (!ctx.session.isOwner) throw forbidden('Only an Owner can accept the current edit log as the new check-point.');
+  const check = anchorCheckFor(ctx);
+  if (!check || (check.status !== 'mismatch' && check.status !== 'invalid')) throw rule('The edit log matches its check-point; there is nothing to reset.');
+  ctx.db.transaction(() =>
+    ctx.audit({
+      action: 'security',
+      entityType: 'audit_anchor',
+      entityLabel: 'Edit-log check-point reset',
+      before: { status: check.status, reason: check.reason, recordedAt: check.at, entryId: check.anchoredId },
+      after: { acceptedBy: ctx.session.username },
+    }),
+  );
+  return { anchoredEntryId: controllerFor(ctx.app).resetAuditAnchor().anchoredId };
 }
 
 // ───────────────────────────── Export ─────────────────────────────

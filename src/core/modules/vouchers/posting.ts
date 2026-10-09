@@ -877,6 +877,11 @@ class PostingBuilder {
 
     // ── Inventory entries ──
     const dir = STOCK_DIRECTION[base];
+    // A Debit Note to a customer is a supplementary invoice / upward price revision (CGST s.34(3)): it
+    // changes the value of goods already delivered with the original invoice, so its item lines are
+    // value-only — they never move stock or take part in valuation (a second outward movement would
+    // reduce closing stock again). Goods actually going out go on a sales invoice.
+    const valueOnly = this.valueOnlyItemLines();
     meta.forEach((m, j) => {
       if (m.kind !== 'item' || !m.item) return;
       const it = items[m.index];
@@ -885,7 +890,7 @@ class PostingBuilder {
       const loc = this.locate(it, item, m.index);
       const inclusive = cl.inclusive;
       const exclusiveRate = inclusive ? roundTo(((it.rate ?? 0) * 100) / (100 + cl.rate + cl.cessRate), 6) : (it.rate ?? 0);
-      const trackingRef = NOTE_TYPES.has(base) ? this.opts.number : (txt(it.trackingRef) ?? null);
+      const trackingRef = NOTE_TYPES.has(base) ? this.opts.number : valueOnly ? null : (txt(it.trackingRef) ?? null);
       const orderRef = ORDER_TYPES.has(base) ? this.opts.number : (txt(it.orderRef) ?? null);
       this.inventory.push({
         lineNo: m.index + 1,
@@ -907,7 +912,7 @@ class PostingBuilder {
         trackingRef,
         orderRef,
         isConsumption: false,
-        affectsStock: this.lineMovesStock(item, !NOTE_TYPES.has(base) && trackingRef !== null),
+        affectsStock: !valueOnly && this.lineMovesStock(item, !NOTE_TYPES.has(base) && trackingRef !== null),
       });
     });
 
@@ -1025,6 +1030,14 @@ class PostingBuilder {
       costs: [],
       source: e.source,
     });
+  }
+
+  /**
+   * Item lines that carry value only (never stock): a Debit Note to a customer in an invoice mode
+   * (outward GST direction). See the inventory entries in buildInvoice.
+   */
+  private valueOnlyItemLines(): boolean {
+    return this.base === 'debit_note' && this.outward;
   }
 
   /** Does this item line move stock? */
@@ -1434,7 +1447,8 @@ class PostingBuilder {
    */
   private checkTrackingRefs(): void {
     const noteBase = TRACKING_NOTE_FOR[this.base];
-    if (!noteBase || !this.party) return;
+    // A Debit Note to a customer bills no rejection-out note: its lines are value-only.
+    if (!noteBase || !this.party || this.valueOnlyItemLines()) return;
     const party = this.party;
     const items = this.input.items ?? [];
     const billedHere = new Map<string, number>();

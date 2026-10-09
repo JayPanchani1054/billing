@@ -7,7 +7,7 @@ import { formatDate } from '../../../shared/dates.ts';
 import type { CompanyConfig, GuardPolicy, InvoiceTemplate, RoundOffMethod } from '../../../shared/settings.ts';
 import type { CompanyConfigInput } from '../../../shared/types/company.ts';
 import { validateUpiId } from '../../../shared/validators.ts';
-import { apiOptional } from '../../app/api.ts';
+import { api } from '../../app/api.ts';
 import { native } from '../../app/bridge.ts';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
@@ -15,6 +15,8 @@ import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
 import { ReadOnlyNotice, Screen } from '../../app/Screen.tsx';
 import { useAppState } from '../../app/state.tsx';
+import { bankLedgerQuery, parseBankLedgers } from './lib/bankLedgers.ts';
+import type { BankOption } from './lib/bankLedgers.ts';
 import {
   AmountInput,
   Banner,
@@ -43,23 +45,6 @@ export function ConfigScreen() {
   const q = useApiQuery('company.config.get', {});
   if (!q.data) return <Screen title="Configuration" loading={q.loading} error={q.error} onRetry={() => void q.refetch()} />;
   return <ConfigForm key={JSON.stringify(q.data)} saved={q.data} />;
-}
-
-interface BankOption {
-  id: number;
-  name: string;
-}
-
-function parseBanks(out: unknown): BankOption[] {
-  const list = Array.isArray(out) ? out : typeof out === 'object' && out !== null && Array.isArray((out as { rows?: unknown }).rows) ? (out as { rows: unknown[] }).rows : [];
-  const res: BankOption[] = [];
-  for (const r of list) {
-    if (typeof r !== 'object' || r === null) continue;
-    const o = r as Record<string, unknown>;
-    const group = typeof o.groupName === 'string' ? o.groupName : '';
-    if (typeof o.id === 'number' && typeof o.name === 'string' && (!group || /bank/i.test(group))) res.push({ id: o.id, name: o.name });
-  }
-  return res;
 }
 
 const GUARDS: ReadonlyArray<{ key: keyof CompanyConfig['guards']; label: string; description: string }> = [
@@ -179,7 +164,7 @@ function ConfigForm({ saved }: { saved: CompanyConfig }) {
           <Picker<BankOption>
             loadItems={async (query) => {
               try {
-                return parseBanks(await apiOptional('accounts.ledger.picker', { search: query, limit: 20 }));
+                return parseBankLedgers(await api('accounts.ledger.list', bankLedgerQuery(query)));
               } catch {
                 return [];
               }
@@ -342,7 +327,12 @@ function ConfigForm({ saved }: { saved: CompanyConfig }) {
   const backupTab = (
     <Stack gap={4}>
       <FieldGroup legend="Automatic backups" columns={2}>
-        <Switch label="Back up automatically when the company is closed" checked={c.backup.auto} disabled={readOnly} onChange={(v) => patch('backup', { auto: v })} />
+        <Switch
+          label="Back up automatically once a day (when the company is opened or closed)"
+          checked={c.backup.auto}
+          disabled={readOnly}
+          onChange={(v) => patch('backup', { auto: v })}
+        />
         <Field label="Keep the latest" hint="Older automatic backups are removed.">
           <NumberInput value={c.backup.keepLast} readOnly={readOnly} min={1} max={365} onChange={(v) => patch('backup', { keepLast: Math.max(1, Math.min(365, Math.round(v ?? 1))) })} suffix="backups" />
         </Field>

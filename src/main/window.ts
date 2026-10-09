@@ -289,6 +289,9 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       contents.setZoomFactor(options.prefs.get().zoom);
       void contents.setVisualZoomLevelLimits(1, 1).catch(() => undefined);
     });
+    // A reload or navigation replaces the document: its unsaved-work flag goes with it (a stale `true`
+    // would otherwise make the close button prompt about work that no longer exists).
+    contents.on('did-navigate', () => dirty.set(contentsId, false));
     contents.on('zoom-changed', (_event, direction) => stepZoom(contents, direction));
     contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
       log('error', 'Window failed to load', { errorCode, errorDescription, url: validatedURL });

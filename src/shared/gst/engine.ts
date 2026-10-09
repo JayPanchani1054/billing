@@ -588,6 +588,11 @@ export function computeInvoice(lines: readonly InvoiceLineInput[], ctx: InvoiceC
     direction === 'inward' &&
     (partyRegistration === 'unregistered' || partyRegistration === 'consumer' || partyRegistration === 'composition');
   const isImport = direction === 'inward' && partyRegistration === 'overseas';
+  // Goods from an SEZ unit cleared into the DTA are treated as imports (SEZ Act s.30, SEZ Rules r.47–48):
+  // the buyer files a bill of entry and pays IGST at customs, so the SEZ supplier does not collect it —
+  // exactly like import of goods. Services from an SEZ unit are an ordinary inter-state B2B supply
+  // with IGST charged on the invoice.
+  const fromSez = direction === 'inward' && partyRegistration === 'sez';
   const taxMode = taxModeFor(interState, pos.code, chargesGst);
 
   if (direction === 'outward' && companyRegistration === 'composition' && interState && goodsNet > 0) {
@@ -598,15 +603,18 @@ export function computeInvoice(lines: readonly InvoiceLineInput[], ctx: InvoiceC
     // Import of services is always under reverse charge (IGST Notification 10/2017).
     if (isImport && l.supplyKind === 'services') l.rc = true;
     l.taxCharged = chargesGst && l.taxability === 'taxable' && !zeroRatedUnderLut && !(supplierCannotCharge && !l.rc);
-    l.payable = l.taxCharged && !l.rc && !isImport;
+    // Import of goods (and goods from an SEZ unit): IGST is computed (it is the ITC of 4(A)(1)) but paid
+    // at customs on the bill of entry, not to the supplier.
+    const atCustoms = isImport || (fromSez && l.supplyKind === 'goods');
+    l.payable = l.taxCharged && !l.rc && !atCustoms;
     if (l.wantsInclusive && l.apportion !== 'none' && hasGoodsTarget) {
       // The charge becomes part of the goods lines' value at their rates; its own rate is irrelevant.
       warn(`${l.label}: tax-inclusive rate ignored because the charge is apportioned into the goods lines`);
     } else if (l.wantsInclusive && l.taxCharged && l.rc) {
       warn(`${l.label}: tax-inclusive rate ignored because the line is under reverse charge`);
     } else if (l.wantsInclusive && l.taxCharged && !l.payable) {
-      // Import of goods: IGST is paid at customs, so the supplier's price cannot include it.
-      warn(`${l.label}: tax-inclusive rate ignored because the tax is not paid to the supplier (import)`);
+      // Import of goods (or goods from an SEZ unit): IGST is paid at customs, so the supplier's price cannot include it.
+      warn(`${l.label}: tax-inclusive rate ignored because the tax is not paid to the supplier (IGST is paid at customs on the bill of entry)`);
     } else if (l.wantsInclusive && l.taxCharged) {
       const perUnitCess = roundPaise(l.cessPerUnit * l.qty);
       l.inclusive = true;

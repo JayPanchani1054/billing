@@ -62,6 +62,50 @@ export function isValidIsoDate(s: string): boolean {
 }
 
 type Shape = Record<string, Schema<unknown>>;
+
+/** What `v.object` does with keys outside its shape (see `v.object`). */
+export type UnknownKeys = 'strip' | 'reject';
+
+/** Policy of the `parse()` call in progress, for objects that do not choose one. */
+let activeUnknownKeys: UnknownKeys = 'strip';
+
+/** ' — did you mean "actions"?' when a declared key is a near miss (case, plural, one edit or swap). */
+function unknownHint(key: string, keys: readonly string[]): string {
+  const k = key.toLowerCase();
+  const near = keys.find((c) => {
+    const x = c.toLowerCase();
+    return x === k || x === `${k}s` || `${x}s` === k || editDistanceAtMostOne(x, k);
+  });
+  return near ? ` — did you mean "${near}"?` : '';
+}
+
+/** One insertion, deletion, substitution or swap of two neighbouring letters apart ('qyt' ~ 'qty'). */
+function editDistanceAtMostOne(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1 || a === b) return a === b;
+  if (a.length === b.length) {
+    const diff: number[] = [];
+    for (let i = 0; i < a.length && diff.length <= 2; i++) if (a[i] !== b[i]) diff.push(i);
+    if (diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]]) return true;
+  }
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else {
+      i++;
+      j++;
+    }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
 type OptionalKeys<S extends Shape> = { [K in keyof S]: undefined extends Infer<S[K]> ? K : never }[keyof S];
 type RequiredKeys<S extends Shape> = Exclude<keyof S, OptionalKeys<S>>;
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
@@ -152,19 +196,43 @@ export const v = {
     });
   },
 
-  object<S extends Shape>(shape: S): Schema<InferShape<S>> {
+  /**
+   * An object with exactly these keys. Keys outside the shape are never passed on; whether they are an
+   * error depends on `opts.unknownKeys`:
+   *   'reject' — always a VALIDATION issue naming the key (`strictObject`; use it for filters, where a
+   *              misspelt key would silently widen the result);
+   *   'strip'  — always dropped silently (inputs that legitimately carry extra keys, e.g. a DTO sent back);
+   *   omitted  — the policy of the current `parse()` call: dropped by default, rejected when the
+   *              dispatcher runs in strict mode (the test suite and development builds; see
+   *              `setStrictRouteInput` in api/dispatch.ts).
+   */
+  object<S extends Shape>(shape: S, opts: { unknownKeys?: UnknownKeys } = {}): Schema<InferShape<S>> {
+    const keys = Object.keys(shape);
+    const known = new Set(keys);
     return make<InferShape<S>>((value, path, issues) => {
       if (typeof value !== 'object' || value === null || Array.isArray(value)) return fail(issues, path, `${label(path)} must be an object`);
       const src = value as Record<string, unknown>;
       const out: Record<string, unknown> = {};
       const before = issues.length;
-      for (const key of Object.keys(shape)) {
+      for (const key of keys) {
         const r = shape[key].check(src[key], path ? `${path}.${key}` : key, issues);
         if (r !== undefined) out[key] = r;
       }
-      // Unknown keys are dropped silently (never passed to handlers).
+      if ((opts.unknownKeys ?? activeUnknownKeys) === 'reject') {
+        for (const key of Object.keys(src)) {
+          // An undefined value is how JavaScript callers leave an optional field out; it carries nothing.
+          if (known.has(key) || src[key] === undefined) continue;
+          const at = path ? `${path}.${key}` : key;
+          issues.push({ path: at, message: `Unknown field "${key}"${unknownHint(key, keys)}` });
+        }
+      }
       return issues.length > before ? undefined : (out as InferShape<S>);
     });
+  },
+
+  /** `object` that always rejects keys outside the shape (filters, list and report inputs). */
+  strictObject<S extends Shape>(shape: S): Schema<InferShape<S>> {
+    return v.object(shape, { unknownKeys: 'reject' });
   },
 
   record<T>(valueSchema: Schema<T>): Schema<Record<string, T>> {
@@ -201,10 +269,20 @@ export const v = {
   },
 };
 
-/** Validate or throw AppError('VALIDATION') with all field issues. */
-export function parse<T>(schema: Schema<T>, value: unknown): T {
+/**
+ * Validate or throw AppError('VALIDATION') with all field issues. `opts.unknownKeys` sets what objects
+ * without their own policy do with keys outside their shape (default: drop them).
+ */
+export function parse<T>(schema: Schema<T>, value: unknown, opts: { unknownKeys?: UnknownKeys } = {}): T {
   const issues: FieldIssue[] = [];
-  const out = schema.check(value, '', issues);
+  const previous = activeUnknownKeys;
+  activeUnknownKeys = opts.unknownKeys ?? 'strip';
+  let out: T | undefined;
+  try {
+    out = schema.check(value, '', issues);
+  } finally {
+    activeUnknownKeys = previous;
+  }
   if (issues.length > 0 || out === undefined) {
     throw validation(issues.length ? issues : [{ path: '(root)', message: 'Invalid input' }]);
   }

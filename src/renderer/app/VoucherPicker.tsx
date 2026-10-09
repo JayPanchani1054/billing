@@ -1,13 +1,15 @@
 /**
- * F10 — "Other vouchers": every voucher type with its hotkey; type to filter, Enter to open.
- * Types the company can't use right now are listed with the reason (and can't be opened).
+ * F10 — "Other vouchers": every voucher type — predefined ones with their hotkey, then the
+ * company's own types (Masters › Voucher Types, e.g. "Sales - Export") under their base type.
+ * Type to filter, Enter to open. Types the company can't use right now are listed with the reason
+ * (and can't be opened); deactivated types are not listed (lib/voucherTypes.ts).
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { PREDEFINED_VOUCHER_TYPES } from '../../shared/constants.ts';
-import type { PredefinedVoucherType } from '../../shared/constants.ts';
 import { Icon, Kbd, Modal, filterAndRank, useListNavigation } from '../ui/index.ts';
 import { cx } from '../ui/lib/cx.ts';
+import { useVoucherChoices } from './hooks/useVoucherChoices.ts';
+import type { VoucherChoice } from './lib/voucherTypes.ts';
 import { useShell } from './shell.tsx';
 
 export function VoucherPicker({ onClose }: { onClose: () => void }) {
@@ -15,7 +17,11 @@ export function VoucherPicker({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listId = useId();
-  const types = useMemo(() => filterAndRank(PREDEFINED_VOUCHER_TYPES, query, (t) => ({ label: t.name, alias: t.abbreviation, keywords: [t.baseType] })).map((r) => r.item), [query]);
+  const all = useVoucherChoices();
+  const types = useMemo(
+    () => filterAndRank(all, query, (t) => ({ label: t.name, alias: t.abbreviation ?? t.alias, keywords: [t.baseType, t.baseName, t.alias ?? ''] })).map((r) => r.item),
+    [all, query],
+  );
   const isDisabled = (i: number) => !shell.voucherAvailability(types[i].baseType).ok;
   const nav = useListNavigation({ count: types.length, defaultActiveIndex: 0, isDisabled, homeEnd: false });
   const { activeIndex, setActiveIndex } = nav;
@@ -25,10 +31,10 @@ export function VoucherPicker({ onClose }: { onClose: () => void }) {
     setActiveIndex(first);
   }, [types, shell, setActiveIndex]);
 
-  const pick = (t: PredefinedVoucherType) => {
+  const pick = (t: VoucherChoice) => {
     if (!shell.voucherAvailability(t.baseType).ok) return;
     onClose();
-    shell.openVoucher(t.baseType);
+    shell.openVoucher(t.baseType, t.voucherTypeId !== undefined ? { voucherTypeId: t.voucherTypeId } : {});
   };
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -62,9 +68,10 @@ export function VoucherPicker({ onClose }: { onClose: () => void }) {
       <div className="bx-goto__results bx-goto__results--short" id={listId} role="listbox" aria-label="Voucher types">
         {types.map((t, i) => {
           const a = shell.voucherAvailability(t.baseType);
+          const detail = !a.ok && a.reason ? a.reason : t.custom ? `${t.baseName} voucher` : null;
           return (
             <div
-              key={t.baseType}
+              key={t.key}
               id={`${listId}-${i}`}
               role="option"
               aria-selected={i === activeIndex}
@@ -77,7 +84,7 @@ export function VoucherPicker({ onClose }: { onClose: () => void }) {
             >
               <span className="bx-goto__label">
                 {t.name}
-                {!a.ok && a.reason ? <span className="bx-goto__desc">{a.reason}</span> : null}
+                {detail ? <span className="bx-goto__desc">{detail}</span> : null}
               </span>
               {t.hotkey && t.hotkey !== 'F10' ? <Kbd keys={t.hotkey} size="sm" tone="subtle" /> : null}
             </div>

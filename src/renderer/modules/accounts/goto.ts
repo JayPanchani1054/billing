@@ -26,6 +26,7 @@ export function installLedgerGoto(): void {
     id: 'ledgers',
     label: 'Ledgers',
     minQuery: 2,
+    screens: ['reports.ledger', 'accounts.ledger.form'],
     search: async (query, signal) => {
       const out = await api('accounts.ledger.list', { search: query, limit: 8, withBalance: true });
       if (signal.aborted) return [];

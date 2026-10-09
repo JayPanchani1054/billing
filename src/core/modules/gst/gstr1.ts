@@ -236,37 +236,96 @@ export function placeOutward(d: GstDoc, original: OriginalInfo | null): Placemen
 const docIdsSort = (a: GstDoc, b: GstDoc): number =>
   a.date.localeCompare(b.date) || (a.numberSeq ?? 0) - (b.numberSeq ?? 0) || (a.number ?? '').localeCompare(b.number ?? '') || a.id - b.id;
 
-/** Document series for table 13 (outward invoices, debit notes, credit notes; cancelled included). */
-export function documentSeries(docs: readonly GstDoc[]): { series: Array<Gstr1DocSeries & { docIds: number[] }>; issues: GstIssue[] } {
+/**
+ * A number of an outward voucher type's series held by a voucher that is not an outward GST document of
+ * the period: an optional (draft) voucher, or a debit note issued to a supplier (purchase return) in the
+ * same Debit Note series. It is neither issued nor cancelled, so Table 13 leaves it out of the range.
+ */
+export interface SeriesHolder {
+  id: number;
+  voucherTypeId: number;
+  voucherTypeName: string;
+  baseType: string;
+  number: string;
+  numberSeq: number | null;
+  date: string;
+  optional: boolean;
+  cancelled: boolean;
+}
+
+function seriesKey(baseType: string, voucherTypeId: number, number: string, numberSeq: number | null): { docNum: 1 | 4 | 5; key: string; seq: number | null } {
+  const docNum: 1 | 4 | 5 = baseType === 'credit_note' ? 5 : baseType === 'debit_note' ? 4 : 1;
+  const num = number.trim();
+  const m = /(\d+)(?=\D*$)/.exec(num);
+  const raw = m ? Number(m[1]) : numberSeq;
+  const pattern = m ? num.slice(0, m.index) + '#' + num.slice(m.index + m[1].length) : num;
+  return { docNum, key: `${docNum}|${voucherTypeId}|${pattern.toUpperCase()}`, seq: raw !== null && Number.isSafeInteger(raw) ? raw : null };
+}
+
+/**
+ * Document series for table 13 (outward invoices, debit notes, credit notes; cancelled included).
+ * `holders`: numbers of the same series held by vouchers that are not outward documents (optional
+ * vouchers, purchase-return debit notes) — they are neither "missing" nor "cancelled"; an optional one
+ * raises `optional_in_series`, because regularising it later would contradict the filed Table 13.
+ */
+export function documentSeries(
+  docs: readonly GstDoc[],
+  holders: readonly SeriesHolder[] = [],
+): { series: Array<Gstr1DocSeries & { docIds: number[] }>; issues: GstIssue[] } {
   interface Acc {
     docNum: 1 | 4 | 5;
     voucherTypeId: number;
     voucherTypeName: string;
     items: Array<{ doc: GstDoc; seq: number | null }>;
+    held: Array<{ holder: SeriesHolder; seq: number | null }>;
   }
   const groups = new Map<string, Acc>();
   for (const d of docs) {
     if (!d.number || d.number.trim() === '') continue;
-    const docNum: 1 | 4 | 5 = d.baseType === 'credit_note' ? 5 : d.baseType === 'debit_note' ? 4 : 1;
-    const num = d.number.trim();
-    const m = /(\d+)(?=\D*$)/.exec(num);
-    const seq = m ? Number(m[1]) : d.numberSeq;
-    const pattern = m ? num.slice(0, m.index) + '#' + num.slice(m.index + m[1].length) : num;
-    const key = `${docNum}|${d.voucherTypeId}|${pattern.toUpperCase()}`;
-    const g = groups.get(key) ?? { docNum, voucherTypeId: d.voucherTypeId, voucherTypeName: d.voucherTypeName, items: [] };
-    g.items.push({ doc: d, seq: seq !== null && Number.isSafeInteger(seq) ? seq : null });
+    const { docNum, key, seq } = seriesKey(d.baseType, d.voucherTypeId, d.number, d.numberSeq);
+    const g = groups.get(key) ?? { docNum, voucherTypeId: d.voucherTypeId, voucherTypeName: d.voucherTypeName, items: [], held: [] };
+    g.items.push({ doc: d, seq });
     groups.set(key, g);
+  }
+  const issues: GstIssue[] = [];
+  for (const h of holders) {
+    if (!h.number || h.number.trim() === '') continue;
+    const { key, seq } = seriesKey(h.baseType, h.voucherTypeId, h.number, h.numberSeq);
+    const g = groups.get(key);
+    if (g) g.held.push({ holder: h, seq });
+    // Only a series that has documents in this return matters (a pro-forma voucher type has its own key).
+    if (g && h.optional && !h.cancelled) {
+      issues.push({
+        ...issue(
+          null,
+          'optional_in_series',
+          'warning',
+          `${h.voucherTypeName} ${h.number.trim()} is an optional (draft) voucher holding a number of the GST invoice series. It is not reported in GSTR-1 (Table 13 leaves the number out).`,
+          'Before filing, make it regular (it is then reported as issued), or delete it (the number is then reported as cancelled). For pro-forma documents use a voucher type with its own series.',
+          'doc',
+        ),
+        voucherId: h.id,
+        voucherNumber: h.number.trim(),
+        voucherTypeName: h.voucherTypeName,
+        date: h.date,
+      });
+    }
   }
 
   const out: Array<Gstr1DocSeries & { docIds: number[] }> = [];
-  const issues: GstIssue[] = [];
-  const emit = (g: Acc, items: Acc['items']): void => {
+  const emit = (g: Acc, items: Acc['items'], held: Acc['held']): void => {
     const numeric = items.every((i) => i.seq !== null);
     items.sort((a, b) => (numeric ? (a.seq as number) - (b.seq as number) : 0) || docIdsSort(a.doc, b.doc));
     const first = items[0];
     const last = items[items.length - 1];
     const count = items.length;
-    const total = numeric ? (last.seq as number) - (first.seq as number) + 1 : count;
+    // Numbers inside the range held by optional vouchers / purchase returns are not documents of this
+    // return: they are left out of the total instead of being counted as missing (= cancelled).
+    const used = new Set(items.map((i) => i.seq));
+    const heldInRange = numeric
+      ? new Set(held.filter((h) => h.seq !== null && h.seq > (first.seq as number) && h.seq < (last.seq as number) && !used.has(h.seq)).map((h) => h.seq))
+      : new Set<number | null>();
+    const total = numeric ? (last.seq as number) - (first.seq as number) + 1 - heldInRange.size : count;
     const missing = Math.max(0, total - count);
     const cancelled = items.filter((i) => !i.doc.inBooks).length + missing;
     out.push({
@@ -288,7 +347,7 @@ export function documentSeries(docs: readonly GstDoc[]): { series: Array<Gstr1Do
           null,
           'doc_series_gap',
           'warning',
-          `${g.voucherTypeName}: ${missing} number${missing === 1 ? ' is' : 's are'} missing between ${first.doc.number} and ${last.doc.number} (deleted vouchers?). They are reported as cancelled in Table 13.`,
+          `${g.voucherTypeName}: ${missing} number${missing === 1 ? ' is' : 's are'} missing between ${first.doc.number} and ${last.doc.number} (deleted vouchers). They are reported as cancelled in Table 13.`,
           'If the numbers were never issued, check the voucher numbering; otherwise no action is needed.',
           'doc',
         ),
@@ -307,7 +366,7 @@ export function documentSeries(docs: readonly GstDoc[]): { series: Array<Gstr1Do
       seen.add(it.seq);
     }
     if (!dup) {
-      emit(g, g.items);
+      emit(g, g.items, g.held);
       continue;
     }
     // Numbers repeat (monthly restart): one series per month.
@@ -316,7 +375,9 @@ export function documentSeries(docs: readonly GstDoc[]): { series: Array<Gstr1Do
       const k = it.doc.date.slice(0, 7);
       byMonth.set(k, [...(byMonth.get(k) ?? []), it]);
     }
-    for (const k of [...byMonth.keys()].sort()) emit(g, byMonth.get(k) as Acc['items']);
+    for (const k of [...byMonth.keys()].sort()) {
+      emit(g, byMonth.get(k) as Acc['items'], g.held.filter((h) => h.holder.date.slice(0, 7) === k));
+    }
   }
   out.sort((a, b) => a.docNum - b.docNum || a.voucherTypeName.localeCompare(b.voucherTypeName) || a.from.localeCompare(b.from, 'en', { numeric: true }));
   return { series: out, issues };
@@ -422,7 +483,29 @@ export function computeGstr1(db: Db, company: GstCompany, period: ReturnPeriodRe
     .sort((a, b) => a.pos.localeCompare(b.pos) || a.rate - b.rate || a.supplyType.localeCompare(b.supplyType));
   const nil = [...nilBy.values()];
 
-  const { series, issues: seriesIssues } = documentSeries([...docs, ...cancelled]);
+  // Numbers of the outward series held by vouchers that are not outward documents of the period
+  // (optional vouchers; debit notes to suppliers sharing the Debit Note series).
+  const listed = new Set([...docs, ...cancelled].map((d) => d.id));
+  const holders: SeriesHolder[] = db
+    .all<{ id: number; vt: number; vt_name: string; base_type: string; number: string; number_seq: number | null; date: string; is_optional: number; is_cancelled: number }>(
+      `SELECT v.id, v.voucher_type_id AS vt, vt.name AS vt_name, v.base_type, v.number, v.number_seq, v.date, v.is_optional, v.is_cancelled
+         FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+        WHERE v.base_type IN ('sales', 'credit_note', 'debit_note') AND v.number IS NOT NULL AND v.date >= :from AND v.date <= :to`,
+      { from: period.from, to: period.to },
+    )
+    .filter((r) => !listed.has(r.id))
+    .map((r) => ({
+      id: r.id,
+      voucherTypeId: r.vt,
+      voucherTypeName: r.vt_name,
+      baseType: r.base_type,
+      number: r.number,
+      numberSeq: r.number_seq,
+      date: r.date,
+      optional: r.is_optional === 1,
+      cancelled: r.is_cancelled === 1,
+    }));
+  const { series, issues: seriesIssues } = documentSeries([...docs, ...cancelled], holders);
 
   const issues: GstIssue[] = [];
   for (const p of placements) {

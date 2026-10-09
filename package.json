@@ -15,17 +15,20 @@
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "start": "electron .",
-    "typecheck": "npm run typecheck:core && npm run typecheck:node && npm run typecheck:web",
+    "typecheck": "npm run typecheck:core && npm run typecheck:node && npm run typecheck:web && npm run typecheck:e2e",
     "typecheck:core": "tsc -p tsconfig.core.json",
     "typecheck:node": "tsc -p tsconfig.node.json",
     "typecheck:web": "tsc -p tsconfig.web.json",
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json",
     "test": "node --test --test-reporter=spec \"src/**/*.test.ts\"",
     "e2e": "playwright test",
     "dist:win": "npm run build && electron-builder --win --x64 --publish never",
     "dist:dir": "npm run build && electron-builder --dir --publish never",
-    "typecheck:offline": "tsc -p tsconfig.core.json && tsc -p tsconfig.node.offline.json && tsc -p tsconfig.web.offline.json"
+    "typecheck:offline": "tsc -p tsconfig.core.json && tsc -p tsconfig.node.offline.json && tsc -p tsconfig.web.offline.json",
+    "check:fuses": "node scripts/check-fuses.cjs \"release/win-unpacked/Bahi ERP.exe\""
   },
   "devDependencies": {
+    "@electron/fuses": "^1.8.0",
     "@playwright/test": "^1.55.0",
     "@types/node": "^24.0.0",
     "@types/qrcode": "^1.5.5",

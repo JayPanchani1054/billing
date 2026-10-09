@@ -9,6 +9,11 @@
  *  - commit: one transaction; all-or-nothing unless `skipInvalid` (then failed records are rolled back
  *    individually and reported). One 'import' audit entry with the counts (the services audit each
  *    created master / voucher as usual).
+ *  - Both are asynchronous exclusive jobs (withImportJob, api/jobs.ts): records are applied in
+ *    chunks of IMPORT_CHUNK inside the one transaction, yielding to the event loop between chunks and
+ *    publishing progress ('data.import.progress'), so a large file never freezes the app while staying
+ *    all-or-nothing. Meanwhile other requests for the company are refused (CONFLICT) rather than
+ *    joining the open transaction. One job per company at a time.
  */
 import { parseAmount, parseDecimal, rupeesToPaise } from '../../../shared/money.ts';
 import { parseDateInput } from '../../../shared/dates.ts';
@@ -23,13 +28,15 @@ import type {
   ImportPreviewInput,
   ImportPreviewResult,
   ImportRowResult,
+  TallyProgress,
 } from '../../../shared/types/data.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import { parseCsv } from '../../lib/csv.ts';
 import { AppError } from '../../lib/errors.ts';
 import { decodeText, FileFormatError } from '../../lib/text.ts';
 import { readXlsx, writeXlsx, type XlsxCell, type XlsxKind } from '../../lib/xlsx.ts';
-import { hasPermission, requirePermission } from './common.ts';
+import { runExclusiveJob } from '../../api/jobs.ts';
+import { hasPermission, requirePermission, yieldToEventLoop } from './common.ts';
 import { APPLIERS, type ApplyOutcome, type ImportRecord, type ParsedRow, type Typed } from './importApply.ts';
 import { headerIndex, headerKey, KIND_SPECS, type ColumnSpec, type KindSpec } from './importSpecs.ts';
 
@@ -383,23 +390,78 @@ interface RunResult {
   rows: ImportRowResult[];
 }
 
-function run(ctx: CompanyCtx, kind: ImportKind, parsed: ParsedFile, opts: ImportOptions & { dryRun: boolean }): RunResult {
-  const applier = APPLIERS[kind];
+/** Records applied per chunk; the job yields to the event loop (and reports progress) between chunks. */
+export const IMPORT_CHUNK = 200;
+
+/** Apply one record inside its own savepoint (a failure rolls back that record only). */
+function applyRecord(ctx: CompanyCtx, kind: ImportKind, rec: ParsedFile['records'][number], opts: ImportOptions & { dryRun: boolean }): ImportRowResult {
+  const base = { rowNumber: rec.rows[0].rowNumber, rowNumbers: rec.rows.map((r) => r.rowNumber), key: rec.key, data: rec.raw };
+  if (rec.errors.length > 0) return { ...base, status: 'error', action: 'none', messages: rec.errors };
+  try {
+    const out: ApplyOutcome = ctx.db.transaction(() => APPLIERS[kind](ctx, rec, opts));
+    return { ...base, status: out.status, action: out.action, messages: out.messages };
+  } catch (err) {
+    return { ...base, status: 'error', action: 'none', messages: messagesOf(err) };
+  }
+}
+
+/**
+ * Apply every record in chunks of IMPORT_CHUNK, yielding between chunks. Later records see earlier
+ * ones (same transaction). `abortIf` is checked at every chunk boundary.
+ */
+async function run(ctx: CompanyCtx, kind: ImportKind, parsed: ParsedFile, opts: ImportOptions & { dryRun: boolean }, progress: (done: number) => void, abortIf: () => void): Promise<RunResult> {
   const rows: ImportRowResult[] = [];
-  for (const rec of parsed.records) {
-    const base = { rowNumber: rec.rows[0].rowNumber, rowNumbers: rec.rows.map((r) => r.rowNumber), key: rec.key, data: rec.raw };
-    if (rec.errors.length > 0) {
-      rows.push({ ...base, status: 'error', action: 'none', messages: rec.errors });
-      continue;
-    }
-    try {
-      const out: ApplyOutcome = ctx.db.transaction(() => applier(ctx, rec, opts));
-      rows.push({ ...base, status: out.status, action: out.action, messages: out.messages });
-    } catch (err) {
-      rows.push({ ...base, status: 'error', action: 'none', messages: messagesOf(err) });
-    }
+  const records = parsed.records;
+  for (let start = 0; start < records.length; start += IMPORT_CHUNK) {
+    for (const rec of records.slice(start, start + IMPORT_CHUNK)) rows.push(applyRecord(ctx, kind, rec, opts));
+    progress(Math.min(start + IMPORT_CHUNK, records.length));
+    await yieldToEventLoop();
+    abortIf();
   }
   return { rows };
+}
+
+// ───────────────────────────── Job plumbing: own connection, progress, one at a time ─────────────────────────────
+
+const progressByCompany = new Map<string, TallyProgress>();
+const RUNNING = new Set<string>();
+const jobKey = (ctx: CompanyCtx): string => `${ctx.company.dbPath}|${ctx.company.id}`;
+
+function setProgress(ctx: CompanyCtx, p: TallyProgress): void {
+  progressByCompany.set(jobKey(ctx), p);
+}
+
+/** 'data.import.progress': where the running (or last) preview / import of this company is. */
+export function importProgress(ctx: CompanyCtx): TallyProgress {
+  return progressByCompany.get(jobKey(ctx)) ?? { running: false, phase: 'idle', done: 0, total: 0, message: '' };
+}
+
+/** Routes still answered while an import job holds the company (they never touch the database). */
+const ALLOWED_DURING_IMPORT: ReadonlySet<string> = new Set(['data.import.progress', 'data.tally.progress']);
+
+/**
+ * Run an import job (preview or commit) in ONE transaction that stays open across its chunks, so it
+ * can yield between chunks to publish progress while staying all-or-nothing. While it runs the company
+ * is reserved for it (api/jobs.ts): other company requests are refused with a clear message instead
+ * of joining — or reading the uncommitted work of — the import's transaction. Closing the company
+ * mid-job rolls it back.
+ */
+async function withImportJob<T>(ctx: CompanyCtx, job: (ictx: CompanyCtx, abortIf: () => void) => Promise<T>): Promise<T> {
+  const key = jobKey(ctx);
+  if (RUNNING.has(key)) throw new AppError('CONFLICT', 'An import is already running for this company. Wait for it to finish.');
+  RUNNING.add(key);
+  try {
+    const abortIf = (): void => {
+      if (!ctx.db.isOpen) throw new AppError('CONFLICT', 'The company was closed during the import, so nothing was imported.');
+    };
+    return await runExclusiveJob(
+      ctx.db,
+      { message: 'An import is running in this company. Wait for it to finish (see Import data), then try again.', allow: ALLOWED_DURING_IMPORT },
+      () => job(ctx, abortIf),
+    );
+  } finally {
+    RUNNING.delete(key);
+  }
 }
 
 function summarise(rows: ImportRowResult[]): ImportPreviewResult['summary'] {
@@ -441,72 +503,100 @@ function requireKindPermissions(ctx: CompanyCtx, kind: ImportKind, opts: ImportO
   if (opts.updateExisting && !hasPermission(ctx, 'masters.alter')) deny('alter masters ("Update existing records")', 'masters.alter');
 }
 
-export function previewImport(ctx: CompanyCtx, input: ImportPreviewInput): ImportPreviewResult {
+/**
+ * Full dry run of the file (every record is applied exactly as an import would, then everything is
+ * rolled back): asynchronous and chunked with progress ('data.import.progress'), on its own connection.
+ */
+export async function previewImport(ctx: CompanyCtx, input: ImportPreviewInput): Promise<ImportPreviewResult> {
   requireKindPermissions(ctx, input.kind, input.options ?? {});
   const spec = KIND_SPECS[input.kind];
   const opts = input.options ?? {};
-  const parsed = parseFile(ctx, spec, input.fileName, input.bytes, opts);
-  let result: RunResult = { rows: [] };
+  const phase = VOUCHER_KINDS.has(input.kind) ? 'vouchers' : 'masters';
+  setProgress(ctx, { running: true, phase: 'parse', done: 0, total: 0, message: 'Reading the file…' });
   try {
-    ctx.db.transaction(() => {
-      result = run(ctx, input.kind, parsed, { ...opts, dryRun: true });
-      throw new RollbackPreview();
-    });
+    const parsed = parseFile(ctx, spec, input.fileName, input.bytes, opts);
+    const total = parsed.records.length;
+    let result: RunResult = { rows: [] };
+    try {
+      await withImportJob(ctx, async (ictx, abortIf) => {
+        result = await run(ictx, input.kind, parsed, { ...opts, dryRun: true }, (done) => setProgress(ctx, { running: true, phase, done, total, message: `Checking ${done.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')} records…` }), abortIf);
+        throw new RollbackPreview();
+      });
+    } catch (err) {
+      if (!(err instanceof RollbackPreview)) throw err;
+    }
+    setProgress(ctx, { running: false, phase: 'done', done: total, total, message: 'Check finished.' });
+    return {
+      kind: input.kind,
+      fileName: input.fileName,
+      sheet: parsed.table.sheet,
+      headerRow: parsed.mapping.headerRow,
+      mappedColumns: parsed.mapping.mapped,
+      unmappedHeaders: parsed.mapping.unmapped,
+      rows: result.rows,
+      summary: summarise(result.rows),
+    };
   } catch (err) {
-    if (!(err instanceof RollbackPreview)) throw err;
+    setProgress(ctx, { running: false, phase: 'failed', done: 0, total: 0, message: err instanceof AppError ? err.message : 'The check failed.' });
+    throw err;
   }
-  return {
-    kind: input.kind,
-    fileName: input.fileName,
-    sheet: parsed.table.sheet,
-    headerRow: parsed.mapping.headerRow,
-    mappedColumns: parsed.mapping.mapped,
-    unmappedHeaders: parsed.mapping.unmapped,
-    rows: result.rows,
-    summary: summarise(result.rows),
-  };
 }
 
-export function commitImport(ctx: CompanyCtx, input: ImportCommitInput): ImportCommitResult {
+/**
+ * Import the file: all-or-nothing (unless `skipInvalid`) in ONE transaction on its own connection,
+ * applied in chunks with progress, so a 10,000-voucher file never freezes the app. The services audit
+ * every master / voucher; one 'import' entry records the counts.
+ */
+export async function commitImport(ctx: CompanyCtx, input: ImportCommitInput): Promise<ImportCommitResult> {
   requireKindPermissions(ctx, input.kind, input.options);
   const spec = KIND_SPECS[input.kind];
   const opts = input.options;
-  const parsed = parseFile(ctx, spec, input.fileName, input.bytes, opts);
-  return ctx.db.transaction(() => {
-    const { rows } = run(ctx, input.kind, parsed, { ...opts, dryRun: false });
-    const failed = rows.filter((r) => r.status === 'error');
-    if (failed.length > 0 && !opts.skipInvalid) {
-      const issues: FieldIssue[] = failed.slice(0, 200).map((r) => ({ path: `row ${r.rowNumber}`, message: `Row ${r.rowNumber}${r.key ? ` (${r.key})` : ''}: ${r.messages.join('; ')}` }));
-      throw new AppError(
-        'VALIDATION',
-        `${failed.length} of ${rows.length} record${rows.length === 1 ? '' : 's'} ${failed.length === 1 ? 'has' : 'have'} errors, so nothing was imported. Correct ${failed.length === 1 ? 'it' : 'them'}, or choose "Skip invalid rows".`,
-        issues,
-      );
-    }
-    const result: ImportCommitResult = {
-      kind: input.kind,
-      total: rows.length,
-      created: rows.filter((r) => r.status !== 'error' && r.action === 'create').length,
-      updated: rows.filter((r) => r.status !== 'error' && r.action === 'update').length,
-      skipped: rows.filter((r) => r.action === 'skip').length,
-      failed: failed.length,
-      rows: rows.filter((r) => r.status === 'error' || r.status === 'duplicate'),
-    };
-    const now = ctx.clock.now().toISOString();
-    const batchId = ctx.db.run('INSERT INTO import_batches (kind, file_name, imported_at, user_id, meta) VALUES (:kind, :file, :ts, :user, :meta)', {
-      kind: spec.kind === 'sales_invoices' || spec.kind === 'purchase_invoices' || spec.kind === 'vouchers_ledger' ? 'vouchers' : 'masters',
-      file: input.fileName.slice(0, 255),
-      ts: now,
-      user: ctx.session.userId,
-      meta: JSON.stringify({ importKind: input.kind, created: result.created, updated: result.updated, skipped: result.skipped, failed: result.failed }),
-    }).lastInsertRowid;
-    ctx.audit({
-      action: 'import',
-      entityType: 'import_batch',
-      entityId: batchId,
-      entityLabel: `${spec.label} from ${input.fileName}`.slice(0, 300),
-      after: { kind: input.kind, file: input.fileName, total: result.total, created: result.created, updated: result.updated, skipped: result.skipped, failed: result.failed },
+  const phase = VOUCHER_KINDS.has(input.kind) ? 'vouchers' : 'masters';
+  setProgress(ctx, { running: true, phase: 'parse', done: 0, total: 0, message: 'Reading the file…' });
+  try {
+    const parsed = parseFile(ctx, spec, input.fileName, input.bytes, opts);
+    const total = parsed.records.length;
+    const result = await withImportJob(ctx, async (ictx, abortIf) => {
+      const { rows } = await run(ictx, input.kind, parsed, { ...opts, dryRun: false }, (done) => setProgress(ctx, { running: true, phase, done, total, message: `Importing ${done.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')} records…` }), abortIf);
+      const failed = rows.filter((r) => r.status === 'error');
+      if (failed.length > 0 && !opts.skipInvalid) {
+        const issues: FieldIssue[] = failed.slice(0, 200).map((r) => ({ path: `row ${r.rowNumber}`, message: `Row ${r.rowNumber}${r.key ? ` (${r.key})` : ''}: ${r.messages.join('; ')}` }));
+        throw new AppError(
+          'VALIDATION',
+          `${failed.length} of ${rows.length} record${rows.length === 1 ? '' : 's'} ${failed.length === 1 ? 'has' : 'have'} errors, so nothing was imported. Correct ${failed.length === 1 ? 'it' : 'them'}, or choose "Skip invalid rows".`,
+          issues,
+        );
+      }
+      const out: ImportCommitResult = {
+        kind: input.kind,
+        total: rows.length,
+        created: rows.filter((r) => r.status !== 'error' && r.action === 'create').length,
+        updated: rows.filter((r) => r.status !== 'error' && r.action === 'update').length,
+        skipped: rows.filter((r) => r.action === 'skip').length,
+        failed: failed.length,
+        rows: rows.filter((r) => r.status === 'error' || r.status === 'duplicate'),
+      };
+      const now = ctx.clock.now().toISOString();
+      const batchId = ictx.db.run('INSERT INTO import_batches (kind, file_name, imported_at, user_id, meta) VALUES (:kind, :file, :ts, :user, :meta)', {
+        kind: VOUCHER_KINDS.has(input.kind) ? 'vouchers' : 'masters',
+        file: input.fileName.slice(0, 255),
+        ts: now,
+        user: ctx.session.userId,
+        meta: JSON.stringify({ importKind: input.kind, created: out.created, updated: out.updated, skipped: out.skipped, failed: out.failed }),
+      }).lastInsertRowid;
+      ictx.audit({
+        action: 'import',
+        entityType: 'import_batch',
+        entityId: batchId,
+        entityLabel: `${spec.label} from ${input.fileName}`.slice(0, 300),
+        after: { kind: input.kind, file: input.fileName, total: out.total, created: out.created, updated: out.updated, skipped: out.skipped, failed: out.failed },
+      });
+      return out;
     });
+    setProgress(ctx, { running: false, phase: 'done', done: total, total, message: 'Import finished.' });
     return result;
-  });
+  } catch (err) {
+    setProgress(ctx, { running: false, phase: 'failed', done: 0, total: 0, message: err instanceof AppError ? err.message : 'The import failed.' });
+    throw err;
+  }
 }

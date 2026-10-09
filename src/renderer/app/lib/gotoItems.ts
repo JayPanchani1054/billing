@@ -3,9 +3,11 @@
  * Pure (tested in goto.test.ts).
  */
 import { PREDEFINED_VOUCHER_TYPES } from '../../../shared/constants.ts';
+import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { ModuleDef } from '../registry.ts';
 import type { GotoItem } from './goto.ts';
 import { collectMenu, filterMenu, isAllowed, screenIndex, SECTION_LABELS, sortMenu } from './menu.ts';
+import { voucherCommand } from './voucherTypes.ts';
 import type { MenuContext } from './menu.ts';
 
 export const SHELL_COMMANDS: readonly GotoItem[] = [
@@ -16,21 +18,37 @@ export const SHELL_COMMANDS: readonly GotoItem[] = [
   { id: 'cmd:shortcuts', label: 'Keyboard shortcuts', group: 'Commands', hotkey: 'F1', screen: '', command: 'shortcuts', keywords: ['help', 'keys', 'hotkeys'] },
 ];
 
-/** Voucher entry commands ('Sales' F8 …) — open voucher entry through the shell's checks. */
-export function voucherCommands(): GotoItem[] {
-  return PREDEFINED_VOUCHER_TYPES.map((t) => ({
+/**
+ * Voucher entry commands ('Sales' F8 …) — open voucher entry through the shell's checks. Only the
+ * types the user can enter now (`available`: permission + F11 features) are offered.
+ */
+export function voucherCommands(available: (baseType: VoucherBaseType) => boolean = () => true): GotoItem[] {
+  return PREDEFINED_VOUCHER_TYPES.filter((t) => available(t.baseType)).map((t) => ({
     id: `voucher:${t.baseType}`,
     label: t.name,
     group: 'Vouchers',
     description: 'New voucher',
     hotkey: t.hotkey && t.hotkey !== 'F10' ? t.hotkey : undefined,
     screen: '',
-    command: `voucher:${t.baseType}`,
+    command: voucherCommand(t.baseType),
     keywords: ['voucher', 'entry', t.abbreviation],
   }));
 }
 
-export function buildStaticGotoItems(modules: readonly ModuleDef[], ctx: MenuContext, options: { includeVouchers?: boolean } = {}): GotoItem[] {
+export interface StaticGotoOptions {
+  /**
+   * Add the predefined voucher commands. Pass false when the vouchers module registers
+   * 'vouchers.entry' — its Transactions menu items already list them (with permission and feature
+   * filtering), and listing both shows every voucher type twice.
+   */
+  includeVouchers?: boolean;
+  /** Filter for the voucher commands (shell.voucherAvailability(b).ok). */
+  voucherAvailable?: (baseType: VoucherBaseType) => boolean;
+  /** Extra entries, e.g. company-defined voucher types (customVoucherGotoItems). */
+  extra?: readonly GotoItem[];
+}
+
+export function buildStaticGotoItems(modules: readonly ModuleDef[], ctx: MenuContext, options: StaticGotoOptions = {}): GotoItem[] {
   const screens = screenIndex(modules);
   const menu = sortMenu(filterMenu(collectMenu(modules), ctx, screens));
   const items: GotoItem[] = menu.map((m) => ({
@@ -48,7 +66,8 @@ export function buildStaticGotoItems(modules: readonly ModuleDef[], ctx: MenuCon
     if (!s.goto || inMenu.has(s.id) || !isAllowed(s, ctx)) continue;
     items.push({ id: `screen:${s.id}`, label: s.title, group: 'Screens', keywords: s.keywords, screen: s.id });
   }
-  if (options.includeVouchers !== false) items.push(...voucherCommands());
+  if (options.includeVouchers !== false) items.push(...voucherCommands(options.voucherAvailable));
+  if (options.extra) items.push(...options.extra);
   items.push(...SHELL_COMMANDS);
   return items;
 }

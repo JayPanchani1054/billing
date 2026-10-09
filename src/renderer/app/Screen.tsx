@@ -14,7 +14,7 @@ import type { ReactNode } from 'react';
 import { Banner, Button, EmptyState, Icon, Kbd, Modal, PageHeader, ReportFrame, Skeleton, useHotkeys, useRovingFocus, useToast } from '../ui/index.ts';
 import type { IconName } from '../ui/index.ts';
 import { cx } from '../ui/lib/cx.ts';
-import { exportTable, printReport, savePdf, showInFolder } from './export.ts';
+import { EXPORT_PERMISSION, exportTable, printReport, savePdf, showInFolder } from './export.ts';
 import type { ExportResult, TableExportDef } from './export.ts';
 import { ApiError, userMessage } from './lib/apiErrors.ts';
 import { useDirty, useScreenActions, useScreenTitle, useStatusHint } from './nav.tsx';
@@ -134,7 +134,8 @@ export interface ReportScreenProps {
 
 /**
  * Standard report: ReportFrame with company + period header (click or Alt+F2 to change), Export
- * (Alt+E → Excel / CSV / PDF) and Print (Alt+P) wired to the export helpers.
+ * (Alt+E → Excel / CSV / PDF) and Print (Alt+P) wired to the export helpers. Export and Print need
+ * the data.export permission (disabled with a hint otherwise; the core enforces and logs it).
  */
 export function ReportScreen({
   title,
@@ -156,6 +157,8 @@ export function ReportScreen({
   const app = useAppState();
   const globalPeriod = usePeriod();
   const toast = useToast();
+  // Excel, CSV, PDF and Print are all "export": the core checks data.export and logs each one.
+  const canExport = app.can(EXPORT_PERMISSION);
   const period = periodOverride ?? globalPeriod.period;
   const [exportOpen, setExportOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -176,15 +179,12 @@ export function ReportScreen({
   const announce = (r: ExportResult | null) => {
     if (!r) return;
     const name = r.path.split(/[\\/]/).pop() ?? r.path;
-    toast.success(r.fellBackToCsv ? `Saved as CSV: ${name}` : `Saved ${name}`, {
-      message: r.fellBackToCsv ? 'Excel export is not available yet, so the report was saved as a CSV file (opens in Excel).' : undefined,
-      action: { label: 'Show in folder', onClick: () => showInFolder(r.path) },
-    });
+    toast.success(`Saved ${name}`, { action: { label: 'Show in folder', onClick: () => showInFolder(r.path) } });
   };
 
   const run = async (what: 'xlsx' | 'csv' | 'pdf' | 'print') => {
     const def = fullDef();
-    if (!def || busy) return;
+    if (!def || busy || !canExport) return;
     setBusy(true);
     try {
       if (what === 'print') await printReport(def);
@@ -197,16 +197,17 @@ export function ReportScreen({
     }
   };
 
-  const canOutput = !!exportDef && !loading && !error;
+  const canOutput = !!exportDef && !loading && !error && canExport;
+  const noPermission = canExport ? undefined : EXPORT_DENIED_HINT;
   const railActions: ScreenActionItem[] = [
     ...(actions ?? []),
     ...(periodMode !== 'none' ? [{ key: 'Alt+F2', label: 'Period', icon: 'calendar' as const, onClick: () => globalPeriod.openDialog(), group: 'period' }] : []),
-    { key: 'Alt+E', label: 'Export', icon: 'export', onClick: () => setExportOpen(true), disabled: !canOutput, hidden: !exportDef, group: 'output' },
-    { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => void run('print'), disabled: !canOutput, hidden: !exportDef, group: 'output' },
+    { key: 'Alt+E', label: 'Export', icon: 'export', onClick: () => setExportOpen(true), disabled: !canOutput, hidden: !exportDef, group: 'output', hint: noPermission },
+    { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => void run('print'), disabled: !canOutput, hidden: !exportDef, group: 'output', hint: noPermission },
   ];
   useScreenTitle(title);
   useScreenActions(railActions);
-  useStatusHint(hint ?? 'Enter Open · Alt+F2 Period · Alt+E Export · Alt+P Print · Esc Back');
+  useStatusHint(hint ?? (canExport ? 'Enter Open · Alt+F2 Period · Alt+E Export · Alt+P Print · Esc Back' : 'Enter Open · Alt+F2 Period · Esc Back'));
 
   const periodNode =
     periodMode === 'none' ? undefined : periodMode === 'asOn' ? <>As on {formatDate(period.to, 'D-MMM-YY')}</> : period;
@@ -226,10 +227,10 @@ export function ReportScreen({
             {toolbar}
             {exportDef ? (
               <>
-                <Button icon="export" shortcut="Alt+E" disabled={!canOutput} onClick={() => setExportOpen(true)}>
+                <Button icon="export" shortcut="Alt+E" disabled={!canOutput} title={noPermission} onClick={() => setExportOpen(true)}>
                   Export
                 </Button>
-                <Button icon="print" shortcut="Alt+P" disabled={!canOutput} onClick={() => void run('print')}>
+                <Button icon="print" shortcut="Alt+P" disabled={!canOutput} title={noPermission} onClick={() => void run('print')}>
                   Print
                 </Button>
               </>
@@ -290,6 +291,9 @@ function ExportKeys({ onPick }: { onPick: (format: 'xlsx' | 'csv' | 'pdf') => vo
   useHotkeys({ x: () => onPick('xlsx'), c: () => onPick('csv'), p: () => onPick('pdf') });
   return null;
 }
+
+/** Why Export / Print are disabled for a user without the data.export permission. */
+export const EXPORT_DENIED_HINT = 'Export and print need the Data › Export permission — ask the company owner.';
 
 /** Inline notice for screens that are read-only for this user. */
 export function ReadOnlyNotice({ what = 'these settings' }: { what?: string }) {

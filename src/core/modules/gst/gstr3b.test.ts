@@ -8,6 +8,7 @@ import { AppError } from '../../lib/errors.ts';
 import { setPeriodLock } from '../company/service.ts';
 import { loadCompany } from './docs.ts';
 import { buildGstr3bJson, computeGstr3b, readAdjustments, saveAdjustments } from './gstr3b.ts';
+import { computeGstr9 } from './gstr9.ts';
 import { parsePeriodKey, resolvePeriod } from './period.ts';
 import { aprilDataset, insertDoc, setupParties, type Dataset } from './testkit.ts';
 
@@ -169,6 +170,89 @@ describe('GSTR-3B manual adjustments', () => {
     const f = buildGstr3bJson(s);
     assert.deepEqual(at(JSON.parse(f.json), 'sup_details', 'osup_det'), { txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 });
     assert.equal(f.warnings.length, 2);
+    t.close();
+  });
+});
+
+describe('GSTR-3B electronic credit ledger brought forward (6.1)', () => {
+  // Maharashtra company, books from 1-Apr-2026. Amounts in paise.
+  //   April: purchase C/S 450 + 450; intra sale C/S 90 + 90; portal opening balance (manual) IGST 100.
+  //          Set-off (Rule 88A: IGST credit is used up first): C 90 ← I 90; S 90 ← I 10 + S 80
+  //          → closing credit I 0, C 450, S 370; cash 0.
+  //   May:   inter-state sale IGST 360; no ITC. Credit b/f I 0, C 450, S 370: I 360 ← C 360
+  //          → closing I 0, C 90, S 370; cash 0.
+  //          Before the fix May started with no credit and showed ₹360 IGST payable in cash.
+  //   June:  nothing → brought forward = closing = C 90, S 370.
+  const setup = () => {
+    const { t, P } = setupParties({ today: '2026-10-10' });
+    insertDoc(t, { type: 'purchase', number: 'P1', date: '2026-04-03', party: P.steel, nature: 'inward_b2b', refNo: 'A1', refDate: '2026-04-03', lines: [{ hsn: '7208', rate: 18, taxable: 500000, cgst: 45000, sgst: 45000 }] });
+    insertDoc(t, { type: 'sales', number: 'S1', date: '2026-04-10', party: P.acme, nature: 'b2b', pos: '27', lines: [{ hsn: '8471', rate: 18, taxable: 100000, cgst: 9000, sgst: 9000 }] });
+    insertDoc(t, { type: 'sales', number: 'S2', date: '2026-05-10', party: P.bharat, nature: 'b2b', pos: '29', lines: [{ hsn: '8471', rate: 18, taxable: 200000, igst: 36000 }] });
+    saveAdjustments(t.ctx, april(), { creditLedgerBalance: { igst: 10000 } });
+    return { t, P, company: loadCompany(t.db) };
+  };
+  const m = (key: string) => parsePeriodKey(key) as NonNullable<ReturnType<typeof parsePeriodKey>>;
+  const tax = (igst: number, cgst: number, sgst: number) => ({ igst, cgst, sgst, cess: 0 });
+
+  it('each month starts with the credit the previous month left, and the cash payable uses it', () => {
+    const { t, company } = setup();
+    const apr = computeGstr3b(t.db, company, m('042026'), t.today);
+    assert.deepEqual(apr.payment.broughtForward, tax(0, 0, 0), 'the first period of the books carries nothing in');
+    assert.deepEqual(apr.payment.creditAvailable, tax(10000, 45000, 45000), '4(C) + the manual portal balance');
+    assert.deepEqual(apr.payment.setOff.creditBalance, tax(0, 45000, 37000));
+    const may = computeGstr3b(t.db, company, m('052026'), t.today);
+    assert.deepEqual(may.payment.broughtForward, tax(0, 45000, 37000));
+    assert.deepEqual(may.payment.creditAvailable, tax(0, 45000, 37000));
+    assert.deepEqual([may.payment.rows[0].paidIgst, may.payment.rows[0].paidCgst, may.payment.rows[0].cash], [0, 36000, 0]);
+    assert.equal(may.payment.cashTotal, 0);
+    assert.deepEqual(may.payment.setOff.creditBalance, tax(0, 9000, 37000));
+    assert.ok(may.notes.some((n) => /Credit brought forward from the previous return period/.test(n)));
+    const jun = computeGstr3b(t.db, company, m('062026'), t.today);
+    assert.deepEqual(jun.payment.broughtForward, tax(0, 9000, 37000));
+
+    // GSTR-9 table 9 follows the same chain: no IGST paid in cash in the year.
+    const nine = computeGstr9(t.db, company, '2026-27', t.today);
+    assert.deepEqual(nine.table9.map((r) => [r.head, r.paidCash]), [['igst', 0], ['cgst', 0], ['sgst', 0], ['cess', 0]]);
+    t.close();
+  });
+
+  it('a later entry in an earlier month changes what is brought forward (no stale cache)', () => {
+    const { t, P, company } = setup();
+    assert.deepEqual(computeGstr3b(t.db, company, m('062026'), t.today).payment.broughtForward, tax(0, 9000, 37000));
+    // Another April purchase: C/S 10 + 10 more credit → April closes at C 460, S 380 → May at C 100, S 380.
+    insertDoc(t, { type: 'purchase', number: 'P2', date: '2026-04-20', party: P.steel, nature: 'inward_b2b', refNo: 'A2', refDate: '2026-04-20', lines: [{ hsn: '7208', rate: 18, taxable: 11112, cgst: 1000, sgst: 1000 }] });
+    assert.deepEqual(computeGstr3b(t.db, company, m('062026'), t.today).payment.broughtForward, tax(0, 10000, 38000));
+    // A manual entry in May (credit the books do not hold) is carried on too.
+    saveAdjustments(t.ctx, m('052026'), { creditLedgerBalance: { sgst: 500 } });
+    assert.deepEqual(computeGstr3b(t.db, company, m('062026'), t.today).payment.broughtForward, tax(0, 10000, 38500));
+    t.close();
+  });
+
+  it('only periods from the first changed one are recomputed, and a shorter chain never leaves a later period stale', () => {
+    const { t, P, company } = setup();
+    assert.deepEqual(computeGstr3b(t.db, company, m('072026'), t.today).payment.broughtForward, tax(0, 9000, 37000), 'June closing');
+    // A June purchase adds C/S 10 + 10; then June itself is viewed (its chain ends in May, unchanged) …
+    insertDoc(t, { type: 'purchase', number: 'P3', date: '2026-06-05', party: P.steel, nature: 'inward_b2b', refNo: 'A3', refDate: '2026-06-05', lines: [{ hsn: '7208', rate: 18, taxable: 11112, cgst: 1000, sgst: 1000 }] });
+    assert.deepEqual(computeGstr3b(t.db, company, m('062026'), t.today).payment.broughtForward, tax(0, 9000, 37000));
+    // … and July must still see June's new closing credit, not the one cached before the purchase.
+    assert.deepEqual(computeGstr3b(t.db, company, m('072026'), t.today).payment.broughtForward, tax(0, 10000, 38000));
+    // A change of the working date (post-dated vouchers falling due) starts afresh.
+    assert.deepEqual(computeGstr3b(t.db, company, m('072026'), '2026-10-11').payment.broughtForward, tax(0, 10000, 38000));
+    t.close();
+  });
+
+  it('a quarter carries the previous quarter’s closing credit; a date range carries nothing', () => {
+    const { t, company } = setup();
+    // Q1 as one return (the April manual entry belongs to the month, not to the quarter):
+    // liability I 360, C 90, S 90; credit C 450, S 450 → C 90 ← C, I 360 ← C → C 0; S 90 ← S → S 360.
+    const q1 = computeGstr3b(t.db, company, m('2026-27-Q1'), t.today);
+    assert.deepEqual(q1.payment.setOff.creditBalance, tax(0, 0, 36000));
+    const q2 = computeGstr3b(t.db, company, m('2026-27-Q2'), t.today);
+    assert.deepEqual(q2.payment.broughtForward, tax(0, 0, 36000));
+    const range = computeGstr3b(t.db, company, resolvePeriod({ from: '2026-05-01', to: '2026-05-31' }), t.today);
+    assert.deepEqual(range.payment.broughtForward, tax(0, 0, 0));
+    assert.equal(range.payment.rows[0].cash, 36000, 'a review range sets off only its own credit');
+    assert.ok(range.notes.some((n) => /date range is a review/.test(n)));
     t.close();
   });
 });

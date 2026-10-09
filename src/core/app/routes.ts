@@ -118,4 +118,11 @@ export const appRoutes = {
     input: v.none(),
     handler: (ctx): SessionInfo | null => controllerFor(ctx.app).touchSession(),
   }),
+  // Only ever reduces privilege (ends the current session), so it needs no session itself: the
+  // renderer may call it after the server already expired the session.
+  'app.session.lock': appRoute({
+    access: 'public',
+    input: v.none(),
+    handler: (ctx): Promise<AppState> => controllerFor(ctx.app).lockSession(),
+  }),
 } satisfies RouteMap;

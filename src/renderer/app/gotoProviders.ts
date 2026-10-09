@@ -1,13 +1,14 @@
 /**
- * Built-in Go To providers for masters and vouchers. They call optional routes that feature
- * modules ship later ('accounts.ledger.picker', 'inventory.item.picker', 'vouchers.list'); until
- * a route exists the provider is silent. A feature module that registers a provider with the same
- * id ('ledgers' | 'items' | 'vouchers') replaces the built-in.
+ * Built-in Go To providers for masters and vouchers — fallbacks used only until a feature module
+ * registers a provider with the same id ('ledgers' | 'items' | 'vouchers'; the accounts, inventory
+ * and vouchers modules all do). They call routes through apiOptional and stay silent when a route
+ * does not exist.
  *
- * Expected shapes (validated at runtime, extra fields ignored):
- *   accounts.ledger.picker  { search, limit } → Row[] | { rows: Row[] }, Row = { id, name, alias?, groupName? }
- *   inventory.item.picker   { search, limit } → Row[] | { rows: Row[] }, Row = { id, name, alias?, groupName?, unit? }
- *   vouchers.list           { search, limit } → { rows: V[] } | V[], V = { id, number|voucherNumber, typeName|voucherType, date, partyName? }
+ * Contracts used (validated at runtime, extra fields ignored):
+ *   accounts.ledger.list   { search, limit } → { rows: Row[] }, Row = { id, name, alias?, groupName? }
+ *   inventory.item.picker  { search, limit } → Row[] | { rows: Row[] }, Row = { id, name, alias?, groupName? }
+ *   vouchers.list          { search, limit } → { rows: V[] } | V[], V = { id, number|voucherNumber, typeName|voucherType, date, partyName? }
+ * ('accounts.ledger.picker' takes neither search nor limit — it returns every ledger — so it is not used.)
  */
 import { formatDate } from '../../shared/dates.ts';
 import { apiOptional, isMissingRoute } from './api.ts';
@@ -51,7 +52,7 @@ export function installBuiltinGotoProviders(screenExists: () => (id: string) => 
       id: 'ledgers',
       label: 'Ledgers',
       search: async (query) => {
-        const rows = rowsOf(await callOptional('accounts.ledger.picker', { search: query, limit: 8 }));
+        const rows = rowsOf(await callOptional('accounts.ledger.list', { search: query, limit: 8 }));
         const has = screenExists();
         const out: GotoItem[] = [];
         for (const r of rows) {
@@ -67,6 +68,7 @@ export function installBuiltinGotoProviders(screenExists: () => (id: string) => 
             keywords: [str(r.alias) ?? ''],
             screen: toReport ? 'reports.ledger' : 'accounts.ledger.form',
             params: toReport ? { ledgerId: id } : { id },
+            fallback: toReport ? { screen: 'accounts.ledger.form', params: { id } } : undefined,
           });
         }
         return out;

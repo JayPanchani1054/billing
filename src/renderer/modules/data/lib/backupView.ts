@@ -86,6 +86,7 @@ const CHECK_LABELS: Readonly<Record<BackupCheck['name'], string>> = {
   integrity: 'Database intact',
   schema: 'Opens in this version',
   company: 'Company',
+  edit_log: 'Edit log intact',
 };
 
 export function checkLabel(name: BackupCheck['name']): string {

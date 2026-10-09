@@ -93,7 +93,7 @@ describe('data.export.table', () => {
     assert.equal(lines[5], 'plain');
   });
 
-  it('paiseText is exact for large and negative amounts', () => {
+  it('paiseText is exact for large and negative amounts', async () => {
     assert.equal(paiseText(0), '0.00');
     assert.equal(paiseText(-5), '-0.05');
     assert.equal(paiseText(9_007_199_254_740_991), '90071992547409.91');
@@ -117,6 +117,17 @@ describe('data.export.table', () => {
     if (!r.ok) assert.equal(r.error.code, 'FORBIDDEN');
   });
 
+  it('csv for a user without data.export (built-in Data Entry role) is refused and not logged', async () => {
+    const dataEntry = t.sessionAs({ permissions: ['masters.view', 'vouchers.view', 'vouchers.create', 'reports.view'] });
+    const before = t.db.value<number>(`SELECT COUNT(*) FROM audit_log WHERE action = 'export'`);
+    for (const format of ['csv', 'xlsx'] as const) {
+      const r = await t.call(dataRoutes, 'data.export.table', { ...table, format }, { session: dataEntry });
+      assert.equal(r.ok, false, format);
+      if (!r.ok) assert.equal(r.error.code, 'FORBIDDEN');
+    }
+    assert.equal(t.db.value<number>(`SELECT COUNT(*) FROM audit_log WHERE action = 'export'`), before);
+  });
+
   it('rejects malformed rows with a validation error', async () => {
     const r = await t.call(dataRoutes, 'data.export.table', { title: 'X', columns: [{ header: 'A' }], rows: [[{ evil: true }]], format: 'csv' });
     assert.equal(r.ok, false);
@@ -125,7 +136,7 @@ describe('data.export.table', () => {
 });
 
 describe('data.export.masters → data.import round trip', () => {
-  it('exported ledgers, groups and stock items import into a fresh company unchanged', () => {
+  it('exported ledgers, groups and stock items import into a fresh company unchanged', async () => {
     t.db.transaction(() => {
       t.addLedger({ name: 'Acme Traders', group: 'SUNDRY_DEBTORS', gstin: makeGstin('27', 'AAFCA4321B'), openingBalance: 25_000_00, creditDays: 30, email: 'a@acme.example' });
       t.addLedger({ name: 'HDFC Bank', group: 'BANK_ACCOUNTS', openingBalance: 1_50_000_00, bank: { accountNo: '50100012345678', ifsc: 'HDFC0000001', bankName: 'HDFC Bank' } });
@@ -139,14 +150,14 @@ describe('data.export.masters → data.import round trip', () => {
 
     const target = createTestCompany({ today: '2026-10-05', name: 'Copy Co' });
     try {
-      const imp = (kind: 'groups' | 'ledgers' | 'stock_items', sheet: string): ImportCommitResult =>
+      const imp = (kind: 'groups' | 'ledgers' | 'stock_items', sheet: string): Promise<ImportCommitResult> =>
         commitImport(target.ctx, { kind, fileName: 'Masters.xlsx', bytes: book.bytes, options: { skipInvalid: false, updateExisting: false, sheet } });
-      const g = imp('groups', 'Groups');
+      const g = await imp('groups', 'Groups');
       assert.equal(g.failed, 0);
-      const l = imp('ledgers', 'Ledgers');
+      const l = await imp('ledgers', 'Ledgers');
       assert.equal(l.failed, 0, JSON.stringify(l.rows));
       assert.equal(l.created, 3);
-      const i = imp('stock_items', 'Stock Items');
+      const i = await imp('stock_items', 'Stock Items');
       assert.equal(i.failed, 0, JSON.stringify(i.rows));
       const acme = target.db.get<{ opening_balance: number; gstin: string; default_credit_days: number; email: string; state_code: string }>(
         `SELECT opening_balance, gstin, default_credit_days, email, state_code FROM ledgers WHERE name = 'Acme Traders'`,
@@ -164,7 +175,7 @@ describe('data.export.masters → data.import round trip', () => {
     }
   });
 
-  it('csv with several kinds is a zip with one CSV per kind', () => {
+  it('csv with several kinds is a zip with one CSV per kind', async () => {
     const out = exportMasters(t.ctx, { kinds: ['units', 'godowns'], format: 'csv' });
     assert.equal(out.fileName, 'Masters.zip');
     const zip = readZip(out.bytes);
@@ -172,7 +183,7 @@ describe('data.export.masters → data.import round trip', () => {
     assert.match(zip.readText('Units.csv'), /Symbol,Formal Name,UQC/);
   });
 
-  it('requires at least one kind and the data.export permission', () => {
+  it('requires at least one kind and the data.export permission', async () => {
     assert.throws(() => exportMasters(t.ctx, { kinds: [], format: 'xlsx' }), (e: unknown) => e instanceof AppError && e.code === 'VALIDATION');
     assert.throws(() => exportMasters(t.ctxAs({ permissions: ['masters.view'] }), { kinds: ['ledgers'], format: 'xlsx' }), (e: unknown) => e instanceof AppError && e.code === 'FORBIDDEN');
   });
@@ -185,7 +196,7 @@ describe('data.export.vouchers', () => {
   });
   afterEach(() => k.t.close());
 
-  it('exports headers, ledger entries and stock lines of the period', () => {
+  it('exports headers, ledger entries and stock lines of the period', async () => {
     // 2 × ₹150 = ₹300 taxable; CGST 9% 27 + SGST 27 → ₹354 to Acme.
     const s = save(k, { voucherTypeId: k.vt.sales, date: '2026-04-10', mode: 'item_invoice', partyLedgerId: k.L.acme, items: [{ itemId: k.I.mixer, qty: 2, rate: 150 }] });
     save(k, { voucherTypeId: k.vt.journal, date: '2026-04-12', mode: 'ledger', ledgers: [{ ledgerId: k.L.rent, amount: 500_00 }, { ledgerId: k.L.capital, amount: -500_00 }] });
@@ -202,11 +213,43 @@ describe('data.export.vouchers', () => {
     assert.equal(stock.rows[1][7], 'Out');
   });
 
-  it('csv is a zip of three files; cancelled vouchers are left out by default', () => {
+  it('csv is a zip of three files; cancelled vouchers are left out by default', async () => {
     save(k, { voucherTypeId: k.vt.journal, date: '2026-04-12', mode: 'ledger', ledgers: [{ ledgerId: k.L.rent, amount: 500_00 }, { ledgerId: k.L.capital, amount: -500_00 }] });
     const out = exportVouchers(k.t.ctx, { from: '2026-04-01', to: '2026-04-30', format: 'csv', baseTypes: ['journal'] });
     const zip = readZip(out.bytes);
     assert.deepEqual(zip.list().sort(), ['Inventory-Entries.csv', 'Ledger-Entries.csv', 'Vouchers.csv']);
     assert.equal(out.rowCount, 1 + 2);
+  });
+});
+
+describe('data.export.audit (report printed or saved as PDF)', () => {
+  it('records an "export" edit-log entry with the format, row count and period', async () => {
+    const out = await t.callOk<{ ok: true }>(dataRoutes, 'data.export.audit', { title: 'Balance Sheet', period: { from: '2026-04-01', to: '2026-09-30' }, rows: 42, format: 'pdf' });
+    assert.deepEqual(out, { ok: true });
+    const row = t.db.get<{ entity_type: string; entity_label: string; after_json: string | null }>(`SELECT entity_type, entity_label, after_json FROM audit_log WHERE action = 'export' ORDER BY id DESC LIMIT 1`);
+    assert.equal(row?.entity_type, 'report');
+    assert.equal(row?.entity_label, 'Balance Sheet');
+    const after = JSON.parse(row?.after_json ?? '{}') as { format?: string; rows?: number; period?: string };
+    assert.deepEqual([after.format, after.rows], ['pdf', 42]);
+    assert.match(after.period ?? '', /2026/);
+  });
+
+  it('needs data.export for print and PDF alike (FORBIDDEN, nothing logged)', async () => {
+    const dataEntry = t.sessionAs({ permissions: ['masters.view', 'vouchers.view', 'vouchers.create', 'reports.view'] });
+    for (const format of ['pdf', 'print'] as const) {
+      const r = await t.call(dataRoutes, 'data.export.audit', { title: 'Ledger', rows: 3, format }, { session: dataEntry });
+      assert.equal(r.ok, false, format);
+      if (!r.ok) assert.equal(r.error.code, 'FORBIDDEN');
+    }
+    assert.equal(t.db.value<number>(`SELECT COUNT(*) FROM audit_log WHERE action = 'export'`), 0);
+    // With the permission it goes through.
+    const allowed = await t.call(dataRoutes, 'data.export.audit', { title: 'Ledger', rows: 3, format: 'print' }, { session: t.sessionAs({ permissions: ['reports.view', 'data.export'] }) });
+    assert.equal(allowed.ok, true);
+  });
+
+  it('rejects an unknown format', async () => {
+    const r = await t.call(dataRoutes, 'data.export.audit', { title: 'Ledger', rows: 3, format: 'xlsx' });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.error.code, 'VALIDATION');
   });
 });

@@ -132,7 +132,7 @@ export function BackupScreen() {
 
   const autoText = config
     ? config.backup.auto
-      ? `Automatic backups are on — the newest ${config.backup.keepLast} are kept.`
+      ? `Automatic backups are on — once a day, when the company is opened or closed; the newest ${config.backup.keepLast} are kept.`
       : 'Automatic backups are off.'
     : '';
 

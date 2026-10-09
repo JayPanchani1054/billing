@@ -108,15 +108,20 @@ export function parseVoucherSeq(vt: VoucherTypeInfo, number: string): number | n
   return Number.isSafeInteger(n) ? n : null;
 }
 
+/**
+ * SQL probe: is `number` used by a voucher of a type within a date range? It must look the number up in
+ * idx_vouchers_number (voucher_type_id, number), which finds the one or two vouchers holding it. Without
+ * statistics (the app never runs ANALYZE) SQLite prefers idx_vouchers_type_date for `voucher_type_id = ?
+ * AND date BETWEEN …` and scans every voucher of the type in the year — O(n) per probe, O(n²) for an
+ * import. INDEXED BY pins the plan (it fails loudly if the index were ever dropped).
+ */
+export const NUMBER_TAKEN_SQL = `SELECT 1 FROM vouchers INDEXED BY idx_vouchers_number
+  WHERE voucher_type_id = :vt AND number = :number AND date BETWEEN :from AND :to AND id <> :ex LIMIT 1`;
+
 /** Another voucher of this type already uses `number` in the period of `date`? */
 export function numberTaken(db: Db, vt: VoucherTypeInfo, number: string, date: string, fyStartMonth: number, excludeId: number | null): boolean {
   const { from, to } = periodRange(vt, date, fyStartMonth);
-  return (
-    db.value(
-      `SELECT 1 FROM vouchers WHERE voucher_type_id = :vt AND number = :number AND date BETWEEN :from AND :to AND id <> :ex LIMIT 1`,
-      { vt: vt.id, number, from, to, ex: excludeId ?? 0 },
-    ) !== undefined
-  );
+  return db.value(NUMBER_TAKEN_SQL, { vt: vt.id, number, from, to, ex: excludeId ?? 0 }) !== undefined;
 }
 
 const MAX_SKIP = 100_000;
@@ -138,14 +143,19 @@ export function previewNextNumber(db: Db, vt: VoucherTypeInfo, date: string, fyS
   return nextFree(db, vt, date, fyStartMonth).number;
 }
 
-/** Consume the next automatic number (call inside the save transaction). */
-export function allocateNextNumber(db: Db, vt: VoucherTypeInfo, date: string, fyStartMonth: number): { number: string; seq: number } {
-  const out = nextFree(db, vt, date, fyStartMonth);
+/** Advance the counter of the numbering period of `date` to at least `seq`. */
+export function commitNumber(db: Db, vt: VoucherTypeInfo, date: string, fyStartMonth: number, seq: number): void {
   db.run(
     `INSERT INTO voucher_counters (voucher_type_id, period_key, last_number) VALUES (:vt, :key, :seq)
      ON CONFLICT(voucher_type_id, period_key) DO UPDATE SET last_number = MAX(last_number, excluded.last_number)`,
-    { vt: vt.id, key: periodKey(vt, date, fyStartMonth), seq: out.seq },
+    { vt: vt.id, key: periodKey(vt, date, fyStartMonth), seq },
   );
+}
+
+/** Find and consume the next automatic number (call inside the save transaction). */
+export function allocateNextNumber(db: Db, vt: VoucherTypeInfo, date: string, fyStartMonth: number): { number: string; seq: number } {
+  const out = nextFree(db, vt, date, fyStartMonth);
+  commitNumber(db, vt, date, fyStartMonth, out.seq);
   return out;
 }
 
@@ -158,7 +168,8 @@ export interface NumberDecision {
 
 /**
  * Decide the number of a voucher being created or altered. Pure decision + uniqueness checks; the
- * counter is only advanced by `allocateNextNumber` (save path) when `consume` is true.
+ * counter is only advanced by `commitNumber(decision.seq)` (save path, same transaction) when `consume`
+ * is true — the decided number was found free inside that transaction, so it is not probed again.
  */
 export function decideNumber(
   db: Db,

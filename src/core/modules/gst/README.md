@@ -120,9 +120,13 @@ Document nature → table (lines with taxability `taxable`):
   CDNUR + nil lines to unregistered parties. Rows by HSN (truncated to `config.gst.hsnDigits`) + UQC +
   rate; services → UQC `NA`, qty 0; description = first line description (JSON: ≤ 30 characters).
 - **Table 13**: per voucher type and number pattern (last digit run = sequence): from / to, total
-  = to − from + 1 for numeric series, cancelled = cancelled vouchers **+ numbers missing in the range**
-  (deleted vouchers; also flagged), net = total − cancelled. doc_num 1 sales, 4 debit notes, 5 credit
-  notes. Repeating numbers (monthly restart) are split per month.
+  = to − from + 1 for numeric series **less the numbers held by vouchers that are not outward documents
+  of the period** (optional vouchers; debit notes to suppliers sharing the Debit Note series),
+  cancelled = cancelled vouchers **+ numbers missing in the range** (deleted vouchers; flagged
+  `doc_series_gap`), net = total − cancelled. An optional voucher holding a number of a reported series
+  is flagged `optional_in_series` (regularise or delete it before filing: regularising it after filing
+  would contradict the filed Table 13). doc_num 1 sales, 4 debit notes, 5 credit notes. Repeating
+  numbers (monthly restart) are split per month.
 - **Table 11 (advances)**: not derived (receipts carry no rate / POS) — empty with a note.
 - **Amendments (9A, 9C, 10, 11B(2)) are out of scope**: amend on the portal.
 - **Totals** (`Gstr1Summary.totals`): net tax of all sections except 4B (recipient pays) → compare with
@@ -143,7 +147,8 @@ period-level issues) and, for HSN / rate issues, `itemId` (stock item of the fir
 | `pos_missing` | error | no place of supply (not exports) | |
 | `note_without_original` | warning | note without original invoice no., or not found in the books | |
 | `doc_no_missing` / `doc_no_invalid` | error | > 16 characters, characters other than A–Z 0–9 / -, or no letter/non-zero digit | |
-| `doc_series_gap` | warning | numbers missing in a series (Table 13) | |
+| `doc_series_gap` | warning | numbers missing in a series (Table 13: reported as cancelled) | |
+| `optional_in_series` | warning | an optional (draft) voucher holds a number of a reported outward series (left out of Table 13) | make it regular or delete it before filing |
 | `rate_not_slab` | error (outward) / warning (inward) | rate not in `GST_RATES` | |
 | `tax_head_mismatch` | error | IGST on an intra-state supply or CGST/SGST on an inter-state one | |
 | `no_gst_lines` | error | outward voucher with value but no gst_lines | re-save in invoice mode |
@@ -200,11 +205,11 @@ should rather be in 6A at rate 0 (we report them in table 8, INTRB2C).
 | 3.1(e) `osup_nongst` | non-GST outward lines |
 | 3.1.1 | e-commerce operator supplies: always 0 (not recorded) |
 | 3.2 | inter-state taxable supplies (excl. zero-rated) to unregistered/consumer, composition, UIN parties, by POS |
-| 4(A)(1) IMPG | `import_goods` (+ goods from SEZ) |
+| 4(A)(1) IMPG | `import_goods` + the **goods** lines of `inward_sez` (goods from an SEZ unit are imports: IGST paid on the bill of entry) |
 | 4(A)(2) IMPS | `import_services` |
 | 4(A)(3) ISRC | other reverse-charge inward lines |
 | 4(A)(4) ISD | manual `itcIsd` |
-| 4(A)(5) OTH | all other inward taxable lines (+ manual `itcReclaimed`), **net of purchase returns** |
+| 4(A)(5) OTH | all other inward taxable lines (incl. **services** from an SEZ unit, IGST charged on its invoice) (+ manual `itcReclaimed`), **net of purchase returns** |
 | 4(B)(1) RUL | ITC on lines marked `ineligible` (s.17(5), from the books) + manual `itcReversalRules` (rules 38/42/43) |
 | 4(B)(2) OTH | manual `itcReversalOthers` |
 | 4(C) | 4(A) − 4(B) |
@@ -212,7 +217,25 @@ should rather be in 6A at rate 0 (we report them in table 8, INTRB2C).
 | 4(D)(2) | manual `itcIneligibleOthers` (s.16(4), PoS) |
 | 5 | inward exempt + nil + composition-supplier supplies (`GST`), non-GST (`NONGST`), inter / intra |
 | 5.1 | manual `interest` (all heads), `lateFee` (CGST, SGST) |
-| 6.1 | forward-charge liability = tax of 3.1(a) + 3.1(b) (never below 0; a negative 4(C) is added) set off against 4(C) (never below 0) + manual `creditLedgerBalance`; reverse-charge tax (3.1(d)) paid in **cash** |
+| 6.1 | forward-charge liability = tax of 3.1(a) + 3.1(b) (never below 0; a negative 4(C) is added) set off against 4(C) (never below 0) + **credit brought forward** (`payment.broughtForward`, below) + manual `creditLedgerBalance` (credit the books do not hold, e.g. the portal balance when the books began); reverse-charge tax (3.1(d)) paid in **cash** |
+
+**Electronic credit ledger brought forward** (`creditBroughtForward`): unused credit is carried from
+one return period to the next, as the portal's electronic credit ledger does. For a month it is the
+`setOff.creditBalance` of the previous month, which itself started with the month before's — chained
+from the first period of the books (books beginning, or the first GST document if earlier; nothing is
+carried into it) with each period's own manual entries. A quarter chains quarters the same way; a date
+range is a review and carries nothing (note in `notes`). The 3B screen, the dashboard GST card and
+GSTR-9 table 9 (which walks the year's months in order) all use the same chain. Reverse-charge tax
+never uses credit.
+
+*Cost.* Each period's closing credit is memoised per connection with a fingerprint of its data (its
+`gst_lines` — amounts, rate, flags, position-weighted —, its GST vouchers' count / ids / totals / status /
+last change, and its manual entries). While nothing is written (`total_changes()`, `PRAGMA
+data_version`) a repeat costs nothing; after a write the fingerprints are re-read (≈0.1 s on 35,000
+GST lines) and only the periods from the first changed one are recomputed — a save in the current
+month recomputes nothing of the history (≈0.2 s for a changed last month vs ≈1.7 s for 18 months
+cold). A change of the working date, the chain start, or the company's GST registration / state /
+GSTIN starts afresh.
 
 **Deliberate deviation from the old form:** since July 2022 (Notification 14/2022-CT, Circular
 170/02/2022) ITC blocked under s.17(5) is reported in 4(A) and reversed in 4(B)(1); 4(D)(1) is "ITC
@@ -365,7 +388,7 @@ zero); state code 96 for "other country".
 
 The year (April–March) is loaded once. Tables 4 / 5 come from the GSTR-1 placement of the whole year;
 table 6 from the inward lines; table 9 is the **sum of the monthly GSTR-3B computations** (with the
-manual entries saved for each month); tables 17 / 18 are the HSN summaries; `months` lists each month's
+manual entries saved for each month, each month starting with the credit the previous one left); tables 17 / 18 are the HSN summaries; `months` lists each month's
 outward taxable value and tax, net ITC and cash. Labelled "Prepared from books — verify before filing".
 
 - 4A B2C (B2CL + B2CS, B2C notes netted), 4B B2B (non-RCM), 4C exports WPAY, 4D SEZ WP, 4E deemed
@@ -382,11 +405,14 @@ outward taxable value and tax, net ITC and cash. Labelled "Prepared from books �
 
 - Amendment tables, advances (table 11 / 4F), e-commerce operator supplies (3.1.1, GSTR-1 table 14/15)
   and ISD are not derived from the books (manual entries / portal).
-- Outward debit notes (supplementary invoices to customers) are supported when a debit note carries an
-  outward nature, but the posting engine currently books every debit note as a purchase return.
+- Purchases from an SEZ unit: the bill of entry for SEZ goods (IGST paid at customs) is entered as a
+  journal (Dr Input IGST / Cr Bank or the customs duty ledger), as for any import of goods; the 3B
+  4(A)(1) figure comes from the purchase's `gst_lines`, so book the BOE journal for the same amount.
 - Quarterly filers: the quarterly GSTR-1 file contains the whole quarter; invoices already uploaded
   through IFF must not be uploaded again.
-- The electronic credit ledger is not tracked: enter the balance brought forward as a manual 3B entry.
+- The electronic credit ledger is reconstructed from the books (credit brought forward, above); it
+  can only be topped up manually (`creditLedgerBalance` ≥ 0). If the portal shows less credit than the
+  books (e.g. a return filed with different figures), the difference cannot be entered as a reduction.
 - e-Invoice signing / IRP API calls and e-way bill API calls are not made (offline JSON only); the PIN ↔
   state consistency the IRP checks is not validated locally.
 - Purchases: e-way bills for inward supplies from unregistered suppliers and purchase returns are not

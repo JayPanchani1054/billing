@@ -539,7 +539,15 @@ function numberExists(db: Db, vtId: number, number: string, date: string): boole
   const vt = loadVoucherType(db, vtId);
   const fy = db.value<number>('SELECT fy_start_month FROM company WHERE id = 1') ?? 4;
   const { from, to } = periodRange(vt, date, fy);
-  return db.value('SELECT 1 FROM vouchers WHERE voucher_type_id = :vt AND number = :n AND date BETWEEN :from AND :to LIMIT 1', { vt: vtId, n: number, from, to }) !== undefined;
+  // INDEXED BY: look the number up instead of scanning the type's year (see vouchers/numbering.ts NUMBER_TAKEN_SQL).
+  return (
+    db.value('SELECT 1 FROM vouchers INDEXED BY idx_vouchers_number WHERE voucher_type_id = :vt AND number = :n AND date BETWEEN :from AND :to LIMIT 1', {
+      vt: vtId,
+      n: number,
+      from,
+      to,
+    }) !== undefined
+  );
 }
 
 function saveImportedVoucher(ctx: CompanyCtx, input: VoucherInput, opts: ApplyOptions, messages: string[]): ApplyOutcome {

@@ -32,7 +32,7 @@ const LEDGERS_CSV = [
 ].join('\r\n');
 
 describe('data.import.template', () => {
-  it('every kind has an xlsx template: header row, two examples and an Instructions sheet', () => {
+  it('every kind has an xlsx template: header row, two examples and an Instructions sheet', async () => {
     for (const kind of IMPORT_KINDS) {
       const out = importTemplate(kind);
       assert.match(out.fileName, /\.xlsx$/);
@@ -46,19 +46,19 @@ describe('data.import.template', () => {
     }
   });
 
-  it('example rows left in a template are refused (never imported by accident)', () => {
+  it('example rows left in a template are refused (never imported by accident)', async () => {
     const out = importTemplate('ledgers');
-    const p = previewImport(t.ctx, { kind: 'ledgers', fileName: out.fileName, bytes: out.bytes });
+    const p = await previewImport(t.ctx, { kind: 'ledgers', fileName: out.fileName, bytes: out.bytes });
     assert.equal(p.summary.total, 2);
     assert.equal(p.summary.error, 2);
     for (const r of p.rows) assert.match(r.messages.join(' '), /example row \d from the template/);
-    assert.throws(
+    await assert.rejects(
       () => commitImport(t.ctx, { kind: 'ledgers', fileName: out.fileName, bytes: out.bytes, options: { skipInvalid: false, updateExisting: false } }),
       (e: unknown) => e instanceof AppError && e.code === 'VALIDATION',
     );
   });
 
-  it('the template examples are otherwise valid data (each kind\'s examples, renamed, preview without errors)', () => {
+  it('the template examples are otherwise valid data (each kind\'s examples, renamed, preview without errors)', async () => {
     // Change the record key of every example so the rows are no longer the template's own; for the masters
     // kinds whose examples refer only to predefined masters, they must then pass the real validation.
     for (const kind of ['groups', 'ledgers', 'godowns', 'cost_centres'] as const) {
@@ -70,7 +70,7 @@ describe('data.import.template', () => {
         const names = new Set(spec.columns.filter((c) => c.key === 'name').flatMap((c) => c.examples.filter((x): x is string => typeof x === 'string')));
         lines.push(spec.columns.map((c) => cell(typeof c.examples[i] === 'string' && names.has(c.examples[i] as string) ? `${c.examples[i] as string} Two` : c.examples[i])).join(','));
       }
-      const p = previewImport(t.ctx, { kind, fileName: `${kind}.csv`, bytes: csv(lines.join('\r\n')) });
+      const p = await previewImport(t.ctx, { kind, fileName: `${kind}.csv`, bytes: csv(lines.join('\r\n')) });
       assert.equal(p.summary.error, 0, `${kind}: ${JSON.stringify(p.rows.filter((r) => r.status === 'error'))}`);
     }
   });
@@ -83,9 +83,9 @@ describe('data.import.template', () => {
 });
 
 describe('data.import.preview', () => {
-  it('reports every row with its status and plain-English messages, and writes nothing', () => {
+  it('reports every row with its status and plain-English messages, and writes nothing', async () => {
     const before = t.db.value<number>('SELECT COUNT(*) FROM ledgers');
-    const p = previewImport(t.ctx, { kind: 'ledgers', fileName: 'ledgers.csv', bytes: csv(LEDGERS_CSV) });
+    const p = await previewImport(t.ctx, { kind: 'ledgers', fileName: 'ledgers.csv', bytes: csv(LEDGERS_CSV) });
     assert.equal(p.headerRow, 1);
     assert.deepEqual(
       p.rows.map((r) => [r.rowNumber, r.key, r.status]),
@@ -107,8 +107,8 @@ describe('data.import.preview', () => {
     assert.equal(t.db.value('SELECT COUNT(*) FROM import_batches'), 0);
   });
 
-  it('maps headers by alias, case and spacing; lists unknown headers', () => {
-    const p = previewImport(t.ctx, {
+  it('maps headers by alias, case and spacing; lists unknown headers', async () => {
+    const p = await previewImport(t.ctx, {
       kind: 'ledgers',
       fileName: 'x.csv',
       bytes: csv('Ledger Name ,  GROUP,Opening Bal,Favourite Colour\r\nKumar Stores,Sundry Debtors,100,Blue'),
@@ -121,32 +121,32 @@ describe('data.import.preview', () => {
     assert.equal(p.rows[0].status, 'ok');
   });
 
-  it('later rows see earlier ones (a group created in row 2 is the parent in row 3)', () => {
-    const p = previewImport(t.ctx, { kind: 'groups', fileName: 'g.csv', bytes: csv('Name,Under\r\nBranch Debtors,Sundry Debtors\r\nPune Debtors,Branch Debtors') });
+  it('later rows see earlier ones (a group created in row 2 is the parent in row 3)', async () => {
+    const p = await previewImport(t.ctx, { kind: 'groups', fileName: 'g.csv', bytes: csv('Name,Under\r\nBranch Debtors,Sundry Debtors\r\nPune Debtors,Branch Debtors') });
     assert.equal(p.summary.error, 0, JSON.stringify(p.rows));
     assert.equal(t.db.value(`SELECT COUNT(*) FROM groups WHERE name = 'Branch Debtors'`), 0);
   });
 
-  it('an existing master is a duplicate (skipped) unless "update existing" is on', () => {
+  it('an existing master is a duplicate (skipped) unless "update existing" is on', async () => {
     t.db.transaction(() => t.addLedger({ name: 'Acme Traders', group: 'SUNDRY_DEBTORS' }));
     const bytes = csv('Name,Under,Email\r\nAcme Traders,Sundry Debtors,new@acme.example');
-    const skip = previewImport(t.ctx, { kind: 'ledgers', fileName: 'l.csv', bytes });
+    const skip = await previewImport(t.ctx, { kind: 'ledgers', fileName: 'l.csv', bytes });
     assert.equal(skip.rows[0].status, 'duplicate');
     assert.equal(skip.rows[0].action, 'skip');
-    const upd = previewImport(t.ctx, { kind: 'ledgers', fileName: 'l.csv', bytes, options: { updateExisting: true } });
+    const upd = await previewImport(t.ctx, { kind: 'ledgers', fileName: 'l.csv', bytes, options: { updateExisting: true } });
     assert.equal(upd.rows[0].action, 'update');
-    commitImport(t.ctx, { kind: 'ledgers', fileName: 'l.csv', bytes, options: { skipInvalid: false, updateExisting: true } });
+    await commitImport(t.ctx, { kind: 'ledgers', fileName: 'l.csv', bytes, options: { skipInvalid: false, updateExisting: true } });
     assert.equal(t.db.value(`SELECT email FROM ledgers WHERE name = 'Acme Traders'`), 'new@acme.example');
   });
 
-  it('a file without the required columns is refused with the missing column named', () => {
-    assert.throws(
+  it('a file without the required columns is refused with the missing column named', async () => {
+    await assert.rejects(
       () => previewImport(t.ctx, { kind: 'ledgers', fileName: 'x.csv', bytes: csv('Colour,Size\r\nBlue,3') }),
       (e: unknown) => e instanceof AppError && e.code === 'VALIDATION' && /Name|Under/.test(e.message),
     );
   });
 
-  it('reads xlsx with real date and number cells', () => {
+  it('reads xlsx with real date and number cells', async () => {
     t.db.transaction(() => t.addLedger({ name: 'Acme Traders', group: 'SUNDRY_DEBTORS', openingBalance: 25_000_00, billWise: true }));
     const bytes = writeXlsx({
       sheets: [
@@ -160,7 +160,7 @@ describe('data.import.preview', () => {
         },
       ],
     });
-    const r = commitImport(t.ctx, { kind: 'opening_balances', fileName: 'ob.xlsx', bytes, options: { skipInvalid: false, updateExisting: true } });
+    const r = await commitImport(t.ctx, { kind: 'opening_balances', fileName: 'ob.xlsx', bytes, options: { skipInvalid: false, updateExisting: true } });
     assert.equal(r.failed, 0, JSON.stringify(r.rows));
     assert.deepEqual(
       t.db.all(`SELECT bill_name, bill_date, amount FROM opening_bills ORDER BY bill_name`),
@@ -173,9 +173,9 @@ describe('data.import.preview', () => {
 });
 
 describe('data.import.commit', () => {
-  it('is all-or-nothing by default: one bad row and nothing is imported', () => {
+  it('is all-or-nothing by default: one bad row and nothing is imported', async () => {
     const before = t.db.value<number>('SELECT COUNT(*) FROM ledgers');
-    assert.throws(
+    await assert.rejects(
       () => commitImport(t.ctx, { kind: 'ledgers', fileName: 'ledgers.csv', bytes: csv(LEDGERS_CSV), options: { skipInvalid: false, updateExisting: false } }),
       (e: unknown) => e instanceof AppError && e.code === 'VALIDATION' && /2 of 5 records have errors, so nothing was imported/.test(e.message),
     );
@@ -183,8 +183,8 @@ describe('data.import.commit', () => {
     assert.equal(t.db.value(`SELECT COUNT(*) FROM audit_log WHERE action = 'import'`), 0);
   });
 
-  it('with "skip invalid rows" imports the good rows and reports the bad ones', () => {
-    const r = commitImport(t.ctx, { kind: 'ledgers', fileName: 'ledgers.csv', bytes: csv(LEDGERS_CSV), options: { skipInvalid: true, updateExisting: false } });
+  it('with "skip invalid rows" imports the good rows and reports the bad ones', async () => {
+    const r = await commitImport(t.ctx, { kind: 'ledgers', fileName: 'ledgers.csv', bytes: csv(LEDGERS_CSV), options: { skipInvalid: true, updateExisting: false } });
     assert.deepEqual({ total: r.total, created: r.created, failed: r.failed }, { total: 5, created: 3, failed: 2 });
     assert.deepEqual(
       r.rows.map((x) => x.rowNumber),
@@ -199,14 +199,14 @@ describe('data.import.commit', () => {
     assert.equal(JSON.parse(audit?.after_json ?? '{}').created, 3);
   });
 
-  it('stock items and opening stock (paise from rupees, value = qty × rate)', () => {
+  it('stock items and opening stock (paise from rupees, value = qty × rate)', async () => {
     const items = csv('Name,Unit,GST Rate,HSN/SAC,Opening Qty,Opening Rate\r\nMixer Grinder,Nos,18,8509,10,2400.50\r\nRice Bag,Nos,5,1006,,');
-    const r = commitImport(t.ctx, { kind: 'stock_items', fileName: 'i.csv', bytes: items, options: { skipInvalid: false, updateExisting: false } });
+    const r = await commitImport(t.ctx, { kind: 'stock_items', fileName: 'i.csv', bytes: items, options: { skipInvalid: false, updateExisting: false } });
     assert.equal(r.created, 2, JSON.stringify(r.rows));
     // 10 × ₹2,400.50 = ₹24,005 = 24,00,500 paise
     assert.equal(t.db.value(`SELECT o.value FROM stock_openings o JOIN stock_items i ON i.id = o.item_id WHERE i.name = 'Mixer Grinder'`), 24_005_00);
     const op = csv('Item,Godown,Quantity,Rate\r\nRice Bag,Main Location,40,1100');
-    const r2 = commitImport(t.ctx, { kind: 'stock_openings', fileName: 'o.csv', bytes: op, options: { skipInvalid: false, updateExisting: true } });
+    const r2 = await commitImport(t.ctx, { kind: 'stock_openings', fileName: 'o.csv', bytes: op, options: { skipInvalid: false, updateExisting: true } });
     assert.equal(r2.failed, 0, JSON.stringify(r2.rows));
     assert.deepEqual(t.db.get(`SELECT o.qty, o.value FROM stock_openings o JOIN stock_items i ON i.id = o.item_id WHERE i.name = 'Rice Bag'`), { qty: 40, value: 44_000_00 });
   });
@@ -252,7 +252,7 @@ describe('data.import: invoices and vouchers through the vouchers service', () =
   });
   afterEach(() => k.t.close());
 
-  it('sales invoices: rows with the same number form one invoice; GST is computed like manual entry', () => {
+  it('sales invoices: rows with the same number form one invoice; GST is computed like manual entry', async () => {
     const bytes = csv(
       [
         'Invoice No,Date,Party,Item,Ledger,Qty,Rate,Amount,Narration',
@@ -261,13 +261,13 @@ describe('data.import: invoices and vouchers through the vouchers service', () =
         'INV-102,12-04-2026,Bangalore Retail,Mixer Grinder,,1,150,,',
       ].join('\r\n'),
     );
-    const p = previewImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { acknowledgeWarnings: true } });
+    const p = await previewImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { acknowledgeWarnings: true } });
     assert.equal(p.summary.total, 2);
     assert.deepEqual(p.rows[0].rowNumbers, [2, 3]);
     assert.equal(p.summary.error, 0, JSON.stringify(p.rows));
     assert.equal(k.t.db.value(`SELECT COUNT(*) FROM vouchers`), 0);
 
-    const r = commitImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { skipInvalid: false, updateExisting: false, acknowledgeWarnings: true } });
+    const r = await commitImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { skipInvalid: false, updateExisting: false, acknowledgeWarnings: true } });
     assert.equal(r.created, 2, JSON.stringify(r.rows));
     const v = k.t.db.get<{ id: number; place_of_supply: string; narration: string }>(
       `SELECT v.id, v.place_of_supply, v.narration FROM vouchers v JOIN ledger_entries le ON le.voucher_id = v.id
@@ -289,13 +289,13 @@ describe('data.import: invoices and vouchers through the vouchers service', () =
     assert.equal(k.t.db.value(`SELECT SUM(qty) FROM inventory_entries WHERE item_id = :i`, { i: k.I.mixer }), -3);
   });
 
-  it('an invoice with an unknown party or item fails with the row number; skip invalid keeps the good invoice', () => {
+  it('an invoice with an unknown party or item fails with the row number; skip invalid keeps the good invoice', async () => {
     const bytes = csv(
       ['Invoice No,Date,Party,Item,Qty,Rate', 'INV-201,10-04-2026,Acme Traders,Mixer Grinder,1,150', 'INV-202,10-04-2026,Nobody & Co,Mixer Grinder,1,150', 'INV-203,10-04-2026,Acme Traders,Gold Bar,1,150'].join(
         '\r\n',
       ),
     );
-    const p = previewImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { acknowledgeWarnings: true } });
+    const p = await previewImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { acknowledgeWarnings: true } });
     // Row 2 is valid; its number cannot be kept because "Sales" numbers automatically (a warning, not an error).
     assert.equal(p.rows[0].status, 'warning');
     assert.match(p.rows[0].messages.join(' '), /automatic numbering/);
@@ -305,23 +305,23 @@ describe('data.import: invoices and vouchers through the vouchers service', () =
     );
     assert.match(p.rows[1].messages.join(' '), /Nobody & Co/);
     assert.match(p.rows[2].messages.join(' '), /Gold Bar/);
-    assert.throws(() => commitImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { skipInvalid: false, updateExisting: false, acknowledgeWarnings: true } }), AppError);
+    await assert.rejects(() => commitImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { skipInvalid: false, updateExisting: false, acknowledgeWarnings: true } }), AppError);
     assert.equal(k.t.db.value('SELECT COUNT(*) FROM vouchers'), 0);
-    const r = commitImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { skipInvalid: true, updateExisting: false, acknowledgeWarnings: true } });
+    const r = await commitImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { skipInvalid: true, updateExisting: false, acknowledgeWarnings: true } });
     assert.deepEqual({ created: r.created, failed: r.failed }, { created: 1, failed: 2 });
     assert.equal(k.t.db.value('SELECT COUNT(*) FROM vouchers'), 1);
   });
 
-  it('purchase invoices keep the supplier bill number as the reference', () => {
+  it('purchase invoices keep the supplier bill number as the reference', async () => {
     const bytes = csv('Supplier Invoice No,Date,Supplier,Item,Qty,Rate\r\nSS/451,03-04-2026,Supreme Suppliers,Rice Bag,20,40');
-    const r = commitImport(k.t.ctx, { kind: 'purchase_invoices', fileName: 'p.csv', bytes, options: { skipInvalid: false, updateExisting: false, acknowledgeWarnings: true } });
+    const r = await commitImport(k.t.ctx, { kind: 'purchase_invoices', fileName: 'p.csv', bytes, options: { skipInvalid: false, updateExisting: false, acknowledgeWarnings: true } });
     assert.equal(r.created, 1, JSON.stringify(r.rows));
     // 20 × 40 = 800 @5% intra-state → CGST 20 + SGST 20 → ₹840 Cr to the supplier.
     assert.deepEqual(k.t.db.get(`SELECT reference_no, base_type FROM vouchers`), { reference_no: 'SS/451', base_type: 'purchase' });
     assert.equal(k.t.db.value(`SELECT amount FROM ledger_entries WHERE ledger_id = :l`, { l: k.L.supplier }), -840_00);
   });
 
-  it('journal / payment vouchers from Dr/Cr lines; an unbalanced voucher is an error', () => {
+  it('journal / payment vouchers from Dr/Cr lines; an unbalanced voucher is an error', async () => {
     const bytes = csv(
       [
         'Voucher Key,Date,Voucher Type,Ledger,Debit,Credit,Narration',
@@ -333,7 +333,7 @@ describe('data.import: invoices and vouchers through the vouchers service', () =
         'BAD,12-04-2026,Journal,Cash,,90,',
       ].join('\r\n'),
     );
-    const p = previewImport(k.t.ctx, { kind: 'vouchers_ledger', fileName: 'v.csv', bytes, options: { acknowledgeWarnings: true } });
+    const p = await previewImport(k.t.ctx, { kind: 'vouchers_ledger', fileName: 'v.csv', bytes, options: { acknowledgeWarnings: true } });
     assert.deepEqual(
       p.rows.map((r) => [r.key, r.status === 'error']),
       [
@@ -342,7 +342,7 @@ describe('data.import: invoices and vouchers through the vouchers service', () =
         ['BAD', true],
       ],
     );
-    const r = commitImport(k.t.ctx, { kind: 'vouchers_ledger', fileName: 'v.csv', bytes, options: { skipInvalid: true, updateExisting: false, acknowledgeWarnings: true } });
+    const r = await commitImport(k.t.ctx, { kind: 'vouchers_ledger', fileName: 'v.csv', bytes, options: { skipInvalid: true, updateExisting: false, acknowledgeWarnings: true } });
     assert.equal(r.created, 2);
     assert.equal(k.t.db.value(`SELECT SUM(amount) FROM ledger_entries WHERE ledger_id = :l`, { l: k.L.rent }), 12_500_00);
     assert.equal(k.t.db.value('SELECT SUM(amount) FROM ledger_entries'), 0);

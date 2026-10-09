@@ -102,7 +102,7 @@ describe('GST routes', () => {
     assert.equal(labels.length - before, 2);
     assert.deepEqual(labels.slice(-2), ['GSTR-1 Apr 2026 (GSTR1_27AAPFU0939F1ZV_042026.json)', 'GSTR-3B Apr 2026 (GSTR3B_27AAPFU0939F1ZV_042026.json)']);
     const s = await ds.t.callOk<Gstr3bSummary>(gstRoutes, 'gst.gstr3b.summary', { period: '042026' });
-    assert.deepEqual(s.issueCount, { errors: 2, warnings: 2 });
+    assert.deepEqual(s.issueCount, { errors: 2, warnings: 3 }); // + optional_in_series (S-16)
     const saved = await ds.t.callOk<Gstr3bSummary>(gstRoutes, 'gst.gstr3b.saveAdjustments', { period: '042026', values: { interest: { igst: 500 } } });
     assert.equal(saved.interest.igst, 500);
     assert.equal(saved.adjustmentsUpdatedAt !== null, true);

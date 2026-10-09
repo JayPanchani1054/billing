@@ -1,7 +1,7 @@
 /**
  * 'banking.match' — Match the imported bank statement with vouchers. Params: { ledgerId?, batchId?, autorun? }.
  *
- * Tabs (Alt+1…4): Matched · Suggestions · Unmatched · Ignored, over the period (Alt+F2) and optionally one
+ * Tabs (Ctrl+1…4): Matched · Suggestions · Unmatched · Ignored, over the period (Alt+F2) and optionally one
  * imported statement. Alt+M runs auto-match (only confident, unambiguous pairs are applied; the rest become
  * suggestions). Enter on a line opens the match picker (candidates with the reasons for their score).
  * Unmatched lines: Alt+V creates a voucher for the line (Receipt / Payment / Contra with a ledger picker),
@@ -301,7 +301,7 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
         void refetchBanks();
         void lines.refetch();
       }}
-      hint="Alt+M Auto-match · Enter match / open voucher · Alt+V create voucher · Alt+B create many · Alt+I ignore · Alt+U unmatch · Alt+1…4 tabs"
+      hint="Alt+M Auto-match · Enter match / open voucher · Alt+V create voucher · Alt+B create many · Alt+I ignore · Alt+U unmatch · Ctrl+1…4 Tabs"
       exportDef={() => ({
         subtitle: `${bank?.name ?? ''} — ${TAB_TITLE[tab]}`,
         columns: [
@@ -361,10 +361,10 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
         { key: 'Alt+L', label: 'Look for a match', icon: 'search', onClick: () => sel && setPicking(sel), hidden: !canEdit, disabled: !sel || sel.status !== 'unmatched' },
         { key: 'Alt+I', label: tab === 'ignored' ? 'Restore line' : 'Ignore line', icon: tab === 'ignored' ? 'undo' : 'eye-off', onClick: () => void doIgnore(sel, tab !== 'ignored'), hidden: !canEdit, disabled: !sel || tab === 'matched' },
         { key: 'Alt+U', label: 'Unmatch', icon: 'x-circle', onClick: () => void doUnmatch(sel), hidden: !canEdit, disabled: !sel || tab !== 'matched' },
-        { key: 'Alt+1', label: 'Matched', onClick: () => setTab('matched'), group: 'view', disabled: tab === 'matched' },
-        { key: 'Alt+2', label: 'Suggestions', onClick: () => setTab('suggestions'), group: 'view', disabled: tab === 'suggestions' },
-        { key: 'Alt+3', label: 'Unmatched', onClick: () => setTab('unmatched'), group: 'view', disabled: tab === 'unmatched' },
-        { key: 'Alt+4', label: 'Ignored', onClick: () => setTab('ignored'), group: 'view', disabled: tab === 'ignored' },
+        { key: 'Ctrl+1', label: 'Matched', onClick: () => setTab('matched'), group: 'view', disabled: tab === 'matched' },
+        { key: 'Ctrl+2', label: 'Suggestions', onClick: () => setTab('suggestions'), group: 'view', disabled: tab === 'suggestions' },
+        { key: 'Ctrl+3', label: 'Unmatched', onClick: () => setTab('unmatched'), group: 'view', disabled: tab === 'unmatched' },
+        { key: 'Ctrl+4', label: 'Ignored', onClick: () => setTab('ignored'), group: 'view', disabled: tab === 'ignored' },
         { key: 'Alt+R', label: 'Reconciliation', icon: 'bank', onClick: () => nav.push('banking.brs', { ledgerId: ledgerId ?? undefined }), group: 'go' },
         { key: 'Alt+O', label: 'Import statement', icon: 'upload', onClick: () => nav.push('banking.import', { ledgerId: ledgerId ?? undefined }), group: 'go', hidden: !canEdit },
       ]}

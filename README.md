@@ -101,10 +101,10 @@ cd billing
 npm install            # installs Electron, Vite, TypeScript, electron-builder, Playwright
 npm run dev            # Vite + Electron with hot reload (uses a separate "Bahi ERP Dev" profile)
 npm test               # unit tests (node:test)
-npm run typecheck      # TypeScript, all three projects
+npm run typecheck      # TypeScript: core, main/preload, renderer, e2e specs
 npm run build          # production bundles in out/
 npm run dist:win       # Windows installer in release\Bahi-ERP-Setup-<version>.exe
-npm run e2e            # Playwright smoke tests against out/ (run npm run build first)
+npm run e2e            # Playwright end-to-end suite against out/ (run npm run build first)
 ```
 
 Details — build pipeline, release process, code signing — are in [docs/BUILD.md](docs/BUILD.md).
@@ -119,12 +119,14 @@ src/
     api/       Route contract and dispatcher
     db/        SQLite wrapper and migrations
     modules/   One folder per feature (accounts, vouchers, gst, inventory, reports, …)
-  main/        Electron main process: hardened window, app:// protocol, IPC, dialogs, print/PDF, menu
+  main/        Electron main process: hardened window, app:// protocol, IPC, dialogs, print/PDF, menu;
+               the core runs on a worker thread behind it (core-worker.ts ↔ core-proxy.ts)
   preload/     contextBridge exposing window.bahi (the only renderer → main channel)
   renderer/    React 19 UI: shell, design system, feature screens
-scripts/       build.mjs, dev.mjs, make-icon.mjs, after-pack.cjs (Electron fuses)
+scripts/       build.mjs, dev.mjs, make-icon.mjs, after-pack.cjs + fuses.cjs + check-fuses.cjs (Electron
+               fuses), smoke-installed.ps1 (packaged-app smoke test)
 build/         Installer resources (icon.ico, icon.png, installer.nsh)
-e2e/           Playwright Electron smoke tests
+e2e/           Playwright Electron specs (smoke + first-day flow)
 docs/          ARCHITECTURE.md (engineering contract), SECURITY.md, BUILD.md
 ```
 

@@ -26,6 +26,7 @@ registerGotoProvider({
   id: 'vouchers',
   label: 'Vouchers',
   minQuery: 1,
+  screens: ['vouchers.entry', 'vouchers.view'],
   search: async (query) => {
     const search = searchText(query);
     if (search === '') return [];

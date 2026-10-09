@@ -51,7 +51,7 @@ export const stockModule: ModuleDef = {
     { section: 'inventory_reports', label: 'Category Summary', screen: 'stock.categories', order: 25, description: 'Stock by brand, size or other category' },
     { section: 'inventory_reports', label: 'Movement Analysis', screen: 'stock.movement', order: 30, description: 'Quantities bought from and sold to each party' },
     { section: 'inventory_reports', label: 'Item Profitability', screen: 'stock.profitability', order: 35, description: 'Sales, cost of goods sold and gross profit per item' },
-    { section: 'inventory_reports', label: 'Ageing Analysis', screen: 'stock.ageing', order: 40, description: 'How long your stock has been lying' },
+    { section: 'inventory_reports', label: 'Stock Ageing', screen: 'stock.ageing', order: 40, keywords: ['ageing analysis', 'old stock'], description: 'How long your stock has been lying' },
     { section: 'inventory_reports', label: 'Reorder Status', screen: 'stock.reorder', order: 45, description: 'Items to buy before you run out' },
     { section: 'inventory_reports', label: 'Pending Sales Orders', screen: 'stock.pendingOrders', params: { kind: 'sales' }, order: 50, description: 'Customer orders not yet delivered' },
     { section: 'inventory_reports', label: 'Pending Purchase Orders', screen: 'stock.pendingOrders', params: { kind: 'purchase' }, order: 51, description: 'Supplier orders not yet received' },

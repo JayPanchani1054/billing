@@ -388,7 +388,8 @@ describe('review regressions — valuation', () => {
     const rolled = computeStockValuation(t.db, { ...APRIL, godownId: store, includeSubGodowns: true });
     assert.deepEqual(qv(row(rolled, g)), { opening: [5, 50000], inward: [3, 30000], outward: [0, 0], closing: [8, 80000] });
     assert.equal(closingStockValue(t.db, { asOf: '2026-04-30', today: '2026-04-30', godownId: store, includeSubGodowns: true }), 80000);
-    const r = await t.callOk<StockValuationResult>(inventoryRoutes, 'inventory.valuation', { ...APRIL, godownId: store, includeSubGodowns: true });
+    // The route takes the working date from the clock, not from the input (strict route input rejects `today`).
+    const r = await t.callOk<StockValuationResult>(inventoryRoutes, 'inventory.valuation', { from: APRIL.from, to: APRIL.to, godownId: store, includeSubGodowns: true });
     assert.equal(r.totals.closingValue, 80000);
     const missing = await t.call(inventoryRoutes, 'inventory.valuation', { from: '2026-04-01', to: '2026-04-30', godownId: 9999 });
     assert.equal(missing.ok ? null : missing.error.code, 'NOT_FOUND');

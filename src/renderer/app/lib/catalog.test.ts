@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { DEFAULT_FEATURES } from '../../../shared/settings.ts';
 import { parseHotkeyList } from '../../ui/lib/hotkeys.ts';
-import { changedFeatures, FEATURE_CATALOG, featureBlockedReason, isFeatureAvailable, normalizeFeatureToggles } from './featureCatalog.ts';
+import { changedFeatures, FEATURE_CATALOG, featureBlockedReason, featureManagedOn, isFeatureAvailable, normalizeFeatureToggles } from './featureCatalog.ts';
 import { filterShortcuts, GLOBAL_SHORTCUTS, reservedGlobalKeys, VOUCHER_SHORTCUTS } from './shortcuts.ts';
 
 describe('feature catalogue', () => {
@@ -32,6 +32,12 @@ describe('feature catalogue', () => {
 
   test('changedFeatures', () => {
     assert.deepEqual(changedFeatures(DEFAULT_FEATURES, { ...DEFAULT_FEATURES, tds: true }), ['tds']);
+  });
+
+  test('security is never part of an F11 save: it is changed under Security Settings (Owner password)', () => {
+    assert.equal(featureManagedOn('security')?.screen, 'security.settings');
+    assert.equal(featureManagedOn('gst'), null);
+    assert.deepEqual(changedFeatures(DEFAULT_FEATURES, { ...DEFAULT_FEATURES, security: !DEFAULT_FEATURES.security, tds: true }), ['tds']);
   });
 });
 

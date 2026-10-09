@@ -111,6 +111,7 @@ export const companyRoutes = {
   'company.features.save': companyRoute({
     access: 'company.manage',
     input: CompanyFeaturesInputSchema,
+    // Never pass SaveFeaturesOptions here: `security` changes only via security.enable / security.disable.
     handler: (ctx, input) => saveFeatures(ctx, input),
   }),
   'company.config.get': companyRoute({

@@ -25,6 +25,8 @@ import {
   userOptions,
   verifyTone,
   withGroup,
+  anchorSummary,
+  tamperScope,
 } from './auditQuery.ts';
 import { changedKeys, describeExpiry, describeIdle, draftOf, patchOf, recommendations, settingsErrors } from './settingsForm.ts';
 import { formatCountdown, formatDateTime, formatMinutes, relativeTime } from './time.ts';
@@ -71,6 +73,17 @@ describe('edit log query state', () => {
     assert.equal(verifyTone({ ...base, ok: true }), 'info');
     assert.equal(verifyTone({ ...base, ok: true, count: 3 }), 'success');
     assert.equal(verifyTone({ ...base, ok: false }), 'danger');
+  });
+
+  it('explains the check-point kept outside the company file', () => {
+    const base = { ok: true, count: 9, totalEntries: 9, brokenAtId: null, reason: null, message: '', detail: '', checkedAt: '', lastEntryId: 9, lastHash: 'a'.repeat(64) };
+    assert.equal(anchorSummary(base), null, 'no check-point store');
+    assert.match(anchorSummary({ ...base, anchor: { status: 'match', recordedAt: 'x', entryId: 9, canReset: false } }) ?? '', /Matches the check-point .*entry #9/);
+    assert.match(anchorSummary({ ...base, anchor: { status: 'missing', recordedAt: null, entryId: null, canReset: false } }) ?? '', /No check-point/);
+    const bad = { ...base, ok: false, anchor: { status: 'mismatch' as const, recordedAt: 'x', entryId: 7, canReset: true } };
+    assert.equal(anchorSummary(bad), null, 'the detail explains a mismatch');
+    assert.match(tamperScope(bad), /All 9 entries link up, but .* at entry #7/);
+    assert.match(tamperScope({ ...base, ok: false, count: 3, brokenAtId: 4 }), /3 of 9 entries were intact before the break \(the problem is at entry #4\)/);
   });
 });
 

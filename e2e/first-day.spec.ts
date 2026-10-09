@@ -13,14 +13,10 @@
 // Figures: 10 Nos × ₹100.00 = ₹1,000.00; Maharashtra → Maharashtra, so CGST 9% ₹90.00 + SGST 9%
 // ₹90.00 → ₹1,180.00. The item has no opening stock, so saving asks to confirm negative stock.
 import { existsSync, readdirSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { _electron as electron, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { captureFailures, closeApp, launchApp } from './support.ts';
+import type { LaunchedApp } from './support.ts';
 
 /** Fictional, checksum-valid GSTINs (see the API twin). */
 const FLOW = {
@@ -30,18 +26,10 @@ const FLOW = {
   sale: { qty: '10', price: '100' },
 } as const;
 
+let launched: LaunchedApp | undefined;
 let app: ElectronApplication;
 let page: Page;
-let tmp: string;
 let dataDir: string;
-
-function childEnv(extra: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE' && key !== 'BAHI_DEV_SERVER_URL') env[key] = value;
-  }
-  return { ...env, ...extra };
-}
 
 /** A pushed screen of the navigation stack, by its registered id. */
 function screen(id: string): Locator {
@@ -92,26 +80,16 @@ function currentReturnPeriod(): string {
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
-  tmp = await mkdtemp(path.join(tmpdir(), 'bahi-e2e-flow-'));
-  dataDir = path.join(tmp, 'data');
-  app = await electron.launch({
-    args: ['out/main/index.cjs'],
-    cwd: repoRoot,
-    env: childEnv({
-      BAHI_USER_DATA: path.join(tmp, 'user-data'),
-      BAHI_DATA_DIR: dataDir,
-      BAHI_E2E: '1',
-    }),
-  });
-  app.process().stdout?.on('data', (d: Buffer) => process.stdout.write(`[electron] ${d.toString()}`));
-  app.process().stderr?.on('data', (d: Buffer) => process.stderr.write(`[electron] ${d.toString()}`));
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
+  launched = await launchApp('bahi-e2e-flow-');
+  ({ app, page, dataDir } = launched);
 });
 
-test.afterAll(async () => {
-  await app?.close();
-  if (tmp) await rm(tmp, { recursive: true, force: true });
+captureFailures(() => launched);
+
+// The quit is part of the flow: with a company open it runs the automatic backup and closes the
+// company before exiting (src/main/quit.ts); closeApp() fails if that takes longer than 45 s.
+test.afterAll(async ({}, testInfo) => {
+  await closeApp(launched, testInfo);
 });
 
 test('first launch: keep the data folder given by BAHI_DATA_DIR', async () => {
@@ -161,9 +139,9 @@ test('create a GST company with the wizard', async () => {
 test('create the party ledger (Sundry Debtors, GSTIN)', async () => {
   const form = await openFromGateway('Create Ledger', 'accounts.ledger.form');
   await expect(form.getByRole('heading', { name: 'Ledger Creation', level: 1 })).toBeVisible();
-  // Focus explicitly: on a first (uncached) open the form renders after the shell's one-shot initial
-  // focus, so the cursor is left on the heading (audit finding). Assert toBeFocused() once fixed.
-  await form.getByLabel(/^Name/).focus();
+  // The cursor starts on Name even on a first (uncached) open: the shell follows the form in once its
+  // groups have loaded (src/renderer/app/nav.tsx, initial-focus watch).
+  await expect(form.getByLabel(/^Name/)).toBeFocused();
   await page.keyboard.type(FLOW.party.name);
 
   await form.getByLabel(/^Under/).focus();
@@ -183,7 +161,7 @@ test('create the party ledger (Sundry Debtors, GSTIN)', async () => {
 test('create the stock item (Nos, own GST 18%, HSN)', async () => {
   const form = await openFromGateway('Create Stock Item', 'inventory.item.form');
   await expect(form.getByRole('heading', { name: 'Stock Item Creation', level: 1 })).toBeVisible();
-  await form.getByLabel(/^Name/).focus(); // see the ledger step
+  await expect(form.getByLabel(/^Name/)).toBeFocused(); // see the ledger step
   await page.keyboard.type(FLOW.item.name);
 
   await form.getByLabel(/^Unit/).focus();

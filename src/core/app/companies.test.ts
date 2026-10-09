@@ -262,6 +262,77 @@ describe('CompanyStore', () => {
     assert.ok(fs.existsSync(installed.paths.attachmentsDir));
   });
 
+  it('untrusted company files: a view or foreign trigger is refused before any query; lost audit triggers come back on open', () => {
+    const store = newStore();
+    const c = store.create(input('Kappa'));
+    const shadow = store.create(input('Lambda'));
+    const raw = new Db(shadow.dbPath);
+    raw.exec('PRAGMA foreign_keys = OFF');
+    raw.exec('DROP TABLE company');
+    raw.exec('CREATE VIEW company AS WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x AS id, x AS name FROM c');
+    raw.close();
+    // The list skips it (logged) instead of hanging; opening it is refused.
+    assert.deepEqual(store.list().map((x) => x.id), [c.id]);
+    assert.throws(() => store.open(shadow.id), isCode('CONFLICT', /unexpected database objects/));
+    // A copy with an extra trigger cannot be installed (restore path).
+    const evil = path.join(dataDir, 'evil.db');
+    const src = new Db(c.dbPath);
+    src.run('VACUUM INTO ?', [evil]);
+    src.close();
+    const w = new Db(evil);
+    w.exec(`CREATE TRIGGER skim AFTER INSERT ON ledger_entries BEGIN UPDATE ledger_entries SET amount = 0 WHERE id = NEW.id; END`);
+    w.close();
+    assert.throws(() => store.install(evil), isCode('VALIDATION', /unexpected database objects/));
+    // Dropped append-only triggers are restored when the company is opened.
+    const d = new Db(c.dbPath);
+    d.exec('DROP TRIGGER audit_log_no_delete');
+    d.close();
+    const opened = store.open(c.id);
+    try {
+      assert.equal(opened.db.value(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'audit_log_no_delete'`), 1);
+      assert.ok(logs.some((l) => /Edit log protection was missing/.test(l.message)));
+    } finally {
+      store.close(opened);
+    }
+  });
+
+  it('sweeps plaintext leftovers of a crash (decrypted restores, snapshots, temp files) but nothing recent or in use', () => {
+    const store = newStore();
+    const c = store.create(input('Mu'));
+    const past = new Date(clock.now().getTime() - 2 * 60 * 60_000);
+    const make = (p: string, dir = false): string => {
+      if (dir) {
+        fs.mkdirSync(p, { recursive: true });
+        fs.writeFileSync(path.join(p, 'company.db'), 'decrypted');
+      } else fs.writeFileSync(p, 'x');
+      return p;
+    };
+    const aged = (p: string): string => {
+      fs.utimesSync(p, past, past);
+      return p;
+    };
+    const oldRestore = aged(make(path.join(dataDir, '.restore-abc123'), true));
+    const oldStaging = aged(make(path.join(dataDir, '.staging-def456'), true));
+    const freshRestore = make(path.join(dataDir, '.restore-fresh1'), true);
+    const oldSnap = aged(make(path.join(c.dir, '.backup-xyz789.db')));
+    const oldTmp = aged(make(path.join(c.dir, 'registry.json.tmp-123-abcd')));
+    fs.mkdirSync(path.join(dataDir, 'backups', c.id), { recursive: true });
+    const oldPartial = aged(make(path.join(dataDir, 'backups', c.id, '.Mu_20261005-100000.bahibak.ab12cd.tmp')));
+    const keepBackup = aged(make(path.join(dataDir, 'backups', c.id, 'Mu_20261005-100000.bahibak')));
+    assert.equal(store.sweepTemporaryFiles(), 5);
+    for (const p of [oldRestore, oldStaging, oldSnap, oldTmp, oldPartial]) assert.equal(fs.existsSync(p), false, p);
+    for (const p of [freshRestore, keepBackup, c.dbPath]) assert.equal(fs.existsSync(p), true, p);
+    // A company open elsewhere is left alone.
+    const opened = store.open(c.id);
+    try {
+      const snap = aged(make(path.join(c.dir, '.backup-inuse1.db')));
+      assert.equal(store.sweepTemporaryFiles(), 0);
+      assert.ok(fs.existsSync(snap));
+    } finally {
+      store.close(opened);
+    }
+  });
+
   it('rejects ids that could escape the companies folder', () => {
     const store = newStore();
     for (const bad of ['../x', 'a/b', '..', '', 'A-UPPER', 'x\\y']) assert.throws(() => store.paths(bad), isCode('NOT_FOUND'), bad);

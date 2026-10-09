@@ -142,7 +142,8 @@ export function VoucherEntryScreen({ params }: ScreenProps<VoucherEntryParams>) 
     if (detail && readOnly) nav.replace('vouchers.view', { id: detail.id });
   }, [detail, readOnly, nav]);
 
-  const label = params.baseType ? baseTypeLabel(params.baseType) : (type?.name ?? 'Voucher');
+  // A company-defined type opened from F10 / Go To ({ baseType, voucherTypeId }) shows its own name.
+  const label = params.baseType && params.voucherTypeId === undefined ? baseTypeLabel(params.baseType) : (type?.name ?? (params.baseType ? baseTypeLabel(params.baseType) : 'Voucher'));
   const title = params.id !== undefined ? `${detail?.voucherType.name ?? label} Alteration` : `${type?.name ?? label} Voucher`;
   const loading = typesQ.loading || waiting || (type !== null && !ctx0);
   const error = typesQ.error ?? (params.id !== undefined ? detailQ.error : null) ?? (params.duplicateOf !== undefined ? dupQ.error : null) ?? ctxQ.error;

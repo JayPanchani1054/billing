@@ -60,12 +60,12 @@ All company scope. "SM" = `security.manage`.
 | `security.settings.get` | none | `SecuritySettings` | SM |
 | `security.settings.save` | `Partial<SecuritySettings>` | `SecuritySettings` | SM |
 | `security.passwordPolicy` | none | `PasswordPolicyInfo` (rules as text, for any password form) | authenticated |
-| `security.audit.list` | `{ from?, to?, userId?, actions?, entityType?, entityId?, search?, limit ≤ 500, offset, order? }` | `{ rows: AuditListRow[], total }` | `audit.view` |
+| `security.audit.list` | `{ from?, to?, userId?, actions?, entityType?, entityId?, search?, limit ≤ 500, offset, order? }` — strict: any other key is a VALIDATION error ("Unknown field \"action\" — did you mean \"actions\"?"), so a misspelt filter never returns the unfiltered log | `{ rows: AuditListRow[], total }` | `audit.view` |
 | `security.audit.facets` | none | `AuditFacets` (record types, users, actions with counts; first/last timestamp) | `audit.view` |
 | `security.audit.get` | `{ id }` | `AuditEntryDetail` (before/after parsed, `changes: { path, kind, before, after }[]`) | `audit.view` |
 | `security.audit.entityHistory` | `{ entityType, entityId, entityGuid? }` | `AuditEntityHistory` (versions oldest first, each with its changes) | `audit.view` |
 | `security.audit.verify` | none | `AuditVerifyReport` (`ok`, `message`, `detail`, `brokenAtId`, `reason`, `lastHash`) | `audit.view` |
-| `security.audit.export` | `{ format: 'xlsx' \| 'csv', from?, to?, …same filters }` | `{ fileName, mimeType, bytes, rowCount }` | `audit.view` + `data.export` (checked in the service) |
+| `security.audit.export` | `{ format: 'xlsx' \| 'csv', from?, to?, …same filters }` (strict, like the list) | `{ fileName, mimeType, bytes, rowCount }` | `audit.view` + `data.export` (checked in the service) |
 | `security.mySession` | none | `MySession` | authenticated |
 
 `enable`, `disable` and every `audit.*` route are `transactional: false` (async scrypt / heavy reads);

@@ -316,13 +316,64 @@ describe('data.tally.import: vouchers', () => {
     assert.equal(t.db.value(`SELECT COUNT(*) FROM ledger_entries le JOIN vouchers v ON v.id = le.voucher_id WHERE v.number = 'S-4'`), 0);
   });
 
-  it('writes one "import" audit entry and an import batch; the edit log stays valid', async () => {
-    const before = t.db.value<number>('SELECT COUNT(*) FROM audit_log') ?? 0;
+  it('audits every record (no edit-log bypass): one entry per master and per voucher, then the "import" summary', async () => {
+    const before = t.db.value<number>('SELECT MAX(id) FROM audit_log') ?? 0;
     const r = await runImport();
-    assert.equal(t.db.value('SELECT COUNT(*) FROM audit_log') as number, before + 1);
-    assert.equal(t.db.value(`SELECT action FROM audit_log ORDER BY id DESC LIMIT 1`), 'import');
+    const rows = t.db.all<{ action: string; entity_type: string; entity_id: number; after_json: string }>(
+      'SELECT action, entity_type, entity_id, after_json FROM audit_log WHERE id > :before ORDER BY id',
+      { before },
+    );
+    // Vouchers: one 'create' per voucher written (10), each pointing at the voucher, marked as from Tally.
+    const vouchers = rows.filter((x) => x.entity_type === 'voucher');
+    assert.equal(vouchers.length, r.vouchers.created);
+    assert.equal(r.vouchers.created, 10);
+    assert.ok(vouchers.every((x) => x.action === 'create' && JSON.parse(x.after_json).source === 'tally' && JSON.parse(x.after_json).importBatchId === r.batchId));
+    assert.deepEqual(new Set(vouchers.map((x) => x.entity_id)), new Set(t.db.all<{ id: number }>('SELECT id FROM vouchers').map((x) => x.id)));
+    // Masters: every ledger / item the import created has its own entry.
+    const ledgersCreated = r.masters.ledgers.created;
+    assert.ok(ledgersCreated > 0);
+    assert.equal(rows.filter((x) => x.entity_type === 'ledger' && x.action === 'create').length, ledgersCreated);
+    assert.equal(rows.filter((x) => x.entity_type === 'stock_item' && x.action === 'create').length, r.masters.stockItems.created);
+    // F11 changes (cost centres, godowns, batches used in the file) are audited as settings.
+    assert.ok(rows.some((x) => x.action === 'settings' && x.entity_type === 'company_features'));
+    const last = rows[rows.length - 1];
+    assert.equal(last.action, 'import');
     assert.equal(t.db.value('SELECT kind FROM import_batches WHERE id = :id', { id: r.batchId }), 'tally_xml');
     assert.equal(verifyData(t.ctx).checks.find((c) => c.name === 'audit_chain')?.ok, true);
+  });
+
+  it('altering an existing ledger or re-importing a voucher with "update" leaves before/after in their history', async () => {
+    // Cash exists in Bahi with no opening balance: the import takes over Tally's opening (even with "skip").
+    const cash = t.db.value<number>(`SELECT id FROM ledgers WHERE reserved_code = 'CASH'`) as number;
+    const bytes = withVouchers(payment('g-pay-40', '40', '20260410', '100.00'));
+    await runImport({}, bytes);
+    const cashOpening = t.db.value<number>('SELECT opening_balance FROM ledgers WHERE id = :id', { id: cash });
+    assert.equal(cashOpening, 20_000_00); // fixture: Cash 20,000 Dr
+    const cashAlter = t.db.get<{ before_json: string; after_json: string }>(
+      `SELECT before_json, after_json FROM audit_log WHERE entity_type = 'ledger' AND entity_id = :id AND action = 'alter' ORDER BY id DESC LIMIT 1`,
+      { id: cash },
+    );
+    assert.ok(cashAlter, 'the Cash ledger alteration is in its history');
+    assert.notEqual(cashAlter.before_json, cashAlter.after_json);
+    const id = t.db.value<number>(`SELECT id FROM vouchers WHERE number = '40'`) as number;
+    const r = await runImport({ masters: false, onDuplicate: 'update' }, withVouchers(payment('g-pay-40', '40', '20260410', '175.00')));
+    assert.equal(r.vouchers.updated, 1);
+    const alter = t.db.get<{ before_json: string; after_json: string }>(
+      `SELECT before_json, after_json FROM audit_log WHERE entity_type = 'voucher' AND entity_id = :id AND action = 'alter'`,
+      { id },
+    );
+    assert.ok(alter, 'the voucher update is in its history');
+    assert.equal(JSON.parse(alter.before_json).amount, 100_00);
+    assert.equal(JSON.parse(alter.after_json).amount, 175_00);
+  });
+
+  it('F11 is changed only for a user who may manage the company (else a warning; the data is still imported)', async () => {
+    const importer = t.sessionAs({ permissions: ['data.import', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'vouchers.backdate'] });
+    const before = { costCentres: t.db.value<string>(`SELECT value FROM settings WHERE key = 'features'`) };
+    const r = await t.callOk<TallyImportResult>(dataRoutes, 'data.tally.import', { fileName: FILE, bytes: tallyFixtureBytes(), options: { vouchers: true, onDuplicate: 'skip' } }, { session: importer });
+    assert.equal(r.vouchers.created, 10);
+    assert.ok(r.issues.some((i) => i.code === 'features_not_enabled'));
+    assert.equal(t.db.value<string>(`SELECT value FROM settings WHERE key = 'features'`), before.costCentres, 'F11 unchanged');
   });
 
   it('importing the same file again skips what exists (no duplicate vouchers)', async () => {

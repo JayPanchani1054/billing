@@ -16,7 +16,8 @@ This document is the **contract** for everyone working on the codebase. Read it 
 | Database | SQLite via **`node:sqlite`** (built into Node/Electron) | No native modules → nothing to rebuild; WAL; one DB file per company |
 | Core logic | TypeScript, **zero runtime dependencies** | Runs in Node directly (type stripping) → testable everywhere |
 | UI | React 19 + plain CSS design system | Bundled by Vite; no CSS framework |
-| Main/preload bundling | esbuild (scripts/build.mjs) | CJS output in `out/` |
+| Main/preload bundling | esbuild (scripts/build.mjs) | CJS output in `out/` (main, core worker, preload) |
+| Core host | `node:worker_threads` worker in the main process | `src/main/core-worker.ts`; main talks to it through `core-proxy.ts` (same `Runtime` interface) |
 | Tests | `node:test` + `node:assert/strict` | `npm test` |
 | Installer | electron-builder → NSIS (choose install dir) | Built on GitHub Actions `windows-latest` |
 
@@ -66,7 +67,9 @@ src/
     app/               App runtime: config/data dir, company registry, sessions, app routes
     modules/<module>/  routes.ts + services + tests — one folder per feature module
     testing/           Test fixtures (temp company, sample masters, voucher builders)
-  main/                Electron main: windows, IPC bridge → core dispatch, dialogs, print/PDF, menu
+  main/                Electron main: windows, IPC bridge → core dispatch, dialogs, print/PDF, menu.
+                       The core itself runs on a worker thread (core-worker.ts ↔ core-proxy.ts), never
+                       on the main thread; it may import node:* only (no 'electron').
   preload/             contextBridge exposing window.bahi (typed, minimal)
   renderer/            React app
     app/               Shell, navigation stack, keyboard, registry.ts (ModuleDef contract), API client
@@ -75,7 +78,7 @@ src/
     modules/<module>/  index.ts (ModuleDef) + screens/components for that module
 scripts/               build.mjs, dev.mjs
 build/                 Installer resources (icon, NSIS include)
-e2e/                   Playwright Electron smoke tests (CI)
+e2e/                   Playwright Electron specs (smoke + first-day flow; CI, docs/BUILD.md §5.1)
 ```
 
 Feature modules (same name on both sides): `company security accounts inventory vouchers reports stock
@@ -137,6 +140,11 @@ export const accountsRoutes = {
 
 - The dispatcher validates input, enforces access, opens a **transaction for company-scope routes** (unless
   `transactional: false` for heavy read-only reports), maps thrown `AppError`s to `{ ok: false, error }`.
+- **Unknown input keys**: in production a key the schema does not declare is dropped; under `node --test`
+  (the whole suite) and in development (`BAHI_STRICT_INPUT=1`, scripts/dev.mjs) it is a `VALIDATION`
+  error ("Unknown field …", with a did-you-mean hint), so a misspelt key fails in tests instead of being
+  silently ignored. Filter inputs whose typo would widen the result (e.g. the edit-log list/export) use
+  `v.strictObject` and reject unknown keys in production too. Send only declared keys from the renderer.
 - Route names: `'<module>.<entity>.<action>'`; actions: `list`, `get`, `save` (create/alter by presence of `id`),
   `delete`, plus domain verbs (`vouchers.cancel`, `gst.gstr1.export`).
 - Handlers return plain JSON-safe data (objects, arrays, strings, numbers, booleans, null, `Uint8Array`).
@@ -175,8 +183,9 @@ Use `:name` placeholders with an object. Always parameterise — **never interpo
   Numbers are allocated inside the save transaction (no gaps on rollback).
 - Cancelling keeps the voucher (number preserved, amounts zeroed in books via `affects_books = 0`); deleting
   removes it. Both are audited.
-- Stock: sales/delivery note/rejection out/debit note(with items) = outward; purchase/receipt note/rejection in/
+- Stock: sales/delivery note/rejection out/debit note(with items, to a supplier) = outward; purchase/receipt note/rejection in/
   credit note(with items) = inward. An invoice line tracked against a delivery/receipt note does not move stock again.
+  A debit note to a customer (price revision, CGST s.34(3)) is value-only: its item lines never move stock.
 - Closing stock (integrated inventory): valued by item costing method (default weighted average) and shown in
   P&L and Balance Sheet (Current Assets › Stock-in-Hand).
 
@@ -184,6 +193,10 @@ Use `:name` placeholders with an object. Always parameterise — **never interpo
 
 - Intra-state (supplier state = place of supply) → CGST + SGST (UTGST for UTs without legislature: 04, 26, 31, 35, 38).
   Inter-state, exports (POS 96), SEZ (always) → IGST.
+- Inward from an SEZ unit: **goods** are imports (bill of entry; IGST paid at customs, not to the supplier;
+  GSTR-3B 4(A)(1), GSTR-9 6E, GSTR-2B IMPGSEZ); **services** are B2B with IGST on the invoice (4(A)(5)).
+- GSTR-3B 6.1 sets off against the period's ITC plus the credit brought forward from the previous return
+  period (electronic credit ledger, chained from the books beginning).
 - Place of supply defaults: consignee/ship-to state for goods, buyer state otherwise; overseas → 96.
 - Rate resolution precedence: voucher-line override → stock item (effective-dated history) → stock group → sales/purchase ledger.
 - Tax per invoice is computed per rate bucket and allocated back to lines (largest remainder) so line taxes sum exactly.
@@ -205,12 +218,25 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   from a picker, `Ctrl+A`/`Ctrl+S` accept/save, `Esc` back, `Alt+P` print, `Alt+E` export, `F11` features, `F12` configure.
 - Forms: `Enter` advances to the next field (Tally behaviour), `Shift+Enter`/`Shift+Tab` goes back,
   `Ctrl+A` saves. Validation errors appear inline next to the field and focus the first invalid field.
+  On push the shell focuses `[data-autofocus]` (else the first field / grid) — also after the screen
+  finishes loading, unless the user already moved.
+- Screen conventions — one meaning per key in every module (`CONVENTION_SHORTCUTS`, F1): `Alt+C` create,
+  `Alt+A` alter, `Alt+D` delete, `Ctrl+D` remove line, `Alt+N`/`Ctrl+N` insert line, `Alt+2` duplicate,
+  `Alt+X` cancel voucher, `Alt+Enter` view, `Alt+M` open the report subject's master, `Alt+F1`
+  detailed/condensed, `Ctrl+1…9` switch view/tab, `Ctrl+F` search box, `Alt+E` export, `Alt+P` print.
+  Screens never bind the global keys (`reservedGlobalKeys()`), e.g. `Alt+F5` = Sales Order. Labels use
+  Tally verbs ("Create …", "Alter", "Delete").
 - Pickers (ledger/item/group selection) are type-ahead lists that show balances/stock and offer "+ Create"
   (`Alt+C`) inline.
 - Amounts: right-aligned, tabular numerals, Indian grouping (`12,34,567.00`), Dr/Cr suffix in reports;
   negative values never shown with a bare minus in accounting reports — use Dr/Cr.
 - Reports: period selector (`Alt+F2`), drill-down with `Enter`/double-click down to the voucher, `Esc` back up,
-  export (`Alt+E`) to Excel/CSV/PDF, print (`Alt+P`).
+  export (`Alt+E`) to Excel/CSV/PDF, print (`Alt+P`). Excel, CSV, PDF and Print all need the `data.export`
+  permission and are recorded in the edit log — enforced by the core (`data.export.table`,
+  `data.export.audit`), never only in the UI.
+- Hidden stacked screens do not refetch on invalidation; they refetch when shown again.
+- Secured companies lock after the idle timeout: the workspace stays mounted, hidden behind a lock
+  screen, and resumes (unsaved work included) when the same user logs in again.
 - Use only components from `src/renderer/ui/` and tokens from `styles/tokens.css`; no inline colours.
   Light & dark themes; WCAG AA contrast; visible focus rings; every icon button has `aria-label`.
 - Never render user data as HTML (`dangerouslySetInnerHTML` is banned).

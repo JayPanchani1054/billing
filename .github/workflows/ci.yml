@@ -15,9 +15,14 @@ concurrency:
 
 env:
   NODE_VERSION: '22'
-  # No lockfile is committed yet; install exactly what package.json allows.
-  NPM_INSTALL: npm install --no-audit --no-fund
   FORCE_COLOR: '1'
+
+# Third-party actions are pinned to full commit SHAs (the comment gives the release); Dependabot
+# (.github/dependabot.yml) proposes updates as reviewed pull requests.
+#
+# Dependencies: `npm ci` when package-lock.json is committed (exact, reproducible), otherwise
+# `npm install`. The Lockfile workflow (.github/workflows/lockfile.yml) generates and commits the
+# lockfile whenever package.json changes.
 
 jobs:
   verify:
@@ -28,28 +33,32 @@ jobs:
       # Types ship inside the electron package; the binary is not needed to typecheck or bundle.
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package.json
+          cache-dependency-path: package*.json
 
       - name: Install dependencies
-        run: ${{ env.NPM_INSTALL }}
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
-      - name: Typecheck
+      - name: Typecheck (core, main/preload, renderer, e2e specs)
         run: npm run typecheck
 
       - name: Unit tests
         run: npm test
 
-      - name: Build (main, preload, renderer)
+      - name: Build (main, core worker, preload, renderer)
         run: npm run build
 
       - name: Upload build output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: bahi-out
           path: out/
@@ -57,7 +66,7 @@ jobs:
           if-no-files-found: error
 
   windows-installer:
-    name: Windows installer (NSIS x64)
+    name: Windows unit tests + installer (NSIS x64)
     needs: verify
     runs-on: windows-latest
     timeout-minutes: 40
@@ -65,31 +74,44 @@ jobs:
       # Unsigned build: do not let electron-builder look for signing identities.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package.json
+          cache-dependency-path: package*.json
 
       - name: Cache Electron and electron-builder downloads
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~\AppData\Local\electron\Cache
             ~\AppData\Local\electron-builder\Cache
-          key: electron-win-${{ hashFiles('package.json') }}
+          key: electron-win-${{ hashFiles('package-lock.json', 'package.json') }}
           restore-keys: electron-win-
 
       - name: Install dependencies
-        run: ${{ env.NPM_INSTALL }}
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+
+      # Windows is the only shipped platform: paths, file locking during temp cleanup, CRLF and
+      # case-insensitive paths are exercised here on every push, not first at release time.
+      - name: Unit tests (Windows)
+        run: npm test
 
       - name: Ensure app icon
         run: node scripts/make-icon.mjs --if-missing
 
+      # scripts/after-pack.cjs fails the build if the Electron fuses cannot be applied.
       - name: Build installer
         run: npm run dist:win
+
+      - name: Verify Electron fuses on the packaged binary
+        run: npm run check:fuses
 
       - name: Checksums
         shell: bash
@@ -98,7 +120,7 @@ jobs:
           sha256sum *.exe | tee SHA256SUMS.txt
 
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: Bahi-ERP-Windows-Installer
           path: |
@@ -107,29 +129,71 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  e2e:
-    name: End-to-end (Electron + Playwright)
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+  windows-smoke:
+    name: Install and launch the packaged app (Windows)
+    needs: windows-installer
+    runs-on: windows-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - name: Download installer
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: Bahi-ERP-Windows-Installer
+          path: release
+
+      # Silent per-user install, then the installed Bahi ERP.exe (fuses on, app.asar, core worker in
+      # app.asar.unpacked, node:sqlite) is started with BAHI_SMOKE_TEST=1: it calls app.state through
+      # the real bridge, logs the verdict and quits with exit code 0/1. Then it is uninstalled.
+      - name: Smoke-test the installed app
+        shell: pwsh
+        run: ./scripts/smoke-installed.ps1 -Installer (Get-ChildItem release/Bahi-ERP-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence
+
+      - name: Upload smoke evidence
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: windows-smoke-evidence
+          path: smoke-evidence/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  e2e:
+    name: End-to-end (Electron + Playwright, ${{ matrix.os }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package.json
+          cache-dependency-path: package*.json
 
       - name: Cache Electron download
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ~/.cache/electron
-          key: electron-linux-${{ hashFiles('package.json') }}
-          restore-keys: electron-linux-
+          path: |
+            ~/.cache/electron
+            ~\AppData\Local\electron\Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json', 'package.json') }}
+          restore-keys: electron-${{ runner.os }}-
 
       - name: Install dependencies
-        run: ${{ env.NPM_INSTALL }}
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
       - name: Build
         run: npm run build
@@ -137,16 +201,24 @@ jobs:
       # Ubuntu 23.10+ restricts unprivileged user namespaces via AppArmor, which Chromium's sandbox
       # needs. Re-enable them for this runner instead of weakening the app with --no-sandbox.
       - name: Allow Chromium sandbox
+        if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
       - name: Playwright (xvfb)
+        if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24" npx playwright test
 
-      - name: Upload Playwright report
+      - name: Playwright
+        if: runner.os == 'Windows'
+        run: npx playwright test
+
+      # Failing tests leave a window screenshot (attached in the report) and trace.zip (open with
+      # `npx playwright show-trace`) in test-results/ — see e2e/support.ts.
+      - name: Upload Playwright report, traces and screenshots
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.os }}
           path: |
             playwright-report/
             test-results/

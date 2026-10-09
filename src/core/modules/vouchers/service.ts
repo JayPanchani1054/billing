@@ -23,7 +23,7 @@ import type { Db } from '../../db/db.ts';
 import { conflict, forbidden, notFound, rule } from '../../lib/errors.ts';
 import { assertDateUnlocked, getConfig, getFeatures } from '../company/service.ts';
 import {
-  allocateNextNumber,
+  commitNumber,
   decideNumber,
   loadVoucherType,
   previewNextNumber,
@@ -444,10 +444,9 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
   if (existing) assertAlterKeepsLinks(db, existing, plan);
   enforceWarnings(plan.warnings, input.acknowledgeWarnings === true);
 
-  if (decision.consume) {
-    const got = allocateNextNumber(db, vt, input.date, env.company.fyStartMonth);
-    if (got.number !== decision.number) throw conflict('The voucher number changed while saving. Please save again.');
-  }
+  // The number was found free by decideNumber inside this same (synchronous) transaction: nothing can
+  // take it in between, so the counter is advanced to it without probing the series again.
+  if (decision.consume && decision.seq !== null) commitNumber(db, vt, input.date, env.company.fyStartMonth, decision.seq);
 
   const now = ctx.clock.now().toISOString();
   const userId = ctx.session.userId;

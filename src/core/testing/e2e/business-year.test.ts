@@ -512,12 +512,10 @@ describe('business year FY 2026-27 through runtime.dispatch', () => {
     }
   });
 
-  // ── Assertions the application fails today. Each is a reported audit finding (node:test `todo`: the
-  //    assertion runs and is reported, without failing the suite; it turns green once the defect is fixed).
+  // ── Regressions of fixed audit findings (they were node:test `todo`s until the defects were fixed).
 
   it(
     'GSTR-3B carries the unused ITC of June into July (electronic credit ledger brought forward)',
-    { todo: 'FINDING: GSTR-3B 6.1 set-off ignores the credit balance carried forward from the previous month' },
     async () => {
       const jun = await e.call<G3b & { payment: { setOff: { creditBalance: Heads }; creditAvailable: Heads; cashTotal: number } }>('gst.gstr3b.summary', { period: '062026' });
       const jul = await e.call<G3b & { payment: { creditAvailable: Heads; cashTotal: number } }>('gst.gstr3b.summary', { period: '072026' });
@@ -526,12 +524,34 @@ describe('business year FY 2026-27 through runtime.dispatch', () => {
       for (const h of HEADS) {
         assert.equal(jul.payment.creditAvailable[h], Math.max(0, jul.itc.net[h]) + jun.payment.setOff.creditBalance[h], `July ${h}: 4(C) + June's closing credit`);
       }
+      // The chain holds for every month of the year (April starts at the books beginning with nothing),
+      // and GSTR-9 Table 9 and the dashboard use the same chained figures.
+      type Pay = { payment: { broughtForward: Heads; setOff: { creditBalance: Heads }; rows: Array<{ head: keyof Heads; cash: number; rcmLiability: number }> } };
+      let prev: Heads = zero();
+      const cash = zero();
+      const julyCash = { v: 0 };
+      for (const ym of FY_MONTHS) {
+        const m = await e.call<Pay>('gst.gstr3b.summary', { period: periodKey(ym) });
+        assert.deepEqual({ ...m.payment.broughtForward }, prev, `${ym}: brought forward = previous month's closing credit`);
+        prev = { ...m.payment.setOff.creditBalance };
+        for (const r of m.payment.rows) cash[r.head] += r.cash + r.rcmLiability;
+        if (periodKey(ym) === '072026') julyCash.v = m.payment.rows.reduce((t, r) => t + r.cash + r.rcmLiability, 0);
+      }
+      const g9 = await e.call<{ table9: Array<{ head: keyof Heads; paidCash: number }> }>('gst.gstr9.summary', { fy: '2026-27' });
+      for (const r of g9.table9) assert.equal(r.paidCash, cash[r.head], `GSTR-9 table 9 ${r.head} paid in cash = Σ chained months`);
+      e.clock.setToday('2026-07-31');
+      try {
+        const d = await e.call<{ gst: { period: string; netPayable: number } | null }>('dashboard.summary', { asOf: '2026-07-31', from: BOOKS_FROM, to: '2026-07-31' });
+        assert.equal(d.gst?.period, '072026');
+        assert.equal(d.gst?.netPayable, julyCash.v, 'dashboard GST card = July GSTR-3B cash (with June credit used)');
+      } finally {
+        e.clock.setToday(FY_END);
+      }
     },
   );
 
   it(
     'GSTR-1 Table 13 reports only the deleted invoice as missing (the optional voucher is not an issued or cancelled invoice)',
-    { todo: 'FINDING: Optional sales vouchers are reported as missing/cancelled invoice numbers in GSTR-1 Table 13' },
     async () => {
       const g1 = await e.call<G1>('gst.gstr1.summary', FY);
       const sales = g1.docs.find((d) => d.docNum === 1)!;
@@ -580,7 +600,7 @@ describe('business year FY 2026-27 through runtime.dispatch', () => {
   });
 });
 
-describe('audit findings reproduced on a fresh company (todo until fixed)', () => {
+describe('audit findings reproduced on a fresh company (fixed; regression tests)', () => {
   let e: E2E;
   let w: World;
   before(async () => {
@@ -594,7 +614,6 @@ describe('audit findings reproduced on a fresh company (todo until fixed)', () =
 
   it(
     'a debit note to a customer for a price revision does not move stock again',
-    { todo: 'FINDING: Item-mode debit note to a customer (price revision) moves stock out a second time' },
     async () => {
       const { L, I, VT } = w;
       const sale = await post(w, 'fx-sale', { voucherTypeId: VT.sales, date: '2026-04-11', mode: 'item_invoice', partyLedgerId: L.blr, items: [{ itemId: I.mixer, qty: 2, rate: 3000 }] });
@@ -621,7 +640,6 @@ describe('audit findings reproduced on a fresh company (todo until fixed)', () =
 
   it(
     'goods bought from an SEZ unit are posted like an import (IGST at customs), as GSTR-3B reports them',
-    { todo: 'FINDING: Goods from an SEZ unit: IGST posted as payable to the supplier, but GSTR-3B/GSTR-9 report it as import of goods' },
     async () => {
       const { L, I, VT, G } = w;
       const sup = await e.call<{ id: number }>('accounts.ledger.save', {

@@ -50,20 +50,25 @@ A screen the user may not open is refused with a toast; one whose feature is off
 Gateway, second line in Go To). Items inherit their screen's `access/feature/gstOnly`.
 
 Gateway sections, in display order: `masters`, `transactions`, `banking`, `utilities`, `reports`,
-`inventory_reports`, `gst`, `data`, `security`, `company`. Accelerator letters are assigned across the
-whole Gateway in that order, preferring each label's first letter — keep important items early.
+`inventory_reports`, `gst`, `data`, `security`, `company`. Accelerator letters (one per item, unique
+across the whole Gateway, preferring each label's first letter) are assigned to the everyday screens
+first (`GATEWAY_PRIORITY` in `lib/menu.ts`: Balance Sheet, P&L, Trial Balance, Day Book, Ledger, Stock
+Summary, Receivables, Payables, GSTR-1/3B, BRS, Cash/Bank Books, Ledgers, Stock Items, Backup), then
+to the rest in display order; a digit is the last resort (GSTR-3B → 3). Items with a `hotkey` (voucher
+entry F4–F9…, F11, F12) get no letter — they already have a key. Labels must be unique across the
+Gateway (Go To lists them side by side; `lib/gatewayLabels.test.ts` scans every module).
 
 ### Well-known screen ids (please register these exact ids)
 
 | id | params | used by |
 |---|---|---|
 | `dashboard.home` | `{ embedded: true }` when shown inside the Gateway | Gateway right panel |
-| `vouchers.entry` | `{ baseType: VoucherBaseType, id?: number }` | F4–F9, Ctrl+F8/F9, Alt+F5/F6/F7/F8/F9, F10 picker, Go To vouchers |
-| `accounts.ledger.form` | `{ id?, initialName?, forResult? }` | Gateway quick action, checklist, Go To ledgers (fallback) |
+| `vouchers.entry` | `{ baseType: VoucherBaseType, voucherTypeId?: number, id?: number }` | F4–F9, Ctrl+F8/F9, Alt+F5/F6/F7/F8/F9, F10 picker (custom types pass `voucherTypeId`), Go To vouchers |
+| `accounts.ledger.form` | `{ id?, initialName?, forResult? }` | Gateway quick action, checklist, Go To ledgers (when the Ledger report is not allowed) |
 | `accounts.ledger.list` | — | |
 | `inventory.item.form` | `{ id?, initialName?, forResult? }` | Gateway quick action, Go To items |
 | `reports.ledger` | `{ ledgerId }` | Go To ledgers (preferred when registered) |
-| `reports.daybook`, `reports.balanceSheet`, `reports.profitLoss`, `reports.trialBalance` | — | Gateway quick actions |
+| `vouchers.daybook`, `reports.balanceSheet`, `reports.profitLoss`, `reports.trialBalance` | — | Gateway quick actions (`WELL_KNOWN_SCREENS`) |
 
 Until a screen is registered, opening it shows "This screen isn't available yet" — nothing crashes.
 The company module owns `company.profile`, `company.features` (F11), `company.config` (F12),
@@ -106,7 +111,7 @@ scope (active only while it is on top), an error boundary, and handles Esc / foc
   periodMode="range"               // 'range' (Alt+F2 period chip) | 'asOn' ("As on <to>") | 'none'
   exportDef={() => ({ columns, rows, totals })}   // built on demand; omit to hide Export/Print
   filters={<SegmentedControl …/>}
-  actions={[{ key: 'Alt+F5', label: detailed ? 'Condensed' : 'Detailed', onClick: toggle }]}
+  actions={[{ key: 'Alt+F1', label: detailed ? 'Condensed' : 'Detailed', onClick: toggle }]}
   loading={q.loading} refreshing={q.refreshing} error={q.error} onRetry={q.refetch}
 >
   <DataTable autoFocus … />
@@ -115,7 +120,9 @@ scope (active only while it is on top), an error boundary, and handles Esc / foc
 
 It shows company + title + period (click or Alt+F2 to change), the Export dialog (Excel / CSV /
 PDF — press X, C or P) and Print, toasts "Saved … · Show in folder". Pass `period={…}` to show a
-drilled-down range instead of the global period.
+drilled-down range instead of the global period. Export and Print need the `data.export`
+permission: without it both are disabled with a hint (`EXPORT_DENIED_HINT`), and the core refuses
+and logs every format anyway (§8).
 
 ### Dialog screens
 
@@ -174,11 +181,18 @@ const { forResult, returnResult, cancel } = useScreenResult<{ id: number; name: 
 
 **Stack behaviour:** the Gateway is always at the bottom. Lower screens stay mounted and hidden
 (state kept, like Tally) — the 8 most recent; deeper ones unmount and remount when you return.
-Hidden screens keep their queries subscribed, so they refresh in the background after mutations.
+Hidden screens keep their queries subscribed but do **not** refetch while hidden: an invalidation
+(e.g. after a voucher save) only marks their data stale, and they refetch once when shown again
+(`screenVisibility.ts`, `lib/queryVisibility.ts`) — so a save never recomputes the Gateway dashboard
+or drilled-down reports nobody is looking at.
 
 **Focus rules:** on push the shell focuses `[data-autofocus]`, else the first editable field, else
 the first grid (give a report's main `DataTable` `autoFocus` anyway), else the first tabbable, else
-the heading. On pop, focus returns to the element that opened the screen. Don't steal focus later.
+the heading. When the screen is still loading (skeleton) that first pick is provisional: the shell
+watches the screen and moves focus to `[data-autofocus]` / the first field / the first grid as soon
+as it renders, unless the user (any key or click) or the screen itself moved focus first (10 s at
+most; `lib/initialFocus.ts`). So a master form that loads its pickers first still opens with the
+cursor in Name. On pop, focus returns to the element that opened the screen. Don't steal focus later.
 
 **Esc:** registered by the shell *outside* your screen's scope, so your handlers run first. Return
 `false` from an `Escape` handler to let the shell go back; consume it to close something local.
@@ -261,6 +275,15 @@ const canPost = useCan('vouchers.create');
 After changing company-level data that `app.state` reports (profile name, features), call
 `await app.refresh()`.
 
+**Idle lock (secured companies).** `session.idleTimeoutMs` (0 = never) comes from the core. After
+that long without keyboard/mouse input the shell calls `app.session.lock`; the server-side check
+(UNAUTHENTICATED with reason `idle`) leads to the same place. The phase becomes `'locked'`
+(`app.locked`): the workspace stays mounted but hidden and inert behind `LockScreen.tsx`, which covers
+dialogs and toasts and fences every hotkey. While locked, `app.company`/`app.session` keep the locked
+workspace's values (the server has no session). The same user logging in again resumes exactly
+where they left off (unsaved entries included; visible queries refetch); anyone else gets a fresh
+workspace; "Close the company" discards it. An explicit logout never locks (`lib/sessionLock.ts`).
+
 ---
 
 ## 6. Working date (F2) and period (Alt+F2)
@@ -282,10 +305,27 @@ Pass `referenceDate={date}` to `DateInput` so shorthand ("5", "5-10") resolves a
 ```ts
 const shell = useShell();
 shell.openVoucher('sales', { partyId });   // permission + feature checks, then push('vouchers.entry', { baseType, … })
+shell.openVoucher('sales', { voucherTypeId: 40 });   // a company-defined type ("Sales - Export")
 shell.voucherAvailability('sales_order');  // { ok, reason }
 shell.openGoto('hdfc'); shell.openShortcuts(); shell.openVoucherPicker();
 await shell.closeCompany(); await shell.logout(); await shell.quit();
 ```
+
+### F10 and Go To voucher types
+
+F10 lists the predefined types (with their F-keys) and then the company's own active types from
+Masters › Voucher Types under their base type (`useVoucherChoices`, needs `masters.view`; falls back
+to the predefined list). Go To offers the company's own types too; predefined ones come from the
+vouchers module's Transactions menu (the shell's own voucher commands are only added when no module
+registers `vouchers.entry`, so nothing is listed twice). Deactivated types are never offered.
+
+### Automatic backup (F12 › Backup)
+
+The shell calls `data.backup.auto` a few seconds after the workspace opens (`trigger: 'open'`) and
+before F3 / Ctrl+Q close the company (`trigger: 'close'`, waited for at most 15 s with a
+"Backing up…" toast); closing the window or quitting from Windows is covered by the core runtime's
+shutdown. The core writes at most one per 24 hours. A written backup shows "Backed up
+automatically"; a failure shows a warning with "Open Backup" (`lib/autoBackup.ts`).
 
 ### Go To providers
 
@@ -296,18 +336,20 @@ registerGotoProvider({
   id: 'ledgers',            // replaces the shell's built-in provider with the same id
   label: 'Ledgers',
   minQuery: 2,
-  search: async (q, signal) => (await api('accounts.ledger.picker', { search: q, limit: 8 })).rows.map((l) => ({
+  screens: ['reports.ledger', 'accounts.ledger.form'],   // runs only for users who may open one of them
+  search: async (q, signal) => (await api('accounts.ledger.list', { search: q, limit: 8 })).rows.map((l) => ({
     id: `ledger:${l.id}`, label: l.name, group: 'Ledgers', description: l.groupName,
     screen: 'reports.ledger', params: { ledgerId: l.id },
+    fallback: { screen: 'accounts.ledger.form', params: { id: l.id } },   // when reports are not allowed
   })),
 });
 ```
 
 Register at module import time (top level of your `index.ts`) or in an effect. Failures are silent.
-Built-ins (`ledgers`, `items`, `vouchers`) already call `accounts.ledger.picker`,
-`inventory.item.picker` and `vouchers.list` with `{ search, limit }` when those routes exist and
-accept `Row[] | { rows: Row[] }` with `{ id, name, alias?, groupName? }` (vouchers:
-`{ id, number|voucherNumber, typeName|voucherType, date, partyName? }`).
+The palette drops results the user cannot open (`nav.canOpen(screen)`, else `fallback`), and skips a
+provider whose `screens` are all forbidden (no API call). Built-ins (`ledgers`, `items`, `vouchers`)
+call `accounts.ledger.list`, `inventory.item.picker` and `vouchers.list` with `{ search, limit }` and
+are replaced by the accounts, inventory and vouchers modules' own providers.
 
 ---
 
@@ -322,9 +364,9 @@ const def: TableExportDef = {
   levels: [0],            // optional tree indent per row
   landscape: false,
 };
-await exportTable(def, 'xlsx' | 'csv');   // 'data.export.table' route; falls back to CSV until it exists
-await printReport(def);                    // OS print dialog
-await savePdf(def);                        // A4 PDF via save dialog
+await exportTable(def, 'xlsx' | 'csv');   // 'data.export.table' builds the file (permission + edit log)
+await printReport(def);                    // 'data.export.audit' first, then the OS print dialog
+await savePdf(def);                        // 'data.export.audit' first, then an A4 PDF via save dialog
 ```
 
 Column kinds: `text | amount | drcr | qty | number | date | percent` (`decimals?`, `width?`). Every
@@ -333,8 +375,12 @@ resources) with company header, period, repeating table header, totals and "Page
 `ReportScreen` does all of this for you from `exportDef`.
 
 The data module implements `data.export.table`: input `{ title, subtitle?, company?, period?,
-columns: { header, kind, width?, decimals? }[], rows, totals?, format: 'xlsx' | 'csv' }` →
-`{ bytes: Uint8Array, fileName }`.
+columns: { header, kind, width?, decimals? }[], rows, totals?, levels?, notes?, format: 'xlsx' | 'csv' }` →
+`{ bytes: Uint8Array, fileName }`, and `data.export.audit` `{ title, subtitle?, period?, rows, format:
+'pdf' | 'print' }` → `{ ok: true }`. **Excel, CSV, PDF and Print are all "export":** each needs the
+`data.export` permission (checked by the core — a user without it gets FORBIDDEN) and writes an
+`export` edit-log entry. CSV is never built in the renderer. Screens that print their own HTML
+(e.g. a Statement of Account) call `data.export.audit` before printing.
 
 ---
 
@@ -366,10 +412,33 @@ may handle `F8` itself to switch the voucher type). The full list renders in the
 
 ### Screen conventions
 
-`Enter`/`Shift+Enter` move between fields (`useEnterAdvance`), `Ctrl+A` accept/save, `Esc` back
-(shell), `Alt+C` create from a picker, `Alt+E` export, `Alt+P` print, `Alt+D` delete, `Ctrl+Enter`
-leaves a textarea. Plain letter keys are free for screen accelerators (ignored while typing).
-Put every action in the rail via `actions` / `useScreenActions` so it is discoverable.
+One meaning per key in every module (`CONVENTION_SHORTCUTS` in `lib/shortcuts.ts`, shown by F1):
+
+| Key | Meaning |
+|---|---|
+| `Enter` / `Shift+Enter` | next / previous field (`useEnterAdvance`); in lists: open / drill down |
+| `Ctrl+A` | accept / save |
+| `Ctrl+Enter` | leave a multi-line box |
+| `Esc` | back (shell) |
+| `Alt+C` | create (a master from a picker, or the screen's main "Create …") |
+| `Alt+A` | alter the selected voucher / master |
+| `Alt+D` | delete the master or voucher on screen |
+| `Ctrl+D` | remove the line (voucher and grid rows) |
+| `Alt+N` / `Ctrl+N` | insert a line above |
+| `Alt+2` | duplicate the voucher |
+| `Alt+X` | cancel the voucher |
+| `Alt+Enter` | view the voucher (read-only) |
+| `Alt+M` | open the master of the report's subject (ledger, item) |
+| `Alt+F1` | detailed / condensed |
+| `Ctrl+1` … `Ctrl+9` | switch view / tab |
+| `Ctrl+F` | focus the screen's search box |
+| `Alt+E` / `Alt+P` | export / print (need `data.export`) |
+
+Screens must not bind `reservedGlobalKeys()` (the voucher screen's own F-keys and the documented
+GST exceptions aside) — e.g. never `Alt+F5` (Sales Order). Action labels use Tally verbs ("Create
+ledger", "Alter", "Delete"); hints read `<Key> <Title Case action>` ("Alt+C Create Ledger"). Plain
+letter keys are free for screen accelerators (ignored while typing). Put every action in the rail via
+`actions` / `useScreenActions` so it is discoverable.
 
 ---
 
@@ -463,15 +532,16 @@ export function TrialBalance() {
 
 | File | What |
 |---|---|
-| `App.tsx`, `state.tsx`, `lib/appPhase.ts` | providers, top-level routing (no bridge → first run → login → company list → forced password → workspace) |
-| `Workspace.tsx`, `shell.tsx` | layout, top bar, rail, status bar; global hotkeys, menu commands, session keep-alive |
-| `nav.tsx`, `lib/navStack.ts` | stack, result delivery, per-screen hooks, error boundary, DialogScreen |
-| `api.ts`, `bridge.ts`, `queryClient.ts`, `hooks/*`, `lib/queryCache.ts`, `lib/apiErrors.ts` | API client, cache, errors |
+| `App.tsx`, `state.tsx`, `lib/appPhase.ts` | providers, top-level routing (no bridge → first run → login → company list → forced password → workspace); `CoreRestartNotice`: on the `core.restarted` command (main restarted a crashed core worker — nothing is open any more) shows an error toast and refreshes the app state |
+| `LockScreen.tsx`, `lib/sessionLock.ts` | idle lock (phase `locked`): lock screen over the kept workspace, lock/resume rules |
+| `Workspace.tsx`, `shell.tsx`, `lib/autoBackup.ts` | layout, top bar, rail, status bar; global hotkeys, menu commands, session keep-alive + idle timer, automatic backup |
+| `nav.tsx`, `lib/navStack.ts`, `lib/initialFocus.ts`, `screenVisibility.ts` | stack, result delivery, per-screen hooks, initial focus, error boundary, DialogScreen |
+| `api.ts`, `bridge.ts`, `queryClient.ts`, `hooks/*`, `lib/queryCache.ts`, `lib/queryVisibility.ts`, `lib/apiErrors.ts` | API client, cache (hidden screens wait), errors |
 | `confirm.tsx` | useConfirm, withConfirmation |
 | `working.tsx`, `lib/workingContext.ts` | working date & period |
 | `Gateway.tsx`, `lib/menu.ts`, `wellKnown.ts` | Gateway menu, accelerators, welcome panel |
 | `GotoPalette.tsx`, `gotoProviders.ts`, `lib/goto.ts`, `lib/gotoItems.ts` | Go To |
-| `ShortcutsOverlay.tsx`, `VoucherPicker.tsx`, `lib/shortcuts.ts` | keyboard map, F1, F10 |
+| `ShortcutsOverlay.tsx`, `VoucherPicker.tsx`, `lib/shortcuts.ts`, `lib/voucherTypes.ts`, `hooks/useVoucherChoices.ts` | keyboard map, F1, F10 (predefined + company voucher types) |
 | `Screen.tsx`, `export.ts`, `lib/exportFormat.ts`, `display.ts` | layout patterns, export/print, formatting |
 | `lib/featureCatalog.ts`, `preferences.ts` | F11 feature texts & rules, theme/density |
 

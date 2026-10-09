@@ -31,6 +31,7 @@
  *   'security.audit.entityHistory'  AuditEntityHistoryInput       → AuditEntityHistory                audit.view
  *   'security.audit.verify'         none                          → AuditVerifyReport                 audit.view
  *   'security.audit.export'         AuditExportInput              → AuditExportResult                 audit.view + data.export
+ *   'security.audit.resetAnchor'    none                          → AuditAnchorResetResult            Owner (audit.view)
  *
  *   'security.mySession'            none                          → MySession                         authenticated
  *
@@ -405,6 +406,30 @@ export interface AuditVerifyReport {
   lastEntryId: number | null;
   /** Hash of the newest entry: write it down (or keep the export) to detect truncation later. */
   lastHash: string | null;
+  /**
+   * Comparison with the check-point kept OUTSIDE the company file (this computer's app data, signed
+   * with a key that is never in a company file or backup). 'mismatch' / 'invalid' make ok false.
+   * Absent when the app keeps no check-points (tests, headless use).
+   */
+  anchor?: AuditAnchorReport;
+}
+
+export interface AuditAnchorReport {
+  /** match: the saved check-point is still in the log; mismatch: entries were removed or rewritten
+   *  since; invalid: the check-point itself was altered (or made with another computer's key);
+   *  missing: none saved yet for this company on this computer. */
+  status: 'match' | 'mismatch' | 'invalid' | 'missing';
+  /** When the check-point was saved (ISO), null when missing. */
+  recordedAt: string | null;
+  /** Edit-log entry the check-point points at. */
+  entryId: number | null;
+  /** The current user may accept the current log as the new check-point (security.audit.resetAnchor). */
+  canReset: boolean;
+}
+
+/** 'security.audit.resetAnchor' result. */
+export interface AuditAnchorResetResult {
+  anchoredEntryId: number | null;
 }
 
 export interface AuditExportInput {

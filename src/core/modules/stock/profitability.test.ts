@@ -76,6 +76,30 @@ describe('stock.profitability', () => {
       m.t.close();
     }
   });
+
+  test('a debit note to a customer (price revision) adds sales value without quantity or cost; a purchase return is not a sale', () => {
+    const m = stockMasters();
+    const kk = { ...m, V: {} };
+    try {
+      post(kk, invoice(m, 'sales', '2026-06-02', m.L.acme, [{ itemId: m.I.A, qty: 4, rate: 150 }]));
+      // Upward revision of ₹10 a unit on the 4 tumblers already delivered (value only).
+      post(kk, { ...invoice(m, 'sales', '2026-06-03', m.L.acme, [{ itemId: m.I.A, qty: 4, rate: 10 }]), voucherTypeId: m.vt.debit_note });
+      // A purchase return (debit note to a supplier) of 1 tumbler.
+      post(kk, { ...invoice(m, 'sales', '2026-06-04', m.L.supreme, [{ itemId: m.I.A, qty: 1, rate: 100 }]), voucherTypeId: m.vt.debit_note });
+      const r = profitability(m.t.db, m.t.today, { from: '2026-06-01', to: '2026-06-30' });
+      const [a] = r.rows;
+      // sales 4 × 150 = 60,000 + revision 4 × 10 = 4,000 → 64,000; quantity 4 (the note adds none);
+      // cost 4 × ₹100 = 40,000 (the note moves no stock) → GP 24,000 = 37.5%
+      assert.deepEqual([a.salesQty, a.salesValue, a.returnsValue, a.netQty, a.netSales, a.cost, a.grossProfit, a.gpPercent], [4, 64_000, 0, 4, 64_000, 40_000, 24_000, 37.5]);
+      // = the Sales ledger of the P&L: Cr 60,000 + Cr 4,000
+      const salesLedger = -(m.t.db.value<number>(
+        `SELECT SUM(le.amount) FROM ledger_entries le JOIN ledgers l ON l.id = le.ledger_id WHERE l.name = 'Sales' AND le.affects_books = 1`,
+      ) ?? 0);
+      assert.equal(r.totals.netSales, salesLedger);
+    } finally {
+      m.t.close();
+    }
+  });
 });
 
 describe('stock.physicalVariance', () => {

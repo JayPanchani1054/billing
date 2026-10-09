@@ -9,12 +9,13 @@ import type { CompanyProfile } from '../../shared/types/company.ts';
 import { Db } from '../db/db.ts';
 import { verifyAuditChain } from '../lib/audit.ts';
 import { companyRoutes } from '../modules/company/routes.ts';
+import { securityRoutes } from '../modules/security/routes.ts';
 import { makeGstin } from '../testing/fixtures.ts';
 import { fixedClock, type FixedClock } from './clock.ts';
 import { appRoutes } from './routes.ts';
-import { createRuntime, type Runtime } from './runtime.ts';
+import { createRuntime, DEFAULT_SHUTDOWN_ROUTES, type Runtime } from './runtime.ts';
 import { createRuntimeWithRoutes } from './runtime-core.ts';
-import { companyRoute, type RouteMap } from '../api/route.ts';
+import { appRoute, companyRoute, type RouteMap } from '../api/route.ts';
 import { v } from '../lib/validate.ts';
 import { controllerFor } from './controller.ts';
 import { verifyAuditChain as verifyChain } from '../lib/audit.ts';
@@ -371,9 +372,9 @@ describe('review regressions', () => {
   });
 
   it('with security off, logging out returns to the implicit owner session instead of a dead login prompt', async () => {
-    const rt = makeRuntime({ idleTimeoutMs: 60_000 });
+    const rt = makeRuntime({ idleTimeoutMs: 60_000, routes: securityRoutes });
     await ok(rt, 'app.company.create', company('Relaxed Co', { owner: { username: 'boss', password: 'Boss12345' } }));
-    await ok(rt, 'company.features.save', { security: false });
+    await ok(rt, 'security.disable', { password: 'Boss12345' });
     clock.advance(5 * 60_000);
     assert.equal((await ok<AppState>(rt, 'app.state')).session?.username, 'boss', 'no idle timeout without security');
     const out = await ok<AppState>(rt, 'app.auth.logout');
@@ -492,5 +493,145 @@ describe('review regressions', () => {
     const db = new Db(path.join(rt.app.dataDir, 'companies', id, 'company.db'), { readOnly: true });
     assert.equal(verifyChain(db).ok, true);
     db.close();
+  });
+});
+
+describe('runtime: idle lock (app.session.lock) and shutdown steps', () => {
+  it('app.session.lock ends a real session as idle (audited) and keeps the company open for re-login', async () => {
+    const rt = makeRuntime({ idleTimeoutMs: 15 * 60_000 });
+    const created = await ok<AppState>(rt, 'app.company.create', company('Locked Co', { owner: { username: 'boss', password: 'Boss12345' } }));
+    const id = created.companies[0].id;
+    assert.equal(created.session?.idleTimeoutMs, 15 * 60_000, 'the shell learns the idle timeout from the session');
+    const locked = await ok<AppState>(rt, 'app.session.lock');
+    assert.equal(locked.session, null);
+    assert.equal(locked.company, null);
+    assert.deepEqual(locked.pendingLogin, { companyId: id, companyName: 'Locked Co' });
+    await fail(rt, 'company.summary', {}, 'UNAUTHENTICATED');
+    // Calling it again (e.g. the server had already expired the session) is harmless.
+    assert.deepEqual((await ok<AppState>(rt, 'app.session.lock')).pendingLogin, { companyId: id, companyName: 'Locked Co' });
+    const back = await ok<AppState>(rt, 'app.auth.login', { username: 'boss', password: 'Boss12345' });
+    assert.equal(back.session?.username, 'boss');
+    await ok(rt, 'app.company.close');
+    const db = new Db(path.join(rt.app.dataDir, 'companies', id, 'company.db'), { readOnly: true });
+    const reasons = db.all<{ after_json: string | null }>(`SELECT after_json FROM audit_log WHERE action = 'logout'`).map((r) => (JSON.parse(r.after_json ?? '{}') as { reason?: string }).reason);
+    db.close();
+    assert.ok(reasons.includes('idle'), `logout reasons: ${reasons.join(',')}`);
+  });
+
+  it('app.session.lock never locks the implicit session (security off) and reports no idle timeout', async () => {
+    const rt = makeRuntime({ idleTimeoutMs: 60_000 });
+    const s = await ok<AppState>(rt, 'app.company.create', company('Open Co'));
+    assert.equal(s.session?.implicit, true);
+    assert.equal(s.session?.idleTimeoutMs, 0);
+    const after = await ok<AppState>(rt, 'app.session.lock');
+    assert.equal(after.session?.implicit, true);
+    assert.equal(after.pendingLogin, null);
+  });
+
+  it('shutdown dispatches the shutdown routes while the company is open, then closes it', async () => {
+    const calls: unknown[] = [];
+    const routes = {
+      'test.beforeClose': companyRoute({
+        access: 'authenticated',
+        transactional: false,
+        input: v.object({ trigger: v.string() }),
+        handler: (ctx, input) => {
+          calls.push({ input, ledgers: ctx.db.value<number>('SELECT COUNT(*) FROM ledgers') });
+          return { ok: true };
+        },
+      }),
+    } satisfies RouteMap;
+    const rt = createRuntimeWithRoutes(
+      { userDataDir: path.join(root, 'u2'), defaultDataDir: path.join(root, 'd2'), appVersion: '1.2.3', clock, consoleLog: false, shutdownRoutes: [{ route: 'test.beforeClose', input: { trigger: 'close' } }, { route: 'not.registered', input: {} }] },
+      { ...appRoutes, ...companyRoutes, ...routes },
+    );
+    await ok(rt, 'app.company.create', company('Quitting Co'));
+    await rt.shutdown();
+    assert.equal(calls.length, 1);
+    assert.deepEqual((calls[0] as { input: unknown }).input, { trigger: 'close' });
+    assert.ok(((calls[0] as { ledgers: number }).ledgers) > 0, 'ran while the database was open');
+    assert.equal(rt.hasOpenCompany(), false);
+    // No company open → nothing to run.
+    await rt.shutdown();
+    assert.equal(calls.length, 1);
+  });
+
+  it('a slow shutdown route is bounded: the company is closed anyway', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const routes = {
+      'test.hang': appRoute({ access: 'public', input: v.none(), handler: async () => gate }),
+    } satisfies RouteMap;
+    const rt = createRuntimeWithRoutes(
+      { userDataDir: path.join(root, 'u3'), defaultDataDir: path.join(root, 'd3'), appVersion: '1.2.3', clock, consoleLog: false, shutdownRoutes: [{ route: 'test.hang', input: {} }], shutdownStepTimeoutMs: 30 },
+      { ...appRoutes, ...companyRoutes, ...routes },
+    );
+    await ok(rt, 'app.company.create', company('Hanging Co'));
+    const started = Date.now();
+    await rt.shutdown();
+    assert.ok(Date.now() - started < 5_000);
+    assert.equal(rt.hasOpenCompany(), false);
+    release();
+  });
+
+  it('createRuntime runs the automatic backup on shutdown by default', () => {
+    assert.deepEqual(DEFAULT_SHUTDOWN_ROUTES, [{ route: 'data.backup.auto', input: { trigger: 'close' } }]);
+  });
+});
+
+describe('owner-password confirmations and login hammering (one DB-backed budget, bounded edit log)', () => {
+  const secured = (name: string) => company(name, { owner: { username: 'boss', password: 'Boss12345' } });
+  const auditRows = (rt: Runtime, id: string, where: string): Array<{ action: string; after_json: string | null }> => {
+    const db = new Db(path.join(rt.app.dataDir, 'companies', id, 'company.db'), { readOnly: true });
+    try {
+      return db.all(`SELECT action, after_json FROM audit_log WHERE ${where} ORDER BY id`);
+    } finally {
+      db.close();
+    }
+  };
+
+  it('wrong owner passwords on "delete company" use the company’s own login lockout, are recorded in its edit log and survive a restart', async () => {
+    const rt = makeRuntime();
+    const s = await ok<AppState>(rt, 'app.company.create', secured('Shared Budget Co'));
+    const id = s.companies[0].id;
+    await ok(rt, 'app.company.close');
+    for (let i = 0; i < 4; i++) await fail(rt, 'app.company.delete', { id, confirmName: 'Shared Budget Co', password: `Wrong${i}234` }, 'UNAUTHENTICATED');
+    await fail(rt, 'app.company.delete', { id, confirmName: 'Shared Budget Co', password: 'Wrong5234' }, 'LOCKED');
+    const failed = auditRows(rt, id, `action = 'login_failed'`);
+    assert.equal(failed.length, 5);
+    assert.ok(failed.every((r) => JSON.parse(r.after_json ?? '{}').context === 'company.delete'));
+    // The same budget: the Owner cannot log in either, and a restart does not reset it.
+    await rt.shutdown();
+    const rt2 = makeRuntime();
+    await ok(rt2, 'app.company.open', { id });
+    await fail(rt2, 'app.auth.login', { username: 'boss', password: 'Boss12345' }, 'LOCKED');
+  });
+
+  it('a locked account gets at most one "locked" edit-log entry per lockout, however often it is tried', async () => {
+    const rt = makeRuntime();
+    const s = await ok<AppState>(rt, 'app.company.create', secured('Hammer Co'));
+    const id = s.companies[0].id;
+    await ok(rt, 'app.auth.logout');
+    for (let i = 0; i < 5; i++) await fail(rt, 'app.auth.login', { username: 'boss', password: `Nope${i}2345` }, i < 4 ? 'UNAUTHENTICATED' : 'LOCKED');
+    for (let i = 0; i < 10; i++) await fail(rt, 'app.auth.login', { username: 'boss', password: 'Boss12345' }, 'LOCKED');
+    const locked = auditRows(rt, id, `action = 'login_failed' AND after_json LIKE '%"locked"%'`);
+    assert.equal(locked.length, 1);
+    // The lockout itself still ends on time.
+    clock.advance(5 * 60_000 + 1);
+    await ok(rt, 'app.auth.login', { username: 'boss', password: 'Boss12345' });
+  });
+
+  it('limits credential checks per company per minute (unknown usernames would otherwise flood the edit log)', async () => {
+    const rt = makeRuntime();
+    const s = await ok<AppState>(rt, 'app.company.create', secured('Flood Co'));
+    const id = s.companies[0].id;
+    await ok(rt, 'app.auth.logout');
+    for (let i = 0; i < 20; i++) await fail(rt, 'app.auth.login', { username: `ghost${i}`, password: 'whatever1' }, 'UNAUTHENTICATED');
+    await fail(rt, 'app.auth.login', { username: 'ghost-x', password: 'whatever1' }, 'LOCKED', /Too many attempts in a short time/);
+    assert.equal(auditRows(rt, id, `action = 'login_failed'`).length, 20, 'the refused attempt wrote nothing');
+    clock.advance(60_000);
+    await ok(rt, 'app.auth.login', { username: 'boss', password: 'Boss12345' });
   });
 });

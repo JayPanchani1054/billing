@@ -36,8 +36,9 @@ Tests: `node --test "src/renderer/modules/outstanding/**/*.test.ts"`.
 | `outstanding.interest` | `{ ledgerId?, groupId? }` | scope one party / group / all debtors & creditors |
 | `outstanding.reminders` | `{ ledgerId?, groupId? }` | receivables only |
 
-Gateway menu (section `reports`, orders 60–66): Receivables, Payables, Ageing Analysis
-(`{ view: 'ageing' }`), Overdue Bills (`{ view: 'bills', overdueOnly: true }`), Statement of
+Gateway menu (section `reports`, orders 60–66): Receivables, Payables, Receivables Ageing and
+Payables Ageing (`{ view: 'ageing' }` on each side — labels are unique across the Gateway, so
+Go To never shows two "Ageing Analysis"), Overdue Bills (`{ view: 'bills', overdueOnly: true }`), Statement of
 Account, Interest Calculation, Payment Reminders. Go To keywords include receivables, debtors,
 payables, creditors, ageing, overdue, interest, statement, reminder.
 

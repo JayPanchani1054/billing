@@ -6,13 +6,14 @@
  *                                   defaultDataDir: path.join(app.getPath('documents'), 'Bahi ERP'),
  *                                   appVersion: app.getVersion(), logDir: app.getPath('logs') });
  *   ipcMain.handle(IPC.api, (_e, route, input) => runtime.dispatch(route, input));
- *   app.on('before-quit', () => runtime.shutdown());
+ *   app.on('will-quit', () => runtime.shutdown());   // F12 automatic backup (bounded), then close the company
  */
 import path from 'node:path';
 import type { ApiResult } from '../../shared/api.ts';
-import type { AppRuntime, Clock } from '../api/context.ts';
+import type { AppRuntime, Clock, PathUse } from '../api/context.ts';
 import type { RouteMap } from '../api/route.ts';
 import { routes as allRoutes } from '../api/routes.ts';
+import type { SecretSealer } from './auditAnchors.ts';
 import { createRuntimeWithRoutes } from './runtime-core.ts';
 
 export interface RuntimeOptions {
@@ -32,7 +33,31 @@ export interface RuntimeOptions {
    * renderer never supplies arbitrary paths). The current data folder is always allowed.
    */
   authorizeDataDir?: (absPath: string) => boolean;
+  /**
+   * Approve any other path the renderer sends (backup folder to write/list, backup file to read):
+   * main passes a check against the files and folders picked in a native dialog this session. Paths
+   * inside the data folder (and, for company routes, the configured backup folder) need no approval.
+   * Omitted: ordinary local paths are allowed and UNC/device paths refused (core/lib/paths.ts).
+   */
+  authorizePath?: (absPath: string, use: PathUse) => boolean;
+  /**
+   * OS protection for the per-installation edit-log anchor key (Electron safeStorage → DPAPI on
+   * Windows). Omitted: the key file is stored with owner-only permissions. See app/auditAnchors.ts.
+   */
+  secretSealer?: SecretSealer;
+  /**
+   * Routes dispatched (in order, as the current session) before the open company is closed on
+   * shutdown — each bounded by `shutdownStepTimeoutMs`, failures only logged. createRuntime() passes
+   * DEFAULT_SHUTDOWN_ROUTES: the F12 automatic backup, so closing the window or quitting the app
+   * (paths that never reach the renderer's close flow) still backs up.
+   */
+  shutdownRoutes?: ReadonlyArray<{ route: string; input: unknown }>;
+  /** Longest one shutdown route may take before the company is closed anyway (default 20 s). */
+  shutdownStepTimeoutMs?: number;
 }
+
+/** What createRuntime() runs before closing the company on quit (see RuntimeOptions.shutdownRoutes). */
+export const DEFAULT_SHUTDOWN_ROUTES: ReadonlyArray<{ route: string; input: unknown }> = [{ route: 'data.backup.auto', input: { trigger: 'close' } }];
 
 export interface Runtime {
   dispatch(route: string, input: unknown): Promise<ApiResult<unknown>>;
@@ -47,7 +72,7 @@ export interface Runtime {
 }
 
 export function createRuntime(opts: RuntimeOptions): Runtime {
-  return createRuntimeWithRoutes(opts, allRoutes as RouteMap);
+  return createRuntimeWithRoutes({ ...opts, shutdownRoutes: opts.shutdownRoutes ?? DEFAULT_SHUTDOWN_ROUTES }, allRoutes as RouteMap);
 }
 
 /** Default log folder when main does not supply one. */

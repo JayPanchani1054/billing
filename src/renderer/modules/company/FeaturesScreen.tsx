@@ -6,7 +6,7 @@ import type { CompanyFeatures } from '../../../shared/settings.ts';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { userMessage } from '../../app/lib/apiErrors.ts';
-import { changedFeatures, FEATURE_CATALOG, FEATURE_GROUP_LABELS, featureBlockedReason, normalizeFeatureToggles } from '../../app/lib/featureCatalog.ts';
+import { changedFeatures, FEATURE_CATALOG, FEATURE_GROUP_LABELS, featureBlockedReason, featureManagedOn, normalizeFeatureToggles } from '../../app/lib/featureCatalog.ts';
 import type { FeatureInfo } from '../../app/lib/featureCatalog.ts';
 import { useNav } from '../../app/nav.tsx';
 import { ReadOnlyNotice, Screen } from '../../app/Screen.tsx';
@@ -36,6 +36,7 @@ function FeaturesForm({ saved }: { saved: CompanyFeatures }) {
   const unregistered = !app.company?.gstin;
 
   const toggle = (key: keyof CompanyFeatures, on: boolean) => {
+    if (featureManagedOn(key)) return; // e.g. security: Security Settings (asks for the Owner password)
     setDraft((d) => normalizeFeatureToggles({ ...d, [key]: on }));
     setError(null);
   };
@@ -56,7 +57,6 @@ function FeaturesForm({ saved }: { saved: CompanyFeatures }) {
 
   const blockedReason = (info: FeatureInfo): string | null => {
     if (info.key === 'gst' && unregistered && !draft.gst) return 'Your company is not GST-registered. Add the GSTIN in Company Details first.';
-    if (info.key === 'security' && !canSecurity) return 'Only a user who manages security can change this.';
     return featureBlockedReason(info.key, draft);
   };
 
@@ -94,6 +94,23 @@ function FeaturesForm({ saved }: { saved: CompanyFeatures }) {
           <FieldGroup key={group} legend={FEATURE_GROUP_LABELS[group]}>
             <div className="bx-feature-list">
               {FEATURE_CATALOG.filter((f) => f.group === group).map((info) => {
+                const managed = featureManagedOn(info.key);
+                if (managed) {
+                  // Shown for information only: the server refuses this change from F11.
+                  return (
+                    <div key={info.key} className="bx-feature-row is-disabled">
+                      <Switch checked={saved[info.key]} disabled onChange={() => undefined} label={info.label} />
+                      <p className="bx-feature-row__desc">
+                        {info.description} {managed.note}
+                      </p>
+                      {canSecurity ? (
+                        <Button size="sm" icon="shield" className="bx-feature-row__action" onClick={() => nav.push(managed.screen)}>
+                          Open {managed.screenLabel}
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                }
                 const reason = blockedReason(info);
                 const changedHere = draft[info.key] !== saved[info.key];
                 return (

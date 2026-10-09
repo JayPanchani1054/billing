@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { api } from '../api.ts';
 import type { ApiInput, ApiOutput, RouteName } from '../api.ts';
 import { ApiError } from '../lib/apiErrors.ts';
 import { queryKey } from '../lib/queryCache.ts';
 import type { QuerySnapshot } from '../lib/queryCache.ts';
+import { forceOnRefetch, shouldAutoFetch } from '../lib/queryVisibility.ts';
 import { queryCache } from '../queryClient.ts';
+import { ScreenVisibilityContext } from '../screenVisibility.ts';
 
 export interface UseApiQueryOptions {
   /** false = don't fetch (e.g. until an id is chosen). Default true. */
   enabled?: boolean;
   /** While the input changes (paging, search), keep showing the previous data instead of a skeleton. */
   keepPrevious?: boolean;
-  /** Data younger than this is not refetched on mount (ms, default 30 s). Invalidation always refetches. */
+  /** Data younger than this is not refetched on mount (ms, default 30 s). Invalidation always refetches (once the screen is visible). */
   staleTime?: number;
 }
 
@@ -45,7 +47,8 @@ function asApiError(err: unknown, route: string): ApiError | null {
  *   const page = useApiQuery('accounts.ledger.list', { search, limit: 50, offset }, { keepPrevious: true });
  *
  * After a mutation call `invalidate('accounts')` (useApiMutation does it for its module
- * automatically); every mounted query on matching routes refetches in the background.
+ * automatically); every mounted query on matching routes of a VISIBLE screen refetches in the
+ * background; queries of hidden stacked screens are marked stale and refetch when shown again.
  */
 export function useApiQuery<K extends RouteName>(route: K, input: ApiInput<K>, options: UseApiQueryOptions = {}): ApiQueryResult<ApiOutput<K>> {
   const { enabled = true, keepPrevious = false, staleTime = DEFAULT_STALE_MS } = options;
@@ -69,18 +72,22 @@ export function useApiQuery<K extends RouteName>(route: K, input: ApiInput<K>, o
     [key, route],
   );
 
+  // A screen hidden under others keeps its (stale) data and fetches when it is shown again —
+  // invalidations after a save must not make every hidden report recompute in the background.
+  const visible = useContext(ScreenVisibilityContext);
   const stale = snap?.stale ?? true;
   const status = snap?.status ?? 'idle';
   useEffect(() => {
-    if (!enabled) return;
-    if (queryCache.needsFetch(key, staleTime)) void fetchNow(false);
-  }, [enabled, key, staleTime, stale, status, fetchNow]);
+    if (shouldAutoFetch({ enabled, visible, needsFetch: queryCache.needsFetch(key, staleTime) })) void fetchNow(false);
+  }, [enabled, visible, key, staleTime, stale, status, fetchNow]);
 
   // keepPrevious: remember the last successful data across key changes.
   const prevRef = useRef<{ key: string; data: ApiOutput<K> } | null>(null);
   if (snap?.status === 'success' && snap.data !== undefined) prevRef.current = { key, data: snap.data };
 
-  const refetch = useCallback(() => fetchNow(true), [fetchNow]);
+  // Shares a request already in flight (e.g. the one a screen starts when it is shown again), so a
+  // screen that also refetches on reveal never computes a heavy report twice.
+  const refetch = useCallback(() => fetchNow(forceOnRefetch(queryCache.peek(key)?.fetching ?? false)), [fetchNow, key]);
 
   return useMemo<ApiQueryResult<ApiOutput<K>>>(() => {
     const own = snap?.data;

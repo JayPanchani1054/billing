@@ -92,10 +92,11 @@ describe('GST registers and analysis — April 2026', () => {
         ['error', 'rcm_without_liability', 'P-4'],
         ['error', 'supplier_invoice_missing', 'P-4'],
         ['warning', 'export_shipping_bill_missing', 'S-9'],
+        ['warning', 'optional_in_series', 'S-16'],
         ['warning', 'note_without_original', 'CN-3'],
       ],
     );
-    assert.deepEqual([r.counts.errors, r.counts.warnings, r.counts.byCode.rcm_without_liability], [2, 2, 1]);
+    assert.deepEqual([r.counts.errors, r.counts.warnings, r.counts.byCode.rcm_without_liability], [2, 3, 1]);
   });
 });
 

@@ -113,10 +113,35 @@ export function sortMenu<T extends MenuItem>(items: readonly T[]): T[] {
 }
 
 const isLetter = (c: string): boolean => /^[a-z]$/i.test(c);
+const isDigit = (c: string): boolean => /^[0-9]$/.test(c);
+
+/**
+ * Screens whose Gateway item gets its accelerator first (the reports and masters people open every
+ * day), in this order; then every other item in display order. Only items without params count
+ * (e.g. 'Receivables', not 'Receivables Ageing').
+ */
+export const GATEWAY_PRIORITY: readonly string[] = [
+  'reports.balanceSheet',
+  'reports.profitLoss',
+  'reports.trialBalance',
+  'vouchers.daybook',
+  'reports.ledger',
+  'stock.summary',
+  'outstanding.receivables',
+  'outstanding.payables',
+  'gst.gstr1',
+  'gst.gstr3b',
+  'banking.brs',
+  'reports.cashBank',
+  'accounts.ledger.list',
+  'inventory.item.list',
+  'data.backup',
+];
 
 /**
  * Tally-style accelerators: each label gets a unique letter, preferring (1) its first letter,
- * (2) the first letter of a later word, (3) any other letter in the label. Labels are processed in
+ * (2) the first letter of a later word, (3) any other letter in the label, (4) a digit in the
+ * label. Labels are processed in
  * order, so earlier (more important) items win their natural letter. `reserved` letters are never
  * assigned. Returns the index into each label of the chosen character, or -1.
  */
@@ -133,6 +158,8 @@ export function assignAccelerators(labels: readonly string[], reserved: Iterable
     }
     // 3. Any letter.
     for (let i = 0; i < label.length; i++) if (isLetter(label[i])) candidates.push(i);
+    // 4. Last resort: a digit of the label ('GSTR-3B' → 3).
+    for (let i = 0; i < label.length; i++) if (isDigit(label[i])) candidates.push(i);
     for (const i of candidates) {
       const c = label[i].toLowerCase();
       if (!used.has(c)) {
@@ -144,18 +171,37 @@ export function assignAccelerators(labels: readonly string[], reserved: Iterable
   });
 }
 
+/**
+ * Order in which items claim accelerators: items with a global `hotkey` (voucher entry F4–F9,
+ * F11, F12…) get none — they already have a key; `priority` screens (GATEWAY_PRIORITY) go first;
+ * then the rest in display order. Returns indices into `items`.
+ */
+export function acceleratorOrder(items: readonly MenuItem[], priority: readonly string[] = GATEWAY_PRIORITY): number[] {
+  const rank = new Map(priority.map((id, i) => [id, i]));
+  const noParams = (m: MenuItem) => !m.params || Object.keys(m.params).length === 0;
+  const eligible = items.map((m, i) => ({ m, i })).filter(({ m }) => !m.hotkey);
+  const first = eligible.filter(({ m }) => noParams(m) && rank.has(m.screen)).sort((a, b) => (rank.get(a.m.screen) ?? 0) - (rank.get(b.m.screen) ?? 0) || a.i - b.i);
+  const taken = new Set(first.map((x) => x.i));
+  return [...first.map((x) => x.i), ...eligible.filter((x) => !taken.has(x.i)).map((x) => x.i)];
+}
+
 /** Group sorted items into Gateway sections (empty sections omitted) with accelerators. */
 export function buildGateway(
   modules: readonly ModuleDef[],
   ctx: MenuContext,
-  options: { reservedLetters?: Iterable<string> } = {},
+  options: { reservedLetters?: Iterable<string>; priority?: readonly string[] } = {},
 ): BuiltSection[] {
   const screens = screenIndex(modules);
   const items = sortMenu(filterMenu(collectMenu(modules), ctx, screens));
-  const accel = assignAccelerators(
-    items.map((i) => i.label),
+  const order = acceleratorOrder(items, options.priority);
+  const assigned = assignAccelerators(
+    order.map((i) => items[i].label),
     options.reservedLetters,
   );
+  const accel = items.map(() => -1);
+  order.forEach((itemIndex, k) => {
+    accel[itemIndex] = assigned[k];
+  });
   const built: BuiltMenuItem[] = items.map((item, i) => ({
     ...item,
     accelIndex: accel[i],

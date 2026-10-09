@@ -96,6 +96,7 @@ export type GstIssueCode =
   | 'doc_no_missing'
   | 'doc_no_invalid'
   | 'doc_series_gap'
+  | 'optional_in_series'
   | 'rate_not_slab'
   | 'nature_mismatch'
   | 'tax_head_mismatch'
@@ -426,8 +427,9 @@ export const GSTR3B_ADJUSTMENT_KEYS: readonly Gstr3bAdjustmentKey[] = [
  *   itcReclaimed        4(D)(1) ITC reclaimed that was reversed under 4(B)(2) earlier
  *   itcIneligibleOthers 4(D)(2) ineligible ITC under s.16(4) / place-of-supply rules
  *   interest, lateFee   5.1 (late fee: CGST and SGST only)
- *   creditLedgerBalance electronic credit ledger balance brought forward from earlier periods (from the
- *                       portal); added to 4(C) for the 6.1 set-off only
+ *   creditLedgerBalance electronic credit ledger credit the books do not hold (e.g. the portal balance
+ *                       when the books began); added to 4(C) and to the credit brought forward from the
+ *                       previous period (computed from the books) for the 6.1 set-off only, and carried on
  */
 export type Gstr3bAdjustments = Record<Gstr3bAdjustmentKey, TaxAmounts>;
 
@@ -471,8 +473,17 @@ export interface Gstr3bSummary {
   payment: {
     rows: Gstr3bPaymentRow[];
     setOff: SetOffResult;
-    /** Credit available for set-off: 4(C) (never below 0) + credit ledger balance brought forward. */
+    /**
+     * Credit available for set-off: 4(C) (never below 0) + `broughtForward` + the manual
+     * `creditLedgerBalance` (credit the books do not hold).
+     */
     creditAvailable: TaxAmounts;
+    /**
+     * Electronic credit ledger balance brought forward from the books: the credit left after the previous
+     * return period's set-off (chained from the books beginning; months for a month, quarters for a
+     * quarter). Zero for a date range.
+     */
+    broughtForward: TaxAmounts;
     /** Credit used for set-off per credit head. */
     itcUsed: TaxAmounts;
     /** Σ totalCash. */
@@ -553,7 +564,7 @@ export interface GstItcSupplierRow {
   ineligible: TaxAmounts;
   /** Part of `eligible` + `ineligible` paid under reverse charge (incl. import of services). */
   reverseCharge: TaxAmounts;
-  /** Part of `eligible` + `ineligible` on imports of goods. */
+  /** Part of `eligible` + `ineligible` on imports of goods (incl. goods from an SEZ unit: IGST paid at customs). */
   imports: TaxAmounts;
 }
 

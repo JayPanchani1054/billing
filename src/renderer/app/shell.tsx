@@ -1,6 +1,7 @@
 /**
  * Workspace-level shell services: overlays (Go To, shortcuts, voucher picker), global hotkeys,
- * native menu commands, session keep-alive, and company/session actions.
+ * native menu commands, session keep-alive and idle lock, the F12 automatic backup (after opening,
+ * before closing / quitting), and company/session actions.
  *
  *   const shell = useShell();
  *   shell.openVoucher('sales');   // what F8 does (permission + feature checks, then nav.push)
@@ -18,7 +19,10 @@ import { GotoPalette } from './GotoPalette.tsx';
 import { userMessage } from './lib/apiErrors.ts';
 import { featureLabel } from './lib/featureCatalog.ts';
 import { VOUCHER_FEATURE, VOUCHER_SHORTCUTS } from './lib/shortcuts.ts';
+import { AUTO_BACKUP_CLOSE_WAIT_MS, AUTO_BACKUP_OPEN_DELAY_MS, AUTO_BACKUP_PROGRESS_DELAY_MS, autoBackupNotice, withTimeout } from './lib/autoBackup.ts';
+import { IDLE_CHECK_INTERVAL_MS, shouldLock } from './lib/sessionLock.ts';
 import { useNav } from './nav.tsx';
+import { invalidate } from './queryClient.ts';
 import { ShortcutsOverlay } from './ShortcutsOverlay.tsx';
 import { useAppState } from './state.tsx';
 import { VoucherPicker } from './VoucherPicker.tsx';
@@ -31,7 +35,10 @@ export interface ShellApi {
   openGoto: (initialQuery?: string) => void;
   openShortcuts: () => void;
   openVoucherPicker: () => void;
-  /** Open voucher entry for a base type (checks permission and company features first). */
+  /**
+   * Open voucher entry for a base type (checks permission and company features first). Pass
+   * `{ voucherTypeId }` to enter a company-defined voucher type of that base type.
+   */
   openVoucher: (baseType: VoucherBaseType, params?: Record<string, unknown>) => void;
   /** Whether a voucher type can be entered right now, with the reason when not. */
   voucherAvailability: (baseType: VoucherBaseType) => { ok: boolean; reason?: string };
@@ -70,6 +77,7 @@ export function ShellProvider({ children }: { children?: ReactNode }) {
 
   const openVoucher = useCallback(
     (baseType: VoucherBaseType, params: Record<string, unknown> = {}) => {
+      // params.voucherTypeId opens a company-defined type of that base type (F10, Go To).
       const name = PREDEFINED_VOUCHER_TYPES.find((t) => t.baseType === baseType)?.name ?? 'Voucher';
       const a = voucherAvailability(baseType);
       if (!a.ok) {
@@ -81,16 +89,68 @@ export function ShellProvider({ children }: { children?: ReactNode }) {
     [nav, toast, voucherAvailability],
   );
 
+  /** F12 automatic backup; shows the outcome when there is something to say (lib/autoBackup.ts). */
+  const notifyAutoBackup = useCallback(
+    (result: unknown) => {
+      const n = autoBackupNotice(result);
+      if (!n) return;
+      if (n.tone === 'success') {
+        invalidate('data.backup');
+        invalidate('dashboard');
+        toast.success(n.title, { message: n.message, id: 'auto-backup' });
+      } else {
+        toast.warning(n.title, {
+          message: n.message,
+          id: 'auto-backup',
+          duration: 12_000,
+          action: n.openBackup && nav.canOpen('data.backup') ? { label: 'Open Backup', onClick: () => nav.push('data.backup') } : undefined,
+        });
+      }
+    },
+    [nav, toast],
+  );
+
+  /** Before F3 / Ctrl+Q: the automatic backup, waited for at most AUTO_BACKUP_CLOSE_WAIT_MS. */
+  const backupBeforeClose = useCallback(async (): Promise<void> => {
+    const work = api('data.backup.auto', { trigger: 'close' }).catch(() => null);
+    const progress = setTimeout(() => toast.info('Backing up…', { message: 'Automatic backup before closing the company.', id: 'auto-backup', duration: 0 }), AUTO_BACKUP_PROGRESS_DELAY_MS);
+    const r = await withTimeout(work, AUTO_BACKUP_CLOSE_WAIT_MS);
+    clearTimeout(progress);
+    toast.dismiss('auto-backup');
+    // On timeout the core still finishes the backup before it closes the database.
+    if (r !== 'timeout') notifyAutoBackup(r);
+  }, [toast, notifyAutoBackup]);
+
+  // After the company opens (or a user logs in — the workspace is keyed by company and user):
+  // catch up on the automatic backup, once the first screen has had time to load.
+  const notifyRef = useRef(notifyAutoBackup);
+  notifyRef.current = notifyAutoBackup;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      api('data.backup.auto', { trigger: 'open' }).then(
+        (r) => notifyRef.current(r),
+        () => undefined,
+      );
+    }, AUTO_BACKUP_OPEN_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Locked: close the shell's own overlays (they are portaled above the hidden workspace).
+  useEffect(() => {
+    if (app.locked) setOverlay(null);
+  }, [app.locked]);
+
   const closeCompany = useCallback(async () => {
     if (!(await nav.confirmDiscardAll())) return;
     try {
+      await backupBeforeClose();
       setNativeDirty(false);
       const next = await api('app.company.close');
       appRef.current.applyState(next);
     } catch (err) {
       toast.error('Could not close the company', { message: userMessage(err) });
     }
-  }, [nav, toast]);
+  }, [nav, toast, backupBeforeClose]);
 
   const logout = useCallback(async () => {
     if (!(await nav.confirmDiscardAll())) return;
@@ -115,13 +175,14 @@ export function ShellProvider({ children }: { children?: ReactNode }) {
       tone: dirty ? 'danger' : 'default',
     });
     if (!ok) return;
+    await backupBeforeClose();
     setNativeDirty(false);
     try {
       await native('app.quit', undefined);
     } catch (err) {
       toast.error('Could not quit', { message: userMessage(err) });
     }
-  }, [nav, toast]);
+  }, [nav, toast, backupBeforeClose]);
 
   const shell = useMemo<ShellApi>(
     () => ({
@@ -158,6 +219,7 @@ function GlobalHotkeys() {
   const nav = useNav();
   const date = useWorkingDate();
   const period = usePeriod();
+  const locked = useAppState().locked;
 
   const map: Record<string, () => void> = {
     F2: () => date.openDialog(),
@@ -174,18 +236,22 @@ function GlobalHotkeys() {
     const baseType = v.baseType;
     if (baseType) map[v.keys] = () => shell.openVoucher(baseType);
   }
-  useHotkeys(map, [], { scope: 'global' });
+  useHotkeys(map, [], { scope: 'global', enabled: !locked });
   return null;
 }
 
 /** Native menu commands ('goto', 'company.close', 'help.shortcuts'). */
 function BridgeCommands() {
   const shell = useShell();
+  const app = useAppState();
   const shellRef = useRef(shell);
   shellRef.current = shell;
+  const lockedRef = useRef(app.locked);
+  lockedRef.current = app.locked;
   useEffect(
     () =>
       onBridgeEvent('command', ({ id }) => {
+        if (lockedRef.current) return; // nothing reaches the locked workspace
         const s = shellRef.current;
         if (id === 'goto') s.openGoto();
         else if (id === 'company.close') void s.closeCompany();
@@ -197,36 +263,73 @@ function BridgeCommands() {
 }
 
 /**
- * Keep the session alive while the user is active, and notice an idle-timeout logout: user
- * activity (throttled to once a minute) calls 'app.session.touch'; a null answer means the
- * session ended — refresh the app state (shows the login screen).
+ * Session keep-alive and idle lock (secured companies):
+ *  - user activity (keys, mouse, wheel) is remembered; at most once a minute it also calls
+ *    'app.session.touch' (a null answer means the session already ended → refresh, which locks);
+ *  - when there has been no input for the session's idle timeout (SessionInfo.idleTimeoutMs), the
+ *    shell calls 'app.session.lock' and the workspace is locked behind the lock screen
+ *    (lib/sessionLock.ts). Background refetches do not count as activity.
  */
 function SessionKeepAlive() {
   const app = useAppState();
   const appRef = useRef(app);
   appRef.current = app;
   useEffect(() => {
-    let last = 0;
+    let lastInput = Date.now();
+    let lastTouch = 0;
     let busy = false;
-    const onActivity = () => {
+    let locking = false;
+    const touch = () => {
       const now = Date.now();
-      if (busy || now - last < 60_000) return;
-      last = now;
+      if (busy || now - lastTouch < 60_000) return;
+      lastTouch = now;
       busy = true;
       api('app.session.touch')
         .then((s) => {
-          if (s === null && appRef.current.session) void appRef.current.refresh();
+          const a = appRef.current;
+          if (s === null && a.session && !a.locked) void a.refresh({ lock: !a.session.implicit });
         })
         .catch(() => undefined)
         .finally(() => {
           busy = false;
         });
     };
-    window.addEventListener('keydown', onActivity, true);
-    window.addEventListener('pointerdown', onActivity, true);
+    const onActivity = () => {
+      lastInput = Date.now();
+      if (!appRef.current.locked) touch();
+    };
+    const lock = () => {
+      if (locking) return;
+      locking = true;
+      api('app.session.lock')
+        .then(
+          (next) => appRef.current.applyState(next, { lock: true }),
+          () => appRef.current.refresh({ lock: true }),
+        )
+        .finally(() => {
+          locking = false;
+          lastInput = Date.now();
+        });
+    };
+    const timer = window.setInterval(() => {
+      const a = appRef.current;
+      if (a.locked || !a.session || a.session.implicit) {
+        lastInput = Date.now(); // the clock starts again after unlocking
+        return;
+      }
+      if (shouldLock(Date.now(), lastInput, a.session.idleTimeoutMs)) lock();
+    }, IDLE_CHECK_INTERVAL_MS);
+    const opts = { capture: true, passive: true } as const;
+    window.addEventListener('keydown', onActivity, opts);
+    window.addEventListener('pointerdown', onActivity, opts);
+    window.addEventListener('pointermove', onActivity, opts);
+    window.addEventListener('wheel', onActivity, opts);
     return () => {
-      window.removeEventListener('keydown', onActivity, true);
-      window.removeEventListener('pointerdown', onActivity, true);
+      window.clearInterval(timer);
+      window.removeEventListener('keydown', onActivity, opts);
+      window.removeEventListener('pointerdown', onActivity, opts);
+      window.removeEventListener('pointermove', onActivity, opts);
+      window.removeEventListener('wheel', onActivity, opts);
     };
   }, []);
   return null;

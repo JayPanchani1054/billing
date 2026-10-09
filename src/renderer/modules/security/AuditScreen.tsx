@@ -26,6 +26,7 @@ import {
   useCompany,
   useNav,
   usePeriod,
+  useConfirm,
   useScreenActions,
   userMessage,
 } from '../../app/index.ts';
@@ -61,6 +62,7 @@ import { useNow } from './hooks.ts';
 import {
   ACTION_GROUPS,
   actionLabel,
+  anchorSummary,
   actionOptions,
   adjacentId,
   ANY,
@@ -75,6 +77,7 @@ import {
   initialFilters,
   PAGE_SIZES,
   printRows,
+  tamperScope,
   toExportInput,
   toListInput,
   userOptions,
@@ -179,8 +182,42 @@ function FormatKeys({ onPick }: { onPick: (f: 'xlsx' | 'csv') => void }) {
 }
 
 /** The prominent result of "Verify edit log". */
-function VerifyResult({ report, onDismiss, onShowEntry }: { report: AuditVerifyReport; onDismiss: () => void; onShowEntry: (id: number) => void }) {
+function VerifyResult({
+  report,
+  onDismiss,
+  onShowEntry,
+  onReverify,
+}: {
+  report: AuditVerifyReport;
+  onDismiss: () => void;
+  onShowEntry: (id: number) => void;
+  onReverify: () => void;
+}) {
   const tone = verifyTone(report);
+  const confirm = useConfirm();
+  const toast = useToast();
+  const [resetting, setResetting] = useState(false);
+  const acceptCurrentLog = async () => {
+    const ok = await confirm({
+      title: 'Accept the current edit log?',
+      message:
+        'Do this only if you copied this company’s files back yourself (not with Restore) and know why the log differs. ' +
+        'The current log becomes the new check-point, and this decision is itself recorded in the edit log.',
+      confirmLabel: 'Accept current log',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setResetting(true);
+    try {
+      await api('security.audit.resetAnchor', {});
+      toast.success('The current edit log is the new check-point');
+      onReverify();
+    } catch (err) {
+      toast.error('Could not reset the check-point', { message: userMessage(err) });
+    } finally {
+      setResetting(false);
+    }
+  };
   if (tone === 'danger') {
     return (
       <Banner
@@ -193,19 +230,23 @@ function VerifyResult({ report, onDismiss, onShowEntry }: { report: AuditVerifyR
             <Button size="sm" variant="danger" icon="eye" onClick={() => onShowEntry(report.brokenAtId as number)}>
               Show entry #{report.brokenAtId}
             </Button>
+          ) : report.anchor?.canReset ? (
+            <Button size="sm" variant="danger" icon="shield" loading={resetting} onClick={() => void acceptCurrentLog()}>
+              Accept current log
+            </Button>
           ) : undefined
         }
       >
         <Stack gap={1}>
           <span>{report.detail}</span>
           <span className="bx-muted">
-            {formatCount(report.count)} of {formatCount(report.totalEntries)} entries were intact before the break
-            {report.brokenAtId !== null ? ` (the problem is at entry #${report.brokenAtId})` : ''}. Checked {formatDateTime(report.checkedAt, true)}.
+            {tamperScope(report)} Checked {formatDateTime(report.checkedAt, true)}.
           </span>
         </Stack>
       </Banner>
     );
   }
+  const anchorLine = anchorSummary(report);
   return (
     <Banner
       tone={tone}
@@ -221,6 +262,7 @@ function VerifyResult({ report, onDismiss, onShowEntry }: { report: AuditVerifyR
             <Fingerprint hash={report.lastHash} label="latest fingerprint" />
           </span>
         ) : null}
+        {anchorLine ? <span>{anchorLine}</span> : null}
         <span className="bx-muted">Checked {formatDateTime(report.checkedAt, true)}.</span>
       </Stack>
     </Banner>
@@ -303,7 +345,7 @@ function EditLogView({ params }: { params: Params }) {
   useScreenActions([
     { key: 'Alt+V', label: verify.busy ? 'Verifying…' : 'Verify edit log', icon: 'shield', primary: true, onClick: () => void verify.run(), disabled: verify.busy, hint: 'Check that no entry was changed, inserted or removed.' },
     { key: 'Alt+H', label: 'Record history', icon: 'clock', onClick: () => selected && openHistory(selected), disabled: !hasRecord, hint: 'Every change to the selected record.' },
-    { key: 'Alt+F', label: 'Search', icon: 'search', onClick: () => searchRef.current?.focus(), group: 'filter' },
+    { key: 'Ctrl+F', label: 'Search', icon: 'search', onClick: () => searchRef.current?.focus(), group: 'filter' },
     { key: 'Alt+X', label: 'Clear filters', icon: 'filter', onClick: () => setFilters({ ...DEFAULT_FILTERS, pageSize: filters.pageSize }), disabled: !filtered && filters.dates === DEFAULT_FILTERS.dates, group: 'filter' },
     { key: 'Ctrl+PageUp', label: 'Previous page', icon: 'chevron-left', onClick: () => update({ page: filters.page - 1 }), disabled: filters.page <= 1, group: 'page' },
     { key: 'Ctrl+PageDown', label: 'Next page', icon: 'chevron-right', onClick: () => update({ page: filters.page + 1 }), disabled: filters.page >= pageCount, group: 'page' },
@@ -356,7 +398,7 @@ function EditLogView({ params }: { params: Params }) {
       title="Edit Log"
       subtitle="Who changed what, and when. Entries cannot be edited or deleted."
       icon="book"
-      hint="Enter Open entry · Alt+H Record history · Alt+V Verify · Alt+F Search · Alt+E Export · Alt+P Print · Ctrl+PgUp/PgDn Page"
+      hint="Enter Open entry · Alt+H Record history · Alt+V Verify · Ctrl+F Search · Alt+E Export · Alt+P Print · Ctrl+PgUp/PgDn Page"
       meta={
         facets.data?.firstTs ? (
           <span className="bx-muted">
@@ -366,7 +408,7 @@ function EditLogView({ params }: { params: Params }) {
       }
     >
       <div className="bx-sec-audit">
-        {verify.report ? <VerifyResult report={verify.report} onDismiss={verify.clear} onShowEntry={(id) => setDetailId(id)} /> : null}
+        {verify.report ? <VerifyResult report={verify.report} onDismiss={verify.clear} onShowEntry={(id) => setDetailId(id)} onReverify={() => void verify.run()} /> : null}
 
         <div ref={filterRef} className="bx-sec-filters" role="search" aria-label="Filter the edit log">
           <Field label="Dates">
@@ -400,7 +442,7 @@ function EditLogView({ params }: { params: Params }) {
           </div>
           <div className="bx-sec-filters__search">
             <Field label="Search" hint="Record name, user, record type or action.">
-              <TextInput ref={searchRef} value={filters.search} onChange={(e) => update({ search: e.target.value })} leadingIcon="search" placeholder="e.g. Sharma, ledger, ravi" aria-keyshortcuts="Alt+F" />
+              <TextInput ref={searchRef} value={filters.search} onChange={(e) => update({ search: e.target.value })} leadingIcon="search" placeholder="e.g. Sharma, ledger, ravi" aria-keyshortcuts="Control+F" />
             </Field>
           </div>
         </div>
@@ -659,7 +701,7 @@ function HistoryView({ target }: { target: HistoryTarget }) {
       hint="↑/↓ Move · Enter Open entry · Alt+O Order · Alt+L Full edit log · Alt+V Verify · Alt+E Export · Esc Back"
     >
       <Stack gap={4}>
-        {verify.report ? <VerifyResult report={verify.report} onDismiss={verify.clear} onShowEntry={(id) => setDetailId(id)} /> : null}
+        {verify.report ? <VerifyResult report={verify.report} onDismiss={verify.clear} onShowEntry={(id) => setDetailId(id)} onReverify={() => void verify.run()} /> : null}
         {data?.truncated ? (
           <Banner tone="info" inline title="Long history">
             Only the most recent {data.versions.length} versions are shown. Export the edit log for the complete record.

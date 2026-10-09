@@ -50,6 +50,7 @@ registerGotoProvider({
   id: 'banking.brs',
   label: 'Bank reconciliation',
   minQuery: 2,
+  screens: ['banking.brs'], // banking.summary needs reports.view: don't ask for users who can't open BRS
   search: async (q) => {
     const needle = q.trim().toLowerCase();
     const banks = await api('banking.summary', { asOf: todayLocal() });

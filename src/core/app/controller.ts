@@ -26,16 +26,17 @@ import type {
   OpenCompanySummary,
   SessionInfo,
 } from '../../shared/types/app.ts';
-import type { AppRuntime, Clock, OpenCompanyInfo, Session } from '../api/context.ts';
+import type { AppRuntime, AuditAnchorStore, Clock, OpenCompanyInfo, PathUse, Session } from '../api/context.ts';
 import type { DispatchState } from '../api/dispatch.ts';
 import { Db } from '../db/db.ts';
 import { appendAudit } from '../lib/audit.ts';
+import { auditHead, checkAuditAnchor, type AuditHead } from '../lib/auditAnchor.ts';
 import { hashPassword } from '../lib/crypto.ts';
 import { AppError, validation } from '../lib/errors.ts';
 import { isInside, probeWritable, samePath } from '../lib/fsutil.ts';
 import { getFeatures, getOpenCompanySummary, readSetting } from '../modules/company/service.ts';
 import { normalizeCompanyIdentity } from '../modules/company/validation.ts';
-import { buildSession, changePassword, implicitSession, LOCKOUT_MS, login, MAX_FAILED_ATTEMPTS, toSessionInfo, verifyOwnerCredentials } from './auth.ts';
+import { AttemptLimiter, buildSession, changePassword, confirmOwnerPassword, implicitSession, login, MAX_ATTEMPTS_PER_MINUTE, toSessionInfo } from './auth.ts';
 import { CompanyStore, type CompanyPaths, type OpenedCompany } from './companies.ts';
 import type { AppConfigStore } from './config.ts';
 import { transferDataDir } from './datadir.ts';
@@ -59,6 +60,10 @@ export interface ControllerOptions {
    * to an arbitrary location). The current folder is always allowed. Omitted: every path is allowed.
    */
   authorizeDataDir?: (absPath: string) => boolean;
+  /** Approves other renderer-supplied paths (backup files/folders); exposed as AppRuntime.authorizePath. */
+  authorizePath?: (absPath: string, use: PathUse) => boolean;
+  /** Out-of-database edit-log anchors (exposed as AppRuntime.auditAnchors). Omitted: no anchoring. */
+  auditAnchors?: AuditAnchorStore;
 }
 
 export interface DeleteCompanyRequest {
@@ -77,6 +82,16 @@ interface OpenState {
   idleTimeoutMs: number;
   /** Set once a read failure has been logged (avoid flooding the log on every call). */
   readFailed: boolean;
+  /** company.guid (anchors are bound to it). */
+  companyGuid: string;
+  /** Edit-log head last written to the anchor store (null: nothing anchored yet). */
+  anchored: AuditHead | null;
+  /**
+   * The edit log no longer contains the anchored entry (rewritten or truncated outside the app): the
+   * old anchor is kept as evidence and not refreshed until an Owner resets it (security.audit.resetAnchor)
+   * or the company is restored from a backup.
+   */
+  anchorFrozen: boolean;
 }
 
 export interface InstallCompanyResult {
@@ -102,6 +117,7 @@ export class AppController {
   private readonly logger: Logger;
   private readonly defaultIdleMs: number;
   private readonly authorizeDataDir: ((absPath: string) => boolean) | undefined;
+  private readonly anchors: AuditAnchorStore | undefined;
   private store: CompanyStore;
   private open: OpenState | null = null;
   private session: Session | null = null;
@@ -110,8 +126,8 @@ export class AppController {
   private queue: Promise<unknown> = Promise.resolve();
   /** In-flight asynchronous company route calls (settled-or-not), see drainInflight(). */
   private readonly inflight = new Set<Promise<void>>();
-  /** Failed owner-password confirmations for company deletion, per company id (in memory). */
-  private readonly deleteFailures = new Map<string, { count: number; lockedUntil: number }>();
+  /** Per-company rate limit on credential checks (login, owner confirmations); see auth.ts. */
+  private readonly attempts = new AttemptLimiter(MAX_ATTEMPTS_PER_MINUTE, 60_000);
 
   constructor(opts: ControllerOptions) {
     this.config = opts.config;
@@ -120,14 +136,18 @@ export class AppController {
     this.logger = opts.logger;
     this.defaultIdleMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.authorizeDataDir = opts.authorizeDataDir;
+    this.anchors = opts.auditAnchors;
     this.store = this.makeStore(this.config.dataDir);
     const self = this;
+    const authorizePath = opts.authorizePath;
     this.app = {
       get dataDir() {
         return self.store.dataDir;
       },
       appVersion: opts.appVersion,
       log: (level, message, meta) => self.logger.log(level, message, meta),
+      ...(authorizePath ? { authorizePath: (absPath: string, use: PathUse) => authorizePath(absPath, use) } : {}),
+      ...(opts.auditAnchors ? { auditAnchors: opts.auditAnchors } : {}),
     };
     controllers.set(this.app, this);
   }
@@ -138,6 +158,11 @@ export class AppController {
       store.ensureLayout();
     } catch (err) {
       this.logger.log('error', 'Data folder is not usable', { dataDir, error: err });
+    }
+    try {
+      store.sweepTemporaryFiles(); // plaintext leftovers of a crash (decrypted backup copies, snapshots)
+    } catch (err) {
+      this.logger.log('warn', 'Could not clean up temporary files', { error: err });
     }
     return store;
   }
@@ -248,7 +273,7 @@ export class AppController {
       firstRun: !cfg.firstRunComplete,
       companies: this.store.list(),
       company: o && session ? this.summaryFor(o) : null,
-      session: session ? toSessionInfo(session, this.mustChangePassword) : null,
+      session: session ? this.sessionInfo(session, o, info) : null,
       pendingLogin: o && !session && info ? { companyId: o.opened.id, companyName: info.name } : null,
       dataDirError: this.store.availabilityProblem(),
     };
@@ -257,6 +282,7 @@ export class AppController {
   /** Per-call snapshot for the dispatcher. */
   dispatchState(): DispatchState {
     const o = this.open;
+    if (o) this.refreshAnchor(o); // records what the previous calls committed
     const info = o ? this.refresh(o) : null;
     return {
       app: this.app,
@@ -276,11 +302,115 @@ export class AppController {
     };
   }
 
+  /** SessionInfo for the renderer, with the idle timeout the shell's lock timer uses. */
+  private sessionInfo(session: Session, o: OpenState | null, info: OpenCompanyInfo | null): SessionInfo {
+    const idleTimeoutMs = !session.implicit && o && info?.securityEnabled ? o.idleTimeoutMs : 0;
+    return { ...toSessionInfo(session, this.mustChangePassword), idleTimeoutMs };
+  }
+
   touchSession(): SessionInfo | null {
-    const s = this.dispatchState().session;
+    const st = this.dispatchState();
+    const s = st.session;
     if (!s) return null;
     this.lastActivityMs = this.clock.now().getTime();
-    return toSessionInfo(s, this.mustChangePassword);
+    return this.sessionInfo(s, this.open, st.company);
+  }
+
+  /**
+   * The shell's idle timer fired (no keyboard/mouse input for the idle timeout): end a real user's
+   * session as 'idle' (audited) — the company stays open and the renderer shows its lock screen.
+   * Background API calls (refetches, polling) keep the server-side clock alive, so the user's own
+   * inactivity is decided by the renderer; the dispatcher's lazy check stays the authority for
+   * every call. The implicit session (security off) never locks.
+   */
+  lockSession(): Promise<AppState> {
+    return this.exclusive(() => {
+      if (this.session && !this.session.implicit) this.endSession('idle');
+      return this.state();
+    });
+  }
+
+  // ───────────────────────────── Edit-log anchor ─────────────────────────────
+
+  /**
+   * Compare the opened company's edit log with its stored anchor; freeze anchoring on a mismatch so
+   * the evidence is kept (security.audit.verify reports it). Never throws: the books stay usable.
+   */
+  private initAnchor(id: string, db: Db): { companyGuid: string; anchored: AuditHead | null; anchorFrozen: boolean } {
+    const companyGuid = db.value<string>('SELECT guid FROM company WHERE id = 1') ?? '';
+    const store = this.anchors;
+    if (!store) return { companyGuid, anchored: null, anchorFrozen: false };
+    try {
+      const anchor = store.get(id);
+      const check = checkAuditAnchor(db, anchor, anchor ? store.verify(anchor) : false, companyGuid);
+      if (check.status === 'mismatch' || check.status === 'invalid') {
+        this.logger.log('warn', 'The edit log does not match its saved check-point', { id, reason: check.reason, anchoredId: check.anchoredId });
+        return { companyGuid, anchored: null, anchorFrozen: true };
+      }
+      return { companyGuid, anchored: anchor && check.status === 'match' ? { lastId: anchor.lastId, lastHash: anchor.lastHash } : null, anchorFrozen: false };
+    } catch (err) {
+      this.logger.log('warn', 'Could not check the edit-log check-point', { id, error: err });
+      return { companyGuid, anchored: null, anchorFrozen: false };
+    }
+  }
+
+  /** Record the current head of the open company's edit log outside the database (if it moved). */
+  private refreshAnchor(o: OpenState): void {
+    const store = this.anchors;
+    if (!store || o.anchorFrozen || o.readFailed) return;
+    const db = o.opened.db;
+    if (db.inTransaction) return; // only committed heads are anchored
+    try {
+      const head = auditHead(db);
+      if (!head || (o.anchored && head.lastId === o.anchored.lastId && head.lastHash === o.anchored.lastHash)) return;
+      // The previously anchored entry must still be there, unchanged (the file may be written by
+      // another process while open): otherwise keep the old anchor as evidence.
+      if (o.anchored) {
+        const still = db.value<string>('SELECT hash FROM audit_log WHERE id = :id', { id: o.anchored.lastId });
+        if (still !== o.anchored.lastHash || head.lastId < o.anchored.lastId) {
+          o.anchorFrozen = true;
+          this.logger.log('warn', 'The edit log changed outside Bahi ERP while the company was open', { id: o.opened.id });
+          return;
+        }
+      }
+      store.put({ companyId: o.opened.id, companyGuid: o.companyGuid, ...head }, this.clock.now());
+      o.anchored = head;
+    } catch (err) {
+      this.logger.log('warn', 'Could not record the edit-log check-point', { id: o.opened.id, error: err });
+    }
+  }
+
+  /**
+   * Owner action after a reported mismatch (e.g. the company files were copied back by hand): accept
+   * the current edit log as the new check-point. The caller appends an audit entry first.
+   */
+  resetAuditAnchor(): { anchoredId: number | null } {
+    const o = this.open;
+    if (!o) throw new AppError('NO_COMPANY', 'Open a company first.');
+    if (!this.anchors) return { anchoredId: null };
+    o.anchorFrozen = false;
+    o.anchored = null;
+    this.refreshAnchor(o);
+    return { anchoredId: o.anchored ? (o.anchored as AuditHead).lastId : null };
+  }
+
+  /** Anchor a company that is not open (after a restore installed its database). */
+  private anchorInstalled(id: string, dbPath: string): void {
+    const store = this.anchors;
+    if (!store) return;
+    try {
+      const db = new Db(dbPath, { readOnly: true, timeoutMs: 2000 });
+      try {
+        const head = auditHead(db);
+        const companyGuid = db.value<string>('SELECT guid FROM company WHERE id = 1') ?? '';
+        if (head) store.put({ companyId: id, companyGuid, ...head }, this.clock.now());
+        else store.remove(id);
+      } finally {
+        db.close();
+      }
+    } catch (err) {
+      this.logger.log('warn', 'Could not record the edit-log check-point of the restored company', { id, error: err });
+    }
   }
 
   // ───────────────────────────── Company lifecycle ─────────────────────────────
@@ -302,10 +432,12 @@ export class AppController {
     let info: OpenCompanyInfo;
     let summary: OpenCompanySummary;
     let idleTimeoutMs: number;
+    let anchor: ReturnType<AppController['initAnchor']>;
     try {
       info = this.readInfo(opened);
       summary = getOpenCompanySummary(opened.db, id);
       idleTimeoutMs = this.idleTimeoutFor(opened.db);
+      anchor = this.initAnchor(id, opened.db);
     } catch (err) {
       this.store.close(opened);
       throw err;
@@ -313,7 +445,7 @@ export class AppController {
     if (this.open) this.closeInternal();
     const heartbeat = setInterval(() => opened.lock.heartbeat(this.clock.now()), LOCK_HEARTBEAT_MS);
     heartbeat.unref?.();
-    this.open = { opened, heartbeat, info, summary, idleTimeoutMs, readFailed: false };
+    this.open = { opened, heartbeat, info, summary, idleTimeoutMs, readFailed: false, ...anchor };
     this.session = info.securityEnabled ? null : implicitSession(this.clock.now());
     this.mustChangePassword = false;
     this.lastActivityMs = this.clock.now().getTime();
@@ -330,6 +462,7 @@ export class AppController {
     const o = this.open;
     if (!o) return;
     this.endSession('close');
+    this.refreshAnchor(o); // the final head (including the logout entry)
     clearInterval(o.heartbeat);
     this.open = null;
     this.session = null;
@@ -421,32 +554,24 @@ export class AppController {
         throw validation([{ path: 'confirmName', message: 'Type the company name exactly as shown to confirm deletion' }]);
       if (meta.securityEnabled) {
         if (!req.password) throw validation([{ path: 'password', message: 'Enter the owner password to delete a secured company' }]);
-        // Same lockout policy as login (5 failures → 5 minutes), kept in memory per company.
-        const nowMs = this.clock.now().getTime();
-        const failures = this.deleteFailures.get(req.id);
-        if (failures && failures.lockedUntil > nowMs) {
-          const minutes = Math.max(1, Math.ceil((failures.lockedUntil - nowMs) / 60_000));
-          throw new AppError('LOCKED', `Too many incorrect owner passwords. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
-        }
-        const db = new Db(this.store.paths(req.id).dbPath, { readOnly: true });
-        let ok = false;
+        // The company's own login lockout (DB-backed, shared with its login screen) and edit log.
+        this.throttleCredentialCheck(req.id, 'owner');
+        const db = new Db(this.store.paths(req.id).dbPath, { timeoutMs: 2000 });
         try {
-          ok = await verifyOwnerCredentials(db, req.password, req.username);
+          await confirmOwnerPassword(db, { password: req.password, username: req.username, context: 'company.delete' }, this.clock.now());
+        } catch (err) {
+          if (err instanceof AppError) this.logger.log('warn', 'Company deletion refused: owner password not confirmed', { id: req.id, code: err.code });
+          throw err;
         } finally {
           db.close();
         }
-        if (!ok) {
-          // An expired lockout starts a fresh count; otherwise keep counting.
-          const count = (failures && failures.lockedUntil === 0 ? failures.count : 0) + 1;
-          const locked = count >= MAX_FAILED_ATTEMPTS;
-          this.deleteFailures.set(req.id, { count: locked ? 0 : count, lockedUntil: locked ? nowMs + LOCKOUT_MS : 0 });
-          this.logger.log('warn', 'Company deletion refused: owner password incorrect', { id: req.id, locked });
-          if (locked) throw new AppError('LOCKED', `Too many incorrect owner passwords. Try again in ${Math.round(LOCKOUT_MS / 60_000)} minutes.`);
-          throw new AppError('UNAUTHENTICATED', 'Owner username or password is incorrect');
-        }
-        this.deleteFailures.delete(req.id);
       }
       this.store.moveToTrash(req.id, req.confirmName);
+      try {
+        this.anchors?.remove(req.id);
+      } catch (err) {
+        this.logger.log('warn', 'Could not remove the edit-log check-point of a deleted company', { error: err });
+      }
       try {
         this.config.forget(req.id);
       } catch (err) {
@@ -458,10 +583,17 @@ export class AppController {
 
   // ───────────────────────────── Authentication ─────────────────────────────
 
+  /** Count one credential check against a company (rate limit, see AttemptLimiter); throws LOCKED. */
+  throttleCredentialCheck(companyId: string, purpose: 'login' | 'owner'): void {
+    this.attempts.take(`${companyId}|${purpose}`, this.clock.now());
+  }
+
   loginUser(input: LoginInput): Promise<AppState> {
     return this.exclusive(async () => {
       const o = this.open;
       if (!o) throw new AppError('NO_COMPANY', 'Open a company first.');
+      // Bounds scripted guessing (each unknown-username attempt is a permanent edit-log row).
+      this.throttleCredentialCheck(o.opened.id, 'login');
       if (this.session && !this.session.implicit) this.endSession('switch');
       const result = await login(o.opened.db, input.username, input.password, this.clock.now());
       if (this.open !== o) throw new AppError('CONFLICT', 'The company was closed while logging in. Please open it again.');
@@ -532,6 +664,8 @@ export class AppController {
       if (opts.replaceId !== undefined && this.open?.opened.id === opts.replaceId)
         throw new AppError('CONFLICT', 'Close this company before restoring over it.');
       const r = this.store.install(sourceDbPath, opts);
+      // A restore legitimately replaces the edit log (it records the restore itself): start a new anchor.
+      this.anchorInstalled(r.paths.id, r.paths.dbPath);
       if (r.replacedTo) {
         try {
           this.config.forget(r.paths.id);

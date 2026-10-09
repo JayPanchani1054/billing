@@ -9,6 +9,7 @@ import type { FieldIssue } from '../../../shared/api.ts';
 import {
   IMPORT_KINDS,
   MASTER_EXPORT_KINDS,
+  type BackupAutoInput,
   type BackupAutoResult,
   type BackupCreateInput,
   type BackupCreateResult,
@@ -21,6 +22,8 @@ import {
   type BackupVerifyInput,
   type BackupVerifyResult,
   type DataVerifyResult,
+  type ExportAuditInput,
+  type ExportAuditResult,
   type ExportFileResult,
   type ExportMastersInput,
   type ExportTableCell,
@@ -42,11 +45,11 @@ import { VOUCHER_BASE_TYPES } from '../../../shared/constants.ts';
 import { appRoute, companyRoute, type RouteMap } from '../../api/route.ts';
 import { customSchema } from '../../lib/schemas.ts';
 import { v, type Schema } from '../../lib/validate.ts';
-import { autoBackup, createBackup, inspectBackupFile, listBackups, restoreBackup, verifyBackup } from './backup.ts';
+import { autoBackup, configuredBackupFolder, createBackup, inspectBackupFile, listBackups, restoreBackup, verifyBackup } from './backup.ts';
 import { assertNoCompanyOpen, requirePermission } from './common.ts';
 import { exportMasters, exportVouchers } from './exportData.ts';
-import { exportTable } from './exportTable.ts';
-import { commitImport, importTemplate, previewImport } from './importer.ts';
+import { auditReportOutput, exportTable } from './exportTable.ts';
+import { commitImport, importProgress, importTemplate, previewImport } from './importer.ts';
 import { KIND_SPECS, kindInfo } from './importSpecs.ts';
 import { importTally, previewTally, tallyProgress } from './tallyImport.ts';
 import { verifyData } from './verify.ts';
@@ -76,6 +79,8 @@ export const BackupRestoreInputSchema = v.object({
   ownerUsername: v.string({ max: 64 }).optional(),
   ownerPassword: secret().optional(),
 }) as Schema<BackupRestoreInput>;
+
+export const BackupAutoInputSchema = v.object({ trigger: v.enum(['open', 'close'] as const).optional() }) as Schema<BackupAutoInput>;
 
 export const BackupInspectInputSchema = v.object({ path: path('backup file') }) as Schema<BackupInspectInput>;
 
@@ -107,16 +112,20 @@ const rowSchema: Schema<ExportTableCell[]> = customSchema<ExportTableCell[]>((va
 
 const isoDate = v.date();
 
+/** Report period: an ISO range or a ready label (trimmed to 200 characters). */
+function exportPeriodSchema(): Schema<ExportTableInput['period']> {
+  return customSchema<ExportTableInput['period']>((value, p, issues: FieldIssue[]) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'string') return value.slice(0, 200);
+    return v.object({ from: isoDate, to: isoDate }).check(value, p, issues);
+  });
+}
+
 export const ExportTableInputSchema = v.object({
   title: v.string({ min: 1, max: 200 }),
   subtitle: v.string({ max: 300 }).optional(),
   company: v.string({ max: 200 }).optional(),
-  period: customSchema<ExportTableInput['period']>((value, p, issues: FieldIssue[]) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === 'string') return value.slice(0, 200);
-    const r = v.object({ from: isoDate, to: isoDate }).check(value, p, issues);
-    return r;
-  }),
+  period: exportPeriodSchema(),
   columns: v.array(
     v.object({
       header: v.string({ max: 200 }),
@@ -132,6 +141,14 @@ export const ExportTableInputSchema = v.object({
   notes: v.string({ max: 2000 }).optional(),
   format: v.enum(['xlsx', 'csv'] as const),
 }) as Schema<ExportTableInput>;
+
+export const ExportAuditInputSchema = v.object({
+  title: v.string({ min: 1, max: 200 }),
+  subtitle: v.string({ max: 300 }).optional(),
+  period: exportPeriodSchema(),
+  rows: v.int({ min: 0, max: MAX_EXPORT_ROWS }),
+  format: v.enum(['pdf', 'print'] as const),
+}) as Schema<ExportAuditInput>;
 
 export const ExportMastersInputSchema = v.object({
   kinds: v.array(v.enum(MASTER_EXPORT_KINDS), { min: 1, max: MASTER_EXPORT_KINDS.length }),
@@ -205,21 +222,24 @@ export const dataRoutes = {
     access: 'data.backup',
     transactional: false,
     input: BackupVerifyInputSchema,
-    handler: (ctx, input): Promise<BackupVerifyResult> => verifyBackup(ctx.app.dataDir, input.path, input.password),
+    handler: (ctx, input): Promise<BackupVerifyResult> =>
+      verifyBackup({ app: ctx.app, trusted: [configuredBackupFolder(ctx.db)] }, input.path, input.password),
   }),
   'data.backup.auto': companyRoute({
-    access: 'authenticated',
+    access: 'authenticated', // a company-wide F12 policy: runs for whoever opens / closes the company
     transactional: false,
-    input: v.none(),
-    handler: (ctx): Promise<BackupAutoResult> => autoBackup(ctx),
+    input: BackupAutoInputSchema,
+    handler: (ctx, input): Promise<BackupAutoResult> => autoBackup(ctx, input),
   }),
   'data.backup.restore': companyRoute({
     access: 'data.restore',
     transactional: false,
     input: BackupRestoreInputSchema,
     handler: (ctx, input): Promise<BackupRestoreResult> =>
-      restoreBackup({ app: ctx.app, clock: ctx.clock, session: ctx.session, openCompanyId: ctx.company.id }, input),
+      restoreBackup({ app: ctx.app, clock: ctx.clock, session: ctx.session, openCompanyId: ctx.company.id, trusted: [configuredBackupFolder(ctx.db)] }, input),
   }),
+  // Public (no login) routes below accept only backup files picked in the file dialog this session, or
+  // files inside the data folder (core/lib/paths.ts) — never an arbitrary or UNC path.
   'data.backup.restoreFromFile': appRoute({
     access: 'public', // Company Select screen: only while NO company is open (enforced below)
     input: BackupRestoreInputSchema,
@@ -233,7 +253,7 @@ export const dataRoutes = {
     input: BackupInspectInputSchema,
     handler: (ctx, input): BackupFileInfo => {
       assertNoCompanyOpen(ctx, 'Checking a backup file');
-      return inspectBackupFile(input.path);
+      return inspectBackupFile({ app: ctx.app }, input.path);
     },
   }),
   'data.backup.verifyFile': appRoute({
@@ -241,7 +261,7 @@ export const dataRoutes = {
     input: BackupVerifyInputSchema,
     handler: (ctx, input): Promise<BackupVerifyResult> => {
       assertNoCompanyOpen(ctx, 'Checking a backup file');
-      return verifyBackup(ctx.app.dataDir, input.path, input.password);
+      return verifyBackup({ app: ctx.app }, input.path, input.password);
     },
   }),
 
@@ -251,6 +271,11 @@ export const dataRoutes = {
     transactional: false,
     input: ExportTableInputSchema,
     handler: (ctx, input): ExportFileResult => exportTable(ctx, input),
+  }),
+  'data.export.audit': companyRoute({
+    access: 'authenticated', // the data.export permission is checked by the service
+    input: ExportAuditInputSchema,
+    handler: (ctx, input): ExportAuditResult => auditReportOutput(ctx, input),
   }),
   'data.export.masters': companyRoute({
     access: 'data.export',
@@ -285,13 +310,19 @@ export const dataRoutes = {
     access: 'data.import',
     transactional: false,
     input: ImportPreviewInputSchema,
-    handler: (ctx, input): ImportPreviewResult => previewImport(ctx, input),
+    handler: (ctx, input): Promise<ImportPreviewResult> => previewImport(ctx, input),
   }),
   'data.import.commit': companyRoute({
     access: 'data.import',
     transactional: false,
     input: ImportCommitInputSchema,
-    handler: (ctx, input): ImportCommitResult => commitImport(ctx, input),
+    handler: (ctx, input): Promise<ImportCommitResult> => commitImport(ctx, input),
+  }),
+  'data.import.progress': companyRoute({
+    access: 'data.import',
+    transactional: false,
+    input: v.none(),
+    handler: (ctx): TallyProgress => importProgress(ctx),
   }),
 
   // ── Tally migration ──

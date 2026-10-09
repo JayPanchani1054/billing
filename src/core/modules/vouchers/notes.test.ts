@@ -37,15 +37,34 @@ describe('debit note to a customer (supplementary invoice / upward price revisio
     k.t.close();
   });
 
-  it('item mode: Sales ledger by default (not the type’s Purchase default), stock goes out', () => {
+  it('item mode: Sales ledger by default (not the type’s Purchase default); value only — stock does not move again', () => {
     const k = setupKit();
+    const before = stockOf(k, k.I.mixer);
     // Mixer 2 × ₹50 = ₹100.00 @18%: CGST 9.00 + SGST 9.00 → ₹118.00.
-    const res = save(k, note(k, 'debit_note', { partyLedgerId: k.L.acme, items: [{ itemId: k.I.mixer, qty: 2, rate: 50 }] }));
+    // The goods went out with the original invoice; the note revises their price (CGST s.34(3)). Before the
+    // fix the 2 mixers left stock a second time (closing stock and gross profit understated).
+    const res = save(k, note(k, 'debit_note', { partyLedgerId: k.L.acme, items: [{ itemId: k.I.mixer, qty: 2, rate: 50, trackingRef: 'RO-1' }] }));
     assert.deepEqual(entryMap(k, res.id), { 'Acme Traders': 11800, Sales: -10000, 'Output CGST': -900, 'Output SGST/UTGST': -900 });
     const roles = k.t.db.all<{ role: string }>('SELECT role FROM ledger_entries WHERE voucher_id = :id ORDER BY line_no', { id: res.id });
     assert.deepEqual(roles.map((r) => r.role), ['party', 'sales', 'tax', 'tax']);
-    assert.equal(stockOf(k, k.I.mixer), 48);
+    assert.equal(stockOf(k, k.I.mixer), before, 'no second outward movement');
+    const inv = k.t.db.all<{ qty: number; amount: number; affects_stock: number; tracking_ref: string | null }>(
+      'SELECT qty, amount, affects_stock, tracking_ref FROM inventory_entries WHERE voucher_id = :id',
+      { id: res.id },
+    );
+    assert.deepEqual(inv, [{ qty: -2, amount: 10000, affects_stock: 0, tracking_ref: null }], 'the line keeps qty/value for the documents, moves no stock, bills no rejection note');
+    assert.equal(header(k, res.id).affects_stock, 0);
+    assert.equal(gstLines(k, res.id)[0].qty, 2, 'GSTR-1 HSN summary still gets the quantity');
     assert.equal(header(k, res.id).gst_nature, 'b2b');
+    assert.equal(res.warnings.filter((w) => w.code === 'tracking_ref').length, 0, 'no rejection-note check on a value-only line');
+    k.t.close();
+  });
+
+  it('a purchase return (debit note to a supplier) in item mode still sends the goods out', () => {
+    const k = setupKit();
+    const before = stockOf(k, k.I.rice);
+    save(k, note(k, 'debit_note', { partyLedgerId: k.L.supplier, items: [{ itemId: k.I.rice, qty: 2, rate: 100 }] }));
+    assert.equal(stockOf(k, k.I.rice), before - 2);
     k.t.close();
   });
 

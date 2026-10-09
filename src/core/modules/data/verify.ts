@@ -176,7 +176,12 @@ function inventoryDirection(db: Db): DataVerifyCheck {
 function gstPostings(db: Db): DataVerifyCheck {
   const rows = db.all<VRef & { gi: number; gc: number; gs: number; ge: number; pi: number; pc: number; ps: number; pe: number }>(
     `WITH g AS (
-        SELECT voucher_id, SUM(igst) AS gi, SUM(cgst) AS gc, SUM(sgst) AS gs, SUM(cess) AS ge FROM gst_lines GROUP BY voucher_id),
+        -- Goods from an SEZ unit are imports: their IGST is paid at customs (bill of entry), never posted
+        -- from the supplier's invoice (the services on such an invoice are).
+        SELECT gl.voucher_id, SUM(gl.igst) AS gi, SUM(gl.cgst) AS gc, SUM(gl.sgst) AS gs, SUM(gl.cess) AS ge
+          FROM gst_lines gl JOIN vouchers gv ON gv.id = gl.voucher_id
+         WHERE NOT (COALESCE(gv.gst_nature, '') = 'inward_sez' AND gl.supply_type = 'goods')
+         GROUP BY gl.voucher_id),
       p AS (
         SELECT voucher_id,
                ABS(SUM(CASE WHEN gst_duty_head = 'IGST' THEN amount ELSE 0 END)) AS pi,

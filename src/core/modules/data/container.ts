@@ -77,6 +77,47 @@ class HashTap extends Transform {
   }
 }
 
+/** Largest database a backup may declare (far above any real company; refuses absurd manifests). */
+export const MAX_DB_BYTES = 50 * 1024 ** 3;
+/** Free space kept on the data folder's disk when unpacking a backup (WAL, logs, other companies). */
+const FREE_SPACE_MARGIN = 256 * 1024 * 1024;
+
+const BOMB_MESSAGE = 'This backup file is damaged (it unpacks to more data than it declares).';
+
+/**
+ * Pass-through stream that fails as soon as more than `limit` bytes have gone through: a
+ * decompression bomb (a small gzip that inflates to many GB) never fills the disk.
+ */
+export class ByteLimit extends Transform {
+  private seen = 0;
+  private readonly limit: number;
+  constructor(limit: number) {
+    super();
+    this.limit = limit;
+  }
+  override _transform(chunk: Buffer, _enc: BufferEncoding, cb: TransformCallback): void {
+    this.seen += chunk.length;
+    if (this.seen > this.limit) cb(new BackupFileError('decompress', BOMB_MESSAGE));
+    else cb(null, chunk);
+  }
+}
+
+/** Refuse a manifest whose database could not possibly fit (absolute cap, then free disk space). */
+function assertRoomFor(dbBytes: number, outPath: string): void {
+  if (dbBytes > MAX_DB_BYTES) throw new BackupFileError('decompress', 'This backup file is damaged (it declares an impossibly large database).');
+  let free: number | null = null;
+  try {
+    const st = fs.statfsSync(path.dirname(outPath));
+    free = Number(st.bavail) * Number(st.bsize);
+  } catch {
+    free = null; // file systems that cannot report free space: the byte limit still applies
+  }
+  if (free !== null && Number.isFinite(free) && dbBytes + FREE_SPACE_MARGIN > free) {
+    const mb = (n: number): string => `${Math.ceil(n / 1_048_576).toLocaleString('en-IN')} MB`;
+    throw new AppError('BUSINESS_RULE', `There is not enough free disk space in the data folder to unpack this backup (it needs ${mb(dbBytes)}; ${mb(Math.max(0, free))} free). Free some space and try again.`);
+  }
+}
+
 /** sha256 + size of a file region [start, end). */
 export async function hashFileRegion(file: string, start: number, end?: number): Promise<{ sha256: string; bytes: number }> {
   const tap = new HashTap();
@@ -218,7 +259,17 @@ function checkManifest(raw: unknown): BackupManifest {
     payloadBytes: m.payloadBytes as number,
     dbSha256: m.dbSha256 as string,
     dbBytes: m.dbBytes as number,
+    ...auditHeadOf(m.auditHead),
   };
+}
+
+/** Optional manifest.auditHead, kept only when well-formed (older backups have none). */
+function auditHeadOf(raw: unknown): Pick<BackupManifest, 'auditHead'> {
+  if (!raw || typeof raw !== 'object') return {};
+  const h = raw as Record<string, unknown>;
+  if (typeof h.lastId !== 'number' || !Number.isSafeInteger(h.lastId) || typeof h.lastHash !== 'string' || !HEX64.test(h.lastHash)) return {};
+  const mac = typeof h.mac === 'string' && HEX64.test(h.mac) ? h.mac : null;
+  return { auditHead: { lastId: h.lastId, lastHash: h.lastHash, mac } };
 }
 
 /** Read and validate the header + manifest (the payload is not read). Synchronous: a few KiB. */
@@ -274,6 +325,7 @@ export async function extractPayload(file: string, info: ContainerInfo, password
   if (info.manifest.encrypted && !password) {
     throw new BackupFileError('password', 'This backup is protected with a password. Enter the password to continue.');
   }
+  assertRoomFor(info.manifest.dbBytes, outPath);
   const dbTap = new HashTap();
   try {
     if (info.manifest.encrypted) {
@@ -296,6 +348,7 @@ export async function extractPayload(file: string, info: ContainerInfo, password
           fs.createReadStream(file, { start: info.payloadOffset + ENC_PREFIX }),
           decipher,
           createGunzip(),
+          new ByteLimit(info.manifest.dbBytes),
           dbTap,
           fs.createWriteStream(outPath, { flags: 'wx', mode: 0o600 }),
         );
@@ -308,6 +361,7 @@ export async function extractPayload(file: string, info: ContainerInfo, password
         await pipeline(
           fs.createReadStream(file, { start: info.payloadOffset }),
           createGunzip(),
+          new ByteLimit(info.manifest.dbBytes),
           dbTap,
           fs.createWriteStream(outPath, { flags: 'wx', mode: 0o600 }),
         );

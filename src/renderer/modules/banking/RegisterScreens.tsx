@@ -1,7 +1,7 @@
 /**
  * Banking registers:
  *  - 'banking.cheques' { ledgerId? } — cheques/DDs issued and received in the period (Alt+F2), with clearing
- *    status, stale cheques (over 3 months) and totals. Filters: bank, status (Alt+1/2/3), direction.
+ *    status, stale cheques (over 3 months) and totals. Filters: bank, status (Ctrl+1/2/3), direction.
  *  - 'banking.pdc' { ledgerId? } — post-dated cheques pending as on the period end, receivable and payable,
  *    days to maturity; Alt+T also lists matured ones.
  * Enter opens the voucher; Alt+E export, Alt+P print.
@@ -82,7 +82,7 @@ export function ChequeRegisterScreen({ params }: ScreenProps<{ ledgerId?: number
       error={q.error}
       onRetry={() => void q.refetch()}
       exportDef={() => chequeRegisterExport(rows)}
-      hint="Enter open voucher · Alt+1/2/3 all / not cleared / cleared · Alt+F2 period"
+      hint="Enter open voucher · Ctrl+1/2/3 All / Not cleared / Cleared · Alt+F2 period"
       filters={
         <Inline gap={2} wrap>
           <BankSelect banks={banks} value={ledgerId} onChange={setLedgerId} allowAll />
@@ -91,9 +91,9 @@ export function ChequeRegisterScreen({ params }: ScreenProps<{ ledgerId?: number
         </Inline>
       }
       actions={[
-        { key: 'Alt+1', label: 'All cheques', onClick: () => setStatus('all'), group: 'view', disabled: status === 'all' },
-        { key: 'Alt+2', label: 'Not cleared', onClick: () => setStatus('uncleared'), group: 'view', disabled: status === 'uncleared' },
-        { key: 'Alt+3', label: 'Cleared', onClick: () => setStatus('cleared'), group: 'view', disabled: status === 'cleared' },
+        { key: 'Ctrl+1', label: 'All cheques', onClick: () => setStatus('all'), group: 'view', disabled: status === 'all' },
+        { key: 'Ctrl+2', label: 'Not cleared', onClick: () => setStatus('uncleared'), group: 'view', disabled: status === 'uncleared' },
+        { key: 'Ctrl+3', label: 'Cleared', onClick: () => setStatus('cleared'), group: 'view', disabled: status === 'cleared' },
         { key: 'Alt+R', label: 'Reconciliation', icon: 'bank', onClick: () => nav.push('banking.brs', { ledgerId: ledgerId ?? undefined }), group: 'go' },
       ]}
     >

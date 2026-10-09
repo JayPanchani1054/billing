@@ -8,7 +8,7 @@ import { migrate } from '../db/migrate.ts';
 import { AppError, rule } from '../lib/errors.ts';
 import { v } from '../lib/validate.ts';
 import type { AppRuntime, OpenCompanyInfo, Session } from './context.ts';
-import { createDispatcher, type DispatchState } from './dispatch.ts';
+import { createDispatcher, isStrictRouteInput, setStrictRouteInput, type DispatchState } from './dispatch.ts';
 import { appRoute, companyRoute, type RouteMap } from './route.ts';
 
 function setup() {
@@ -133,6 +133,22 @@ describe('dispatcher', () => {
     assert.equal(errCode(r), 'VALIDATION');
     assert.ok(!r.ok && Array.isArray(r.error.details) && (r.error.details as Array<{ path: string }>)[0].path === 'name');
     assert.equal(errCode(await t.dispatch('test.insert', 'not an object')), 'VALIDATION');
+    t.close();
+  });
+
+  it('strict route input: unknown keys fail under the test runner and in development, and are dropped in production', async () => {
+    const t = setup();
+    assert.equal(isStrictRouteInput(), true, 'node --test sets NODE_TEST_CONTEXT: the whole suite runs strict');
+    const r = await t.dispatch('test.insert', { name: 'Gamma', fial: true });
+    assert.equal(errCode(r), 'VALIDATION');
+    assert.deepEqual(!r.ok && r.error.details, [{ path: 'fial', message: 'Unknown field "fial" — did you mean "fail"?' }]);
+    assert.equal(t.db.value('SELECT COUNT(*) FROM t'), 0, 'the handler never ran');
+    setStrictRouteInput(false);
+    try {
+      assert.deepEqual(await t.dispatch('test.insert', { name: 'Gamma', fial: true }), { ok: true, data: { inserted: 'Gamma' } });
+    } finally {
+      setStrictRouteInput(true);
+    }
     t.close();
   });
 

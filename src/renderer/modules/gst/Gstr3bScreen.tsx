@@ -1,7 +1,7 @@
 /**
  * 'gst.gstr3b' {period?} — GSTR-3B laid out like the portal form (3.1, 3.1.1, 3.2, 4, 5, 5.1, 6.1)
  * with the figures worked out from the books. Figures only the portal knows (ISD credit, reversals,
- * interest, late fee, credit ledger balance) are typed in "Your entries" and saved with Ctrl+A
+ * interest, late fee, credit not in the books; unused credit of earlier periods is brought forward automatically) are typed in "Your entries" and saved with Ctrl+A
  * ('gst.gstr3b.saveAdjustments', only the changed cells are sent). The 6.1 table shows how ITC pays
  * each tax head and the cash to pay. Alt+J saves the portal JSON; Alt+P prints the whole form.
  */
@@ -679,7 +679,10 @@ function PaymentTable({ summary: s }: { summary: Gstr3bSummary }) {
 }
 
 function SetOffPanel({ summary: s }: { summary: Gstr3bSummary }) {
-  const lines = useMemo(() => setOffLines(s.payment.setOff, s.payment.creditAvailable), [s.payment.setOff, s.payment.creditAvailable]);
+  const lines = useMemo(
+    () => setOffLines(s.payment.setOff, s.payment.creditAvailable, s.payment.broughtForward),
+    [s.payment.setOff, s.payment.creditAvailable, s.payment.broughtForward],
+  );
   return (
     <Panel title="How your ITC is used" headingLevel={2} description={SET_OFF_RULE} collapsible>
       <Stack gap={3}>
@@ -692,6 +695,9 @@ function SetOffPanel({ summary: s }: { summary: Gstr3bSummary }) {
           <thead>
             <tr>
               <th scope="col">Credit</th>
+              <th scope="col" className="is-num">
+                Brought forward
+              </th>
               <th scope="col" className="is-num">
                 Available
               </th>
@@ -709,6 +715,7 @@ function SetOffPanel({ summary: s }: { summary: Gstr3bSummary }) {
             {lines.map((l) => (
               <tr key={l.credit}>
                 <th scope="row">{HEAD_LABELS[l.credit]} credit</th>
+                <td className="is-num">{money(l.broughtForward)}</td>
                 <td className="is-num">{money(l.available)}</td>
                 {TAX_HEADS.map((h) => (
                   <Num key={h} value={s.payment.setOff.utilisation[l.credit][h]} blank={!creditMayPay(l.credit, h)} />

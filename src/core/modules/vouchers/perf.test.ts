@@ -5,6 +5,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ItemLineInput, LedgerLineInput } from '../../../shared/types/vouchers.ts';
+import { ledgerBalanceAsOf } from './guards.ts';
+import { NUMBER_TAKEN_SQL } from './numbering.ts';
 import { getVoucher } from './queries.ts';
 import { previewVoucher, saveVoucher } from './service.ts';
 import { entrySum, salesInput, setupKit } from './testkit.ts';
@@ -89,6 +91,87 @@ describe('performance', () => {
       const plan = k.t.db.all<{ detail: string }>(`EXPLAIN QUERY PLAN SELECT 1 FROM ${table} WHERE ${column} = 1`).map((r) => r.detail).join(' | ');
       assert.match(plan, /USING (COVERING )?INDEX/, `${table}.${column}: ${plan}`);
     }
+    k.t.close();
+  });
+});
+
+describe('save cost does not grow with the books (audit finding: number probe and balance guard plans)', () => {
+  const plan = (k: ReturnType<typeof setupKit>, sql: string, params: Record<string, string | number>): string =>
+    k.t.db
+      .all<{ detail: string }>(`EXPLAIN QUERY PLAN ${sql}`, params)
+      .map((r) => r.detail)
+      .join(' | ');
+
+  it('the voucher-number probe looks the number up; the balance guard reads the covering index', () => {
+    const k = setupKit();
+    // Without INDEXED BY (and without ANALYZE statistics) SQLite picked idx_vouchers_type_date and
+    // scanned every voucher of the type in the year on each probe.
+    const p1 = plan(k, NUMBER_TAKEN_SQL, { vt: 1, number: '5', from: '2026-04-01', to: '2027-03-31', ex: 0 });
+    assert.match(p1, /USING INDEX idx_vouchers_number \(voucher_type_id=\? AND number=\?\)/);
+    const t0 = performance.now();
+    ledgerBalanceAsOf(k.t.db, k.L.cash, k.t.today, k.t.today, 1);
+    assert.ok(performance.now() - t0 < 1000);
+    const p2 = plan(
+      k,
+      'SELECT COALESCE(SUM(amount), 0) FROM ledger_entries INDEXED BY idx_le_books WHERE ledger_id = :id AND affects_books = 1 AND (is_post_dated = 0 OR date <= :today) AND date <= :date',
+      { id: 1, today: '2026-04-15', date: '2026-04-15' },
+    );
+    assert.match(p2, /USING COVERING INDEX idx_le_books/);
+    k.t.close();
+  });
+
+  it('an automatic-numbered save costs the same with 30,000 vouchers of its type in the year', () => {
+    const k = setupKit();
+    const journal = (i: number) =>
+      saveVoucher(k.t.ctx, {
+        voucherTypeId: k.vt.journal,
+        date: k.t.today,
+        mode: 'ledger',
+        ledgers: [{ ledgerId: k.L.rent, amount: 100 + i }, { ledgerId: k.L.capital, amount: -(100 + i) }],
+        acknowledgeWarnings: true,
+      });
+    const timed = (n: number, from: number): number => {
+      const t0 = performance.now();
+      k.t.db.transaction(() => {
+        for (let i = 0; i < n; i++) journal(from + i);
+      });
+      return performance.now() - t0;
+    };
+    timed(50, 0); // warm-up (statement cache)
+    const before = timed(300, 50);
+    // 30,000 more journals of the same type in FY 2026-27 (numbers 100000…), with a Cash entry each so the
+    // Cash ledger has a long history too.
+    const now = k.t.clock.now().toISOString();
+    k.t.db.run(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 30000)
+       INSERT INTO vouchers (guid, voucher_type_id, base_type, number, number_seq, date, created_at, updated_at)
+       SELECT lower(hex(randomblob(16))), :vt, 'journal', CAST(100000 + i AS TEXT), 100000 + i, date('2026-04-01', '+' || (i % 300) || ' days'), :now, :now FROM n`,
+      { vt: k.vt.journal, now },
+    );
+    k.t.db.run(
+      `INSERT INTO ledger_entries (voucher_id, line_no, ledger_id, amount, date)
+       SELECT id, 1, :cash, 100, date FROM vouchers WHERE number_seq >= 100000`,
+      { cash: k.L.cash },
+    );
+    const after = timed(300, 400);
+    console.log(`# 300 journal saves: ${before.toFixed(0)} ms on an empty year, ${after.toFixed(0)} ms with 30,000 journals in it`);
+    // Before the fix each save probed the series twice by scanning the type's year: ~30× slower here.
+    assert.ok(after < before * 3 + 300, `saves slowed from ${before.toFixed(0)} ms to ${after.toFixed(0)} ms`);
+
+    // The balance guard on the Cash ledger (30,000 entries), excluding a voucher, is as cheap as without
+    // (before the fix the exclusion forced a table lookup per entry: ~4× slower here).
+    ledgerBalanceAsOf(k.t.db, k.L.cash, '2027-03-31', '2027-03-31', null);
+    ledgerBalanceAsOf(k.t.db, k.L.cash, '2027-03-31', '2027-03-31', 5);
+    const t0 = performance.now();
+    for (let i = 0; i < 50; i++) ledgerBalanceAsOf(k.t.db, k.L.cash, '2027-03-31', '2027-03-31', null);
+    const plain = performance.now() - t0;
+    const t1 = performance.now();
+    for (let i = 0; i < 50; i++) ledgerBalanceAsOf(k.t.db, k.L.cash, '2027-03-31', '2027-03-31', 5);
+    const excluding = performance.now() - t1;
+    console.log(`# 50 Cash balances over 30,000 entries: ${plain.toFixed(0)} ms; excluding a voucher: ${excluding.toFixed(0)} ms`);
+    assert.ok(excluding < plain * 2 + 50, `excluding a voucher: ${excluding.toFixed(0)} ms vs ${plain.toFixed(0)} ms`);
+    // Same figure either way: 30,000 × ₹1.00 (the excluded voucher has no Cash entry).
+    assert.equal(ledgerBalanceAsOf(k.t.db, k.L.cash, '2027-03-31', '2027-03-31', 5), ledgerBalanceAsOf(k.t.db, k.L.cash, '2027-03-31', '2027-03-31', null));
     k.t.close();
   });
 });

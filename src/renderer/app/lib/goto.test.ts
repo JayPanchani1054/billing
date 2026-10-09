@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { getGotoProviders, pushRecent, rankGoto, registerGotoProvider, searchProviders, subsequenceMatch, uniqueById } from './goto.ts';
+import { getGotoProviders, pushRecent, rankGoto, registerGotoProvider, resolveGotoTarget, searchProviders, subsequenceMatch, uniqueById, usableProviders } from './goto.ts';
 import type { GotoItem } from './goto.ts';
-import { buildStaticGotoItems, parseRecent } from './gotoItems.ts';
+import { buildStaticGotoItems, parseRecent, voucherCommands } from './gotoItems.ts';
 import type { ModuleDef } from '../registry.ts';
 
 const item = (label: string, extra: Partial<GotoItem> = {}): GotoItem => ({ id: label, label, group: 'Screens', screen: label, ...extra });
@@ -153,6 +153,24 @@ describe('static Go To items', () => {
     assert.equal(rankGoto(items, 'sales')[0].item.hotkey, 'F8');
   });
 
+  test('no duplicate voucher entries: the vouchers module menu replaces the shell commands', () => {
+    const withMenu: ModuleDef[] = [
+      ...mods,
+      { id: 'vouchers', screens: [{ id: 'vouchers.entry', title: 'Voucher Entry', component: Dummy }], menu: [{ section: 'transactions', label: 'Sales', screen: 'vouchers.entry', params: { baseType: 'sales' }, access: 'vouchers.create', hotkey: 'F8' }] },
+    ];
+    const items = buildStaticGotoItems(withMenu, { can: () => true, gstEnabled: true }, { includeVouchers: false });
+    assert.equal(items.filter((i) => i.label === 'Sales').length, 1);
+    // An Auditor (no vouchers.create) is offered no voucher entry at all.
+    const auditor = buildStaticGotoItems(withMenu, { can: (p) => p !== 'vouchers.create', gstEnabled: true }, { includeVouchers: false });
+    assert.equal(auditor.filter((i) => i.label === 'Sales').length, 0);
+  });
+
+  test('shell voucher commands are filtered by availability (permission + F11 features)', () => {
+    const cmds = voucherCommands((b) => b === 'sales' || b === 'receipt');
+    assert.deepEqual(cmds.map((c) => c.command).sort(), ['voucher:receipt', 'voucher:sales']);
+    assert.equal(voucherCommands(() => false).length, 0);
+  });
+
   test('parseRecent drops malformed entries', () => {
     const r = parseRecent([{ id: 'a', label: 'A', screen: 'x', params: { id: 1 } }, { id: 1 }, null, 'x', { id: 'b', label: 'B', screen: '', command: 'date', params: [] }]);
     assert.deepEqual(
@@ -163,5 +181,28 @@ describe('static Go To items', () => {
       ],
     );
     assert.deepEqual(parseRecent('nope'), []);
+  });
+});
+
+describe('Go To results the user can open', () => {
+  const canOpen = (screen: string) => ['accounts.ledger.form', 'vouchers.entry'].includes(screen); // masters.view, no reports.view
+
+  test('a ledger falls back to its master form when the Ledger report is not allowed; else it is dropped', () => {
+    const ledger = item('HDFC Bank', { id: 'ledger:3', screen: 'reports.ledger', params: { ledgerId: 3 }, fallback: { screen: 'accounts.ledger.form', params: { id: 3 } } });
+    assert.deepEqual(resolveGotoTarget(ledger, canOpen), { ...ledger, screen: 'accounts.ledger.form', params: { id: 3 }, fallback: undefined });
+    assert.deepEqual(resolveGotoTarget(ledger, () => true), ledger);
+    assert.equal(resolveGotoTarget(item('Sundry Debtors', { screen: 'reports.groupSummary' }), canOpen), null);
+    const cmd = item('Sales - Export', { screen: '', command: 'voucher-type:sales:40' });
+    assert.equal(resolveGotoTarget(cmd, () => false), cmd);
+  });
+
+  test('providers run only for users who may open their screens (no banking.summary call without reports.view)', () => {
+    const search = async () => [];
+    const list = [
+      { id: 'banking.brs', label: 'BRS', screens: ['banking.brs'], search },
+      { id: 'ledgers', label: 'Ledgers', screens: ['reports.ledger', 'accounts.ledger.form'], search },
+      { id: 'legacy', label: 'Legacy', search },
+    ];
+    assert.deepEqual(usableProviders(list, canOpen).map((p) => p.id), ['ledgers', 'legacy']);
   });
 });

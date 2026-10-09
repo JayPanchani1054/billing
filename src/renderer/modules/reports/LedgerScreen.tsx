@@ -2,7 +2,7 @@
  * 'reports.ledger' {ledgerId, from?, to?} — Tally Ledger Vouchers: opening balance, one line per
  * voucher (particulars = the other ledger or "(as per details)"), running balance, current total and
  * closing balance. Alt+L (or the picker) switches ledger, Alt+F1 adds narration and reference
- * columns, Alt+M opens the monthly summary, Enter opens the voucher and Alt+A alters it.
+ * columns, Alt+Y opens the monthly summary, Alt+M the ledger master, Enter opens the voucher and Alt+A alters it.
  */
 import { useMemo, useRef, useState } from 'react';
 import type { LedgerPickerRow } from '../../../shared/types/accounts.ts';
@@ -78,9 +78,9 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
   const actions: ScreenActionItem[] = [
     { key: 'Alt+L', label: 'Change ledger', icon: 'ledger', onClick: () => pickerRef.current?.focus(), disabled: !canPick, group: 'ledger' },
     { key: 'Alt+F1', label: detailed ? 'Condensed' : 'Detailed', icon: 'layers', onClick: () => setDetailed(!detailed), group: 'view' },
-    { key: 'Alt+M', label: 'Monthly summary', icon: 'calendar', onClick: () => ledgerId !== null && drill({ screen: 'reports.monthlySummary', params: { ledgerId, from: p.from, to: p.to } }), disabled: ledgerId === null, group: 'view' },
+    { key: 'Alt+Y', label: 'Monthly summary', icon: 'calendar', onClick: () => ledgerId !== null && drill({ screen: 'reports.monthlySummary', params: { ledgerId, from: p.from, to: p.to } }), disabled: ledgerId === null, group: 'view' },
     { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => current && drill(voucherTarget(current.voucherId, current.baseType, true)), disabled: !current, group: 'voucher' },
-    { key: 'Alt+R', label: 'Ledger master', icon: 'edit', onClick: () => ledgerId !== null && nav.push('accounts.ledger.form', { id: ledgerId }), disabled: ledgerId === null, group: 'ledger' },
+    { key: 'Alt+M', label: 'Ledger master', icon: 'edit', onClick: () => ledgerId !== null && nav.push('accounts.ledger.form', { id: ledgerId }), disabled: ledgerId === null, group: 'ledger' },
   ];
 
   const title = d ? d.ledger.name : 'Ledger';
@@ -94,7 +94,7 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
       error={ledgerId !== null ? q.error : null}
       onRetry={q.refetch}
       actions={actions}
-      hint="Enter Open voucher · Alt+A Alter · Alt+L Change ledger · Alt+F1 Narration · Alt+M Monthly"
+      hint="Enter Open voucher · Alt+A Alter · Alt+L Change ledger · Alt+F1 Narration · Alt+Y Monthly · Alt+M Ledger Master"
       filters={
         <Field label="Ledger" layout="inline" labelWidth={64}>
           <Picker<LedgerPickerRow>

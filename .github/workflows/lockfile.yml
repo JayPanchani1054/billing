@@ -1,0 +1,62 @@
+name: Lockfile
+
+# Keeps package-lock.json in step with package.json so CI and releases install exactly the same
+# dependency tree (`npm ci`). Runs when package.json changes on a branch, or by hand
+# (Actions › Lockfile › Run workflow), and commits the regenerated lockfile back to that branch.
+#
+# Safety: `npm install --package-lock-only --ignore-scripts` only resolves versions from the registry
+# metadata — no package is downloaded or extracted and no install script runs — so no third-party code
+# ever executes while this job holds a write token.
+#
+# A push made with GITHUB_TOKEN does not trigger other workflows, so the job then starts CI for the
+# lockfile commit explicitly (workflow_dispatch is the documented exception).
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths: ['package.json']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lockfile-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lockfile:
+    name: Update package-lock.json
+    if: github.ref_type == 'branch' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # push the lockfile commit
+      actions: write # start CI for that commit
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '22'
+
+      - name: Resolve dependencies (metadata only, no scripts)
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Commit package-lock.json when it changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if git ls-files --error-unmatch package-lock.json >/dev/null 2>&1 && git diff --quiet -- package-lock.json; then
+            echo "package-lock.json is up to date."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package-lock.json
+          git commit -m "Update package-lock.json to match package.json"
+          git push origin "HEAD:refs/heads/${BRANCH}"
+          gh workflow run ci.yml --ref "${BRANCH}"
+          echo "Committed package-lock.json and started CI for it."

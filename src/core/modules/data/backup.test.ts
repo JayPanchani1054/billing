@@ -71,11 +71,11 @@ describe('backup: create and verify', () => {
 
   it('round trip (plain): verify passes every check and the data is the company', async () => {
     const r = await createBackup(t.ctx, { folder: dir });
-    const v = await verifyBackup(t.ctx.app.dataDir, r.path, undefined);
+    const v = await verifyBackup(t.ctx, r.path, undefined);
     assert.equal(v.ok, true, JSON.stringify(v.checks));
     assert.deepEqual(
       v.checks.map((c) => c.name),
-      ['container', 'checksum', 'decompress', 'database_checksum', 'integrity', 'schema', 'company'],
+      ['container', 'checksum', 'decompress', 'database_checksum', 'integrity', 'schema', 'company', 'edit_log'],
     );
     assert.equal(v.companyName, 'Shree Ganesh Traders');
     assert.equal(v.supported, true);
@@ -86,14 +86,14 @@ describe('backup: create and verify', () => {
     const r = await createBackup(t.ctx, { folder: dir, password: PASSWORD });
     assert.equal(r.encrypted, true);
     assert.equal(readContainerInfo(r.path).manifest.encrypted, true);
-    const noPw = await verifyBackup(t.ctx.app.dataDir, r.path, undefined);
+    const noPw = await verifyBackup(t.ctx, r.path, undefined);
     assert.equal(noPw.ok, false);
     assert.equal(noPw.needsPassword, true);
     assert.equal(noPw.checks.find((c) => c.name === 'password')?.ok, null);
-    const good = await verifyBackup(t.ctx.app.dataDir, r.path, PASSWORD);
+    const good = await verifyBackup(t.ctx, r.path, PASSWORD);
     assert.equal(good.ok, true, JSON.stringify(good.checks));
     assert.equal(good.checks.find((c) => c.name === 'password')?.ok, true);
-    const bad = await verifyBackup(t.ctx.app.dataDir, r.path, 'Wrong@2026');
+    const bad = await verifyBackup(t.ctx, r.path, 'Wrong@2026');
     assert.equal(bad.ok, false);
     const pw = bad.checks.find((c) => c.name === 'password');
     assert.equal(pw?.ok, false);
@@ -123,7 +123,7 @@ describe('backup: damaged and foreign files', () => {
     const buf = fs.readFileSync(r.path);
     buf[buf.length - 10] ^= 0xff;
     fs.writeFileSync(r.path, buf);
-    const v = await verifyBackup(t.ctx.app.dataDir, r.path, undefined);
+    const v = await verifyBackup(t.ctx, r.path, undefined);
     assert.equal(v.ok, false);
     assert.equal(v.checks.find((c) => c.name === 'checksum')?.ok, false);
   });
@@ -140,7 +140,7 @@ describe('backup: damaged and foreign files', () => {
     buf.fill(0x20, 12, info.payloadOffset);
     json.copy(buf, 12);
     fs.writeFileSync(r.path, buf);
-    const v = await verifyBackup(t.ctx.app.dataDir, r.path, PASSWORD);
+    const v = await verifyBackup(t.ctx, r.path, PASSWORD);
     assert.equal(v.checks.find((c) => c.name === 'checksum')?.ok, true);
     assert.equal(v.checks.find((c) => c.name === 'password')?.ok, false);
     assert.equal(v.ok, false);
@@ -150,7 +150,7 @@ describe('backup: damaged and foreign files', () => {
     const r = await createBackup(t.ctx, { folder: dir });
     const buf = fs.readFileSync(r.path);
     fs.writeFileSync(r.path, buf.subarray(0, buf.length - 100));
-    const v = await verifyBackup(t.ctx.app.dataDir, r.path, undefined);
+    const v = await verifyBackup(t.ctx, r.path, undefined);
     assert.equal(v.ok, false);
     assert.match(v.checks[0].message, /incomplete|damaged/);
   });
@@ -158,7 +158,7 @@ describe('backup: damaged and foreign files', () => {
   it('a file that is not a backup is refused clearly', async () => {
     const p = path.join(dir, 'notes.bahibak');
     fs.writeFileSync(p, 'hello world, not a backup');
-    const v = await verifyBackup(t.ctx.app.dataDir, p, undefined);
+    const v = await verifyBackup(t.ctx, p, undefined);
     assert.equal(v.ok, false);
     assert.match(v.checks[0].message, /not a Bahi ERP backup/);
   });
@@ -188,7 +188,7 @@ describe('backup: damaged and foreign files', () => {
         kind: 'manual',
       },
     });
-    const v = await verifyBackup(t.ctx.app.dataDir, target, undefined);
+    const v = await verifyBackup(t.ctx, target, undefined);
     assert.equal(v.ok, false);
     assert.equal(v.supported, false);
     const schema = v.checks.find((c) => c.name === 'schema');
@@ -279,6 +279,36 @@ describe('backup: list, retention and automatic backups', () => {
     t.clock.advance(2 * 3600_000); // 25 h after the first
     const again = await autoBackup(t.ctx);
     assert.deepEqual([again.ran, again.reason], [true, 'created']);
+  });
+
+  it("auto backup on open skips a brand-new company (reason 'new') but backs it up on close", async () => {
+    t.db.transaction(() => saveConfig(t.ctx, { backup: { folder: dir, auto: true } }));
+    const onOpen = await autoBackup(t.ctx, { trigger: 'open' });
+    assert.deepEqual([onOpen.ran, onOpen.reason], [false, 'new']);
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.bahibak')).length, 0);
+    const onClose = await autoBackup(t.ctx, { trigger: 'close' });
+    assert.deepEqual([onClose.ran, onClose.reason], [true, 'created']);
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.bahibak')).length, 1);
+  });
+
+  it('auto backup on open catches up on a company over a day old that was never backed up', async () => {
+    t.db.transaction(() => saveConfig(t.ctx, { backup: { folder: dir, auto: true } }));
+    t.clock.advance(25 * 3600_000); // the company was created 25 hours ago
+    const r = await autoBackup(t.ctx, { trigger: 'open' });
+    assert.deepEqual([r.ran, r.reason], [true, 'created']);
+  });
+
+  it("'data.backup.auto' route takes the trigger and runs for any logged-in user (company policy)", async () => {
+    t.db.transaction(() => saveConfig(t.ctx, { backup: { folder: dir, auto: true } }));
+    const clerk = t.sessionAs({ permissions: ['vouchers.view'] });
+    const opened = await t.call(dataRoutes, 'data.backup.auto', { trigger: 'open' }, { session: clerk });
+    assert.ok(opened.ok);
+    if (opened.ok) assert.equal((opened.data as { reason: string }).reason, 'new');
+    const closed = await t.call(dataRoutes, 'data.backup.auto', { trigger: 'close' }, { session: clerk });
+    assert.ok(closed.ok);
+    if (closed.ok) assert.equal((closed.data as { ran: boolean }).ran, true);
+    const bad = await t.call(dataRoutes, 'data.backup.auto', { trigger: 'later' });
+    assert.equal(bad.ok, false);
   });
 
   it('auto backup does nothing when switched off in F12', async () => {
@@ -438,8 +468,209 @@ describe('restore (app runtime)', () => {
     await call('app.company.close');
     await fails('data.backup.restoreFromFile', { path: backup.path, mode: 'replace', replaceId: id }, 'VALIDATION', /owner password/);
     await fails('data.backup.restoreFromFile', { path: backup.path, mode: 'replace', replaceId: id, ownerPassword: 'Wrong@2026' }, 'UNAUTHENTICATED', /incorrect/);
+    // The wrong guess counts against the company's own lockout and is in ITS edit log.
+    const target = new Db(path.join(root, 'data', 'companies', id, 'company.db'), { readOnly: true });
+    try {
+      assert.equal(target.value(`SELECT failed_attempts FROM users WHERE username = 'owner'`), 1);
+      assert.equal(JSON.parse(target.value<string>(`SELECT after_json FROM audit_log WHERE action = 'login_failed' ORDER BY id DESC LIMIT 1`) ?? '{}').context, 'restore.replace');
+    } finally {
+      target.close();
+    }
     const res = await call<BackupRestoreResult>('data.backup.restoreFromFile', { path: backup.path, mode: 'replace', replaceId: id, ownerUsername: 'owner', ownerPassword: 'Owner@2026' });
     assert.equal(res.company.id, id);
     assert.ok(res.replacedTo);
+  });
+});
+
+// ───────────────────────────── Renderer paths need a dialog choice (§8) ─────────────────────────────
+
+describe('backup paths: only what the user picked in a dialog (main’s authorizePath)', () => {
+  let root: string;
+  let rt: Runtime;
+  const chosenFolders = new Set<string>();
+  const chosenFiles = new Set<string>();
+  const inside = (p: string) => [...chosenFolders].some((f) => p === f || p.startsWith(f + path.sep));
+
+  const call = async <T>(route: string, input: unknown = {}): Promise<T> => {
+    const r: ApiResult<unknown> = await rt.dispatch(route, input);
+    if (!r.ok) throw new AppError(r.error.code, r.error.message, r.error.details);
+    return r.data as T;
+  };
+  const code = async (route: string, input: unknown): Promise<string | null> => {
+    const r = await rt.dispatch(route, input);
+    return r.ok ? null : r.error.code;
+  };
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-paths-'));
+    chosenFolders.clear();
+    chosenFiles.clear();
+    rt = createRuntimeWithRoutes(
+      {
+        userDataDir: path.join(root, 'userData'),
+        defaultDataDir: path.join(root, 'data'),
+        appVersion: '1.2.3',
+        clock: fixedClock('2026-10-05'),
+        consoleLog: false,
+        authorizePath: (p, use) => (use === 'read-file' && chosenFiles.has(p)) || inside(p),
+      },
+      { ...appRoutes, ...companyRoutes, ...dataRoutes },
+    );
+  });
+  afterEach(async () => {
+    await rt.shutdown();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('refuses backup folders, backup files and F12 folders the user did not choose (FORBIDDEN, nothing written)', async () => {
+    await call('app.company.create', { name: 'Path Co', stateCode: '27', gstRegistrationType: 'regular', gstin: makeGstin('27'), booksFrom: '2026-04-01' });
+    const attacker = path.join(root, 'attacker-share');
+    fs.mkdirSync(attacker);
+    assert.equal(await code('data.backup.create', { folder: attacker }), 'FORBIDDEN');
+    assert.deepEqual(fs.readdirSync(attacker), [], 'no copy of the books was written');
+    assert.equal(await code('data.backup.list', { folder: attacker }), 'FORBIDDEN');
+    assert.equal(await code('company.config.save', { backup: { folder: attacker } }), 'FORBIDDEN');
+
+    // The default folder (inside the data folder) needs no dialog; neither do its files.
+    const own = await call<BackupCreateResult>('data.backup.create', {});
+    assert.equal((await call<BackupVerifyResult>('data.backup.verify', { path: own.path })).ok, true);
+
+    // A folder picked in the dialog works for backups, listing and F12; files in it can be checked.
+    const picked = path.join(root, 'picked');
+    fs.mkdirSync(picked);
+    chosenFolders.add(picked);
+    const made = await call<BackupCreateResult>('data.backup.create', { folder: picked });
+    assert.equal((await call<BackupListResult>('data.backup.list', { folder: picked })).backups.length, 1);
+    await call('company.config.save', { backup: { folder: picked } });
+    // Once saved in F12 the folder is trusted for this company even in a later session (new dialog set).
+    chosenFolders.clear();
+    assert.equal((await call<BackupVerifyResult>('data.backup.verify', { path: made.path })).ok, true);
+    assert.equal((await call<BackupListResult>('data.backup.list', {})).folder, picked);
+
+    // No company open (public routes): only dialog-chosen files or files in the data folder.
+    await call('app.company.close');
+    const copy = path.join(attacker, 'copy.bahibak');
+    fs.copyFileSync(made.path, copy);
+    assert.equal(await code('data.backup.inspectFile', { path: copy }), 'FORBIDDEN');
+    assert.equal(await code('data.backup.verifyFile', { path: copy }), 'FORBIDDEN');
+    assert.equal(await code('data.backup.restoreFromFile', { path: copy, mode: 'new' }), 'FORBIDDEN');
+    assert.equal(await code('data.backup.verifyFile', { path: made.path }), 'FORBIDDEN', 'the F12 folder is trusted only inside its company');
+    assert.equal((await call<CompanyListItem[]>('app.company.list')).length, 1, 'nothing restored');
+    chosenFiles.add(copy);
+    assert.equal((await call<BackupVerifyResult>('data.backup.verifyFile', { path: copy })).ok, true);
+    assert.equal((await call<BackupVerifyResult>('data.backup.verifyFile', { path: own.path })).ok, true, 'data folder');
+  });
+});
+
+// ───────────────────────────── Untrusted backup contents ─────────────────────────────
+
+describe('backup: crafted databases are refused before they are queried', () => {
+  async function crafted(tamper: (raw: DatabaseSync) => void, name: string): Promise<string> {
+    const snap = path.join(dir, `${name}.db`);
+    t.db.run('VACUUM INTO ?', [snap]);
+    const raw = new DatabaseSync(snap);
+    raw.exec('PRAGMA foreign_keys = OFF');
+    tamper(raw);
+    raw.close();
+    const target = path.join(dir, `${name}.bahibak`);
+    await writeContainer({
+      dbPath: snap,
+      target,
+      manifest: {
+        appVersion: '1.0.0',
+        schemaVersion: SCHEMA_VERSION,
+        companyId: 'test-company',
+        companyGuid: 'x',
+        companyName: 'Crafted',
+        gstin: null,
+        booksFrom: '2026-04-01',
+        createdAt: '2026-10-05T04:30:00.000Z',
+        createdBy: null,
+        note: null,
+        kind: 'manual',
+      },
+    });
+    return target;
+  }
+
+  it('a view shadowing "ledgers" (endless recursive CTE) is reported in seconds, not a frozen app', async () => {
+    const file = await crafted((raw) => {
+      raw.exec('DROP TABLE ledgers');
+      raw.exec('CREATE VIEW ledgers AS WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x AS id FROM c');
+    }, 'view');
+    const started = Date.now();
+    const v = await verifyBackup(t.ctx, file, undefined);
+    assert.ok(Date.now() - started < 5000);
+    assert.equal(v.ok, false);
+    const schema = v.checks.find((c) => c.name === 'schema');
+    assert.equal(schema?.ok, false);
+    assert.match(schema?.message ?? '', /unexpected database objects.*view "ledgers"/);
+  });
+
+  it('an extra trigger (silently changing amounts) is refused on verify and on restore', async () => {
+    const file = await crafted((raw) => raw.exec(`CREATE TRIGGER skim AFTER INSERT ON ledger_entries BEGIN UPDATE ledger_entries SET amount = amount - 1 WHERE id = NEW.id; END`), 'trigger');
+    const v = await verifyBackup(t.ctx, file, undefined);
+    assert.match(v.checks.find((c) => c.name === 'schema')?.message ?? '', /trigger "skim"/);
+    const r = await t.call(dataRoutes, 'data.backup.restore', { path: file, mode: 'new' });
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.equal(r.error.code, 'VALIDATION');
+      assert.match(r.error.message, /unexpected database objects/);
+    }
+  });
+});
+
+describe('backup: decompression bombs', () => {
+  async function bomb(declaredDbBytes: number): Promise<string> {
+    // 8 MiB of zeros gzips to a few KiB; the manifest then claims a tiny (or huge) database.
+    const zeros = path.join(dir, 'zeros.db');
+    fs.writeFileSync(zeros, Buffer.alloc(8 * 1024 * 1024));
+    const target = path.join(dir, `bomb-${declaredDbBytes}.bahibak`);
+    await writeContainer({
+      dbPath: zeros,
+      target,
+      manifest: {
+        appVersion: '1.0.0',
+        schemaVersion: SCHEMA_VERSION,
+        companyId: 'test-company',
+        companyGuid: 'x',
+        companyName: 'Bomb',
+        gstin: null,
+        booksFrom: '2026-04-01',
+        createdAt: '2026-10-05T04:30:00.000Z',
+        createdBy: null,
+        note: null,
+        kind: 'manual',
+      },
+    });
+    // The payload checksum stays valid: only the (unauthenticated) manifest is rewritten.
+    const info = readContainerInfo(target);
+    const forged = Buffer.from(JSON.stringify({ ...info.manifest, dbBytes: declaredDbBytes }), 'utf8');
+    const fd = fs.openSync(target, 'r+');
+    try {
+      const area = Buffer.alloc(info.payloadOffset - 12, 0x20);
+      forged.copy(area);
+      fs.writeSync(fd, area, 0, area.length, 12);
+    } finally {
+      fs.closeSync(fd);
+    }
+    return target;
+  }
+
+  it('stops unpacking as soon as the data exceeds the declared size (the disk never fills)', async () => {
+    const file = await bomb(4096);
+    const v = await verifyBackup(t.ctx, file, undefined);
+    assert.equal(v.ok, false);
+    assert.equal(v.checks.find((c) => c.name === 'checksum')?.ok, true, 'the payload itself is intact');
+    const failed = v.checks.find((c) => c.name === 'decompress');
+    assert.equal(failed?.ok, false);
+    assert.match(failed?.message ?? '', /unpacks to more data than it declares/);
+    assert.deepEqual(fs.readdirSync(t.ctx.app.dataDir).filter((f) => f.startsWith('.restore-')), [], 'work folder removed');
+  });
+
+  it('refuses a manifest declaring an impossibly large database before unpacking anything', async () => {
+    const file = await bomb(60 * 1024 ** 3);
+    const v = await verifyBackup(t.ctx, file, undefined);
+    assert.match(v.checks.find((c) => c.name === 'decompress')?.message ?? '', /impossibly large/);
   });
 });

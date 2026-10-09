@@ -134,8 +134,9 @@ expiry = expiry − asOf; `expired` (< 0), `expiring` (≤ window, default 30 da
 `expiringWithinDays` keeps only expired / expiring. Items that keep batches or carry batch names.
 
 **Profitability.** Cost matched to invoices: sales = taxable value of sales-invoice item lines in
-the books (incl. lines billing a delivery note), quantity as billed; returns = credit-note item
-lines; cost = each invoice line's own movement cost (credit notes come back at cost and reduce it),
+the books (incl. lines billing a delivery note), quantity as billed, plus the item lines of debit
+notes to customers (upward price revisions: value only — no quantity, no cost — so net sales agree with
+the P&L's Sales Accounts); returns = credit-note item lines; cost = each invoice line's own movement cost (credit notes come back at cost and reduce it),
 or — for a line billing a delivery note / rejection in — the note's cost per unit × billed qty,
 wherever the note is dated. Un-invoiced delivery notes, stock journals, physical losses and
 purchase returns are not cost of sales. Sales / credit notes use the books filter (`BOOKS_FILTER`).

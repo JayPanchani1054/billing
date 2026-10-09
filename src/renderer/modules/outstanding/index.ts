@@ -77,12 +77,21 @@ export const outstandingModule: ModuleDef = {
     },
     {
       section: 'reports',
-      label: 'Ageing Analysis',
+      label: 'Receivables Ageing',
       screen: 'outstanding.receivables',
       params: { view: 'ageing' },
       order: 62,
-      keywords: ['ageing', 'aging', 'age-wise', 'debtors ageing', 'receivables ageing'],
+      keywords: ['ageing', 'aging', 'age-wise', 'ageing analysis', 'debtors ageing'],
       description: 'Receivables split by how long they have been due',
+    },
+    {
+      section: 'reports',
+      label: 'Payables Ageing',
+      screen: 'outstanding.payables',
+      params: { view: 'ageing' },
+      order: 62.5,
+      keywords: ['ageing', 'aging', 'age-wise', 'ageing analysis', 'creditors ageing'],
+      description: 'Payables split by how long they have been due',
     },
     {
       section: 'reports',

@@ -57,6 +57,7 @@ import { billAge, bucketIndex, makeBuckets } from '../outstanding/ageing.ts';
 import { overdueDays, sideSign } from '../outstanding/engine.ts';
 import { sideParties } from '../outstanding/reports.ts';
 import { comparePeriod } from '../reports/financials.ts';
+import { outwardDebitNoteLineSql } from '../vouchers/direction.ts';
 
 /** Bills falling due within this many days count as "due soon". */
 export const DUE_SOON_DAYS = 7;
@@ -508,12 +509,13 @@ function topItems(db: Db, period: DateRange, periodSales: Paise, today: string):
     .all<{ id: number; name: string; unit: string | null; net: number; sold: number }>(
       `SELECT ie.item_id AS id, si.name AS name, u.symbol AS unit,
               SUM(CASE WHEN v.base_type = 'credit_note' THEN -ie.amount ELSE ie.amount END) AS net,
-              SUM(CASE WHEN v.base_type = 'credit_note' THEN -1 ELSE 1 END * COALESCE(ie.billed_qty, ABS(ie.qty))) AS sold
+              SUM(CASE v.base_type WHEN 'credit_note' THEN -1 WHEN 'debit_note' THEN 0 ELSE 1 END * COALESCE(ie.billed_qty, ABS(ie.qty))) AS sold
          FROM vouchers v
          JOIN inventory_entries ie ON ie.voucher_id = v.id
          JOIN stock_items si ON si.id = ie.item_id
          LEFT JOIN units u ON u.id = si.unit_id
-        WHERE v.base_type IN ('sales', 'credit_note') AND v.date >= :from AND v.date <= :to AND ${BOOKS_FILTER('v')}
+        WHERE (v.base_type IN ('sales', 'credit_note') OR ${outwardDebitNoteLineSql('v', 'ie')})
+          AND v.date >= :from AND v.date <= :to AND ${BOOKS_FILTER('v')}
         GROUP BY ie.item_id
        HAVING SUM(CASE WHEN v.base_type = 'credit_note' THEN -ie.amount ELSE ie.amount END) > 0
         ORDER BY net DESC, si.name COLLATE NOCASE, ie.item_id

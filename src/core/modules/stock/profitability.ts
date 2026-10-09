@@ -3,7 +3,9 @@
  *
  * Profitability, per item, for a period — cost is matched to what was INVOICED:
  *   sales      = taxable value of item lines on sales invoices in the books (incl. lines that bill a
- *                delivery note), quantity as billed;
+ *                delivery note), quantity as billed; plus the item lines of debit notes to customers
+ *                (upward price revisions: value only, no quantity, no cost), so net sales agree with
+ *                the Sales Accounts of the P&L;
  *   returns    = taxable value / quantity of item lines on credit notes in the books;
  *   cost (COGS)= for an invoice line that moved stock itself, its cost at the item's costing method
  *                (inventory engine; a credit note's goods come back at cost and reduce COGS); for a
@@ -23,6 +25,7 @@ import { roundPaise, roundTo } from '../../../shared/money.ts';
 import type { PhysicalVarianceInput, PhysicalVarianceResult, PhysicalVarianceRow, ProfitabilityInput, ProfitabilityResult, ProfitabilityRow } from '../../../shared/types/stock.ts';
 import type { Db } from '../../db/db.ts';
 import { BOOKS_FILTER } from '../accounts/books.ts';
+import { outwardDebitNoteLineSql } from '../vouchers/direction.ts';
 import { assertPeriod, EPS, itemsInGroup, jsonIds, loadItems, loadTree, mainGodown, roundQty } from './common.ts';
 import { traceMovementValues } from './trace.ts';
 
@@ -36,7 +39,8 @@ export function profitability(db: Db, today: string, input: ProfitabilityInput):
   const items = loadItems(db);
   const groups = loadTree(db, 'group');
 
-  // Invoice lines: sales and credit notes in the books, dated in the period.
+  // Invoice lines: sales, credit notes and debit notes to customers (price revisions) in the books,
+  // dated in the period.
   const lines = db.all<{
     id: number;
     item_id: number;
@@ -52,7 +56,7 @@ export function profitability(db: Db, today: string, input: ProfitabilityInput):
     `SELECT ie.id, ie.item_id, v.base_type, v.party_ledger_id AS party, ie.tracking_ref, ie.qty, ie.billed_qty, ie.amount,
             ie.affects_stock, ie.date
        FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
-      WHERE v.base_type IN ('sales', 'credit_note') AND ${BOOKS_FILTER('v')}
+      WHERE (v.base_type IN ('sales', 'credit_note') OR ${outwardDebitNoteLineSql('v', 'ie')}) AND ${BOOKS_FILTER('v')}
         AND ie.date >= :from AND ie.date <= :to
         AND (:filter = 0 OR ie.item_id IN (SELECT value FROM json_each(:ids)))
       ORDER BY ie.date, ie.voucher_id, ie.line_no`,
@@ -81,6 +85,9 @@ export function profitability(db: Db, today: string, input: ProfitabilityInput):
     if (l.base_type === 'sales') {
       a.salesQty += qty;
       a.salesValue += Number(l.amount);
+    } else if (l.base_type === 'debit_note') {
+      // Upward price revision of goods already invoiced: sales value, no quantity and no cost.
+      a.salesValue += Number(l.amount);
     } else {
       a.returnsQty += qty;
       a.returnsValue += Number(l.amount);
@@ -88,8 +95,10 @@ export function profitability(db: Db, today: string, input: ProfitabilityInput):
   }
 
   // Which invoice lines carry their own stock movement, and which bill a note (cost from the note).
-  const moving = lines.filter((l) => l.affects_stock === 1 && Number(l.qty) !== 0);
-  const tracked = lines.filter((l) => l.affects_stock === 0 && l.tracking_ref !== null && Number(l.qty) !== 0);
+  // (A debit note's lines are value-only: never a movement, never billing a note.)
+  const invoices = lines.filter((l) => l.base_type !== 'debit_note');
+  const moving = invoices.filter((l) => l.affects_stock === 1 && Number(l.qty) !== 0);
+  const tracked = invoices.filter((l) => l.affects_stock === 0 && l.tracking_ref !== null && Number(l.qty) !== 0);
   const noteKey = (base: string, party: number | null, ref: string, item: number): string => `${base}|${party ?? 0}|${ref}|${item}`;
   const noteIds = new Map<number, string>();
   let traceFrom = input.from;

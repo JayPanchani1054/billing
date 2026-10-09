@@ -26,7 +26,7 @@ import {
 import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { PASSWORD_MAX_LENGTH } from '../../lib/crypto.ts';
 import { v, type Schema } from '../../lib/validate.ts';
-import { auditFacets, entityHistory, exportAuditLog, getAuditEntry, listAudit, verifyAuditLog } from './auditlog.ts';
+import { anchorCheckFor, auditFacets, entityHistory, exportAuditLog, getAuditEntry, listAudit, resetAuditAnchor, verifyAuditLog } from './auditlog.ts';
 import { permissionCatalog } from './catalog.ts';
 import { describePasswordPolicy } from './policy.ts';
 import { deleteRole, getRole, listRoles, saveRole } from './roles.ts';
@@ -106,7 +106,9 @@ const auditFilterShape = {
   search: v.string({ max: 200 }).optional(),
 };
 
-export const AuditListInputSchema = v.object({
+// Filters reject unknown keys (VALIDATION "Unknown field …") even in production: a misspelt filter such as
+// `action` for `actions` must not silently return the unfiltered edit log.
+export const AuditListInputSchema = v.strictObject({
   ...auditFilterShape,
   limit: v.int({ min: 1, max: AUDIT_LIST_MAX_LIMIT }).default(100),
   offset: v.int({ min: 0 }).default(0),
@@ -119,7 +121,7 @@ export const AuditEntityHistoryInputSchema = v.object({
   entityGuid: v.string({ max: 100 }).optional(),
 }) as Schema<AuditEntityHistoryInput>;
 
-export const AuditExportInputSchema = v.object({
+export const AuditExportInputSchema = v.strictObject({
   ...auditFilterShape,
   format: v.enum(['xlsx', 'csv'] as const),
 }) as Schema<AuditExportInput>;
@@ -245,7 +247,13 @@ export const securityRoutes = {
     access: 'audit.view',
     input: v.none(),
     transactional: false,
-    handler: (ctx) => verifyAuditLog(ctx.db, ctx.clock.now()),
+    handler: (ctx) => verifyAuditLog(ctx.db, ctx.clock.now(), anchorCheckFor(ctx)),
+  }),
+  'security.audit.resetAnchor': companyRoute({
+    access: 'audit.view', // and Owner only (service)
+    input: v.none(),
+    transactional: false,
+    handler: (ctx) => resetAuditAnchor(ctx),
   }),
   'security.audit.export': companyRoute({
     access: 'audit.view', // data.export is checked by the service as well

@@ -14,6 +14,8 @@
  *   'app.company.close'    none                      → AppState
  *   'app.company.delete'   DeleteCompanyInput        → CompanyListItem[]  (requires company closed; Owner pwd if secured)
  *   'app.session.touch'    none                      → SessionInfo | null  (idle-timeout keepalive)
+ *   'app.session.lock'     none                      → AppState        (the shell's idle timer fired: end the
+ *                                                                        session as 'idle'; the screen locks)
  */
 import type { Permission } from '../constants.ts';
 import type { CompanyFeatures } from '../settings.ts';
@@ -28,6 +30,12 @@ export interface SessionInfo {
   /** true when company security is off (single-user mode). */
   implicit: boolean;
   mustChangePassword: boolean;
+  /**
+   * Idle timeout of this session in ms (0 or absent = never: security off / timeout disabled). The
+   * shell locks the screen after this long without keyboard or mouse input ('app.session.lock');
+   * the dispatcher also refuses calls after it (server-side authority).
+   */
+  idleTimeoutMs?: number;
 }
 
 export interface CompanyListItem {

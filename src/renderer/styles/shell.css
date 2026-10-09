@@ -1060,6 +1060,11 @@ body:has(.bx-shell) {
 .bx-feature-row.is-disabled .bx-feature-row__desc {
   color: var(--text-muted);
 }
+.bx-feature-row__action {
+  align-self: flex-start;
+  margin-left: calc(var(--switch-w) + var(--space-2));
+  margin-top: var(--space-1);
+}
 .bx-feature-row.is-changed {
   box-shadow: inset 3px 0 0 var(--accent);
   padding-left: var(--space-2);
@@ -1193,4 +1198,23 @@ body:has(.bx-shell) {
     position: static;
     overflow: visible;
   }
+}
+
+/* ── Workspace host & idle lock (App.tsx, LockScreen.tsx) ───────────────── */
+.bx-workspace-host {
+  display: contents;
+}
+.bx-workspace-host[hidden] {
+  display: none;
+}
+/* Above dialogs, popovers and toasts the hidden workspace may still have open. */
+.bx-lock {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-toast) + 100);
+  background: var(--surface-sunken);
+}
+.bx-lock__note {
+  margin: 0;
+  color: var(--text-muted);
 }

@@ -15,6 +15,7 @@ DTO types live in `src/shared/types/vouchers.ts`. Money is integer **paise**. Le
 | `numbering.ts` | Voucher types, number series, counters |
 | `bills.ts` | Pending bills (opening bills + allocations, netted per bill name) |
 | `guards.ts` | Negative stock / cash, credit limit, duplicate supplier invoice; `stockQtyAsOf`, `ledgerBalanceAsOf` |
+| `direction.ts` | SQL fragment other modules use to recognise the item lines of a Debit Note to a customer (`outwardDebitNoteLineSql`) |
 | `masters.ts` | Per-call master cache: ledgers with group chain, items + unit/UQC, godowns |
 | `queries.ts` | get / list / entryContext / partyContext / trackingRefs |
 | `testkit.ts` | Test helpers (used by `*.test.ts` only) |
@@ -97,10 +98,11 @@ Every warning has a `level` (§8): `info` never stops a save, `confirm` needs `a
   - ± Round Off (Cr when rounded up)
   - A discount line (negative amount) becomes a Dr.
 - **Purchase:** exact mirror with **Input** tax ledgers. Party Cr.
-- **Credit Note:** mirrors Sales (party Cr; sales Dr; Output tax Dr). Stock comes **in**.
+- **Credit Note:** mirrors Sales (party Cr; sales Dr; Output tax Dr). Stock comes **in** (a sales return).
+  - A credit note for a price reduction / discount on goods kept by the customer moves no stock: enter it in **accounting_invoice** mode (Sales ledger line with the GST rate), not with item lines.
   - With a **supplier** (Sundry Creditors) party in invoice modes it is refused (`VALIDATION` on `partyLedgerId`): a Credit Note credits the party, so it would post Output tax against a supplier and report a credit note we never issued. A credit note received from a supplier, or a purchase return, is a Debit Note; a supplier's debit note (higher price) is a Purchase. Ledger mode is unaffected.
 - **Debit Note:** mirrors Purchase (party Dr; purchase Cr; Input tax Cr). Stock goes **out**.
-  - With a **customer** (Sundry Debtors) party it is an outward supplementary invoice / upward price revision: party Dr; **Sales** ledger Cr (the reserved Sales ledger when the type's default is a purchase ledger); **Output** tax Cr; `gst_nature` outward (b2b, b2cs, …; reported in GSTR-1 as a debit note); e-invoice `irn_status = 'pending'` like a sales invoice. Stock still goes out.
+  - With a **customer** (Sundry Debtors) party it is an outward supplementary invoice / upward price revision (CGST s.34(3)): party Dr; **Sales** ledger Cr (the reserved Sales ledger when the type's default is a purchase ledger); **Output** tax Cr; `gst_nature` outward (b2b, b2cs, …; reported in GSTR-1 as a debit note); e-invoice `irn_status = 'pending'` like a sales invoice. Its item lines are **value-only**: the goods left with the original invoice, so they keep qty / value / HSN for the documents and `gst_lines` (HSN summary) but `affects_stock = 0`, no `tracking_ref` and no tracking check — closing stock and gross profit are not reduced a second time. Item profitability and the dashboard's top items add their value to sales (no quantity, no cost; `direction.ts`), so they agree with the P&L. Goods actually supplied go on a Sales invoice.
   - The party sign always follows the base type; the tax ledgers and `gst_nature` follow this GST direction (`PartyContext.gstDirection`).
 - **Inward reverse charge** (voucher `reverseCharge`, ledger `is_reverse_charge`, import of services, RCM from an unregistered supplier):
   - The party gets taxable + charges only.
@@ -110,9 +112,10 @@ Every warning has a `level` (§8): `info` never stops a save, `confirm` needs `a
   - The supplier's tax (or the RCM input side) is added to that line's purchase/expense ledger debit. No input tax lines.
   - For item lines the tax is also added to the `inventory_entries.amount` (stock is carried at cost).
 - **Unregistered company:** the engine computes no tax at all. Enter purchases at their tax-inclusive amount.
-- **Import of goods:**
-  - IGST is computed and stored in `gst_lines` (nature `import_goods`) but **not posted**: it is paid at customs (bill of entry, entered separately).
-  - The party gets the taxable value only.
+- **Import of goods** — and **goods from an SEZ unit** (supplier registration `sez`, nature `inward_sez`; SEZ Act s.30 / SEZ Rules r.47–48: SEZ goods cleared into the DTA are imports):
+  - IGST is computed and stored in `gst_lines` (nature `import_goods` / `inward_sez`, supply type goods) but **not posted**: it is paid at customs on the bill of entry, which is entered separately as a journal: Dr Input IGST / Cr Bank (or the customs duty ledger). GSTR-3B reports it in 4(A)(1) IMPG, GSTR-9 in 6E; GSTR-2B shows it under IMPGSEZ, so the GST reconciliation does not expect it in B2B.
+  - The party gets the taxable value only. A tax-inclusive rate is ignored (warning).
+  - **Services from an SEZ unit** are an ordinary inter-state B2B supply: IGST charged on the invoice and payable to the supplier (Dr Input IGST), 3B 4(A)(5).
 - **Exports / SEZ:**
   - LUT/bond: tax not charged (`gst_lines` keep the rate, tax 0).
   - `exportDetails.withPayment`: IGST is charged and payable by the buyer.
@@ -143,7 +146,7 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 
 | Direction | Base types |
 |---|---|
-| out (−) | sales, debit_note, delivery_note, rejection_out, sales_order (`affects_stock = 0`) |
+| out (−) | sales, debit_note (to a supplier — a debit note to a customer is value-only, `affects_stock = 0`), delivery_note, rejection_out, sales_order (`affects_stock = 0`) |
 | in (+) | purchase, credit_note, receipt_note, rejection_in, purchase_order (`affects_stock = 0`) |
 | per line | stock_journal: `isConsumption` → out, else in |
 | per line | physical_stock: qty = **counted − book qty** at that date / godown / batch. Lines counting the same item / godown / batch are added up: the first carries counted − book, later ones their counted qty (net = Σ counted − book). The counted qty stays in `input` (meta). |
@@ -153,7 +156,8 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 - the inventory feature is off;
 - it is an order;
 - the item is a service;
-- an invoice line carries a `trackingRef` (the note already moved the stock).
+- an invoice line carries a `trackingRef` (the note already moved the stock);
+- it is a line of a Debit Note to a customer (value-only price revision, §3).
 
 **Other line fields:**
 - `amount`: unsigned. Taxable value for invoices (+ capitalised tax); qty × rate × (1 − disc%) otherwise.
@@ -281,7 +285,8 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 
 - **Counters:** `voucher_counters (voucher_type_id, period_key)`. The key is the FY label (`2026-27`) when the type restarts yearly, `YYYY-MM` when monthly, `all` when never.
 - **Format:** `prefix + zero-pad(seq, width) + suffix`. `number_seq` holds the numeric part, used for ordering. A typed number gets its sequence parsed when it matches the type's format.
-- **automatic:** the next free sequence. Numbers already used in the period are skipped. The number is allocated inside the save transaction, so a rollback leaves no gap.
+- **automatic:** the next free sequence. Numbers already used in the period are skipped. The number is allocated inside the save transaction, so a rollback leaves no gap. `decideNumber` finds it free and the save advances the counter to it (`commitNumber`) without probing again.
+- **Uniqueness probe** (`NUMBER_TAKEN_SQL`): looks the number up through `idx_vouchers_number` (`INDEXED BY`), so a save costs the same with 50 or 50,000 vouchers of its type in the year (without statistics SQLite otherwise scanned the type's year through `idx_vouchers_type_date`, which made imports quadratic). The importers use the same lookup.
 - **automatic_override:** the user may type any number. A typed number does not advance the counter, unless it equals the next number.
 - **manual:** a number is required. When `prevent_duplicates` is set it must be unique within the period (`CONFLICT`).
 - **none:** the number is NULL.
@@ -353,5 +358,7 @@ Guards are skipped for optional vouchers. The voucher being altered is always ex
 - Stock valuation (closing stock) is the stock/reports modules' job. `inventory_entries.amount` is the input to it.
 - Physical stock stores **counted − book** as at its save. A voucher entered later but dated before it changes the book quantity, so the count no longer equals the closing quantity (Tally resets to the count). Re-save the physical stock voucher after such entries.
 - `include_in_assessable = 'services'` is not apportioned (only `'goods'`); such a ledger is treated by rules 3–4.
-- Optional vouchers take the next number of their type's series (as in Tally). For a GST invoice series this leaves a number that is neither issued nor cancelled in GSTR-1 Table 13 unless the returns module accounts for it; use a separate voucher type for optional/pro-forma documents.
+- Optional vouchers take the next number of their type's series (as in Tally). GSTR-1 Table 13 leaves such a number out of the range (neither issued nor cancelled) and raises `optional_in_series` so it is regularised or deleted before filing; a separate voucher type for optional / pro-forma documents avoids the question.
+- An item-mode Credit Note always brings the goods back (a sales return); a price reduction on goods the customer keeps is entered in accounting_invoice mode (§3).
+- Debit Notes to customers saved before value-only lines were introduced keep their stock movement until re-saved.
 - GST reconciliation (`gst_portal_docs.match_status`) is not reset when a matched voucher is deleted or cancelled (the FK clears `matched_voucher_id`); the gstrecon module re-matches.

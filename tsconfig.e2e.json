@@ -1,0 +1,18 @@
+{
+  "//": "Typechecks the Playwright specs and config (npm run typecheck:e2e). @playwright/test ships its own types.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "e2e/**/*.ts",
+    "playwright.config.ts"
+  ]
+}

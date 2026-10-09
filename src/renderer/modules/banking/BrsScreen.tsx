@@ -2,7 +2,7 @@
  * 'banking.brs' — Bank Reconciliation (Tally style). Params: { ledgerId? }.
  *
  * As on the period's end date (Alt+F2). The grid lists the bank ledger's entries not yet reflected in the
- * bank (or reconciled ones / all, Alt+1/2/3); type the bank date in each row — '5', '5-4', '05042026',
+ * bank (or reconciled ones / all, Ctrl+1/2/3); type the bank date in each row — '5', '5-4', '05042026',
  * 'v' (voucher date), '.' (same as above), empty to clear — Enter/↓ moves down, Shift+Enter/↑ up,
  * Ctrl+Enter opens the voucher. Alt+R gives every open row the statement date, Ctrl+A saves.
  * The balances panel reconciles books → bank and explains the difference with the imported statement.
@@ -215,9 +215,9 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
         { key: 'Ctrl+A', label: 'Save bank dates', icon: 'save', primary: true, onClick: () => void submit(), disabled: pending.entries.length === 0 || save.pending || stale, hidden: !canEdit },
         { key: 'Alt+R', label: 'Set all to statement date', icon: 'calendar', onClick: fillAll, hidden: !canEdit, disabled: visible.length === 0 || stale, hint: 'Fill every row without a bank date with the statement date' },
         { key: 'Alt+X', label: 'Discard typed dates', icon: 'undo', onClick: () => void discard(), hidden: !canEdit, disabled: drafts.size === 0 },
-        { key: 'Alt+1', label: 'Unreconciled', onClick: () => void changeShow('unreconciled'), group: 'view', disabled: show === 'unreconciled' },
-        { key: 'Alt+2', label: 'Reconciled', onClick: () => void changeShow('reconciled'), group: 'view', disabled: show === 'reconciled' },
-        { key: 'Alt+3', label: 'All entries', onClick: () => void changeShow('all'), group: 'view', disabled: show === 'all' },
+        { key: 'Ctrl+1', label: 'Unreconciled', onClick: () => void changeShow('unreconciled'), group: 'view', disabled: show === 'unreconciled' },
+        { key: 'Ctrl+2', label: 'Reconciled', onClick: () => void changeShow('reconciled'), group: 'view', disabled: show === 'reconciled' },
+        { key: 'Ctrl+3', label: 'All entries', onClick: () => void changeShow('all'), group: 'view', disabled: show === 'all' },
         { key: 'Alt+O', label: 'Open voucher', icon: 'drill', onClick: () => openVoucher(visible[active]), group: 'go', disabled: visible.length === 0 },
         { key: 'Alt+I', label: 'Import statement', icon: 'upload', onClick: () => nav.push('banking.import', { ledgerId: ledgerId ?? undefined }), group: 'go', hidden: !canEdit },
         { key: 'Alt+M', label: 'Match statement', icon: 'link', onClick: () => nav.push('banking.match', { ledgerId: ledgerId ?? undefined }), group: 'go', hidden: !canEdit },
@@ -237,7 +237,7 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
               title={show === 'unreconciled' ? `Everything is reconciled as on ${formatDate(asOf)}` : 'No entries to show'}
               body={
                 show === 'unreconciled'
-                  ? 'Every payment and receipt of this bank has a bank date on or before this date. Press Alt+2 to see the reconciled entries.'
+                  ? 'Every payment and receipt of this bank has a bank date on or before this date. Press Ctrl+2 to see the reconciled entries.'
                   : 'No entries of this bank in this period. Change the date with Alt+F2.'
               }
             />

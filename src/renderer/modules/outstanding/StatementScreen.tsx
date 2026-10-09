@@ -8,13 +8,15 @@ import { useMemo, useRef, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatDrCr, formatMoney } from '../../../shared/format.ts';
 import type { StatementBillRow, StatementLine } from '../../../shared/types/outstanding.ts';
-import { exportTable, showInFolder } from '../../app/export.ts';
+import { api } from '../../app/api.ts';
+import { EXPORT_PERMISSION, exportTable, showInFolder } from '../../app/export.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
 import type { ScreenActionItem } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
-import { ExportDialog, ReportScreen } from '../../app/Screen.tsx';
+import { EXPORT_DENIED_HINT, ExportDialog, ReportScreen } from '../../app/Screen.tsx';
+import { useCan } from '../../app/state.tsx';
 import { usePeriod } from '../../app/working.tsx';
 import { Card, DataTable, EmptyState, Grid, Inline, KeyValueList, SegmentedControl, useToast } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
@@ -43,6 +45,7 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
   const pickerRef = useRef<HTMLInputElement | null>(null);
   const parties = usePartyOptions(period.to);
   const out = useDocumentOutput();
+  const canExport = useCan(EXPORT_PERMISSION);
 
   const q = useApiQuery('outstanding.statement', { ledgerId: ledgerId ?? 0, from: period.from, to: period.to }, { enabled: ledgerId !== null, keepPrevious: true });
   const s = q.data && q.data.party.ledgerId === ledgerId ? q.data : undefined;
@@ -95,18 +98,29 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
     : [];
 
   const html = (): string | null => (s ? buildStatementHtml(s, { printedOn: printedOn() }) : null);
+  /** Print / PDF of the statement: same data.export rule and edit-log entry as Excel/CSV (core). */
+  const authorised = async (format: 'pdf' | 'print'): Promise<boolean> => {
+    if (!s) return false;
+    try {
+      await api('data.export.audit', { title: 'Statement of Account', subtitle: s.party.name.slice(0, 300), period: { from: s.from, to: s.to }, rows: statementExport(s).rows.length, format });
+      return true;
+    } catch (err) {
+      toast.error(format === 'print' ? 'Could not print' : 'Could not export', { message: userMessage(err) });
+      return false;
+    }
+  };
   const exportAs = async (format: 'xlsx' | 'csv' | 'pdf'): Promise<void> => {
     setExportOpen(false);
     if (!s) return;
     if (format === 'pdf') {
-      await out.pdf(buildStatementHtml(s, { printedOn: printedOn() }), pdfName('Statement', s.party.name, s.from, s.to));
+      if (await authorised('pdf')) await out.pdf(buildStatementHtml(s, { printedOn: printedOn() }), pdfName('Statement', s.party.name, s.from, s.to));
       return;
     }
     try {
       const r = await exportTable({ title: 'Statement of Account', company: s.company.mailingName || s.company.name, period: { from: s.from, to: s.to }, ...statementExport(s) }, format);
       if (r) {
         const name = r.path.split(/[\\/]/).pop() ?? r.path;
-        toast.success(r.fellBackToCsv ? `Saved as CSV: ${name}` : `Saved ${name}`, { action: { label: 'Show in folder', onClick: () => showInFolder(r.path) } });
+        toast.success(`Saved ${name}`, { action: { label: 'Show in folder', onClick: () => showInFolder(r.path) } });
       }
     } catch (err) {
       toast.error('Could not export', { message: userMessage(err) });
@@ -120,18 +134,19 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
     { key: 'Alt+O', label: 'Party outstanding', icon: 'list', onClick: () => ledgerId !== null && nav.push('outstanding.party', { ledgerId }), disabled: ledgerId === null, group: 'party' },
     { key: 'Alt+L', label: 'Ledger', icon: 'ledger', onClick: () => ledgerId !== null && nav.push('reports.ledger', { ledgerId, from: period.from, to: period.to }), disabled: ledgerId === null, group: 'party' },
     { key: 'Alt+R', label: 'Reminder letter', icon: 'mail', onClick: () => ledgerId !== null && nav.push('outstanding.reminders', { ledgerId }), hidden: !s || s.closingBalance <= 0, group: 'party' },
-    { key: 'Alt+E', label: 'Export', icon: 'export', onClick: () => setExportOpen(true), disabled: !s, group: 'output' },
+    { key: 'Alt+E', label: 'Export', icon: 'export', onClick: () => setExportOpen(true), disabled: !s || !canExport, group: 'output', hint: canExport ? undefined : EXPORT_DENIED_HINT },
     {
       key: 'Alt+P',
       label: 'Print',
       icon: 'print',
       onClick: () => {
         const h = html();
-        if (h) void out.print(h);
+        if (h) void authorised('print').then((ok) => (ok ? out.print(h) : undefined));
       },
-      disabled: !s,
+      disabled: !s || !canExport,
       group: 'output',
       primary: true,
+      hint: canExport ? undefined : EXPORT_DENIED_HINT,
     },
   ];
 

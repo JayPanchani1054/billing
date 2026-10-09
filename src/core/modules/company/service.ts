@@ -29,6 +29,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { ensureGstLedgers } from '../../db/seed.ts';
 import { AppError, forbidden, notFound, rule, validation } from '../../lib/errors.ts';
+import { authorizeUserPath } from '../../lib/paths.ts';
 import { normalizeCompanyIdentity } from './validation.ts';
 
 // ───────────────────────────── Settings storage ─────────────────────────────
@@ -250,10 +251,28 @@ export function normalizeFeatures(f: CompanyFeatures): CompanyFeatures {
   return out;
 }
 
-function applyFeatures(ctx: CompanyCtx, current: CompanyFeatures, patch: CompanyFeaturesInput): CompanyFeatures {
+/**
+ * Internal options for saveFeatures. NOT reachable from the `company.features.save` route (its handler
+ * passes only the validated input).
+ */
+export interface SaveFeaturesOptions {
+  /**
+   * Allow `security` to change. Only security/toggle.ts passes this, after it has verified the Owner's
+   * password (enable/disable). Any other caller that tries to change `security` gets BUSINESS_RULE, so
+   * F11 can never switch security off without the Owner password (which would hand out the implicit
+   * owner session after the next logout).
+   */
+  securityToggle?: boolean;
+}
+
+export const SECURITY_TOGGLE_ELSEWHERE =
+  'Password protection is turned on or off under Security › Security Settings, which asks for the Owner password.';
+
+function applyFeatures(ctx: CompanyCtx, current: CompanyFeatures, patch: CompanyFeaturesInput, opts: SaveFeaturesOptions = {}): CompanyFeatures {
   const { db } = ctx;
   const next = normalizeFeatures({ ...current, ...patch });
   const now = ctx.clock.now();
+  if (next.security !== current.security && opts.securityToggle !== true) throw rule(SECURITY_TOGGLE_ELSEWHERE);
 
   if (next.gst && !current.gst) {
     const reg = db.value<string>('SELECT gst_registration_type FROM company WHERE id = 1');
@@ -278,9 +297,12 @@ function applyFeatures(ctx: CompanyCtx, current: CompanyFeatures, patch: Company
   return next;
 }
 
-/** Merge a partial features update (F11). Enabling GST creates missing GST ledgers; disabling keeps them. */
-export function saveFeatures(ctx: CompanyCtx, partial: CompanyFeaturesInput): CompanyFeatures {
-  return applyFeatures(ctx, getFeatures(ctx.db), partial);
+/**
+ * Merge a partial features update (F11). Enabling GST creates missing GST ledgers; disabling keeps them.
+ * `security` cannot change here unless `opts.securityToggle` (see SaveFeaturesOptions).
+ */
+export function saveFeatures(ctx: CompanyCtx, partial: CompanyFeaturesInput, opts: SaveFeaturesOptions = {}): CompanyFeatures {
+  return applyFeatures(ctx, getFeatures(ctx.db), partial, opts);
 }
 
 // ───────────────────────────── Configuration (F12) ─────────────────────────────
@@ -297,6 +319,13 @@ export function saveConfig(ctx: CompanyCtx, partial: CompanyConfigInput): Compan
   if (bankLedgerId !== null && bankLedgerId !== current.invoice.bankLedgerId) {
     const exists = db.value('SELECT 1 FROM ledgers WHERE id = :id', { id: bankLedgerId });
     if (exists === undefined) throw validation([{ path: 'invoice.bankLedgerId', message: 'Selected bank ledger does not exist' }]);
+  }
+  // The backup folder comes from the renderer: accept a new one only if the user picked it in the folder
+  // dialog this session (or it lies in the data folder). Otherwise data.backup.auto would keep exporting
+  // the books to wherever a compromised renderer pointed it (e.g. a remote \\host\share).
+  const folder = next.backup.folder;
+  if (folder !== null && folder !== current.backup.folder) {
+    next.backup.folder = authorizeUserPath(ctx.app, folder, 'write-dir', { field: 'backup.folder', what: 'backup folder', trusted: [current.backup.folder] });
   }
   const { lutValidFrom, lutValidTo } = next.gst;
   if (lutValidFrom && lutValidTo && lutValidTo < lutValidFrom)

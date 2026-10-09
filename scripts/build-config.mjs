@@ -17,9 +17,13 @@ const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
 export const appVersion = String(pkg.version);
 
 /**
- * esbuild options for the two Electron bundles.
+ * esbuild options for the three Electron bundles:
+ *   main        out/main/index.cjs        Electron main thread (windows, IPC, dialogs)
+ *   coreWorker  out/main/core-worker.cjs  the accounting core on a node:worker_threads thread; shipped
+ *                                          outside app.asar (electron-builder.yml → asarUnpack)
+ *   preload     out/preload/index.cjs     sandboxed preload (only require('electron'))
  * @param {'production' | 'development'} mode
- * @returns {{ main: import('esbuild').BuildOptions, preload: import('esbuild').BuildOptions }}
+ * @returns {{ main: import('esbuild').BuildOptions, coreWorker: import('esbuild').BuildOptions, preload: import('esbuild').BuildOptions }}
  */
 export function electronBuildOptions(mode) {
   const production = mode === 'production';
@@ -44,19 +48,30 @@ export function electronBuildOptions(mode) {
       __BAHI_VERSION__: JSON.stringify(appVersion),
     },
   };
+  // Core code is ESM-first; if it ever reads import.meta.* keep it working in the CJS bundles.
+  const importMeta = {
+    define: {
+      ...common.define,
+      'import.meta.url': '__bahi_import_meta_url',
+      'import.meta.dirname': '__dirname',
+      'import.meta.filename': '__filename',
+    },
+    banner: { js: "const __bahi_import_meta_url = require('node:url').pathToFileURL(__filename).href;" },
+  };
   return {
     main: {
       ...common,
+      ...importMeta,
       entryPoints: [path.join(root, 'src/main/index.ts')],
       outfile: path.join(outDir, 'main/index.cjs'),
-      // Core code is ESM-first; if it ever reads import.meta.* keep it working in the CJS bundle.
-      define: {
-        ...common.define,
-        'import.meta.url': '__bahi_import_meta_url',
-        'import.meta.dirname': '__dirname',
-        'import.meta.filename': '__filename',
-      },
-      banner: { js: "const __bahi_import_meta_url = require('node:url').pathToFileURL(__filename).href;" },
+    },
+    coreWorker: {
+      ...common,
+      ...importMeta,
+      entryPoints: [path.join(root, 'src/main/core-worker.ts')],
+      outfile: path.join(outDir, 'main/core-worker.cjs'),
+      // Electron's main-process API does not exist on worker threads: never let it be bundled in.
+      external: ['node:*'],
     },
     preload: {
       ...common,
@@ -64,6 +79,20 @@ export function electronBuildOptions(mode) {
       outfile: path.join(outDir, 'preload/index.cjs'),
     },
   };
+}
+
+/**
+ * The core worker runs on a node:worker_threads thread, where only node:* builtins exist (no
+ * 'electron', and nothing from node_modules is shipped). Fail the build if anything else is required.
+ * @param {string} code
+ * @returns {string[]} offending module ids
+ */
+export function forbiddenWorkerRequires(code) {
+  const bad = new Set();
+  for (const m of code.matchAll(/\brequire\(\s*["'`]([^"'`]+)["'`]\s*\)/g)) {
+    if (!m[1].startsWith('node:')) bad.add(m[1]);
+  }
+  return [...bad];
 }
 
 /**

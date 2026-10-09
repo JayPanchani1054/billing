@@ -201,8 +201,13 @@ test('gstDueDate: monthly 20th; quarterly PMT-06 25th, quarter end 22nd / 24th b
 
 test("GST due: last month's return is shown until its due date", () => {
   const b = buildDashboardBooks();
-  // September 2026: S2 blr (29, inter-state) 2,500 @ 18% IGST = 450; no purchases in September → no
-  // credit, so 450 is payable in cash by 20-Oct (monthly filer). X1 is cancelled, RNT carries no GST.
+  // September 2026: S2 blr (29, inter-state) 2,500 @ 18% IGST = 450; no purchases in September.
+  // X1 is cancelled, RNT carries no GST. The electronic credit ledger brings forward the CGST/SGST credit
+  // left by earlier months (chained from the books beginning, 1-Apr-2025):
+  //   Oct 2025: ITC C/S 62.50 (L1) − tax C/S 36 + 15 (L2, L3) → 11.50 each
+  //   Apr 2026: + 125 (P1) − 90 (S1) → 46.50 each;  Aug 2026: + 67.50 (P3) → 114.00 each
+  //   Sep 2026: IGST 450 ← CGST 114 + SGST 114 (s.49(5)) → 222.00 payable in cash by 20-Oct (monthly filer).
+  // (Before the carry-forward fix the card showed all 450 as payable.)
   const d = summaryForCtx(b.t.ctx, INPUT).gstDue;
   assert.ok(d);
   assert.equal(d.period, '092026');
@@ -210,7 +215,8 @@ test("GST due: last month's return is shown until its due date", () => {
   assert.equal(d.dueDate, '2026-10-20');
   assert.equal(d.outputTax, rs(450));
   assert.equal(d.inputTax, 0);
-  assert.equal(d.netPayable, rs(450));
+  assert.equal(d.netPayable, rs(222));
+  assert.equal(d.creditCarriedForward, 0);
   assert.equal(d.documentCount, 1);
   // On the due date it is still shown; the day after it is gone.
   b.t.clock.setToday('2026-10-20');
@@ -317,6 +323,24 @@ test('top customers (cash/bank parties excluded) and top items for the period', 
   const ly = summaryForCtx(b.t.ctx, { asOf: TODAY, from: '2025-04-01', to: '2026-03-31' });
   assert.deepEqual(ly.topCustomers, []);
   assert.deepEqual(ly.topItems.map((i) => [i.name, i.amount]), [['Rice Bag', rs(600)], ['Mixer Grinder', rs(400)]]);
+  b.t.close();
+});
+
+test('top items: a debit note to a customer (price revision) adds value, not quantity; a purchase return is not a sale', () => {
+  const b = buildDashboardBooks();
+  const { vt, L, I } = b;
+  // Upward revision of ₹50 a unit on 2 mixers (value ₹100); a purchase return of 1 rice bag to the supplier.
+  save(b, { voucherTypeId: vt.debit_note, date: '2026-09-15', mode: 'item_invoice', partyLedgerId: L.acme, items: [{ itemId: I.mixer, qty: 2, rate: 50 }] });
+  save(b, { voucherTypeId: vt.debit_note, date: '2026-09-16', mode: 'item_invoice', partyLedgerId: L.supplier, items: [{ itemId: I.rice, qty: 1, rate: 50 }] });
+  const s = summaryForCtx(b.t.ctx, INPUT);
+  // mixer 3,800 + 100 = 3,900, still 16 Nos · rice unchanged 1,200 (20 Nos)
+  assert.deepEqual(
+    s.topItems.map((i) => [i.name, i.qty, i.amount]),
+    [
+      ['Mixer Grinder', 16, rs(3_900)],
+      ['Rice Bag', 20, rs(1_200)],
+    ],
+  );
   b.t.close();
 });
 

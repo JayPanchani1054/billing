@@ -9,6 +9,7 @@ import type {
   AuditVerifyReport,
 } from '../../../shared/types/security.ts';
 import type { AuditEntry, Session } from '../../api/context.ts';
+import { setStrictRouteInput } from '../../api/dispatch.ts';
 import { appendAudit } from '../../lib/audit.ts';
 import { parseCsv } from '../../lib/csv.ts';
 import { decodeText } from '../../lib/text.ts';
@@ -100,6 +101,18 @@ describe('edit log: list', () => {
     assert.equal(bad.ok ? null : bad.error.code, 'VALIDATION');
     const backwards = await t.call(R, 'security.audit.list', { from: '2026-04-17', to: '2026-04-16' });
     assert.equal(backwards.ok ? null : backwards.error.code, 'BUSINESS_RULE');
+
+    // A misspelt filter (`action` for `actions`) is refused — even with lenient (production) route input —
+    // instead of returning the unfiltered edit log.
+    setStrictRouteInput(false);
+    try {
+      const typo = await t.call(R, 'security.audit.list', { entityType: 'voucher', action: 'delete' });
+      assert.deepEqual(typo.ok ? null : typo.error.details, [{ path: 'action', message: 'Unknown field "action" — did you mean "actions"?' }]);
+      const exp = await t.call(R, 'security.audit.export', { format: 'csv', user: 1 });
+      assert.equal(exp.ok ? null : exp.error.code, 'VALIDATION');
+    } finally {
+      setStrictRouteInput(true);
+    }
     t.close();
   });
 
@@ -159,7 +172,8 @@ describe('edit log: detail, history, verification', () => {
     assert.equal(v.totalEntries, 7);
     assert.equal(v.lastEntryId, 7);
     assert.match(v.message, /all 7 entries are intact/);
-    assert.match(v.detail, /newest entries cannot be detected/);
+    assert.match(v.detail, /no entry has been altered, inserted or removed in between/);
+    assert.equal(v.anchor, undefined, 'no check-point store in the test fixture');
     const empty = createTestCompany({ security: true });
     assert.match((await empty.callOk<AuditVerifyReport>(R, 'security.audit.verify')).message, /empty/);
     empty.close();

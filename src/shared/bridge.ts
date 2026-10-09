@@ -55,6 +55,12 @@ export interface NativeActions {
 
 export type NativeAction = keyof NativeActions;
 
+/**
+ * `command` id sent when the accounting engine (the core worker thread) stopped unexpectedly and was
+ * restarted: no company is open any more, so the window refreshes its app state and says what happened.
+ */
+export const CORE_RESTARTED_COMMAND = 'core.restarted';
+
 /** Events pushed from main to renderer. */
 export interface BridgeEvents {
   /** Application menu / accelerator command, e.g. 'goto', 'company.close', 'print', 'export'. */

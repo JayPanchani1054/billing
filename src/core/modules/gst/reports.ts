@@ -153,7 +153,8 @@ export function itcReport(db: Db, company: GstCompany, from: string, to: string,
       const e = eligibilityOf(l);
       addTax(e === 'ineligible' ? r.ineligible : r.eligible, l, d.sign);
       if (rcm || l.reverseCharge) addTax(r.reverseCharge, l, d.sign);
-      if (imports) addTax(r.imports, l, d.sign);
+      // Import of goods, and goods from an SEZ unit (an import on a bill of entry): IGST paid at customs.
+      if (imports || (d.nature === 'inward_sez' && l.supplyType === 'goods')) addTax(r.imports, l, d.sign);
       const eg = elig.get(e) as { taxable: number; tax: TaxAmounts };
       eg.taxable += d.sign * l.taxable;
       addTax(eg.tax, l, d.sign);

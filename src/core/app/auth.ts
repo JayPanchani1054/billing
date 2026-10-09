@@ -136,7 +136,7 @@ export async function login(db: Db, username: string, password: string, now: Dat
 
   if (user?.locked_until) {
     if (Date.parse(user.locked_until) > now.getTime()) {
-      appendAudit(db, { action: 'login_failed', entityType: 'user', entityId: user.id, entityLabel: user.username, after: { reason: 'locked' } }, null, now);
+      recordLockedAttempt(db, user, now);
       throw new AppError('LOCKED', lockedMessage(minutesUntil(user.locked_until, now)), { lockedUntil: user.locked_until });
     }
     // Lockout expired: start counting afresh.
@@ -234,8 +234,138 @@ export async function changePassword(db: Db, session: Session, input: ChangePass
 }
 
 /**
- * Verify credentials of an active Owner-role user without touching lockout counters (used to confirm
- * destructive actions such as deleting a company). Works on a read-only connection.
+ * Record an attempt on a locked account in the edit log — at most ONE entry per lockout window (the
+ * log is permanent and append-only: a script hammering a locked account must not bloat it). Attempts
+ * on a locked account cost no scrypt time, so without this they could add thousands of rows a second.
+ */
+export function recordLockedAttempt(db: Db, user: Pick<UserRow, 'id' | 'username' | 'locked_until'>, now: Date, context?: string): void {
+  const last = db.get<{ ts: string; after_json: string | null }>(
+    `SELECT ts, after_json FROM audit_log WHERE entity_type = 'user' AND entity_id = :id AND action = 'login_failed' ORDER BY id DESC LIMIT 1`,
+    { id: user.id },
+  );
+  if (last && user.locked_until) {
+    let reason: unknown;
+    try {
+      reason = (JSON.parse(last.after_json ?? 'null') as { reason?: unknown } | null)?.reason;
+    } catch {
+      reason = undefined;
+    }
+    const windowStart = Date.parse(user.locked_until) - getLockoutPolicy(db).lockoutMs;
+    if (reason === 'locked' && Date.parse(last.ts) >= windowStart) return;
+  }
+  appendAudit(db, { action: 'login_failed', entityType: 'user', entityId: user.id, entityLabel: user.username, after: { reason: 'locked', ...(context ? { context } : {}) } }, null, now);
+}
+
+/** What an Owner-password confirmation protects (recorded with failed attempts). */
+export type OwnerConfirmContext = 'company.delete' | 'restore.replace';
+
+const ownerLockedMessage = (minutes: number): string => `Too many incorrect owner passwords. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+
+/**
+ * Confirm a destructive action (deleting a company, restoring over it) with an Owner's password,
+ * checked against the TARGET company's own database — with the same DB-backed lockout as its login
+ * screen (one shared budget: these paths give no extra guesses, and survive restarts) and every
+ * failure recorded as 'login_failed' in that company's edit log. `db` must be writable.
+ * Without a username every active Owner is a candidate and a wrong guess counts against each of them.
+ */
+export async function confirmOwnerPassword(db: Db, input: { password: string; username?: string; context: OwnerConfirmContext }, now: Date): Promise<void> {
+  const name = input.username?.trim() || undefined;
+  const loadOwners = (): UserRow[] =>
+    db.all<UserRow>(
+      `SELECT u.* FROM users u JOIN roles r ON r.id = u.role_id
+        WHERE u.is_active = 1 AND r.is_system = 1 AND r.name = :owner ${name ? 'AND u.username = :username' : ''}
+        ORDER BY u.id LIMIT 10`,
+      name ? { owner: OWNER_ROLE, username: name } : { owner: OWNER_ROLE },
+    );
+  let owners = loadOwners();
+  if (owners.length === 0) {
+    await verifyPassword(input.password, dummyPasswordHash()); // same time as a real check
+    appendAudit(
+      db,
+      { action: 'login_failed', entityType: 'user', entityLabel: name ? maskLoginName(name) : OWNER_ROLE, after: { reason: 'unknown_user', context: input.context } },
+      null,
+      now,
+    );
+    throw new AppError('UNAUTHENTICATED', 'Owner username or password is incorrect.');
+  }
+  const nowMs = now.getTime();
+  const lockedNow = (u: UserRow): boolean => u.locked_until !== null && Date.parse(u.locked_until) > nowMs;
+  // Expired lockouts start a fresh count (as at login).
+  for (const o of owners) if (o.locked_until && !lockedNow(o)) db.run('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = :id', { id: o.id });
+  owners = loadOwners();
+  const open = owners.filter((o) => !lockedNow(o));
+  if (open.length === 0) {
+    db.transaction(() => {
+      for (const o of owners) recordLockedAttempt(db, o, now, input.context);
+    });
+    const until = owners.map((o) => o.locked_until as string).sort()[0];
+    throw new AppError('LOCKED', ownerLockedMessage(minutesUntil(until, now)), { lockedUntil: until });
+  }
+  for (const o of open) {
+    if (await verifyPassword(input.password, o.password_hash)) {
+      db.run('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = :id', { id: o.id });
+      return;
+    }
+  }
+  const { maxFailedAttempts, lockoutMs } = getLockoutPolicy(db);
+  const lockedUntil = new Date(nowMs + lockoutMs).toISOString();
+  const worst = db.transaction(() => {
+    let max = 0;
+    for (const o of open) {
+      db.run(
+        `UPDATE users SET failed_attempts = failed_attempts + 1,
+                locked_until = CASE WHEN failed_attempts + 1 >= :max THEN :lockedUntil ELSE locked_until END
+          WHERE id = :id`,
+        { max: maxFailedAttempts, lockedUntil, id: o.id },
+      );
+      const attempts = db.value<number>('SELECT failed_attempts FROM users WHERE id = :id', { id: o.id }) ?? 0;
+      appendAudit(
+        db,
+        { action: 'login_failed', entityType: 'user', entityId: o.id, entityLabel: o.username, after: { reason: 'wrong_password', context: input.context, attempts } },
+        null,
+        now,
+      );
+      max = Math.max(max, attempts);
+    }
+    return max;
+  });
+  if (worst >= maxFailedAttempts) throw new AppError('LOCKED', ownerLockedMessage(Math.round(lockoutMs / 60_000)), { lockedUntil });
+  throw new AppError('UNAUTHENTICATED', 'Owner username or password is incorrect.');
+}
+
+/**
+ * In-memory limit on how often credentials may be tried per key (company + purpose) — a sliding window.
+ * Bounds edit-log growth from unknown-username guesses (each one is a permanent 'login_failed' row) and
+ * scripted hammering through a compromised renderer.
+ */
+export class AttemptLimiter {
+  private readonly hits = new Map<string, number[]>();
+  private readonly max: number;
+  private readonly windowMs: number;
+  constructor(max: number, windowMs: number) {
+    this.max = max;
+    this.windowMs = windowMs;
+  }
+  /** Count one attempt; throws LOCKED when the key has used up its window. */
+  take(key: string, now: Date): void {
+    const t = now.getTime();
+    const recent = (this.hits.get(key) ?? []).filter((x) => t - x < this.windowMs);
+    if (recent.length >= this.max) {
+      this.hits.set(key, recent);
+      const wait = Math.max(1, Math.ceil((recent[0] + this.windowMs - t) / 1000));
+      throw new AppError('LOCKED', `Too many attempts in a short time. Wait ${wait} second${wait === 1 ? '' : 's'} and try again.`);
+    }
+    recent.push(t);
+    this.hits.set(key, recent);
+  }
+}
+
+/** Login / owner-confirmation attempts allowed per company per minute (far above any human typing). */
+export const MAX_ATTEMPTS_PER_MINUTE = 20;
+
+/**
+ * Verify credentials of an active Owner-role user without touching lockout counters. Prefer
+ * confirmOwnerPassword (lockout + edit log) for anything an attacker could repeat.
  */
 export async function verifyOwnerCredentials(db: Db, password: string, username?: string): Promise<boolean> {
   const owners = db.all<{ username: string; password_hash: string }>(

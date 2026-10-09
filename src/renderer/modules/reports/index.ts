@@ -50,7 +50,7 @@ const menu: MenuItem[] = [
   { section: 'reports', label: 'Ratio Analysis', screen: 'reports.ratios', order: 40, description: 'Current ratio, profit margins, receivable days and more' },
   { section: 'reports', label: 'Cash Flow', screen: 'reports.cashFlow', order: 41, description: 'Money in and out of cash and bank, month by month' },
   { section: 'reports', label: 'Funds Flow', screen: 'reports.fundsFlow', order: 42, description: 'Sources and uses of funds, change in working capital' },
-  { section: 'reports', label: 'Cost Centres', screen: 'reports.costCentres', order: 43, description: 'Expenses and income by cost centre' },
+  { section: 'reports', label: 'Cost Centre Report', screen: 'reports.costCentres', order: 43, keywords: ['cost centres', 'cost centre summary'], description: 'Expenses and income by cost centre' },
   { section: 'reports', label: 'Exception Reports', screen: 'reports.exceptions', order: 44, description: 'Unusual balances, optional, post-dated and cancelled vouchers' },
   { section: 'reports', label: 'Statistics', screen: 'reports.statistics', order: 45, description: 'Number of vouchers and masters' },
 ];
@@ -62,6 +62,7 @@ registerGotoProvider({
   id: 'reports.groups',
   label: 'Groups',
   minQuery: 2,
+  screens: ['reports.groupSummary'],
   search: async (query) => {
     const res = await api('accounts.group.list', { search: query });
     return res.rows.slice(0, 8).map(
