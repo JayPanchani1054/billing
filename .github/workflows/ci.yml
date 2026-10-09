@@ -9,9 +9,11 @@ on:
 permissions:
   contents: read
 
+# A run already in progress on a branch always finishes (so every result is complete); newer pushes
+# wait, and GitHub keeps only the newest waiting run. Pull requests cancel superseded runs.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   NODE_VERSION: '22'
