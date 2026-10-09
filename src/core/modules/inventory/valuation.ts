@@ -345,11 +345,12 @@ function dependencyClosure(db: Db, itemIds: readonly number[], to: string): Set<
 //   - a few items: the item index (INDEXED BY pins it — the statement fails loudly if it is ever
 //     dropped) for the items' own lines, plus the other lines of the stock journals they appear in
 //     (a journal's production lines share its consumption cost, so all of them are needed).
-const MOVEMENT_COLUMNS = `ie.id, ie.voucher_id, ie.line_no, ie.item_id, COALESCE(ie.godown_id, :main) AS godown_id, ie.qty, ie.amount,
-       ie.rate, ie.discount_pct, ie.date, v.base_type`;
+const MOVEMENT_COLUMNS = `ie.id AS id, ie.voucher_id AS voucher_id, ie.line_no AS line_no, ie.item_id AS item_id,
+       COALESCE(ie.godown_id, :main) AS godown_id, ie.qty AS qty, ie.amount AS amount, ie.rate AS rate,
+       ie.discount_pct AS discount_pct, ie.date AS date, v.base_type AS base_type`;
 
 function movementSql(filtered: boolean, withBatch: boolean): string {
-  const cols = withBatch ? `${MOVEMENT_COLUMNS}, ie.batch_name` : MOVEMENT_COLUMNS;
+  const cols = withBatch ? `${MOVEMENT_COLUMNS}, ie.batch_name AS batch_name` : MOVEMENT_COLUMNS;
   if (!filtered) {
     return `SELECT ${cols}
        FROM inventory_entries ie NOT INDEXED CROSS JOIN vouchers v ON v.id = ie.voucher_id
