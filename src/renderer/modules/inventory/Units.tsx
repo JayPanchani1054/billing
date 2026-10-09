@@ -23,9 +23,9 @@ import {
   userMessage,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, DataTable, EmptyState, Field, FieldGroup, NumberInput, SegmentedControl, Select, Stack, TextInput, useDebouncedValue, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Badge, Banner, Button, DataTable, EmptyState, Field, FieldGroup, Inline, NumberInput, SegmentedControl, Select, Stack, TextInput, useDebouncedValue, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { AcceptKey, FeatureOff, focusFirstError, INVENTORY_INVALIDATES, splitApiError } from './common.tsx';
+import { AcceptKey, FeatureOff, focusFirstError, HistoryButton, HistoryKey, INVENTORY_INVALIDATES, splitApiError, useMasterHistory } from './common.tsx';
 import { DeleteKey } from './Groups.tsx';
 import { compoundSymbolPreview, conversionText, uqcSelectOptions, uqcSuggestion, validateCompoundUnit, validateSimpleUnit } from './lib/units.ts';
 import { isShownValue } from './lib/opening.ts';
@@ -311,16 +311,22 @@ function UnitForm({ title, saved, params }: { title: string; saved: UnitDto | nu
   };
 
   const formRef = useEnterAdvance<HTMLDivElement>({ enabled: !readOnly, onComplete: () => void submit() });
+  const history = useMasterHistory('unit', saved, saved?.symbol ?? '');
   const preview = conversionText(first?.symbol, d.conversion, second?.symbol);
   return (
     <DialogScreen
       title={saved ? `${title} — ${saved.symbol}` : title}
       size="md"
       footerStart={
-        saved && canDelete ? (
-          <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
-            Delete
-          </Button>
+        history || (saved && canDelete) ? (
+          <Inline gap={2}>
+            <HistoryButton onOpen={history} />
+            {saved && canDelete ? (
+              <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
+                Delete
+              </Button>
+            ) : null}
+          </Inline>
         ) : undefined
       }
       footer={
@@ -334,6 +340,7 @@ function UnitForm({ title, saved, params }: { title: string; saved: UnitDto | nu
     >
       <AcceptKey onAccept={() => void submit()} />
       <DeleteKey enabled={!!saved && canDelete} onDelete={() => void remove()} />
+      <HistoryKey onOpen={history} />
       <div ref={formRef}>
         <Stack gap={4}>
           {banner ? (

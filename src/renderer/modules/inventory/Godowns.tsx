@@ -21,9 +21,9 @@ import {
   userMessage,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, Field, FieldGroup, Stack, Switch, TextArea, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Badge, Banner, Button, Field, FieldGroup, Inline, Stack, Switch, TextArea, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { AcceptKey, FeatureOff, focusFirstError, INVENTORY_INVALIDATES, splitApiError } from './common.tsx';
+import { AcceptKey, FeatureOff, focusFirstError, HistoryButton, HistoryKey, INVENTORY_INVALIDATES, splitApiError, useMasterHistory } from './common.tsx';
 import { DeleteKey } from './Groups.tsx';
 import type { Leveled } from './lib/tree.ts';
 import { descendantIds } from './lib/tree.ts';
@@ -200,16 +200,22 @@ function GodownForm({ title, saved, params, all }: { title: string; saved: Godow
   };
 
   const formRef = useEnterAdvance<HTMLDivElement>({ enabled: !readOnly, onComplete: () => void submit() });
+  const history = useMasterHistory('godown', saved, saved?.name ?? '');
   return (
     <DialogScreen
       title={saved ? `${title} — ${saved.name}` : title}
       description={saved?.isPredefined ? 'The built-in main location. Stock without a godown is kept here.' : undefined}
       size="md"
       footerStart={
-        deletable ? (
-          <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
-            Delete
-          </Button>
+        history || (deletable) ? (
+          <Inline gap={2}>
+            <HistoryButton onOpen={history} />
+            {deletable ? (
+              <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
+                Delete
+              </Button>
+            ) : null}
+          </Inline>
         ) : undefined
       }
       footer={
@@ -223,6 +229,7 @@ function GodownForm({ title, saved, params, all }: { title: string; saved: Godow
     >
       <AcceptKey onAccept={() => void submit()} />
       <DeleteKey enabled={deletable} onDelete={() => void remove()} />
+      <HistoryKey onOpen={history} />
       <div ref={formRef}>
         <Stack gap={4}>
           {banner ? (

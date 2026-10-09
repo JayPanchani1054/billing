@@ -8,13 +8,14 @@
 /** ctx.audit entityType of each inventory master. */
 export type InventoryAuditType = 'stock_item' | 'stock_group' | 'stock_category' | 'godown' | 'unit';
 
-export interface MasterHistoryParams {
+/** A type alias (not an interface) so it passes as nav params (Record<string, unknown>). */
+export type MasterHistoryParams = {
   entityType: InventoryAuditType;
   entityId: number;
   entityGuid: string;
   /** Shown as the history's title ("Stock group Grains"). */
   label: string;
-}
+};
 
 /** 'security.audit' params for a saved master; null while it is being created (no history yet). */
 export function masterHistoryParams(entityType: InventoryAuditType, saved: { id: number; guid: string } | null, label: string): MasterHistoryParams | null {

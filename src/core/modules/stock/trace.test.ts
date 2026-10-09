@@ -1,19 +1,18 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { addDays } from '../../../shared/dates.ts';
-import { computeStockValuation } from '../inventory/index.ts';
-import { godownScope } from './common.ts';
+import { computeStockValuation, stockReplayCount } from '../inventory/index.ts';
 import { inventoryVoucher, invoice, post, stockMasters } from './testkit.ts';
 import { traceMovementValues } from './trace.ts';
 
 /**
- * trace.ts values every voucher line with one replay and proves it against the inventory engine
- * (otherwise per-day engine runs). These tests run every costing method through returns, a stock
- * journal, a physical count, negative stock and several movements on one day, and check that the
- * replay is the engine's own figure — line by line where hand-computable, and day by day against
- * one engine run per day.
+ * trace.ts values every voucher line from the inventory engine's own replay (traceStockMovements).
+ * These tests run every costing method through returns, a stock journal, a physical count, negative
+ * stock and several movements on one day, and check — as a property, against independent engine
+ * runs — that the traced figures are the engine's: line by line where hand-computable, the period
+ * totals, and day by day against one engine run per day.
  */
-describe('trace: replay proven against the inventory engine', () => {
+describe('trace: per-line cost from the engine replay, equal to independent engine runs', () => {
   test('every costing method: no item falls back; each day closes at the engine figure; lines add up to the engine period totals', () => {
     const m = stockMasters();
     try {
@@ -40,8 +39,9 @@ describe('trace: replay proven against the inventory engine', () => {
       post(k, invoice(m, 'purchase', '2026-04-25', m.L.supreme, lines(30, 120)));
       const today = m.t.today;
       const traced = [...all, m.I.G];
+      const before = stockReplayCount();
       const tr = traceMovementValues(m.t.db, { itemIds: traced, from: '2026-04-01', to: '2026-04-30', today });
-      assert.deepEqual(tr.fallbackItems, []);
+      assert.equal(stockReplayCount() - before, 1, 'one engine replay, no second "proof" run');
 
       // Period totals = engine (the proof the trace runs on, checked here independently).
       const period = new Map(computeStockValuation(m.t.db, { from: '2026-04-01', to: '2026-04-30', today, itemIds: traced }).rows.map((r) => [r.itemId, r]));
@@ -83,7 +83,7 @@ describe('trace: replay proven against the inventory engine', () => {
     }
   });
 
-  test('exact per line where the per-day split cannot be: the fallback splits the day by quantity, the replay does not', () => {
+  test('exact per line where a per-day split cannot be (two sales of one item on one day around a purchase)', () => {
     const m = stockMasters();
     try {
       const k = { ...m, V: {} };
@@ -94,13 +94,11 @@ describe('trace: replay proven against the inventory engine', () => {
       post(k, invoice(m, 'sales', '2026-05-03', m.L.metro, [{ itemId: m.I.A, qty: 5, rate: 250 }]));
       const q = { itemIds: [m.I.A], from: '2026-05-01', to: '2026-05-31', today: m.t.today };
       const exact = traceMovementValues(m.t.db, q);
-      const split = traceMovementValues(m.t.db, { ...q, forceFallback: true });
-      const outs = (t: typeof exact) => t.movements.filter((x) => x.qty < 0).map((x) => t.values.get(x.id));
-      assert.deepEqual(outs(exact), [50_000, 83_333]);
-      // the fallback has the same day total (1,33,333) split 5 : 5 → 66,667 + 66,666
-      assert.deepEqual(outs(split), [66_667, 66_666]);
-      assert.deepEqual(split.fallbackItems, [m.I.A]);
-      assert.deepEqual(exact.closing.get(m.I.A)?.get('2026-05-03'), split.closing.get(m.I.A)?.get('2026-05-03'));
+      assert.deepEqual(exact.movements.filter((x) => x.qty < 0).map((x) => exact.values.get(x.id)), [50_000, 83_333]);
+      // the day closes at what one engine run for that day says: opening 10 @ ₹100 − 5 + 10 @ ₹200 − 5 → 10 worth 1,66,667
+      const day = computeStockValuation(m.t.db, { from: '2026-05-03', to: '2026-05-03', today: m.t.today, itemIds: [m.I.A] }).rows[0];
+      assert.deepEqual(exact.closing.get(m.I.A)?.get('2026-05-03'), { qty: day.closing.qty, value: day.closing.value });
+      assert.deepEqual(exact.closing.get(m.I.A)?.get('2026-05-03'), { qty: 10, value: 1_66_667 });
     } finally {
       m.t.close();
     }
@@ -116,9 +114,7 @@ describe('trace: replay proven against the inventory engine', () => {
         { itemId: m.I.A, qty: 4, rate: 0, godownId: m.godowns.shop },
       ]));
       post(k, invoice(m, 'sales', '2026-05-04', m.L.acme, [{ itemId: m.I.A, qty: 1, rate: 150, godownId: m.godowns.shop }]));
-      const shop = godownScope(m.t.db, m.godowns.shop);
-      const tr = traceMovementValues(m.t.db, { itemIds: [m.I.A], from: '2026-05-01', to: '2026-05-31', today: m.t.today, godownId: m.godowns.shop, godowns: shop });
-      assert.deepEqual(tr.fallbackItems, []);
+      const tr = traceMovementValues(m.t.db, { itemIds: [m.I.A], from: '2026-05-01', to: '2026-05-31', today: m.t.today, godownId: m.godowns.shop });
       // the transfer in (4 × ₹100 = 40,000) and the sale (10,000); the Main Location side is out of scope
       assert.deepEqual(tr.movements.map((x) => [x.qty, tr.values.get(x.id)]), [[4, 40_000], [-1, 10_000]]);
       assert.deepEqual(tr.closing.get(m.I.A)?.get('2026-05-04'), { qty: 3, value: 30_000 });

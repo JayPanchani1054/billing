@@ -21,9 +21,9 @@ import {
   userMessage,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { Banner, Button, Field, FieldGroup, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Banner, Button, Field, FieldGroup, Inline, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { AcceptKey, FeatureOff, focusFirstError, INVENTORY_INVALIDATES, splitApiError } from './common.tsx';
+import { AcceptKey, FeatureOff, focusFirstError, HistoryButton, HistoryKey, INVENTORY_INVALIDATES, splitApiError, useMasterHistory } from './common.tsx';
 import { DeleteKey } from './Groups.tsx';
 import type { Leveled } from './lib/tree.ts';
 import { descendantIds } from './lib/tree.ts';
@@ -166,15 +166,21 @@ function CategoryForm({ title, saved, params, all }: { title: string; saved: Sto
   };
 
   const formRef = useEnterAdvance<HTMLDivElement>({ enabled: !readOnly, onComplete: () => void submit() });
+  const history = useMasterHistory('stock_category', saved, saved?.name ?? '');
   return (
     <DialogScreen
       title={saved ? `${title} — ${saved.name}` : title}
       size="md"
       footerStart={
-        saved && canDelete ? (
-          <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
-            Delete
-          </Button>
+        history || (saved && canDelete) ? (
+          <Inline gap={2}>
+            <HistoryButton onOpen={history} />
+            {saved && canDelete ? (
+              <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
+                Delete
+              </Button>
+            ) : null}
+          </Inline>
         ) : undefined
       }
       footer={
@@ -188,6 +194,7 @@ function CategoryForm({ title, saved, params, all }: { title: string; saved: Sto
     >
       <AcceptKey onAccept={() => void submit()} />
       <DeleteKey enabled={!!saved && canDelete} onDelete={() => void remove()} />
+      <HistoryKey onOpen={history} />
       <div ref={formRef}>
         <Stack gap={4}>
           {banner ? (

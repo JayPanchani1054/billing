@@ -20,6 +20,8 @@ Core API: `src/core/modules/inventory/README.md`, DTOs: `src/shared/types/invent
 | `inventory.godown.list` / `inventory.godown.form` (dialog) | form: `{ id? \| initialName?, forResult?, parentId? }` | Godowns (tree); Main Location cannot be deleted or marked third-party |
 | `inventory.priceList` | `{ priceLevelId?, itemId?, date? }` | Price level + applicable-from date → per-item quantity slabs (from / up to / rate / discount) with live overlap check; Alt+C create level, Alt+R rename |
 
+The stock group, category, unit and godown dialog forms share the master-form keys: Ctrl+A save, Alt+D delete, and in alteration **Alt+H edit history** — the record's history in the Edit Log (`security.audit` `{ entityType: 'stock_group' | 'stock_category' | 'unit' | 'godown', entityId, entityGuid, label }`, `common.tsx › useMasterHistory`, `lib/history.ts`; needs the Edit Log permission).
+
 All master forms follow the shell convention for create-and-return: opened with
 `nav.pushForResult('<form id>', { initialName, forResult: true })` they save with "Save & return"
 and resolve `{ id, name }` (units: `name` is the symbol).

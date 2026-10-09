@@ -16,9 +16,8 @@ import { diffDays } from '../../../shared/dates.ts';
 import type { AgeingBucket, StockAgeingInput, StockAgeingResult, StockAgeingRow } from '../../../shared/types/stock.ts';
 import type { Db } from '../../db/db.ts';
 import { validation } from '../../lib/errors.ts';
-import { computeStockValuation, STOCK_MOVEMENT_FILTER } from '../inventory/index.ts';
+import { STOCK_MOVEMENT_FILTER, traceStockMovements } from '../inventory/index.ts';
 import { booksBegin, EPS, itemsInGroup, loadItems, loadTree, roundQty } from './common.ts';
-import { traceMovementValues } from './trace.ts';
 
 export const DEFAULT_AGEING_BUCKETS: readonly number[] = [30, 60, 90, 180];
 
@@ -89,7 +88,11 @@ export function stockAgeing(db: Db, today: string, input: StockAgeingInput): Sto
   const groups = loadTree(db, 'group');
   const begin = booksBegin(db);
 
-  const valuation = computeStockValuation(db, { from: asOf, to: asOf, today });
+  // ONE replay: the valuation at asOf, plus (FIFO items) the engine's cost of every inward since the
+  // books beginning — on hand FIFO stock IS the latest layers, so each slice is valued at its inward.
+  const fifoItems = db.all<{ id: number }>("SELECT id FROM stock_items WHERE costing_method = 'fifo'").map((r) => r.id);
+  const traced = traceStockMovements(db, { from: asOf, to: asOf, today, traceItemIds: fifoItems, traceFrom: begin < asOf ? begin : asOf });
+  const valuation = traced.valuation;
   const stocked = valuation.rows.filter((r) => r.closing.qty > EPS && (scope === null || scope.has(r.itemId)));
   if (stocked.length === 0) return { asOf, buckets, rows: [], totals: { value: 0, buckets: buckets.map(() => 0) } };
 
@@ -120,12 +123,12 @@ export function stockAgeing(db: Db, today: string, input: StockAgeingInput): Sto
     events.set(r.item_id, list);
   }
   // FIFO: the stock on hand IS the latest layers, so each slice is valued at its own inward's cost
-  // (the engine's value of that inward, from trace.ts); other methods hold every unit at one cost.
+  // (the engine's value of that inward, traced above); other methods hold every unit at one cost.
   if (fifo.size > 0) {
-    const tr = traceMovementValues(db, { itemIds: [...fifo], from: begin < asOf ? begin : asOf, to: asOf, today });
+    const tr = traced;
     const inward = new Map<string, { qty: number; value: number }>();
     for (const m of tr.movements) {
-      if (m.qty <= 0) continue;
+      if (m.qty <= 0 || !fifo.has(m.itemId)) continue;
       const key = `${m.itemId}|${m.voucherId}`;
       const a = inward.get(key) ?? { qty: 0, value: 0 };
       a.qty += m.qty;

@@ -1,14 +1,14 @@
 /**
  * Stock Item Vouchers (Tally "Stock Item Vouchers" / item ledger): every voucher that moved the item
- * in the period with inward / outward quantity and value (at cost, see trace.ts) and the running
- * closing balance. Opening and closing are the engine's figures, and the running value is re-based
- * on the engine's closing at the end of every day, so it always agrees with the Stock Summary.
+ * in the period with inward / outward quantity and value (at cost) and the running closing balance.
+ * Opening, closing, every line's cost and each day's closing come from ONE engine replay
+ * (traceStockMovements), and the running value is re-based on the engine's closing at the end of
+ * every day, so it always agrees with the Stock Summary.
  */
 import type { StockItemVoucherRow, StockItemVouchersInput, StockItemVouchersResult } from '../../../shared/types/stock.ts';
 import type { Db } from '../../db/db.ts';
-import { computeStockValuation } from '../inventory/index.ts';
+import { traceStockMovements } from '../inventory/index.ts';
 import { assertPeriod, getItemMeta, godownScope, jsonIds, rateOf, roundQty } from './common.ts';
-import { traceMovementValues } from './trace.ts';
 
 const PARTICULARS: Record<string, string> = {
   stock_journal: 'Stock Journal',
@@ -18,16 +18,15 @@ const PARTICULARS: Record<string, string> = {
 export function itemVouchers(db: Db, today: string, input: StockItemVouchersInput): StockItemVouchersResult {
   assertPeriod(input.from, input.to);
   const item = getItemMeta(db, input.itemId);
-  const godowns = godownScope(db, input.godownId);
+  godownScope(db, input.godownId); // NOT_FOUND for an unknown godown
   const godownId = input.godownId ?? null;
   const groupName = item.groupId === null ? null : (db.value<string>('SELECT name FROM stock_groups WHERE id = :id', { id: item.groupId }) ?? null);
 
-  const period = computeStockValuation(db, { from: input.from, to: input.to, today, itemIds: [item.id], godownId, includeSubGodowns: true });
-  const pr = period.rows.find((r) => r.itemId === item.id);
+  const trace = traceStockMovements(db, { from: input.from, to: input.to, today, itemIds: [item.id], godownId, includeSubGodowns: true, traceItemIds: [item.id] });
+  const pr = trace.valuation.rows.find((r) => r.itemId === item.id);
   const opening = { qty: pr?.opening.qty ?? 0, value: pr?.opening.value ?? 0 };
   const closing = { qty: pr?.closing.qty ?? 0, value: pr?.closing.value ?? 0 };
 
-  const trace = traceMovementValues(db, { itemIds: [item.id], from: input.from, to: input.to, today, godownId, godowns });
   const voucherIds = [...new Set(trace.movements.map((m) => m.voucherId))];
   const headers = new Map(
     db

@@ -27,9 +27,9 @@ import {
   userMessage,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { Banner, Button, Field, FieldGroup, Stack, Switch, TextInput, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
+import { Banner, Button, Field, FieldGroup, Inline, Stack, Switch, TextInput, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { AcceptKey, FeatureOff, focusFirstError, INVENTORY_INVALIDATES, splitApiError } from './common.tsx';
+import { AcceptKey, FeatureOff, focusFirstError, HistoryButton, HistoryKey, INVENTORY_INVALIDATES, splitApiError, useMasterHistory } from './common.tsx';
 import { GstFields } from './GstFields.tsx';
 import type { GstDraft } from './lib/gstDraft.ts';
 import { emptyGstDraft, gstChanged, gstDraftFrom, gstSaveFields, validateGstDraft } from './lib/gstDraft.ts';
@@ -264,6 +264,7 @@ function GroupForm({ title, saved, params, groups, hsnDigits }: { title: string;
   };
 
   const formRef = useEnterAdvance<HTMLDivElement>({ enabled: !readOnly, onComplete: () => void submit() });
+  const history = useMasterHistory('stock_group', saved, saved?.name ?? '');
 
   return (
     <DialogScreen
@@ -271,10 +272,15 @@ function GroupForm({ title, saved, params, groups, hsnDigits }: { title: string;
       description={saved?.path.length ? `Under ${[...saved.path].reverse().map((p) => p.name).join(' › ')}` : undefined}
       size="lg"
       footerStart={
-        saved && canDelete ? (
-          <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
-            Delete
-          </Button>
+        history || (saved && canDelete) ? (
+          <Inline gap={2}>
+            <HistoryButton onOpen={history} />
+            {saved && canDelete ? (
+              <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
+                Delete
+              </Button>
+            ) : null}
+          </Inline>
         ) : undefined
       }
       footer={
@@ -288,6 +294,7 @@ function GroupForm({ title, saved, params, groups, hsnDigits }: { title: string;
     >
       <AcceptKey onAccept={() => void submit()} />
       <DeleteKey enabled={!!saved && canDelete} onDelete={() => void remove()} />
+      <HistoryKey onOpen={history} />
       <div ref={formRef}>
         <Stack gap={4}>
           {banner ? (
