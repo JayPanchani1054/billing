@@ -102,7 +102,8 @@ Cross-building the Windows installer from Linux/macOS needs Wine; use the CI job
 
 Runs on every push and pull request. Third-party actions are pinned to commit SHAs; Dependabot
 (`.github/dependabot.yml`) proposes npm and action updates as pull requests. Every job installs with
-`npm ci` when `package-lock.json` is committed and `npm install` otherwise.
+`npm ci` when `package-lock.json` is committed and matches `package.json` (`scripts/lockfile-sync.mjs`),
+and otherwise with `npm install` plus a warning annotation (see §5.2).
 
 1. **verify** (ubuntu-latest, Node 22): install (Electron binary download skipped), `npm run typecheck`
    (including the e2e specs), `npm test`, `npm run build`; uploads `out/`.
@@ -156,6 +157,12 @@ starts CI for that commit (pushes made with `GITHUB_TOKEN` do not trigger workfl
 From then on every job uses `npm ci`. With npm available locally, `npm install` followed by committing
 `package-lock.json` is equivalent.
 
+`node scripts/lockfile-sync.mjs` compares the lockfile's root entry with `package.json` without any
+network access (exit 0 in sync, 1 out of date, 2 missing). CI uses it to choose `npm ci` (in sync) or
+`npm install` with a `::warning::` (the short window between a `package.json` push and the Lockfile
+workflow's commit, which re-runs CI). **A release never falls back**: `release.yml` fails unless the
+tagged commit has a matching lockfile, so the same tag always installs the same dependency tree.
+
 ## 6. Releasing
 
 1. Bump `"version"` in `package.json` (semver; use a pre-release suffix like `0.2.0-beta.1` for betas).
@@ -166,7 +173,8 @@ From then on every job uses `npm ci`. With npm available locally, `npm install` 
    ```
 3. `.github/workflows/release.yml` runs three jobs:
    - **build** (windows-latest, read-only token): checks the tag equals `v<package.json version>`,
-     installs dependencies, typechecks and tests **with no secrets in the environment**, builds, then
+     installs dependencies with `npm ci` from the committed lockfile (fails if it is missing or stale,
+     §5.2), typechecks and tests **with no secrets in the environment**, builds, then
      packages (and signs, if configured) in a single step that alone sees the certificate, verifies the
      fuses and writes `SHA256SUMS.txt`;
    - **smoke** (windows-latest): installs and launches the installer exactly like CI's windows-smoke;

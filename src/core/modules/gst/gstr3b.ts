@@ -275,8 +275,9 @@ function chainStart(db: Db): string {
  * Per connection: the closing credit (after set-off) of every chained period computed so far, with the
  * fingerprint of the data it was computed from. A save rewrites a voucher's gst_lines, so only the
  * periods from the first changed one onwards are recomputed — not the whole history since the books
- * began (≈1.6 s for 18 months / 35,000 GST lines). Nothing is re-read at all while nothing has been
- * written (total_changes() for this connection, PRAGMA data_version for others).
+ * began (≈1.1 s for 18 months / 35,000 GST documents, read with loadDocs({ lean: true })). Nothing is
+ * re-read at all while nothing has been written (total_changes() for this connection, PRAGMA
+ * data_version for others).
  */
 interface ChainEntry {
   fp: string;

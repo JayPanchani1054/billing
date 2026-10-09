@@ -374,35 +374,13 @@ function estimateWidth(v: XlsxValue | undefined, kind: XlsxKind | undefined): nu
   return max;
 }
 
-interface WrittenSheet {
-  name: string;
-  xml: string;
-  filterRange: string | null;
-}
+type CellXml = (ref: string, cell: XlsxCell, columnKind: XlsxKind | undefined, col: number, fontOverride?: number) => string;
 
-function buildSheet(
-  sheet: XlsxSheet,
-  name: string,
-  index: number,
-  styles: ReturnType<typeof createStyles>,
-  sst: ReturnType<typeof createSharedStrings>,
-): WrittenSheet {
-  const columns = sheet.columns ?? [];
-  const title = sheet.title ?? [];
-  const hasHeader = columns.length > 0;
-  const headerRowNum = hasHeader ? (title.length > 0 ? title.length + 2 : 1) : 0;
-  const firstDataRow = hasHeader ? headerRowNum + 1 : title.length > 0 ? title.length + 2 : 1;
-  const lastRowNum = Math.max(firstDataRow + sheet.rows.length - 1, headerRowNum, title.length);
-  if (lastRowNum > MAX_ROWS) throw new RangeError(`Sheet ${JSON.stringify(name)} has more than ${MAX_ROWS} rows`);
-
-  let colCount = columns.length;
-  for (const row of sheet.rows) if (row.length > colCount) colCount = row.length;
-  if (colCount > MAX_COLUMNS) throw new RangeError(`Sheet ${JSON.stringify(name)} has more than ${MAX_COLUMNS} columns`);
-  const colNames: string[] = [];
-  for (let c = 0; c < Math.max(colCount, 1); c++) colNames.push(columnName(c));
-
-  const widths: number[] = new Array(colCount).fill(0);
-  const out: string[] = [];
+/**
+ * Cell → `<c>` XML (shared by writeXlsx and XlsxStreamWriter). Tracks content widths in `widths`;
+ * text cells are emitted by `textCell` (shared string or inline string) with the style id.
+ */
+function createCellXml(styles: ReturnType<typeof createStyles>, widths: number[], textCell: (ref: string, style: number, text: string) => string): CellXml {
   const serials = new Map<string, number | null>(); // report dates repeat a lot
   const serialOf = (iso: string): number | null => {
     let n = serials.get(iso);
@@ -412,7 +390,7 @@ function buildSheet(
     }
     return n;
   };
-  const cellXml = (ref: string, cell: XlsxCell, columnKind: XlsxKind | undefined, col: number, fontOverride?: number): string => {
+  return (ref: string, cell: XlsxCell, columnKind: XlsxKind | undefined, col: number, fontOverride?: number): string => {
     const r = resolveCell(cell, columnKind);
     let v = r.v;
     if (v === null || v === undefined || v === '') return '';
@@ -453,8 +431,40 @@ function buildSheet(
     if (text === '') return '';
     if (col < widths.length) widths[col] = Math.max(widths[col], estimateWidth(text, kind));
     const s = styles.id({ numFmtId: FMT_GENERAL, fontId, indent: r.indent, align: r.indent ? 'left' : '' });
-    return `<c r="${ref}"${s ? ` s="${s}"` : ''} t="s"><v>${sst.index(text)}</v></c>`;
+    return textCell(ref, s, text);
   };
+}
+
+interface WrittenSheet {
+  name: string;
+  xml: string;
+  filterRange: string | null;
+}
+
+function buildSheet(
+  sheet: XlsxSheet,
+  name: string,
+  index: number,
+  styles: ReturnType<typeof createStyles>,
+  sst: ReturnType<typeof createSharedStrings>,
+): WrittenSheet {
+  const columns = sheet.columns ?? [];
+  const title = sheet.title ?? [];
+  const hasHeader = columns.length > 0;
+  const headerRowNum = hasHeader ? (title.length > 0 ? title.length + 2 : 1) : 0;
+  const firstDataRow = hasHeader ? headerRowNum + 1 : title.length > 0 ? title.length + 2 : 1;
+  const lastRowNum = Math.max(firstDataRow + sheet.rows.length - 1, headerRowNum, title.length);
+  if (lastRowNum > MAX_ROWS) throw new RangeError(`Sheet ${JSON.stringify(name)} has more than ${MAX_ROWS} rows`);
+
+  let colCount = columns.length;
+  for (const row of sheet.rows) if (row.length > colCount) colCount = row.length;
+  if (colCount > MAX_COLUMNS) throw new RangeError(`Sheet ${JSON.stringify(name)} has more than ${MAX_COLUMNS} columns`);
+  const colNames: string[] = [];
+  for (let c = 0; c < Math.max(colCount, 1); c++) colNames.push(columnName(c));
+
+  const widths: number[] = new Array(colCount).fill(0);
+  const out: string[] = [];
+  const cellXml = createCellXml(styles, widths, (ref, st, text) => `<c r="${ref}"${st ? ` s="${st}"` : ''} t="s"><v>${sst.index(text)}</v></c>`);
 
   // Title lines (first one larger), then a blank row.
   for (let t = 0; t < title.length; t++) {

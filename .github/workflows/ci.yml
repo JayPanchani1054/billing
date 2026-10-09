@@ -20,9 +20,10 @@ env:
 # Third-party actions are pinned to full commit SHAs (the comment gives the release); Dependabot
 # (.github/dependabot.yml) proposes updates as reviewed pull requests.
 #
-# Dependencies: `npm ci` when package-lock.json is committed (exact, reproducible), otherwise
-# `npm install`. The Lockfile workflow (.github/workflows/lockfile.yml) generates and commits the
-# lockfile whenever package.json changes.
+# Dependencies: `npm ci` when package-lock.json is committed and matches package.json
+# (scripts/lockfile-sync.mjs; exact, reproducible), otherwise `npm install` with a warning. The
+# Lockfile workflow (.github/workflows/lockfile.yml) generates and commits the lockfile whenever
+# package.json changes, then re-runs CI. Releases (release.yml) refuse to build without it.
 
 jobs:
   verify:
@@ -46,7 +47,12 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+          if node scripts/lockfile-sync.mjs; then
+            npm ci --no-audit --no-fund
+          else
+            echo "::warning::package-lock.json is missing or does not match package.json; installing with npm install. The Lockfile workflow commits an updated lockfile and re-runs CI."
+            npm install --no-audit --no-fund
+          fi
 
       - name: Typecheck (core, main/preload, renderer, e2e specs)
         run: npm run typecheck
@@ -96,7 +102,12 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+          if node scripts/lockfile-sync.mjs; then
+            npm ci --no-audit --no-fund
+          else
+            echo "::warning::package-lock.json is missing or does not match package.json; installing with npm install. The Lockfile workflow commits an updated lockfile and re-runs CI."
+            npm install --no-audit --no-fund
+          fi
 
       # Windows is the only shipped platform: paths, file locking during temp cleanup, CRLF and
       # case-insensitive paths are exercised here on every push, not first at release time.
@@ -193,7 +204,12 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+          if node scripts/lockfile-sync.mjs; then
+            npm ci --no-audit --no-fund
+          else
+            echo "::warning::package-lock.json is missing or does not match package.json; installing with npm install. The Lockfile workflow commits an updated lockfile and re-runs CI."
+            npm install --no-audit --no-fund
+          fi
 
       - name: Build
         run: npm run build

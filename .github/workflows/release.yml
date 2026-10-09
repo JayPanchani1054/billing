@@ -11,7 +11,7 @@ name: Release
 #     electron-builder (`npx --no`: nothing is downloaded or installed at that point).
 #   - Only the publish job can write to the repository; it checks out nothing and runs no npm code —
 #     it downloads the built, smoke-tested artifact and creates the release.
-#   - No caches are restored: a release is built from the lockfile/registry, never from a cache that
+#   - No caches are restored: a release is built from the committed lockfile (npm ci), never from a cache that
 #     another workflow run could have written.
 on:
   push:
@@ -51,10 +51,13 @@ jobs:
             exit 1
           fi
 
-      - name: Install dependencies (no secrets in this environment)
+      # A release is built from the committed lockfile only (reproducible: the same tag always installs
+      # the same versions). Without one, run the Lockfile workflow on the branch and re-tag.
+      - name: Install dependencies (exact lockfile, no secrets in this environment)
         shell: bash
         run: |
-          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+          node scripts/lockfile-sync.mjs || { echo "::error::A release needs a package-lock.json that matches package.json. Run Actions > Lockfile on the branch, then tag the resulting commit."; exit 1; }
+          npm ci --no-audit --no-fund
 
       - name: Typecheck
         run: npm run typecheck

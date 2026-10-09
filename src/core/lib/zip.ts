@@ -12,6 +12,7 @@
  *  - every extracted entry's size and CRC-32 are verified.
  * Entries are inflated lazily on read(), so listing a large archive is cheap.
  */
+import fs from 'node:fs';
 import * as zlib from 'node:zlib';
 import { FileFormatError, decodeText } from './text.ts';
 
@@ -244,6 +245,198 @@ export function createZip(entries: readonly ZipInputEntry[]): Uint8Array {
   dv.setUint32(p + 16, cdOffset, true);
   dv.setUint16(p + 20, 0, true);
   return out;
+}
+
+// ───────────────────────────── Streaming writer (to a file) ─────────────────────────────
+
+/** Uncompressed bytes buffered per entry before a deflate block is written (the memory bound). */
+export const ZIP_STREAM_CHUNK = 256 * 1024;
+const LIMIT_32 = 0xfffffffe;
+
+interface StreamedEntry {
+  nameBytes: Uint8Array;
+  name: string;
+  time: number;
+  date: number;
+  offset: number;
+  crc: number;
+  size: number;
+  compressedSize: number;
+}
+
+/**
+ * ZIP archive written straight to a file, entry by entry, with constant memory: data handed to
+ * write() is buffered up to ZIP_STREAM_CHUNK bytes, deflated as an independent block run that ends on
+ * a byte boundary (Z_SYNC_FLUSH, not final) and appended; endEntry() adds the final block. The
+ * concatenation is one valid raw-deflate stream (RFC 1951 blocks; no back-reference crosses a chunk).
+ * CRC-32 is computed incrementally and patched into the local header afterwards (no data
+ * descriptors, so every reader handles it). Synchronous; no ZIP64 (< 4 GB, ≤ 65 535 entries).
+ * Always deflates. Call finish() to write the central directory, or abort() to delete the file.
+ */
+export class ZipFileWriter {
+  readonly path: string;
+  private fd: number | null;
+  private pos = 0;
+  private readonly done: StreamedEntry[] = [];
+  private readonly names = new Set<string>();
+  private current: StreamedEntry | null = null;
+  private strings: string[] = [];
+  private buffers: Uint8Array[] = [];
+  private pendingBytes = 0;
+
+  /** Creates `filePath` exclusively (fails if it exists), owner-only permissions. */
+  constructor(filePath: string) {
+    this.path = filePath;
+    this.fd = fs.openSync(filePath, 'wx', 0o600);
+  }
+
+  /** Bytes written to the file so far. */
+  get bytesWritten(): number {
+    return this.pos;
+  }
+
+  private out(bytes: Uint8Array): void {
+    if (this.fd === null) throw new Error('ZipFileWriter is closed');
+    if (this.pos + bytes.length > LIMIT_32) throw new RangeError('ZIP archive is too large (ZIP64 is not supported)');
+    let off = 0;
+    while (off < bytes.length) off += fs.writeSync(this.fd, bytes, off, bytes.length - off, this.pos + off);
+    this.pos += bytes.length;
+  }
+
+  beginEntry(name: string, date: Date = new Date()): void {
+    if (this.current) throw new Error('ZipFileWriter: the previous entry is still open');
+    const problem = unsafeZipPathReason(name);
+    if (problem || name.endsWith('/')) throw new TypeError(`Invalid ZIP entry name ${shown(name)}: ${problem ?? 'directories are not supported here'}`);
+    if (this.names.has(name)) throw new TypeError(`Duplicate ZIP entry name ${shown(name)}`);
+    if (this.done.length >= 0xffff) throw new RangeError('ZIP archives without ZIP64 hold at most 65 535 entries');
+    const nameBytes = new TextEncoder().encode(name);
+    if (nameBytes.length > 0xffff) throw new RangeError(`ZIP entry name is too long: ${shown(name)}`);
+    this.names.add(name);
+    const { time, date: d } = toDosDateTime(date);
+    this.current = { nameBytes, name, time, date: d, offset: this.pos, crc: 0, size: 0, compressedSize: 0 };
+    const header = new Uint8Array(30 + nameBytes.length);
+    const dv = new DataView(header.buffer);
+    dv.setUint32(0, SIG_LOCAL, true);
+    dv.setUint16(4, VERSION, true);
+    dv.setUint16(6, FLAG_UTF8, true);
+    dv.setUint16(8, 8, true); // deflate
+    dv.setUint16(10, time, true);
+    dv.setUint16(12, d, true);
+    // CRC and sizes (offsets 14–25) are patched in endEntry().
+    dv.setUint16(26, nameBytes.length, true);
+    header.set(nameBytes, 30);
+    this.out(header);
+  }
+
+  /** Append data to the open entry (strings are UTF-8 encoded). */
+  write(data: string | Uint8Array): void {
+    if (!this.current) throw new Error('ZipFileWriter: no entry is open');
+    if (typeof data === 'string') {
+      if (data.length === 0) return;
+      this.strings.push(data);
+      this.pendingBytes += data.length; // UTF-16 units: a close enough estimate for the flush threshold
+    } else {
+      if (data.length === 0) return;
+      this.flushStrings();
+      this.buffers.push(data);
+      this.pendingBytes += data.length;
+    }
+    if (this.pendingBytes >= ZIP_STREAM_CHUNK) this.flush(false);
+  }
+
+  private flushStrings(): void {
+    if (this.strings.length === 0) return;
+    this.buffers.push(Buffer.from(this.strings.join(''), 'utf8'));
+    this.strings = [];
+  }
+
+  private flush(final: boolean): void {
+    const e = this.current as StreamedEntry;
+    this.flushStrings();
+    const raw = this.buffers.length === 1 ? this.buffers[0] : Buffer.concat(this.buffers);
+    this.buffers = [];
+    this.pendingBytes = 0;
+    if (raw.length === 0 && !final) return;
+    e.crc = crc32(raw, e.crc);
+    e.size += raw.length;
+    if (e.size > LIMIT_32) throw new RangeError(`ZIP entry ${shown(e.name)} is too large (ZIP64 is not supported)`);
+    const deflated = final ? zlib.deflateRawSync(raw, { level: 6 }) : zlib.deflateRawSync(raw, { level: 6, finishFlush: zlib.constants.Z_SYNC_FLUSH });
+    e.compressedSize += deflated.length;
+    this.out(deflated);
+  }
+
+  endEntry(): void {
+    const e = this.current;
+    if (!e) throw new Error('ZipFileWriter: no entry is open');
+    this.flush(true);
+    const patch = new Uint8Array(12);
+    const dv = new DataView(patch.buffer);
+    dv.setUint32(0, e.crc, true);
+    dv.setUint32(4, e.compressedSize, true);
+    dv.setUint32(8, e.size, true);
+    fs.writeSync(this.fd as number, patch, 0, 12, e.offset + 14);
+    this.done.push(e);
+    this.current = null;
+  }
+
+  /** A whole entry at once. */
+  addEntry(name: string, data: string | Uint8Array, date?: Date): void {
+    this.beginEntry(name, date);
+    this.write(data);
+    this.endEntry();
+  }
+
+  /** Write the central directory and close the file. Returns the archive size in bytes. */
+  finish(): number {
+    if (this.current) this.endEntry();
+    const cdOffset = this.pos;
+    for (const e of this.done) {
+      const rec = new Uint8Array(46 + e.nameBytes.length);
+      const dv = new DataView(rec.buffer);
+      dv.setUint32(0, SIG_CENTRAL, true);
+      dv.setUint16(4, VERSION, true);
+      dv.setUint16(6, VERSION, true);
+      dv.setUint16(8, FLAG_UTF8, true);
+      dv.setUint16(10, 8, true);
+      dv.setUint16(12, e.time, true);
+      dv.setUint16(14, e.date, true);
+      dv.setUint32(16, e.crc, true);
+      dv.setUint32(20, e.compressedSize, true);
+      dv.setUint32(24, e.size, true);
+      dv.setUint16(28, e.nameBytes.length, true);
+      dv.setUint32(42, e.offset, true);
+      rec.set(e.nameBytes, 46);
+      this.out(rec);
+    }
+    const eocd = new Uint8Array(22);
+    const dv = new DataView(eocd.buffer);
+    dv.setUint32(0, SIG_EOCD, true);
+    dv.setUint16(8, this.done.length, true);
+    dv.setUint16(10, this.done.length, true);
+    dv.setUint32(12, this.pos - cdOffset, true);
+    dv.setUint32(16, cdOffset, true);
+    this.out(eocd);
+    fs.closeSync(this.fd as number);
+    this.fd = null;
+    return this.pos;
+  }
+
+  /** Close and delete the file (never throws). */
+  abort(): void {
+    if (this.fd !== null) {
+      try {
+        fs.closeSync(this.fd);
+      } catch {
+        /* ignore */
+      }
+      this.fd = null;
+    }
+    try {
+      fs.rmSync(this.path, { force: true });
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 // ───────────────────────────── Reader ─────────────────────────────

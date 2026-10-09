@@ -233,8 +233,11 @@ never uses credit.
 last change, and its manual entries). While nothing is written (`total_changes()`, `PRAGMA
 data_version`) a repeat costs nothing; after a write the fingerprints are re-read (≈0.1 s on 35,000
 GST lines) and only the periods from the first changed one are recomputed — a save in the current
-month recomputes nothing of the history (≈0.2 s for a changed last month vs ≈1.7 s for 18 months
-cold). A change of the working date, the chain start, or the company's GST registration / state /
+month recomputes nothing of the history (≈0.2 s for a changed last month vs ≈1.1 s for 18 months /
+35,000 documents cold). The history is read with `loadDocs({ lean: true })`: only the columns that
+classify a document and its lines (nature, direction, sign, inter-state, registration; line amounts,
+rate, supply type, taxability, reverse charge, ITC eligibility), tested to give the same GSTR-3B as the
+full load (≈1.8 s cold before). A change of the working date, the chain start, or the company's GST registration / state /
 GSTIN starts afresh.
 
 **Deliberate deviation from the old form:** since July 2022 (Notification 14/2022-CT, Circular

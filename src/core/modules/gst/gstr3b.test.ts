@@ -6,7 +6,7 @@ import { after, before, describe, it } from 'node:test';
 import type { Gstr3bSummary } from '../../../shared/types/gst-returns.ts';
 import { AppError } from '../../lib/errors.ts';
 import { setPeriodLock } from '../company/service.ts';
-import { loadCompany } from './docs.ts';
+import { loadCompany, loadDocs } from './docs.ts';
 import { buildGstr3bJson, computeGstr3b, readAdjustments, saveAdjustments } from './gstr3b.ts';
 import { computeGstr9 } from './gstr9.ts';
 import { parsePeriodKey, resolvePeriod } from './period.ts';
@@ -171,6 +171,35 @@ describe('GSTR-3B manual adjustments', () => {
     assert.deepEqual(at(JSON.parse(f.json), 'sup_details', 'osup_det'), { txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 });
     assert.equal(f.warnings.length, 2);
     t.close();
+  });
+});
+
+describe('GSTR-3B credit chain: lean document load', () => {
+  it('classifies every document exactly like the full load, so the chained set-off is the same', () => {
+    // The chain walks the whole history with loadDocs({ lean: true }) (classification columns only). On the
+    // April dataset (every nature: B2B / B2CL / B2CS / exports / SEZ / deemed exports / RCM / imports /
+    // composition / nil / non-GST / notes) the lean and full loads must agree field for field on what
+    // GSTR-3B uses, and give the same summary.
+    const ds = aprilDataset();
+    try {
+      const company = loadCompany(ds.t.db);
+      const range = { from: '2026-04-01', to: '2026-04-30', today: ds.t.today };
+      const full = loadDocs(ds.t.db, company, range);
+      const lean = loadDocs(ds.t.db, company, { ...range, lean: true });
+      const pick = (d: (typeof full)[number]) => ({
+        id: d.id, nature: d.nature, direction: d.direction, sign: d.sign, interState: d.interState, pos: d.pos,
+        reverseCharge: d.reverseCharge, inBooks: d.inBooks, registration: d.party.registration,
+        lines: d.lines.map((l) => [l.supplyType, l.taxability, l.rate, l.taxable, l.igst, l.cgst, l.sgst, l.cess, l.reverseCharge, l.itcEligibility]),
+      });
+      assert.ok(full.length > 20);
+      assert.deepEqual(lean.map(pick), full.map(pick));
+      const p = april();
+      const viaLean = computeGstr3b(ds.t.db, company, p, ds.t.today, undefined, lean);
+      const viaFull = computeGstr3b(ds.t.db, company, p, ds.t.today, undefined, full);
+      assert.deepEqual(viaLean, viaFull);
+    } finally {
+      ds.t.close();
+    }
   });
 });
 
