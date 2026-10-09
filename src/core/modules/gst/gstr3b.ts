@@ -53,6 +53,7 @@ import { addTax, addTV, cleanTax, lineTV, loadDocs, rupees, zeroTax, zeroTV } fr
 import { monthPeriodKey, parsePeriodKey, quarterPeriodKey } from './period.ts';
 import { setOff } from './setoff.ts';
 import { bookAdjustmentFingerprints, bookAdjustments, isZeroTax } from './bookAdjustments.ts';
+import { amendmentCorrections, amendmentsFingerprint } from './filings.ts';
 
 // ───────────────────────────── Adjustments ─────────────────────────────
 
@@ -355,8 +356,9 @@ function periodFingerprints(db: Db, chain: readonly PeriodWithKey[], today: stri
   const adjustments = new Map(
     db.all<{ p: string; data: string }>(`SELECT return_period AS p, data FROM gst_adjustments WHERE form = 'gstr3b'`).map((r) => [r.p, r.data]),
   );
+  const amendments = amendmentsFingerprint(db);
   return chain.map((p) => {
-    let f = `a${adjustments.get(p.key) ?? ''}|`;
+    let f = `a${adjustments.get(p.key) ?? ''}|m${amendments}|`;
     for (let d = p.from; d <= p.to; d = addMonths(d, 1)) f += `${d.slice(0, 7)}=${months.get(d.slice(0, 7)) ?? ''}|`;
     return f;
   });
@@ -444,6 +446,10 @@ export function computeGstr3b(
   addTax(a.itc.ISRC, book.rcmCredit);
   addTax(a.itc.IMPG, book.billOfEntry);
   addTax(a.itc.OTH, book.reclaimed);
+  // GSTR-1 amendments: a filed period keeps its filed figures; the change is in the amendment period.
+  const corr = amendmentCorrections(db, period.from, period.to);
+  addTV(a.supplies.osup_det, corr.det);
+  addTV(a.supplies.osup_zero, corr.zero);
   const adj = period.key ? readAdjustments(db, period.key) : { values: emptyAdjustments(), updatedAt: null };
   const v = adj.values;
   const notes: string[] = [];

@@ -21,15 +21,18 @@ const period = { from: v.date(), to: v.date() };
 const limit = v.int({ min: 1, max: 100_000 }).optional();
 
 export const PeriodSchema = v.object(period);
+/** Scenario (documents module): include provisional / exclude voucher types — reports/scenario.ts. */
+const scenarioId = v.id().optional();
 export const TrialBalanceSchema = v.object({
   ...period,
   mode: v.enum(TRIAL_BALANCE_MODES).optional(),
   showOpening: v.boolean().optional(),
   showZero: v.boolean().optional(),
+  scenarioId,
 });
-export const ProfitLossSchema = v.object({ ...period, mode: v.enum(STATEMENT_MODES).optional(), compareWith: v.enum(COMPARE_WITH).optional() });
-export const BalanceSheetSchema = v.object({ asOf: v.date(), mode: v.enum(STATEMENT_MODES).optional(), compareAsOf: v.date().optional() });
-export const GroupSummarySchema = v.object({ ...period, groupId: v.id(), showZero: v.boolean().optional(), basis: v.enum(GROUP_SUMMARY_BASES).optional() });
+export const ProfitLossSchema = v.object({ ...period, mode: v.enum(STATEMENT_MODES).optional(), compareWith: v.enum(COMPARE_WITH).optional(), scenarioId });
+export const BalanceSheetSchema = v.object({ asOf: v.date(), mode: v.enum(STATEMENT_MODES).optional(), compareAsOf: v.date().optional(), scenarioId });
+export const GroupSummarySchema = v.object({ ...period, groupId: v.id(), showZero: v.boolean().optional(), basis: v.enum(GROUP_SUMMARY_BASES).optional(), scenarioId });
 export const GroupVouchersSchema = v.object({ ...period, groupId: v.id(), limit });
 export const LedgerReportSchema = v.object({ ...period, ledgerId: v.id(), limit });
 export const MonthlySummarySchema = v.object({ ...period, ledgerId: v.id().optional(), groupId: v.id().optional() });
@@ -44,9 +47,9 @@ export const ExceptionsSchema = v.object({ ...period, includeNoNarration: v.bool
 export const CostCentresSchema = v.object({ ...period, categoryId: v.id().optional(), costCentreId: v.id().optional() });
 
 /** Report environment for a request (period checked first so a reversed range fails fast). */
-function env(ctx: CompanyCtx, p?: { from: string; to: string }): ReportEnv {
+function env(ctx: CompanyCtx, p?: { from: string; to: string }, scenarioId?: number): ReportEnv {
   if (p) assertPeriod(p.from, p.to);
-  return loadReportEnv(ctx.db, ctx.clock.today());
+  return loadReportEnv(ctx.db, ctx.clock.today(), scenarioId !== undefined ? { scenarioId } : {});
 }
 
 export const reportsRoutes = {
@@ -54,25 +57,25 @@ export const reportsRoutes = {
     access: 'reports.view',
     transactional: false,
     input: TrialBalanceSchema,
-    handler: (ctx, input) => trialBalance(env(ctx, input), input),
+    handler: (ctx, input) => trialBalance(env(ctx, input, input.scenarioId), input),
   }),
   'reports.profitLoss': companyRoute({
     access: 'reports.financial',
     transactional: false,
     input: ProfitLossSchema,
-    handler: (ctx, input) => profitLoss(env(ctx, input), input),
+    handler: (ctx, input) => profitLoss(env(ctx, input, input.scenarioId), input),
   }),
   'reports.balanceSheet': companyRoute({
     access: 'reports.financial',
     transactional: false,
     input: BalanceSheetSchema,
-    handler: (ctx, input) => balanceSheet(env(ctx), input),
+    handler: (ctx, input) => balanceSheet(env(ctx, undefined, input.scenarioId), input),
   }),
   'reports.groupSummary': companyRoute({
     access: 'reports.view',
     transactional: false,
     input: GroupSummarySchema,
-    handler: (ctx, input) => groupSummary(env(ctx, input), input),
+    handler: (ctx, input) => groupSummary(env(ctx, input, input.scenarioId), input),
   }),
   'reports.groupVouchers': companyRoute({
     access: 'reports.view',

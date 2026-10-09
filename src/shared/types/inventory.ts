@@ -40,6 +40,7 @@
  * rupees per base unit (REAL), like voucher lines.
  */
 import type { Taxability } from './gst.ts';
+import type { ThirdPartyKind } from './mfg.ts';
 
 export type { Taxability };
 
@@ -232,6 +233,11 @@ export interface GodownDto {
   /** 'Main Location' — cannot be deleted. */
   isPredefined: boolean;
   isThirdParty: boolean;
+  /** Job work (mfg module): whose stock this is; 'none' for own premises. */
+  thirdPartyKind: ThirdPartyKind;
+  /** Job worker / principal the godown belongs to. */
+  partyLedgerId: number | null;
+  partyName: string | null;
   childCount: number;
   createdAt: string;
   updatedAt: string;
@@ -243,7 +249,10 @@ export interface GodownSaveInput {
   alias?: string | null;
   parentId?: number | null;
   address?: string | null;
+  /** Legacy switch: true = our stock with a third party (thirdPartyKind wins when both are given). */
   isThirdParty?: boolean;
+  thirdPartyKind?: ThirdPartyKind;
+  partyLedgerId?: number | null;
 }
 
 // ───────────────────────────── Stock items ─────────────────────────────

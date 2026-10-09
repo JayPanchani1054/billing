@@ -81,6 +81,7 @@ export const LedgerTdsSaveSchema = v.object({
   nonResident: v.boolean().optional(),
   pan: v.string({ max: 10 }).nullable().optional(),
   certificate: CertificateSchema.nullable().optional(),
+  deductorTan: v.string({ max: 10 }).nullable().optional(),
 });
 
 export const SettingsSchema = v.object({

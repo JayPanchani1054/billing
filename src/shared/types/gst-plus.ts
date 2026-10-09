@@ -236,6 +236,8 @@ export interface GstDocSnapshot {
   reverseCharge: boolean;
   invoiceType: string | null;
   noteType: 'C' | 'D' | null;
+  /** Inter-state supply (IGST). */
+  interState: boolean;
   items: GstAmendmentRate[];
 }
 

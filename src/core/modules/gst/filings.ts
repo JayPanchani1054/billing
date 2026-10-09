@@ -184,6 +184,7 @@ export function docSnapshot(db: Db, company: GstCompany, voucherId: number, toda
     reverseCharge: d.reverseCharge,
     invoiceType: p.invoiceType ?? p.exportType ?? p.cdnurType,
     noteType: d.noteType,
+    interState: d.interState,
     items,
   };
 }
@@ -320,4 +321,63 @@ export function gstr1Amendments(db: Db, period: ReturnPeriodRef): Gstr1Amendment
     addTV(out.net, r.delta);
   }
   return out;
+}
+
+// ───────────────────────────── Effect on the returns of each period ─────────────────────────────
+
+const ZERO_RATED = new Set(['exp_wp', 'exp_wop', 'sez_wp', 'sez_wop']);
+
+export interface AmendmentCorrections {
+  /** 3.1(a): outward taxable supplies other than zero-rated. */
+  det: TaxValue;
+  /** 3.1(b): zero-rated supplies. */
+  zero: TaxValue;
+}
+
+/**
+ * What the amendments log changes in the GSTR-3B / GSTR-1 totals of a date range, so a filed period keeps
+ * the figures it was filed with and the change is reported in the amendment period:
+ *   the period of the document's CURRENT date   − current values (the books already hold them there)
+ *   the original (filed) period                 + values as filed
+ *   each amendment period                       + (amended − original)
+ * For a document 'added' after filing there is no original: its period loses it, the amendment period
+ * gains it. Summed over all periods the corrections are zero.
+ */
+export function amendmentCorrections(db: Db, from: string, to: string): AmendmentCorrections {
+  const out: AmendmentCorrections = { det: zeroTV(), zero: zeroTV() };
+  const rows = db.all<AmendRow>('SELECT * FROM gst_amendments ORDER BY voucher_id, id');
+  if (rows.length === 0) return out;
+  const inRange = (d: string | undefined | null): boolean => !!d && d >= from && d <= to;
+  const add = (s: GstDocSnapshot | null, sign: number): void => {
+    if (!s || !s.section || s.section === 'b2b_rcm') return;
+    addTV(ZERO_RATED.has(s.section) ? out.zero : out.det, totalOf(s, sign));
+  };
+  const groups = new Map<string, AmendRow[]>();
+  for (const r of rows) {
+    const key = r.voucher_id === null ? `x${r.id}` : String(r.voucher_id);
+    const g = groups.get(key) ?? [];
+    g.push(r);
+    groups.set(key, g);
+  }
+  for (const g of groups.values()) {
+    const first = g[0];
+    const latest = g[g.length - 1];
+    const current = latest.voucher_id === null ? null : parseSnap(latest.amended);
+    if (current && inRange(current.date)) add(current, -1);
+    const filed = first.kind === 'amended' ? parseSnap(first.original) : null;
+    if (filed && inRange(filed.date)) add(filed, +1);
+    for (const r of g) {
+      const ref = parsePeriodKey(r.amend_period);
+      if (!ref || !inRange(ref.to)) continue;
+      add(parseSnap(r.amended), +1);
+      add(parseSnap(r.original), -1);
+    }
+  }
+  return out;
+}
+
+/** Fingerprint of the amendments log (for the GSTR-3B credit chain memo). */
+export function amendmentsFingerprint(db: Db): string {
+  const r = db.get<{ n: number; m: string | null; s: number | null }>('SELECT COUNT(*) AS n, MAX(updated_at) AS m, SUM(id) AS s FROM gst_amendments');
+  return r ? `${r.n}:${r.m ?? ''}:${r.s ?? 0}` : '';
 }

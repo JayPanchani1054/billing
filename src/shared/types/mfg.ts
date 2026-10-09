@@ -481,6 +481,8 @@ export interface JobWorkAlerts {
 export interface Itc04Input {
   from: string;
   to: string;
+  /** Aggregate turnover of the previous year above ₹5 crore (half-yearly ITC-04 from Oct-2021); default false (annual). */
+  aatoAbove5Cr?: boolean;
 }
 
 /** Table 4: inputs / capital goods sent to a job worker (one row per challan line). */

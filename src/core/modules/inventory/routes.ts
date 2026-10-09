@@ -19,6 +19,7 @@ import { companyRoute, type RouteMap } from '../../api/route.ts';
 import type { Db } from '../../db/db.ts';
 import { notFound } from '../../lib/errors.ts';
 import { customSchema, patchNullable } from '../../lib/schemas.ts';
+import { THIRD_PARTY_KINDS } from '../../../shared/types/mfg.ts';
 import { v, type Schema } from '../../lib/validate.ts';
 import { resolveItemGstProfile } from './gst.ts';
 import { deleteGstHistoryEntry } from './history.ts';
@@ -117,6 +118,9 @@ const GodownSaveSchema = v.object({
   parentId: patchNullable(v.id()),
   address: text(1000),
   isThirdParty: v.boolean().optional(),
+  // Job work ownership (mfg module): whose stock the godown holds, and the job worker / principal.
+  thirdPartyKind: v.enum(THIRD_PARTY_KINDS).optional(),
+  partyLedgerId: patchNullable(v.id()),
 });
 
 const OpeningSchema = v.object({

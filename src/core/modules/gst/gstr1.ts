@@ -37,6 +37,9 @@ import { rule } from '../../lib/errors.ts';
 import { issue, outwardIssues, sortIssues } from './checks.ts';
 import type { GstCompany, GstDoc, GstDocLine } from './docs.ts';
 import { addTV, isRegisteredDoc, isZeroTV, lineTV, loadDocs, posName, rateSplit, reportHsn, zeroTV } from './docs.ts';
+import type { Gstr1AdvancesSummary, Gstr1AmendmentsSummary } from '../../../shared/types/gst-plus.ts';
+import { table11 } from './advances.ts';
+import { amendmentCorrections, getFiling, gstr1Amendments, type AmendmentCorrections } from './filings.ts';
 
 export interface SectionMeta {
   table: string;
@@ -81,8 +84,9 @@ const DOC_TYPE_LABELS: Readonly<Record<1 | 4 | 5, string>> = {
 };
 
 export const ADVANCES_NOTE =
-  'Table 11 (advances received / adjusted) is not derived: receipts do not record the rate and place of supply of the advance. Add tax on advances for services manually on the portal.';
-export const AMENDMENTS_NOTE = 'Amendment tables (9A, 9C, 10, 11B(2)) are not prepared — amend earlier periods on the portal.';
+  'Table 11 comes from receipts marked as an advance (GST details, Alt+J) and the invoices / refund vouchers that adjust them. Advances for goods carry no tax (Notification 66/2017-CT).';
+export const AMENDMENTS_NOTE =
+  'Amendments (9A, 9C, 10) come from documents changed after their GSTR-1 was marked filed (GST › Return filing status). Amendments of advances (11A(2) / 11B(2)) are not prepared — amend them on the portal.';
 
 export interface Placement {
   doc: GstDoc;
@@ -120,6 +124,13 @@ export interface Gstr1Computation {
   issues: GstIssue[];
   notes: string[];
   excluded: { optional: number; cancelled: number; notGst: number };
+  /** Table 11A / 11B (gst_advance_lines). */
+  advances: Gstr1AdvancesSummary;
+  /** Amendments reported in this period (return periods only). */
+  amendments: Gstr1AmendmentsSummary;
+  /** Effect of the amendments log on this period's totals (filings.ts › amendmentCorrections). */
+  corrections: AmendmentCorrections;
+  filing: { filedOn: string; arn: string | null } | null;
 }
 
 interface OriginalInfo {
@@ -535,6 +546,25 @@ export function computeGstr1(db: Db, company: GstCompany, period: ReturnPeriodRe
 
   const notes: string[] = [ADVANCES_NOTE, AMENDMENTS_NOTE];
   if (company.registration === 'composition') notes.unshift('Composition taxpayers do not file GSTR-1 (they file CMP-08 and GSTR-4). The tables below are empty.');
+  const regular = company.registration === 'regular';
+  const advances = regular ? table11(db, period.from, period.to, today, company.stateCode) : { received: [], adjusted: [], vouchers: [], net: zeroTV() };
+  const amendments = regular ? gstr1Amendments(db, period) : { invoices: [], notes: [], b2cs: [], late: [], net: zeroTV() };
+  const corrections = regular ? amendmentCorrections(db, period.from, period.to) : { det: zeroTV(), zero: zeroTV() };
+  const filed = regular && period.key ? getFiling(db, 'gstr1', period.key) : null;
+  const filing = filed ? { filedOn: filed.filedOn, arn: filed.arn } : null;
+  const changedAfterFiling = filed
+    ? (db.value<number>(`SELECT COUNT(*) FROM gst_amendments WHERE original_period = :p`, { p: period.key }) ?? 0)
+    : 0;
+  if (changedAfterFiling > 0) {
+    notes.unshift(
+      `This GSTR-1 was filed on ${filed?.filedOn}. ${changedAfterFiling} document(s) were changed or added afterwards: the tables show the books as they are now, and the changes are reported as amendments in a later return. The totals keep the figures as filed.`,
+    );
+  }
+  const amendCount = amendments.invoices.length + amendments.notes.length + amendments.b2cs.length;
+  if (amendCount > 0) notes.push(`${amendCount} amended document(s) of earlier filed periods are reported in this return (tables 9A / 9C / 10).`);
+  if (amendments.late.length > 0) {
+    notes.push(`${amendments.late.length} document(s) dated in an earlier filed period were missing from its GSTR-1: report them in this return (their tables, with the original date).`);
+  }
   if (company.config.gst.filingFrequency === 'quarterly' && period.kind === 'month') {
     notes.push('You file quarterly (QRMP): B2B invoices of the first two months of a quarter may be uploaded through IFF; the quarterly GSTR-1 needs the whole quarter.');
   }
@@ -553,6 +583,10 @@ export function computeGstr1(db: Db, company: GstCompany, period: ReturnPeriodRe
     issues: sortIssues(issues),
     notes,
     excluded: { optional, cancelled: cancelled.length, notGst },
+    advances,
+    amendments,
+    corrections,
+    filing,
   };
 }
 
@@ -593,8 +627,14 @@ export function summarizeSections(c: Gstr1Computation): Gstr1SectionSummary[] {
   const doc = acc.get('doc') as Gstr1SectionSummary;
   doc.count = c.docSeries.length;
   doc.note = `${c.docSeries.reduce((s, x) => s + x.net, 0)} documents issued net of cancellations`;
-  (acc.get('at') as Gstr1SectionSummary).note = ADVANCES_NOTE;
-  (acc.get('atadj') as Gstr1SectionSummary).note = ADVANCES_NOTE;
+  const at = acc.get('at') as Gstr1SectionSummary;
+  at.count = c.advances.received.length;
+  for (const r of c.advances.received) addTV(at, r);
+  at.note = ADVANCES_NOTE;
+  const atadj = acc.get('atadj') as Gstr1SectionSummary;
+  atadj.count = c.advances.adjusted.length;
+  for (const r of c.advances.adjusted) addTV(atadj, r);
+  atadj.note = ADVANCES_NOTE;
   (acc.get('b2b_rcm') as Gstr1SectionSummary).note = 'Tax shown is payable by the recipient; it is not part of your liability.';
   return GSTR1_SECTIONS.map((id) => acc.get(id) as Gstr1SectionSummary);
 }
@@ -607,6 +647,10 @@ export function gstr1Totals(c: Gstr1Computation): TaxValue {
     for (const l of p.taxable) addTV(t, lineTV(l), p.doc.sign);
   }
   for (const r of c.b2cs) addTV(t, r);
+  // Advances (11A − 11B) and the amendments log (a filed period keeps its filed figures) — as GSTR-3B 3.1(a)/(b).
+  addTV(t, c.advances.net);
+  addTV(t, c.corrections.det);
+  addTV(t, c.corrections.zero);
   return t;
 }
 
@@ -625,6 +669,9 @@ export function gstr1Summary(c: Gstr1Computation): Gstr1Summary {
     issues: c.issues,
     notes: c.notes,
     excluded: c.excluded,
+    advances: c.advances,
+    amendments: c.amendments,
+    filing: c.filing,
   };
 }
 

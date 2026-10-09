@@ -6,7 +6,7 @@ import type { Permission, VoucherBaseType } from '../../../shared/constants.ts';
 import type { DocumentStatus, VoucherRef } from '../../../shared/types/documents.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
-import { forbidden, validation } from '../../lib/errors.ts';
+import { forbidden, validation, type AppError } from '../../lib/errors.ts';
 
 export const can = (ctx: CompanyCtx, p: Permission): boolean => ctx.session.isOwner || ctx.session.permissions.has(p);
 
@@ -15,7 +15,7 @@ export function requirePermission(ctx: CompanyCtx, p: Permission, what: string):
 }
 
 /** VALIDATION with one field issue (the screen highlights `path`). */
-export function fieldIssue(path: string, message: string): Error {
+export function fieldIssue(path: string, message: string): AppError {
   return validation([{ path, message }]);
 }
 

@@ -21,6 +21,7 @@ import { validation } from '../../lib/errors.ts';
 import { BOOKS_FILTER, loadGroupTree, type GroupTree, type GroupTreeNode } from '../accounts/books.ts';
 import { getFeatures } from '../company/service.ts';
 import { stockValuesAt } from '../inventory/index.ts';
+import { loadScenario, scenarioAdjust, type ScenarioDef } from './scenario.ts';
 
 export interface LedgerMeta {
   id: number;
@@ -49,6 +50,8 @@ export interface ReportEnv {
   groupByCode: Map<GroupCode, number>;
   /** Memo of stock values by date (valuation replays are not cheap). */
   stockMemo: Map<string, Paise>;
+  /** Scenario the report runs under (scenario.ts): changes which vouchers ledgerSums counts. */
+  scenario?: ScenarioDef | null;
 }
 
 interface LedgerDbRow {
@@ -62,7 +65,7 @@ interface LedgerDbRow {
 }
 
 /** Load everything a report needs about the company's masters (a handful of small queries). */
-export function loadReportEnv(db: Db, today: string): ReportEnv {
+export function loadReportEnv(db: Db, today: string, opts: { scenarioId?: number } = {}): ReportEnv {
   const company = db.get<{ books_from: string; fy_start_month: number }>('SELECT books_from, fy_start_month FROM company WHERE id = 1');
   const booksFrom = company?.books_from ?? today;
   const fyStartMonth = company?.fy_start_month ?? 4;
@@ -101,6 +104,7 @@ export function loadReportEnv(db: Db, today: string): ReportEnv {
     plLedgerId,
     groupByCode,
     stockMemo: new Map(),
+    scenario: opts.scenarioId !== undefined ? loadScenario(db, opts.scenarioId) : null,
   };
 }
 
@@ -182,11 +186,18 @@ const LEDGER_SUMS_SOME_SQL = `${LEDGER_SUMS_COLUMNS} INDEXED BY idx_le_books
 export function ledgerSums(env: ReportEnv, q: { cf: string; from: string; to: string; ledgerIds?: readonly number[] }): Map<number, LedgerSums> {
   const out = new Map<number, LedgerSums>();
   const params = { cf: q.cf, from: q.from, to: q.to, today: env.today };
+  // A scenario adds provisional vouchers / removes excluded types, or replaces the books (scenario.ts).
+  const adj = env.scenario ? scenarioAdjust(env.db, env.scenario, { ...q, today: env.today }) : null;
+  if (adj) {
+    for (const [id, d] of adj.delta) out.set(id, { ...d });
+    if (adj.dropBooks) return out;
+  }
   for (const r of env.db.all<{ ledger_id: number; pre: number | null; before: number | null; dr: number | null; cr: number | null }>(
     q.ledgerIds ? LEDGER_SUMS_SOME_SQL : LEDGER_SUMS_ALL_SQL,
     q.ledgerIds ? { ...params, ids: JSON.stringify(q.ledgerIds.filter((n) => Number.isSafeInteger(n))) } : params,
   )) {
-    out.set(r.ledger_id, { pre: r.pre ?? 0, before: r.before ?? 0, dr: r.dr ?? 0, cr: r.cr ?? 0 });
+    const d = out.get(r.ledger_id);
+    out.set(r.ledger_id, { pre: (r.pre ?? 0) + (d?.pre ?? 0), before: (r.before ?? 0) + (d?.before ?? 0), dr: (r.dr ?? 0) + (d?.dr ?? 0), cr: (r.cr ?? 0) + (d?.cr ?? 0) });
   }
   return out;
 }

@@ -28,6 +28,7 @@ import {
 } from '../../../shared/types/accounts.ts';
 import { patchNullable } from '../../lib/schemas.ts';
 import { v, type Infer } from '../../lib/validate.ts';
+import { STOCK_JOURNAL_CLASSES } from '../../../shared/types/mfg.ts';
 
 const text = (max: number) => patchNullable(v.string({ max }));
 const flag = () => v.boolean().optional();
@@ -246,6 +247,8 @@ export const VoucherTypeSaveInputSchema = v.object({
       invoiceMode: patchNullable(v.enum(['item', 'accounting'] as const)),
       defaultGodownId: patchNullable(v.id()),
       printTemplate: patchNullable(v.enum(['classic', 'modern', 'compact'] as const)),
+      // mfg module: a stock journal type used as Manufacturing Journal / Material Out / Material In.
+      stockJournalClass: patchNullable(v.enum(STOCK_JOURNAL_CLASSES)),
     })
     .optional(),
 });

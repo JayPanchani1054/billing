@@ -107,11 +107,17 @@ export interface VoucherLinks {
   closures: OrderClosureRow[];
 }
 
-/** 'documents.draft' — a VoucherInput pre-filled from a source document (no id / number). */
+/**
+ * 'documents.draft' — a VoucherInput pre-filled from a source (no id / number), either
+ *  - a document: `sourceId` + `targetBaseType` (conversion of a quotation / proforma, or billing a note), or
+ *  - a recurring occurrence: `templateId` + `periodKey` (Edit & post).
+ */
 export interface DraftInput {
   /** Quotation / proforma (conversion), delivery / receipt note or rejection (billing). */
-  sourceId: number;
-  targetBaseType: VoucherBaseType;
+  sourceId?: number;
+  targetBaseType?: VoucherBaseType;
+  templateId?: number;
+  periodKey?: string;
   /** A company-defined type of the target base; default: the predefined one. */
   voucherTypeId?: number;
   /** Default: today (the entry screen puts its working date in). */

@@ -110,6 +110,8 @@ export interface TdsLedgerDetails {
   pan: string | null;
   panStatus: PanStatus;
   certificate: TdsCertificate | null;
+  /** Customer who deducts TDS from our receipts: its TAN (Form 26AS match key). */
+  deductorTan: string | null;
   /** Legacy free-text section from the ledger master (before the tds module). */
   legacySection: string | null;
 }
@@ -122,6 +124,7 @@ export interface TdsLedgerSaveInput {
   nonResident?: boolean;
   pan?: string | null;
   certificate?: TdsCertificate | null;
+  deductorTan?: string | null;
 }
 
 export type PanStatus = 'valid' | 'missing' | 'invalid' | 'not_applicable';
@@ -223,4 +226,284 @@ export interface TdsVoucherPreview {
   tcs: Paise;
   /** Natures the user may pick for an advance payment / journal (active natures of the right kind). */
   challan: VoucherTdsChallanInput | null;
+}
+
+// ───────────────────────────── Reports ─────────────────────────────
+
+export interface TdsComputationRow {
+  key: string;
+  kind: TdsKind;
+  partyLedgerId: number | null;
+  partyName: string;
+  pan: string | null;
+  panStatus: PanStatus;
+  deducteeType: DeducteeType;
+  natureId: number;
+  natureName: string;
+  section: string;
+  /** Voucher lines. */
+  count: number;
+  /** Σ amounts credited / paid (assessable). */
+  credited: Paise;
+  /** Part of `credited` below the threshold when entered. */
+  belowThreshold: Paise;
+  /** Σ base the tax was computed on. */
+  base: Paise;
+  deducted: Paise;
+  /** Cleared by challans deposited up to the period end. */
+  deposited: Paise;
+  balance: Paise;
+}
+
+export interface TdsComputationResult {
+  rows: TdsComputationRow[];
+  totals: { count: number; credited: Paise; belowThreshold: Paise; base: Paise; deducted: Paise; deposited: Paise; balance: Paise };
+}
+
+export interface TdsLineRow {
+  id: number;
+  voucherId: number;
+  number: string | null;
+  typeName: string;
+  date: string;
+  kind: TdsKind;
+  section: string;
+  natureName: string;
+  partyLedgerId: number | null;
+  partyName: string | null;
+  pan: string | null;
+  panStatus: PanStatus;
+  assessable: Paise;
+  catchUp: Paise;
+  base: Paise;
+  rate: number;
+  computed: Paise;
+  amount: Paise;
+  overridden: boolean;
+  reason: string | null;
+  status: TdsLineStatus;
+  note: string | null;
+  deposited: Paise;
+  balance: Paise;
+  dueDate: string | null;
+}
+
+export type TdsOutstandingStatus = 'due' | 'overdue' | 'paid' | 'paid_late' | 'excess' | 'nothing_due';
+
+export interface TdsOutstandingRow {
+  key: string;
+  kind: TdsKind;
+  section: string;
+  /** YYYY-MM of deduction. */
+  period: string;
+  periodLabel: string;
+  payableLedgerName: string;
+  deducted: Paise;
+  deposited: Paise;
+  balance: Paise;
+  dueDate: string;
+  daysOverdue: number;
+  status: TdsOutstandingStatus;
+  /** Interest u/s 201(1A)(ii) (TDS, 1.5%/month) or 206C(7) (TCS, 1%/month) on late / unpaid deposits to the as-of date. */
+  interest: Paise;
+  /** Interest already paid with this month's challans. */
+  interestPaid: Paise;
+  lastDeposit: string | null;
+  lines: number;
+}
+
+export interface TdsStatementRow {
+  key: string;
+  form: '26Q' | '27Q' | '27EQ';
+  fyStart: number;
+  quarter: 1 | 2 | 3 | 4;
+  label: string;
+  dueDate: string;
+  filedOn: string | null;
+  tokenNo: string | null;
+  tax: Paise;
+  lines: number;
+  daysLate: number;
+  /** s.234E: ₹200 per day, capped at the tax of the statement. */
+  lateFee: Paise;
+  status: 'due' | 'overdue' | 'filed' | 'filed_late';
+}
+
+export interface TdsOutstandingResult {
+  asOf: string;
+  kind: TdsKind;
+  rows: TdsOutstandingRow[];
+  statements: TdsStatementRow[];
+  totals: { deducted: Paise; deposited: Paise; balance: Paise; interest: Paise; interestPaid: Paise; lateFee: Paise };
+}
+
+export interface TdsChallanRow {
+  id: number;
+  voucherId: number;
+  number: string | null;
+  kind: TdsKind;
+  section: string;
+  period: string;
+  periodLabel: string;
+  bsrCode: string;
+  challanNo: string;
+  depositDate: string;
+  minorHead: string;
+  bankName: string | null;
+  tax: Paise;
+  surcharge: Paise;
+  cess: Paise;
+  interest: Paise;
+  fee: Paise;
+  others: Paise;
+  total: Paise;
+  /** Deductions of its month this challan clears. */
+  cleared: Paise;
+  /** Tax deposited beyond the deductions of its month. */
+  unconsumed: Paise;
+  /** Deposited after the due date. */
+  late: boolean;
+}
+
+export interface TdsChallanRegister {
+  rows: TdsChallanRow[];
+  totals: Record<string, Paise>;
+}
+
+export interface TdsReturnDeducteeRow {
+  /** Serial of the challan in `challans` (null: not deposited). */
+  challanSr: number | null;
+  bsrCode: string | null;
+  depositDate: string | null;
+  challanNo: string | null;
+  section: string;
+  /** 01 company, 02 other than company. */
+  deducteeCode: '01' | '02';
+  /** 'PANNOTAVBL' when the deductee has no valid PAN. */
+  pan: string;
+  name: string;
+  partyLedgerId: number | null;
+  paymentDate: string;
+  amountPaid: Paise;
+  tax: Paise;
+  deposited: Paise;
+  deductionDate: string;
+  rate: number;
+  /** 'A' lower/nil deduction certificate (s.197), 'C' higher rate for no PAN, '' otherwise. */
+  reasonCode: string;
+  certificateNo: string | null;
+  voucherId: number;
+  voucherNumber: string | null;
+}
+
+export interface TdsReturnChallanRow {
+  sr: number;
+  voucherId: number;
+  section: string;
+  period: string;
+  bsrCode: string;
+  challanNo: string;
+  depositDate: string;
+  minorHead: string;
+  tax: Paise;
+  surcharge: Paise;
+  cess: Paise;
+  interest: Paise;
+  fee: Paise;
+  others: Paise;
+  total: Paise;
+  /** Σ deposited of the deductee rows linked to it. */
+  allocated: Paise;
+}
+
+export interface TdsReturnData {
+  form: '26Q' | '27Q' | '27EQ';
+  fyStart: number;
+  quarter: 1 | 2 | 3 | 4;
+  from: string;
+  to: string;
+  tan: string;
+  deductees: TdsReturnDeducteeRow[];
+  challans: TdsReturnChallanRow[];
+  totals: { amountPaid: Paise; tax: Paise; deposited: Paise; challanTotal: Paise };
+  dueDate: string;
+  filedOn: string | null;
+  tokenNo: string | null;
+  lateFee: Paise;
+  daysLate: number;
+  warnings: string[];
+}
+
+export type TdsExceptionType =
+  | 'no_party'
+  | 'no_pan'
+  | 'invalid_pan'
+  | 'below_threshold_deducted'
+  | 'not_deducted'
+  | 'short_deducted'
+  | 'threshold_not_deducted';
+
+export interface TdsExceptionRow {
+  key: string;
+  type: TdsExceptionType;
+  severity: 'error' | 'warning';
+  voucherId: number;
+  number: string | null;
+  typeName: string;
+  date: string;
+  partyLedgerId: number | null;
+  partyName: string | null;
+  section: string;
+  amount: Paise;
+  /** Tax not deducted / short deducted. */
+  shortfall: Paise;
+  /** Interest u/s 201(1A)(i) on the shortfall to the as-of date (estimate). */
+  interest: Paise;
+  message: string;
+}
+
+/** TDS deducted by customers: books (TDS Receivable) vs Form 26AS / AIS. */
+export interface TdsReceivableRow {
+  key: string;
+  partyLedgerId: number | null;
+  partyName: string;
+  tan: string | null;
+  books: Paise;
+  form26as: Paise;
+  /** Amount paid / credited per 26AS. */
+  amountPaid: Paise;
+  difference: Paise;
+  status: 'matched' | 'mismatch' | 'books_only' | 'form26as_only';
+}
+
+export interface TdsReceivableResult {
+  fyStart: number;
+  receivableLedgers: Array<{ id: number; name: string }>;
+  rows: TdsReceivableRow[];
+  totals: { books: Paise; form26as: Paise; difference: Paise };
+  imported: { rows: number; importedAt: string | null };
+}
+
+export interface TdsChallanSuggestion {
+  kind: TdsKind;
+  section: string;
+  period: string;
+  dueDate: string;
+  unpaid: Paise;
+  interest: Paise;
+  lines: number;
+  payableLedgerId: number | null;
+  payableLedgerName: string;
+}
+
+export interface TdsChallanSaveInput {
+  /** Alter this challan's payment voucher. */
+  voucherId?: number;
+  voucherTypeId?: number;
+  date: string;
+  bankLedgerId: number;
+  narration?: string;
+  challan: VoucherTdsChallanInput;
+  acknowledgeWarnings?: boolean;
+  expectedUpdatedAt?: string;
 }

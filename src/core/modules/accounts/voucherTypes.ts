@@ -257,6 +257,9 @@ function validateConfig(db: Db, baseType: VoucherBaseType, cfg: VoucherTypeConfi
   if (cfg.invoiceMode !== null && cfg.invoiceMode !== undefined && !INVOICE_BASES.includes(baseType)) {
     issues.add('config.invoiceMode', 'Invoice mode applies only to sales, purchase, credit note and debit note voucher types');
   }
+  if (cfg.stockJournalClass !== null && cfg.stockJournalClass !== undefined && baseType !== 'stock_journal') {
+    issues.add('config.stockJournalClass', 'Manufacturing Journal / Material In / Material Out applies only to stock journal voucher types');
+  }
   if (cfg.defaultGodownId !== null && cfg.defaultGodownId !== undefined) {
     if (db.value('SELECT 1 FROM godowns WHERE id = :id', { id: cfg.defaultGodownId }) === undefined) {
       issues.add('config.defaultGodownId', 'The selected godown does not exist');
@@ -390,6 +393,11 @@ function writeVoucherType(ctx: CompanyCtx, input: VoucherTypeSaveInput): number 
   // A sales ledger default makes no sense once the type becomes a purchase type (and vice versa).
   if (baseChanged && input.config?.defaultLedgerId === undefined) delete baseConfig.defaultLedgerId;
   const config = mergeConfig(baseConfig, input.config);
+  // mfg module: the class decides how saved journals are read back; it cannot change under them.
+  if (row && (config.stockJournalClass ?? null) !== (baseConfig.stockJournalClass ?? null)) {
+    const used = db.value<number>('SELECT COUNT(*) FROM vouchers WHERE voucher_type_id = :id', { id: row.id }) ?? 0;
+    if (used > 0) issues.add('config.stockJournalClass', `${plural(used, 'voucher')} of this type exist; create a new voucher type for the other use.`);
+  }
   // On alter only what changed is re-checked (a default ledger deactivated later must not block
   // unrelated edits such as numbering); on create, and when the base type changes, everything is.
   const toCheck: Record<string, unknown> = {};

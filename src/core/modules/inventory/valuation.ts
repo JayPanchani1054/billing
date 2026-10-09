@@ -969,6 +969,18 @@ export function currentUnitCost(db: Db, opts: { itemId: number; asOf: string; to
   return st ? roundTo(st.currentCost() / 100, 4) : 0;
 }
 
+/** Current cost per base unit (rupees) of several items at the end of `asOf`, from ONE replay (mfg: BOM estimates). */
+export function currentUnitCosts(db: Db, opts: { itemIds: readonly number[]; asOf: string; today: string }): Map<number, number> {
+  const out = new Map<number, number>();
+  if (opts.itemIds.length === 0) return out;
+  const { states } = replay(db, { from: opts.asOf, to: opts.asOf, today: opts.today, itemIds: opts.itemIds });
+  for (const id of opts.itemIds) {
+    const st = states.get(id);
+    out.set(id, st ? roundTo(st.currentCost() / 100, 4) : 0);
+  }
+  return out;
+}
+
 /**
  * Entry-time estimate (mfg module): the cost at which each line would be issued as at the end of
  * `asOf` — the item's costing method applied to its stock at that point, lines of the same item taken

@@ -569,6 +569,8 @@ export interface VoucherTypeConfig {
   invoiceMode?: 'item' | 'accounting' | null;
   defaultGodownId?: number | null;
   printTemplate?: 'classic' | 'modern' | 'compact' | null;
+  /** Stock journal types only (mfg module): Manufacturing Journal, Material Out or Material In. */
+  stockJournalClass?: 'manufacturing' | 'material_out' | 'material_in' | null;
 }
 
 export interface VoucherTypeRow {

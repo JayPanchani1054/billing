@@ -15,9 +15,12 @@ import type {
   StockGroupSaveInput,
   TreeListInput,
 } from '../../../shared/types/inventory.ts';
+import { formatDate } from '../../../shared/dates.ts';
+import type { ThirdPartyKind } from '../../../shared/types/mfg.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { notFound, rule, validation } from '../../lib/errors.ts';
+import { getConfig } from '../company/service.ts';
 import {
   ancestors,
   assertNameFree,
@@ -344,13 +347,17 @@ interface GodownRow {
   address: string | null;
   is_predefined: number;
   is_third_party: number;
+  third_party_kind: ThirdPartyKind;
+  party_ledger_id: number | null;
+  party_name: string | null;
   child_count: number;
   created_at: string;
   updated_at: string;
 }
 
 const SELECT_GODOWN = /* sql */ `
-  SELECT t.*, p.name AS parent_name, (SELECT COUNT(*) FROM godowns c WHERE c.parent_id = t.id) AS child_count
+  SELECT t.*, p.name AS parent_name, (SELECT COUNT(*) FROM godowns c WHERE c.parent_id = t.id) AS child_count,
+         (SELECT l.name FROM ledgers l WHERE l.id = t.party_ledger_id) AS party_name
   FROM godowns t LEFT JOIN godowns p ON p.id = t.parent_id`;
 
 function godownDto(r: GodownRow): GodownDto {
@@ -364,6 +371,9 @@ function godownDto(r: GodownRow): GodownDto {
     address: r.address,
     isPredefined: toBool(r.is_predefined),
     isThirdParty: toBool(r.is_third_party),
+    thirdPartyKind: r.third_party_kind ?? (toBool(r.is_third_party) ? 'ours_with_party' : 'none'),
+    partyLedgerId: r.party_ledger_id ?? null,
+    partyName: r.party_name ?? null,
     childCount: Number(r.child_count),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -404,23 +414,40 @@ export function saveGodown(ctx: CompanyCtx, input: GodownSaveInput): GodownDto {
   const parentId = patch(input.parentId, before?.parentId ?? null);
   assertValidParent(db, 'godowns', id0, parentId, 'godown');
   const address = patch(cleanText(input.address), before?.address ?? null);
-  const isThirdParty = input.isThirdParty ?? before?.isThirdParty ?? false;
+  // Job work ownership (mfg module). The legacy isThirdParty switch maps to "our stock with a third party".
+  const kind: ThirdPartyKind =
+    input.thirdPartyKind ??
+    (input.isThirdParty === undefined
+      ? (before?.thirdPartyKind ?? 'none')
+      : input.isThirdParty
+        ? before && before.thirdPartyKind !== 'none'
+          ? before.thirdPartyKind
+          : 'ours_with_party'
+        : 'none');
+  const isThirdParty = kind !== 'none';
   if (before?.isPredefined && isThirdParty)
-    throw validation([{ path: 'isThirdParty', message: "'Main Location' is your own godown; it cannot be marked as a third-party location" }]);
+    throw validation([{ path: input.thirdPartyKind !== undefined ? 'thirdPartyKind' : 'isThirdParty', message: "'Main Location' is your own godown; it cannot be marked as a third-party location" }]);
+  const partyLedgerId = isThirdParty ? patch(input.partyLedgerId, before?.partyLedgerId ?? null) : null;
+  if (partyLedgerId !== null && db.value('SELECT 1 FROM ledgers WHERE id = :id', { id: partyLedgerId }) === undefined) {
+    throw validation([{ path: 'partyLedgerId', message: 'The selected party ledger does not exist. Choose it again.' }]);
+  }
+  if (before && kind !== before.thirdPartyKind) assertGodownKindChangeAllowed(db, before.id, before.name);
   const ts = nowIso(ctx);
   let id: number;
   if (before) {
     id = before.id;
     db.run(
-      `UPDATE godowns SET name = :name, alias = :alias, parent_id = :parentId, address = :address, is_third_party = :tp, updated_at = :ts
+      `UPDATE godowns SET name = :name, alias = :alias, parent_id = :parentId, address = :address, is_third_party = :tp,
+              third_party_kind = :kind, party_ledger_id = :party, updated_at = :ts
        WHERE id = :id`,
-      { id, name, alias, parentId, address, tp: isThirdParty, ts },
+      { id, name, alias, parentId, address, tp: isThirdParty, kind, party: partyLedgerId, ts },
     );
   } else {
     id = db.run(
-      `INSERT INTO godowns (guid, name, alias, parent_id, address, is_predefined, is_third_party, created_at, updated_at)
-       VALUES (:guid, :name, :alias, :parentId, :address, 0, :tp, :ts, :ts)`,
-      { guid: randomUUID(), name, alias, parentId, address, tp: isThirdParty, ts },
+      `INSERT INTO godowns (guid, name, alias, parent_id, address, is_predefined, is_third_party, third_party_kind, party_ledger_id,
+                            created_at, updated_at)
+       VALUES (:guid, :name, :alias, :parentId, :address, 0, :tp, :kind, :party, :ts, :ts)`,
+      { guid: randomUUID(), name, alias, parentId, address, tp: isThirdParty, kind, party: partyLedgerId, ts },
     ).lastInsertRowid;
   }
   const after = getGodown(db, id);
@@ -434,6 +461,27 @@ export function saveGodown(ctx: CompanyCtx, input: GodownSaveInput): GodownDto {
     after,
   });
   return after;
+}
+
+/**
+ * Whose stock a godown holds decides whether its stock is valued (mfg module): changing it re-values
+ * every period it had stock in, so it is refused while that history lies in locked books.
+ */
+function assertGodownKindChangeAllowed(db: Db, id: number, name: string): void {
+  const locked = getConfig(db).lockedUpTo;
+  if (!locked) return;
+  const used =
+    db.value(
+      `SELECT 1 FROM inventory_entries WHERE godown_id = :id AND date <= :locked
+       UNION ALL SELECT 1 FROM stock_openings WHERE godown_id = :id LIMIT 1`,
+      { id, locked },
+    ) !== undefined;
+  if (used) {
+    throw rule(
+      `'${name}' has stock entries in the locked period (books locked up to ${formatDate(locked)}); changing whose stock it holds would change their value. ` +
+        'Create a new godown for the other kind of stock, or unlock the books first.',
+    );
+  }
 }
 
 export function deleteGodown(ctx: CompanyCtx, id: number): DeleteResult {

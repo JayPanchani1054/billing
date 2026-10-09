@@ -85,7 +85,7 @@ describe('advance receipts, adjustment and refund', () => {
     assert.deepEqual(pendingAdvances(k.t.db, k.t.today, k.t.today), []);
 
     // The receipt cannot be deleted while the invoice adjusts its advance.
-    throwsApp(() => deleteVoucher(k.t.ctx, r.id), 'BUSINESS_RULE', /adjusted or refunded/);
+    throwsApp(() => deleteVoucher(k.t.ctx, r.id), 'BUSINESS_RULE', /settled by Sales|adjusted or refunded/);
     k.t.close();
   });
 

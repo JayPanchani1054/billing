@@ -58,7 +58,7 @@ export function occurrences(
   for (; ; n++) {
     const o = nthOccurrence(s, n);
     if (o.date > end) return { list: out, truncated: false };
-    if (o.date < s.startDate) continue;
+    if (o.date < s.startDate || (q.fromDate !== undefined && o.date < q.fromDate)) continue;
     if (out.length >= limit) return { list: out, truncated: true };
     out.push(o);
   }

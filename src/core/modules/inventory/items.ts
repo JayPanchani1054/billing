@@ -40,6 +40,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { AppError, notFound, rule, validation } from '../../lib/errors.ts';
 import { getConfig, getFeatures } from '../company/service.ts';
+import { itemMfgUses } from '../mfg/usage.ts';
 import {
   assertNameFree,
   cleanText,
@@ -665,6 +666,14 @@ export function deleteItem(ctx: CompanyCtx, id: number): DeleteResult {
       `Cannot delete stock item '${before.name}': it is used in ${Math.max(vouchers, gstLines)} voucher(s). ` +
         'Delete those vouchers first, or mark the item inactive to hide it.',
     );
+  // Bills of materials and job work orders (mfg module) keep their items.
+  const mfgUses = itemMfgUses(db, id).filter(([n]) => n > 0);
+  if (mfgUses.length > 0) {
+    throw rule(
+      `Cannot delete stock item '${before.name}': it is used in ${mfgUses.map(([n, what]) => `${n} ${what}`).join(', ')}. ` +
+        'Remove it there first, or mark the item inactive to hide it.',
+    );
+  }
   if (before.openings.length > 0) assertOpeningStockUnlocked(db, before.name);
   // Every price-list slab of the item (all levels and dates) goes with it: keep them in the edit log.
   const priceListRows = db.all<{ level: string; applicable_from: string; qty_from: number; qty_to: number | null; rate: number; discount_pct: number }>(

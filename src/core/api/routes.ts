@@ -17,6 +17,8 @@ import { bankingRoutes } from '../modules/banking/routes.ts';
 import { dataRoutes } from '../modules/data/routes.ts';
 import { dashboardRoutes } from '../modules/dashboard/routes.ts';
 import { printRoutes } from '../modules/print/routes.ts';
+import { tdsRoutes } from '../modules/tds/routes.ts';
+import { documentsRoutes } from '../modules/documents/routes.ts';
 
 export const routes = {
   ...appRoutes,
@@ -34,6 +36,8 @@ export const routes = {
   ...dataRoutes,
   ...dashboardRoutes,
   ...printRoutes,
+  ...tdsRoutes,
+  ...documentsRoutes,
 };
 
 export type ApiRoutes = typeof routes;

@@ -251,7 +251,7 @@ function targetType(db: Db, target: VoucherBaseType, voucherTypeId: number | und
  *  - delivery note / receipt note / rejection → the invoice / note that bills it, with the note's
  *    unbilled quantities and `trackingRef` = the note number (the note already moved the stock).
  */
-export function draftVoucher(ctx: CompanyCtx, input: DraftInput): VoucherInput {
+export function draftVoucher(ctx: CompanyCtx, input: DraftInput & { sourceId: number; targetBaseType: VoucherBaseType }): VoucherInput {
   const { db } = ctx;
   const row = loadVoucherRow(db, input.sourceId);
   if (!row) throw notFound('Voucher', input.sourceId);

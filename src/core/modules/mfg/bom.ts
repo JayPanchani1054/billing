@@ -21,7 +21,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { conflict, notFound, rule, validation } from '../../lib/errors.ts';
 import type { FieldIssue } from '../../../shared/api.ts';
-import { estimateIssueCosts } from '../inventory/index.ts';
+import { estimateIssueCosts } from '../inventory/valuation.ts';
 import { cleanText, likePattern, paging, requirePermission, requireSavePermission, toBool } from '../inventory/common.ts';
 
 const MAX_QTY = 1e12;

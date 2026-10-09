@@ -8,7 +8,8 @@
  * Inter-state documents carry iamt, intra-state ones camt + samt (keys present only when relevant).
  */
 import { formatDate } from '../../../shared/dates.ts';
-import type { GstJsonFile } from '../../../shared/types/gst-returns.ts';
+import type { GstDocSnapshot } from '../../../shared/types/gst-plus.ts';
+import type { GstJsonFile, TaxValue } from '../../../shared/types/gst-returns.ts';
 import type { GstDoc, GstDocLine } from './docs.ts';
 import { round2, rupees } from './docs.ts';
 import type { Gstr1Computation, Placement } from './gstr1.ts';
@@ -57,6 +58,47 @@ function rateItems(d: GstDoc, lines: readonly GstDocLine[], heads: 'all' | 'igst
 
 const numbered = (items: Json[]): Json[] => items.map((itm_det, i) => ({ num: i + 1, itm_det }));
 
+/** Item details of a rate-wise row (amendments, advances): iamt when IGST, camt + samt when CGST/SGST. */
+function taxDet(r: TaxValue & { rate: number }, interState: boolean, valueKey: 'txval' | 'ad_amt' = 'txval'): Json {
+  const det: Json = { [valueKey]: rupees(r.taxable), rt: r.rate };
+  if (interState || r.igst !== 0) det.iamt = rupees(r.igst);
+  if (!interState || r.cgst !== 0 || r.sgst !== 0) {
+    det.camt = rupees(r.cgst);
+    det.samt = rupees(r.sgst);
+  }
+  det.csamt = rupees(r.cess);
+  return det;
+}
+
+const snapInter = (s: GstDocSnapshot): boolean => s.interState === true || s.items.some((i) => i.igst !== 0);
+
+function snapInvoice(s: GstDocSnapshot): Json {
+  return {
+    inum: (s.number ?? '').trim(),
+    idt: idt(s.date),
+    val: rupees(s.value),
+    pos: s.pos,
+    rchrg: s.reverseCharge ? 'Y' : 'N',
+    inv_typ: s.invoiceType ?? 'R',
+    itms: numbered(s.items.map((i) => taxDet(i, snapInter(s)))),
+  };
+}
+
+function snapNote(s: GstDocSnapshot): Json {
+  return {
+    ntty: s.noteType ?? 'C',
+    nt_num: (s.number ?? '').trim(),
+    nt_dt: idt(s.date),
+    val: rupees(s.value),
+    pos: s.pos,
+    rchrg: s.reverseCharge ? 'Y' : 'N',
+    inv_typ: s.invoiceType ?? 'R',
+    itms: numbered(s.items.map((i) => taxDet(i, snapInter(s)))),
+  };
+}
+
+const B2B_SECTIONS = new Set(['b2b', 'b2b_rcm', 'sez_wp', 'sez_wop', 'de']);
+
 export function buildGstr1Json(c: Gstr1Computation): GstJsonFile {
   const warnings: string[] = [];
   const company = c.company;
@@ -86,6 +128,18 @@ export function buildGstr1Json(c: Gstr1Computation): GstJsonFile {
       itms: numbered(rateItems(d, p.taxable, 'all')),
     });
     b2b.set(d.party.gstin, list);
+  }
+  // Documents of an earlier filed period that were missing from its GSTR-1 (amendments log, kind 'added').
+  for (const r of c.amendments.late) {
+    const a = r.amended;
+    if (!a || !a.section) continue;
+    if (B2B_SECTIONS.has(a.section) && a.gstin) {
+      const list = b2b.get(a.gstin) ?? [];
+      list.push(snapInvoice(a));
+      b2b.set(a.gstin, list);
+    } else if (a.section !== 'cdnr') {
+      warnings.push(`${a.number ?? ''} dated ${idt(a.date)} (missing from an earlier GSTR-1, table ${a.section}) is not in this file: add it on the portal.`);
+    }
   }
   if (b2b.size > 0) out.b2b = [...b2b.keys()].sort().map((ctin) => ({ ctin, inv: b2b.get(ctin) }));
 
@@ -155,6 +209,13 @@ export function buildGstr1Json(c: Gstr1Computation): GstJsonFile {
     });
     cdnr.set(d.party.gstin, list);
   }
+  for (const r of c.amendments.late) {
+    const a = r.amended;
+    if (!a || a.section !== 'cdnr' || !a.gstin) continue;
+    const list = cdnr.get(a.gstin) ?? [];
+    list.push(snapNote(a));
+    cdnr.set(a.gstin, list);
+  }
   if (cdnr.size > 0) out.cdnr = [...cdnr.keys()].sort().map((ctin) => ({ ctin, nt: cdnr.get(ctin) }));
 
   // ── cdnur (9B unregistered: B2CL and exports) ──
@@ -168,6 +229,55 @@ export function buildGstr1Json(c: Gstr1Computation): GstJsonFile {
     cdnur.push(row);
   }
   if (cdnur.length > 0) out.cdnur = cdnur;
+
+  // ── b2ba (9A, registered) / cdnra (9C, registered) ──
+  const b2ba = new Map<string, Json[]>();
+  for (const r of c.amendments.invoices) {
+    const a = r.amended;
+    if (!a || !a.section || !B2B_SECTIONS.has(a.section) || !a.gstin) {
+      warnings.push(
+        a === null
+          ? `Invoice ${r.origNumber ?? ''} dated ${idt(r.origDate)} no longer counts in the books: amend it on the portal (Table 9A) or issue a credit note.`
+          : `Amended invoice ${r.origNumber ?? ''} dated ${idt(r.origDate)} (table ${a.section ?? '–'}) is not in this file: amend it on the portal (Table 9A).`,
+      );
+      continue;
+    }
+    const list = b2ba.get(a.gstin) ?? [];
+    list.push({ oinum: (r.origNumber ?? '').trim(), oidt: idt(r.origDate), ...snapInvoice(a) });
+    b2ba.set(a.gstin, list);
+  }
+  if (b2ba.size > 0) out.b2ba = [...b2ba.keys()].sort().map((ctin) => ({ ctin, inv: b2ba.get(ctin) }));
+  const cdnra = new Map<string, Json[]>();
+  for (const r of c.amendments.notes) {
+    const a = r.amended;
+    if (!a || a.section !== 'cdnr' || !a.gstin) {
+      warnings.push(`Amended note ${r.origNumber ?? ''} dated ${idt(r.origDate)} is not in this file: amend it on the portal (Table 9C).`);
+      continue;
+    }
+    const list = cdnra.get(a.gstin) ?? [];
+    list.push({ ont_num: (r.origNumber ?? '').trim(), ont_dt: idt(r.origDate), ...snapNote(a) });
+    cdnra.set(a.gstin, list);
+  }
+  if (cdnra.size > 0) out.cdnra = [...cdnra.keys()].sort().map((ctin) => ({ ctin, nt: cdnra.get(ctin) }));
+  if (c.amendments.b2cs.length > 0) {
+    warnings.push(`${c.amendments.b2cs.length} B2C (small) document(s) were amended: enter Table 10 on the portal by place of supply and rate (see the amendments list).`);
+  }
+
+  // ── at (11A) / txpd (11B) ──
+  const advRows = (rows: Gstr1Computation['advances']['received']): Json[] => {
+    const by = new Map<string, Json[]>();
+    const kinds = new Map<string, string>();
+    for (const r of rows) {
+      const key = `${r.pos}|${r.supplyKind}`;
+      const list = by.get(key) ?? [];
+      list.push(taxDet(r, r.supplyKind === 'INTER', 'ad_amt'));
+      by.set(key, list);
+      kinds.set(key, r.supplyKind);
+    }
+    return [...by.keys()].sort().map((k) => ({ pos: k.split('|')[0], sply_ty: kinds.get(k), itms: by.get(k) }));
+  };
+  if (c.advances.received.length > 0) out.at = advRows(c.advances.received);
+  if (c.advances.adjusted.length > 0) out.txpd = advRows(c.advances.adjusted);
 
   // ── nil (8) ──
   const nil = c.nil
