@@ -17,6 +17,7 @@ export interface E2E {
   rt: Runtime;
   clock: FixedClock;
   root: string;
+  dataDir: string;
   /** Dispatch a route and require success; returns the data. */
   call<T = any>(route: string, input?: unknown): Promise<T>;
   /** Dispatch a route and return the raw ApiResult (for expected failures). */
@@ -31,12 +32,21 @@ export function startRuntime(today: string): E2E {
   const userDataDir = fs.mkdtempSync(path.join(root, 'userData-'));
   const dataDir = fs.mkdtempSync(path.join(root, 'data-'));
   const clock = fixedClock(today);
-  const rt = createRuntime({ userDataDir, defaultDataDir: dataDir, appVersion: '1.0.0-e2e', clock, consoleLog: false });
+  // A long idle timeout: the scenario moves the working date across days and must not be logged out.
+  const rt = createRuntime({
+    userDataDir,
+    defaultDataDir: dataDir,
+    appVersion: '1.0.0-e2e',
+    clock,
+    consoleLog: false,
+    idleTimeoutMs: 400 * 86_400_000,
+  });
   const raw = (route: string, input: unknown = {}): Promise<ApiResult<unknown>> => rt.dispatch(route, input);
   return {
     rt,
     clock,
     root,
+    dataDir,
     raw,
     async call<T>(route: string, input: unknown = {}): Promise<T> {
       const r = await raw(route, input);
@@ -73,7 +83,7 @@ export function monthEnd(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** The 12 months of FY 2026-27 as [YYYY-MM, monthIndex 0..11]. */
+/** The 12 months of FY 2026-27 as 'YYYY-MM'. */
 export const FY_MONTHS: ReadonlyArray<string> = [
   '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
   '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03',
