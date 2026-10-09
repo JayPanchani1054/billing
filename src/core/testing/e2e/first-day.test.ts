@@ -20,7 +20,7 @@ import { P, startRuntime } from './harness.ts';
 import type { E2E } from './harness.ts';
 
 /** Values typed by e2e/first-day.spec.ts — keep the two files in step. */
-export const FLOW = {
+const FLOW = {
   today: '2026-10-09',
   company: { name: 'Sharma Traders E2E', gstin: '27AAPFU0939F1ZV', state: 'Maharashtra' },
   party: { name: 'Kavya Traders', gstin: '27AAAPA0002A1Z5' },

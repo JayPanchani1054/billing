@@ -1,0 +1,40 @@
+import { startRuntime, sum } from './harness.ts';
+import { createCompany, createMasters, postYear, alterAndDelete, bankQuarter, post } from './scenario.ts';
+const e = startRuntime('2027-03-31');
+const j = (x: unknown) => JSON.stringify(x);
+try {
+const w = await createCompany(e);
+await createMasters(w);
+await postYear(w);
+await alterAndDelete(w);
+await bankQuarter(w);
+const pl1: any = await e.call('reports.profitLoss', { from: '2026-04-01', to: '2027-03-31' });
+const bs1: any = await e.call('reports.balanceSheet', { asOf: '2027-03-31' });
+e.clock.setToday('2027-04-30');
+await post(w, 'fy2-sale', { voucherTypeId: w.VT.sales, date: '2027-04-12', mode: 'item_invoice', partyLedgerId: w.L.mumbai, items: [{ itemId: w.I.rice, qty: 10, rate: 1800 }] });
+const tb2: any = await e.call('reports.trialBalance', { from: '2027-04-01', to: '2027-04-30', mode: 'ledgers' });
+console.log('TB2', tb2.balanced, tb2.openingStock, tb2.openingDifference, tb2.yearStart, j(tb2.totals));
+for (const r of tb2.rows.filter((r: any) => ['l:2','l:4','l:5','stock:opening'].includes(r.key) || r.kind !== 'ledger')) console.log(' ', r.key, r.name, r.opening, r.debit, r.credit, r.closing);
+const pl2: any = await e.call('reports.profitLoss', { from: '2027-04-01', to: '2027-04-30' });
+console.log('PL2', j(pl2.figures));
+const bs2: any = await e.call('reports.balanceSheet', { asOf: '2027-04-30' });
+console.log('BS2', bs2.balanced, bs2.difference, j(bs2.profitLoss), bs2.closingStock, 'FY1 net', pl1.figures.netProfit, 'FY1 closing', pl1.figures.closingStock);
+console.log('BS2 lines', j(bs2.liabilities.filter((l:any)=>l.level===0).map((l:any)=>[l.key,l.name,l.amount])));
+const ss: any = await e.call('stock.summary', { from: '2027-04-01', to: '2027-04-30' });
+console.log('SS2', j(ss.totals));
+// P&L across the year boundary
+const plx: any = await e.call('reports.profitLoss', { from: '2026-04-01', to: '2027-04-30' }).catch((x:any)=>x);
+console.log('PLx', j(plx.figures ?? plx));
+const d: any = await e.call('dashboard.summary', { asOf: '2027-04-30', from: '2027-04-01', to: '2027-04-30' });
+console.log('dash', j(d.grossProfit), j(d.sales));
+const cf: any = await e.call('reports.cashFlow', { from: '2027-04-01', to: '2027-04-30' });
+console.log('cf2', cf.opening, cf.closing, j(cf.totals));
+const g3: any = await e.call('gst.gstr3b.summary', { period: '042027' });
+console.log('3b apr27', j(g3.supplies[0]));
+const ps: any = await e.call('outstanding.partySummary', { side: 'payable', asOf: '2027-04-30' });
+console.log('delhi', j(ps.rows.find((r:any)=>r.ledgerId===w.L.delhi)));
+const ra: any = await e.call('reports.ratios', { from: '2027-04-01', to: '2027-04-30' });
+console.log('ratios2', j(ra.principal.map((r: any) => [r.key, r.value])));
+const ff: any = await e.call('reports.fundsFlow', { from: '2027-04-01', to: '2027-04-30' });
+console.log('ff2', ff.totalSources, ff.totalApplications, j(ff.workingCapital), ff.difference);
+} finally { await e.close(); }
