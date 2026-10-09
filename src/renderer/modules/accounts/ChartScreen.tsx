@@ -1,7 +1,7 @@
 /**
  * 'accounts.chart' — Chart of Accounts: every group with its sub-groups and ledgers and their
  * closing balances as on the period end (Alt+F2). Search keeps the path to each match.
- * Enter opens the group / ledger form, →/← expand/collapse, Alt+F5 detailed/condensed,
+ * Enter opens the group / ledger form, →/← expand/collapse, Alt+F1 detailed/condensed,
  * Alt+C creates a ledger under the highlighted group, Alt+U a sub-group; Alt+E / Alt+P export / print.
  */
 import { useMemo, useState } from 'react';
@@ -74,11 +74,11 @@ export function ChartScreen() {
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Enter Open · →/← Expand/collapse · Alt+F5 Detailed · Alt+C New ledger · Alt+U New group · Alt+E Export · Esc Back"
+      hint="Enter Open · →/← Expand/Collapse · Alt+F1 Detailed · Alt+C Create Ledger · Alt+U Create Group · Alt+E Export · Esc Back"
       actions={[
         { key: 'Alt+C', label: 'Create ledger', icon: 'plus', primary: true, onClick: createLedger, disabled: !canCreate },
         { key: 'Alt+U', label: 'Create group', icon: 'layers', onClick: createGroup, disabled: !canCreate },
-        { key: 'Alt+F5', label: detailed ? 'Condensed' : 'Detailed', icon: detailed ? 'chevrons-up-down' : 'list', onClick: toggleDetail, group: 'view' },
+        { key: 'Alt+F1', label: detailed ? 'Condensed' : 'Detailed', icon: detailed ? 'chevrons-up-down' : 'list', onClick: toggleDetail, group: 'view' },
       ]}
       filters={
         <div className="bx-acc-toolbar">

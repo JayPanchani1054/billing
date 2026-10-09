@@ -6,7 +6,7 @@
 |---|---|---|
 | Node.js | ≥ 22.18 (type stripping on by default) | scripts, tests, core |
 | Electron | ^44 (devDependency) | desktop runtime (bundles Chromium + Node with `node:sqlite`) |
-| esbuild | ^0.25 | bundles `src/main` and `src/preload` to CommonJS |
+| esbuild | ^0.25 | bundles `src/main` (main thread + core worker) and `src/preload` to CommonJS |
 | Vite + @vitejs/plugin-react | ^7 / ^5 | builds the React renderer |
 | TypeScript | ^6 | typechecking only (`noEmit`) — code runs via esbuild/Vite or Node type stripping |
 | electron-builder | ^26 | Windows NSIS installer |
@@ -21,7 +21,7 @@ so the installer ships no `node_modules`. There are **no native modules** (SQLit
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | `scripts/dev.mjs`: Vite dev server on `http://127.0.0.1:5173` (HMR), esbuild watch for main + preload, launches Electron with `BAHI_DEV_SERVER_URL`; restarts Electron when main/preload/core code changes; `Ctrl+C` stops everything |
+| `npm run dev` | `scripts/dev.mjs`: Vite dev server on `http://127.0.0.1:5173` (HMR), esbuild watch for main, the core worker and preload, launches Electron with `BAHI_DEV_SERVER_URL`; restarts Electron when main/core-worker/preload code (incl. `src/core`) changes; `Ctrl+C` stops everything |
 | `npm run build` | `scripts/build.mjs`: cleans `out/`, bundles main, the core worker and preload (minified, no source maps), checks the preload only requires `electron` and the core worker only `node:*`, builds the renderer with Vite |
 | `node scripts/build.mjs --dev` | same, but unminified main/preload with linked source maps |
 | `npm start` | runs `electron .` against the existing `out/` |

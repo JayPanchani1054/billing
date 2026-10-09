@@ -73,15 +73,15 @@ function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Alt+P Print all · Alt+E Save as one PDF · Alt+T Template · Alt+S Paper · Esc Back"
+      hint="Alt+P Print All · Alt+E Save as One PDF · Alt+T Template · Alt+S Paper · Ctrl+1/2/3 Copies · Esc Back"
       actions={[
         { key: 'Alt+P', label: 'Print all', icon: 'print', primary: true, onClick: () => void actions.print(), disabled: !docs?.length || actions.busy !== null },
         { key: 'Alt+E', label: 'Save as PDF', icon: 'download', onClick: () => void actions.savePdf(), disabled: !docs?.length || actions.busy !== null },
         { key: 'Alt+T', label: 'Change template', icon: 'layers', onClick: () => setTemplate(cycle(TEMPLATES, template)), group: 'layout' },
         { key: 'Alt+S', label: 'Change paper size', icon: 'file', onClick: () => setPageSize(cycle(SIZES, pageSize)), group: 'layout' },
-        { key: 'Alt+1', label: 'Original copy', onClick: () => toggle(PRINT_COPIES[0]), group: 'copies' },
-        { key: 'Alt+2', label: 'Duplicate copy', onClick: () => toggle(PRINT_COPIES[1]), group: 'copies' },
-        { key: 'Alt+3', label: 'Triplicate copy', onClick: () => toggle(PRINT_COPIES[2]), group: 'copies' },
+        { key: 'Ctrl+1', label: 'Original copy', onClick: () => toggle(PRINT_COPIES[0]), group: 'copies' },
+        { key: 'Ctrl+2', label: 'Duplicate copy', onClick: () => toggle(PRINT_COPIES[1]), group: 'copies' },
+        { key: 'Ctrl+3', label: 'Triplicate copy', onClick: () => toggle(PRINT_COPIES[2]), group: 'copies' },
       ]}
     >
       {docs && docs.length === 0 ? (

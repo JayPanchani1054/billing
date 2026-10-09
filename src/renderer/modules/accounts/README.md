@@ -50,7 +50,7 @@ itself), `filter?(row)`, plus the usual input props. `useGroups({ includeCounts?
 
 | id | params | What |
 |---|---|---|
-| `accounts.chart` | — | Chart of Accounts tree with closing balances as on the period end (Alt+F2), search, expand/collapse all, Alt+F5 detailed/condensed, Enter opens group/ledger form, Alt+C ledger / Alt+U group under the highlighted group, Alt+E/Alt+P |
+| `accounts.chart` | — | Chart of Accounts tree with closing balances as on the period end (Alt+F2), search, expand/collapse all, Alt+F1 detailed/condensed, Enter opens group/ledger form, Alt+C ledger / Alt+U group under the highlighted group, Alt+E/Alt+P |
 | `accounts.ledger.list` | `{ chip?, search? }` | Virtualised ledger list, chips All/Parties/Cash & Bank/Sales/Purchase/Duties & Taxes/Income/Expense, closing balance, Enter alter, Alt+C create, Alt+B multiple, Ctrl+D delete (server explains; offers Deactivate), Alt+E/Alt+P |
 | `accounts.ledger.form` | `{ id? \| initialName?, groupId?, forResult? }` | Single-page ledger form; sections by group class (below). Create = **Save & create next** (Ctrl+A, keeps the group) or Save & close (Alt+S); `forResult` = **Save & return** → `nav.pop({ id, name })`; alter: Save, Alt+D delete, Alt+L ledger report |
 | `accounts.ledger.bulk` | — | Multiple ledger creation grid (name, under, opening Dr/Cr, GSTIN → state, state), per-row errors, all-or-nothing |

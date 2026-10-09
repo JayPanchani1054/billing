@@ -88,7 +88,7 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Alt+P Print · Alt+E Save PDF · PgUp/PgDn Previous/Next voucher · Alt+T Template · Alt+S Paper · Esc Back"
+      hint="Alt+P Print · Alt+E Save PDF · PgUp/PgDn Previous/Next Voucher · Alt+T Template · Alt+S Paper · Ctrl+1/2/3 Copies · Esc Back"
       actions={[
         { key: 'Alt+P', label: 'Print', icon: 'print', primary: true, onClick: () => void actions.print(), disabled: !doc || actions.busy !== null, hint: 'Opens the printer dialog' },
         { key: 'Alt+E', label: 'Save as PDF', icon: 'download', onClick: () => void actions.savePdf(), disabled: !doc || actions.busy !== null },
@@ -97,9 +97,9 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
         { key: 'Alt+V', label: 'Open voucher', icon: 'eye', onClick: () => nav.push('vouchers.view', { id }), disabled: !doc, group: 'nav' },
         { key: 'Alt+T', label: 'Change template', icon: 'layers', onClick: () => setTemplate(cycle(TEMPLATES, template)), disabled: !doc, group: 'layout' },
         { key: 'Alt+S', label: 'Change paper size', icon: 'file', onClick: () => setPageSize(cycle(SIZES, pageSize)), disabled: !doc, group: 'layout' },
-        { key: 'Alt+1', label: 'Original copy', onClick: () => toggle(PRINT_COPIES[0]), disabled: !doc, group: 'copies' },
-        { key: 'Alt+2', label: 'Duplicate copy', onClick: () => toggle(PRINT_COPIES[1]), disabled: !doc, group: 'copies' },
-        { key: 'Alt+3', label: 'Triplicate copy', onClick: () => toggle(PRINT_COPIES[2]), disabled: !doc, group: 'copies' },
+        { key: 'Ctrl+1', label: 'Original copy', onClick: () => toggle(PRINT_COPIES[0]), disabled: !doc, group: 'copies' },
+        { key: 'Ctrl+2', label: 'Duplicate copy', onClick: () => toggle(PRINT_COPIES[1]), disabled: !doc, group: 'copies' },
+        { key: 'Ctrl+3', label: 'Triplicate copy', onClick: () => toggle(PRINT_COPIES[2]), disabled: !doc, group: 'copies' },
       ]}
     >
       {!validId ? (
