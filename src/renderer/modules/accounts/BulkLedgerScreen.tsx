@@ -14,7 +14,7 @@ import { useCan } from '../../app/state.tsx';
 import { AmountInput, Banner, Button, Field, IconButton, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import { StatePicker } from './components.tsx';
 import { LEDGER_DEPENDENTS } from './hooks.ts';
-import { applyRowGstin, bulkInput, bulkTotals, isBlankRow, mapBulkServerErrors, newBulkRow, validateBulkRows } from './lib/bulkRows.ts';
+import { applyRowGstin, bulkInput, bulkTotals, cellDescribedBy, cellErrorId, isBlankRow, mapBulkServerErrors, newBulkRow, validateBulkRows } from './lib/bulkRows.ts';
 import { classOfGroup, indexGroups } from './lib/groupClass.ts';
 import { defaultOpeningSide } from './lib/ledgerSections.ts';
 import type { BulkErrors, BulkRow } from './lib/bulkRows.ts';
@@ -166,25 +166,34 @@ export function BulkLedgerScreen() {
                   <tr key={r.key}>
                     <td className="bx-acc-grid__index">{i + 1}</td>
                     <td style={{ minWidth: 220 }}>
-                      <TextInput size="sm" value={r.name} onChange={(ev) => update(i, { ...r, name: ev.target.value })} aria-label={`Row ${i + 1} name`} invalid={!!e(r, 'name')} maxLength={200} readOnly={!canCreate} />
-                      {e(r, 'name') ? <span className="bx-acc-grid__error">{e(r, 'name')}</span> : null}
+                      <TextInput size="sm" value={r.name} onChange={(ev) => update(i, { ...r, name: ev.target.value })} aria-label={`Row ${i + 1} name`} aria-describedby={cellDescribedBy(errors, r.key, 'name')} invalid={!!e(r, 'name')} maxLength={200} readOnly={!canCreate} />
+                      {e(r, 'name') ? <span id={cellErrorId(r.key, 'name')} className="bx-acc-grid__error">{e(r, 'name')}</span> : null}
                     </td>
                     <td style={{ minWidth: 220 }}>
-                      <GroupPicker size="sm" value={r.groupId} onChange={(id) => update(i, { ...r, groupId: id })} aria-label={`Row ${i + 1} group`} invalid={!!e(r, 'groupId')} allowCreate={false} readOnly={!canCreate} />
-                      {e(r, 'groupId') ? <span className="bx-acc-grid__error">{e(r, 'groupId')}</span> : null}
+                      <GroupPicker size="sm" value={r.groupId} onChange={(id) => update(i, { ...r, groupId: id })} aria-label={`Row ${i + 1} group`} aria-describedby={cellDescribedBy(errors, r.key, 'groupId')} invalid={!!e(r, 'groupId')} allowCreate={false} readOnly={!canCreate} />
+                      {e(r, 'groupId') ? <span id={cellErrorId(r.key, 'groupId')} className="bx-acc-grid__error">{e(r, 'groupId')}</span> : null}
                     </td>
                     <td style={{ width: 180 }}>
                       {/* Starts on the usual side of the row's group (Cr for suppliers, capital, income); keyed so it follows a group change. */}
-                      <AmountInput key={defaultOpeningSide(classOfGroup(index, r.groupId))} size="sm" drcr defaultSide={defaultOpeningSide(classOfGroup(index, r.groupId))} value={r.openingBalance} onChange={(v) => update(i, { ...r, openingBalance: v })} aria-label={`Row ${i + 1} opening balance`} invalid={!!e(r, 'openingBalance')} readOnly={!canCreate} />
-                      {e(r, 'openingBalance') ? <span className="bx-acc-grid__error">{e(r, 'openingBalance')}</span> : null}
+                      <AmountInput key={defaultOpeningSide(classOfGroup(index, r.groupId))} size="sm" drcr defaultSide={defaultOpeningSide(classOfGroup(index, r.groupId))} value={r.openingBalance} onChange={(v) => update(i, { ...r, openingBalance: v })} aria-label={`Row ${i + 1} opening balance`} aria-describedby={cellDescribedBy(errors, r.key, 'openingBalance')} invalid={!!e(r, 'openingBalance')} readOnly={!canCreate} />
+                      {e(r, 'openingBalance') ? <span id={cellErrorId(r.key, 'openingBalance')} className="bx-acc-grid__error">{e(r, 'openingBalance')}</span> : null}
                     </td>
                     <td style={{ width: 190 }}>
-                      <TextInput size="sm" value={r.gstin} onChange={(ev) => update(i, applyRowGstin(r, ev.target.value))} aria-label={`Row ${i + 1} GSTIN`} invalid={!!e(r, 'gstin')} uppercase mono maxLength={15} spellCheck={false} readOnly={!canCreate} />
-                      {e(r, 'gstin') ? <span className="bx-acc-grid__error">{e(r, 'gstin')}</span> : null}
+                      <TextInput size="sm" value={r.gstin} onChange={(ev) => update(i, applyRowGstin(r, ev.target.value))} aria-label={`Row ${i + 1} GSTIN`} aria-describedby={cellDescribedBy(errors, r.key, 'gstin')} invalid={!!e(r, 'gstin')} uppercase mono maxLength={15} spellCheck={false} readOnly={!canCreate} />
+                      {e(r, 'gstin') ? <span id={cellErrorId(r.key, 'gstin')} className="bx-acc-grid__error">{e(r, 'gstin')}</span> : null}
                     </td>
                     <td style={{ minWidth: 200 }}>
-                      <StatePicker value={r.stateCode} onChange={(c) => update(i, { ...r, stateCode: c })} invalid={!!e(r, 'stateCode')} readOnly={!canCreate} placeholder="State" />
-                      {e(r, 'stateCode') ? <span className="bx-acc-grid__error">{e(r, 'stateCode')}</span> : null}
+                      <StatePicker
+                        size="sm"
+                        value={r.stateCode}
+                        onChange={(c) => update(i, { ...r, stateCode: c })}
+                        aria-label={`Row ${i + 1} state`}
+                        aria-describedby={cellDescribedBy(errors, r.key, 'stateCode')}
+                        invalid={!!e(r, 'stateCode')}
+                        readOnly={!canCreate}
+                        placeholder="State"
+                      />
+                      {e(r, 'stateCode') ? <span id={cellErrorId(r.key, 'stateCode')} className="bx-acc-grid__error">{e(r, 'stateCode')}</span> : null}
                     </td>
                     <td className="bx-acc-grid__actions">
                       {canCreate && !isBlankRow(r) ? <IconButton icon="trash" size="sm" aria-label={`Remove row ${i + 1}`} tabIndex={-1} onClick={() => removeRow(i)} /> : null}

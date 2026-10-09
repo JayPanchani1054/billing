@@ -57,7 +57,7 @@ export function DepositSlipScreen({ params }: ScreenProps<{ ledgerId?: number; d
       error={banksError ?? q.error}
       onRetry={() => void q.refetch()}
       exportDef={slip ? () => depositSlipExport(slip) : undefined}
-      hint="Alt+P print the slip · Enter open voucher · Change the date to see another day's deposits"
+      hint="Alt+P Print the slip · Enter Open voucher · Change the date to see another day's deposits"
       filters={
         <Inline gap={2} wrap align="end">
           <Field label="Bank account">

@@ -153,7 +153,7 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
                   ))}
                 </Stack>
               </Field>
-              <Switch label="Print right after saving an invoice" checked={draft.printAfterSave} disabled={readOnly} onChange={(v) => patch({ printAfterSave: v })} />
+              <Switch label="Print right after saving an invoice (sales, credit / debit note, delivery note)" checked={draft.printAfterSave} disabled={readOnly} onChange={(v) => patch({ printAfterSave: v })} />
               <Switch label="HSN/SAC-wise tax summary" checked={draft.showHsnSummary} disabled={readOnly} onChange={(v) => patch({ showHsnSummary: v })} />
               <Switch label="Tax columns on every item line" checked={draft.itemwiseTax} disabled={readOnly} onChange={(v) => patch({ itemwiseTax: v })} />
             </FieldGroup>

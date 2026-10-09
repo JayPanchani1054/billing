@@ -37,7 +37,7 @@ contains its own history row.
 | `data.export.table` | `ExportTableInput` → `ExportFileResult` | authenticated + `data.export` (service) | audited `export` |
 | `data.export.audit` | `ExportAuditInput` → `{ok:true}` | authenticated + `data.export` (service) | print / PDF of a report: audited `export` |
 | `data.export.masters` | `ExportMastersInput` → `ExportFileResult` | `data.export` | |
-| `data.export.vouchers` | `ExportVouchersInput` → `ExportFileResult` | `data.export` | |
+| `data.export.vouchers` | `ExportVouchersInput` → `ExportFileResult` | `data.export` | async, streamed; audited `export` |
 | `data.import.kinds` | none → `ImportKindInfo[]` | `data.import` | column help for the wizard |
 | `data.import.template` | `{kind}` → `ExportFileResult` | `data.import` | |
 | `data.import.preview` | `ImportPreviewInput` → `ImportPreviewResult` | `data.import` | no writes |
@@ -88,7 +88,9 @@ Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersio
   (`DEFAULT_SHUTDOWN_ROUTES`, bounded at 20 s) — so closing the window or quitting from Windows backs up
   too. Access `authenticated`: it is a company-wide policy, not tied to the user's `data.backup`
   permission. Failures come back as `{reason:'failed', error}` (never thrown); the shell shows them with
-  an "Open Backup" action.
+  an "Open Backup" action. Single-flight per open company: a call made while an automatic backup is
+  still being written (e.g. F3 right after the `open` catch-up, or the shutdown step after the shell
+  stopped waiting) shares that run and its result — never two copies side by side.
 - **Restore**: verify → extract to a temporary database → append a `restore` audit entry to the restored
   database's own edit log → `controllerFor(app).installCompanyDatabase(...)` as a new company (`mode:'new'`)
   or over a CLOSED company (`mode:'replace'`, `replaceId`; its folder is moved to the trash first;
@@ -115,6 +117,15 @@ Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersio
   an exported workbook imports back (tested round trip). CSV with several kinds → `.zip`.
 - `data.export.vouchers {from, to, baseTypes?, includeOptional?=true, includeCancelled?=false, format}` —
   sheets Vouchers / Ledger Entries (layout of the `vouchers_ledger` import) / Inventory Entries.
+  **Streamed** (asynchronous, `transactional: false`): rows are read one at a time (`Db.iterate`), month
+  by month, from ONE read snapshot (a separate read-only connection with an open read transaction, so
+  changes committed meanwhile are not mixed in) and written straight into a temporary ZIP in the company
+  folder (`.export-*.tmp`: `XlsxStreamWriter` with inline strings, or one CSV per sheet, deflated in
+  256 KiB blocks by `ZipFileWriter`), which is read back once and deleted (also on failure; start-up
+  sweeps leftovers). Memory ≈ the finished file: a five-year export (≈ 520 k rows) peaks at ≈ 0.2 GB RSS
+  instead of ≈ 2 GB and no longer runs out of memory under a 1 GB heap; the longest event-loop block is
+  ≈ 0.2 s (it yields every 5,000 rows and between months). An `.xlsx` whose largest sheet would exceed
+  Excel's 1,048,575 data rows is refused with VALIDATION ("Export as CSV, or choose a shorter period").
 
 ## Import (Excel / CSV)
 
@@ -135,6 +146,13 @@ example rows, plus an Instructions sheet (column, required, type, help, allowed 
   nothing written. `skipInvalid` → good records kept, bad ones rolled back individually and reported.
   `updateExisting` alters existing masters (default: duplicates skipped). `acknowledgeWarnings` saves
   vouchers with non-blocking warnings. One `import_batches` row and one `import` audit entry.
+- **Job** (preview and commit, `api/jobs.ts`): asynchronous, in chunks of `IMPORT_CHUNK` with progress
+  (`data.import.progress`), inside ONE transaction held open across the chunks. While it runs, every
+  other company request is refused with `CONFLICT` (it would join — and be rolled back with — that
+  transaction), and a job only starts when no other asynchronous request (an export, a backup, a Tally
+  import) is still in flight on the company. App-level writes that bypass the dispatcher follow the same
+  rule: login / password change are refused with `CONFLICT` until the job ends, and a logout or idle lock
+  ends the session at once but writes its `logout` edit-log entry after the job.
 - Permissions: besides `data.import`, masters kinds need `masters.create` (+ `masters.alter` with
   `updateExisting`), opening balances / opening stock need `masters.alter`, voucher kinds need
   `vouchers.create` (the masters services leave permission checks to their routes, so the importer asks).

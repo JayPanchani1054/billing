@@ -546,7 +546,23 @@ export async function verifyBackup(access: BackupFileAccess, rawPath: string, pa
  * the company or quits ('close'). A brand-new company (created < 24 h ago, never backed up) is not
  * copied on open — it is on close. Never throws: failures come back as reason 'failed'.
  */
-export async function autoBackup(ctx: CompanyCtx, input: BackupAutoInput = {}): Promise<BackupAutoResult> {
+export function autoBackup(ctx: CompanyCtx, input: BackupAutoInput = {}): Promise<BackupAutoResult> {
+  // One automatic backup at a time per open company: the 'open' catch-up, a 'close' the shell
+  // stopped waiting for, and the runtime's shutdown step may overlap — they share the run in
+  // progress instead of writing two copies side by side (and pruning the folder concurrently).
+  const running = autoBackupsInFlight.get(ctx.db);
+  if (running) return running;
+  const run = runAutoBackup(ctx, input).finally(() => {
+    if (autoBackupsInFlight.get(ctx.db) === run) autoBackupsInFlight.delete(ctx.db);
+  });
+  autoBackupsInFlight.set(ctx.db, run);
+  return run;
+}
+
+/** Automatic backups being written, by open company database (see autoBackup). */
+const autoBackupsInFlight = new WeakMap<object, Promise<BackupAutoResult>>();
+
+async function runAutoBackup(ctx: CompanyCtx, input: BackupAutoInput): Promise<BackupAutoResult> {
   const cfg = getConfig(ctx.db).backup;
   const last = lastBackupAt(ctx.db);
   if (!cfg.auto) return { ran: false, reason: 'disabled', lastBackupAt: last };

@@ -287,7 +287,7 @@ export const dataRoutes = {
     access: 'data.export',
     transactional: false,
     input: ExportVouchersInputSchema,
-    handler: (ctx, input): ExportFileResult => exportVouchers(ctx, input),
+    handler: (ctx, input): Promise<ExportFileResult> => exportVouchers(ctx, input), // streamed, yields (exportData.ts)
   }),
 
   // ── Import (Excel / CSV) ──

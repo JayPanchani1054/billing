@@ -30,7 +30,7 @@ describe('keyboard map', () => {
 
   test('the cross-screen conventions are documented (F1 overlay)', () => {
     const documented = new Set(CONVENTION_SHORTCUTS.flatMap((s) => keysOf(s.keys)));
-    for (const k of ['alt+d', 'ctrl+d', 'alt+2', 'alt+x', 'alt+a', 'alt+enter', 'alt+f1', 'alt+m', 'ctrl+1', 'ctrl+f', 'alt+n', 'alt+e', 'alt+p']) {
+    for (const k of ['alt+d', 'ctrl+d', 'alt+2', 'alt+x', 'alt+a', 'alt+enter', 'alt+f1', 'alt+m', 'ctrl+1', 'ctrl+f', 'alt+n', 'alt+e', 'alt+p', 'ctrl+p', 'alt+h']) {
       assert.ok(documented.has(k), `${k} missing from CONVENTION_SHORTCUTS`);
     }
   });

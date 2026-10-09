@@ -12,7 +12,10 @@
 #   pwsh ./scripts/smoke-installed.ps1 -Installer release\Bahi-ERP-Setup-0.1.0.exe [-Evidence dir]
 param(
   [Parameter(Mandatory = $true)][string]$Installer,
-  [int]$TimeoutSeconds = 120,
+  # The core starts within 30 s (or the app exits 1), the app then gives its own verdict within 90 s
+  # (SMOKE_TIMEOUT_MS) and exits at most 40 s later (QUIT_DEADLINE_MS); waiting longer than all three
+  # means the app's verdict, not a kill, decides the result (src/main/smoke.test.ts checks this).
+  [int]$TimeoutSeconds = 180,
   # Folder that receives the app log (uploaded by CI when the job fails).
   [string]$Evidence = ''
 )

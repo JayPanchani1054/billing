@@ -16,7 +16,10 @@ import { LedgerPicker, useLedgerPicker, GroupPicker, useGroups, groupTrail } fro
 
 Type-ahead ledger picker (ui `Picker`) over `accounts.ledger.picker`, grouped by ledger group, with
 the closing balance (Dr/Cr) on the right and "+ Create" / **Alt+C** (opens `accounts.ledger.form`
-with the typed name via `pushForResult` and selects the new ledger).
+with the typed name via `pushForResult` and selects the new ledger). When `classes` point to one
+group (`lib/groupClass.ts › groupCodeForClasses`), the form opens under it (`groupCode` param) with
+that group's defaults — the voucher screen's own ledger picker does the same per slot
+(`vouchers/lib/masters.ts › createGroupCode`).
 
 | Prop | Type | Notes |
 |---|---|---|
@@ -51,15 +54,15 @@ itself), `filter?(row)`, plus the usual input props. `useGroups({ includeCounts?
 | id | params | What |
 |---|---|---|
 | `accounts.chart` | — | Chart of Accounts tree with closing balances as on the period end (Alt+F2), search, expand/collapse all, Alt+F1 detailed/condensed, Enter opens group/ledger form, Alt+C ledger / Alt+U group under the highlighted group, Alt+E/Alt+P |
-| `accounts.ledger.list` | `{ chip?, search? }` | Virtualised ledger list, chips All/Parties/Cash & Bank/Sales/Purchase/Duties & Taxes/Income/Expense, closing balance, Enter alter, Alt+C create, Alt+B multiple, Ctrl+D delete (server explains; offers Deactivate), Alt+E/Alt+P |
-| `accounts.ledger.form` | `{ id? \| initialName?, groupId?, forResult? }` | Single-page ledger form; sections by group class (below). Create = **Save & create next** (Ctrl+A, keeps the group) or Save & close (Alt+S); `forResult` = **Save & return** → `nav.pop({ id, name })`; alter: Save, Alt+D delete, Alt+L ledger report |
+| `accounts.ledger.list` | `{ chip?, search? }` | Virtualised ledger list, chips All/Parties/Cash & Bank/Sales/Purchase/Duties & Taxes/Income/Expense, closing balance, Enter alter, Alt+C create, Alt+B multiple, Alt+D delete (Ctrl+D also works; server explains; offers Deactivate), Alt+H edit history, Alt+T chart of accounts, Alt+E/Alt+P |
+| `accounts.ledger.form` | `{ id? \| initialName?, groupId? \| groupCode?, forResult? }` | Single-page ledger form; `groupCode` is a reserved group code (`SUNDRY_DEBTORS`, `BANK_ACCOUNTS`, …) for callers without group ids (voucher pickers, Banking) — the form opens under that group with its defaults; sections by group class (below). Create = **Save & create next** (Ctrl+A, keeps the group) or Save & close (Alt+S); `forResult` = **Save & return** → `nav.pop({ id, name })`; alter: Save, Alt+D delete, Alt+L ledger report, Alt+H edit history |
 | `accounts.ledger.bulk` | — | Multiple ledger creation grid (name, under, opening Dr/Cr, GSTIN → state, state), per-row errors, all-or-nothing |
-| `accounts.group.list` | — | Group tree with ledger counts; Enter alter, Alt+C create under highlighted, Ctrl+D delete |
-| `accounts.group.form` | `{ id? \| initialName?, parentId?, forResult? }` | Group creation/alteration (nature only for primary groups, gross profit only for primary income/expense) |
-| `accounts.costCentres` | — (feature `costCentres`) | Categories + centre tree, dialogs for create/alter, Ctrl+D delete |
-| `accounts.currencies` | — (feature `multiCurrency`) | Currencies + exchange rates by date (upsert by date) |
-| `accounts.voucherTypes` | — | Voucher types with numbering summary; Alt+C create based on highlighted |
-| `accounts.voucherType.form` | `{ id? \| parentId? \| baseType? }` | Numbering with live preview + GST invoice-number checks, behaviour switches, defaults, printing. A new type starts its own series (parent's method/padding/restart, no prefix, from 1 — as the core does) and the form warns when another active type of the same GST document kind issues identical numbers |
+| `accounts.group.list` | — | Group tree with ledger counts; Enter alter, Alt+C create under highlighted, Alt+D (or Ctrl+D) delete, Alt+H edit history, Alt+T chart of accounts |
+| `accounts.group.form` | `{ id? \| initialName?, parentId?, forResult? }` | Group creation/alteration (nature only for primary groups, gross profit only for primary income/expense); alter: Alt+D delete, Alt+H edit history |
+| `accounts.costCentres` | — (feature `costCentres`) | Categories + centre tree, dialogs for create/alter, Alt+D (or Ctrl+D) delete |
+| `accounts.currencies` | — (feature `multiCurrency`) | Currencies + exchange rates by date (upsert by date); Alt+D (or Ctrl+D) delete |
+| `accounts.voucherTypes` | — | Voucher types with numbering summary; Alt+C create based on highlighted, Alt+D (or Ctrl+D) delete |
+| `accounts.voucherType.form` | `{ id? \| parentId? \| baseType? }` | Numbering with live preview + GST invoice-number checks (alter: Alt+D delete, Alt+H edit history), behaviour switches, defaults, printing. A new type starts its own series (parent's method/padding/restart, no prefix, from 1 — as the core does) and the form warns when another active type of the same GST document kind issues identical numbers |
 | `accounts.openingBalances` | — | Dr/Cr totals, difference explained, ledgers with openings (Enter alters). With integrated inventory the opening stock is read from `reports.trialBalance` (as on the books beginning) when the user may view reports, and included in the difference |
 
 ### Ledger form sections (`lib/ledgerSections.ts`, mirrors the core placement rules)

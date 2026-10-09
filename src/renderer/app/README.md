@@ -422,21 +422,26 @@ One meaning per key in every module (`CONVENTION_SHORTCUTS` in `lib/shortcuts.ts
 | `Esc` | back (shell) |
 | `Alt+C` | create (a master from a picker, or the screen's main "Create …") |
 | `Alt+A` | alter the selected voucher / master |
-| `Alt+D` | delete the master or voucher on screen |
+| `Alt+D` | delete the master or voucher on screen (master lists also accept `Ctrl+D`) |
 | `Ctrl+D` | remove the line (voucher and grid rows) |
 | `Alt+N` / `Ctrl+N` | insert a line above |
 | `Alt+2` | duplicate the voucher |
 | `Alt+X` | cancel the voucher |
+| `Alt+H` | edit history of the voucher / master on screen (`security.audit` record history) |
 | `Alt+Enter` | view the voucher (read-only) |
 | `Alt+M` | open the master of the report's subject (ledger, item) |
 | `Alt+F1` | detailed / condensed |
+| `Alt+X` (reports) | expand / collapse all — on vouchers `Alt+X` is cancel (always confirmed) |
+| `Alt+C` (Balance Sheet, P&L) | comparison column (Tally "New Column"); everywhere else `Alt+C` creates |
 | `Ctrl+1` … `Ctrl+9` | switch view / tab |
 | `Ctrl+F` | focus the screen's search box |
-| `Alt+E` / `Alt+P` | export / print (need `data.export`) |
+| `Alt+E` / `Alt+P` | export / print (need `data.export`); in voucher entry `Alt+P` prints the voucher altered or just saved |
+| `Ctrl+P` | print the highlighted voucher (Day Book, voucher lists — `Alt+P` there prints the list) |
 
 Screens must not bind `reservedGlobalKeys()` (the voucher screen's own F-keys and the documented
 GST exceptions aside) — e.g. never `Alt+F5` (Sales Order). Action labels use Tally verbs ("Create
-ledger", "Alter", "Delete"); hints read `<Key> <Title Case action>` ("Alt+C Create Ledger"). Plain
+ledger", "Alter", "Delete"); hints read `<Key> <Capitalised action>` ("Alt+C Create Ledger", "Ctrl+A Save", "Enter Next field";
+`lib/screenConventions.test.ts` checks every module's status-bar hints, labels and keys). Plain
 letter keys are free for screen accelerators (ignored while typing). Put every action in the rail via
 `actions` / `useScreenActions` so it is discoverable.
 

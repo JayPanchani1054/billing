@@ -79,8 +79,8 @@ describe('GST issue fix links', () => {
   });
 });
 
-describe('GST issue hotkey targets (Alt+M master, Alt+L voucher)', () => {
-  it('Alt+M opens the master that holds the wrong data, Alt+L the voucher', () => {
+describe('GST issue hotkey targets (Alt+M master, Alt+A alter voucher)', () => {
+  it('Alt+M opens the master that holds the wrong data, Alt+A alters the voucher', () => {
     const hsn = issue('hsn_missing', { itemId: 9 });
     assert.deepEqual(masterLink(hsn)?.params, { id: 9 });
     assert.equal(masterLink(hsn)?.screen, 'inventory.item.form');

@@ -15,9 +15,11 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { AppError } from '../../../../core/lib/errors.ts';
+import { parse } from '../../../../core/lib/validate.ts';
 import { getLedger } from '../../../../core/modules/accounts/ledgers.ts';
 import { itemPicker } from '../../../../core/modules/inventory/items.ts';
 import { entryContext, getVoucher, partyContext } from '../../../../core/modules/vouchers/queries.ts';
+import { VoucherInputSchema } from '../../../../core/modules/vouchers/routes.ts';
 import { previewVoucher, saveVoucher } from '../../../../core/modules/vouchers/service.ts';
 import { entryMap, setupKit } from '../../../../core/modules/vouchers/testkit.ts';
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
@@ -131,11 +133,21 @@ describe('live totals = the posting engine (vouchers.preview), to the paisa', ()
 /** Save the form, read it back as the alteration screen does, rebuild the input from the form. */
 function roundTrip(f: VoucherForm, baseType: VoucherBaseType) {
   const built = buildVoucherInput(f);
+  assertStrictInput(built.input);
   const saved = saveVoucher(t.ctx, { ...built.input, acknowledgeWarnings: true });
   const detail = getVoucher(t.db, saved.id);
   const form = formFromInput(detail.input, { baseType, alter: true });
   const again = buildVoucherInput(form).input;
+  assertStrictInput(again);
   return { saved, detail, form, again };
+}
+
+/**
+ * What the form sends passes vouchers.save's schema with unknown keys refused (the dispatcher's strict
+ * mode in tests and development): no UI-only key (row keys, labels) leaks into the request.
+ */
+function assertStrictInput(input: VoucherInput): void {
+  parse(VoucherInputSchema, { ...input, acknowledgeWarnings: true }, { unknownKeys: 'reject' });
 }
 
 const strip = (i: VoucherInput): VoucherInput => JSON.parse(JSON.stringify(i)) as VoucherInput;

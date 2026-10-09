@@ -3,7 +3,8 @@
  *
  * Writer — report exports: shared strings (deduplicated), bold/indent styles, Indian-grouped amount format
  * (12,34,567.00), integer / percent / dd-mmm-yyyy date formats, title lines above a bold header row, frozen
- * header, auto-filter and column widths. SECURITY: text is only ever written as a shared string (never as a
+ * header, auto-filter and column widths. XlsxStreamWriter writes very large exports row by row (inline strings,
+ * constant memory). SECURITY: text is only ever written as a shared or inline string (never as a
  * formula, so "=HYPERLINK(…)" from a party name stays inert text), XML-invalid control characters are stripped,
  * names/attributes are escaped, and literal `_xHHHH_` sequences are escaped so Excel cannot reinterpret them.
  *
@@ -15,7 +16,7 @@
  */
 import { FileFormatError, decodeText } from './text.ts';
 import { createZip, readZip } from './zip.ts';
-import type { ReadZipOptions, ZipArchive, ZipInputEntry } from './zip.ts';
+import type { ReadZipOptions, ZipArchive, ZipFileWriter, ZipInputEntry } from './zip.ts';
 import { XML_DECLARATION, escapeAttr, escapeXml, localName, parseXml, saxParse, stripInvalidXmlChars } from './xml.ts';
 import type { XmlElement } from './xml.ts';
 
@@ -534,16 +535,17 @@ function isoSeconds(d: Date): string {
   return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** Build an .xlsx workbook. Throws RangeError for sheets beyond Excel's row/column limits. */
-export function writeXlsx(workbook: XlsxWorkbook): Uint8Array {
-  const sheets = workbook.sheets.length > 0 ? workbook.sheets : [{ name: 'Sheet1', rows: [] }];
-  const names = sanitizeSheetNames(sheets.map((s) => s.name));
-  const styles = createStyles();
-  const sst = createSharedStrings();
-  const written = sheets.map((s, i) => buildSheet(s, names[i], i, styles, sst));
-  const created = workbook.created ?? new Date();
-  const creator = workbook.creator ?? 'Bahi ERP';
-
+/**
+ * Every package part except the worksheets (content types, rels, doc props, workbook, styles and —
+ * when `sstXml` is given — shared strings). `written` lists the sheets in order.
+ */
+function packageParts(
+  written: ReadonlyArray<{ name: string; filterRange: string | null }>,
+  stylesXml: string,
+  sstXml: string | null,
+  created: Date,
+  creator: string,
+): ZipInputEntry[] {
   const sheetEntries = written
     .map((s, i) => `<sheet name="${escapeAttr(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
     .join('');
@@ -571,7 +573,7 @@ export function writeXlsx(workbook: XlsxWorkbook): Uint8Array {
     `<Relationships xmlns="${NS_PKG_REL}">` +
     written.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${REL_BASE}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('') +
     `<Relationship Id="rId${n + 1}" Type="${REL_BASE}/styles" Target="styles.xml"/>` +
-    `<Relationship Id="rId${n + 2}" Type="${REL_BASE}/sharedStrings" Target="sharedStrings.xml"/>` +
+    (sstXml !== null ? `<Relationship Id="rId${n + 2}" Type="${REL_BASE}/sharedStrings" Target="sharedStrings.xml"/>` : '') +
     `</Relationships>`;
 
   const contentTypes =
@@ -587,7 +589,7 @@ export function writeXlsx(workbook: XlsxWorkbook): Uint8Array {
       )
       .join('') +
     `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
-    `<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>` +
+    (sstXml !== null ? `<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>` : '') +
     `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>` +
     `<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>` +
     `</Types>`;
@@ -626,18 +628,160 @@ export function writeXlsx(workbook: XlsxWorkbook): Uint8Array {
     `<LinksUpToDate>false</LinksUpToDate><SharedDoc>false</SharedDoc><HyperlinksChanged>false</HyperlinksChanged><AppVersion>16.0300</AppVersion>` +
     `</Properties>`;
 
-  const entries: ZipInputEntry[] = [
+  return [
     { name: '[Content_Types].xml', data: contentTypes, date: created },
     { name: '_rels/.rels', data: rootRels, date: created },
     { name: 'docProps/core.xml', data: coreXml, date: created },
     { name: 'docProps/app.xml', data: appXml, date: created },
     { name: 'xl/workbook.xml', data: workbookXml, date: created },
     { name: 'xl/_rels/workbook.xml.rels', data: workbookRels, date: created },
-    { name: 'xl/styles.xml', data: styles.xml(), date: created },
-    { name: 'xl/sharedStrings.xml', data: sst.xml(), date: created },
+    { name: 'xl/styles.xml', data: stylesXml, date: created },
+    ...(sstXml !== null ? [{ name: 'xl/sharedStrings.xml', data: sstXml, date: created }] : []),
+  ];
+}
+
+/** Build an .xlsx workbook. Throws RangeError for sheets beyond Excel's row/column limits. */
+export function writeXlsx(workbook: XlsxWorkbook): Uint8Array {
+  const sheets = workbook.sheets.length > 0 ? workbook.sheets : [{ name: 'Sheet1', rows: [] }];
+  const names = sanitizeSheetNames(sheets.map((s) => s.name));
+  const styles = createStyles();
+  const sst = createSharedStrings();
+  const written = sheets.map((s, i) => buildSheet(s, names[i], i, styles, sst));
+  const created = workbook.created ?? new Date();
+  const creator = workbook.creator ?? 'Bahi ERP';
+  const entries: ZipInputEntry[] = [
+    ...packageParts(written, styles.xml(), sst.xml(), created, creator),
     ...written.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: s.xml, date: created })),
   ];
   return createZip(entries);
+}
+
+// ───────────────────────────── Streaming writer ─────────────────────────────
+
+export interface XlsxStreamSheet {
+  name: string;
+  /** Header row; widths come from `width` or the header text (content is not measured when streaming). */
+  columns: XlsxColumn[];
+  freezeHeader?: boolean;
+  autoFilter?: boolean;
+}
+
+/** Text cell as an inline string (no shared-strings table is kept in memory). */
+function inlineTextCell(ref: string, style: number, text: string): string {
+  const preserve = text !== text.trim() || /[\n\t]| {2}/.test(text) ? ' xml:space="preserve"' : '';
+  return `<c r="${ref}"${style ? ` s="${style}"` : ''} t="inlineStr"><is><t${preserve}>${escapeXml(text)}</t></is></c>`;
+}
+
+/**
+ * .xlsx written row by row straight into a ZipFileWriter, for exports too large to build in memory
+ * (writeXlsx keeps every row, the shared-strings table and the sheet XML in memory at once). Memory is
+ * bounded by one row plus the ZIP writer's chunk. Same cell rules and styles as writeXlsx, with these
+ * differences: text is written as inline strings (still never as formulas), column widths are not
+ * measured from the content, and there are no title lines. Usage: beginSheet → addRow… → endSheet,
+ * repeated, then finish(); the caller then finishes (or aborts) the ZipFileWriter.
+ */
+export class XlsxStreamWriter {
+  private readonly zip: ZipFileWriter;
+  private readonly created: Date;
+  private readonly creator: string;
+  private readonly styles = createStyles();
+  private readonly sheets: Array<{ name: string; filterRange: string | null }> = [];
+  private readonly usedNames = new Set<string>();
+  private open: { name: string; cols: number; colNames: string[]; columns: XlsxColumn[]; rowNum: number; autoFilter: boolean; cellXml: CellXml } | null = null;
+
+  constructor(zip: ZipFileWriter, opts: { creator?: string; created?: Date } = {}) {
+    this.zip = zip;
+    this.created = opts.created ?? new Date();
+    this.creator = opts.creator ?? 'Bahi ERP';
+  }
+
+  beginSheet(sheet: XlsxStreamSheet): void {
+    if (this.open) throw new Error('XlsxStreamWriter: the previous sheet is still open');
+    const name = sanitizeSheetName(sheet.name, this.usedNames);
+    const columns = sheet.columns;
+    const cols = columns.length;
+    if (cols > MAX_COLUMNS) throw new RangeError(`Sheet ${JSON.stringify(name)} has more than ${MAX_COLUMNS} columns`);
+    const colNames: string[] = [];
+    for (let c = 0; c < Math.max(cols, 1); c++) colNames.push(columnName(c));
+    const index = this.sheets.length;
+    this.zip.beginEntry(`xl/worksheets/sheet${index + 1}.xml`, this.created);
+    const hasHeader = cols > 0;
+    let views = `<sheetView workbookViewId="0"${index === 0 ? ' tabSelected="1"' : ''}`;
+    views += sheet.freezeHeader && hasHeader
+      ? `><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView>`
+      : '/>';
+    let colXml = '';
+    for (let c = 0; c < cols; c++) {
+      const given = columns[c].width;
+      const width = given !== undefined && Number.isFinite(given) && given > 0 ? Math.min(given, 255) : Math.max(8, Math.min(60, xlsxText(String(columns[c].header ?? '')).length + 4));
+      colXml += `<col min="${c + 1}" max="${c + 1}" width="${width}" customWidth="1"/>`;
+    }
+    this.zip.write(
+      XML_DECLARATION +
+        `<worksheet xmlns="${NS_MAIN}" xmlns:r="${NS_REL}">` +
+        `<sheetViews>${views}</sheetViews>` +
+        `<sheetFormatPr defaultRowHeight="15"/>` +
+        (colXml ? `<cols>${colXml}</cols>` : '') +
+        `<sheetData>`,
+    );
+    const cellXml = createCellXml(this.styles, [], inlineTextCell);
+    let rowNum = 0;
+    if (hasHeader) {
+      let cells = '';
+      for (let c = 0; c < cols; c++) {
+        const header = xlsxText(String(columns[c].header ?? ''));
+        if (!header) continue;
+        const st = this.styles.id({ numFmtId: FMT_GENERAL, fontId: FONT_BOLD, indent: 0, align: NUMERIC_KINDS.has(columns[c].kind) ? 'right' : '' });
+        cells += inlineTextCell(`${colNames[c]}1`, st, header);
+      }
+      rowNum = 1;
+      this.zip.write(`<row r="1">${cells}</row>`);
+    }
+    this.open = { name, cols, colNames, columns, rowNum, autoFilter: sheet.autoFilter === true && hasHeader, cellXml };
+  }
+
+  /** Rows written to the open sheet so far (header included). */
+  get rowCount(): number {
+    return this.open?.rowNum ?? 0;
+  }
+
+  addRow(cells: readonly XlsxCell[]): void {
+    const o = this.open;
+    if (!o) throw new Error('XlsxStreamWriter: no sheet is open');
+    if (o.rowNum >= MAX_ROWS) throw new RangeError(`Sheet ${JSON.stringify(o.name)} has more than ${MAX_ROWS} rows`);
+    o.rowNum++;
+    while (o.colNames.length < cells.length && o.colNames.length < MAX_COLUMNS) o.colNames.push(columnName(o.colNames.length));
+    let xml = '';
+    const n = Math.min(cells.length, MAX_COLUMNS);
+    for (let c = 0; c < n; c++) xml += o.cellXml(`${o.colNames[c]}${o.rowNum}`, cells[c], o.columns[c]?.kind, c);
+    if (xml) this.zip.write(`<row r="${o.rowNum}">${xml}</row>`);
+  }
+
+  endSheet(): void {
+    const o = this.open;
+    if (!o) throw new Error('XlsxStreamWriter: no sheet is open');
+    const lastCol = o.colNames[Math.max(o.cols, 1) - 1];
+    const filterRange = o.autoFilter ? `A1:${lastCol}${Math.max(o.rowNum, 1)}` : null;
+    this.zip.write(
+      `</sheetData>` +
+        (filterRange ? `<autoFilter ref="${filterRange}"/>` : '') +
+        `<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>` +
+        `</worksheet>`,
+    );
+    this.zip.endEntry();
+    this.sheets.push({ name: o.name, filterRange });
+    this.open = null;
+  }
+
+  /** Write the remaining package parts (after the last sheet). */
+  finish(): void {
+    if (this.open) this.endSheet();
+    if (this.sheets.length === 0) {
+      this.beginSheet({ name: 'Sheet1', columns: [] });
+      this.endSheet();
+    }
+    for (const part of packageParts(this.sheets, this.styles.xml(), null, this.created, this.creator)) this.zip.addEntry(part.name, part.data, part.date);
+  }
 }
 
 // ───────────────────────────── Reader ─────────────────────────────

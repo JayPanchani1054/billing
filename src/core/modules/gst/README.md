@@ -226,11 +226,14 @@ from the first period of the books (books beginning, or the first GST document i
 carried into it) with each period's own manual entries. A quarter chains quarters the same way; a date
 range is a review and carries nothing (note in `notes`). The 3B screen, the dashboard GST card and
 GSTR-9 table 9 (which walks the year's months in order) all use the same chain. Reverse-charge tax
-never uses credit.
+never uses credit. When a period has both credit brought forward and a manual `creditLedgerBalance`,
+a note warns that the manual entry is added on top (it is credit the books do not hold, not the whole
+portal balance — entered as the whole balance, as before the chain existed, the credit would count twice).
 
 *Cost.* Each period's closing credit is memoised per connection with a fingerprint of its data (its
 `gst_lines` — amounts, rate, flags, position-weighted —, its GST vouchers' count / ids / totals / status /
-last change, and its manual entries). While nothing is written (`total_changes()`, `PRAGMA
+last change of every voucher, the party ledger's GSTIN / state / registration for vouchers whose own party
+snapshot is incomplete (classification falls back to the ledger), and its manual entries). While nothing is written (`total_changes()`, `PRAGMA
 data_version`) a repeat costs nothing; after a write the fingerprints are re-read (≈0.1 s on 35,000
 GST lines) and only the periods from the first changed one are recomputed — a save in the current
 month recomputes nothing of the history (≈0.2 s for a changed last month vs ≈1.1 s for 18 months /

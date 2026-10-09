@@ -215,6 +215,15 @@ typecheck clean, all app + company + security tests pass with it applied.
 No controller change is needed for the idle timeout (it already reads `settings['security'].idleTimeoutMinutes`).
 Optional: the controller's company-delete throttle still uses the fixed 5 / 5 min.
 
+## Edit Log in the UI (`src/renderer/modules/security`)
+
+- Record history (`security.audit { entityType, entityId, entityGuid?, label? }`) is opened with **Alt+H "Edit
+  history"** from voucher entry / view, users and roles, and the master forms: ledger (also the ledger list),
+  group (also the group list), voucher type, stock item and company details (`entityType` = the type the
+  core audits: `ledger`, `group`, `voucher_type`, `stock_item`, `company` #1). Hidden without `audit.view`.
+- The other way, **Alt+A "Open record"** in the history (and on a selected Edit Log row) opens the voucher view
+  or the master's form (`lib/recordLinks.ts`); hidden when the record was deleted or has no screen.
+
 ## Limitations
 
 - Permissions are captured at login: role changes, deactivation and lockout settings affect a user from

@@ -4,20 +4,25 @@
  * Voucher exports are flat: Vouchers (one row per voucher), Ledger Entries (one row per ledger entry /
  * bill allocation — the layout of the 'vouchers_ledger' import) and Inventory Entries (one row per stock
  * line, headers as in the sales/purchase invoice templates). CSV output of several sheets is a .zip.
+ * Voucher exports are streamed month by month into a temporary ZIP file (constant memory, one read
+ * snapshot, yields to the event loop) — see "Vouchers (streamed)" below.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import { VOUCHER_BASE_TYPES } from '../../../shared/constants.ts';
-import { formatDate } from '../../../shared/dates.ts';
+import { addDays, endOfMonth, formatDate } from '../../../shared/dates.ts';
 import { stateName } from '../../../shared/gst/index.ts';
 import type { ExportFileResult, ExportMastersInput, ExportVouchersInput, MasterExportKind } from '../../../shared/types/data.ts';
 import type { CompanyCtx } from '../../api/context.ts';
-import type { Db } from '../../db/db.ts';
+import { Db } from '../../db/db.ts';
 import { neutraliseFormula, toCsv } from '../../lib/csv.ts';
-import { validation } from '../../lib/errors.ts';
+import { randomToken } from '../../lib/crypto.ts';
+import { AppError, validation } from '../../lib/errors.ts';
 import { encodeUtf8WithBom } from '../../lib/text.ts';
-import { writeXlsx, type XlsxCell, type XlsxColumn, type XlsxKind, type XlsxSheet } from '../../lib/xlsx.ts';
-import { createZip } from '../../lib/zip.ts';
+import { MAX_ROWS as XLSX_MAX_ROWS, writeXlsx, XlsxStreamWriter, type XlsxCell, type XlsxColumn, type XlsxKind, type XlsxSheet } from '../../lib/xlsx.ts';
+import { createZip, ZipFileWriter } from '../../lib/zip.ts';
 import { loadGroupTree } from '../accounts/books.ts';
-import { fileSlug, requirePermission } from './common.ts';
+import { fileSlug, requirePermission, yieldToEventLoop } from './common.ts';
 import { CSV_MIME, paiseText, XLSX_MIME, ZIP_MIME } from './exportTable.ts';
 import { BILL_TYPE_CHOICES, COSTING_CHOICES, KIND_SPECS, REGISTRATION_CHOICES, TAXABILITY_CHOICES, type ColumnSpec } from './importSpecs.ts';
 
@@ -427,7 +432,15 @@ export function exportMasters(ctx: CompanyCtx, input: ExportMastersInput): Expor
   return out;
 }
 
-// ───────────────────────────── Vouchers ─────────────────────────────
+// ───────────────────────────── Vouchers (streamed) ─────────────────────────────
+//
+// A five-year voucher export runs to a million rows. Building it in memory (rows → cell arrays → XML
+// string → in-memory ZIP) took ~0.75 GB of heap and crashed under a 1 GB heap, so it is streamed:
+// rows are read one at a time (Db.iterate) from ONE read snapshot, converted and written straight into
+// a ZIP file (XlsxStreamWriter / CSV entries → ZipFileWriter, deflated in 256 KiB blocks) in the
+// company folder, which is then read back once and deleted. Peak memory ≈ the size of the finished
+// file. With a file-backed company the snapshot is a separate read-only connection, so the export
+// yields to the event loop every few thousand rows and other requests keep being served meanwhile.
 
 interface VoucherExportRow {
   id: number;
@@ -451,9 +464,208 @@ interface VoucherExportRow {
   gst_nature: string | null;
 }
 
-export function exportVouchers(ctx: CompanyCtx, input: ExportVouchersInput): ExportFileResult {
+interface LedgerExportRow {
+  voucher_id: number;
+  date: string;
+  type_name: string;
+  number: string | null;
+  ledger: string;
+  amount: number;
+  narration: string | null;
+  entry_narration: string | null;
+  reference_no: string | null;
+  instrument_no: string | null;
+  instrument_date: string | null;
+  ref_type: string | null;
+  bill_name: string | null;
+  bill_amount: number | null;
+}
+
+interface InventoryExportRow {
+  voucher_id: number;
+  date: string;
+  type_name: string;
+  number: string | null;
+  party_name: string | null;
+  item: string;
+  qty: number;
+  billed_qty: number | null;
+  rate: number;
+  discount_pct: number;
+  amount: number;
+  godown: string | null;
+  batch_name: string | null;
+  ledger: string | null;
+  gst_rate: number | null;
+  hsn_sac: string | null;
+}
+
+const VOUCHER_COLUMNS: SheetCol[] = [
+  { header: 'Voucher Key', type: 'text' },
+  { header: 'Date', type: 'date' },
+  { header: 'Voucher Type', type: 'text' },
+  { header: 'Base Type', type: 'text' },
+  { header: 'Voucher No', type: 'text' },
+  { header: 'Reference No', type: 'text' },
+  { header: 'Reference Date', type: 'date' },
+  { header: 'Party', type: 'text' },
+  { header: 'Party GSTIN', type: 'text' },
+  { header: 'Place of Supply', type: 'text' },
+  { header: 'Narration', type: 'text' },
+  { header: 'Taxable Value', type: 'amount' },
+  { header: 'Tax', type: 'amount' },
+  { header: 'Round Off', type: 'amount' },
+  { header: 'Total', type: 'amount' },
+  { header: 'Optional', type: 'yesno' },
+  { header: 'Cancelled', type: 'yesno' },
+  { header: 'Post-dated', type: 'yesno' },
+  { header: 'GST Nature', type: 'text' },
+];
+
+const INVENTORY_COLUMNS: SheetCol[] = [
+  { header: 'Voucher Key', type: 'text' },
+  { header: 'Date', type: 'date' },
+  { header: 'Voucher Type', type: 'text' },
+  { header: 'Invoice No', type: 'text' },
+  { header: 'Party', type: 'text' },
+  { header: 'Item', type: 'text' },
+  { header: 'Qty', type: 'qty' },
+  { header: 'Direction', type: 'text' },
+  { header: 'Rate', type: 'number' },
+  { header: 'Discount %', type: 'percent' },
+  { header: 'Amount', type: 'amount' },
+  { header: 'Godown', type: 'text' },
+  { header: 'Batch', type: 'text' },
+  { header: 'Ledger', type: 'text' },
+  { header: 'GST Rate', type: 'percent' },
+  { header: 'HSN/SAC', type: 'text' },
+];
+
+/** Rows written between event-loop yields (snapshot connection only). */
+export const EXPORT_YIELD_ROWS = 5000;
+/** Data rows one Excel sheet can hold (1,048,576 minus the header row). */
+export const XLSX_MAX_DATA_ROWS = XLSX_MAX_ROWS - 1;
+
+/**
+ * The period cut into calendar months. Each query covers one month, so SQLite sorts one month's rows at
+ * a time (a five-year ORDER BY would otherwise block for a second before the first row) and the
+ * export can yield between months.
+ */
+export function monthSlices(from: string, to: string): Array<{ from: string; to: string }> {
+  const out: Array<{ from: string; to: string }> = [];
+  for (let start = from; start <= to; ) {
+    const monthEnd = endOfMonth(start);
+    const end = monthEnd < to ? monthEnd : to;
+    out.push({ from: start, to: end });
+    start = addDays(end, 1);
+  }
+  return out;
+}
+
+/** VALIDATION when one sheet of an .xlsx voucher export would exceed Excel's row limit (CSV has none). */
+export function assertFitsInExcel(counts: { vouchers: number; ledger: number; inventory: number }): void {
+  const largest = Math.max(counts.vouchers, counts.ledger, counts.inventory);
+  if (largest > XLSX_MAX_DATA_ROWS) {
+    throw validation([
+      {
+        path: 'format',
+        message: `This period has ${largest.toLocaleString('en-IN')} rows in one sheet, more than Excel can hold (${XLSX_MAX_DATA_ROWS.toLocaleString('en-IN')}). Export as CSV, or choose a shorter period.`,
+      },
+    ]);
+  }
+}
+
+/** Where streamed sheets go: an .xlsx workbook, or one CSV file per sheet inside a .zip. */
+interface SheetSink {
+  begin(name: string, columns: SheetCol[]): void;
+  row(values: Value[]): void;
+  end(): void;
+  finish(): void;
+}
+
+function xlsxSink(zip: ZipFileWriter): SheetSink {
+  const book = new XlsxStreamWriter(zip, { creator: 'Bahi ERP' });
+  let cols: SheetCol[] = [];
+  return {
+    begin(name, columns) {
+      cols = columns;
+      book.beginSheet({
+        name,
+        columns: columns.map((c) => ({ header: c.header, kind: XLSX_KIND[c.type], width: Math.max(10, Math.min(40, c.header.length + 4)) })),
+        freezeHeader: true,
+        autoFilter: true,
+      });
+    },
+    row(values) {
+      book.addRow(values.map((v, i) => xlsxCell(cols[i].type, v)));
+    },
+    end() {
+      book.endSheet();
+    },
+    finish() {
+      book.finish();
+    },
+  };
+}
+
+function csvSink(zip: ZipFileWriter): SheetSink {
+  let cols: SheetCol[] = [];
+  const used = new Set<string>();
+  return {
+    begin(name, columns) {
+      cols = columns;
+      let file = `${fileSlug(name)}.csv`;
+      for (let n = 2; used.has(file); n++) file = `${fileSlug(name)}-${n}.csv`;
+      used.add(file);
+      zip.beginEntry(file);
+      zip.write('﻿');
+      zip.write(toCsv([columns.map((c) => neutraliseFormula(c.header))], { neutraliseFormulas: false }));
+    },
+    row(values) {
+      zip.write(toCsv([values.map((v, i) => csvValue(cols[i].type, v))], { neutraliseFormulas: false }));
+    },
+    end() {
+      zip.endEntry();
+    },
+    finish() {
+      /* nothing else in a CSV bundle */
+    },
+  };
+}
+
+/**
+ * A consistent read view for a long export: a separate read-only connection holding one read
+ * transaction (WAL snapshot) when the company is a file, else the company connection itself (tests'
+ * in-memory companies), where the export must not yield.
+ */
+function openSnapshot(ctx: CompanyCtx): { db: Db; canYield: boolean; close(): void } {
+  const file = ctx.company.dbPath;
+  if (file !== ':memory:' && file !== '' && fs.existsSync(file)) {
+    const db = new Db(file, { readOnly: true });
+    try {
+      db.exec('BEGIN');
+    } catch (err) {
+      db.close();
+      throw err;
+    }
+    return {
+      db,
+      canYield: true,
+      close: () => {
+        try {
+          db.exec('COMMIT');
+        } catch {
+          /* read transaction already ended */
+        }
+        db.close();
+      },
+    };
+  }
+  return { db: ctx.db, canYield: false, close: () => undefined };
+}
+
+export async function exportVouchers(ctx: CompanyCtx, input: ExportVouchersInput): Promise<ExportFileResult> {
   requirePermission(ctx, 'data.export');
-  const db = ctx.db;
   if (input.to < input.from) throw validation([{ path: 'to', message: 'The period end date is before its start date' }]);
   const bases = (input.baseTypes?.length ? input.baseTypes : VOUCHER_BASE_TYPES).filter((b) => (VOUCHER_BASE_TYPES as readonly string[]).includes(b));
   const params = {
@@ -465,192 +677,185 @@ export function exportVouchers(ctx: CompanyCtx, input: ExportVouchersInput): Exp
   };
   const filter = `v.date BETWEEN :from AND :to AND v.base_type IN (SELECT value FROM json_each(:bases))
                   AND (:opt = 1 OR v.is_optional = 0) AND (:canc = 1 OR v.is_cancelled = 0)`;
-  const vouchers = db.all<VoucherExportRow>(
-    `SELECT v.*, vt.name AS type_name FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE ${filter} ORDER BY v.date, v.id`,
-    params,
-  );
-  const key = (v: { id: number }): string => `V${v.id}`;
-  const header: Sheet = {
-    name: 'Vouchers',
-    columns: [
-      { header: 'Voucher Key', type: 'text' },
-      { header: 'Date', type: 'date' },
-      { header: 'Voucher Type', type: 'text' },
-      { header: 'Base Type', type: 'text' },
-      { header: 'Voucher No', type: 'text' },
-      { header: 'Reference No', type: 'text' },
-      { header: 'Reference Date', type: 'date' },
-      { header: 'Party', type: 'text' },
-      { header: 'Party GSTIN', type: 'text' },
-      { header: 'Place of Supply', type: 'text' },
-      { header: 'Narration', type: 'text' },
-      { header: 'Taxable Value', type: 'amount' },
-      { header: 'Tax', type: 'amount' },
-      { header: 'Round Off', type: 'amount' },
-      { header: 'Total', type: 'amount' },
-      { header: 'Optional', type: 'yesno' },
-      { header: 'Cancelled', type: 'yesno' },
-      { header: 'Post-dated', type: 'yesno' },
-      { header: 'GST Nature', type: 'text' },
-    ],
-    rows: vouchers.map((v) => [
-      key(v),
-      v.date,
-      v.type_name,
-      v.base_type,
-      v.number,
-      v.reference_no,
-      v.reference_date,
-      v.party_name,
-      v.party_gstin,
-      v.place_of_supply ? `${v.place_of_supply}-${stateName(v.place_of_supply)}` : null,
-      v.narration,
-      v.taxable_amount,
-      v.tax_amount,
-      v.round_off,
-      v.total_amount,
-      v.is_optional === 1,
-      v.is_cancelled === 1,
-      v.is_post_dated === 1,
-      v.gst_nature,
-    ]),
-  };
+  const baseName = `Vouchers_${formatDate(input.from, 'DD-MM-YYYY')}_to_${formatDate(input.to, 'DD-MM-YYYY')}`;
 
-  // Ledger entries: one row per bill allocation (or per entry without bills); layout of the vouchers_ledger import.
-  const entries = db.all<{
-    voucher_id: number;
-    entry_id: number;
-    date: string;
-    type_name: string;
-    number: string | null;
-    ledger: string;
-    amount: number;
-    narration: string | null;
-    entry_narration: string | null;
-    reference_no: string | null;
-    instrument_no: string | null;
-    instrument_date: string | null;
-    line_no: number;
-  }>(
-    `SELECT v.id AS voucher_id, le.id AS entry_id, v.date, vt.name AS type_name, v.number, l.name AS ledger, le.amount, v.narration,
-            le.narration AS entry_narration, v.reference_no, le.instrument_no, le.instrument_date, le.line_no
-       FROM ledger_entries le JOIN vouchers v ON v.id = le.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       JOIN ledgers l ON l.id = le.ledger_id
-      WHERE ${filter}
-      ORDER BY v.date, v.id, le.line_no`,
-    params,
-  );
-  const bills = new Map<number, Array<{ ref_type: string; bill_name: string | null; amount: number }>>();
-  for (const b of db.all<{ ledger_entry_id: number; ref_type: string; bill_name: string | null; amount: number }>(
-    `SELECT ba.ledger_entry_id, ba.ref_type, ba.bill_name, ba.amount FROM bill_allocations ba JOIN vouchers v ON v.id = ba.voucher_id WHERE ${filter} ORDER BY ba.id`,
-    params,
-  )) {
-    const list = bills.get(b.ledger_entry_id) ?? [];
-    list.push(b);
-    bills.set(b.ledger_entry_id, list);
-  }
-  const refLabel: Record<string, string> = { new: BILL_TYPE_CHOICES[0], against: BILL_TYPE_CHOICES[1], advance: BILL_TYPE_CHOICES[2], on_account: BILL_TYPE_CHOICES[3] };
-  const ledgerRecords: Array<Record<string, Value>> = [];
-  const firstLine = new Set<number>();
-  for (const e of entries) {
-    const isFirst = !firstLine.has(e.voucher_id);
-    firstLine.add(e.voucher_id);
-    const parts = bills.get(e.entry_id) ?? [{ ref_type: '', bill_name: null, amount: e.amount }];
-    for (const [i, p] of parts.entries()) {
-      ledgerRecords.push({
-        key: `V${e.voucher_id}`,
-        date: e.date,
-        voucherType: e.type_name,
-        number: e.number,
-        ledger: e.ledger,
-        debit: p.amount > 0 ? p.amount : null,
-        credit: p.amount < 0 ? -p.amount : null,
-        narration: isFirst && i === 0 ? e.narration : e.entry_narration,
-        billType: refLabel[p.ref_type] ?? null,
-        billName: p.bill_name,
-        instrumentNo: e.instrument_no,
-        instrumentDate: e.instrument_date,
-        referenceNo: isFirst && i === 0 ? e.reference_no : null,
-      });
+  const snap = openSnapshot(ctx);
+  let zip: ZipFileWriter | null = null;
+  let voucherCount = 0;
+  let rowCount = 0;
+  let bytes: Uint8Array;
+  try {
+    const db = snap.db;
+    const slices = monthSlices(input.from, input.to);
+    const pause = async (): Promise<void> => {
+      if (!snap.canYield) return;
+      await yieldToEventLoop();
+      if (!ctx.db.isOpen) throw new AppError('CONFLICT', 'The company was closed during the export. Export again.');
+    };
+    if (input.format === 'xlsx') {
+      const counts = { vouchers: 0, ledger: 0, inventory: 0 };
+      for (const m of slices) {
+        const p = { ...params, ...m };
+        counts.vouchers += db.value<number>(`SELECT COUNT(*) FROM vouchers v WHERE ${filter}`, p) ?? 0;
+        counts.ledger +=
+          db.value<number>(
+            `SELECT COUNT(*) FROM ledger_entries le JOIN vouchers v ON v.id = le.voucher_id LEFT JOIN bill_allocations ba ON ba.ledger_entry_id = le.id WHERE ${filter}`,
+            p,
+          ) ?? 0;
+        counts.inventory += db.value<number>(`SELECT COUNT(*) FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id WHERE ${filter}`, p) ?? 0;
+        await pause();
+      }
+      assertFitsInExcel(counts);
     }
+
+    fs.mkdirSync(ctx.company.dir, { recursive: true });
+    const tmp = path.join(ctx.company.dir, `.export-${randomToken(6)}.tmp`);
+    zip = new ZipFileWriter(tmp);
+    const sink = input.format === 'xlsx' ? xlsxSink(zip) : csvSink(zip);
+    let sinceYield = 0;
+    const tick = async (): Promise<void> => {
+      rowCount++;
+      if (++sinceYield >= EXPORT_YIELD_ROWS) {
+        sinceYield = 0;
+        await pause();
+      }
+    };
+    const key = (id: number): string => `V${id}`;
+
+    // Vouchers: one row per voucher.
+    sink.begin('Vouchers', VOUCHER_COLUMNS);
+    for (const m of slices) {
+      for (const v of db.iterate<VoucherExportRow>(
+        `SELECT v.id, v.date, vt.name AS type_name, v.base_type, v.number, v.reference_no, v.reference_date, v.party_name, v.party_gstin,
+                v.place_of_supply, v.narration, v.taxable_amount, v.tax_amount, v.round_off, v.total_amount, v.is_optional, v.is_cancelled,
+                v.is_post_dated, v.gst_nature
+           FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE ${filter} ORDER BY v.date, v.id`,
+        { ...params, ...m },
+      )) {
+        sink.row([
+          key(v.id),
+          v.date,
+          v.type_name,
+          v.base_type,
+          v.number,
+          v.reference_no,
+          v.reference_date,
+          v.party_name,
+          v.party_gstin,
+          v.place_of_supply ? `${v.place_of_supply}-${stateName(v.place_of_supply)}` : null,
+          v.narration,
+          v.taxable_amount,
+          v.tax_amount,
+          v.round_off,
+          v.total_amount,
+          v.is_optional === 1,
+          v.is_cancelled === 1,
+          v.is_post_dated === 1,
+          v.gst_nature,
+        ]);
+        voucherCount++;
+        await tick();
+      }
+      await pause();
+    }
+    sink.end();
+
+    // Ledger entries: one row per bill allocation (or per entry without bills) — the layout of the
+    // vouchers_ledger import, so the file can be imported back.
+    const spec = KIND_SPECS.vouchers_ledger;
+    sink.begin('Ledger Entries', spec.columns.map((c) => ({ header: c.header, type: c.type })));
+    const refLabel: Record<string, string> = { new: BILL_TYPE_CHOICES[0], against: BILL_TYPE_CHOICES[1], advance: BILL_TYPE_CHOICES[2], on_account: BILL_TYPE_CHOICES[3] };
+    let lastVoucher = -1;
+    for (const m of slices) {
+      for (const e of db.iterate<LedgerExportRow>(
+        `SELECT v.id AS voucher_id, v.date, vt.name AS type_name, v.number, l.name AS ledger, le.amount, v.narration,
+                le.narration AS entry_narration, v.reference_no, le.instrument_no, le.instrument_date,
+                ba.ref_type, ba.bill_name, ba.amount AS bill_amount
+           FROM ledger_entries le JOIN vouchers v ON v.id = le.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
+           JOIN ledgers l ON l.id = le.ledger_id
+           LEFT JOIN bill_allocations ba ON ba.ledger_entry_id = le.id
+          WHERE ${filter}
+          ORDER BY v.date, v.id, le.line_no, le.id, ba.id`,
+        { ...params, ...m },
+      )) {
+        // The voucher narration / reference go on its first line only (as the import expects).
+        const first = e.voucher_id !== lastVoucher;
+        lastVoucher = e.voucher_id;
+        const amount = e.bill_amount ?? e.amount;
+        const record: Record<string, Value> = {
+          key: key(e.voucher_id),
+          date: e.date,
+          voucherType: e.type_name,
+          number: e.number,
+          ledger: e.ledger,
+          debit: amount > 0 ? amount : null,
+          credit: amount < 0 ? -amount : null,
+          narration: first ? e.narration : e.entry_narration,
+          billType: e.ref_type ? (refLabel[e.ref_type] ?? null) : null,
+          billName: e.bill_name,
+          instrumentNo: e.instrument_no,
+          instrumentDate: e.instrument_date,
+          referenceNo: first ? e.reference_no : null,
+        };
+        sink.row(spec.columns.map((c) => record[c.key] ?? null));
+        await tick();
+      }
+      await pause();
+    }
+    sink.end();
+
+    // Inventory entries: one row per stock line.
+    sink.begin('Inventory Entries', INVENTORY_COLUMNS);
+    for (const m of slices) {
+      for (const r of db.iterate<InventoryExportRow>(
+        `SELECT v.id AS voucher_id, v.date, vt.name AS type_name, v.number, v.party_name, i.name AS item, ie.qty, ie.billed_qty, ie.rate,
+                ie.discount_pct, ie.amount, g.name AS godown, ie.batch_name, l.name AS ledger, ie.gst_rate, ie.hsn_sac
+           FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
+           JOIN stock_items i ON i.id = ie.item_id LEFT JOIN godowns g ON g.id = ie.godown_id LEFT JOIN ledgers l ON l.id = ie.ledger_id
+          WHERE ${filter}
+          ORDER BY v.date, v.id, ie.line_no`,
+        { ...params, ...m },
+      )) {
+        sink.row([
+          key(r.voucher_id),
+          r.date,
+          r.type_name,
+          r.number,
+          r.party_name,
+          r.item,
+          Math.abs(r.billed_qty ?? r.qty),
+          r.qty < 0 ? 'Out' : 'In',
+          r.rate,
+          r.discount_pct || null,
+          r.amount,
+          r.godown,
+          r.batch_name,
+          r.ledger,
+          r.gst_rate,
+          r.hsn_sac,
+        ]);
+        await tick();
+      }
+      await pause();
+    }
+    sink.end();
+    sink.finish();
+    zip.finish();
+    bytes = new Uint8Array(fs.readFileSync(tmp));
+  } finally {
+    snap.close();
+    zip?.abort(); // closes if still open, and deletes the temporary file in every case
   }
-  const ledgerSheet = specSheet('vouchers_ledger', ledgerRecords);
-  ledgerSheet.name = 'Ledger Entries';
 
-  const inv = db.all<{
-    voucher_id: number;
-    date: string;
-    type_name: string;
-    number: string | null;
-    party_name: string | null;
-    item: string;
-    qty: number;
-    billed_qty: number | null;
-    rate: number;
-    discount_pct: number;
-    amount: number;
-    godown: string | null;
-    batch_name: string | null;
-    ledger: string | null;
-    gst_rate: number | null;
-    hsn_sac: string | null;
-  }>(
-    `SELECT v.id AS voucher_id, v.date, vt.name AS type_name, v.number, v.party_name, i.name AS item, ie.qty, ie.billed_qty, ie.rate,
-            ie.discount_pct, ie.amount, g.name AS godown, ie.batch_name, l.name AS ledger, ie.gst_rate, ie.hsn_sac
-       FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       JOIN stock_items i ON i.id = ie.item_id LEFT JOIN godowns g ON g.id = ie.godown_id LEFT JOIN ledgers l ON l.id = ie.ledger_id
-      WHERE ${filter}
-      ORDER BY v.date, v.id, ie.line_no`,
-    params,
-  );
-  const invSheet: Sheet = {
-    name: 'Inventory Entries',
-    columns: [
-      { header: 'Voucher Key', type: 'text' },
-      { header: 'Date', type: 'date' },
-      { header: 'Voucher Type', type: 'text' },
-      { header: 'Invoice No', type: 'text' },
-      { header: 'Party', type: 'text' },
-      { header: 'Item', type: 'text' },
-      { header: 'Qty', type: 'qty' },
-      { header: 'Direction', type: 'text' },
-      { header: 'Rate', type: 'number' },
-      { header: 'Discount %', type: 'percent' },
-      { header: 'Amount', type: 'amount' },
-      { header: 'Godown', type: 'text' },
-      { header: 'Batch', type: 'text' },
-      { header: 'Ledger', type: 'text' },
-      { header: 'GST Rate', type: 'percent' },
-      { header: 'HSN/SAC', type: 'text' },
-    ],
-    rows: inv.map((r) => [
-      key({ id: r.voucher_id }),
-      r.date,
-      r.type_name,
-      r.number,
-      r.party_name,
-      r.item,
-      Math.abs(r.billed_qty ?? r.qty),
-      r.qty < 0 ? 'Out' : 'In',
-      r.rate,
-      r.discount_pct || null,
-      r.amount,
-      r.godown,
-      r.batch_name,
-      r.ledger,
-      r.gst_rate,
-      r.hsn_sac,
-    ]),
-  };
-
-  const out = render([header, ledgerSheet, invSheet], input.format, `Vouchers_${formatDate(input.from, 'DD-MM-YYYY')}_to_${formatDate(input.to, 'DD-MM-YYYY')}`);
   ctx.db.transaction(() =>
     ctx.audit({
       action: 'export',
       entityType: 'vouchers',
       entityLabel: `Vouchers ${formatDate(input.from)} to ${formatDate(input.to)}`,
-      after: { format: input.format, vouchers: vouchers.length, baseTypes: input.baseTypes ?? null },
+      after: { format: input.format, vouchers: voucherCount, rows: rowCount, baseTypes: input.baseTypes ?? null },
     }),
   );
-  return out;
+  return input.format === 'xlsx'
+    ? { bytes, fileName: `${baseName}.xlsx`, mimeType: XLSX_MIME, rowCount }
+    : { bytes, fileName: `${baseName}.zip`, mimeType: ZIP_MIME, rowCount };
 }

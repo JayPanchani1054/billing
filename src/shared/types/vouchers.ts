@@ -608,6 +608,11 @@ export interface VoucherEntryContext {
     financialYear: { start: string; end: string; label: string };
   };
   features: CompanyFeatures;
+  /**
+   * printAfterSave: open the print preview and send it to the printer after saving a new voucher —
+   * the voucher type's own switch, or F12 › Invoice printing for sales, credit/debit notes and
+   * delivery notes (vouchers/queries.ts INVOICE_PRINT_TYPES).
+   */
   config: Pick<CompanyConfig, 'roundOff' | 'guards' | 'lockedUpTo' | 'gst'> & { printAfterSave: boolean };
   /** Reserved ledger ids (null when absent, e.g. GST ledgers in a non-GST company). */
   ledgers: {

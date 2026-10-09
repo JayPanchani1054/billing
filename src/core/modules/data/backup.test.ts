@@ -311,6 +311,19 @@ describe('backup: list, retention and automatic backups', () => {
     assert.equal(bad.ok, false);
   });
 
+  it('overlapping automatic backups (open catch-up, close, shutdown step) share one run: one file', async () => {
+    t.db.transaction(() => saveConfig(t.ctx, { backup: { folder: dir, auto: true } }));
+    t.clock.advance(25 * 3600_000);
+    const [a, b, c] = await Promise.all([autoBackup(t.ctx, { trigger: 'open' }), autoBackup(t.ctx, { trigger: 'close' }), autoBackup(t.ctx, { trigger: 'close' })]);
+    assert.deepEqual([a.ran, b.ran, c.ran], [true, true, true]);
+    assert.equal(a.backup?.path, b.backup?.path);
+    assert.equal(a.backup?.path, c.backup?.path);
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.bahibak')).length, 1);
+    // Once finished, the next call decides afresh (backed up just now → 'recent').
+    const later = await autoBackup(t.ctx, { trigger: 'close' });
+    assert.deepEqual([later.ran, later.reason], [false, 'recent']);
+  });
+
   it('auto backup does nothing when switched off in F12', async () => {
     t.db.transaction(() => saveConfig(t.ctx, { backup: { folder: dir, auto: false } }));
     const r = await autoBackup(t.ctx);

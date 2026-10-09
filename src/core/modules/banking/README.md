@@ -183,3 +183,14 @@ dated …"). Typical catch: a line unmatched after "voucher created", then creat
 (`parse.test.ts`), the matcher (`matcher.test.ts`), BRS + bank dates (`brs.test.ts`), import / dedupe / batches
 (`statements.test.ts`), matching against posted vouchers (`matching.test.ts`), vouchers from lines
 (`create.test.ts`), registers (`registers.test.ts`). Vouchers are always posted through the vouchers service.
+
+## 8. Screens (renderer, `src/renderer/modules/banking`)
+
+- **Bank Overview** (`banking.summary`): Enter reconcile, Alt+I import statement, Alt+M match, Alt+Q cheque
+  register, Alt+T post-dated cheques, Alt+C create a bank ledger (`accounts.ledger.form { groupCode: 'BANK_ACCOUNTS' }`,
+  also from the "No bank accounts yet" empty state).
+- **Match Bank Statement** (`banking.match`): Ctrl+1…4 tabs, Alt+M auto-match, Alt+V / Alt+B create vouchers,
+  Alt+I ignore, Alt+U unmatch, **Alt+D delete the chosen imported statement** (`banking.statement.deleteBatch`):
+  the confirmation names the file, its lines and how many are reconciled, and offers "Also unmatch" when some
+  are (`lib/batches.ts`). Lines are de-duplicated per bank, so this is how a statement imported into the wrong
+  bank or with the wrong columns is imported again.

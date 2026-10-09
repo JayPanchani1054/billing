@@ -264,7 +264,7 @@ function PriceListBody({ levels, params }: { levels: readonly PriceLevelDto[]; p
       subtitle={level ? `${level.name} — rates from ${formatDate(date)}` : undefined}
       icon="tag"
       dirty={dirty}
-      hint="Enter next cell · Ctrl+Enter add slab · Ctrl+Delete remove slab · Ctrl+A save · Esc back"
+      hint="Enter Next cell · Ctrl+Enter Add slab · Ctrl+Delete Remove slab · Ctrl+A Save · Esc Back"
       actions={[
         { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: !dirty || (!canAlter && !canCreate) },
         { key: 'Alt+C', label: 'Create price level', icon: 'plus', onClick: () => setLevelDialog({ name: '' }), hidden: !canCreate, group: 'levels' },

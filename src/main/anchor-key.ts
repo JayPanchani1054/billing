@@ -8,7 +8,7 @@
  * key, so anchors cannot be re-signed after rewriting a company's edit log elsewhere. Someone running
  * code as the same Windows user can still unseal it (documented in docs/SECURITY.md T4).
  */
-import { loadOrCreateAnchorKey, type SecretSealer } from '../core/app/auditAnchors.ts';
+import { loadAnchorKey, type SecretSealer } from '../core/app/auditAnchors.ts';
 
 /** The part of Electron's safeStorage this module uses (exact upstream signatures). */
 export interface SafeStorageLike {
@@ -37,7 +37,9 @@ export function safeStorageSealer(safe: SafeStorageLike, platform: NodeJS.Platfo
 
 /**
  * Load (or create) the anchor key in `userDataDir`, sealed with safeStorage when available. Never
- * throws: on any failure it logs and returns undefined, and the core then manages the key file itself.
+ * throws: on any failure — or when the real key cannot be used this run (sealed but safeStorage is
+ * unavailable, file unreadable) — it logs and returns undefined, and the core then manages the key file
+ * itself (and, without a usable key, neither judges nor writes check-points).
  */
 export function loadAnchorKeyForWorker(
   userDataDir: string,
@@ -45,8 +47,8 @@ export function loadAnchorKeyForWorker(
   log: (level: 'debug' | 'info' | 'warn' | 'error', message: string, meta?: unknown) => void,
 ): Uint8Array | undefined {
   try {
-    const key = loadOrCreateAnchorKey({ dir: userDataDir, log, sealer: safeStorageSealer(safe) });
-    return new Uint8Array(key);
+    const { key, ephemeral } = loadAnchorKey({ dir: userDataDir, log, sealer: safeStorageSealer(safe) });
+    return ephemeral ? undefined : new Uint8Array(key);
   } catch (err) {
     log('warn', 'Could not load the edit-log anchor key; the core will manage it', { error: err instanceof Error ? err.message : String(err) });
     return undefined;

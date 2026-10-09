@@ -108,11 +108,11 @@ export function UnitListScreen() {
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Type to search · Enter alter · Alt+C simple unit · Alt+U compound unit · Ctrl+D delete"
+      hint="Type to search · Enter Alter · Alt+C Simple unit · Alt+U Compound unit · Alt+D Delete"
       actions={[
         { key: 'Alt+C', label: 'Create unit', icon: 'plus', primary: true, onClick: () => nav.push('inventory.unit.form', { kind: 'simple', ...(search.trim() ? { initialName: search.trim() } : {}) }), hidden: !canCreate },
         { key: 'Alt+U', label: 'Compound unit', icon: 'layers', onClick: () => nav.push('inventory.unit.form', { kind: 'compound' }), hidden: !canCreate },
-        { key: 'Ctrl+D, Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(current), hidden: !canDelete, disabled: !current, hint: current && current.itemCount > 0 ? 'Used by stock items' : undefined, group: 'danger' },
+        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(current), hidden: !canDelete, disabled: !current, hint: current && current.itemCount > 0 ? 'Used by stock items' : undefined, group: 'danger' },
       ]}
       filters={
         <Field label="Search" hideLabel>

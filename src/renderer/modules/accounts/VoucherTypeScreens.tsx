@@ -1,6 +1,6 @@
 /**
  * 'accounts.voucherTypes' — voucher types (built-in and your own) with their numbering.
- *   Enter alter · Alt+C create a type based on the highlighted one · Ctrl+D delete · Alt+E export.
+ *   Enter alter · Alt+C create a type based on the highlighted one · Alt+D (or Ctrl+D) delete · Alt+E export.
  * 'accounts.voucherType.form' — Voucher Type Creation / Alteration. Params { id? | parentId? | baseType? }.
  *   Numbering with a LIVE preview of the numbers and the GST invoice-number checks (≤ 16 characters,
  *   only A–Z a–z 0–9 / -, unique in the financial year), behaviour switches, defaults (ledger,
@@ -117,10 +117,10 @@ export function VoucherTypesScreen() {
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Enter Alter · Alt+C Create based on the highlighted type · Ctrl+D Delete · Alt+E Export · Esc Back"
+      hint="Enter Alter · Alt+C Create based on the highlighted type · Alt+D Delete · Alt+E Export · Esc Back"
       actions={[
         { key: 'Alt+C', label: 'Create type', icon: 'plus', primary: true, disabled: !canCreate, onClick: () => nav.push('accounts.voucherType.form', current ? { parentId: current.id } : {}) },
-        { key: 'Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canDelete || !current || current.isPredefined, onClick: () => void remove() },
+        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canDelete || !current || current.isPredefined, onClick: () => void remove() },
       ]}
       filters={
         <div className="bx-acc-toolbar">
@@ -262,6 +262,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
   const { date: workingDate } = useWorkingDate();
   const canSave = useCan(original ? 'masters.alter' : 'masters.create');
   const canDelete = useCan('masters.delete');
+  const canAudit = useCan('audit.view');
   const save = useApiMutation('accounts.voucherType.save', { invalidates: ['vouchers', 'print'] });
   const initialParent = useMemo(() => {
     if (typeof params.parentId === 'number') return types.find((t) => t.id === params.parentId) ?? null;
@@ -419,6 +420,14 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
       actions={[
         { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly },
         { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), hidden: !original || predefined || !canDelete, group: 'danger' },
+        {
+          key: 'Alt+H',
+          label: 'Edit history',
+          icon: 'clock',
+          onClick: () => original && nav.push('security.audit', { entityType: 'voucher_type', entityId: original.id, entityGuid: original.guid, label: original.name }),
+          hidden: !original || !canAudit,
+          group: 'more',
+        },
       ]}
       footer={
         readOnly ? undefined : (

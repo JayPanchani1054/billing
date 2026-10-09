@@ -1,7 +1,7 @@
 /**
  * 'accounts.costCentres' (F11 cost centres) — cost categories on the left, the centre tree of the
  * chosen category on the right. Enter alters, Alt+C creates a centre (under the highlighted one),
- * Alt+N a category, Ctrl+D deletes the highlighted centre (or category when that list has focus).
+ * Alt+N a category, Alt+D (or Ctrl+D) deletes the highlighted centre (or category when that list has focus).
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { CostCategoryRow, CostCentreRow } from '../../../shared/types/accounts.ts';
@@ -88,11 +88,11 @@ export function CostCentresScreen() {
       loading={cats.loading}
       error={cats.error}
       onRetry={() => void cats.refetch()}
-      hint="Enter Alter · Alt+C Create Centre · Alt+N Create Category · Ctrl+D Delete · Esc Back"
+      hint="Enter Alter · Alt+C Create Centre · Alt+N Create Category · Alt+D Delete · Esc Back"
       actions={[
         { key: 'Alt+C', label: 'Create centre', icon: 'plus', primary: true, disabled: !canCreate || !category, onClick: () => setCentreDialog({ row: null, parentId: centre?.id ?? null }) },
         { key: 'Alt+N', label: 'Create category', icon: 'layers', disabled: !canCreate, onClick: () => setCatDialog('new') },
-        { key: 'Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canDelete || (pane === 'centres' ? !centre : !category), onClick: () => void remove() },
+        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canDelete || (pane === 'centres' ? !centre : !category), onClick: () => void remove() },
       ]}
     >
       <div className="bx-acc-split">

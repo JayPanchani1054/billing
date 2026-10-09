@@ -15,6 +15,8 @@ import type {
   VoucherPreview,
   VoucherSaveResult,
 } from '../../../shared/types/vouchers.ts';
+import { saveConfig } from '../company/service.ts';
+import { INVOICE_PRINT_TYPES, printsAfterSave } from './queries.ts';
 import { vouchersRoutes } from './routes.ts';
 import { cancelVoucher } from './service.ts';
 import { purchaseInput, salesInput, save, setupKit, type Kit } from './testkit.ts';
@@ -169,6 +171,25 @@ describe('entry context, preview, detail', () => {
     const p = await k.t.callOk<VoucherEntryContext>(vouchersRoutes, 'vouchers.entryContext', { voucherTypeId: k.vt.payment, date: k.t.today });
     assert.deepEqual(p.allowedModes, ['ledger']);
     assert.equal(await k.t.callOk<string>(vouchersRoutes, 'vouchers.nextNumber', { voucherTypeId: k.vt.payment, date: k.t.today }), '1');
+    k.t.close();
+  });
+
+  it("F12 'print right after saving an invoice' applies to invoice-like types only; a type's own switch to that type", async () => {
+    const k = setupKit();
+    const prints = async (id: number) => (await k.t.callOk<VoucherEntryContext>(vouchersRoutes, 'vouchers.entryContext', { voucherTypeId: id, date: k.t.today })).config.printAfterSave;
+    const all = ['sales', 'credit_note', 'debit_note', 'delivery_note', 'purchase', 'journal', 'payment', 'receipt', 'contra', 'stock_journal', 'physical_stock'] as const;
+    for (const b of all) assert.equal(await prints(k.vt[b]), false, `${b}: off by default`);
+    saveConfig(k.t.ctx, { invoice: { printAfterSave: true } });
+    for (const b of all) assert.equal(await prints(k.vt[b]), (INVOICE_PRINT_TYPES as readonly string[]).includes(b), `${b} with the company switch on`);
+    assert.deepEqual([...INVOICE_PRINT_TYPES], ['sales', 'credit_note', 'debit_note', 'delivery_note']);
+    // A voucher type's own "Print after saving" works for any type, with or without the company switch.
+    k.t.db.run('UPDATE voucher_types SET print_after_save = 1 WHERE id = :id', { id: k.vt.journal });
+    assert.equal(await prints(k.vt.journal), true);
+    saveConfig(k.t.ctx, { invoice: { printAfterSave: false } });
+    assert.equal(await prints(k.vt.journal), true);
+    assert.equal(await prints(k.vt.sales), false);
+    assert.equal(printsAfterSave({ invoice: { printAfterSave: true } }, { baseType: 'payment', printAfterSave: false }), false);
+    assert.equal(printsAfterSave({ invoice: { printAfterSave: true } }, { baseType: 'credit_note', printAfterSave: false }), true);
     k.t.close();
   });
 

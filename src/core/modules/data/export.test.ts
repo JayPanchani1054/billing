@@ -8,7 +8,10 @@ import { readZip } from '../../lib/zip.ts';
 import { createTestCompany, makeGstin, type TestCompany } from '../../testing/fixtures.ts';
 import { save, setupKit, type Kit } from '../vouchers/testkit.ts';
 import { paiseText } from './exportTable.ts';
-import { exportMasters, exportVouchers } from './exportData.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { Db } from '../../db/db.ts';
+import { assertFitsInExcel, exportMasters, exportVouchers, monthSlices, XLSX_MAX_DATA_ROWS } from './exportData.ts';
 import { commitImport } from './importer.ts';
 import { dataRoutes } from './routes.ts';
 
@@ -200,7 +203,7 @@ describe('data.export.vouchers', () => {
     // 2 × ₹150 = ₹300 taxable; CGST 9% 27 + SGST 27 → ₹354 to Acme.
     const s = save(k, { voucherTypeId: k.vt.sales, date: '2026-04-10', mode: 'item_invoice', partyLedgerId: k.L.acme, items: [{ itemId: k.I.mixer, qty: 2, rate: 150 }] });
     save(k, { voucherTypeId: k.vt.journal, date: '2026-04-12', mode: 'ledger', ledgers: [{ ledgerId: k.L.rent, amount: 500_00 }, { ledgerId: k.L.capital, amount: -500_00 }] });
-    const out = exportVouchers(k.t.ctx, { from: '2026-04-01', to: '2026-04-30', format: 'xlsx' });
+    const out = await exportVouchers(k.t.ctx, { from: '2026-04-01', to: '2026-04-30', format: 'xlsx' });
     assert.equal(out.fileName, 'Vouchers_01-04-2026_to_30-04-2026.xlsx');
     const [head, entries, stock] = readXlsx(out.bytes).sheets;
     assert.deepEqual([head.name, entries.name, stock.name], ['Vouchers', 'Ledger Entries', 'Inventory Entries']);
@@ -215,10 +218,71 @@ describe('data.export.vouchers', () => {
 
   it('csv is a zip of three files; cancelled vouchers are left out by default', async () => {
     save(k, { voucherTypeId: k.vt.journal, date: '2026-04-12', mode: 'ledger', ledgers: [{ ledgerId: k.L.rent, amount: 500_00 }, { ledgerId: k.L.capital, amount: -500_00 }] });
-    const out = exportVouchers(k.t.ctx, { from: '2026-04-01', to: '2026-04-30', format: 'csv', baseTypes: ['journal'] });
+    const out = await exportVouchers(k.t.ctx, { from: '2026-04-01', to: '2026-04-30', format: 'csv', baseTypes: ['journal'] });
     const zip = readZip(out.bytes);
     assert.deepEqual(zip.list().sort(), ['Inventory-Entries.csv', 'Ledger-Entries.csv', 'Vouchers.csv']);
     assert.equal(out.rowCount, 1 + 2);
+  });
+});
+
+describe('data.export.vouchers: streamed (constant memory) from one read snapshot', () => {
+  let k: Kit;
+  beforeEach(() => {
+    k = setupKit();
+  });
+  afterEach(() => k.t.close());
+
+  it('cuts the period into calendar months', () => {
+    assert.deepEqual(monthSlices('2026-01-15', '2026-03-03'), [
+      { from: '2026-01-15', to: '2026-01-31' },
+      { from: '2026-02-01', to: '2026-02-28' },
+      { from: '2026-03-01', to: '2026-03-03' },
+    ]);
+    assert.deepEqual(monthSlices('2026-04-01', '2026-04-01'), [{ from: '2026-04-01', to: '2026-04-01' }]);
+    assert.equal(monthSlices('2021-04-01', '2026-03-31').length, 60);
+  });
+
+  it('refuses an .xlsx that Excel could not open (suggests CSV); CSV has no such limit', () => {
+    assert.doesNotThrow(() => assertFitsInExcel({ vouchers: XLSX_MAX_DATA_ROWS, ledger: 10, inventory: 0 }));
+    assert.throws(
+      () => assertFitsInExcel({ vouchers: 10, ledger: XLSX_MAX_DATA_ROWS + 1, inventory: 0 }),
+      (e: unknown) => e instanceof AppError && e.code === 'VALIDATION' && /Export as CSV/.test(JSON.stringify(e.details)),
+    );
+  });
+
+  it('a file-backed company: a change committed during the export is not mixed in; no temporary file is left; the export is audited', async () => {
+    const april = save(k, { voucherTypeId: k.vt.journal, date: '2026-04-12', mode: 'ledger', narration: 'April rent', ledgers: [{ ledgerId: k.L.rent, amount: 500_00 }, { ledgerId: k.L.capital, amount: -500_00 }] });
+    const may = save(k, { voucherTypeId: k.vt.journal, date: '2026-05-05', mode: 'ledger', narration: 'May rent', ledgers: [{ ledgerId: k.L.rent, amount: 700_00 }, { ledgerId: k.L.capital, amount: -700_00 }] });
+    const dir = k.t.ctx.company.dir;
+    const file = path.join(dir, 'company.db');
+    k.t.db.run('VACUUM INTO ?', [file]);
+    const live = new Db(file);
+    try {
+      const ctx = { ...k.t.ctx, db: live, company: { ...k.t.ctx.company, dbPath: file, dir } };
+      const pending = exportVouchers(ctx, { from: '2026-04-01', to: '2026-05-31', format: 'xlsx' });
+      // The export yields between months; meanwhile the books change on the company connection.
+      live.run(`UPDATE vouchers SET narration = 'edited meanwhile' WHERE id = :id`, { id: may.id });
+      const out = await pending;
+      const head = readXlsx(out.bytes).sheets[0];
+      const narration = (id: number) => head.rows.find((r) => r[0] === `V${id}`)?.[10];
+      assert.equal(narration(april.id), 'April rent');
+      assert.equal(narration(may.id), 'May rent', 'the export is one consistent snapshot');
+      assert.deepEqual(fs.readdirSync(dir).filter((f) => f.startsWith('.export-')), [], 'temporary file removed');
+      // (ctx.audit of the test kit writes to the kit's own connection)
+      const audit = k.t.db.get<{ after_json: string }>(`SELECT after_json FROM audit_log WHERE action = 'export' AND entity_type = 'vouchers' ORDER BY id DESC LIMIT 1`);
+      assert.deepEqual(JSON.parse(audit?.after_json ?? '{}').vouchers, 2);
+      assert.equal(out.rowCount, 2 + 4);
+    } finally {
+      live.close();
+    }
+  });
+
+  it('a failed export leaves no temporary file behind', async () => {
+    const dir = k.t.ctx.company.dir;
+    const denied = k.t.ctxAs({ permissions: ['vouchers.view'] });
+    await assert.rejects(exportVouchers(denied, { from: '2026-04-01', to: '2026-04-30', format: 'csv' }), (e: unknown) => e instanceof AppError && e.code === 'FORBIDDEN');
+    await assert.rejects(exportVouchers(k.t.ctx, { from: '2026-04-30', to: '2026-04-01', format: 'csv' }), (e: unknown) => e instanceof AppError && e.code === 'VALIDATION');
+    assert.deepEqual(fs.readdirSync(dir).filter((f) => f.startsWith('.export-')), []);
   });
 });
 

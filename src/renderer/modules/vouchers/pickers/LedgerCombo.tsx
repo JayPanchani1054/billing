@@ -4,17 +4,19 @@
  *   <LedgerCombo rows={ledgers.rows} slot="party" baseType="sales" value={id} onChange={…} onRefetch={ledgers.refetch} />
  *
  * `rows` is the screen's one cached list; the slot narrows it (ledgerAllowed). Alt+C opens
- * 'accounts.ledger.form' for a result with the typed name and selects the ledger it returns.
+ * 'accounts.ledger.form' for a result with the typed name under the group that fits the slot
+ * (createGroupCode: customer / supplier / sales / purchase / bank) and selects the ledger it returns —
+ * unless the user moved it to a group this slot refuses, which is explained instead (the save would fail).
  */
 import { memo, useMemo, useState } from 'react';
 import type { Ref } from 'react';
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { formatDrCr } from '../../../../shared/format.ts';
 import type { LedgerPickerRow } from '../../../../shared/types/accounts.ts';
-import { useCan, useNav } from '../../../app/index.ts';
-import { Combobox } from '../../../ui/index.ts';
+import { api, useCan, useNav } from '../../../app/index.ts';
+import { Combobox, useToast } from '../../../ui/index.ts';
 import type { ControlSize } from '../../../ui/index.ts';
-import { ledgerAllowed, slotNoun } from '../lib/masters.ts';
+import { createdLedgerProblem, createGroupCode, ledgerAllowed, slotNoun } from '../lib/masters.ts';
 import type { LedgerSlot } from '../lib/masters.ts';
 
 export interface LedgerComboProps {
@@ -69,6 +71,7 @@ function rowsFor(rows: readonly LedgerPickerRow[], slot: LedgerSlot, baseType: V
 export const LedgerCombo = memo(function LedgerCombo(props: LedgerComboProps) {
   const { rows, slot, baseType, direction = 'outward', value, onChange, onCommit, onRefetch, excludeIds, showBalance = true, size, ref } = props;
   const nav = useNav();
+  const toast = useToast();
   const canCreate = useCan('masters.create');
   const [created, setCreated] = useState<{ id: number; name: string } | null>(null);
   const base = rowsFor(rows, slot, baseType, direction);
@@ -86,10 +89,22 @@ export const LedgerCombo = memo(function LedgerCombo(props: LedgerComboProps) {
   }, [rows, value, created]);
 
   const create = async (typed: string) => {
-    const out = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', { initialName: typed.trim(), forResult: true });
+    const groupCode = createGroupCode(slot, baseType, direction);
+    const out = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', { initialName: typed.trim(), forResult: true, ...(groupCode ? { groupCode } : {}) });
     if (!out) return;
-    setCreated(out);
     onRefetch?.();
+    // The form lets the user change the group: only select a ledger this place accepts.
+    try {
+      const detail = await api('accounts.ledger.get', { id: out.id });
+      const problem = createdLedgerProblem(detail, slot, baseType, direction);
+      if (problem) {
+        toast.error('This ledger cannot be used here', { message: problem });
+        return;
+      }
+    } catch {
+      // Could not read it back: select it anyway — the save explains a wrong ledger.
+    }
+    setCreated(out);
     const row = rows.find((r) => r.id === out.id) ?? pendingRow(out.id, out.name);
     onChange(out.id, row);
   };

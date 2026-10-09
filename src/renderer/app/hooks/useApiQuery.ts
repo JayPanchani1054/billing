@@ -85,9 +85,10 @@ export function useApiQuery<K extends RouteName>(route: K, input: ApiInput<K>, o
   const prevRef = useRef<{ key: string; data: ApiOutput<K> } | null>(null);
   if (snap?.status === 'success' && snap.data !== undefined) prevRef.current = { key, data: snap.data };
 
-  // Shares a request already in flight (e.g. the one a screen starts when it is shown again), so a
-  // screen that also refetches on reveal never computes a heavy report twice.
-  const refetch = useCallback(() => fetchNow(forceOnRefetch(queryCache.peek(key)?.fetching ?? false)), [fetchNow, key]);
+  // Shares a request already in flight when its answer is current (e.g. the one a screen starts
+  // when it is shown again), so a screen that also refetches on reveal never computes a heavy report
+  // twice; a request that started before the latest invalidation is not shared (pre-save data).
+  const refetch = useCallback(() => fetchNow(forceOnRefetch(queryCache.hasCurrentRequest(key))), [fetchNow, key]);
 
   return useMemo<ApiQueryResult<ApiOutput<K>>>(() => {
     const own = snap?.data;

@@ -82,7 +82,7 @@ export function ChequeRegisterScreen({ params }: ScreenProps<{ ledgerId?: number
       error={q.error}
       onRetry={() => void q.refetch()}
       exportDef={() => chequeRegisterExport(rows)}
-      hint="Enter open voucher · Ctrl+1/2/3 All / Not cleared / Cleared · Alt+F2 period"
+      hint="Enter Open voucher · Ctrl+1/2/3 All / Not cleared / Cleared · Alt+F2 Period"
       filters={
         <Inline gap={2} wrap>
           <BankSelect banks={banks} value={ledgerId} onChange={setLedgerId} allowAll />
@@ -173,7 +173,7 @@ export function PdcScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
       error={q.error}
       onRetry={() => void q.refetch()}
       exportDef={() => pdcExport(rows)}
-      hint="Enter open voucher · Alt+T include matured · Alt+F2 date"
+      hint="Enter Open voucher · Alt+T Include matured · Alt+F2 Date"
       filters={
         <Inline gap={2} wrap align="center">
           <BankSelect banks={banks} value={ledgerId} onChange={setLedgerId} allowAll />

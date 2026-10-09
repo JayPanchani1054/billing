@@ -155,7 +155,8 @@ npm is not available in the development container, so `package-lock.json` is pro
 executed), commits `package-lock.json` back to the branch with `GITHUB_TOKEN` (`contents: write`) and
 starts CI for that commit (pushes made with `GITHUB_TOKEN` do not trigger workflows by themselves).
 From then on every job uses `npm ci`. With npm available locally, `npm install` followed by committing
-`package-lock.json` is equivalent.
+`package-lock.json` is equivalent. The job skips its own commits (no loop) and Dependabot's branches
+(Dependabot updates the lockfile itself, and its runs get a read-only token).
 
 `node scripts/lockfile-sync.mjs` compares the lockfile's root entry with `package.json` without any
 network access (exit 0 in sync, 1 out of date, 2 missing). CI uses it to choose `npm ci` (in sync) or

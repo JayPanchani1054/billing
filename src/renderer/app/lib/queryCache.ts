@@ -138,6 +138,16 @@ export class QueryCache {
     return this.entries.get(key)?.listeners.size ?? 0;
   }
 
+  /**
+   * Is a request in flight for `key` that started after its latest invalidation? (Its answer is
+   * current: sharing it is as good as starting a new one. A request that started before the
+   * invalidation may return pre-mutation data and must not be shared by an explicit refetch.)
+   */
+  hasCurrentRequest(key: string): boolean {
+    const e = this.entries.get(key);
+    return !!e && e.promise !== null && e.startedSeq > e.invalidatedSeq;
+  }
+
   /** Should a mounted query (re)fetch now? */
   needsFetch(key: string, staleTimeMs: number): boolean {
     const e = this.entries.get(key);

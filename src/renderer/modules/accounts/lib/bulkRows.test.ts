@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { applyRowGstin, bulkInput, bulkTotals, isBlankRow, mapBulkServerErrors, newBulkRow, validateBulkRows } from './bulkRows.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { applyRowGstin, bulkInput, bulkTotals, cellDescribedBy, cellErrorId, isBlankRow, mapBulkServerErrors, newBulkRow, validateBulkRows } from './bulkRows.ts';
 
 describe('bulk ledger rows', () => {
   const MH = '27AAPFU0939F1ZV';
@@ -38,5 +41,28 @@ describe('bulk ledger rows', () => {
       newBulkRow(1),
     ]);
     assert.deepEqual(t, { debit: 12_500, credit: 4_000, count: 3 });
+  });
+});
+
+describe('bulk ledger grid accessibility', () => {
+  it('links a cell to its error text only while it has one', () => {
+    assert.equal(cellErrorId('r-3', 'stateCode'), 'bl-r-3-stateCode-err');
+    assert.equal(cellErrorId('a b:1', 'name'), 'bl-a_b_1-name-err', 'a valid id whatever the row key');
+    assert.equal(cellDescribedBy({ 'r-3.stateCode': 'Choose a state' }, 'r-3', 'stateCode'), 'bl-r-3-stateCode-err');
+    assert.equal(cellDescribedBy({ 'r-3.stateCode': 'Choose a state' }, 'r-3', 'name'), undefined);
+  });
+
+  it('every control of a grid row has an accessible name and points at its error (incl. the State picker)', () => {
+    const dir = path.dirname(fileURLToPath(import.meta.url));
+    const src = fs.readFileSync(path.join(dir, '../BulkLedgerScreen.tsx'), 'utf8');
+    for (const [label, field] of [['name', 'name'], ['group', 'groupId'], ['opening balance', 'openingBalance'], ['GSTIN', 'gstin'], ['state', 'stateCode']]) {
+      assert.ok(src.includes(`aria-label={\`Row \${i + 1} ${label}\`}`), `row ${label} has an aria-label`);
+      assert.ok(src.includes(`cellDescribedBy(errors, r.key, '${field}')`), `row ${label} is described by its error`);
+      assert.ok(src.includes(`id={cellErrorId(r.key, '${field}')}`), `row ${label} error has an id`);
+    }
+    // StatePicker forwards the accessible name to the combobox.
+    const comp = fs.readFileSync(path.join(dir, '../components.tsx'), 'utf8');
+    assert.match(comp, /aria-label=\{ariaLabel\}/);
+    assert.match(comp, /aria-describedby=\{ariaDescribedBy\}/);
   });
 });

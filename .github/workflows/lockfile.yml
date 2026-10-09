@@ -26,7 +26,9 @@ concurrency:
 jobs:
   lockfile:
     name: Update package-lock.json
-    if: github.ref_type == 'branch' && github.actor != 'github-actions[bot]'
+    # Not for its own commits (no loop), and not for Dependabot: its pull requests already update
+    # package-lock.json, and the token of a Dependabot-triggered run is read-only (a push would fail).
+    if: github.ref_type == 'branch' && github.actor != 'github-actions[bot]' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

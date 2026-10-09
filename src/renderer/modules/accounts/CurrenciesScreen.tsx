@@ -2,7 +2,7 @@
  * 'accounts.currencies' (F11 multi-currency) — currencies on the left (with their latest rate),
  * exchange rates by date for the chosen currency on the right. Rates are rupees per one unit.
  * Alt+C new currency · Alt+R new rate (saving an existing date updates it) · Enter alters ·
- * Ctrl+D deletes the highlighted rate (or currency when that list has focus).
+ * Alt+D (or Ctrl+D) deletes the highlighted rate (or currency when that list has focus).
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
@@ -99,11 +99,11 @@ export function CurrenciesScreen() {
       loading={cq.loading}
       error={cq.error}
       onRetry={() => void cq.refetch()}
-      hint="Enter Alter · Alt+C Create Currency · Alt+R Enter Rate · Ctrl+D Delete · Esc Back"
+      hint="Enter Alter · Alt+C Create Currency · Alt+R Enter Rate · Alt+D Delete · Esc Back"
       actions={[
         { key: 'Alt+C', label: 'Create currency', icon: 'plus', primary: true, disabled: !canCreate, onClick: () => setCurDialog('new') },
         { key: 'Alt+R', label: 'Enter rate', icon: 'calendar', disabled: !canCreate || !currency || currency.isBase, onClick: () => setRateDialog('new') },
-        { key: 'Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canDelete || (pane === 'rates' ? !rate : !currency || currency.isBase), onClick: () => void remove() },
+        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canDelete || (pane === 'rates' ? !rate : !currency || currency.isBase), onClick: () => void remove() },
       ]}
     >
       <div className="bx-acc-split">

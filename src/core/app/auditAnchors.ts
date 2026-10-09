@@ -50,6 +50,16 @@ function isAnchor(v: unknown, companyId: string): v is AuditAnchor {
  * (RuntimeOptions.auditAnchorKey); without main, FileAuditAnchorStore calls it itself.
  */
 export function loadOrCreateAnchorKey(opts: { dir: string; log: Logger['log']; sealer?: SecretSealer }): Buffer {
+  return loadAnchorKey(opts).key;
+}
+
+/**
+ * loadOrCreateAnchorKey with its provenance. `ephemeral` = the real key exists but cannot be used in
+ * this run (unreadable right now, or sealed by the OS and read without the sealer): `key` is then a
+ * throw-away key. Anchors must never be written or judged with it — a check-point signed with it
+ * would fail verification under the real key in the next run and be reported as tampering.
+ */
+export function loadAnchorKey(opts: { dir: string; log: Logger['log']; sealer?: SecretSealer }): { key: Buffer; ephemeral: boolean } {
   const keyFile = path.join(opts.dir, ANCHOR_KEY_FILE);
   const { log, sealer } = opts;
   const r = readJsonFile<{ v?: unknown; sealed?: unknown; key?: unknown }>(keyFile);
@@ -66,12 +76,12 @@ export function loadOrCreateAnchorKey(opts: { dir: string; log: Logger['log']; s
             log('warn', 'Could not protect the edit-log anchor key with the operating system', { error: err });
           }
         }
-        return Buffer.from(hex, 'hex');
+        return { key: Buffer.from(hex, 'hex'), ephemeral: false };
       }
       if (sealed && !sealer) {
         // Sealed by Electron main but read without it (e.g. a headless tool): never replace it.
         log('warn', 'The edit-log anchor key is protected by the operating system; anchors cannot be confirmed here');
-        return randomBytes(32);
+        return { key: randomBytes(32), ephemeral: true };
       }
     } catch {
       /* fall through: a key sealed for another Windows account / computer */
@@ -80,7 +90,7 @@ export function loadOrCreateAnchorKey(opts: { dir: string; log: Logger['log']; s
   if (r.status === 'unreadable') {
     // Never replace a key we merely could not read right now: use a throw-away key for this run.
     log('warn', 'The edit-log anchor key could not be read; anchors cannot be confirmed this session');
-    return randomBytes(32);
+    return { key: randomBytes(32), ephemeral: true };
   }
   if (r.status !== 'missing') {
     try {
@@ -101,7 +111,7 @@ export function loadOrCreateAnchorKey(opts: { dir: string; log: Logger['log']; s
     }
   }
   writeJsonAtomic(keyFile, stored);
-  return fresh;
+  return { key: fresh, ephemeral: false };
 }
 
 export class FileAuditAnchorStore implements AuditAnchorStore {
@@ -110,6 +120,8 @@ export class FileAuditAnchorStore implements AuditAnchorStore {
   private readonly log: Logger['log'];
   private readonly sealer: SecretSealer | undefined;
   private keyBytes: Buffer | null = null;
+  /** The real key cannot be used this run (see loadAnchorKey): read and write no check-points. */
+  private ephemeral = false;
   private anchors: Record<string, AuditAnchor> | null = null;
 
   /**
@@ -125,8 +137,18 @@ export class FileAuditAnchorStore implements AuditAnchorStore {
   }
 
   private key(): Buffer {
-    if (!this.keyBytes) this.keyBytes = loadOrCreateAnchorKey({ dir: path.dirname(this.keyFile), log: this.log, sealer: this.sealer });
+    if (!this.keyBytes) {
+      const loaded = loadAnchorKey({ dir: path.dirname(this.keyFile), log: this.log, sealer: this.sealer });
+      this.keyBytes = loaded.key;
+      this.ephemeral = loaded.ephemeral;
+    }
     return this.keyBytes;
+  }
+
+  /** False when this run cannot use the installation key (check-points are then neither judged nor written). */
+  get usable(): boolean {
+    this.key();
+    return !this.ephemeral;
   }
 
   private all(): Record<string, AuditAnchor> {
@@ -158,6 +180,8 @@ export class FileAuditAnchorStore implements AuditAnchorStore {
   }
 
   get(companyId: string): AuditAnchor | null {
+    // Without the real key every check-point would look edited: report "none" rather than tampering.
+    if (!this.usable) return null;
     const a = this.all()[companyId];
     return a ? { ...a } : null;
   }
@@ -165,6 +189,8 @@ export class FileAuditAnchorStore implements AuditAnchorStore {
   put(head: Omit<AuditAnchor, 'mac' | 'at'>, now: Date): AuditAnchor {
     const unsigned = { ...head, at: now.toISOString() };
     const anchor: AuditAnchor = { ...unsigned, mac: this.sign(unsigned) };
+    // Never overwrite a check-point with one signed by a throw-away key (it would fail next run).
+    if (!this.usable) return anchor;
     const all = this.all();
     all[head.companyId] = anchor;
     writeJsonAtomic(this.file, { v: 1, anchors: all });

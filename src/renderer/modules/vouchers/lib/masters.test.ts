@@ -5,7 +5,7 @@ import type { InvoiceContext } from '../../../../shared/gst/index.ts';
 import type { LedgerDetail } from '../../../../shared/types/accounts.ts';
 import type { ItemPickerRow } from '../../../../shared/types/inventory.ts';
 import type { TrackingDoc } from '../../../../shared/types/vouchers.ts';
-import { defaultItemRate, ledgerAllowed, priceSide, rowsFromTrackingDoc, taxBreakup, toClientLedgerTax } from './masters.ts';
+import { createdLedgerProblem, createGroupCode, defaultItemRate, ledgerAllowed, priceSide, rowsFromTrackingDoc, taxBreakup, toClientLedgerTax } from './masters.ts';
 import { voucherGotoItems, voucherMenuEntries } from './menu.ts';
 
 const item = (over: Partial<ItemPickerRow> = {}): ItemPickerRow => ({
@@ -54,6 +54,34 @@ describe('ledger slots', () => {
     assert.equal(ledgerAllowed('itemLedger', 'sales', ['sales', 'income'], 'outward'), true);
     assert.equal(ledgerAllowed('itemLedger', 'purchase', ['sales', 'income'], 'inward'), false);
     assert.equal(ledgerAllowed('itemLedger', 'purchase', ['purchase', 'expense'], 'inward'), true);
+  });
+});
+
+describe('Alt+C from a voucher ledger picker', () => {
+  it('opens Ledger Creation under the group that fits the slot', () => {
+    assert.equal(createGroupCode('party', 'sales', 'outward'), 'SUNDRY_DEBTORS');
+    assert.equal(createGroupCode('party', 'sales_order', 'outward'), 'SUNDRY_DEBTORS');
+    assert.equal(createGroupCode('party', 'credit_note', 'outward'), 'SUNDRY_DEBTORS');
+    assert.equal(createGroupCode('party', 'credit_note', 'inward'), 'SUNDRY_DEBTORS', 'a credit note is never issued to a supplier');
+    assert.equal(createGroupCode('party', 'purchase', 'inward'), 'SUNDRY_CREDITORS');
+    assert.equal(createGroupCode('party', 'debit_note', 'inward'), 'SUNDRY_CREDITORS');
+    assert.equal(createGroupCode('party', 'debit_note', 'outward'), 'SUNDRY_DEBTORS', 'price revision to a customer');
+    assert.equal(createGroupCode('itemLedger', 'sales', 'outward'), 'SALES_ACCOUNTS');
+    assert.equal(createGroupCode('itemLedger', 'purchase', 'inward'), 'PURCHASE_ACCOUNTS');
+    assert.equal(createGroupCode('account', 'receipt'), 'BANK_ACCOUNTS');
+    assert.equal(createGroupCode('particular', 'contra'), 'BANK_ACCOUNTS');
+    assert.equal(createGroupCode('particular', 'journal'), null);
+    assert.equal(createGroupCode('particular', 'payment'), null);
+    assert.equal(createGroupCode('invoiceLine', 'sales'), null);
+  });
+
+  it('a ledger created under a group the slot refuses is explained, not selected', () => {
+    const rent = { name: 'Rent', groupName: 'Indirect Expenses', classes: ['expense' as const] };
+    assert.match(createdLedgerProblem(rent, 'party', 'sales') ?? '', /“Rent” was created under Indirect Expenses, which is not a party ledger/);
+    assert.equal(createdLedgerProblem({ name: 'Sharma', groupName: 'Sundry Debtors', classes: ['party', 'debtor'] }, 'party', 'sales'), null);
+    assert.match(createdLedgerProblem({ name: 'Vendor', groupName: 'Sundry Creditors', classes: ['party', 'creditor'] }, 'party', 'credit_note') ?? '', /not a party ledger/);
+    assert.equal(createdLedgerProblem({ name: 'HDFC', groupName: 'Bank Accounts', classes: ['bank', 'cash_bank'] }, 'account', 'payment'), null);
+    assert.match(createdLedgerProblem(rent, 'account', 'payment') ?? '', /not a cash or bank ledger/);
   });
 });
 

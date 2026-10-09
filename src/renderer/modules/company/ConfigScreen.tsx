@@ -151,7 +151,7 @@ function ConfigForm({ saved }: { saved: CompanyConfig }) {
             ))}
           </div>
         </Field>
-        <Switch label="Print right after saving an invoice" checked={c.invoice.printAfterSave} disabled={readOnly} onChange={(v) => patch('invoice', { printAfterSave: v })} />
+        <Switch label="Print right after saving an invoice (sales, credit / debit note, delivery note)" checked={c.invoice.printAfterSave} disabled={readOnly} onChange={(v) => patch('invoice', { printAfterSave: v })} />
         <Switch label="HSN/SAC summary on invoices" checked={c.invoice.showHsnSummary} disabled={readOnly} onChange={(v) => patch('invoice', { showHsnSummary: v })} />
         <Switch label="Tax columns per item (CGST/SGST/IGST)" checked={c.invoice.itemwiseTax} disabled={readOnly} onChange={(v) => patch('invoice', { itemwiseTax: v })} />
         <Field label="Signature caption">

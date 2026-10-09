@@ -363,7 +363,7 @@ export function GstExceptionsScreen({ params }: ScreenProps<{ from?: string; to?
       hint: master ? master.hint : 'This problem is not in a master',
       group: 'fix',
     },
-    { key: 'Alt+L', label: 'Alter voucher', icon: 'edit', onClick: () => alter && nav.push(alter.screen, alter.params), disabled: !alter, hint: alter?.hint, group: 'fix' },
+    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => alter && nav.push(alter.screen, alter.params), disabled: !alter, hint: alter?.hint, group: 'fix' },
   ];
   return (
     <ReportScreen
@@ -398,7 +398,7 @@ export function GstExceptionsScreen({ params }: ScreenProps<{ from?: string; to?
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="↑↓ Select · Enter View voucher · Alt+L Alter voucher · Alt+M Fix master · Ctrl+1/2/3 Filter · Alt+F2 Period · Alt+E Export · Esc Back"
+      hint="↑↓ Select · Enter View voucher · Alt+A Alter voucher · Alt+M Fix master · Ctrl+1/2/3 Filter · Alt+F2 Period · Alt+E Export · Esc Back"
     >
       <div className="bx-gst-fill">
         <GstHelp>

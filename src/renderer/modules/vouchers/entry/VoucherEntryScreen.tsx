@@ -13,7 +13,8 @@
  * Alt+I item ↔ accounting invoice, Ctrl+H single ↔ double entry, Ctrl+I more details, Alt+T fill
  * from notes/orders, Alt+B bill-wise, Alt+O cost centres, Alt+K bank details, Ctrl+B balance it,
  * Ctrl+D delete line, Alt+N / Ctrl+N insert line, Ctrl+L optional, Ctrl+T post-dated, F12 settings;
- * alteration: Alt+D delete, Alt+X cancel, Alt+2 duplicate, Alt+P print, Alt+H edit history.
+ * Alt+P print (the voucher being altered, or the one just saved here — lib/printing.ts);
+ * alteration: Alt+D delete, Alt+X cancel, Alt+2 duplicate, Alt+H edit history.
  */
 import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
@@ -66,6 +67,8 @@ import { baseTypeLabel, defaultDirection, defaultTypeFor, isGstBase, isInvoiceMo
 import { defaultItemRate, priceSide, rowsFromTrackingDoc, taxBreakup, toClientItemInfo, toClientLedgerTax } from '../lib/masters.ts';
 import { computeInvoiceTotals, computeLedgerTotals, computeStockTotals, stabilizeLines } from '../lib/totals.ts';
 import type { ClientTotals, LineFigures, TotalsEnv } from '../lib/totals.ts';
+import { afterSavePrint, entryPrintTarget, savedToastMessage, voucherRefLabel } from '../lib/printing.ts';
+import type { SavedVoucherRef } from '../lib/printing.ts';
 import { clientIssues } from '../lib/validate.ts';
 import { LedgerCombo } from '../pickers/LedgerCombo.tsx';
 import { useGodowns, useItemRows, useLedgerDetails, useLedgerRows, usePriceLevels } from '../pickers/hooks.ts';
@@ -325,6 +328,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [busy, setBusy] = useState<'save' | 'delete' | 'cancel' | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  /** The voucher last created from this screen: Alt+P prints it (lib/printing.ts). */
+  const [lastSaved, setLastSaved] = useState<SavedVoucherRef | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
 
   const typingClearsErrors = useRef(form);
@@ -673,7 +678,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const del = useApiMutation('vouchers.delete', { invalidates: VOUCHER_INVALIDATES });
   const cancelM = useApiMutation('vouchers.cancel', { invalidates: VOUCHER_INVALIDATES });
   const typeName = ctx.voucherType.name;
-  const printAfterSave = ctx.config.printAfterSave || ctx.voucherType.printAfterSave;
+  // The voucher type's switch, or F12 › Invoice printing for invoice-like types (vouchers.entryContext).
+  const printAfterSave = ctx.config.printAfterSave && nav.isRegistered('print.voucher');
 
   const handleSaveError = (err: unknown, built: BuiltInput) => {
     if (!isApiError(err)) {
@@ -746,18 +752,20 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         nav.pop({ id: out.id });
         return;
       }
-      toast.success(`${typeName} ${out.number ?? ''} saved`.replace(/\s+/g, ' ').trim(), {
-        message: `₹ ${formatMoney(out.totals.grandTotal)}${infos.length > 0 ? ` · ${infos.map((w) => w.message).join(' ')}` : ''}`,
+      const saved: SavedVoucherRef = { id: out.id, number: out.number, typeName };
+      const printNow = afterSavePrint(out.id, printAfterSave);
+      toast.success(`${voucherRefLabel(saved)} saved`, {
+        message: savedToastMessage(formatMoney(out.totals.grandTotal), infos.map((w) => w.message), printNow !== null),
         action: { label: 'View', onClick: () => nav.push('vouchers.view', { id: out.id }) },
       });
+      setLastSaved(saved);
       setPreview(null);
       setSaveWarnings(null);
       dispatch({ type: 'next', date: f.date, isOptional: ctx.voucherType.optionalByDefault, partyLedgerId: startParty });
-      if (printAfterSave && nav.isRegistered('print.voucher')) {
-        nav.push('print.voucher', { id: out.id });
+      if (printNow) {
+        nav.push('print.voucher', printNow);
         return;
       }
-      if (printAfterSave) toast.info('Printing is not available yet', { message: 'The voucher was saved. Print it later from the Day Book.' });
       requestAnimationFrame(() => focusStart());
     } catch (err) {
       handleSaveError(err, built);
@@ -899,6 +907,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
 
   // ── Rail actions ──
   const isOrderOrNote = trackKinds.length > 0 && form.partyLedgerId !== null;
+  const printTarget = entryPrintTarget(detail ? detail.id : null, lastSaved);
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+A', label: isAlter ? 'Save changes' : 'Accept', icon: 'save', primary: true, onClick: () => void doSave(), disabled: busy !== null },
     { key: 'F10', label: 'Voucher type', icon: 'invoice', onClick: () => setDialog({ kind: 'type' }), hidden: isAlter, group: 'type' },
@@ -917,7 +926,15 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     { key: 'Ctrl+L', label: form.isOptional ? 'Make regular' : 'Make optional', icon: 'eye-off', onClick: () => dispatch({ type: 'patch', patch: { isOptional: !form.isOptional } }), group: 'status' },
     { key: 'Ctrl+T', label: form.isPostDated ? 'Not post-dated' : 'Post-dated', icon: 'clock', onClick: () => dispatch({ type: 'patch', patch: { isPostDated: !form.isPostDated } }), group: 'status' },
     { key: 'F12', label: 'Settings', icon: 'settings', onClick: () => setDialog({ kind: 'config' }), group: 'status' },
-    { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => detail && nav.push('print.voucher', { id: detail.id }), hidden: !isAlter, group: 'saved' },
+    {
+      key: 'Alt+P',
+      label: printTarget?.label ?? 'Print',
+      icon: 'print',
+      onClick: () => printTarget && nav.push('print.voucher', { id: printTarget.id }),
+      hidden: printTarget === null,
+      hint: !isAlter && printTarget ? 'The voucher you just saved' : undefined,
+      group: 'saved',
+    },
     { key: 'Alt+2', label: 'Duplicate', icon: 'copy', onClick: () => detail && nav.push('vouchers.entry', { duplicateOf: detail.id }), hidden: !isAlter || !ctx.permissions.canCreate, group: 'saved' },
     {
       key: 'Alt+H',
@@ -994,6 +1011,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
             rows={ledgers.rows}
             slot="party"
             baseType={baseType}
+            direction={direction}
             value={form.partyLedgerId}
             invalid={!!cellErrors[headerId('party')]}
             onChange={(id) => dispatch({ type: 'patch', patch: { partyLedgerId: id, partyBills: null, party: null } })}
@@ -1022,6 +1040,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
             rows={ledgers.rows}
             slot="account"
             baseType={baseType}
+            direction={direction}
             value={form.accountLedgerId}
             invalid={!!cellErrors[headerId('account')]}
             onChange={(id) => dispatch({ type: 'patch', patch: { accountLedgerId: id, accountInstrument: null } })}

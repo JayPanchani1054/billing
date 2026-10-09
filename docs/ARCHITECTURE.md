@@ -161,7 +161,8 @@ export const accountsRoutes = {
 (`now()`, `today()`), `ctx.audit(entry)`, `ctx.app` (dataDir, version, log).
 
 ### Db (`core/db/db.ts`)
-`db.get/all/run/value(sql, params)`, `db.transaction(fn)` (nestable, synchronous), `db.exec(ddl)`.
+`db.get/all/run/value(sql, params)`, `db.iterate(sql, params)` (one row at a time, for large exports),
+`db.transaction(fn)` (nestable, synchronous), `db.exec(ddl)`.
 Use `:name` placeholders with an object. Always parameterise — **never interpolate user input into SQL**.
 
 ---
@@ -221,9 +222,9 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   On push the shell focuses `[data-autofocus]` (else the first field / grid) — also after the screen
   finishes loading, unless the user already moved.
 - Screen conventions — one meaning per key in every module (`CONVENTION_SHORTCUTS`, F1): `Alt+C` create,
-  `Alt+A` alter, `Alt+D` delete, `Ctrl+D` remove line, `Alt+N`/`Ctrl+N` insert line, `Alt+2` duplicate,
+  `Alt+A` alter, `Alt+D` delete (`Ctrl+D` also in master lists), `Ctrl+D` remove line (grids), `Alt+H` edit history, `Alt+N`/`Ctrl+N` insert line, `Alt+2` duplicate,
   `Alt+X` cancel voucher, `Alt+Enter` view, `Alt+M` open the report subject's master, `Alt+F1`
-  detailed/condensed, `Ctrl+1…9` switch view/tab, `Ctrl+F` search box, `Alt+E` export, `Alt+P` print.
+  detailed/condensed, `Ctrl+1…9` switch view/tab, `Ctrl+F` search box, `Alt+E` export, `Alt+P` print (`Ctrl+P` the highlighted voucher in the Day Book).
   Screens never bind the global keys (`reservedGlobalKeys()`), e.g. `Alt+F5` = Sales Order. Labels use
   Tally verbs ("Create …", "Alter", "Delete").
 - Pickers (ledger/item/group selection) are type-ahead lists that show balances/stock and offer "+ Create"
@@ -249,10 +250,13 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   CSP `default-src 'self'`, deny `window.open`/navigation to external origins (open https links in the OS
   browser after confirmation), no `remote`, no `webview`.
 - File system access only via main-process dialogs; renderer never supplies arbitrary paths to read/write
-  without a user-chosen dialog result token.
+  without a user-chosen dialog result token. Core routes that take a path authorise it with
+  `core/lib/paths.ts` (data folder, configured backup folder, or a dialog choice; UNC refused otherwise).
 - Passwords: `scrypt` (N=2^15, r=8, p=1, 16-byte salt) with constant-time compare; lockout after 5 failures
   for 5 minutes; optional session idle timeout.
-- Edit log: append-only (`audit_log` triggers) and SHA-256 hash-chained; verifiable from the UI.
+- Edit log: append-only (`audit_log` triggers) and SHA-256 hash-chained; verifiable from the UI. Its latest
+  head is check-pointed outside the company file (HMAC-signed, userData + backup manifests) so a rewritten or
+  truncated log is detected — see docs/SECURITY.md §4.1 for what is and is not detected. Imports audit every record.
 - Backups: AES-256-GCM with scrypt-derived key when a password is given; integrity-checked on restore.
 - Logs never contain passwords, full GSTIN/PAN lists or voucher payloads.
 

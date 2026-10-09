@@ -204,7 +204,7 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
         void q.refetch();
       }}
       exportDef={brs ? () => brsExport(brs) : undefined}
-      hint="Type a bank date: 5 · 5-4 · v voucher date · . same as above · blank clears · Enter next row (on the last row: save) · Ctrl+Enter open voucher · Ctrl+A save"
+      hint="Type a bank date: 5 · 5-4 · v voucher date · . same as above · blank clears · Enter Next row (on the last row: save) · Ctrl+Enter Open voucher · Ctrl+A Save"
       filters={
         <Inline gap={2} wrap>
           <BankSelect banks={banks} value={ledgerId} onChange={(id) => void changeLedger(id)} aria-label="Bank account to reconcile" />

@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+// Test-only runtime imports from core: the inputs this screen builds must pass the routes' strict filters.
+import { parse } from '../../../../core/lib/validate.ts';
+import { AuditExportInputSchema, AuditListInputSchema } from '../../../../core/modules/security/routes.ts';
 import { DEFAULT_SECURITY_SETTINGS } from '../../../../shared/types/security.ts';
 import type { AuditFacets, AuditListRow } from '../../../../shared/types/security.ts';
 import {
@@ -205,6 +208,22 @@ describe('edit log navigation and output', () => {
     assert.equal(adjacentId(rows, 9, -1), null);
     assert.equal(adjacentId(rows, 4, 1), null);
     assert.equal(adjacentId(rows, 5, 1), null, 'an entry outside this page (e.g. from Verify) has no neighbours');
+  });
+
+  it('every list / export input it builds is accepted by the strict edit-log filter schemas (unknown keys are refused)', () => {
+    const states = [
+      DEFAULT_FILTERS,
+      { ...DEFAULT_FILTERS, dates: 'all' as const, userId: 3, group: 'logins' as const, entityType: 'user', search: ' ravi ', page: 2 },
+      { ...DEFAULT_FILTERS, action: 'delete' as const, entityType: 'voucher' },
+    ];
+    for (const f of states) {
+      const list = toListInput(f, PERIOD);
+      assert.deepEqual(parse(AuditListInputSchema, list, { unknownKeys: 'reject' }), list);
+      const exp = toExportInput(f, PERIOD, 'csv');
+      assert.deepEqual(parse(AuditExportInputSchema, exp, { unknownKeys: 'reject' }), exp);
+    }
+    const hist = historyExportInput({ entityType: 'voucher', entityId: 3, label: 'Sales 7' }, 'xlsx');
+    assert.deepEqual(parse(AuditExportInputSchema, hist, { unknownKeys: 'reject' }), hist);
   });
 
   it('builds history params and export input for one record', () => {

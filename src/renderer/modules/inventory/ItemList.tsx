@@ -1,7 +1,7 @@
 /**
  * 'inventory.item.list' — Stock Items. Search (name, alias, part no., barcode) and group /
  * category filters run on the server; the table is virtualised (thousands of rows stay smooth).
- * Enter alters the item, Alt+C creates, Ctrl+D / Alt+D deletes, Alt+M opens multiple creation,
+ * Enter alters the item, Alt+C creates, Alt+D (or Ctrl+D) deletes, Alt+M opens multiple creation,
  * Alt+E exports, Alt+P prints.
  */
 import { useMemo, useRef, useState } from 'react';
@@ -170,11 +170,11 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Type to Search · Enter Alter · Alt+C Create Stock Item · Ctrl+D Delete · Alt+E Export"
+      hint="Type to Search · Enter Alter · Alt+C Create Stock Item · Alt+D Delete · Alt+E Export"
       actions={[
         { key: 'Alt+C', label: 'Create stock item', icon: 'plus', primary: true, onClick: create, hidden: !canCreate },
         { key: 'Alt+M', label: 'Multiple items', icon: 'layers', onClick: () => nav.push('inventory.item.bulk', groupId !== null ? { groupId } : {}), hidden: !canCreate },
-        { key: 'Ctrl+D, Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(current), hidden: !canDelete, disabled: !current, group: 'danger' },
+        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(current), hidden: !canDelete, disabled: !current, group: 'danger' },
       ]}
       filters={
         <div className="bx-inv-filters">

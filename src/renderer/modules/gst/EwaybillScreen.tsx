@@ -1,8 +1,8 @@
 /**
  * 'gst.ewaybill' {from?, to?} (feature ewayBill) — sales and sales returns whose goods value exceeds
- * the e-way bill limit and that have no e-way bill yet. Select (Space / Alt+A) and save the bulk JSON
+ * the e-way bill limit and that have no e-way bill yet. Select (Space / Alt+S) and save the bulk JSON
  * for the EWB portal (Alt+J); record the e-way bill number, date and validity the portal gives
- * (Alt+N); history per voucher (Alt+H). Enter opens the voucher.
+ * (Alt+N); history per voucher (Alt+H). Enter opens the voucher, Alt+A alters it.
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { EwayPendingRow } from '../../../shared/types/gst-returns.ts';
@@ -38,7 +38,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
   const generate = async (): Promise<void> => {
     const ids = [...selected];
     if (ids.length === 0) {
-      toast.info('Select the invoices first', { message: 'Press Space on an invoice, or Alt+A to select every ready one.' });
+      toast.info('Select the invoices first', { message: 'Press Space on an invoice, or Alt+S to select every ready one.' });
       return;
     }
     if (ids.length > MAX_BULK) {
@@ -108,7 +108,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
   );
 
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+A', label: state === 'all' ? 'Clear selection' : 'Select all ready', icon: 'check', onClick: () => setSelected((s) => toggleAllReady(s, rows)), disabled: readyCount === 0, group: 'select' },
+    { key: 'Alt+S', label: state === 'all' ? 'Clear selection' : 'Select all ready', icon: 'check', onClick: () => setSelected((s) => toggleAllReady(s, rows)), disabled: readyCount === 0, group: 'select' },
     {
       key: 'Alt+J',
       label: selected.size > 0 ? `Generate JSON (${selected.size})` : 'Generate JSON',
@@ -121,7 +121,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
     },
     { key: 'Alt+N', label: 'Record e-way bill no.', icon: 'edit', onClick: () => current && setRecording(current), disabled: !current || !canFile, group: 'row' },
     { key: 'Alt+H', label: 'History', icon: 'clock', onClick: () => current && setHistory({ id: current.voucherId, title: `${current.voucherTypeName} ${current.number ?? ''}` }), disabled: !current, group: 'row' },
-    { key: 'Alt+L', label: 'Alter voucher', icon: 'edit', onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }), disabled: !current, group: 'row' },
+    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }), disabled: !current, group: 'row' },
   ];
 
   const enabled = q.data?.enabled ?? true;
@@ -168,7 +168,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
         refreshing={q.refreshing || makeJson.pending}
         error={q.error}
         onRetry={() => void q.refetch()}
-        hint="Space Select · Alt+A All ready · Alt+J JSON · Alt+N Record EWB no. · Enter Open · Esc Back"
+        hint="Space Select · Alt+S All ready · Alt+A Alter voucher · Alt+J JSON · Alt+N Record EWB no. · Enter Open · Esc Back"
       >
         <div className="bx-gst-fill">
           <GstHelp>
@@ -211,7 +211,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
               description={current.ready ? 'Ready — but check these notes.' : 'Fix these before generating the e-way bill:'}
               actions={
                 <Button size="sm" icon="edit" onClick={() => nav.push('vouchers.entry', { id: current.voucherId })}>
-                  Alter voucher (Alt+L)
+                  Alter voucher (Alt+A)
                 </Button>
               }
             >

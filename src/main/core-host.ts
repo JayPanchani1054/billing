@@ -140,7 +140,13 @@ export function startCoreHost(deps: CoreHostDeps): CoreHost {
     }
     if (call.op === 'shutdown') {
       stopping = true;
-      rt.shutdown().then(
+      let stopped: Promise<void>;
+      try {
+        stopped = rt.shutdown();
+      } catch (err) {
+        stopped = Promise.reject(err); // still answered at once: main must not wait out its shutdown bound
+      }
+      stopped.then(
         () => deps.post({ type: 'reply', id: call.id, ok: true, value: null, snapshot: snapshot() }),
         (err: unknown) => replyError(call.id, err),
       );

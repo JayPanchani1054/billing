@@ -189,6 +189,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
   const { date: workingDate } = useWorkingDate();
   const canDelete = useCan('masters.delete');
   const canAlter = useCan('masters.alter');
+  const canAudit = useCan('audit.view');
   const { forResult, returnResult } = useScreenResult<{ id: number; name: string }>();
   const save = useApiMutation('inventory.item.save', { invalidates: INVENTORY_INVALIDATES });
   const del = useApiMutation('inventory.item.delete', { invalidates: INVENTORY_INVALIDATES });
@@ -384,7 +385,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
       icon="box"
       width="form"
       dirty={dirty}
-      hint="Enter next field · Ctrl+A save · Alt+C create in a list · Ctrl+Enter add opening row · Esc back"
+      hint="Enter Next field · Ctrl+A Save · Alt+C Create in a list · Ctrl+Enter Add opening row · Esc Back"
       actions={[
         { key: 'Ctrl+A', label: primaryLabel, icon: 'save', primary: true, onClick: () => void submit('next'), disabled: readOnly },
         { key: 'Alt+S', label: 'Save & close', icon: 'check', onClick: () => void submit('close'), hidden: !!saved || forResult || readOnly },
@@ -397,7 +398,15 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
           group: 'more',
         },
         {
-          key: 'Alt+D, Ctrl+D',
+          key: 'Alt+H',
+          label: 'Edit history',
+          icon: 'clock',
+          onClick: () => saved && nav.push('security.audit', { entityType: 'stock_item', entityId: saved.id, entityGuid: saved.guid, label: saved.name }),
+          hidden: !saved || !canAudit,
+          group: 'more',
+        },
+        {
+          key: 'Alt+D',
           label: 'Delete',
           icon: 'trash',
           onClick: () => void remove(),

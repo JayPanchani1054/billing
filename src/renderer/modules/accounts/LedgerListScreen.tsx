@@ -1,8 +1,9 @@
 /**
  * 'accounts.ledger.list' — all ledgers with their closing balance (as on the period end, Alt+F2),
  * class filter chips (Parties, Cash & Bank, Sales, …), search, virtualised for 10,000+ ledgers.
- * Enter opens the ledger (alteration), Alt+C creates one, Ctrl+D deletes the highlighted ledger
- * (the server explains when it cannot be deleted), Alt+E / Alt+P export / print.
+ * Enter opens the ledger (alteration), Alt+C creates one, Alt+D (or Ctrl+D) deletes the highlighted ledger
+ * (the server explains when it cannot be deleted), Alt+H its edit history, Alt+T the chart of accounts,
+ * Alt+E / Alt+P export / print.
  */
 import { useMemo, useState } from 'react';
 import { formatIndianNumber } from '../../../shared/format.ts';
@@ -28,6 +29,7 @@ export function LedgerListScreen({ params }: ScreenProps<{ chip?: LedgerChip; se
   const { to } = usePeriod();
   const canCreate = useCan('masters.create');
   const canDelete = useCan('masters.delete');
+  const canAudit = useCan('audit.view');
   const deleteLedger = useDeleteLedger();
   const [chip, setChip] = useState<LedgerChip>(LEDGER_CHIPS.some((c) => c.id === params.chip) ? (params.chip as LedgerChip) : 'all');
   const [search, setSearch] = useState(params.search ?? '');
@@ -78,12 +80,21 @@ export function LedgerListScreen({ params }: ScreenProps<{ chip?: LedgerChip; se
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Enter Alter · Alt+C Create · Ctrl+D Delete · Alt+B Bulk create · Alt+E Export · Esc Back"
+      hint="Enter Alter · Alt+C Create · Alt+D Delete · Alt+B Bulk create · Alt+H Edit History · Alt+T Chart · Alt+E Export · Esc Back"
       actions={[
         { key: 'Alt+C', label: 'Create ledger', icon: 'plus', primary: true, onClick: create, disabled: !canCreate },
         { key: 'Alt+B', label: 'Create several', icon: 'list', onClick: () => nav.push('accounts.ledger.bulk'), disabled: !canCreate },
-        { key: 'Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), disabled: !canDelete || !current, group: 'danger' },
-        { key: 'Alt+H', label: 'Chart of accounts', icon: 'layers', onClick: () => nav.push('accounts.chart'), group: 'more' },
+        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), disabled: !canDelete || !current, group: 'danger' },
+        {
+          key: 'Alt+H',
+          label: 'Edit history',
+          icon: 'clock',
+          onClick: () => current && nav.push('security.audit', { entityType: 'ledger', entityId: current.id, label: current.name }),
+          disabled: !current,
+          hidden: !canAudit,
+          group: 'more',
+        },
+        { key: 'Alt+T', label: 'Chart of accounts', icon: 'layers', onClick: () => nav.push('accounts.chart'), group: 'more' },
       ]}
       filters={
         <SegmentedControl<LedgerChip>

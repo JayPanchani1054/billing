@@ -11,8 +11,8 @@ Core API: `src/core/modules/inventory/README.md`, DTOs: `src/shared/types/invent
 
 | id | params | what |
 |---|---|---|
-| `inventory.item.list` | `{ groupId?, categoryId? }` | Stock Items: server search (name, alias, part no., barcode), group / category filters, stock as on the working date, virtualised table. Enter alter · Alt+C create · Alt+M multiple · Ctrl+D/Alt+D delete · Alt+E export · Alt+P print |
-| `inventory.item.form` | `{ id? \| initialName?, forResult?, groupId? }` | Stock Item Creation / Alteration (one Tally-style page: Basic, GST, Prices, Stock, Opening stock). Ctrl+A = **Save & next** (create: the form stays for the next item, keeping group, unit and GST), **Save** (alter) or **Save & return** (`forResult` → `pop({ id, name })`); Alt+S Save & close; Alt+D/Ctrl+D delete; Alt+L price lists |
+| `inventory.item.list` | `{ groupId?, categoryId? }` | Stock Items: server search (name, alias, part no., barcode), group / category filters, stock as on the working date, virtualised table. Enter alter · Alt+C create · Alt+M multiple · Alt+D delete (Ctrl+D also works) · Alt+E export · Alt+P print |
+| `inventory.item.form` | `{ id? \| initialName?, forResult?, groupId? }` | Stock Item Creation / Alteration (one Tally-style page: Basic, GST, Prices, Stock, Opening stock). Ctrl+A = **Save & next** (create: the form stays for the next item, keeping group, unit and GST), **Save** (alter) or **Save & return** (`forResult` → `pop({ id, name })`); Alt+S Save & close; Alt+D delete; Alt+L price lists; Alt+H edit history |
 | `inventory.item.bulk` | `{ groupId? }` | Multiple Stock Items grid of goods (name, alias, group, unit, HSN, GST %, selling price, opening qty/rate/value). Enter on an empty name finishes; all rows are created or none. Opening cells are read-only (with a note) while the books are locked from the books beginning |
 | `inventory.group.list` / `inventory.group.form` (dialog) | form: `{ id? \| initialName?, forResult?, parentId? }` | Stock groups as a tree; GST details with dated history (a wrong row can be removed) |
 | `inventory.category.list` / `inventory.category.form` (dialog) | same | Stock categories (tree) |

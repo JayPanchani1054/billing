@@ -1,6 +1,7 @@
 /**
  * 'accounts.group.list' — the group tree (built-in and your own groups) with ledger counts.
- *   Enter alter · Alt+C create (under the highlighted group) · Ctrl+D delete · Alt+E export.
+ *   Enter alter · Alt+C create (under the highlighted group) · Alt+D (or Ctrl+D) delete · Alt+H edit history ·
+ *   Alt+T chart of accounts · Alt+E export.
  * 'accounts.group.form' — Group Creation / Alteration.
  *   Params { id? | initialName?, parentId?, forResult? }. Opened for a result (Alt+C in a group
  *   picker) it saves and returns { id, name }; otherwise create keeps the form open for the next.
@@ -34,6 +35,7 @@ export function GroupListScreen() {
   const confirm = useConfirm();
   const canCreate = useCan('masters.create');
   const canDelete = useCan('masters.delete');
+  const canAudit = useCan('audit.view');
   const [search, setSearch] = useState('');
   const debounced = useDebouncedValue(search.trim(), 150);
   const q = useApiQuery('accounts.group.list', { includeCounts: true, search: debounced || undefined }, { keepPrevious: true });
@@ -77,7 +79,7 @@ export function GroupListScreen() {
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Enter Alter · Alt+C Create · Ctrl+D Delete · Alt+E Export · Esc Back"
+      hint="Enter Alter · Alt+C Create · Alt+D Delete · Alt+H Edit History · Alt+T Chart · Alt+E Export · Esc Back"
       actions={[
         {
           key: 'Alt+C',
@@ -87,8 +89,17 @@ export function GroupListScreen() {
           disabled: !canCreate,
           onClick: () => nav.push('accounts.group.form', current ? { parentId: current.id } : {}),
         },
-        { key: 'Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), disabled: !canDelete || !current, group: 'danger' },
-        { key: 'Alt+H', label: 'Chart of accounts', icon: 'layers', onClick: () => nav.push('accounts.chart'), group: 'more' },
+        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), disabled: !canDelete || !current, group: 'danger' },
+        {
+          key: 'Alt+H',
+          label: 'Edit history',
+          icon: 'clock',
+          onClick: () => current && nav.push('security.audit', { entityType: 'group', entityId: current.id, entityGuid: current.guid, label: current.name }),
+          disabled: !current,
+          hidden: !canAudit,
+          group: 'more',
+        },
+        { key: 'Alt+T', label: 'Chart of accounts', icon: 'layers', onClick: () => nav.push('accounts.chart'), group: 'more' },
       ]}
       filters={<TextInput size="sm" wrapperClassName="bx-acc-toolbar__search" value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Find a group" aria-label="Find a group" />}
       exportDef={() => ({
@@ -186,6 +197,7 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
   const { forResult, returnResult } = useScreenResult<{ id: number; name: string }>();
   const canSave = useCan(original ? 'masters.alter' : 'masters.create');
   const canDelete = useCan('masters.delete');
+  const canAudit = useCan('audit.view');
   const groups = useGroups();
   const save = useApiMutation('accounts.group.save', { invalidates: [...LEDGER_DEPENDENTS] });
   const baselineRef = useRef(draftOf(original, params));
@@ -305,6 +317,14 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
         { key: 'Ctrl+A', label: saveLabel, icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly },
         { key: 'Alt+S', label: 'Save & close', icon: 'check', onClick: () => void submit('close'), hidden: !!original || forResult || readOnly },
         { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), hidden: !original || predefined || !canDelete, group: 'danger' },
+        {
+          key: 'Alt+H',
+          label: 'Edit history',
+          icon: 'clock',
+          onClick: () => original && nav.push('security.audit', { entityType: 'group', entityId: original.id, entityGuid: original.guid, label: original.name }),
+          hidden: !original || !canAudit,
+          group: 'more',
+        },
       ]}
       footer={
         readOnly ? undefined : (

@@ -103,3 +103,15 @@ export function bulkTotals(rows: readonly BulkRow[]): { debit: Paise; credit: Pa
   }
   return { debit, credit, count };
 }
+
+/**
+ * Accessibility of a grid cell: the id of its error text and the aria-describedby for its control
+ * (undefined while the cell has no error), so a screen reader reads the error with the field.
+ */
+export function cellErrorId(rowKey: string, field: string): string {
+  return `bl-${rowKey}-${field}-err`.replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+export function cellDescribedBy(errors: BulkErrors, rowKey: string, field: string): string | undefined {
+  return errors[`${rowKey}.${field}`] ? cellErrorId(rowKey, field) : undefined;
+}

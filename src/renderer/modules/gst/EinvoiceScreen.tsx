@@ -1,12 +1,12 @@
 /**
  * 'gst.einvoice' {from?, to?, view?} (feature einvoice) — two views (Ctrl+1 / Ctrl+2):
  *   Pending IRN   invoices and notes that need an IRN, with readiness errors per voucher; select
- *                 (Space / Alt+A) and save the bulk JSON for the IRP (Alt+J); import the IRP response
+ *                 (Space / Alt+S) and save the bulk JSON for the IRP (Alt+J); import the IRP response
  *                 (Alt+I: JSON or Excel) to record IRNs; vouchers cancelled in the books whose IRN is
  *                 still active, to mark cancelled.
  *   IRN generated documents with an active IRN and the 24-hour IRP cancellation window; mark an IRN
  *                 cancelled on the IRP (Alt+K).
- * Both: history per voucher (Alt+H); Enter opens the voucher.
+ * Both: history per voucher (Alt+H); Enter opens the voucher; Alt+A alters it (Pending IRN).
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { EinvoiceGeneratedRow, EinvoiceImportResult, EinvoicePendingRow, GstCancelRequiredRow } from '../../../shared/types/gst-returns.ts';
@@ -88,7 +88,7 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
   const generate = async (): Promise<void> => {
     const ids = [...selected];
     if (ids.length === 0) {
-      toast.info('Select the invoices first', { message: 'Press Space on an invoice, or Alt+A to select every ready one.' });
+      toast.info('Select the invoices first', { message: 'Press Space on an invoice, or Alt+S to select every ready one.' });
       return;
     }
     if (ids.length > MAX_BULK) {
@@ -221,7 +221,7 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+1', label: 'Pending IRN', onClick: () => setView('pending'), disabled: pending, group: 'view' },
     { key: 'Ctrl+2', label: 'IRN generated', onClick: () => setView('generated'), disabled: !pending, group: 'view' },
-    { key: 'Alt+A', label: state === 'all' ? 'Clear selection' : 'Select all ready', icon: 'check', onClick: () => setSelected((s) => toggleAllReady(s, rows)), disabled: readyCount === 0, hidden: !pending, group: 'select' },
+    { key: 'Alt+S', label: state === 'all' ? 'Clear selection' : 'Select all ready', icon: 'check', onClick: () => setSelected((s) => toggleAllReady(s, rows)), disabled: readyCount === 0, hidden: !pending, group: 'select' },
     {
       key: 'Alt+J',
       label: selected.size > 0 ? `Generate JSON (${selected.size})` : 'Generate JSON',
@@ -260,7 +260,7 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
       disabled: !historyRow,
       group: 'row',
     },
-    { key: 'Alt+L', label: 'Alter voucher', icon: 'edit', onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }), disabled: !current, hidden: !pending, group: 'row' },
+    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }), disabled: !current, hidden: !pending, group: 'row' },
   ];
 
   const enabled = q.data?.enabled ?? true;
@@ -346,7 +346,7 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
         onRetry={() => void active.refetch()}
         hint={
           pending
-            ? 'Space Select · Alt+A All ready · Alt+J JSON · Alt+I Import response · Ctrl+2 IRN generated · Enter Open · Esc Back'
+            ? 'Space Select · Alt+S All ready · Alt+A Alter voucher · Alt+J JSON · Alt+I Import response · Ctrl+2 IRN generated · Enter Open · Esc Back'
             : 'Alt+K Mark IRN cancelled · Alt+H History · Alt+I Import response · Ctrl+1 Pending · Enter Open · Esc Back'
         }
       >
@@ -439,7 +439,7 @@ function ReadinessPanel({ row, onAlter }: { row: EinvoicePendingRow; onAlter: ()
       description={row.ready ? 'Ready — but check these notes.' : 'Fix these before generating the e-invoice:'}
       actions={
         <Button size="sm" icon="edit" onClick={onAlter}>
-          Alter voucher (Alt+L)
+          Alter voucher (Alt+A)
         </Button>
       }
     >

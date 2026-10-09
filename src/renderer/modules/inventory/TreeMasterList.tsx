@@ -1,7 +1,7 @@
 /**
  * List screen for the tree masters (stock groups, stock categories, godowns): tree view with
  * expand/collapse, type-to-search (flat results), Enter alters, Alt+C creates (under the selected
- * row with Alt+Shift+C), Ctrl+D / Alt+D deletes, Alt+E export, Alt+P print.
+ * row with Alt+Shift+C), Alt+D (or Ctrl+D) deletes, Alt+E export, Alt+P print.
  */
 import { useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -122,13 +122,13 @@ export function TreeMasterList<T extends TreeMasterRow>(props: TreeMasterListPro
       refreshing={refreshing}
       error={error}
       onRetry={onRetry}
-      hint={`Type to Search · Enter Alter · Alt+C Create ${noun.replace(/\b\w/g, (c) => c.toUpperCase())} · Ctrl+D Delete · →/← Expand/Collapse`}
+      hint={`Type to Search · Enter Alter · Alt+C Create ${noun.replace(/\b\w/g, (c) => c.toUpperCase())} · Alt+D Delete · →/← Expand/Collapse`}
       actions={[
         { key: 'Alt+C', label: `Create ${noun}`, icon: 'plus', primary: true, onClick: () => create(), hidden: !canCreate },
         { key: 'Alt+Shift+C', label: 'Create under selected', icon: 'plus', onClick: () => create(current?.id), hidden: !canCreate, disabled: !current },
         ...(extraActions?.(current) ?? []),
         {
-          key: 'Ctrl+D, Alt+D',
+          key: 'Alt+D, Ctrl+D',
           label: 'Delete',
           icon: 'trash',
           onClick: () => void remove(current),

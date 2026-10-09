@@ -8,6 +8,7 @@ import { stateOptions } from '../../../shared/gst/states.ts';
 import type { StateOption } from '../../../shared/gst/states.ts';
 import { isApiError, userMessage } from '../../app/lib/apiErrors.ts';
 import { Badge, Icon, Picker, useHotkeys } from '../../ui/index.ts';
+import type { ControlSize } from '../../ui/index.ts';
 import { cx } from '../../ui/lib/cx.ts';
 
 const STATES: readonly StateOption[] = stateOptions({ includeForeign: true, includeSpecial: true }).filter((s) => s.value !== '99');
@@ -19,6 +20,10 @@ export function StatePicker({
   disabled,
   readOnly,
   placeholder,
+  size,
+  id,
+  'aria-label': ariaLabel,
+  'aria-describedby': ariaDescribedBy,
 }: {
   value: string;
   onChange: (code: string) => void;
@@ -26,10 +31,19 @@ export function StatePicker({
   disabled?: boolean;
   readOnly?: boolean;
   placeholder?: string;
+  size?: ControlSize;
+  id?: string;
+  /** Needed outside a <Field> (e.g. a grid cell): the placeholder is not an accessible name. */
+  'aria-label'?: string;
+  'aria-describedby'?: string;
 }) {
   const selected = useMemo(() => STATES.find((s) => s.value === value) ?? null, [value]);
   return (
     <Picker<StateOption>
+      id={id}
+      aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
+      size={size}
       items={STATES}
       getKey={(s) => s.value}
       getLabel={(s) => s.label}

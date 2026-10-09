@@ -4,7 +4,7 @@
  * defaults (rate from the price level / item master), lines filled from a tracking document, and the
  * tax breakup rows of the totals panel.
  */
-import type { VoucherBaseType } from '../../../../shared/constants.ts';
+import type { GroupCode, VoucherBaseType } from '../../../../shared/constants.ts';
 import { isUtgstState } from '../../../../shared/gst/index.ts';
 import type { InvoiceComputation } from '../../../../shared/gst/index.ts';
 import type { Paise } from '../../../../shared/money.ts';
@@ -64,6 +64,44 @@ export function slotNoun(slot: LedgerSlot, baseType: VoucherBaseType): string {
   if (slot === 'itemLedger') return baseType === 'purchase' || baseType === 'debit_note' ? 'purchase ledger' : 'sales ledger';
   if (slot === 'account' || (slot === 'particular' && baseType === 'contra')) return 'cash or bank ledger';
   return 'ledger';
+}
+
+/**
+ * The group a ledger created with Alt+C from this picker goes under (accounts.ledger.form
+ * `groupCode`), so the form opens with that group's defaults (bill-wise, state, GST type): a party
+ * of a sales-side document is a customer, of a purchase-side one a supplier; an item line's ledger
+ * is a sales / purchase account; the single-entry Account and contra lines are bank accounts. null
+ * where no one group fits (additional ledgers, journal / payment particulars).
+ */
+export function createGroupCode(slot: LedgerSlot, baseType: VoucherBaseType, direction: 'outward' | 'inward' = 'outward'): GroupCode | null {
+  switch (slot) {
+    case 'party':
+      // A Credit Note is only issued to a customer (ledgerAllowed).
+      return baseType === 'credit_note' || direction === 'outward' ? 'SUNDRY_DEBTORS' : 'SUNDRY_CREDITORS';
+    case 'itemLedger':
+      return direction === 'outward' ? 'SALES_ACCOUNTS' : 'PURCHASE_ACCOUNTS';
+    case 'account':
+      return 'BANK_ACCOUNTS';
+    case 'particular':
+      return baseType === 'contra' ? 'BANK_ACCOUNTS' : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Why a ledger just created from this picker cannot be used here (null when it can): the user may
+ * have changed the group in the form. Shown instead of selecting a ledger the save would refuse.
+ */
+export function createdLedgerProblem(
+  ledger: { name: string; groupName: string; classes: readonly LedgerClassName[] },
+  slot: LedgerSlot,
+  baseType: VoucherBaseType,
+  direction: 'outward' | 'inward' = 'outward',
+): string | null {
+  if (ledgerAllowed(slot, baseType, ledger.classes, direction)) return null;
+  const under = ledger.groupName ? ` under ${ledger.groupName}` : '';
+  return `“${ledger.name}” was created${under}, which is not a ${slotNoun(slot, baseType)} for this voucher. Pick a ${slotNoun(slot, baseType)}, or alter the ledger's group (Go To › Ledgers).`;
 }
 
 /** GST profile of a ledger for the live totals (mirror of the engine's ledger profile inputs). */

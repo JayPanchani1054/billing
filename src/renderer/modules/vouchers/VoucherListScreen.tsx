@@ -66,7 +66,7 @@ export function VoucherListScreen({ params }: ScreenProps<VoucherListParams>) {
       error={q.error}
       onRetry={() => void q.refetch()}
       actions={table.actions}
-      hint="Enter Alter · Alt+Enter View · Alt+D Delete · Alt+2 Duplicate · Alt+E Export · Esc Back"
+      hint="Enter Alter · Alt+Enter View · Ctrl+P Print Voucher · Alt+D Delete · Alt+2 Duplicate · Alt+E Export · Esc Back"
       exportDef={() => ({
         title,
         period: { from, to },

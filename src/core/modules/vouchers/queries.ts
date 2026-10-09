@@ -402,6 +402,18 @@ export function listVouchers(db: Db, q: VoucherListInput): VoucherListResult {
 
 // ───────────────────────────── Entry context ─────────────────────────────
 
+/**
+ * Voucher types the company-wide "Print right after saving an invoice" switch (F12 › Invoice printing)
+ * applies to: documents the company issues to a party. A Journal, Payment, Purchase or Stock Journal
+ * prints after saving only when its own voucher type says so.
+ */
+export const INVOICE_PRINT_TYPES: readonly VoucherBaseType[] = ['sales', 'credit_note', 'debit_note', 'delivery_note'];
+
+/** Whether saving a voucher of this type opens (and sends) its print. */
+export function printsAfterSave(config: { invoice: { printAfterSave: boolean } }, vt: { baseType: VoucherBaseType; printAfterSave: boolean }): boolean {
+  return vt.printAfterSave || (config.invoice.printAfterSave && INVOICE_PRINT_TYPES.includes(vt.baseType));
+}
+
 const can = (ctx: CompanyCtx, p: 'vouchers.create' | 'vouchers.alter' | 'vouchers.backdate' | 'vouchers.delete'): boolean =>
   ctx.session.isOwner || ctx.session.permissions.has(p);
 
@@ -445,7 +457,7 @@ export function entryContext(ctx: CompanyCtx, voucherTypeId: number, date: strin
       guards: config.guards,
       lockedUpTo: config.lockedUpTo,
       gst: config.gst,
-      printAfterSave: config.invoice.printAfterSave || vt.printAfterSave,
+      printAfterSave: printsAfterSave(config, vt),
     },
     ledgers: {
       cash: ledgerId('CASH'),

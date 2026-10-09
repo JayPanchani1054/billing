@@ -125,4 +125,64 @@ describe('import job (chunked, own connection)', () => {
     assert.equal((p.data as ImportPreviewResult).summary.willCreate, IMPORT_CHUNK + 1);
     assert.equal(count('SELECT COUNT(*) FROM vouchers'), 0);
   });
+
+  it('logout / login during a job never land in (and vanish with) its transaction', async () => {
+    // A password-protected company with its Owner logged in (create opens it and logs the owner in).
+    const st = await call<AppState>('app.company.create', {
+      name: 'Secured Import Co',
+      stateCode: '27',
+      gstRegistrationType: 'regular',
+      gstin: makeGstin('27'),
+      booksFrom: '2026-04-01',
+      owner: { username: 'owner', password: 'Owner#Pass2026' },
+    });
+    const id = st.companies.find((c) => c.name === 'Secured Import Co')?.id as string;
+    dbPath = path.join(root, 'data', 'companies', id, 'company.db');
+    await call('data.import.commit', { kind: 'ledgers', fileName: 'l.csv', bytes: csv('Name,Under\r\nOffice Rent,Indirect Expenses\r\nOwner Capital,Capital Account'), options: { skipInvalid: false, updateExisting: false } });
+    const logoutsBefore = count(`SELECT COUNT(*) FROM audit_log WHERE action = 'logout'`);
+
+    // A preview ALWAYS rolls back: anything written into its transaction would disappear.
+    const preview = rt.dispatch('data.import.preview', { kind: 'vouchers_ledger', fileName: 'v.csv', bytes: journals(IMPORT_CHUNK * 3) });
+    let tried = false;
+    for (let i = 0; i < 200 && !tried; i++) {
+      const p = await call<TallyProgress>('data.import.progress');
+      if (p.running && p.phase === 'vouchers' && p.done > 0) {
+        tried = true;
+        // A wrong password would bump failed_attempts inside the job's transaction (rolled back = a
+        // lockout bypass), so credentials are not checked until the job is done.
+        const wrong = await rt.dispatch('app.auth.login', { username: 'owner', password: 'wrong-password' });
+        assert.equal(wrong.ok ? 'ok' : wrong.error.code, 'CONFLICT');
+        assert.match(wrong.ok ? '' : wrong.error.message, /An import is running/);
+        // Logging out works at once; its edit-log entry is written after the job.
+        const out = await rt.dispatch('app.auth.logout', {});
+        assert.ok(out.ok, JSON.stringify(out));
+        assert.equal((out.data as AppState).session, null);
+      }
+      await new Promise((r) => setImmediate(r));
+    }
+    assert.ok(tried, 'the preview was observed while running');
+    assert.ok((await preview).ok);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(count(`SELECT COUNT(*) FROM audit_log WHERE action = 'logout'`), logoutsBefore + 1, 'the logout survived the preview rollback');
+    assert.equal(count(`SELECT COUNT(*) FROM audit_log WHERE action = 'login_failed'`), 0);
+    assert.equal(count(`SELECT failed_attempts FROM users WHERE username = 'owner'`), 0);
+    assert.equal(count('SELECT COUNT(*) FROM vouchers'), 0);
+    // Once the job is done, logging in works again.
+    await call('app.auth.login', { username: 'owner', password: 'Owner#Pass2026' });
+  });
+
+  it('an import cannot start under an export still in flight (its edit-log entry would vanish with a preview)', async () => {
+    await call('data.import.commit', { kind: 'vouchers_ledger', fileName: 'v.csv', bytes: journals(20), options: { skipInvalid: false, updateExisting: false } });
+    const exportsBefore = count(`SELECT COUNT(*) FROM audit_log WHERE action = 'export'`);
+    // A twelve-month export yields between months (file-backed company), then audits at the end.
+    const exp = rt.dispatch('data.export.vouchers', { from: '2026-04-01', to: '2027-03-31', format: 'csv' });
+    const preview = await rt.dispatch('data.import.preview', { kind: 'vouchers_ledger', fileName: 'v.csv', bytes: journals(5) });
+    assert.equal(preview.ok ? 'ok' : preview.error.code, 'CONFLICT');
+    assert.match(preview.ok ? '' : preview.error.message, /Another task is still running/);
+    const r = await exp;
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal(count(`SELECT COUNT(*) FROM audit_log WHERE action = 'export'`), exportsBefore + 1, 'the export is in the edit log');
+    // Once the export is done the import runs.
+    assert.ok((await rt.dispatch('data.import.preview', { kind: 'vouchers_ledger', fileName: 'v.csv', bytes: journals(5) })).ok);
+  });
 });

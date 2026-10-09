@@ -8,10 +8,23 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { AppState } from '../shared/types/app.ts';
+import { makeGstin } from '../core/testing/fixtures.ts';
 import { createCoreProxy, nodeWorkerSpawner } from './core-proxy.ts';
 import type { CoreProxy, CoreWorkerHandle, SpawnCoreWorker } from './core-proxy.ts';
 
 const script = fileURLToPath(new URL('./core-worker.ts', import.meta.url));
+
+function waitFor(done: () => boolean, what: string, limitMs = 20_000): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const started = Date.now();
+    const poll = () => {
+      if (done()) resolve();
+      else if (Date.now() - started > limitMs) reject(new Error(`timed out waiting for ${what}`));
+      else setTimeout(poll, 20);
+    };
+    poll();
+  });
+}
 
 describe('core worker thread (real runtime)', () => {
   let tmp: string;
@@ -95,6 +108,33 @@ describe('core worker thread (real runtime)', () => {
     // The data folder chosen earlier is still authorised in the new worker.
     const again = await proxy.dispatch('app.dataDir.set', { path: path.join(tmp, 'picked'), mode: 'use' });
     assert.equal(again.ok, true, JSON.stringify(again));
+  });
+
+  it('a company that was open when the worker died reopens in the restarted worker (its lock is taken over)', async () => {
+    const created = await proxy.dispatch('app.company.create', {
+      name: 'Crash Test Traders',
+      stateCode: '27',
+      gstRegistrationType: 'regular',
+      gstin: makeGstin('27'),
+      booksFrom: '2026-04-01',
+    });
+    assert.equal(created.ok, true, JSON.stringify(created));
+    const id = (created as { ok: true; data: AppState }).data.companies[0].id;
+    assert.equal(proxy.hasOpenCompany(), true);
+    const lockFile = path.join(proxy.app.dataDir, 'companies', id, 'company.lock');
+    assert.equal(fs.existsSync(lockFile), true, 'the open company is locked');
+
+    // The thread dies with the company open: its lock file and SQLite handles are left behind.
+    await handles[handles.length - 1].terminate();
+    await waitFor(() => restarted === 2 && proxy.state === 'running', 'second restart');
+    assert.equal(proxy.hasOpenCompany(), false, 'a restarted core has no company open');
+
+    // Same process, new thread: the lock left by the dead thread must not read as "open elsewhere".
+    const reopened = await proxy.dispatch('app.company.open', { id });
+    assert.equal(reopened.ok, true, JSON.stringify(reopened));
+    assert.equal((reopened as { ok: true; data: AppState }).data.company?.name, 'Crash Test Traders');
+    const profile = await proxy.dispatch('company.profile.get', {});
+    assert.equal(profile.ok, true, JSON.stringify(profile));
   });
 
   it('shuts down cleanly and promptly', async () => {

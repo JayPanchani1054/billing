@@ -19,7 +19,7 @@ import { appendAudit } from '../lib/audit.ts';
 import { AppError, toErrorPayload } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
 import type { AppCtx, AppRuntime, Clock, CompanyCtx, OpenCompanyInfo, Session } from './context.ts';
-import { exclusiveJobFor } from './jobs.ts';
+import { beginCompanyWork, exclusiveJobFor } from './jobs.ts';
 import type { AnyRoute, RouteAccess, RouteMap } from './route.ts';
 
 /** Snapshot of runtime state the dispatcher needs for one call. */
@@ -162,8 +162,11 @@ export function createDispatcher(routes: RouteMap, getState: () => DispatchState
             },
           };
           if (route.transactional === false) {
+            // Counted while in flight, so an exclusive job (import) cannot start under it (api/jobs.ts).
+            const endWork = beginCompanyWork(db);
             // Starts synchronously (like a direct call); a sync throw becomes a rejection.
             const work = (async () => route.handler(ctx, parsed))();
+            void work.then(endWork, endWork);
             st.track?.(work);
             data = await work;
           } else {

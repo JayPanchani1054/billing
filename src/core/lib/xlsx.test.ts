@@ -11,10 +11,15 @@ import {
   readXlsx,
   sanitizeSheetNames,
   serialToDate,
+  MAX_ROWS,
   writeXlsx,
+  XlsxStreamWriter,
 } from './xlsx.ts';
 import type { XlsxSheet } from './xlsx.ts';
-import { createZip, readZip } from './zip.ts';
+import { createZip, readZip, ZipFileWriter } from './zip.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -436,5 +441,76 @@ describe('date and format helpers', () => {
 
   it('names columns like Excel', () => {
     assert.deepEqual([0, 25, 26, 51, 52, 701, 702, 16383].map(columnName), ['A', 'Z', 'AA', 'AZ', 'BA', 'ZZ', 'AAA', 'XFD']);
+  });
+});
+
+describe('XlsxStreamWriter (row by row into a ZIP file)', () => {
+  const withWriter = (fn: (x: XlsxStreamWriter) => void): Uint8Array => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-xlsxs-'));
+    const file = path.join(dir, 'book.xlsx');
+    const zip = new ZipFileWriter(file);
+    try {
+      const x = new XlsxStreamWriter(zip, { created: new Date('2026-10-09T00:00:00Z') });
+      fn(x);
+      x.finish();
+      zip.finish();
+      return new Uint8Array(fs.readFileSync(file));
+    } finally {
+      zip.abort();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it('reads back exactly like writeXlsx: types, formats, formula text stays inert, several sheets', () => {
+    const columns = [
+      { header: 'Name', kind: 'text' as const },
+      { header: 'Amount', kind: 'amount' as const },
+      { header: 'Date', kind: 'date' as const },
+      { header: 'Flag' },
+    ];
+    const rows = [
+      ['=HYPERLINK("http://x")', 1234.5, '2026-04-01', true],
+      ['  spaced  ', -0.01, null, false],
+      ['Tab\tand\nnewline', 0, '2026-12-31', null],
+      ['_x0041_ literal', 99, '', 'yes'],
+    ];
+    const streamed = withWriter((x) => {
+      x.beginSheet({ name: 'Ledger: A/B', columns, freezeHeader: true, autoFilter: true });
+      for (const r of rows) x.addRow(r);
+      x.endSheet();
+      x.beginSheet({ name: 'Ledger: A/B', columns: [{ header: 'Only' }] });
+      x.addRow(['x']);
+      x.endSheet();
+    });
+    const inMemory = writeXlsx({ sheets: [{ name: 'Ledger: A/B', columns, rows, freezeHeader: true, autoFilter: true }, { name: 'Ledger: A/B', columns: [{ header: 'Only' }], rows: [['x']] }] });
+    const a = readXlsx(streamed).sheets;
+    const b = readXlsx(inMemory).sheets;
+    assert.deepEqual(a, b);
+    assert.equal(a[0].rows[1][0], '=HYPERLINK("http://x")');
+    const zip = readZip(streamed);
+    assert.equal(zip.has('xl/sharedStrings.xml'), false, 'inline strings: no shared-strings table kept in memory');
+    const sheetXml = zip.readText('xl/worksheets/sheet1.xml');
+    assert.ok(!sheetXml.includes('<f>'), 'never a formula');
+    assert.match(sheetXml, /<autoFilter ref="A1:D5"\/>/);
+    assert.match(zip.readText('xl/workbook.xml'), /_xlnm\._FilterDatabase/);
+  });
+
+  it('refuses rows beyond Excel’s limit (the caller offers CSV instead)', () => {
+    assert.throws(
+      () =>
+        withWriter((x) => {
+          x.beginSheet({ name: 'Big', columns: [{ header: 'A' }] });
+          for (let i = 1; i < MAX_ROWS; i++) x.addRow([]);
+          assert.equal(x.rowCount, MAX_ROWS);
+          x.addRow([]);
+        }),
+      RangeError,
+    );
+  });
+
+  it('an empty workbook still has one (empty) sheet', () => {
+    const book = readXlsx(withWriter(() => undefined));
+    assert.equal(book.sheets.length, 1);
+    assert.deepEqual(book.sheets[0].rows, []);
   });
 });

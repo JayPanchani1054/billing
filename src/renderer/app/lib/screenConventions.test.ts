@@ -67,4 +67,24 @@ describe('screen conventions (real modules)', () => {
     const labels = files.flatMap((f) => [...f.text.matchAll(/\{\s*key:\s*'[^']+'\s*,\s*label:\s*(?:'|`)(New [^'`]*)/g)].map((m) => `${f.file}: ${m[1]}`));
     assert.deepEqual(labels, []);
   });
+
+  test('status-bar hints use one casing: the action after a key starts with a capital ("Ctrl+A Save")', () => {
+    // Status-bar hints are the quoted strings with ' · ' separators passed as `hint=` or to useStatusHint.
+    const KEY = String.raw`(?:(?:Ctrl|Alt|Shift)\+)*(?:F\d{1,2}|Enter|Esc|Space|Tab|Delete|Del|PgUp|PgDn|PgUp/PgDn|[A-Z0-9](?:/[A-Z0-9])*)(?:/\d)*`;
+    const segment = new RegExp(`^(${KEY})\\s+([a-z][a-z-]*)`);
+    // Prose that merely starts with a key ("Enter on a ledger: its vouchers", "Space or Enter Tick").
+    const proseWords = new Set(['on', 'or', 'to', 'accepts', 'goes']);
+    const bad: string[] = [];
+    for (const f of files) {
+      for (const m of f.text.matchAll(/(?:hint=|useStatusHint\()(["'`])([^"'`]*·[^"'`]*)\1/g)) {
+        for (const raw of m[2].split('·')) {
+          const seg = raw.trim();
+          const hit = segment.exec(seg);
+          if (hit && !proseWords.has(hit[2])) bad.push(`${f.file}: "${seg}"`);
+        }
+      }
+    }
+    assert.deepEqual(bad, []);
+  });
 });
+

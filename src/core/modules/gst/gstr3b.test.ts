@@ -270,6 +270,30 @@ describe('GSTR-3B electronic credit ledger brought forward (6.1)', () => {
     t.close();
   });
 
+  it('an edit of a party ledger the classification falls back to (incomplete voucher snapshot) is not served stale', () => {
+    const { t, P, company } = setup();
+    // A May purchase recorded without a party snapshot or nature (e.g. imported): classified from the
+    // supplier ledger — regular, so its C/S 10 + 10 is ITC → June starts with C 100, S 380.
+    insertDoc(t, { type: 'purchase', number: 'P4', date: '2026-05-20', party: P.kc, nature: null, partyGstin: null, partyState: null, partyReg: null, refNo: 'K1', refDate: '2026-05-20', lines: [{ hsn: '7208', rate: 18, taxable: 11112, cgst: 1000, sgst: 1000 }] });
+    assert.deepEqual(computeGstr3b(t.db, company, m('062026'), t.today).payment.broughtForward, tax(0, 10000, 38000));
+    // The supplier turns out to be a composition dealer: no ITC on that purchase any more.
+    t.db.run(`UPDATE ledgers SET gst_registration_type = 'composition', updated_at = :ts WHERE id = :id`, { id: P.kc, ts: t.clock.now().toISOString() });
+    assert.deepEqual(computeGstr3b(t.db, company, m('062026'), t.today).payment.broughtForward, tax(0, 9000, 37000));
+    t.close();
+  });
+
+  it('warns when a manual credit entry is added on top of credit brought forward (no silent double count)', () => {
+    const { t, company } = setup();
+    assert.ok(!computeGstr3b(t.db, company, m('052026'), t.today).notes.some((n) => /counted twice/.test(n)));
+    // The April entry has nothing brought forward to double: no warning there.
+    assert.ok(!computeGstr3b(t.db, company, m('042026'), t.today).notes.some((n) => /counted twice/.test(n)));
+    saveAdjustments(t.ctx, m('052026'), { creditLedgerBalance: { cgst: 45000 } });
+    const may = computeGstr3b(t.db, company, m('052026'), t.today);
+    assert.deepEqual(may.payment.creditAvailable, tax(0, 90000, 37000), 'still added (it is credit the books do not hold)');
+    assert.ok(may.notes.some((n) => /Central tax ₹\s?450\.00/.test(n) && /counted twice/.test(n)));
+    t.close();
+  });
+
   it('a quarter carries the previous quarter’s closing credit; a date range carries nothing', () => {
     const { t, company } = setup();
     // Q1 as one return (the April manual entry belongs to the month, not to the quarter):

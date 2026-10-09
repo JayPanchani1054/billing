@@ -294,9 +294,10 @@ const chainCache = new WeakMap<Db, ChainCache>();
 /**
  * Fingerprint of everything a month's GSTR-3B set-off depends on: its gst_lines (amounts, rate and
  * flags, position-weighted so moving a value between lines changes it), its GST vouchers (count, ids,
- * totals, status, last change) and the manual entries of the month. Months without data have none.
- * Amounts are reduced modulo a prime before weighting so the sums can never overflow (SUM() raises an
- * error on 64-bit overflow).
+ * totals, status, last change), the party ledgers' GST details where a voucher's own
+ * party snapshot is incomplete (classification falls back to them) and the manual entries of the month.
+ * Months without data have none. Amounts are reduced modulo a prime before weighting so the sums can
+ * never overflow (SUM() raises an error on 64-bit overflow).
  */
 function monthFingerprints(db: Db, from: string, to: string, today: string): Map<string, string> {
   const out = new Map<string, string>();
@@ -326,7 +327,15 @@ function monthFingerprints(db: Db, from: string, to: string, today: string): Map
             SUM((v.tax_amount % 1000000007) * (v.id % 991 + 1)) || ':' ||
             SUM((v.affects_books + 2 * v.is_cancelled + 4 * v.is_optional + 8 * (v.is_post_dated = 1 AND v.date > :today)
                  + 16 * v.is_reverse_charge + 32 * length(COALESCE(v.gst_nature, ''))) * (v.id % 983 + 1)) || ':' ||
-            MAX(v.updated_at) AS f
+            MAX(v.updated_at) || ':' ||
+            -- A voucher whose party snapshot is incomplete (e.g. no GSTIN for an unregistered party, or an
+            -- imported voucher) is classified with the party ledger's current GSTIN / state / registration
+            -- (docs.ts buildDoc), so a later edit of that ledger can change the month's figures. (Looked up
+            -- only for those vouchers.)
+            COALESCE(group_concat(DISTINCT CASE WHEN v.party_ledger_id IS NOT NULL
+                  AND (v.party_gstin IS NULL OR v.party_state_code IS NULL OR v.party_registration_type IS NULL)
+                THEN (SELECT l.id || '/' || COALESCE(l.gstin, '') || '/' || COALESCE(l.state_code, '') || '/' || COALESCE(l.gst_registration_type, '')
+                        FROM ledgers l WHERE l.id = v.party_ledger_id) END), '') AS f
        FROM vouchers v
       WHERE v.base_type IN ('sales', 'purchase', 'credit_note', 'debit_note') AND v.date >= :from AND v.date <= :to
       GROUP BY ym`,
@@ -526,6 +535,15 @@ export function computeGstr3b(
     );
   } else if (period.kind === 'range') {
     notes.push('A date range is a review, not a return: no credit is brought forward from earlier periods.');
+  }
+  if (TAX_HEADS.some((h) => broughtForward[h] !== 0) && TAX_HEADS.some((h) => v.creditLedgerBalance[h] !== 0)) {
+    // Before the chain existed this entry was the whole portal balance; entered that way now it would
+    // count the books' carried credit twice and understate the tax payable in cash.
+    const manual = TAX_HEADS.filter((h) => v.creditLedgerBalance[h] !== 0).map((h) => `${HEAD_LABELS[h]} ${formatMoney(v.creditLedgerBalance[h], { symbol: true })}`);
+    notes.push(
+      `Your entry "credit not in the books" (${manual.join(', ')}) is added on top of the credit brought forward from the books. ` +
+        'Enter only credit the books do not hold — not the whole electronic credit ledger balance — or the credit is counted twice.',
+    );
   }
   if (company.registration === 'composition') notes.push('Composition taxpayers file CMP-08, not GSTR-3B. Reverse-charge tax shown here is payable through CMP-08.');
   notes.push('3.1.1 (supplies through e-commerce operators u/s 9(5)) is not recorded in the books and is shown as zero.');

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { describe, it } from 'node:test';
 import { FileFormatError } from './text.ts';
-import { crc32, crc32Portable, createZip, readZip, unsafeZipPathReason } from './zip.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { crc32, crc32Portable, createZip, readZip, unsafeZipPathReason, ZIP_STREAM_CHUNK, ZipFileWriter } from './zip.ts';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -200,5 +203,54 @@ describe('readZip security', () => {
     const badOffset = zip.slice();
     dv(badOffset).setUint32(centralOffset(badOffset) + 42, 5, true);
     rejects(() => readZip(badOffset).read('a.txt'), /local header not found/);
+  });
+});
+
+describe('ZipFileWriter (streamed to a file, constant memory)', () => {
+  const tmp = (): string => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-zipw-')), 'out.zip');
+
+  it('entries larger than one chunk (strings and bytes mixed) read back intact with matching CRC', () => {
+    const file = tmp();
+    const w = new ZipFileWriter(file);
+    const binary = randomBytes(ZIP_STREAM_CHUNK * 2 + 123); // incompressible: several deflate blocks
+    let text = '';
+    w.beginEntry('big.txt');
+    for (let i = 0; i < 40_000; i++) {
+      const line = `line ${i} — ₹${i},00 नमस्ते\r\n`;
+      text += line;
+      w.write(line);
+    }
+    w.endEntry();
+    w.beginEntry('bin/data.bin');
+    w.write(binary.subarray(0, 1000));
+    w.write('');
+    w.write(binary.subarray(1000));
+    w.endEntry();
+    w.addEntry('empty.txt', '');
+    const size = w.finish();
+    const bytes = fs.readFileSync(file);
+    assert.equal(bytes.length, size);
+    const zip = readZip(new Uint8Array(bytes), { maxRatio: 10_000 });
+    assert.deepEqual(zip.list(), ['big.txt', 'bin/data.bin', 'empty.txt']);
+    assert.equal(zip.readText('big.txt'), text);
+    assert.ok(Buffer.from(zip.read('bin/data.bin')).equals(binary));
+    assert.equal(zip.read('empty.txt').length, 0);
+    const big = zip.entries.find((e) => e.name === 'big.txt');
+    assert.equal(big?.crc32, crc32(new TextEncoder().encode(text)));
+    assert.ok((big?.compressedSize ?? 0) < (big?.size ?? 0) / 3, 'text is deflated');
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
+  });
+
+  it('refuses unsafe or duplicate names, never overwrites a file, and abort() deletes the partial file', () => {
+    const file = tmp();
+    const w = new ZipFileWriter(file);
+    assert.throws(() => w.beginEntry('../evil.txt'), TypeError);
+    w.addEntry('a.txt', 'x');
+    assert.throws(() => w.beginEntry('a.txt'), /Duplicate/);
+    assert.throws(() => new ZipFileWriter(file), /EEXIST/);
+    w.abort();
+    assert.equal(fs.existsSync(file), false);
+    w.abort(); // idempotent
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
   });
 });

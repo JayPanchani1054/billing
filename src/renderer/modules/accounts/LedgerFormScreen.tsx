@@ -1,16 +1,18 @@
 /**
  * 'accounts.ledger.form' — Ledger Creation / Alteration, a Tally-like single page.
- * Params: { id? (alter) | initialName? (create), groupId? (create under a group), forResult? }.
+ * Params: { id? (alter) | initialName? (create), groupId? | groupCode? (create under a group, by id or by
+ * reserved code such as 'SUNDRY_DEBTORS' / 'BANK_ACCOUNTS'), forResult? }.
  *
  * Sections appear by the group's class: Basic → Opening balance (+ opening bills when bill-wise) →
  * Party details + GST registration (customers/suppliers) → Bank details → Tax ledger → GST details
  * (sales/purchase/income/expense/fixed assets) → Other settings (cost centres, inventory, TDS).
  * Enter moves field to field; Enter on the last field or Ctrl+A saves. Create = "Save & create next"
  * (rapid entry, keeps the group); opened for a result = "Save & return" (nav.pop({ id, name }));
- * alter = save and close. Alt+D deletes (the server explains why a ledger cannot be deleted).
+ * alter = save and close. Alt+D deletes (the server explains why a ledger cannot be deleted), Alt+H shows
+ * the ledger's edit history.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { GstDutyHead, GstTaxDirection } from '../../../shared/constants.ts';
+import type { GroupCode, GstDutyHead, GstTaxDirection } from '../../../shared/constants.ts';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatDrCr } from '../../../shared/format.ts';
 import { GST_RATES } from '../../../shared/gst/rates.ts';
@@ -46,7 +48,7 @@ import {
 import type { Column } from '../../ui/index.ts';
 import { focusFirstInvalid, OkHint, StatePicker } from './components.tsx';
 import { LEDGER_DEPENDENTS, useDeleteLedger } from './hooks.ts';
-import { classOfGroup, groupIsUnder, indexGroups } from './lib/groupClass.ts';
+import { classOfGroup, groupIsUnder, indexGroups, initialGroupId } from './lib/groupClass.ts';
 import { applyGstin, gstinOkText, NO_GSTIN, REGISTRATION_OPTIONS } from './lib/gstin.ts';
 import { applyGroupDefaults, buildSaveInput, draftFromDetail, emptyLedgerDraft, gstHistoryEffect, isDraftDirty, validateLedgerDraft } from './lib/ledgerDraft.ts';
 import type { LedgerDraft } from './lib/ledgerDraft.ts';
@@ -59,6 +61,8 @@ export interface LedgerFormParams {
   id?: number;
   initialName?: string;
   groupId?: number;
+  /** Reserved code of the group to create under ('SUNDRY_DEBTORS', 'BANK_ACCOUNTS', …) when the caller has no id. */
+  groupCode?: GroupCode;
   forResult?: boolean;
 }
 
@@ -155,6 +159,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
   const { forResult, returnResult } = useScreenResult<{ id: number; name: string }>();
   const canSave = useCan(original ? 'masters.alter' : 'masters.create');
   const canDelete = useCan('masters.delete');
+  const canAudit = useCan('audit.view');
   const deleteLedger = useDeleteLedger();
   const save = useApiMutation('accounts.ledger.save', { invalidates: [...LEDGER_DEPENDENTS] });
   const features = company.features;
@@ -164,7 +169,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
     [features.billWise, features.inventory, features.gst, company.gstEnabled, company.stateCode],
   );
 
-  const initialGroup = original ? null : typeof params.groupId === 'number' ? params.groupId : null;
+  const initialGroup = original ? null : initialGroupId(groups, params);
   const initial = useMemo<LedgerDraft>(() => {
     if (original) return draftFromDetail(original);
     const d = emptyLedgerDraft(params.initialName ?? '', initialGroup);
@@ -350,6 +355,15 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
           icon: 'book',
           onClick: () => original && nav.push('reports.ledger', { ledgerId: original.id }),
           hidden: !original || !nav.isRegistered('reports.ledger'),
+          group: 'more',
+        },
+        {
+          key: 'Alt+H',
+          label: 'Edit history',
+          icon: 'clock',
+          onClick: () => original && nav.push('security.audit', { entityType: 'ledger', entityId: original.id, entityGuid: original.guid, label: original.name }),
+          hidden: !original || !canAudit,
+          hint: 'Who changed this ledger, and what (Edit Log).',
           group: 'more',
         },
       ]}

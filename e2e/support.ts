@@ -12,6 +12,8 @@ export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 
 /** Longest app.close() may take. The app's own quit deadline is 40 s (src/main/quit.ts). */
 const CLOSE_TIMEOUT_MS = 45_000;
+/** Time allowed for writing the trace (trace.zip with DOM snapshots) before quitting. */
+const TRACE_STOP_BUDGET_MS = 30_000;
 
 export interface LaunchedApp {
   app: ElectronApplication;
@@ -76,6 +78,10 @@ export function captureFailures(getLaunched: () => LaunchedApp | undefined): voi
 export async function closeApp(launched: LaunchedApp | undefined, testInfo: TestInfo): Promise<void> {
   if (!launched) return;
   const { app, tmp } = launched;
+  // The afterAll hook gets the test timeout (60 s) by default; writing a long trace plus a quit that
+  // legitimately takes up to the app's 40 s deadline must not be cut off by it, so the hook gets the
+  // whole close bound on top of time for the trace. A real hang still fails, at CLOSE_TIMEOUT_MS below.
+  testInfo.setTimeout(TRACE_STOP_BUDGET_MS + CLOSE_TIMEOUT_MS + 15_000);
   try {
     if (launched.failed) await app.context().tracing.stop({ path: testInfo.outputPath('trace.zip') });
     else await app.context().tracing.stop();

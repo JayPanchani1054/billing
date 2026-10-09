@@ -196,7 +196,7 @@ function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, u
       subtitle={created ? `${created} created in this session` : 'Create many items at once'}
       icon="layers"
       dirty={dirty}
-      hint="Enter next cell · Enter on an empty name to finish · Ctrl+A save all · Alt+C create in a list · Esc back"
+      hint="Enter Next cell · Enter on an empty name to finish · Ctrl+A Save all · Alt+C Create in a list · Esc Back"
       actions={[{ key: 'Ctrl+A', label: `Save ${used.length || ''} item${used.length === 1 ? '' : 's'}`.replace('  ', ' '), icon: 'save', primary: true, onClick: () => void submit(), disabled: !used.length }]}
       footer={
         <>

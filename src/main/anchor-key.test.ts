@@ -80,4 +80,29 @@ describe('edit-log anchor key sealed by main (safeStorage) and handed to the cor
     assert.ok(key && key.length === 32);
     assert.equal((JSON.parse(fs.readFileSync(path.join(dir, ANCHOR_KEY_FILE), 'utf8')) as { sealed: boolean }).sealed, false);
   });
+
+  it('when the sealed key cannot be used this run (OS protection unavailable), check-points are neither judged nor overwritten', () => {
+    const real = new FileAuditAnchorStore({ dir, log: quiet, key: loadAnchorKeyForWorker(dir, fakeSafeStorage(0x55), quiet) });
+    const saved = real.put({ companyId: 'c1', companyGuid: 'g', lastId: 7, lastHash: 'a'.repeat(64) }, new Date('2026-10-09T00:00:00Z'));
+    const anchorsFile = path.join(dir, 'audit-anchors.json');
+    const onDisk = fs.readFileSync(anchorsFile, 'utf8');
+
+    // e.g. the keyring is locked this session: main hands the worker no key …
+    assert.equal(loadAnchorKeyForWorker(dir, fakeSafeStorage(0x55, 'gnome_libsecret', false), quiet), undefined);
+    // … and the worker's own store cannot unseal it: it reports no check-point (not "edited") …
+    const degraded = new FileAuditAnchorStore({ dir, log: quiet });
+    assert.equal(degraded.usable, false);
+    assert.equal(degraded.get('c1'), null);
+    // … and never re-signs one with its throw-away key (that would read as tampering next run).
+    degraded.put({ companyId: 'c1', companyGuid: 'g', lastId: 9, lastHash: 'b'.repeat(64) }, new Date('2026-10-09T01:00:00Z'));
+    degraded.put({ companyId: 'c2', companyGuid: 'h', lastId: 1, lastHash: 'c'.repeat(64) }, new Date('2026-10-09T01:00:00Z'));
+    assert.equal(fs.readFileSync(anchorsFile, 'utf8'), onDisk);
+
+    // Next run, with the OS protection back, the saved check-point still verifies.
+    const back = new FileAuditAnchorStore({ dir, log: quiet, key: loadAnchorKeyForWorker(dir, fakeSafeStorage(0x55), quiet) });
+    const again = back.get('c1');
+    assert.deepEqual(again, saved);
+    assert.equal(back.verify(again as typeof saved), true);
+    assert.equal(back.get('c2'), null);
+  });
 });

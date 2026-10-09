@@ -1,5 +1,6 @@
 /**
  * 'company.profile' — Company Details (alter): identity, address, tax registration, books and logo.
+ * Alt+H shows who changed the company details (Edit Log).
  */
 import { useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
@@ -12,7 +13,7 @@ import { bytesToBase64, formatBytes, sniffImageMime } from '../../app/lib/export
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
 import { ReadOnlyNotice, Screen } from '../../app/Screen.tsx';
-import { useAppState } from '../../app/state.tsx';
+import { useAppState, useCan } from '../../app/state.tsx';
 import { Banner, Button, DateInput, Field, FieldGroup, Select, Stack, TextArea, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import { GstinOk, StatePicker } from './fields.tsx';
 import { EMAIL_RE, gstinAutofill, gstinError, MONTH_OPTIONS, PAN_RE, PINCODE_RE } from './lib/companyForm.ts';
@@ -121,6 +122,7 @@ function ProfileForm({ profile }: { profile: CompanyProfile }) {
   const nav = useNav();
   const toast = useToast();
   const canEdit = app.can('company.manage');
+  const canAudit = useCan('audit.view');
   const baseline = useMemo(() => toDraft(profile), [profile]);
   const [d, setD] = useState<Draft>(baseline);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -190,6 +192,15 @@ function ProfileForm({ profile }: { profile: CompanyProfile }) {
       actions={[
         { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || !dirty },
         { key: 'F11', label: 'Features', icon: 'sliders', onClick: () => nav.push('company.features'), group: 'more' },
+        {
+          key: 'Alt+H',
+          label: 'Edit history',
+          icon: 'clock',
+          // The core audits the company details as entity 'company' #1 (company/service.ts).
+          onClick: () => nav.push('security.audit', { entityType: 'company', entityId: 1, label: profile.name }),
+          hidden: !canAudit,
+          group: 'more',
+        },
       ]}
       footer={
         canEdit ? (

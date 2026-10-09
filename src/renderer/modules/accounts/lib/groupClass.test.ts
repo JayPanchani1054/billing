@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { classNamesOf, classOfGroup, groupCodeForClasses, groupIsUnder, indexGroups, natureHint } from './groupClass.ts';
+import { classNamesOf, classOfGroup, groupCodeForClasses, groupIsUnder, indexGroups, initialGroupId, natureHint } from './groupClass.ts';
 import { defaultOpeningSide, ledgerSections, visibleSectionTitles } from './ledgerSections.ts';
 import type { SectionContext } from './ledgerSections.ts';
 import { groupIdOf, predefinedTestGroups } from './testGroups.ts';
@@ -160,5 +160,16 @@ describe('Alt+C from a class-limited ledger picker', () => {
     assert.equal(groupCodeForClasses(['party']), null);
     assert.equal(groupCodeForClasses(['party', 'cash_bank']), null);
     assert.equal(groupCodeForClasses(undefined), null);
+  });
+
+  it('accounts.ledger.form resolves { groupId } or { groupCode } to the group it opens under', () => {
+    const debtors = groupIdOf(groups, 'SUNDRY_DEBTORS');
+    const banks = groupIdOf(groups, 'BANK_ACCOUNTS');
+    assert.equal(initialGroupId(groups, { groupCode: 'SUNDRY_DEBTORS' }), debtors);
+    assert.equal(initialGroupId(groups, { groupCode: 'BANK_ACCOUNTS' }), banks);
+    assert.equal(initialGroupId(groups, { groupId: banks, groupCode: 'SUNDRY_DEBTORS' }), banks, 'an explicit group wins');
+    assert.equal(initialGroupId(groups, { groupId: 99_999, groupCode: 'SUNDRY_DEBTORS' }), debtors, 'an unknown id falls back to the code');
+    assert.equal(initialGroupId(groups, { groupCode: 'NOT_A_GROUP' }), null);
+    assert.equal(initialGroupId(groups, {}), null);
   });
 });

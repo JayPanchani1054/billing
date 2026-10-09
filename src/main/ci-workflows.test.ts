@@ -83,6 +83,19 @@ describe('GitHub workflows', () => {
     assert.doesNotMatch(publish, /actions\/checkout@|npm |npx /);
   });
 
+  it('release: builds from the lockfile alone — no dependency or build cache another run could have written', () => {
+    const release = read('release.yml');
+    assert.doesNotMatch(release, /actions\/cache@/);
+    assert.doesNotMatch(release, /^\s+cache:/m, 'setup-node must not restore the npm cache in a release');
+  });
+
+  it('lockfile updater: never re-triggers itself and leaves Dependabot branches alone (read-only token there)', () => {
+    const job = jobs(read('lockfile.yml')).get('lockfile') ?? '';
+    assert.match(job, /^ {4}if: .*github\.actor != 'github-actions\[bot\]'.*$/m);
+    assert.match(job, /^ {4}if: .*github\.actor != 'dependabot\[bot\]'.*$/m);
+    assert.match(job, /npm install --package-lock-only --ignore-scripts/, 'no package code runs while the job holds a write token');
+  });
+
   it('CI runs the unit tests on Windows and smoke-tests the installed packaged app', () => {
     const ci = read('ci.yml');
     const all = jobs(ci);

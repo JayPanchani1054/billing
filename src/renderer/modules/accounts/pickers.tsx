@@ -105,8 +105,6 @@ export function LedgerPicker(props: LedgerPickerProps) {
   const allowCreate = (props.allowCreate ?? true) && canCreate;
   const { rows, byId } = useLedgerPicker(props);
   const createCode = allowCreate ? groupCodeForClasses(props.classes) : null;
-  const groups = useGroups({ enabled: createCode !== null });
-  const createGroupId = createCode ? (groups.rows.find((g) => g.reservedCode === createCode)?.id ?? null) : null;
   const [created, setCreated] = useState<{ id: number; name: string } | null>(null);
   const items = useMemo(() => {
     if (!excludeIds || excludeIds.length === 0) return rows;
@@ -117,7 +115,8 @@ export function LedgerPicker(props: LedgerPickerProps) {
 
   const create = async (typed: string) => {
     const params: Record<string, unknown> = { initialName: typed.trim(), forResult: true };
-    if (createGroupId !== null) params.groupId = createGroupId;
+    // The form resolves the reserved code to the group (lib/groupClass.ts › initialGroupId).
+    if (createCode !== null) params.groupCode = createCode;
     const out = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', params);
     if (!out) return;
     setCreated(out);
@@ -192,6 +191,7 @@ export interface GroupPickerProps {
   size?: ControlSize;
   id?: string;
   'aria-label'?: string;
+  'aria-describedby'?: string;
   ref?: Ref<HTMLInputElement>;
 }
 
@@ -253,6 +253,7 @@ export function GroupPicker(props: GroupPickerProps) {
       ref={ref}
       id={id}
       aria-label={props['aria-label']}
+      aria-describedby={props['aria-describedby']}
       items={items}
       getKey={(g) => String(g.id)}
       getLabel={(g) => g.name}

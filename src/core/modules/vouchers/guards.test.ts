@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { GuardPolicy } from '../../../shared/settings.ts';
+import { ledgerBalanceAsOf } from './guards.ts';
 import { previewVoucher, saveVoucher } from './service.ts';
 import { purchaseInput, ruleDetails, salesInput, save, setupKit, throwsApp, type Kit } from './testkit.ts';
 
@@ -72,6 +73,21 @@ describe('negative cash', () => {
     assert.equal(saveVoucher(k.t.ctx, pay(k.L.bank)).warnings.length, 0);
     setGuard(k, 'negativeCash', 'block');
     throwsApp(() => saveVoucher(k.t.ctx, { ...pay(k.L.cash), acknowledgeWarnings: true }), 'BUSINESS_RULE', /Cash will go negative/);
+    k.t.close();
+  });
+
+  it('altering a voucher leaves its own Cash entries out of the balance before it (excluded voucher subtracted)', () => {
+    const k = setupKit();
+    const day = k.t.today;
+    save(k, { voucherTypeId: k.vt.receipt, date: day, mode: 'ledger', ledgers: [{ ledgerId: k.L.cash, amount: 10000 }, { ledgerId: k.L.capital, amount: -10000 }] });
+    const pay = (amount: number) => ({ voucherTypeId: k.vt.payment, date: day, mode: 'ledger' as const, ledgers: [{ ledgerId: k.L.rent, amount }, { ledgerId: k.L.cash, amount: -amount }] });
+    const p = saveVoucher(k.t.ctx, pay(8000));
+    assert.equal(p.warnings.length, 0);
+    assert.equal(ledgerBalanceAsOf(k.t.db, k.L.cash, day, day, null), 2000);
+    assert.equal(ledgerBalanceAsOf(k.t.db, k.L.cash, day, day, p.id), 10000, 'the payment itself is left out');
+    // ₹90 out of the ₹100 there was before the payment: fine, although ₹20 is all that is left after it.
+    assert.equal(saveVoucher(k.t.ctx, { ...pay(9000), id: p.id }).warnings.length, 0);
+    throwsApp(() => saveVoucher(k.t.ctx, { ...pay(12000), id: p.id }), 'BUSINESS_RULE', /Cash will go negative: balance ₹ 100\.00 before this voucher, -₹ 20\.00 after it/);
     k.t.close();
   });
 });

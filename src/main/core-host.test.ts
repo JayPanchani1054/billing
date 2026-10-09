@@ -178,6 +178,19 @@ describe('core host (worker side)', () => {
     assert.equal(rt.calls.length, 0);
   });
 
+  it('a shutdown that throws synchronously is still answered at once (main never waits out its bound)', async () => {
+    const { rt, host, posted } = setup();
+    rt.shutdown = () => {
+      throw new Error('close failed');
+    };
+    host.handle({ type: 'call', id: 7, op: 'shutdown' });
+    await tick();
+    const [stop] = replies(posted);
+    assert.equal(stop.id, 7);
+    assert.equal(stop.ok, false);
+    assert.equal(!stop.ok && stop.error.message, 'close failed');
+  });
+
   it('applies theme and log messages, ignores malformed ones', () => {
     const { rt, host, posted } = setup();
     host.handle({ type: 'set-theme', mode: 'dark' });

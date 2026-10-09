@@ -2,8 +2,8 @@
  * Voucher register table shared by the Day Book and the generic voucher list.
  *
  * Enter / double-click opens the voucher for alteration (Tally); Alt+Enter opens the read-only view
- * (also for cancelled vouchers and users who may not alter); Alt+D deletes and Alt+2 duplicates the
- * highlighted voucher.
+ * (also for cancelled vouchers and users who may not alter); Alt+A alters, Ctrl+P prints (Alt+P
+ * prints the register itself), Alt+2 duplicates and Alt+D deletes the highlighted voucher.
  */
 import { useMemo, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
@@ -62,6 +62,17 @@ export function useVoucherTable(rows: readonly DayBookRow[]): VoucherTableState 
   };
   const actions: ScreenActionItem[] = [
     { key: 'Alt+Enter', label: 'View', icon: 'eye', onClick: () => selected && view(selected), disabled: !selected, group: 'row' },
+    {
+      key: 'Alt+A',
+      label: 'Alter',
+      icon: 'edit',
+      onClick: () => selected && nav.push('vouchers.entry', { id: selected.id }),
+      disabled: !selected || openTarget(selected, canAlter) !== 'vouchers.entry',
+      hint: selected && (selected.isCancelled || selected.irnGenerated) ? 'A cancelled voucher, or one with an e-invoice, can only be viewed (Alt+Enter).' : undefined,
+      hidden: !canAlter,
+      group: 'row',
+    },
+    { key: 'Ctrl+P', label: 'Print voucher', icon: 'print', onClick: () => selected && nav.push('print.voucher', { id: selected.id }), disabled: !selected, hidden: !nav.isRegistered('print.voucher'), group: 'row' },
     { key: 'Alt+2', label: 'Duplicate', icon: 'copy', onClick: () => selected && nav.push('vouchers.entry', { duplicateOf: selected.id }), disabled: !selected, hidden: !canCreate, group: 'row' },
     { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => selected && void remove(selected), disabled: !selected || del.pending, hidden: !canDelete, group: 'danger' },
   ];

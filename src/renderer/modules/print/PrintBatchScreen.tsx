@@ -161,7 +161,7 @@ function BatchPicker() {
       icon="print"
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Space or Enter tick · Alt+A tick all · Ctrl+A Preview & print · Alt+F2 Period"
+      hint="Space or Enter Tick · Alt+A Tick all · Ctrl+A Preview & print · Alt+F2 Period"
       actions={[
         { key: 'Ctrl+A', label: 'Preview & print', icon: 'print', primary: true, onClick: preview, disabled: chosen.length === 0, hint: 'Tick vouchers first' },
         { key: 'Alt+A', label: chosen.length === ids.length && ids.length > 0 ? 'Untick all' : 'Tick all', icon: 'check', onClick: () => setSelected((s) => toggleAll(s, ids)), disabled: ids.length === 0 },

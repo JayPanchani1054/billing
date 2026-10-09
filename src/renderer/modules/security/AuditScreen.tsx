@@ -7,6 +7,7 @@
  *   (before → after), raw data and its fingerprint.
  * - With { entityType, entityId }: the record's history — every version, oldest change at the
  *   bottom, each with its own diff.
+ * - Alt+A opens the record itself (voucher view, master form — lib/recordLinks.ts) unless it was deleted.
  * - Verify (Alt+V) recomputes the hash chain and shows a prominent result banner; Export (Alt+E)
  *   writes Excel/CSV through the server (formula-safe) and the native save dialog.
  */
@@ -85,6 +86,7 @@ import {
   withGroup,
 } from './lib/auditQuery.ts';
 import type { ActionGroup, AuditFilterState, AuditScreenParams, HistoryTarget } from './lib/auditQuery.ts';
+import { isDeletedRecord, recordLink } from './lib/recordLinks.ts';
 import { diffSummary } from './lib/diffFormat.ts';
 import { formatDateTime, relativeTime } from './lib/time.ts';
 
@@ -342,9 +344,18 @@ function EditLogView({ params }: { params: Params }) {
   };
 
   const hasRecord = !!selected?.entityType && selected.entityId !== null;
+  const selectedLink = selected ? recordLink(selected.entityType, selected.entityId, selected.action === 'delete') : null;
   useScreenActions([
     { key: 'Alt+V', label: verify.busy ? 'Verifying…' : 'Verify edit log', icon: 'shield', primary: true, onClick: () => void verify.run(), disabled: verify.busy, hint: 'Check that no entry was changed, inserted or removed.' },
     { key: 'Alt+H', label: 'Record history', icon: 'clock', onClick: () => selected && openHistory(selected), disabled: !hasRecord, hint: 'Every change to the selected record.' },
+    {
+      key: 'Alt+A',
+      label: selectedLink?.label ?? 'Open record',
+      icon: 'edit',
+      onClick: () => selectedLink && nav.push(selectedLink.screen, selectedLink.params),
+      disabled: !selectedLink || !nav.canOpen(selectedLink.screen),
+      hint: selected && !selectedLink ? 'This entry has no record to open (deleted, or not a voucher or master).' : undefined,
+    },
     { key: 'Ctrl+F', label: 'Search', icon: 'search', onClick: () => searchRef.current?.focus(), group: 'filter' },
     { key: 'Alt+X', label: 'Clear filters', icon: 'filter', onClick: () => setFilters({ ...DEFAULT_FILTERS, pageSize: filters.pageSize }), disabled: !filtered && filters.dates === DEFAULT_FILTERS.dates, group: 'filter' },
     { key: 'Ctrl+PageUp', label: 'Previous page', icon: 'chevron-left', onClick: () => update({ page: filters.page - 1 }), disabled: filters.page <= 1, group: 'page' },
@@ -398,7 +409,7 @@ function EditLogView({ params }: { params: Params }) {
       title="Edit Log"
       subtitle="Who changed what, and when. Entries cannot be edited or deleted."
       icon="book"
-      hint="Enter Open entry · Alt+H Record history · Alt+V Verify · Ctrl+F Search · Alt+E Export · Alt+P Print · Ctrl+PgUp/PgDn Page"
+      hint="Enter Open entry · Alt+H Record history · Alt+A Open record · Alt+V Verify · Ctrl+F Search · Alt+E Export · Alt+P Print · Ctrl+PgUp/PgDn Page"
       meta={
         facets.data?.firstTs ? (
           <span className="bx-muted">
@@ -673,11 +684,21 @@ function HistoryView({ target }: { target: HistoryTarget }) {
   }, [data, order]);
   const label = data?.currentLabel ?? target.label ?? `#${target.entityId}`;
   const typeLabel = data?.entityTypeLabel ?? target.entityType;
+  // Not while loading: a deleted record is only known from its last version.
+  const link = data ? recordLink(target.entityType, target.entityId, isDeletedRecord(data.versions)) : null;
 
   useScreenActions([
     { key: 'Alt+V', label: verify.busy ? 'Verifying…' : 'Verify edit log', icon: 'shield', onClick: () => void verify.run(), disabled: verify.busy },
     { key: 'Alt+O', label: order === 'newest' ? 'Oldest first' : 'Newest first', icon: 'sort', onClick: () => setOrder((o) => (o === 'newest' ? 'oldest' : 'newest')), group: 'view' },
     { key: 'Alt+L', label: 'Full edit log', icon: 'book', onClick: () => nav.push('security.audit', { entityType: target.entityType }), group: 'view', hint: `All ${typeLabel.toLowerCase()} entries.` },
+    {
+      key: 'Alt+A',
+      label: link?.label ?? 'Open record',
+      icon: 'edit',
+      onClick: () => link && nav.push(link.screen, link.params),
+      hidden: !link || !nav.canOpen(link.screen),
+      hint: 'Open the record itself.',
+    },
     {
       key: 'Alt+E',
       label: 'Export',
@@ -698,7 +719,7 @@ function HistoryView({ target }: { target: HistoryTarget }) {
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="↑/↓ Move · Enter Open entry · Alt+O Order · Alt+L Full edit log · Alt+V Verify · Alt+E Export · Esc Back"
+      hint="↑/↓ Move · Enter Open entry · Alt+A Open record · Alt+O Order · Alt+L Full edit log · Alt+V Verify · Alt+E Export · Esc Back"
     >
       <Stack gap={4}>
         {verify.report ? <VerifyResult report={verify.report} onDismiss={verify.clear} onShowEntry={(id) => setDetailId(id)} onReverify={() => void verify.run()} /> : null}

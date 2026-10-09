@@ -6,6 +6,11 @@
  *  - Positional params use `?` with an array.
  *  - Booleans bind as 1/0, undefined binds as NULL.
  *  - Rows come back as plain objects (snake_case columns). Services map them to camelCase DTOs.
+ *    They are built from SQLite's array rows (`setReturnArrays`), not copied from node:sqlite's
+ *    null-prototype row objects: those are dictionary-mode objects (slow to read) and spreading
+ *    them cost 40–80 % of a large read. The result is an ordinary `Object.prototype` object with
+ *    the columns in select order (last one wins for duplicate names, as in node:sqlite), safe for
+ *    JSON and structured clone (IPC).
  *  - transaction() nests via SAVEPOINTs and rolls back on throw.
  */
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
@@ -40,10 +45,48 @@ function bind(params: Params | undefined): unknown[] {
   return [out];
 }
 
+/**
+ * The two StatementSync methods used for array rows. Declared locally (and probed at runtime) so the
+ * wrapper also compiles against @types/node releases that predate them; Node ≥ 22.16 / Electron ≥ 36
+ * have both.
+ */
+interface ArrayRows {
+  setReturnArrays?(enabled: boolean): void;
+  columns?(): Array<{ name: string }>;
+}
+
+/** Plain object rows from array rows and the statement's column names (see the header). */
+function toObjects(stmt: StatementSync, rows: readonly unknown[]): Row[] {
+  const names = ((stmt as unknown as ArrayRows).columns as () => Array<{ name: string }>).call(stmt).map((c) => c.name);
+  const n = names.length;
+  const out: Row[] = new Array(rows.length);
+  if (names.includes('__proto__')) {
+    // A column literally named __proto__ must stay a data property (assignment would set the prototype).
+    for (let r = 0; r < rows.length; r++) {
+      const a = rows[r] as SqlValue[];
+      const o: Row = {};
+      for (let i = 0; i < n; i++) Object.defineProperty(o, names[i], { value: a[i], writable: true, enumerable: true, configurable: true });
+      out[r] = o;
+    }
+    return out;
+  }
+  for (let r = 0; r < rows.length; r++) {
+    const a = rows[r] as SqlValue[];
+    const o: Row = {};
+    for (let i = 0; i < n; i++) o[names[i]] = a[i];
+    out[r] = o;
+  }
+  return out;
+}
+
 export class Db {
   readonly path: string;
   private readonly raw: DatabaseSync;
   private readonly cache = new Map<string, StatementSync>();
+  /** Cached statements switched to array rows (reads); `run` uses the plain cache. */
+  private readonly readCache = new Map<string, StatementSync>();
+  /** node:sqlite supports array rows (probed once per connection). */
+  private arrays: boolean | null = null;
   private depth = 0;
   private savepointSeq = 0;
 
@@ -70,24 +113,61 @@ export class Db {
     return s;
   }
 
+  /** Statement for reads: array rows when the runtime supports them (null when it does not). */
+  private readStmt(sql: string): StatementSync | null {
+    if (this.arrays === false) return null;
+    let s = this.readCache.get(sql);
+    if (!s) {
+      s = this.raw.prepare(sql);
+      const a = s as unknown as ArrayRows;
+      if (this.arrays === null) this.arrays = typeof a.setReturnArrays === 'function' && typeof a.columns === 'function';
+      if (!this.arrays) return null;
+      (a.setReturnArrays as (enabled: boolean) => void).call(s, true);
+      this.readCache.set(sql, s);
+    }
+    return s;
+  }
+
   run(sql: string, params?: Params): RunResult {
     const r = this.stmt(sql).run(...(bind(params) as never[]));
     return { changes: Number(r.changes), lastInsertRowid: Number(r.lastInsertRowid) };
   }
 
   get<T = Row>(sql: string, params?: Params): T | undefined {
+    const rs = this.readStmt(sql);
+    if (rs) {
+      const row = rs.get(...(bind(params) as never[]));
+      return row === undefined ? undefined : (toObjects(rs, [row])[0] as T);
+    }
     const row = this.stmt(sql).get(...(bind(params) as never[]));
     return row === undefined ? undefined : ({ ...row } as T);
   }
 
   all<T = Row>(sql: string, params?: Params): T[] {
+    const rs = this.readStmt(sql);
+    if (rs) return toObjects(rs, rs.all(...(bind(params) as never[]))) as T[];
     return this.stmt(sql)
       .all(...(bind(params) as never[]))
       .map((row) => ({ ...row }) as T);
   }
 
+  /**
+   * Rows one at a time (constant memory) for very large reads such as exports. Uses its own prepared
+   * statement, so other queries may run on this connection while the iteration is in progress.
+   * Finish (or `return()`) the iterator before closing the connection.
+   */
+  *iterate<T = Row>(sql: string, params?: Params): Generator<T, void, undefined> {
+    const stmt = this.raw.prepare(sql);
+    for (const row of stmt.iterate(...(bind(params) as never[]))) yield { ...row } as T;
+  }
+
   /** Single scalar value from the first column of the first row. */
   value<T extends SqlValue = SqlValue>(sql: string, params?: Params): T | undefined {
+    const rs = this.readStmt(sql);
+    if (rs) {
+      const row = rs.get(...(bind(params) as never[])) as unknown as SqlValue[] | undefined;
+      return row === undefined ? undefined : (row[0] as T);
+    }
     const row = this.stmt(sql).get(...(bind(params) as never[]));
     if (row === undefined) return undefined;
     const first = Object.values(row)[0];
@@ -188,6 +268,7 @@ export class Db {
 
   close(): void {
     this.cache.clear();
+    this.readCache.clear();
     if (this.raw.isOpen) {
       if (this.path !== ':memory:') {
         try {

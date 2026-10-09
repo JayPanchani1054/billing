@@ -149,3 +149,14 @@ export function groupCodeForClasses(classes: readonly LedgerClassName[] | undefi
       return null;
   }
 }
+
+/**
+ * The group Ledger Creation opens under: `groupId` when given and known, else the predefined group
+ * with reserved code `groupCode` (e.g. 'SUNDRY_DEBTORS' from a voucher's party picker,
+ * 'BANK_ACCOUNTS' from Banking); null when neither resolves (the user picks "Under").
+ */
+export function initialGroupId(groups: readonly Pick<GroupRow, 'id' | 'reservedCode'>[], params: { groupId?: unknown; groupCode?: unknown }): number | null {
+  if (typeof params.groupId === 'number' && groups.some((g) => g.id === params.groupId)) return params.groupId;
+  if (typeof params.groupCode === 'string' && params.groupCode) return groups.find((g) => g.reservedCode === params.groupCode)?.id ?? null;
+  return null;
+}

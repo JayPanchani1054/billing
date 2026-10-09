@@ -1,5 +1,5 @@
 /**
- * Company list (no company open): search, open (Enter), create (Alt+C), delete (Ctrl+D), data
+ * Company list (no company open): search, open (Enter), create (Alt+C), delete (Alt+D, or Ctrl+D), data
  * folder with "Change…", restore a backup (Alt+R, data module dialog), data-folder problems, and a
  * first-company empty state.
  */
@@ -78,7 +78,7 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
     {
       'Alt+C': () => onCreate(),
       'Alt+R': () => setRestoring(true),
-      'Ctrl+D': () => {
+      'Alt+D, Ctrl+D': () => {
         if (selectedCompany) setDeleting(selectedCompany);
       },
     },
@@ -148,7 +148,7 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
       aside={folder}
       footer={
         <span className="bx-gate__keys">
-          <Kbd keys="Enter" size="sm" tone="subtle" /> Open <Kbd keys="Alt+C" size="sm" tone="subtle" /> Create <Kbd keys="Alt+R" size="sm" tone="subtle" /> Restore <Kbd keys="Ctrl+D" size="sm" tone="subtle" /> Delete
+          <Kbd keys="Enter" size="sm" tone="subtle" /> Open <Kbd keys="Alt+C" size="sm" tone="subtle" /> Create <Kbd keys="Alt+R" size="sm" tone="subtle" /> Restore <Kbd keys="Alt+D" size="sm" tone="subtle" /> Delete
           <span className="bx-muted"> · Version {state?.appVersion}</span>
         </span>
       }
@@ -220,7 +220,7 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
             <Button icon="undo" onClick={() => setRestoring(true)} shortcut="Alt+R">
               Restore a backup…
             </Button>
-            <Button icon="trash" variant="ghost" disabled={!selectedCompany} onClick={() => selectedCompany && setDeleting(selectedCompany)} shortcut="Ctrl+D">
+            <Button icon="trash" variant="ghost" disabled={!selectedCompany} onClick={() => selectedCompany && setDeleting(selectedCompany)} shortcut="Alt+D">
               Delete
             </Button>
           </div>

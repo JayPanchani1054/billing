@@ -3,7 +3,8 @@
  *
  * Defaults to the working date (and follows F2 until the range is changed here). Filters: type chips,
  * search (number / party / narration / exact amount), optional and cancelled toggles.
- * Enter alters, Alt+Enter views, Alt+D deletes, Alt+2 duplicates; Alt+E export, Alt+P print.
+ * Enter / Alt+A alter, Alt+Enter views, Ctrl+P prints the voucher, Alt+D deletes, Alt+2 duplicates;
+ * Alt+T today, Alt+E export, Alt+P print (the Day Book itself).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
@@ -58,10 +59,10 @@ export function DayBookScreen({ params }: ScreenProps<{ from?: string; to?: stri
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Enter Alter · Alt+Enter View · Alt+F2 Period · Alt+D Delete · Alt+2 Duplicate · Alt+E Export"
+      hint="Enter Alter · Alt+Enter View · Ctrl+P Print Voucher · Alt+F2 Period · Alt+T Today · Alt+D Delete · Alt+2 Duplicate · Alt+E Export"
       actions={[
         { key: 'Alt+F2', label: 'Period', icon: 'calendar', onClick: () => document.getElementById('vch-db-from')?.focus(), group: 'period' },
-        { key: 'Alt+F1', label: 'Today', icon: 'clock', onClick: () => setRange({ from: working.date, to: working.date, custom: false }), group: 'period' },
+        { key: 'Alt+T', label: 'Today', icon: 'clock', onClick: () => setRange({ from: working.date, to: working.date, custom: false }), group: 'period' },
         ...table.actions,
       ]}
       exportDef={() => ({

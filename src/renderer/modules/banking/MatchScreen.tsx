@@ -7,9 +7,11 @@
  * Unmatched lines: Alt+V creates a voucher for the line (Receipt / Payment / Contra with a ledger picker),
  * Alt+B creates vouchers for many lines at once (all or nothing), Alt+I ignores / restores a line.
  * Matched lines: Enter opens the voucher, Alt+U unmatches.
+ * Alt+D deletes the chosen imported statement (wrong bank or wrong column mapping), after a confirmation that
+ * can also unmatch its reconciled lines — then the corrected file can be imported again (lib/batches.ts).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FromLineKind, MatchCandidate, StatementLineView } from '../../../shared/types/banking.ts';
+import type { FromLineKind, MatchCandidate, StatementBatch, StatementLineView } from '../../../shared/types/banking.ts';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import { withConfirmation } from '../../app/confirm.tsx';
@@ -44,6 +46,7 @@ import {
 } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { BankSelect, LineStatusBadge, NoBanks, useBanks, useDefaultBank, useLedgerOptions } from './components.tsx';
+import { batchLabel, deleteBatchPlan, deleteBatchResultText } from './lib/batches.ts';
 import {
   KIND_LABEL,
   allowedKinds,
@@ -87,6 +90,7 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
   const [picking, setPicking] = useState<StatementLineView | null>(null);
   const [creating, setCreating] = useState<{ line: StatementLineView; draft?: CreateFormDraft } | null>(null);
   const [bulk, setBulk] = useState(false);
+  const [deletingBatch, setDeletingBatch] = useState<StatementBatch | null>(null);
 
   // When the statement was imported for dates outside the period, widen the lines' range to the batch.
   const batches = useApiQuery('banking.statement.batches', { ledgerId: ledgerId ?? undefined }, { enabled: ledgerId !== null });
@@ -301,7 +305,7 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
         void refetchBanks();
         void lines.refetch();
       }}
-      hint="Alt+M Auto-match · Enter match / open voucher · Alt+V create voucher · Alt+B create many · Alt+I ignore · Alt+U unmatch · Ctrl+1…4 Tabs"
+      hint="Alt+M Auto-match · Enter Match / open voucher · Alt+V Create voucher · Alt+B Create many · Alt+I Ignore · Alt+U Unmatch · Ctrl+1…4 Tabs · Alt+D Delete import"
       exportDef={() => ({
         subtitle: `${bank?.name ?? ''} — ${TAB_TITLE[tab]}`,
         columns: [
@@ -341,7 +345,7 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
             value={batchId === null ? 'all' : String(batchId)}
             options={[
               { value: 'all', label: 'All imported statements' },
-              ...(batches.data ?? []).map((b) => ({ value: String(b.id), label: `${b.fileName ?? 'Statement'} · ${formatDate(b.from)} – ${formatDate(b.to)} · ${b.lineCount} lines` })),
+              ...(batches.data ?? []).map((b) => ({ value: String(b.id), label: batchLabel(b) })),
             ]}
             onChange={(v) => {
               setBatchId(v === 'all' ? null : Number(v));
@@ -367,6 +371,16 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
         { key: 'Ctrl+4', label: 'Ignored', onClick: () => setTab('ignored'), group: 'view', disabled: tab === 'ignored' },
         { key: 'Alt+R', label: 'Reconciliation', icon: 'bank', onClick: () => nav.push('banking.brs', { ledgerId: ledgerId ?? undefined }), group: 'go' },
         { key: 'Alt+O', label: 'Import statement', icon: 'upload', onClick: () => nav.push('banking.import', { ledgerId: ledgerId ?? undefined }), group: 'go', hidden: !canEdit },
+        {
+          key: 'Alt+D',
+          label: 'Delete import',
+          icon: 'trash',
+          onClick: () => batch && setDeletingBatch(batch),
+          hidden: !canEdit,
+          disabled: batch === null,
+          hint: batch === null ? 'Choose the imported statement first (Imported statement filter).' : 'Remove this imported statement, e.g. to import it again into the right bank or with the right columns.',
+          group: 'danger',
+        },
       ]}
     >
       <Stack gap={2}>
@@ -447,6 +461,17 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
           }}
         />
       ) : null}
+      {deletingBatch ? (
+        <DeleteBatchDialog
+          batch={deletingBatch}
+          onClose={() => setDeletingBatch(null)}
+          onDeleted={() => {
+            setDeletingBatch(null);
+            setBatchId(null);
+            setSuggested(new Map());
+          }}
+        />
+      ) : null}
       {bulk && ledgerId !== null ? (
         <BulkCreateDialog
           lines={[...byTab.unmatched, ...byTab.suggestions].sort((a, b) => (a.txnDate < b.txnDate ? -1 : a.txnDate > b.txnDate ? 1 : a.id - b.id))}
@@ -468,6 +493,55 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
 }
 
 const TAB_TITLE: Record<MatchTab, string> = { matched: 'Matched', suggestions: 'Suggestions', unmatched: 'Unmatched', ignored: 'Ignored' };
+
+/** Confirmation for Alt+D: what is removed, and "also unmatch" when lines are reconciled. */
+function DeleteBatchDialog({ batch, onClose, onDeleted }: { batch: StatementBatch; onClose: () => void; onDeleted: () => void }) {
+  return (
+    <Modal open onClose={onClose} size="md" title="Delete imported statement" description={batchLabel(batch)}>
+      <DeleteBatchForm batch={batch} onClose={onClose} onDeleted={onDeleted} />
+    </Modal>
+  );
+}
+
+function DeleteBatchForm({ batch, onClose, onDeleted }: { batch: StatementBatch; onClose: () => void; onDeleted: () => void }) {
+  const toast = useToast();
+  const [unmatchToo, setUnmatchToo] = useState(false);
+  const del = useApiMutation('banking.statement.deleteBatch', { invalidates: ['banking', 'dashboard', 'reports'] });
+  const plan = deleteBatchPlan(batch, unmatchToo);
+  const submit = async (): Promise<void> => {
+    if (!plan.canDelete || del.pending) return;
+    try {
+      const res = await del.mutate(plan.input);
+      toast.success(deleteBatchResultText(res));
+      onDeleted();
+    } catch (err) {
+      toast.error('Could not delete the imported statement', { message: userMessage(err) });
+    }
+  };
+  useHotkeys({ 'Ctrl+A': () => void submit() }, [plan.canDelete, unmatchToo, del.pending]);
+  return (
+    <Stack gap={3}>
+      <Banner tone="warning" inline title={plan.title}>
+        {plan.message}
+      </Banner>
+      {plan.linked > 0 ? (
+        <Checkbox
+          label={`Also unmatch the ${plan.linked} reconciled line${plan.linked === 1 ? '' : 's'}`}
+          description="Their vouchers lose the bank date and show as not yet in the bank in the reconciliation."
+          checked={unmatchToo}
+          onChange={setUnmatchToo}
+          autoFocus
+        />
+      ) : null}
+      <Inline gap={2} justify="end">
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="danger" icon="trash" shortcut="Ctrl+A" loading={del.pending} disabled={!plan.canDelete} onClick={() => void submit()}>
+          Delete import
+        </Button>
+      </Inline>
+    </Stack>
+  );
+}
 
 function lineSummary(l: StatementLineView): string {
   return `${formatDate(l.txnDate)} · ${l.amount >= 0 ? 'Deposit' : 'Withdrawal'} ${formatMoney(Math.abs(l.amount), { symbol: true })}${l.description ? ` · ${l.description}` : ''}`;

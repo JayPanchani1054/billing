@@ -13,9 +13,9 @@ Every screen is `gstOnly`, needs `gst.view`; file exports and manual 3B entries 
 | `gst.hsn` | `{ direction? }` | HSN/SAC summary, outward / inward (Ctrl+1/2) |
 | `gst.register` | `{ kind?, from?, to? }` | Sales / purchase register (Ctrl+1/2; purchases show the supplier invoice no. and date); Enter → voucher |
 | `gst.itc` | `{ from?, to? }` | ITC by supplier and by type; Enter → `reports.ledger` |
-| `gst.exceptions` | `{ from?, to? }` | All uncertain transactions, filters (Ctrl+1/2/3, problem type), Enter → `vouchers.view`, Alt+L alter voucher, Alt+M open the master to fix; period-level gaps link to GSTR-1 table 13 |
-| `gst.einvoice` | `{ from?, to?, view?: 'pending' \| 'generated' }` (feature `einvoice`) | Ctrl+1 **Pending IRN**: readiness errors, Space/Alt+A select, Alt+J bulk JSON (rejected list with links), Alt+I import IRP response (JSON/XLSX), vouchers cancelled in the books with an active IRN. Ctrl+2 **IRN generated** (`gst.einvoice.generated`): ack no./date, 24-hour IRP cancellation window, Alt+K mark IRN cancelled (IRP reason codes 1–4 + remarks). Alt+H history in both |
-| `gst.ewaybill` | `{ from?, to? }` (feature `ewayBill`) | Pending e-way bills (threshold shown), Alt+J bulk JSON (rejected list with links), Alt+N record EWB no./date/validity, Alt+H history |
+| `gst.exceptions` | `{ from?, to? }` | All uncertain transactions, filters (Ctrl+1/2/3, problem type), Enter → `vouchers.view`, Alt+A alter voucher, Alt+M open the master to fix; period-level gaps link to GSTR-1 table 13 |
+| `gst.einvoice` | `{ from?, to?, view?: 'pending' \| 'generated' }` (feature `einvoice`) | Ctrl+1 **Pending IRN**: readiness errors, Space select / Alt+S select all ready, Alt+A alter voucher, Alt+J bulk JSON (rejected list with links), Alt+I import IRP response (JSON/XLSX), vouchers cancelled in the books with an active IRN. Ctrl+2 **IRN generated** (`gst.einvoice.generated`): ack no./date, 24-hour IRP cancellation window, Alt+K mark IRN cancelled (IRP reason codes 1–4 + remarks). Alt+H history in both |
+| `gst.ewaybill` | `{ from?, to? }` (feature `ewayBill`) | Pending e-way bills (threshold shown), Space select / Alt+S select all ready, Alt+A alter voucher, Alt+J bulk JSON (rejected list with links), Alt+N record EWB no./date/validity, Alt+H history |
 
 Range screens use the global period (Alt+F2); a caller may pass `{ from, to }` (e.g. GSTR-1 → exceptions)
 which holds until the user changes the period.

@@ -48,11 +48,31 @@ describe('refetch on reveal', () => {
         release = () => resolve(calls);
       });
     const auto = cache.fetch(key, fetcher); // useApiQuery's own fetch when the screen is shown
-    const manual = cache.fetch(key, fetcher, { force: forceOnRefetch(cache.peek(key)?.fetching ?? false) }); // the screen's refetch()
+    const manual = cache.fetch(key, fetcher, { force: forceOnRefetch(cache.hasCurrentRequest(key)) }); // the screen's refetch()
     release();
     assert.equal(await auto, 1);
     assert.equal(await manual, 1);
     assert.equal(calls, 1);
     assert.equal(forceOnRefetch(false), true, 'idle: a real new request');
+  });
+
+  test('never shares a request that started before the latest invalidation (it may carry pre-save data)', async () => {
+    const cache = new QueryCache();
+    const key = queryKey('banking.brs', { ledgerId: 7 });
+    const releases: Array<(v: string) => void> = [];
+    const fetcher = () => new Promise<string>((resolve) => releases.push(resolve));
+    const before = cache.fetch(key, fetcher); // a background fetch is running…
+    cache.invalidate('banking'); // …when a save lands
+    assert.equal(cache.hasCurrentRequest(key), false);
+    const manual = cache.fetch(key, fetcher, { force: forceOnRefetch(cache.hasCurrentRequest(key)) }); // refetch() after the save
+    assert.equal(releases.length, 2, 'a new request was started');
+    assert.equal(cache.hasCurrentRequest(key), true, 'the new request is current');
+    releases[0]('pre-save');
+    releases[1]('post-save');
+    assert.equal(await before, 'pre-save');
+    assert.equal(await manual, 'post-save');
+    assert.equal(cache.peek(key)?.data, 'post-save');
+    assert.equal(cache.peek(key)?.stale, false);
+    assert.equal(cache.hasCurrentRequest(key), false, 'nothing in flight');
   });
 });

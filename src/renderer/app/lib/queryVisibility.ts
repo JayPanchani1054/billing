@@ -11,10 +11,12 @@ export function shouldAutoFetch(opts: { enabled: boolean; visible: boolean; need
 }
 
 /**
- * refetch(): start a new request only when none is running; otherwise share the one in flight
- * (a screen revealed after an invalidation fetches by itself and may also refetch on reveal — the
- * heavy dashboard must not be computed twice).
+ * refetch(): start a new request unless one is already running whose answer is current (it started
+ * after the latest invalidation — e.g. the request a revealed screen started by itself; the heavy
+ * dashboard must not be computed twice). A request that started BEFORE the latest invalidation
+ * (a mutation saved meanwhile) is never shared: it may carry pre-save data
+ * (QueryCache.hasCurrentRequest).
  */
-export function forceOnRefetch(fetching: boolean): boolean {
-  return !fetching;
+export function forceOnRefetch(currentRequestInFlight: boolean): boolean {
+  return !currentRequestInFlight;
 }

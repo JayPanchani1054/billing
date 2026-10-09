@@ -1,7 +1,8 @@
 /**
  * 'banking.summary' — Bank overview: every bank / OD account as on the period end (Alt+F2) with the balance
  * as per books and as per bank, open items, the last reconciled date and the latest imported statement.
- * Enter opens the reconciliation; Alt+I imports a statement and Alt+M matches it for the highlighted bank.
+ * Enter opens the reconciliation; Alt+I imports a statement and Alt+M matches it for the highlighted bank;
+ * Alt+Q cheque register, Alt+T post-dated cheques, Alt+C creates a bank ledger (under Bank Accounts).
  */
 import { useMemo, useState } from 'react';
 import type { BankSummaryRow } from '../../../shared/types/banking.ts';
@@ -20,6 +21,7 @@ import { summaryExport } from './lib/exports.ts';
 export function SummaryScreen(_props: ScreenProps<Record<string, never>>) {
   const nav = useNav();
   const canEdit = useCan('banking.reconcile');
+  const canCreateLedger = useCan('masters.create');
   const { to: asOf } = usePeriod();
   const { banks, loading, error, refetch, refreshing } = useBanks(asOf);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -107,12 +109,13 @@ export function SummaryScreen(_props: ScreenProps<Record<string, never>>) {
       error={error}
       onRetry={() => void refetch()}
       exportDef={() => summaryExport(banks)}
-      hint="Enter reconcile · Alt+I import statement · Alt+M match · Alt+C cheque register · Alt+F2 date"
+      hint="Enter Reconcile · Alt+I Import statement · Alt+M Match · Alt+Q Cheque register · Alt+T Post-dated cheques · Alt+C Create Bank Ledger · Alt+F2 Date"
       actions={[
         { key: 'Alt+I', label: 'Import statement', icon: 'upload', onClick: () => nav.push('banking.import', { ledgerId: selected?.id }), hidden: !canEdit, disabled: !selected },
         { key: 'Alt+M', label: 'Match statement', icon: 'link', onClick: () => nav.push('banking.match', { ledgerId: selected?.id }), hidden: !canEdit, disabled: !selected },
-        { key: 'Alt+C', label: 'Cheque register', icon: 'book', onClick: () => nav.push('banking.cheques', { ledgerId: selected?.id }), group: 'go' },
-        { key: 'Alt+D', label: 'Post-dated cheques', icon: 'calendar', onClick: () => nav.push('banking.pdc'), group: 'go' },
+        { key: 'Alt+Q', label: 'Cheque register', icon: 'book', onClick: () => nav.push('banking.cheques', { ledgerId: selected?.id }), group: 'go' },
+        { key: 'Alt+T', label: 'Post-dated cheques', icon: 'calendar', onClick: () => nav.push('banking.pdc'), group: 'go' },
+        { key: 'Alt+C', label: 'Create bank ledger', icon: 'plus', onClick: () => nav.push('accounts.ledger.form', { groupCode: 'BANK_ACCOUNTS' }), hidden: !canCreateLedger, group: 'masters' },
       ]}
     >
       <Stack gap={3}>

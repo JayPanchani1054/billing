@@ -28,6 +28,7 @@ import type {
 } from '../../shared/types/app.ts';
 import type { AppRuntime, AuditAnchorStore, Clock, OpenCompanyInfo, PathUse, Session } from '../api/context.ts';
 import type { DispatchState } from '../api/dispatch.ts';
+import { exclusiveJobFor, whenJobDone } from '../api/jobs.ts';
 import { Db } from '../db/db.ts';
 import { appendAudit } from '../lib/audit.ts';
 import { auditHead, checkAuditAnchor, type AuditHead } from '../lib/auditAnchor.ts';
@@ -484,11 +485,21 @@ export class AppController {
       return;
     }
     if (o) {
-      try {
-        appendAudit(o.opened.db, { action: 'logout', entityType: 'user', entityId: s.userId ?? undefined, entityLabel: s.username, after: { reason } }, s, this.clock.now());
-      } catch (err) {
-        this.logger.log('warn', 'Could not record logout', { error: err });
-      }
+      const db = o.opened.db;
+      const at = this.clock.now();
+      const record = (): void => {
+        try {
+          if (!db.isOpen) throw new Error('the company database was closed');
+          appendAudit(db, { action: 'logout', entityType: 'user', entityId: s.userId ?? undefined, entityLabel: s.username, after: { reason } }, s, at);
+        } catch (err) {
+          this.logger.log('warn', 'Could not record logout', { error: err });
+        }
+      };
+      // An import job holds one open transaction on this connection (api/jobs.ts): written now, the
+      // entry would join it — and vanish when a preview (always) or a failed import rolls back. The
+      // session ends at once; only its edit-log entry waits for the job to finish.
+      if (exclusiveJobFor(db)) void whenJobDone(db).then(record);
+      else record();
     }
     this.session = null;
     this.mustChangePassword = false;
@@ -583,6 +594,17 @@ export class AppController {
 
   // ───────────────────────────── Authentication ─────────────────────────────
 
+  /**
+   * Login and password changes write to the company database outside the dispatcher. While an import
+   * job holds the connection's one open transaction (api/jobs.ts) those writes would join it and be
+   * rolled back with it — the edit-log entries AND the failed-attempt counters (a lockout bypass) —
+   * so they are refused with the job's message until it finishes.
+   */
+  private refuseDuringJob(o: OpenState): void {
+    const job = exclusiveJobFor(o.opened.db);
+    if (job) throw new AppError('CONFLICT', job.message);
+  }
+
   /** Count one credential check against a company (rate limit, see AttemptLimiter); throws LOCKED. */
   throttleCredentialCheck(companyId: string, purpose: 'login' | 'owner'): void {
     this.attempts.take(`${companyId}|${purpose}`, this.clock.now());
@@ -593,6 +615,7 @@ export class AppController {
       const o = this.open;
       if (!o) throw new AppError('NO_COMPANY', 'Open a company first.');
       // Bounds scripted guessing (each unknown-username attempt is a permanent edit-log row).
+      this.refuseDuringJob(o);
       this.throttleCredentialCheck(o.opened.id, 'login');
       if (this.session && !this.session.implicit) this.endSession('switch');
       const result = await login(o.opened.db, input.username, input.password, this.clock.now());
@@ -616,6 +639,7 @@ export class AppController {
       const o = this.open;
       const s = this.session;
       if (!o || !s) throw new AppError('UNAUTHENTICATED', 'Please log in to continue.');
+      this.refuseDuringJob(o);
       const r = await changePassword(o.opened.db, s, input, this.clock.now());
       this.mustChangePassword = false;
       return r;
