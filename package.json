@@ -28,20 +28,20 @@
     "check:fuses": "node scripts/check-fuses.cjs \"release/win-unpacked/Bahi ERP.exe\""
   },
   "devDependencies": {
-    "@electron/fuses": "^1.8.0",
+    "@electron/fuses": "^2.1.3",
     "@playwright/test": "^1.55.0",
     "@types/node": "^24.0.0",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "electron": "^44.5.1",
     "electron-builder": "^26.0.12",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.2",
     "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "typescript": "^6.0.2",
-    "vite": "^7.1.0"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3"
   }
 }
