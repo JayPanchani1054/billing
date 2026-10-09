@@ -15,7 +15,6 @@ files:
   - out/**/*
   - "!out/**/*.map"
   - package.json
-includeSubNodeModules: false
 # No native modules (SQLite is node:sqlite, built into Electron) → nothing to rebuild.
 npmRebuild: false
 asar: true
