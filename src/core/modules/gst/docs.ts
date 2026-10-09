@@ -391,6 +391,14 @@ export interface LoadDocsOptions {
   /** Restrict to these voucher ids (from/to still apply unless `anyDate`). */
   ids?: readonly number[];
   anyDate?: boolean;
+  /**
+   * Classification only (for the GSTR-3B credit chain, which walks the whole history): the voucher's
+   * nature / direction / sign / inter-state flag / party registration and its lines' amounts, rate, supply
+   * type, taxability, reverse charge and ITC eligibility are exact; display fields (names, addresses,
+   * numbers, e-invoice / e-way bill data, HSN, descriptions, quantities) are left empty. Reading only the
+   * columns the classification needs makes a long history ≈3× cheaper to load.
+   */
+  lean?: boolean;
 }
 
 const TAXABILITY_SET = new Set<string>(['taxable', 'exempt', 'nil_rated', 'non_gst']);
@@ -400,6 +408,101 @@ const NATURE_SET = new Set<string>([
   'composition_outward', 'no_gst', 'inward_b2b', 'inward_rcm', 'inward_unregistered', 'inward_composition',
   'import_goods', 'import_services', 'inward_sez', 'inward_nil_exempt',
 ]);
+
+/** Columns `loadDocs({ lean: true })` reads; the rest of a VoucherRow / LineRow is left empty. */
+type LeanVoucherRow = Pick<
+  VoucherRow,
+  | 'id' | 'voucher_type_id' | 'base_type' | 'date' | 'party_state_code' | 'party_gstin' | 'party_registration_type' | 'place_of_supply'
+  | 'is_optional' | 'is_cancelled' | 'in_books' | 'is_reverse_charge' | 'total_amount' | 'gst_nature' | 'export_details'
+  | 'l_state_code' | 'l_gstin' | 'l_reg'
+>;
+type LeanLineRow = Pick<
+  LineRow,
+  'voucher_id' | 'supply_type' | 'taxability' | 'rate' | 'cess_rate' | 'taxable_value' | 'igst' | 'cgst' | 'sgst' | 'cess' | 'is_reverse_charge' | 'itc_eligibility'
+>;
+
+function fromLeanRow(r: LeanVoucherRow): VoucherRow {
+  return {
+    id: r.id,
+    voucher_type_id: r.voucher_type_id,
+    vt_name: '',
+    base_type: r.base_type,
+    number: null,
+    number_seq: null,
+    date: r.date,
+    reference_no: null,
+    reference_date: null,
+    party_ledger_id: null,
+    party_name: null,
+    party_address: null,
+    party_state_code: r.party_state_code,
+    party_gstin: r.party_gstin,
+    party_registration_type: r.party_registration_type,
+    party_pincode: null,
+    place_of_supply: r.place_of_supply,
+    is_optional: r.is_optional,
+    is_cancelled: r.is_cancelled,
+    in_books: r.in_books,
+    is_reverse_charge: r.is_reverse_charge,
+    total_amount: r.total_amount,
+    taxable_amount: 0,
+    tax_amount: 0,
+    round_off: 0,
+    gst_nature: r.gst_nature,
+    original_invoice_no: null,
+    original_invoice_date: null,
+    note_reason: null,
+    irn: null,
+    irn_ack_no: null,
+    irn_ack_date: null,
+    irn_signed_qr: null,
+    irn_status: null,
+    eway_bill_no: null,
+    eway_bill_date: null,
+    eway_valid_upto: null,
+    consignee: null,
+    dispatch: null,
+    export_details: r.export_details,
+    l_name: null,
+    l_mailing_name: null,
+    l_address: null,
+    l_state_code: r.l_state_code,
+    l_pincode: null,
+    l_gstin: r.l_gstin,
+    l_reg: r.l_reg,
+    l_phone: null,
+    l_mobile: null,
+    l_email: null,
+  };
+}
+
+function fromLeanLine(r: LeanLineRow): LineRow {
+  return {
+    id: 0,
+    voucher_id: r.voucher_id,
+    line_no: 0,
+    source: 'item',
+    item_id: null,
+    ledger_id: null,
+    description: null,
+    hsn_sac: null,
+    uqc: null,
+    qty: null,
+    supply_type: r.supply_type,
+    taxability: r.taxability,
+    rate: r.rate,
+    cess_rate: r.cess_rate,
+    taxable_value: r.taxable_value,
+    igst: r.igst,
+    cgst: r.cgst,
+    sgst: r.sgst,
+    cess: r.cess,
+    is_reverse_charge: r.is_reverse_charge,
+    itc_eligibility: r.itc_eligibility,
+    item_name: null,
+    ledger_name: null,
+  };
+}
 
 function toRegistration(...candidates: Array<string | null>): RegistrationType | null {
   for (const c of candidates) if (c && (REGISTRATION_TYPES as readonly string[]).includes(c)) return c as RegistrationType;
@@ -423,35 +526,58 @@ export function loadDocs(db: Db, company: GstCompany, opts: LoadDocsOptions): Gs
   const books = BOOKS_FILTER('v');
   where.push(opts.includeCancelled ? `((${books}) OR (v.is_cancelled = 1 AND v.is_optional = 0))` : `(${books})`);
 
-  const rows = db.all<VoucherRow>(
-    `SELECT v.id, v.voucher_type_id, vt.name AS vt_name, v.base_type, v.number, v.number_seq, v.date, v.reference_no, v.reference_date,
-            v.party_ledger_id, v.party_name, v.party_address, v.party_state_code, v.party_gstin, v.party_registration_type, v.party_pincode,
-            v.place_of_supply, v.is_optional, v.is_cancelled, (${books}) AS in_books, v.is_reverse_charge,
-            v.total_amount, v.taxable_amount, v.tax_amount, v.round_off, v.gst_nature, v.original_invoice_no, v.original_invoice_date,
-            v.note_reason, v.irn, v.irn_ack_no, v.irn_ack_date, v.irn_signed_qr, v.irn_status, v.eway_bill_no, v.eway_bill_date,
-            v.eway_valid_upto, v.consignee, v.dispatch, v.export_details,
-            l.name AS l_name, l.mailing_name AS l_mailing_name, l.address AS l_address, l.state_code AS l_state_code, l.pincode AS l_pincode,
-            l.gstin AS l_gstin, l.gst_registration_type AS l_reg, l.phone AS l_phone, l.mobile AS l_mobile, l.email AS l_email
-       FROM vouchers v
+  const from = `FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers l ON l.id = v.party_ledger_id
       WHERE ${where.join(' AND ')}
-      ORDER BY v.date, v.number_seq, v.number, v.id`,
-    params,
-  );
+      ORDER BY v.date, v.number_seq, v.number, v.id`;
+  const rows = opts.lean
+    ? db
+        .all<LeanVoucherRow>(
+          `SELECT v.id, v.voucher_type_id, v.base_type, v.date, v.party_state_code, v.party_gstin, v.party_registration_type, v.place_of_supply,
+                  v.is_optional, v.is_cancelled, (${books}) AS in_books, v.is_reverse_charge, v.total_amount, v.gst_nature, v.export_details,
+                  l.state_code AS l_state_code, l.gstin AS l_gstin, l.gst_registration_type AS l_reg
+             ${from}`,
+          params,
+        )
+        .map(fromLeanRow)
+    : db.all<VoucherRow>(
+        `SELECT v.id, v.voucher_type_id, vt.name AS vt_name, v.base_type, v.number, v.number_seq, v.date, v.reference_no, v.reference_date,
+                v.party_ledger_id, v.party_name, v.party_address, v.party_state_code, v.party_gstin, v.party_registration_type, v.party_pincode,
+                v.place_of_supply, v.is_optional, v.is_cancelled, (${books}) AS in_books, v.is_reverse_charge,
+                v.total_amount, v.taxable_amount, v.tax_amount, v.round_off, v.gst_nature, v.original_invoice_no, v.original_invoice_date,
+                v.note_reason, v.irn, v.irn_ack_no, v.irn_ack_date, v.irn_signed_qr, v.irn_status, v.eway_bill_no, v.eway_bill_date,
+                v.eway_valid_upto, v.consignee, v.dispatch, v.export_details,
+                l.name AS l_name, l.mailing_name AS l_mailing_name, l.address AS l_address, l.state_code AS l_state_code, l.pincode AS l_pincode,
+                l.gstin AS l_gstin, l.gst_registration_type AS l_reg, l.phone AS l_phone, l.mobile AS l_mobile, l.email AS l_email
+           ${from}`,
+        params,
+      );
   if (rows.length === 0) return [];
 
-  const lineRows = db.all<LineRow>(
-    `SELECT g.id, g.voucher_id, g.line_no, g.source, g.item_id, g.ledger_id, g.description, g.hsn_sac, g.uqc, g.qty, g.supply_type,
-            g.taxability, g.rate, g.cess_rate, g.taxable_value, g.igst, g.cgst, g.sgst, g.cess, g.is_reverse_charge, g.itc_eligibility,
-            si.name AS item_name, ld.name AS ledger_name
-       FROM gst_lines g
-       LEFT JOIN stock_items si ON si.id = g.item_id
-       LEFT JOIN ledgers ld ON ld.id = g.ledger_id
-      WHERE g.voucher_id IN (SELECT value FROM json_each(:ids))
-      ORDER BY g.voucher_id, g.line_no, g.id`,
-    { ids: JSON.stringify(rows.map((r) => r.id)) },
-  );
+  const ids = { ids: JSON.stringify(rows.map((r) => r.id)) };
+  const lineRows = opts.lean
+    ? db
+        .all<LeanLineRow>(
+          `SELECT g.voucher_id, g.supply_type, g.taxability, g.rate, g.cess_rate, g.taxable_value, g.igst, g.cgst, g.sgst, g.cess,
+                  g.is_reverse_charge, g.itc_eligibility
+             FROM gst_lines g
+            WHERE g.voucher_id IN (SELECT value FROM json_each(:ids))
+            ORDER BY g.voucher_id, g.line_no, g.id`,
+          ids,
+        )
+        .map(fromLeanLine)
+    : db.all<LineRow>(
+        `SELECT g.id, g.voucher_id, g.line_no, g.source, g.item_id, g.ledger_id, g.description, g.hsn_sac, g.uqc, g.qty, g.supply_type,
+                g.taxability, g.rate, g.cess_rate, g.taxable_value, g.igst, g.cgst, g.sgst, g.cess, g.is_reverse_charge, g.itc_eligibility,
+                si.name AS item_name, ld.name AS ledger_name
+           FROM gst_lines g
+           LEFT JOIN stock_items si ON si.id = g.item_id
+           LEFT JOIN ledgers ld ON ld.id = g.ledger_id
+          WHERE g.voucher_id IN (SELECT value FROM json_each(:ids))
+          ORDER BY g.voucher_id, g.line_no, g.id`,
+        ids,
+      );
   const linesBy = new Map<number, GstDocLine[]>();
   for (const r of lineRows) {
     const list = linesBy.get(r.voucher_id) ?? [];

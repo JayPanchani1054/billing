@@ -393,7 +393,7 @@ export function creditBroughtForward(db: Db, company: GstCompany, period: Return
   if (i < chain.length) {
     const todo = chain.slice(i);
     const byPeriod = new Map<string, GstDoc[]>(todo.map((p) => [p.key, []]));
-    for (const d of loadDocs(db, company, { from: todo[0].from, to: last.to, today })) {
+    for (const d of loadDocs(db, company, { from: todo[0].from, to: last.to, today, lean: true })) {
       if (!d.inBooks) continue;
       byPeriod.get(periodOf(kind, d.date).key)?.push(d);
     }

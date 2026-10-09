@@ -14,6 +14,7 @@ audited.
 | Edit log (audit trail) | `audit_log` table in each `company.db` (append-only, hash-chained) |
 | Backups | files the user saves via **Data → Backup** (optionally encrypted) |
 | App settings & logs | `%APPDATA%\Bahi ERP\` (`config.json`, `window-state.json`, `logs\bahi.log*`) |
+| Edit-log check-points | `%APPDATA%\Bahi ERP\audit-anchors.json` (HMAC-signed) and `audit-anchor.key` (sealed with Windows DPAPI via Electron `safeStorage`) — never in the data folder or a backup |
 
 ## 2. Threat model
 
@@ -25,7 +26,7 @@ We consider:
 | T1 | **Another local user / person with file access** (shared office PC, stolen laptop, copied data folder) | Yes | Mitigated by Windows account isolation, optional company security, encrypted backups and *disk encryption you enable* (BitLocker). The app cannot protect files from someone who is already logged in as you or who has administrator rights. |
 | T2 | **Malicious import files** (CSV/Excel/JSON/XML imports, GSTR-2B JSON, bank statements, backup files from untrusted sources) | Yes | Parsed by size-limited, schema-validated parsers in `src/core`; never executed; never rendered as HTML. Backups are integrity-checked (and authenticated when encrypted) before restore. |
 | T3 | **Renderer compromise** (a bug that lets crafted data inject script into the UI, a malicious dependency in the renderer bundle) | Yes | The renderer is treated as untrusted: sandboxed, no Node.js, no network, minimal IPC with origin checks and re-validation in main (§3, §4). |
-| T4 | **Tampering with the books** after the fact (backdating, silent edits/deletes) | Yes | Period lock, permissions, and a hash-chained edit log that detects modification or deletion of log entries. A user with raw file access can still replace the whole database — combine with backups and access control. |
+| T4 | **Tampering with the books** after the fact (backdating, silent edits/deletes) | Yes | Period lock, permissions, an append-only hash-chained edit log, and check-points of that log kept **outside** the company file (§4.1). Every change made through the app — including Excel/CSV and Tally imports — has its own edit-log entry. What is and is not detected when someone edits the file directly is listed in §4.1. |
 | T5 | Malware running as the same Windows user | No | Such malware can read the user's files, keystrokes and memory. Use endpoint protection. |
 | T6 | Network attackers | Minimal surface | The app makes no network requests; the session blocks all outbound requests (§3.4). Links open in the user's browser only after confirmation. |
 | T7 | Supply chain (npm packages, build pipeline) | Partially | Runtime dependencies are limited to React/react-dom/qrcode (bundled); core has zero dependencies. Builds run on GitHub-hosted runners; releases publish SHA-256 checksums. See §7 for remaining work. |
@@ -108,6 +109,13 @@ added to `connect-src` and `'unsafe-inline'` to `script-src` (React Fast Refresh
   capped at 100 MB; saves are atomic (temp file + fsync + rename). `shell.showItem` only reveals paths
   inside the data folder or paths the user picked in a dialog during this session. Nothing ever calls
   `shell.openPath` with a renderer-supplied path.
+- Paths that the renderer passes to **core routes** (backup folder to write or list, backup file to
+  check or restore, the F12 backup folder) are authorised by the core (`core/lib/paths.ts`
+  `authorizeUserPath`): allowed only inside the data folder, inside the company's configured backup
+  folder (itself authorised when it was saved), or when main confirms the user picked that file/folder
+  in a native dialog this session (`authorizePath` → `user-choices.ts`). UNC (`\\server\share`) and
+  device (`\\?\`, `\\.\`) paths are refused unless picked — a remote share would leak the user's NTLM
+  hash and ship the books off the machine. Anything else gets `FORBIDDEN`.
 
 ### 3.6 Printing and PDF — `src/main/print.ts`
 
@@ -195,11 +203,49 @@ IPC. Security properties:
 | Authorisation | every route declares a permission; Owner holds all; checked by the dispatcher |
 | SQL injection | all SQL is parameterised (`:name` placeholders); user input is never interpolated |
 | XSS | React escaping; `dangerouslySetInnerHTML` is banned; CSP as above |
-| Audit trail | append-only `audit_log` (triggers block UPDATE/DELETE), SHA-256 hash chain over entries, verifiable from the UI |
+| Audit trail | append-only `audit_log` (triggers block UPDATE/DELETE; re-created on open if missing), SHA-256 hash chain over entries, external check-points (§4.1), verifiable from the UI (Security › Edit Log › Verify) |
+| Imports | Excel/CSV and Tally imports write one edit-log entry per master and per voucher created or altered (before/after), plus an `import` summary; F11 changes made by a Tally import need `company.manage` |
+| Owner confirmations | deleting a company or restoring over it checks an Owner password against **that company's** users table with its login lockout (one shared, persistent budget) and records failures as `login_failed` in its edit log; at most 20 credential checks per company per minute; a locked account adds at most one `locked` entry per lockout |
+| Security on/off | only `security.enable` / `security.disable` (Owner + password); F11 (`company.features.save`) refuses any change to `security` |
+| Untrusted databases | backups and company files are schema-checked before any query (`core/db/schemaCheck.ts`): no views or virtual tables, only triggers our migrations create, core tables present; `PRAGMA trusted_schema = OFF` on every connection; backup unpacking is capped at the declared size (decompression bombs) and refused when it would not fit on the disk; leftover decrypted temporary copies are swept at start-up |
+| Renderer-supplied paths | backup folders/files (and the F12 backup folder) must be inside the data folder, the configured backup folder, or picked in a native dialog this session (`core/lib/paths.ts`, main's `authorizePath`); UNC/device paths are refused unless picked; the no-login backup routes accept nothing else |
 | Period lock | vouchers dated on or before the lock date cannot be created, altered or deleted |
 | Backups | AES-256-GCM with a scrypt-derived key when a password is given; integrity/authenticity verified before restore |
 | Logging | JSON lines with rotation; secrets and document payloads are never logged (redaction in `core/app/logger.ts`) |
 | Data folder changes | copies are integrity-checked (`PRAGMA quick_check`) before the source is removed; failures roll back |
+
+### 4.1 Edit-log integrity: what is detected, and the limits
+
+The edit log is a SHA-256 hash chain (`core/lib/audit.ts`): each entry's hash covers its content and
+the previous entry's hash. On its own a chain only proves internal consistency — anyone who can write
+`company.db` can drop the append-only triggers, edit or delete entries, recompute every hash from the
+start and re-create the triggers. Bahi ERP therefore keeps a **check-point** (the id and hash of the
+newest entry) outside the company file (`core/lib/auditAnchor.ts`, `core/app/auditAnchors.ts`):
+
+- in `audit-anchors.json` under the app's user-data folder, refreshed after every request that
+  changed the log, on close and after a restore; and in every backup's manifest (`auditHead`);
+- authenticated with HMAC-SHA256 under a 32-byte per-installation key that is never written to a
+  company file or a backup; Electron main seals the key with `safeStorage` (DPAPI on Windows) and hands
+  it to the core worker (`src/main/anchor-key.ts`), so a copied key file is useless on another account
+  or computer.
+
+**Detected** (Verify reports "tampered with", and opening the company logs a warning and freezes the
+check-point as evidence until an Owner accepts the current log, which is itself recorded):
+modification, insertion or deletion of entries in the middle of the log; removal of the newest
+entries up to the check-point (truncation); a rewrite of the whole log with all hashes recomputed;
+the company file replaced by another company's file; an edited check-point (bad MAC); a backup whose
+edit log was changed after it was made (its signed `auditHead` no longer matches — refused on
+restore when it was made on this installation).
+
+**Not detected** (residual risk — combine with backups, access control and disk encryption):
+- entries written after the newest check-point, removed while the app was not running to record
+  them (the window is at most the work since the last completed request);
+- tampering by someone who runs code **as the same Windows user** (T5): they can unseal the key and
+  re-sign check-points, or edit the books through the app itself;
+- a company used on several computers: each installation only knows its own check-points (a backup
+  made elsewhere is verified by its chain only);
+- deleting or resetting the user-data folder loses the check-points (Verify then reports only the
+  chain; the next request records a new check-point).
 
 ## 5. Data at rest — guidance for administrators
 
