@@ -250,6 +250,9 @@ export const PERMISSIONS = [
   'security.manage',         // users, roles, password policy, vault
   'audit.view',
   'period.lock',             // lock/unlock books up to a date
+  'tds.view',                // TDS/TCS reports (computation, outstanding, challans, return data)
+  'tds.manage',              // TDS/TCS natures, ledger TDS details, setup, statement status, 26AS import
+  'tds.file',                // export quarterly statement data (26Q/27Q/27EQ)
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -263,12 +266,12 @@ export const SYSTEM_ROLES: ReadonlyArray<{ name: string; description: string; pe
   {
     name: 'Data Entry',
     description: 'Create masters and vouchers; view basic reports',
-    permissions: ['company.view', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'reports.view', 'gst.view'],
+    permissions: ['company.view', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'reports.view', 'gst.view', 'tds.view'],
   },
   {
     name: 'Auditor',
     description: 'Read-only access to books, reports and the edit log',
-    permissions: ['company.view', 'masters.view', 'vouchers.view', 'reports.view', 'reports.financial', 'gst.view', 'audit.view', 'data.export'],
+    permissions: ['company.view', 'masters.view', 'vouchers.view', 'reports.view', 'reports.financial', 'gst.view', 'audit.view', 'data.export', 'tds.view'],
   },
 ];
 

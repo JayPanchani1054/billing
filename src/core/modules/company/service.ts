@@ -28,6 +28,7 @@ import {
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { ensureGstLedgers } from '../../db/seed.ts';
+import { ensureMfgVoucherTypes } from '../mfg/voucherTypes.ts';
 import { AppError, forbidden, notFound, rule, validation } from '../../lib/errors.ts';
 import { authorizeUserPath } from '../../lib/paths.ts';
 import { normalizeCompanyIdentity } from './validation.ts';
@@ -282,6 +283,10 @@ function applyFeatures(ctx: CompanyCtx, current: CompanyFeatures, patch: Company
     if (reg === 'unregistered')
       throw rule('An unregistered business cannot charge GST. Set the GST registration type and GSTIN in the company profile first.');
     ensureGstLedgers(db, now.toISOString());
+  }
+  // Manufacturing Journal / Material In / Material Out voucher types (mfg module), when switched on.
+  if ((next.manufacturing && !current.manufacturing) || (next.jobWork && !current.jobWork)) {
+    ensureMfgVoucherTypes(db, now.toISOString(), { manufacturing: next.manufacturing, jobWork: next.jobWork });
   }
   if (next.security !== current.security) {
     if (!ctx.session.isOwner && !ctx.session.permissions.has('security.manage'))

@@ -37,8 +37,16 @@
  * Godown filter: quantities and in/out movements are those of that godown (exact, or with all its
  * sub-godowns when includeSubGodowns), while values of opening/closing use the item's overall unit
  * cost (value ÷ qty of the item across godowns).
+ *
+ * Manufacturing / job work (mfg module): a stock journal with rows in stock_journal_lines values its
+ * production lines by their basis (shared/mfg/costing.ts — finished goods = consumption + additional
+ * costs − by-products/scrap; transfers keep their own cost). Godowns holding a PRINCIPAL's stock for
+ * job work (godowns.third_party_kind = 'party_with_us') are not ours: their movements and opening
+ * rows never touch the cost states, values or the whole-company figures (Balance Sheet / P&L closing
+ * stock); with a godown filter on such a godown its quantities are shown at value 0.
  */
 import { addDays } from '../../../shared/dates.ts';
+import { costJournal, type AdditionalCostTerm, type ProductionTerm } from '../../../shared/mfg/costing.ts';
 import { allocate, roundPaise, roundTo, lineAmount } from '../../../shared/money.ts';
 import type { CostingMethod, StockValuationResult, StockValuationRow } from '../../../shared/types/inventory.ts';
 import type { Db } from '../../db/db.ts';
@@ -337,6 +345,50 @@ function dependencyClosure(db: Db, itemIds: readonly number[], to: string): Set<
   return set;
 }
 
+// ───────────────────────────── Manufacturing / job work (mfg module) ─────────────────────────────
+
+/** Godowns holding a principal's stock with us (never valued as ours). */
+function thirdPartyGodowns(db: Db): Set<number> {
+  return new Set(db.all<{ id: number }>(`SELECT id FROM godowns WHERE third_party_kind = 'party_with_us'`).map((r) => r.id));
+}
+
+interface JournalTerms {
+  lines: Map<number, ProductionTerm>;
+  additional: AdditionalCostTerm[];
+}
+
+const TERMS_LINES_ALL = `SELECT voucher_id, line_no, basis, pct, source_line_no FROM stock_journal_lines WHERE basis IS NOT NULL`;
+const TERMS_LINES_SOME = `SELECT voucher_id, line_no, basis, pct, source_line_no FROM stock_journal_lines
+  WHERE voucher_id IN (SELECT value FROM json_each(:vids)) AND basis IS NOT NULL`;
+const TERMS_COSTS_ALL = `SELECT voucher_id, basis, value FROM stock_journal_costs ORDER BY voucher_id, line_no`;
+const TERMS_COSTS_SOME = `SELECT voucher_id, basis, value FROM stock_journal_costs
+  WHERE voucher_id IN (SELECT value FROM json_each(:vids)) ORDER BY voucher_id, line_no`;
+
+/** Costing terms of the classed stock journals among `voucherIds` (mfg module), by voucher id. */
+function loadJournalTerms(db: Db, voucherIds: readonly number[]): Map<number, JournalTerms> {
+  const out = new Map<number, JournalTerms>();
+  if (voucherIds.length === 0 || db.value('SELECT 1 FROM stock_journal_lines LIMIT 1') === undefined) return out;
+  const some = voucherIds.length <= 2000;
+  const params = some ? { vids: jsonIds([...voucherIds]) } : {};
+  const lines = db.all<{ voucher_id: number; line_no: number; basis: ProductionTerm['basis']; pct: number | null; source_line_no: number | null }>(
+    some ? TERMS_LINES_SOME : TERMS_LINES_ALL,
+    params,
+  );
+  for (const l of lines) {
+    let t = out.get(l.voucher_id);
+    if (!t) {
+      t = { lines: new Map(), additional: [] };
+      out.set(l.voucher_id, t);
+    }
+    t.lines.set(l.line_no, { basis: l.basis, pct: l.pct, sourceLineNo: l.source_line_no });
+  }
+  for (const c of db.all<{ voucher_id: number; basis: AdditionalCostTerm['basis']; value: number }>(some ? TERMS_COSTS_SOME : TERMS_COSTS_ALL, params)) {
+    const t = out.get(c.voucher_id);
+    if (t) t.additional.push({ basis: c.basis, value: Number(c.value) });
+  }
+  return out;
+}
+
 // SQL. Every statement is a constant chosen by shape — no catch-all `(:filter = 0 OR …)` flag, which
 // would hide the item index from the planner (and turn into a skip-scan over every item id once
 // ANALYZE statistics exist). Shapes:
@@ -410,6 +462,8 @@ interface Acc {
   outValue: number;
   /** Quantity in the filter godown (godown mode). */
   gQty: number;
+  /** Quantity of a principal's stock (job work, 'party_with_us' godowns) in the filter godown — never valued. */
+  gQty3: number;
   /** Σ value of the opening stock rows as entered in the item master (paise). */
   enteredValue: number;
   /** A voucher movement of this item has been replayed. */
@@ -457,6 +511,8 @@ interface ReplayOptions extends StockValuationOptions {
   /** Whole-company value points (no item / godown filter). */
   cuts?: readonly Cut[];
   trace?: TraceSink;
+  /** Leave this voucher out (the voucher being altered, for entry-time cost estimates). */
+  excludeVoucherId?: number | null;
 }
 
 /** Number of engine replays run in this process — a test probe for "one replay per request". */
@@ -535,6 +591,8 @@ function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; st
   const godowns = godownId === null ? null : godownSet(db, godownId, opts.includeSubGodowns === true);
   const inGodown = (g: number | null): boolean => godowns !== null && g !== null && godowns.has(g);
   const indexed = closure !== null && closure.size * INDEXED_SHARE <= (db.value<number>('SELECT COUNT(*) FROM stock_items') ?? 0);
+  const thirdParty = thirdPartyGodowns(db);
+  const isThird = (g: number | null): boolean => thirdParty.size > 0 && g !== null && thirdParty.has(g);
 
   const items = closure ? db.all<ItemInfo>(ITEMS_SOME_SQL, { ids }) : db.all<ItemInfo>(ITEMS_ALL_SQL);
   const states = new Map<number, CostState>();
@@ -542,7 +600,7 @@ function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; st
   const layered = new Set<number>();
   for (const it of items) {
     states.set(it.id, newState(it));
-    accs.set(it.id, { openQty: 0, openValue: 0, inQty: 0, inValue: 0, outQty: 0, outValue: 0, gQty: 0, enteredValue: 0, moved: false });
+    accs.set(it.id, { openQty: 0, openValue: 0, inQty: 0, inValue: 0, outQty: 0, outValue: 0, gQty: 0, gQty3: 0, enteredValue: 0, moved: false });
     const m = methodOf(it);
     if (m === 'fifo' || m === 'lifo') layered.add(it.id);
   }
@@ -558,6 +616,11 @@ function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; st
     const st = states.get(o.item_id);
     if (!st) continue;
     const acc = accs.get(o.item_id) as Acc;
+    if (isThird(o.godown_id)) {
+      // A principal's goods with us: quantity only, never our value.
+      if (inGodown(o.godown_id)) acc.gQty3 += o.qty;
+      continue;
+    }
     acc.enteredValue += Number(o.value);
     if (inGodown(o.godown_id)) acc.gQty += o.qty;
     if (layered.has(o.item_id)) {
@@ -577,7 +640,15 @@ function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; st
   }
 
   const trace = opts.trace ?? null;
-  const movements = db.all<Movement>(movementSql(indexed, trace !== null), indexed ? { to, today, main, ids } : { to, today, main });
+  const read = db.all<Movement>(movementSql(indexed, trace !== null), indexed ? { to, today, main, ids } : { to, today, main });
+  const exclude = opts.excludeVoucherId ?? null;
+  const movements = exclude === null ? read : read.filter((m) => m.voucher_id !== exclude);
+  const journalIds: number[] = [];
+  for (let k = 0; k < movements.length; k++) {
+    const m = movements[k];
+    if (m.base_type === 'stock_journal' && (k === 0 || movements[k - 1].voucher_id !== m.voucher_id)) journalIds.push(m.voucher_id);
+  }
+  const journalTerms = loadJournalTerms(db, journalIds);
 
   let openingTaken = false;
   const takeOpening = (): void => {
@@ -592,7 +663,7 @@ function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; st
         // and the Balance Sheet's opening stock would not match the masters).
         acc.openValue = from <= booksBegin && !acc.moved ? acc.enteredValue : st.value();
       } else {
-        acc.openQty = acc.gQty;
+        acc.openQty = acc.gQty + acc.gQty3;
         acc.openValue = roundPaise(acc.gQty * unitValue(st));
       }
     }
@@ -640,7 +711,9 @@ function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; st
         }
         days.set(
           date,
-          godownId === null ? { qty: roundQty(st.qty), value: st.value() } : { qty: roundQty(acc.gQty), value: roundPaise(acc.gQty * unitValue(st)) },
+          godownId === null
+            ? { qty: roundQty(st.qty), value: st.value() }
+            : { qty: roundQty(acc.gQty + acc.gQty3), value: roundPaise(acc.gQty * unitValue(st)) },
         );
       }
     }
@@ -678,37 +751,67 @@ function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; st
     traceValue(m, v);
   };
 
+  /** A movement in a principal's godown (job work): quantity in godown mode only, at value 0. */
+  const applyThird = (m: Movement): void => {
+    if (!states.has(m.item_id) || m.qty === 0 || godownId === null || !inGodown(m.godown_id)) return;
+    (accs.get(m.item_id) as Acc).gQty3 += m.qty;
+    record(m, 0);
+    traceValue(m, 0);
+  };
+
   let i = 0;
   while (i < movements.length) {
     const first = movements[i];
     let j = i;
     while (j < movements.length && movements[j].voucher_id === first.voucher_id) j++;
-    const lines = movements.slice(i, j);
+    let lines = movements.slice(i, j);
     i = j;
     if (nextCut < cuts.length) takeCuts(first.date);
     if (!openingTaken && first.date >= from) takeOpening();
+    if (thirdParty.size > 0) {
+      const own: Movement[] = [];
+      for (const m of lines) {
+        if (isThird(m.godown_id)) applyThird(m);
+        else own.push(m);
+      }
+      lines = own;
+    }
 
     if (first.base_type === 'stock_journal') {
       const consumption = lines.filter((m) => m.qty < 0);
       const production = lines.filter((m) => m.qty > 0);
       let consumed = 0;
+      const issued: Array<{ lineNo: number; qty: number; cost: number }> = [];
       for (const m of consumption) {
         const st = states.get(m.item_id);
         if (!st) continue;
         const cost = st.issue(-m.qty);
         consumed += cost;
+        issued.push({ lineNo: m.line_no, qty: -m.qty, cost });
         const acc = accs.get(m.item_id) as Acc;
         acc.moved = true;
         if (inGodown(m.godown_id)) acc.gQty += m.qty;
         record(m, cost);
         traceValue(m, cost);
       }
-      const explicit = production.filter((m) => ownAmount(m) > 0);
-      const implicit = production.filter((m) => ownAmount(m) <= 0);
-      const pool = Math.max(0, consumed - explicit.reduce((s, m) => s + ownAmount(m), 0));
-      const shares = consumption.length > 0 ? allocate(pool, implicit.map((m) => m.qty)) : null;
-      for (const m of explicit) apply(m, ownAmount(m));
-      implicit.forEach((m, k) => apply(m, shares ? shares[k] : null));
+      const terms = journalTerms.get(first.voucher_id);
+      if (terms) {
+        // Manufacturing / job work journal: the costing rule of shared/mfg/costing.ts.
+        const res = costJournal({
+          consumption: issued,
+          production: production.map((m) => ({ lineNo: m.line_no, qty: m.qty, amount: ownAmount(m) })),
+          terms: terms.lines,
+          additional: terms.additional,
+        });
+        for (const m of production) apply(m, res.values.get(m.line_no) ?? null);
+      } else {
+        const explicit = production.filter((m) => ownAmount(m) > 0);
+        const implicit = production.filter((m) => ownAmount(m) <= 0);
+        const pool = Math.max(0, consumed - explicit.reduce((s, m) => s + ownAmount(m), 0));
+        const shares = consumption.length > 0 ? allocate(pool, implicit.map((m) => m.qty)) : null;
+        for (const m of explicit) apply(m, ownAmount(m));
+        implicit.forEach((m, k) => apply(m, shares ? shares[k] : null));
+      }
     } else {
       for (const m of lines) {
         if (m.qty === 0) continue;
@@ -725,6 +828,8 @@ function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; st
     for (const m of movements) {
       if (m.qty === 0 || m.date < trace.from || !trace.items.has(m.item_id) || !states.has(m.item_id)) continue;
       if (godowns !== null && !inGodown(m.godown_id)) continue;
+      // A principal's goods with us are not our stock: listed only for that godown (at value 0).
+      if (godowns === null && isThird(m.godown_id)) continue;
       trace.movements.push({
         id: m.id,
         voucherId: m.voucher_id,
@@ -749,7 +854,7 @@ function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; st
     if (wanted ? !wanted.has(it.id) : it.is_service === 1) continue;
     const st = states.get(it.id) as CostState;
     const acc = accs.get(it.id) as Acc;
-    const closeQty = godownId === null ? st.qty : acc.gQty;
+    const closeQty = godownId === null ? st.qty : acc.gQty + acc.gQty3;
     const closeValue = godownId === null ? st.value() : roundPaise(acc.gQty * unitValue(st));
     const row: StockValuationRow = {
       itemId: it.id,
@@ -862,6 +967,26 @@ export function currentUnitCost(db: Db, opts: { itemId: number; asOf: string; to
   const { states } = replay(db, { from: opts.asOf, to: opts.asOf, today: opts.today, itemIds: [opts.itemId] });
   const st = states.get(opts.itemId);
   return st ? roundTo(st.currentCost() / 100, 4) : 0;
+}
+
+/**
+ * Entry-time estimate (mfg module): the cost at which each line would be issued as at the end of
+ * `asOf` — the item's costing method applied to its stock at that point, lines of the same item taken
+ * one after another, the voucher being altered left out. Lines in a principal's godown cost 0.
+ */
+export function estimateIssueCosts(
+  db: Db,
+  opts: { asOf: string; today: string; excludeVoucherId?: number | null; lines: ReadonlyArray<{ itemId: number; qty: number; godownId?: number | null }> },
+): number[] {
+  if (opts.lines.length === 0) return [];
+  const itemIds = [...new Set(opts.lines.map((l) => l.itemId))];
+  const { states } = replay(db, { from: opts.asOf, to: opts.asOf, today: opts.today, itemIds, excludeVoucherId: opts.excludeVoucherId ?? null });
+  const third = thirdPartyGodowns(db);
+  return opts.lines.map((l) => {
+    if (l.godownId !== undefined && l.godownId !== null && third.has(l.godownId)) return 0;
+    const st = states.get(l.itemId);
+    return st && l.qty > 0 ? st.issue(l.qty) : 0;
+  });
 }
 
 // ───────────────────────────── Per-movement trace ─────────────────────────────

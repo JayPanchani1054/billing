@@ -12,6 +12,7 @@ export {
   closingStockValue,
   computeStockValuation,
   currentUnitCost,
+  estimateIssueCosts,
   openingStockValue,
   stockReplayCount,
   stockValuesAt,

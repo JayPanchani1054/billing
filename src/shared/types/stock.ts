@@ -406,6 +406,8 @@ export interface PendingOrderLine {
   orderedQty: number;
   /** Delivered (sales) or received (purchase) against the order up to asOf. */
   fulfilledQty: number;
+  /** Pre-closed (short-closed) on or before asOf — documents module, order_closures. */
+  closedQty?: number;
   pendingQty: number;
   /** Rupees per unit (before tax). */
   rate: number;

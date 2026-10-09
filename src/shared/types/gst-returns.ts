@@ -9,6 +9,7 @@
  */
 import type { Paise } from '../money.ts';
 import type { GstNature, SupplyKind } from './gst.ts';
+import type { Gstr1AdvancesSummary, Gstr1AmendmentsSummary, Gstr3bBookAdjustments } from './gst-plus.ts';
 
 // ───────────────────────────── Common ─────────────────────────────
 
@@ -266,6 +267,12 @@ export interface Gstr1Summary {
   notes: string[];
   /** Documents in the period that are NOT in GSTR-1 (optional / cancelled / non-GST). */
   excluded: { optional: number; cancelled: number; notGst: number };
+  /** Table 11A / 11B (advances received / adjusted), from the books. */
+  advances?: Gstr1AdvancesSummary;
+  /** Tables 9A / 9C / 10 and documents added after filing, reported in this period. */
+  amendments?: Gstr1AmendmentsSummary;
+  /** This period's GSTR-1 is marked filed. */
+  filing?: { filedOn: string; arn: string | null } | null;
 }
 
 export interface Gstr1SectionInput extends GstPeriodInput {
@@ -491,6 +498,8 @@ export interface Gstr3bSummary {
   };
   adjustments: Gstr3bAdjustments;
   adjustmentsUpdatedAt: string | null;
+  /** GST entries in the books other than invoices (advances, stat adjustment journals, bills of entry), already included above. */
+  bookAdjustments?: Gstr3bBookAdjustments;
   notes: string[];
   /** Same checks as gst.exceptions for the period (errors and warnings). */
   issueCount: { errors: number; warnings: number };

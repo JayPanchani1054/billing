@@ -52,6 +52,7 @@ import type { GstCompany, GstDoc, GstDocLine } from './docs.ts';
 import { addTax, addTV, cleanTax, lineTV, loadDocs, rupees, zeroTax, zeroTV } from './docs.ts';
 import { monthPeriodKey, parsePeriodKey, quarterPeriodKey } from './period.ts';
 import { setOff } from './setoff.ts';
+import { bookAdjustmentFingerprints, bookAdjustments, isZeroTax } from './bookAdjustments.ts';
 
 // ───────────────────────────── Adjustments ─────────────────────────────
 
@@ -349,6 +350,8 @@ function monthFingerprints(db: Db, from: string, to: string, today: string): Map
 /** Fingerprint per chained period: its months' data + the manual entries saved under its key. */
 function periodFingerprints(db: Db, chain: readonly PeriodWithKey[], today: string): string[] {
   const months = monthFingerprints(db, chain[0].from, chain[chain.length - 1].to, today);
+  // Advances, stat adjustments and bills of entry (gst voucher hook) count too.
+  for (const [ym, f] of bookAdjustmentFingerprints(db, chain[0].from, chain[chain.length - 1].to, today)) months.set(ym, `${months.get(ym) ?? ''}${f}`);
   const adjustments = new Map(
     db.all<{ p: string; data: string }>(`SELECT return_period AS p, data FROM gst_adjustments WHERE form = 'gstr3b'`).map((r) => [r.p, r.data]),
   );
@@ -433,6 +436,14 @@ export function computeGstr3b(
 ): Gstr3bSummary {
   const docs = (preloaded ?? loadDocs(db, company, { from: period.from, to: period.to, today })).filter((d) => d.inBooks);
   const a = accumulate(docs);
+  // GST entries in the books other than invoices: advances (11A − 11B), reverse-charge and ITC reversal /
+  // reclaim journals, bills of entry (bookAdjustments.ts).
+  const book = bookAdjustments(db, period.from, period.to, today);
+  addTV(a.supplies.osup_det, book.advances);
+  addTV(a.supplies.isup_rev, book.rcmLiability);
+  addTax(a.itc.ISRC, book.rcmCredit);
+  addTax(a.itc.IMPG, book.billOfEntry);
+  addTax(a.itc.OTH, book.reclaimed);
   const adj = period.key ? readAdjustments(db, period.key) : { values: emptyAdjustments(), updatedAt: null };
   const v = adj.values;
   const notes: string[] = [];
@@ -462,15 +473,22 @@ export function computeGstr3b(
   const rul = zeroTax();
   addTax(rul, a.blocked);
   addTax(rul, v.itcReversalRules);
+  addTax(rul, book.reversalRules);
+  const oth = zeroTax();
+  addTax(oth, v.itcReversalOthers);
+  addTax(oth, book.reversalOthers);
   const reversed: Gstr3bItcRow[] = [
     cleanTax({ ty: 'RUL', row: '4(B)(1)', label: 'As per rules 38, 42 & 43 of CGST Rules and section 17(5)', source: 'both', ...rul }),
-    cleanTax({ ty: 'OTH', row: '4(B)(2)', label: 'Others', source: 'manual', ...v.itcReversalOthers }),
+    cleanTax({ ty: 'OTH', row: '4(B)(2)', label: 'Others', source: isZeroTax(book.reversalOthers) ? 'manual' : 'both', ...oth }),
   ];
   const net = zeroTax();
   for (const r of available) addTax(net, r);
   for (const r of reversed) addTax(net, r, -1);
+  const reclaimed = zeroTax();
+  addTax(reclaimed, v.itcReclaimed);
+  addTax(reclaimed, book.reclaimed);
   const ineligible: Gstr3bItcRow[] = [
-    cleanTax({ ty: 'RUL', row: '4(D)(1)', label: 'ITC reclaimed which was reversed under Table 4(B)(2) in an earlier tax period', source: 'manual', ...v.itcReclaimed }),
+    cleanTax({ ty: 'RUL', row: '4(D)(1)', label: 'ITC reclaimed which was reversed under Table 4(B)(2) in an earlier tax period', source: isZeroTax(book.reclaimed) ? 'manual' : 'both', ...reclaimed }),
     cleanTax({ ty: 'OTH', row: '4(D)(2)', label: 'Ineligible ITC under section 16(4) & ITC restricted due to PoS rules', source: 'manual', ...v.itcIneligibleOthers }),
   ];
 
@@ -566,6 +584,7 @@ export function computeGstr3b(
     payment: { rows, setOff: so, creditAvailable, broughtForward, itcUsed, cashTotal: rows.reduce((s, r) => s + r.totalCash, 0) },
     adjustments: v,
     adjustmentsUpdatedAt: adj.updatedAt,
+    bookAdjustments: book,
     notes,
     issueCount,
   };

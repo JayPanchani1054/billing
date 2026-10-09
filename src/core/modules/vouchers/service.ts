@@ -22,7 +22,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { conflict, forbidden, notFound, rule } from '../../lib/errors.ts';
 import { assertDateUnlocked, getConfig, getFeatures } from '../company/service.ts';
-import { voucherHooks } from './hooks.ts';
+import { composeVoucherInput, voucherHooks } from './hooks.ts';
 import {
   commitNumber,
   decideNumber,
@@ -345,11 +345,13 @@ const voucherLabel = (typeName: string, number: string | null, date: string): st
 
 export function previewVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherPreview {
   const { db } = ctx;
-  const input = normalizeInput(raw);
+  let input = normalizeInput(raw);
   const env = loadEnv(ctx);
   const existing = input.id ? loadVoucherRow(db, input.id) : undefined;
   if (input.id && !existing) throw notFound('Voucher', input.id);
   const vt = loadVoucherType(db, input.voucherTypeId);
+  // Extension point (hooks.ts › compose): lines derived from a module's own block (mfg journals).
+  input = composeVoucherInput(env, input, vt, existing?.id ?? null);
   let number: string | null;
   const typed = txt(input.number);
   if (existing) {
@@ -424,7 +426,7 @@ function jsonOrNull(v: unknown): string | null {
 
 export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResult {
   const { db } = ctx;
-  const input = normalizeInput(raw);
+  let input = normalizeInput(raw);
   const env = loadEnv(ctx);
   const today = env.today;
 
@@ -449,6 +451,8 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
   assertDateUnlocked(db, input.date);
 
   const vt = loadVoucherType(db, input.voucherTypeId);
+  // Extension point (hooks.ts › compose): lines derived from a module's own block (mfg journals).
+  input = composeVoucherInput(env, input, vt, existing?.id ?? null);
   const decision = decideNumber(db, vt, {
     date: input.date,
     fyStartMonth: env.company.fyStartMonth,
@@ -456,7 +460,7 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
     existing: existing ? { id: existing.id, number: existing.number, seq: existing.number_seq, date: existing.date } : null,
   });
   // Extension point (hooks.ts › prepare): masters the posting needs, created in this transaction.
-  for (const hook of voucherHooks()) hook.prepare?.(env, input, vt);
+  for (const hook of voucherHooks()) hook.prepare?.(ctx, { env, input, voucherType: vt });
   const plan = buildPosting(env, input, { voucherType: vt, number: decision.number, voucherId: existing?.id ?? null });
   if (existing) assertAlterKeepsLinks(db, existing, plan);
   runValidateHooks(ctx, input, existing ?? null, vt.baseType, plan.header.partyLedgerId);
@@ -947,6 +951,8 @@ export function deleteVoucher(ctx: CompanyCtx, id: number, reason?: string, expe
   if (row.irn_status === 'generated') throw rule('An e-invoice (IRN) has been generated for this voucher. Cancel the IRN before deleting it.');
   assertBillsNotSettled(db, id);
   assertNoteNotBilled(db, row);
+  // Extension point (hooks.ts › beforeRemove): a module may refuse (e.g. a document in a filed GSTR-1).
+  for (const hook of voucherHooks()) hook.beforeRemove?.(ctx, row, 'delete');
   const before = snapshotFromDb(db, row, vt.name);
   unmatchBankLines(db, id);
   for (const hook of voucherHooks()) hook.clear?.(db, id);
@@ -977,6 +983,7 @@ export function cancelVoucher(
   assertDateUnlocked(db, row.date);
   assertBillsNotSettled(db, id);
   assertNoteNotBilled(db, row);
+  for (const hook of voucherHooks()) hook.beforeRemove?.(ctx, row, 'cancel');
   const before = snapshotFromDb(db, row, vt.name);
   const now = ctx.clock.now().toISOString();
   const meta = parseMeta(row.meta);

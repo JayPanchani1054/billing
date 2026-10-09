@@ -12,8 +12,12 @@
  *   - registerVoucherHook(hook) from the module (active once that module is imported).
  *
  * Lifecycle (service.ts / posting.ts), in hook order:
+ *   compose   preview AND save, first (before prepare and the posting): may return a rewritten input,
+ *             e.g. item lines derived from the module's own block (mfg: Manufacturing Journal / Material
+ *             In / Out lines from `stockJournal`). Never writes. The rewritten input is what is posted and stored.
  *   prepare   save only, before the plan is built, inside the save transaction. May write masters the
- *             posting needs (e.g. create a duty ledger on demand). Never called by preview.
+ *             posting needs (e.g. create a duty ledger on demand; audit it with ctx.audit). Never
+ *             called by preview.
  *   adjust    preview AND save, after the lines are built and before bill-wise, cost centres, the
  *             balance check and the guards. Never writes. May add entries, change entry amounts (the
  *             voucher must still balance: an invoice-mode imbalance is an INTERNAL error), add to the
@@ -41,6 +45,8 @@ import type {
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { tdsVoucherHook } from '../tds/hook.ts';
+import { gstVoucherHook } from '../gst/hook.ts';
+import { mfgVoucherHook } from '../mfg/hook.ts';
 import type { LedgerInfo, Masters } from './masters.ts';
 import type { VoucherTypeInfo } from './numbering.ts';
 import type { PlanEntry, PostingEnv, PostingPlan } from './posting.ts';
@@ -132,22 +138,36 @@ export interface VoucherHookWriteContext {
 export interface VoucherHook {
   /** For diagnostics. */
   name?: string;
-  prepare?(env: PostingEnv, input: VoucherInput, voucherType: VoucherTypeInfo): void;
+  /** See the lifecycle above; `voucherId` is the voucher being altered (else null). */
+  compose?(env: PostingEnv, input: VoucherInput, voucherType: VoucherTypeInfo, voucherId: number | null): VoucherInput | undefined;
+  prepare?(ctx: CompanyCtx, args: { env: PostingEnv; input: VoucherInput; voucherType: VoucherTypeInfo }): void;
   adjust?(ctx: PostingAdjustContext): void;
   validate?(ctx: CompanyCtx, args: VoucherHookValidateArgs): void;
   write?(ctx: VoucherHookWriteContext): void;
   afterSave?(ctx: CompanyCtx, args: VoucherHookSaveArgs): void;
   clear?(db: Db, voucherId: number): void;
+  /**
+   * Delete / cancel, before anything is removed (inside the transaction): throw an AppError to refuse
+   * (e.g. the gst module refuses a document reported in a filed GSTR-1).
+   */
+  beforeRemove?(ctx: CompanyCtx, row: VoucherRow, action: 'delete' | 'cancel'): void;
   preview?(data: unknown): Partial<VoucherPreview>;
 }
 
 /** Always-on hooks (run first, in this order). Extend-only. */
-const STATIC_HOOKS: readonly VoucherHook[] = [tdsVoucherHook];
+const STATIC_HOOKS: readonly VoucherHook[] = [tdsVoucherHook, gstVoucherHook, mfgVoucherHook];
 const registered: VoucherHook[] = [];
 
 /** Register a hook (idempotent per hook object). */
 export function registerVoucherHook(hook: VoucherHook): void {
   if (!registered.includes(hook) && !STATIC_HOOKS.includes(hook)) registered.push(hook);
+}
+
+/** Apply every hook's compose() in order (the input unchanged when none rewrites it). */
+export function composeVoucherInput(env: PostingEnv, input: VoucherInput, voucherType: VoucherTypeInfo, voucherId: number | null): VoucherInput {
+  let out = input;
+  for (const hook of voucherHooks()) out = hook.compose?.(env, out, voucherType, voucherId) ?? out;
+  return out;
 }
 
 /** Hooks in run order: STATIC_HOOKS, then registered ones in registration order. */

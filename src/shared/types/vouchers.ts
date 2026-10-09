@@ -11,6 +11,7 @@ import type { CompanyConfig, CompanyFeatures } from '../settings.ts';
 import type { GstNature, InvoiceComputation, RegistrationType, SupplyKind, Taxability } from './gst.ts';
 import type { TdsVoucherPreview, VoucherTdsInput } from './tds.ts';
 import type { VoucherGstDetailsInput } from './gst-plus.ts';
+import type { StockJournalCostPreview, StockJournalExtInput } from './mfg.ts';
 
 // ───────────────────────────── Enumerations ─────────────────────────────
 
@@ -75,7 +76,13 @@ export type VoucherWarningCode =
   | 'negative_value'
   | 'backdate_not_allowed'
   /** TDS/TCS computation notes (tds module voucher hook). */
-  | 'tds';
+  | 'tds'
+  /** GST details: advances, bill of entry, stat adjustment, challan, set-off (gst module voucher hook). */
+  | 'gst_stat'
+  /** A document of a GSTR-1 period already filed (reported as an amendment). */
+  | 'gst_amendment'
+  /** Manufacturing Journal / Material In / Out checks (mfg module voucher hook). */
+  | 'mfg';
 
 export interface VoucherWarning {
   code: VoucherWarningCode;
@@ -277,6 +284,8 @@ export interface VoucherInput {
   recurring?: RecurringOccurrenceRef;
   /** GST details (gst module hook): advance received / adjusted / refunded, bill of entry, stat adjustment, challan, set-off. */
   gstDetails?: VoucherGstDetailsInput;
+  /** Manufacturing Journal / Material Out / Material In (mfg module hook): the journal as entered; its item lines are derived from it. */
+  stockJournal?: StockJournalExtInput;
 }
 
 /** One occurrence of a recurring-voucher template (documents module): `periodKey` 'YYYY-MM' or 'YYYY-MM-DD'. */
@@ -397,6 +406,8 @@ export interface VoucherPreview {
   warnings: VoucherWarning[];
   /** TDS/TCS computed on this voucher (present when the TDS or TCS feature is on and it applies). */
   tds?: TdsVoucherPreview;
+  /** Manufacturing / job work journal: costing estimate at entry time (mfg module). */
+  stockJournal?: StockJournalCostPreview;
 }
 
 export interface VoucherSaveResult {

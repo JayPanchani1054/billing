@@ -40,6 +40,7 @@ import { Masters } from './masters.ts';
 import { loadVoucherType, previewNextNumber } from './numbering.ts';
 import { ALLOWED_MODES } from './posting.ts';
 import { loadCompanyEssentials, loadVoucherRow, modeOfRow, parseJson, parseMeta, storedInput } from './service.ts';
+import { applyClosures, closedQtyByOrderItem } from '../documents/closures.ts';
 
 // ───────────────────────────── Detail ─────────────────────────────
 
@@ -611,6 +612,18 @@ export function trackingRefs(db: Db, partyLedgerId: number, kind: TrackingKind, 
       discountPct: l.discount_pct,
       ledgerId: l.ledger_id,
     });
+  }
+  if (spec.column === 'order_ref') {
+    // Pre-closed order balances (documents module) are no longer pending.
+    const all = [...docs.values()].flatMap((d) => d.lines.map((line) => ({ orderId: d.voucherId, line })));
+    applyClosures(
+      all,
+      closedQtyByOrderItem(db),
+      (x) => ({ orderId: x.orderId, itemId: x.line.itemId, pending: x.line.pendingQty }),
+      (x, pending) => {
+        x.line.pendingQty = pending;
+      },
+    );
   }
   return [...docs.values()].filter((d) => d.lines.some((l) => l.pendingQty > 0));
 }

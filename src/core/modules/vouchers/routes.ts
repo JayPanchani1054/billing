@@ -15,6 +15,7 @@ import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { v, type Schema } from '../../lib/validate.ts';
 import { VoucherTdsInputSchema } from '../tds/schemas.ts';
 import { VoucherGstDetailsSchema } from '../gst/schemas.ts';
+import { StockJournalExtSchema } from '../mfg/schemas.ts';
 import { pendingBills } from './bills.ts';
 import { entryContext, getVoucher, listVouchers, MAX_LIST_LIMIT, partyContext, trackingRefs } from './queries.ts';
 import {
@@ -173,6 +174,8 @@ export const VoucherInputSchema = v.object({
   recurring: v.object({ templateId: v.id(), periodKey: v.string({ min: 7, max: 10, pattern: /^\d{4}-\d{2}(-\d{2})?$/, patternMessage: 'Period key must be YYYY-MM or YYYY-MM-DD' }) }).optional(),
   // GST details (advances, bill of entry, stat adjustment, challan, set-off): gst module's voucher hook.
   gstDetails: VoucherGstDetailsSchema.optional(),
+  // Manufacturing Journal / Material In / Out: item lines derived from it (mfg module's voucher hook).
+  stockJournal: StockJournalExtSchema.optional(),
 }) as unknown as Schema<VoucherInput>;
 
 const ListSchema = v.object({

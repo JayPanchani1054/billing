@@ -14,6 +14,7 @@ import { diffDays } from '../../../shared/dates.ts';
 import { lineAmount } from '../../../shared/money.ts';
 import type { OrderKind, PendingOrderLine, PendingOrdersInput, PendingOrdersResult, ReorderRow, ReorderStatusInput, ReorderStatusResult } from '../../../shared/types/stock.ts';
 import type { Db } from '../../db/db.ts';
+import { applyClosures, closedQtyByOrderItem } from '../documents/closures.ts';
 import { stockByItem } from '../inventory/index.ts';
 import { EPS, loadItems, loadTree, roundQty } from './common.ts';
 
@@ -36,8 +37,12 @@ interface OrderLineDb {
   discount_pct: number;
 }
 
-/** Order lines with their pending quantity as of `asOf` (fully fulfilled lines included, pending 0). */
-export function orderPositions(db: Db, kind: OrderKind, asOf: string): Array<OrderLineDb & { fulfilled: number; pending: number }> {
+/**
+ * Order lines with their pending quantity as of `asOf` (fully fulfilled lines included, pending 0).
+ * Balances pre-closed on or before `asOf` (documents module, order_closures) are taken off the
+ * pending quantity (`closed`), last lines of the order first.
+ */
+export function orderPositions(db: Db, kind: OrderKind, asOf: string): Array<OrderLineDb & { fulfilled: number; closed: number; pending: number }> {
   const lines = db.all<OrderLineDb>(
     `SELECT ie.voucher_id, ie.line_no, v.number, v.date, v.effective_date AS due, v.party_ledger_id,
             COALESCE(l.name, v.party_name) AS party_name, ie.order_ref AS ref, ie.item_id, ABS(ie.qty) AS qty, ie.rate, ie.discount_pct
@@ -57,13 +62,23 @@ export function orderPositions(db: Db, kind: OrderKind, asOf: string): Array<Ord
   )) {
     consumed.set(`${c.party ?? 0}|${c.ref}|${c.item_id}`, Number(c.qty));
   }
-  return lines.map((l) => {
+  const out = lines.map((l) => {
     const key = `${l.party_ledger_id ?? 0}|${l.ref}|${l.item_id}`;
     const left = consumed.get(key) ?? 0;
     const take = Math.min(left, Number(l.qty));
     consumed.set(key, left - take);
-    return { ...l, qty: Number(l.qty), fulfilled: roundQty(take), pending: roundQty(Number(l.qty) - take) };
+    return { ...l, qty: Number(l.qty), fulfilled: roundQty(take), closed: 0, pending: roundQty(Number(l.qty) - take) };
   });
+  applyClosures(
+    out,
+    closedQtyByOrderItem(db, asOf),
+    (l) => ({ orderId: l.voucher_id, itemId: l.item_id, pending: l.pending }),
+    (l, pending, closed) => {
+      l.pending = roundQty(pending);
+      l.closed = roundQty(l.closed + closed);
+    },
+  );
+  return out;
 }
 
 /** 'stock.pendingOrders' — lines of sales or purchase orders not yet fully delivered / received. */
@@ -92,6 +107,7 @@ export function pendingOrders(db: Db, input: PendingOrdersInput): PendingOrdersR
       unit: it?.unit ?? '',
       orderedQty: roundQty(p.qty),
       fulfilledQty: p.fulfilled,
+      ...(p.closed > 0 ? { closedQty: p.closed } : {}),
       pendingQty: p.pending,
       rate: Number(p.rate),
       discountPct: Number(p.discount_pct ?? 0),

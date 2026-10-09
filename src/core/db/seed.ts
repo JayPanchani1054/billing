@@ -22,6 +22,7 @@ import { DEFAULT_CONFIG, DEFAULT_FEATURES, mergeDefaults, type CompanyFeatures }
 import type { CreateCompanyInput } from '../../shared/types/app.ts';
 import { AppError, conflict } from '../lib/errors.ts';
 import { normalizeCompanyIdentity } from '../modules/company/validation.ts';
+import { ensureMfgVoucherTypes } from '../modules/mfg/voucherTypes.ts';
 import type { Db } from './db.ts';
 
 export interface SeedOptions {
@@ -164,6 +165,8 @@ export function seedCompany(db: Db, input: CreateCompanyInput, opts: SeedOptions
         { guid: randomUUID(), name: vt.name, abbr: vt.abbreviation, base: vt.baseType, config: JSON.stringify(config), ts },
       ).lastInsertRowid;
     }
+    // Classed stock journal types (mfg module) when the company starts with Manufacturing / Job work on.
+    if (features.manufacturing || features.jobWork) ensureMfgVoucherTypes(db, ts, features);
 
     // Units of measure.
     const unitIds: Record<string, number> = {};
