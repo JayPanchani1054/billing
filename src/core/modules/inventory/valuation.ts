@@ -38,6 +38,7 @@
  * sub-godowns when includeSubGodowns), while values of opening/closing use the item's overall unit
  * cost (value ÷ qty of the item across godowns).
  */
+import { addDays } from '../../../shared/dates.ts';
 import { allocate, roundPaise, roundTo, lineAmount } from '../../../shared/money.ts';
 import type { CostingMethod, StockValuationResult, StockValuationRow } from '../../../shared/types/inventory.ts';
 import type { Db } from '../../db/db.ts';
@@ -277,10 +278,14 @@ function newState(item: ItemInfo): CostState {
 // ───────────────────────────── Movements ─────────────────────────────
 
 interface Movement {
+  /** inventory_entries.id */
+  id: number;
   voucher_id: number;
   line_no: number;
   item_id: number;
   godown_id: number | null;
+  /** Only selected when tracing. */
+  batch_name?: string | null;
   qty: number;
   amount: number;
   rate: number;
@@ -332,6 +337,53 @@ function dependencyClosure(db: Db, itemIds: readonly number[], to: string): Set<
   return set;
 }
 
+// SQL. Every statement is a constant chosen by shape — no catch-all `(:filter = 0 OR …)` flag, which
+// would hide the item index from the planner (and turn into a skip-scan over every item id once
+// ANALYZE statistics exist). Shapes:
+//   - whole company: ONE sequential scan of inventory_entries (NOT INDEXED, CROSS JOIN keeps it the
+//     outer loop whatever the statistics say), vouchers by primary key, one sort;
+//   - a few items: the item index (INDEXED BY pins it — the statement fails loudly if it is ever
+//     dropped) for the items' own lines, plus the other lines of the stock journals they appear in
+//     (a journal's production lines share its consumption cost, so all of them are needed).
+const MOVEMENT_COLUMNS = `ie.id, ie.voucher_id, ie.line_no, ie.item_id, COALESCE(ie.godown_id, :main) AS godown_id, ie.qty, ie.amount,
+       ie.rate, ie.discount_pct, ie.date, v.base_type`;
+
+function movementSql(filtered: boolean, withBatch: boolean): string {
+  const cols = withBatch ? `${MOVEMENT_COLUMNS}, ie.batch_name` : MOVEMENT_COLUMNS;
+  if (!filtered) {
+    return `SELECT ${cols}
+       FROM inventory_entries ie NOT INDEXED CROSS JOIN vouchers v ON v.id = ie.voucher_id
+      WHERE ie.date <= :to AND ${STOCK_MOVEMENT_FILTER}
+      ORDER BY ie.date, ie.voucher_id, ie.line_no, ie.id`;
+  }
+  return `SELECT ${cols}
+       FROM inventory_entries ie INDEXED BY idx_ie_item_date CROSS JOIN vouchers v ON v.id = ie.voucher_id
+      WHERE ie.item_id IN (SELECT value FROM json_each(:ids)) AND ie.date <= :to AND ${STOCK_MOVEMENT_FILTER}
+     UNION ALL
+     SELECT ${cols}
+       FROM inventory_entries ie CROSS JOIN vouchers v ON v.id = ie.voucher_id
+      WHERE ie.voucher_id IN (SELECT x.voucher_id FROM inventory_entries x INDEXED BY idx_ie_item_date
+                               WHERE x.item_id IN (SELECT value FROM json_each(:ids)))
+        AND v.base_type = 'stock_journal' AND ie.item_id NOT IN (SELECT value FROM json_each(:ids))
+        AND ie.date <= :to AND ${STOCK_MOVEMENT_FILTER}
+      ORDER BY date, voucher_id, line_no, id`;
+}
+
+const ITEM_COLUMNS = `SELECT i.id, i.name, u.symbol AS unit, i.group_id, i.costing_method, i.standard_cost, i.purchase_price, i.is_service
+       FROM stock_items i JOIN units u ON u.id = i.unit_id`;
+const ITEMS_ALL_SQL = `${ITEM_COLUMNS} ORDER BY i.name COLLATE NOCASE`;
+const ITEMS_SOME_SQL = `${ITEM_COLUMNS} WHERE i.id IN (SELECT value FROM json_each(:ids)) ORDER BY i.name COLLATE NOCASE`;
+const OPENINGS_ALL_SQL = 'SELECT item_id, godown_id, qty, value FROM stock_openings ORDER BY item_id, id';
+const OPENINGS_SOME_SQL = 'SELECT item_id, godown_id, qty, value FROM stock_openings WHERE item_id IN (SELECT value FROM json_each(:ids)) ORDER BY item_id, id';
+
+/**
+ * Up to this share of the company's items (1 in INDEXED_SHARE), a filtered valuation reads the
+ * items' lines through the item index; beyond it one sequential scan is cheaper than that many
+ * index look-ups, and lines of other items are skipped in the replay (same result: an item's cost
+ * only depends on the items in its dependency closure, which all have a cost state).
+ */
+const INDEXED_SHARE = 4;
+
 export interface StockValuationOptions {
   from: string;
   to: string;
@@ -360,33 +412,127 @@ interface Acc {
   moved: boolean;
 }
 
-/**
- * Stock summary for a period: per item opening / inward / outward / closing quantity and value,
- * using each item's costing method (see the top of this file), plus value totals.
- */
-export function computeStockValuation(db: Db, opts: StockValuationOptions): StockValuationResult {
-  return replay(db, opts).result;
+/** A whole-company stock value point taken during a replay: at the START ('open') or END ('close') of `date`. */
+interface Cut {
+  kind: 'open' | 'close';
+  date: string;
 }
 
-function replay(db: Db, opts: StockValuationOptions): { result: StockValuationResult; states: Map<number, CostState> } {
+/** Closing of one item at the end of a day (godown scope: the godown quantity at the item's overall unit cost). */
+export interface DayClose {
+  qty: number;
+  value: number;
+}
+
+/** One traced movement (a stock-moving inventory_entries line), in replay order. */
+export interface TracedMovement {
+  id: number;
+  voucherId: number;
+  lineNo: number;
+  itemId: number;
+  /** Main Location when the entry has none. */
+  godownId: number | null;
+  batchName: string | null;
+  qty: number;
+  amount: number;
+  rate: number;
+  discountPct: number;
+  date: string;
+  baseType: string;
+}
+
+interface TraceSink {
+  items: ReadonlySet<number>;
+  from: string;
+  movements: TracedMovement[];
+  values: Map<number, number>;
+  closing: Map<number, Map<string, DayClose>>;
+}
+
+interface ReplayOptions extends StockValuationOptions {
+  /** Whole-company value points (no item / godown filter). */
+  cuts?: readonly Cut[];
+  trace?: TraceSink;
+}
+
+/** Number of engine replays run in this process — a test probe for "one replay per request". */
+let replays = 0;
+export function stockReplayCount(): number {
+  return replays;
+}
+
+// ───────────────────────────── Memo ─────────────────────────────
+//
+// Reports ask for the same stock values again and again (Balance Sheet → P&L → Balance Sheet; the
+// Gateway's gross profit). Results are kept per open database while its data has not changed —
+// keyed on Db.dataRevision() (rows written through this connection or commits by any other one; any
+// write, even one rolled back, invalidates) and never filled inside a transaction. Value points are
+// numbers; full results are deep-frozen (callers read them, never mutate a shared copy).
+
+interface Memo {
+  rev: string;
+  points: Map<string, number>;
+  results: Array<{ key: string; value: StockValuationResult }>;
+}
+const MEMO = new WeakMap<Db, Memo>();
+const MEMO_RESULTS = 4;
+const MEMO_POINTS = 512;
+
+function memoOf(db: Db): Memo | null {
+  const rev = db.dataRevision();
+  if (rev === null) return null;
+  let m = MEMO.get(db);
+  if (!m || m.rev !== rev) {
+    m = { rev, points: new Map(), results: [] };
+    MEMO.set(db, m);
+  }
+  return m;
+}
+
+function deepFreeze<T>(o: T): T {
+  if (o !== null && typeof o === 'object' && !Object.isFrozen(o)) {
+    Object.freeze(o);
+    for (const v of Object.values(o as Record<string, unknown>)) deepFreeze(v);
+  }
+  return o;
+}
+
+/**
+ * Stock summary for a period: per item opening / inward / outward / closing quantity and value,
+ * using each item's costing method (see the top of this file), plus value totals. The result is
+ * shared (memo) and frozen — copy before changing it.
+ */
+export function computeStockValuation(db: Db, opts: StockValuationOptions): StockValuationResult {
+  const memo = memoOf(db);
+  const key = JSON.stringify([
+    opts.from,
+    opts.to,
+    opts.today,
+    opts.godownId ?? null,
+    opts.includeSubGodowns === true,
+    opts.itemIds ? [...new Set(opts.itemIds)].sort((a, b) => a - b) : null,
+  ]);
+  const hit = memo?.results.find((e) => e.key === key);
+  if (hit) return hit.value;
+  const value = deepFreeze(replay(db, opts).result);
+  if (memo) memo.results = [{ key, value }, ...memo.results].slice(0, MEMO_RESULTS);
+  return value;
+}
+
+function replay(db: Db, opts: ReplayOptions): { result: StockValuationResult; states: Map<number, CostState>; cuts: Map<string, number> } {
+  replays++;
   const { from, to, today } = opts;
   const godownId = opts.godownId ?? null;
   const requested = opts.itemIds ? [...new Set(opts.itemIds)] : null;
   const closure = requested ? dependencyClosure(db, requested, to) : null;
   const ids = closure ? jsonIds([...closure]) : '[]';
-  const filter = closure ? 1 : 0;
   const main = db.value<number>('SELECT id FROM godowns WHERE is_predefined = 1 ORDER BY id LIMIT 1') ?? null;
   const booksBegin = db.value<string>('SELECT books_from FROM company WHERE id = 1') ?? '';
   const godowns = godownId === null ? null : godownSet(db, godownId, opts.includeSubGodowns === true);
   const inGodown = (g: number | null): boolean => godowns !== null && g !== null && godowns.has(g);
+  const indexed = closure !== null && closure.size * INDEXED_SHARE <= (db.value<number>('SELECT COUNT(*) FROM stock_items') ?? 0);
 
-  const items = db.all<ItemInfo>(
-    `SELECT i.id, i.name, u.symbol AS unit, i.group_id, i.costing_method, i.standard_cost, i.purchase_price, i.is_service
-       FROM stock_items i JOIN units u ON u.id = i.unit_id
-      WHERE (:filter = 0 OR i.id IN (SELECT value FROM json_each(:ids)))
-      ORDER BY i.name COLLATE NOCASE`,
-    { filter, ids },
-  );
+  const items = closure ? db.all<ItemInfo>(ITEMS_SOME_SQL, { ids }) : db.all<ItemInfo>(ITEMS_ALL_SQL);
   const states = new Map<number, CostState>();
   const accs = new Map<number, Acc>();
   const layered = new Set<number>();
@@ -400,11 +546,9 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
   // Opening stock: each row is a separate layer (FIFO/LIFO, in entry order); for the other methods
   // the rows are taken together, so Last Purchase starts from the weighted opening rate rather than
   // whichever row happens to be last.
-  const openings = db.all<{ item_id: number; godown_id: number; qty: number; value: number }>(
-    `SELECT item_id, godown_id, qty, value FROM stock_openings
-      WHERE (:filter = 0 OR item_id IN (SELECT value FROM json_each(:ids))) ORDER BY item_id, id`,
-    { filter, ids },
-  );
+  const openings = closure
+    ? db.all<{ item_id: number; godown_id: number; qty: number; value: number }>(OPENINGS_SOME_SQL, { ids })
+    : db.all<{ item_id: number; godown_id: number; qty: number; value: number }>(OPENINGS_ALL_SQL);
   const pooled = new Map<number, { qty: number; value: number }>();
   for (const o of openings) {
     const st = states.get(o.item_id);
@@ -428,17 +572,8 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
     else if (p.qty < -EPS) st.issue(-p.qty);
   }
 
-  const movements = db.all<Movement>(
-    `SELECT ie.voucher_id, ie.line_no, ie.item_id, COALESCE(ie.godown_id, :main) AS godown_id, ie.qty, ie.amount, ie.rate,
-            ie.discount_pct, ie.date, v.base_type
-       FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
-      WHERE ie.date <= :to AND ${STOCK_MOVEMENT_FILTER}
-        AND (:filter = 0 OR ie.item_id IN (SELECT value FROM json_each(:ids))
-             OR (v.base_type = 'stock_journal' AND ie.voucher_id IN
-                 (SELECT voucher_id FROM inventory_entries WHERE item_id IN (SELECT value FROM json_each(:ids)))))
-      ORDER BY ie.date, ie.voucher_id, ie.line_no, ie.id`,
-    { to, today, main, filter, ids },
-  );
+  const trace = opts.trace ?? null;
+  const movements = db.all<Movement>(movementSql(indexed, trace !== null), indexed ? { to, today, main, ids } : { to, today, main });
 
   let openingTaken = false;
   const takeOpening = (): void => {
@@ -457,6 +592,55 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
         acc.openValue = roundPaise(acc.gQty * unitValue(st));
       }
     }
+  };
+
+  // Whole-company value points, in date order ('open d' before 'close d'). The value of each is what
+  // computeStockValuation({ from: d, to: d }) reports as the opening / closing total.
+  const cuts = [...(opts.cuts ?? [])].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.kind === b.kind ? 0 : a.kind === 'open' ? -1 : 1));
+  const cutValues = new Map<string, number>();
+  let nextCut = 0;
+  /** Take every pending cut that lies before a voucher dated `date` (null: the end of the replay). */
+  const takeCuts = (date: string | null): void => {
+    while (nextCut < cuts.length) {
+      const c = cuts[nextCut];
+      if (date !== null && (c.kind === 'open' ? date < c.date : date <= c.date)) return;
+      let sum = 0;
+      for (const it of items) {
+        if (it.is_service === 1) continue;
+        const st = states.get(it.id) as CostState;
+        const acc = accs.get(it.id) as Acc;
+        sum += c.kind === 'open' && c.date <= booksBegin && !acc.moved ? acc.enteredValue : st.value();
+      }
+      cutValues.set(`${c.kind}:${c.date}`, sum);
+      nextCut++;
+    }
+  };
+
+  // Trace: cost of every movement of the traced items and their closing at the end of each day.
+  const touched = new Set<number>();
+  const traceValue = (m: Movement, value: number): void => {
+    if (trace === null || !trace.items.has(m.item_id)) return;
+    trace.values.set(m.id, value);
+    touched.add(m.item_id);
+  };
+  const closeDay = (date: string): void => {
+    if (trace === null) return;
+    if (date >= trace.from) {
+      for (const itemId of touched) {
+        const st = states.get(itemId) as CostState;
+        const acc = accs.get(itemId) as Acc;
+        let days = trace.closing.get(itemId);
+        if (!days) {
+          days = new Map();
+          trace.closing.set(itemId, days);
+        }
+        days.set(
+          date,
+          godownId === null ? { qty: roundQty(st.qty), value: st.value() } : { qty: roundQty(acc.gQty), value: roundPaise(acc.gQty * unitValue(st)) },
+        );
+      }
+    }
+    touched.clear();
   };
 
   const record = (m: Movement, value: number): void => {
@@ -487,6 +671,7 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
     acc.moved = true;
     if (inGodown(m.godown_id)) acc.gQty += m.qty;
     record(m, v);
+    traceValue(m, v);
   };
 
   let i = 0;
@@ -496,6 +681,7 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
     while (j < movements.length && movements[j].voucher_id === first.voucher_id) j++;
     const lines = movements.slice(i, j);
     i = j;
+    if (nextCut < cuts.length) takeCuts(first.date);
     if (!openingTaken && first.date >= from) takeOpening();
 
     if (first.base_type === 'stock_journal') {
@@ -511,6 +697,7 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
         acc.moved = true;
         if (inGodown(m.godown_id)) acc.gQty += m.qty;
         record(m, cost);
+        traceValue(m, cost);
       }
       const explicit = production.filter((m) => ownAmount(m) > 0);
       const implicit = production.filter((m) => ownAmount(m) <= 0);
@@ -518,16 +705,38 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
       const shares = consumption.length > 0 ? allocate(pool, implicit.map((m) => m.qty)) : null;
       for (const m of explicit) apply(m, ownAmount(m));
       implicit.forEach((m, k) => apply(m, shares ? shares[k] : null));
-      continue;
+    } else {
+      for (const m of lines) {
+        if (m.qty === 0) continue;
+        if (m.qty < 0 || AT_COST_INWARD.has(m.base_type)) apply(m, null);
+        else apply(m, ownAmount(m));
+      }
     }
+    if (trace !== null && (i >= movements.length || movements[i].date !== first.date)) closeDay(first.date);
+  }
+  takeCuts(null);
+  if (!openingTaken) takeOpening();
 
-    for (const m of lines) {
-      if (m.qty === 0) continue;
-      if (m.qty < 0 || AT_COST_INWARD.has(m.base_type)) apply(m, null);
-      else apply(m, ownAmount(m));
+  if (trace !== null) {
+    for (const m of movements) {
+      if (m.qty === 0 || m.date < trace.from || !trace.items.has(m.item_id) || !states.has(m.item_id)) continue;
+      if (godowns !== null && !inGodown(m.godown_id)) continue;
+      trace.movements.push({
+        id: m.id,
+        voucherId: m.voucher_id,
+        lineNo: m.line_no,
+        itemId: m.item_id,
+        godownId: m.godown_id,
+        batchName: m.batch_name ?? null,
+        qty: Number(m.qty),
+        amount: Number(m.amount),
+        rate: Number(m.rate),
+        discountPct: Number(m.discount_pct ?? 0),
+        date: m.date,
+        baseType: m.base_type,
+      });
     }
   }
-  if (!openingTaken) takeOpening();
 
   const wanted = requested ? new Set(requested) : null;
   const rows: StockValuationRow[] = [];
@@ -569,7 +778,7 @@ function replay(db: Db, opts: StockValuationOptions): { result: StockValuationRe
     totals.outwardValue += row.outward.value;
     totals.closingValue += row.closing.value;
   }
-  return { result: { from, to, godownId, rows, totals }, states };
+  return { result: { from, to, godownId, rows, totals }, states, cuts: cutValues };
 }
 
 /** Value per unit of what is on hand (paise): V/Q when Q > 0, otherwise the current cost. */
@@ -577,11 +786,55 @@ function unitValue(st: CostState): number {
   return st.qty > EPS ? st.value() / st.qty : st.currentCost();
 }
 
+// ───────────────────────────── Whole-company value points ─────────────────────────────
+
+export interface StockValuePoints {
+  /** Value of all stock at the START of each requested date (= openingStockValue). */
+  opening: Map<string, number>;
+  /** Value of all stock at the END of each requested date (= closingStockValue). */
+  closing: Map<string, number>;
+}
+
+/**
+ * Whole-company stock values at several dates from ONE replay (P&L: opening at `from` and closing at
+ * `to`; Balance Sheet: year-start opening and closing at `asOf`; the books-beginning opening) —
+ * each figure equal to openingStockValue / closingStockValue for that date. Memoised per database
+ * revision, so moving between reports does not replay again.
+ */
+export function stockValuesAt(db: Db, q: { opening?: readonly string[]; closing?: readonly string[]; today: string }): StockValuePoints {
+  const out: StockValuePoints = { opening: new Map(), closing: new Map() };
+  const memo = memoOf(db);
+  const missing: Cut[] = [];
+  const want = (kind: 'open' | 'close', date: string): void => {
+    const hit = memo?.points.get(`${q.today}|${kind}:${date}`);
+    if (hit !== undefined) (kind === 'open' ? out.opening : out.closing).set(date, hit);
+    else if (!missing.some((c) => c.kind === kind && c.date === date)) missing.push({ kind, date });
+  };
+  for (const d of q.opening ?? []) want('open', d);
+  for (const d of q.closing ?? []) want('close', d);
+  if (missing.length === 0) return out;
+  // Replay only as far as the latest point needs: an opening at d needs the movements before d.
+  let to = '';
+  for (const c of missing) {
+    const need = c.kind === 'open' ? addDays(c.date, -1) : c.date;
+    if (need > to) to = need;
+  }
+  const { cuts } = replay(db, { from: to, to, today: q.today, cuts: missing });
+  if (memo && memo.points.size + missing.length > MEMO_POINTS) memo.points.clear();
+  for (const c of missing) {
+    const v = cuts.get(`${c.kind}:${c.date}`) ?? 0;
+    (c.kind === 'open' ? out.opening : out.closing).set(c.date, v);
+    memo?.points.set(`${q.today}|${c.kind}:${c.date}`, v);
+  }
+  return out;
+}
+
 /** Closing stock value (paise) of all items as at the end of `asOf` — for P&L / Balance Sheet. */
 export function closingStockValue(
   db: Db,
   opts: { asOf: string; today: string; godownId?: number | null; includeSubGodowns?: boolean },
 ): number {
+  if (opts.godownId === undefined || opts.godownId === null) return stockValuesAt(db, { closing: [opts.asOf], today: opts.today }).closing.get(opts.asOf) ?? 0;
   return computeStockValuation(db, { ...opts, from: opts.asOf, to: opts.asOf }).totals.closingValue;
 }
 
@@ -593,6 +846,7 @@ export function openingStockValue(
   db: Db,
   opts: { from: string; today: string; godownId?: number | null; includeSubGodowns?: boolean },
 ): number {
+  if (opts.godownId === undefined || opts.godownId === null) return stockValuesAt(db, { opening: [opts.from], today: opts.today }).opening.get(opts.from) ?? 0;
   return computeStockValuation(db, { ...opts, to: opts.from }).totals.openingValue;
 }
 
@@ -604,4 +858,35 @@ export function currentUnitCost(db: Db, opts: { itemId: number; asOf: string; to
   const { states } = replay(db, { from: opts.asOf, to: opts.asOf, today: opts.today, itemIds: [opts.itemId] });
   const st = states.get(opts.itemId);
   return st ? roundTo(st.currentCost() / 100, 4) : 0;
+}
+
+// ───────────────────────────── Per-movement trace ─────────────────────────────
+
+export interface StockTraceOptions extends StockValuationOptions {
+  /** Items whose movements are traced (they must be valued: within `itemIds` when that is given). */
+  traceItemIds: readonly number[];
+  /** Movements and day closings from this date (default `from`). */
+  traceFrom?: string;
+}
+
+export interface StockTraceResult {
+  /** The valuation for the options (as computeStockValuation). */
+  valuation: StockValuationResult;
+  /** Stock-moving lines of the traced items in [traceFrom, to] (godown scope when given), replay order. */
+  movements: TracedMovement[];
+  /** Cost value (paise, unsigned) of each traced line, by inventory_entries id — the engine's own figure. */
+  values: Map<number, number>;
+  /** Closing per traced item at the end of each day in [traceFrom, to] with one of its movements. */
+  closing: Map<number, Map<string, DayClose>>;
+}
+
+/**
+ * The valuation AND the cost of every movement of the traced items from the same single replay
+ * (item ledger, profitability, FIFO ageing, physical variance). Per-line values are exactly what
+ * the engine applied, so they add up to the valuation's inward / outward values by construction.
+ */
+export function traceStockMovements(db: Db, opts: StockTraceOptions): StockTraceResult {
+  const sink: TraceSink = { items: new Set(opts.traceItemIds), from: opts.traceFrom ?? opts.from, movements: [], values: new Map(), closing: new Map() };
+  const { result } = replay(db, { ...opts, trace: sink });
+  return { valuation: result, movements: sink.movements, values: sink.values, closing: sink.closing };
 }

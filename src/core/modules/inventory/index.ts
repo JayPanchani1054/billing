@@ -8,8 +8,16 @@ export { columnsComplete, createGstResolver, resolveGroupGstProfile, resolveItem
 export type { ItemGstSource } from './gst.ts';
 export { batchesFor, godownSet, itemHasTransactions, roundQty, STOCK_MOVEMENT_FILTER, stockByItem, stockOnHand } from './stock.ts';
 export type { BatchQueryOptions, StockByItemQuery, StockOnHandQuery } from './stock.ts';
-export { closingStockValue, computeStockValuation, currentUnitCost, openingStockValue } from './valuation.ts';
-export type { StockValuationOptions } from './valuation.ts';
+export {
+  closingStockValue,
+  computeStockValuation,
+  currentUnitCost,
+  openingStockValue,
+  stockReplayCount,
+  stockValuesAt,
+  traceStockMovements,
+} from './valuation.ts';
+export type { DayClose, StockTraceOptions, StockTraceResult, StockValuationOptions, StockValuePoints, TracedMovement } from './valuation.ts';
 export { priceFor, slabForQty } from './prices.ts';
 export { getItem, itemPicker, listItems } from './items.ts';
 export { booksFrom, mainGodownId } from './masters.ts';
