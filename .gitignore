@@ -11,3 +11,6 @@ Thumbs.db
 /test-results/
 /playwright-report/
 /.tmp/
+
+# Throwaway exploration scripts written by audits
+src/core/testing/e2e/_explore*.ts
