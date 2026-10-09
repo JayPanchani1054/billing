@@ -28,3 +28,19 @@ export function shouldUpgradeFocus(current: { rank: number; stillFocused: boolea
 export function needsFocusWatch(rank: number): boolean {
   return rank < FOCUS_RANK.autofocus;
 }
+
+/**
+ * Elements the shell itself focused as a screen's provisional starting point (nav.tsx). A screen that
+ * places its own cursor once its form renders (e.g. Voucher Entry: number / party / Account / first
+ * line, as Tally does) must treat focus on one of these as "not chosen by the user" and move it;
+ * focus anywhere else means the user already moved and must be left alone.
+ */
+const shellPicks = new WeakSet<object>();
+
+export function markShellFocus(el: object): void {
+  shellPicks.add(el);
+}
+
+export function isShellFocus(el: object | null | undefined): boolean {
+  return el != null && shellPicks.has(el);
+}

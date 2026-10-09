@@ -76,7 +76,7 @@ describe('edit-log anchor key sealed by main (safeStorage) and handed to the cor
     assert.equal(safeStorageSealer(fakeSafeStorage(1, 'basic_text'), 'linux'), undefined);
     assert.equal(safeStorageSealer(fakeSafeStorage(1, 'unknown', false), 'win32'), undefined);
     assert.ok(safeStorageSealer(fakeSafeStorage(1, 'unknown'), 'win32'));
-    const key = loadAnchorKeyForWorker(dir, fakeSafeStorage(1, 'basic_text'), quiet);
+    const key = loadAnchorKeyForWorker(dir, fakeSafeStorage(1, 'basic_text'), quiet, 'linux');
     assert.ok(key && key.length === 32);
     assert.equal((JSON.parse(fs.readFileSync(path.join(dir, ANCHOR_KEY_FILE), 'utf8')) as { sealed: boolean }).sealed, false);
   });

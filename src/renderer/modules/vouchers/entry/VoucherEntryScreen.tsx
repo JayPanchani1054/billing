@@ -53,6 +53,7 @@ import {
   withConfirmation,
 } from '../../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../../app/index.ts';
+import { isShellFocus } from '../../../app/index.ts';
 import { Badge, Button, DateInput, EmptyState, Field, Hotkeys, Kbd, SegmentedControl, Select, Switch, TextArea, TextInput, useEnterAdvance, useToast } from '../../../ui/index.ts';
 import { allocationTotal } from '../lib/bills.ts';
 import { ACCOUNT_ROW, buildVoucherInput, formFromInput } from '../lib/buildInput.ts';
@@ -487,9 +488,10 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       inner = requestAnimationFrame(() => {
         const host = headerRef.current?.closest('.bx-screen');
         const active = document.activeElement as HTMLElement | null;
-        // Leave it alone when the user already moved into a field of this voucher.
+        // Leave it alone when the user already moved into a field of this voucher — but not when the
+        // shell put a provisional cursor on the first field (Date) while the form was loading.
         if (!screenRef.current.isTop) return;
-        if (host && active && host.contains(active) && active.matches('input:not([type=radio]), textarea, [role=combobox]')) return;
+        if (host && active && host.contains(active) && !isShellFocus(active) && active.matches('input:not([type=radio]), textarea, [role=combobox]')) return;
         focusStart();
       });
     });

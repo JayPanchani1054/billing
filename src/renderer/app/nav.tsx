@@ -22,7 +22,7 @@ import { confirmDialog } from './confirm.tsx';
 import { errorDetailsText, userMessage } from './lib/apiErrors.ts';
 import { featureLabel } from './lib/featureCatalog.ts';
 import { KeyedStore } from './lib/keyedStore.ts';
-import { FOCUS_RANK, INITIAL_FOCUS_WATCH_MS, needsFocusWatch, shouldUpgradeFocus } from './lib/initialFocus.ts';
+import { FOCUS_RANK, INITIAL_FOCUS_WATCH_MS, markShellFocus, needsFocusWatch, shouldUpgradeFocus } from './lib/initialFocus.ts';
 import { isAllowed, screenIndex } from './lib/menu.ts';
 import { createRootStack, makeEntry, mountedKeys, MAX_MOUNTED, ResultBroker, ROOT_SCREEN, topFullIndex, transition } from './lib/navStack.ts';
 import type { NavAction, NavEntry, NavParams } from './lib/navStack.ts';
@@ -546,7 +546,10 @@ function bestFocusCandidate(container: HTMLElement, includeFallbacks: boolean): 
 /** Focus the best candidate now; returns what was focused. */
 function focusFirst(container: HTMLElement): FocusPick | null {
   const pick = bestFocusCandidate(container, true);
-  pick?.el.focus();
+  if (pick) {
+    markShellFocus(pick.el);
+    pick.el.focus();
+  }
   return pick;
 }
 
@@ -571,6 +574,7 @@ function watchInitialFocus(container: HTMLElement, first: FocusPick): () => void
     }
     const next = bestFocusCandidate(container, false);
     if (next && shouldUpgradeFocus({ rank: current.rank, stillFocused }, next.rank)) {
+      markShellFocus(next.el);
       next.el.focus();
       current = next;
       if (!needsFocusWatch(next.rank)) stop();

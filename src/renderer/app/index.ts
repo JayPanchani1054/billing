@@ -75,3 +75,4 @@ export { FEATURE_CATALOG, featureInfo, featureLabel } from './lib/featureCatalog
 
 // Keyboard map
 export { GLOBAL_SHORTCUTS, reservedGlobalKeys } from './lib/shortcuts.ts';
+export { isShellFocus } from './lib/initialFocus.ts';

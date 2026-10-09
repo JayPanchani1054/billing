@@ -45,9 +45,10 @@ export function loadAnchorKeyForWorker(
   userDataDir: string,
   safe: SafeStorageLike,
   log: (level: 'debug' | 'info' | 'warn' | 'error', message: string, meta?: unknown) => void,
+  platform: NodeJS.Platform = process.platform,
 ): Uint8Array | undefined {
   try {
-    const { key, ephemeral } = loadAnchorKey({ dir: userDataDir, log, sealer: safeStorageSealer(safe) });
+    const { key, ephemeral } = loadAnchorKey({ dir: userDataDir, log, sealer: safeStorageSealer(safe, platform) });
     return ephemeral ? undefined : new Uint8Array(key);
   } catch (err) {
     log('warn', 'Could not load the edit-log anchor key; the core will manage it', { error: err instanceof Error ? err.message : String(err) });
