@@ -10,7 +10,7 @@ import { cx } from '../ui/lib/cx.ts';
 import { useVoucherChoices } from './hooks/useVoucherChoices.ts';
 import { getGotoProviders, onGotoProvidersChange, pushRecent, rankGoto, resolveGotoTarget, searchProviders, usableProviders } from './lib/goto.ts';
 import type { GotoItem, GotoProvider, RankedGoto } from './lib/goto.ts';
-import { buildStaticGotoItems, parseRecent } from './lib/gotoItems.ts';
+import { buildStaticGotoItems, parseRecent, usableRecents } from './lib/gotoItems.ts';
 import { customVoucherGotoItems, parseVoucherCommand } from './lib/voucherTypes.ts';
 import { useModules, useNav } from './nav.tsx';
 import { useShell, VOUCHER_ENTRY_SCREEN } from './shell.tsx';
@@ -87,6 +87,17 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
     );
   }, [modules, app.can, app.company, nav, shell, voucherTypes]);
 
+  // Recents are kept per company (not per user): show only those THIS user can open now.
+  const shownRecent = useMemo(
+    () =>
+      usableRecents(recent, {
+        canOpen: nav.canOpen,
+        voucherAvailable: (b) => shell.voucherAvailability(b).ok,
+        voucherTypeIds: new Set(voucherTypes.flatMap((t) => (t.voucherTypeId === undefined ? [] : [t.voucherTypeId]))),
+      }),
+    [recent, nav, shell, voucherTypes, app.can, app.company],
+  );
+
   // Only providers whose results this user may open (no forbidden or pointless API calls).
   const usable = useMemo(() => usableProviders(providers, nav.canOpen), [providers, nav, app.can, app.company]);
 
@@ -113,13 +124,13 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
   const ranked = useMemo<RankedGoto[]>(() => {
     const q = query.trim();
     if (!q) {
-      const recentIds = new Set(recent.map((r) => r.id));
-      const recents = recent.map((item) => ({ item: { ...item, group: 'Recent' }, score: 0, ranges: [] }));
+      const recentIds = new Set(shownRecent.map((r) => r.id));
+      const recents = shownRecent.map((item) => ({ item: { ...item, group: 'Recent' }, score: 0, ranges: [] }));
       return [...recents, ...rankGoto(staticItems.filter((i) => !recentIds.has(i.id)), '', [], 60)];
     }
     const all = [...staticItems, ...asyncItems.filter((a) => !staticItems.some((s) => s.id === a.id))];
-    return rankGoto(all, q, recent.map((r) => r.id), 40);
-  }, [query, staticItems, asyncItems, recent]);
+    return rankGoto(all, q, shownRecent.map((r) => r.id), 40);
+  }, [query, staticItems, asyncItems, shownRecent]);
 
   // Group in rank order: a group's position is that of its best item.
   const rows = useMemo<Row[]>(() => {

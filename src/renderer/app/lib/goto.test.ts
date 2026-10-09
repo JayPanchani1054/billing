@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { getGotoProviders, pushRecent, rankGoto, registerGotoProvider, resolveGotoTarget, searchProviders, subsequenceMatch, uniqueById, usableProviders } from './goto.ts';
 import type { GotoItem } from './goto.ts';
-import { buildStaticGotoItems, parseRecent, voucherCommands } from './gotoItems.ts';
+import { buildStaticGotoItems, parseRecent, usableRecents, voucherCommands } from './gotoItems.ts';
 import type { ModuleDef } from '../registry.ts';
 
 const item = (label: string, extra: Partial<GotoItem> = {}): GotoItem => ({ id: label, label, group: 'Screens', screen: label, ...extra });
@@ -204,5 +204,27 @@ describe('Go To results the user can open', () => {
       { id: 'legacy', label: 'Legacy', search },
     ];
     assert.deepEqual(usableProviders(list, canOpen).map((p) => p.id), ['ledgers', 'legacy']);
+  });
+
+  test('recents (stored per company, not per user) offer only what the current user can open now', () => {
+    const recent = [
+      item('Users & Roles', { id: 'menu:security.users', screen: 'security.users' }),
+      item('Ledger Creation', { id: 'menu:ledger', screen: 'accounts.ledger.form' }),
+      item('Stock Journal', { id: 'voucher:stock_journal', screen: '', command: 'voucher:stock_journal' }),
+      item('Sales', { id: 'voucher:sales', screen: '', command: 'voucher:sales' }),
+      item('Sales - Export', { id: 'voucher-type:40', screen: '', command: 'voucher-type:sales:40' }),
+      item('Sales - Old series', { id: 'voucher-type:41', screen: '', command: 'voucher-type:sales:41' }),
+      item('Broken', { id: 'x', screen: '', command: 'voucher-type:sales:abc' }),
+      item('Change working date', { id: 'cmd:date', screen: '', command: 'date' }),
+      item('Other vouchers', { id: 'cmd:vouchers', screen: '', command: 'vouchers' }),
+    ];
+    const shown = usableRecents(recent, { canOpen, voucherAvailable: (b) => b !== 'stock_journal', voucherTypeIds: new Set([40]) });
+    assert.deepEqual(
+      shown.map((r) => r.id),
+      ['menu:ledger', 'voucher:sales', 'voucher-type:40', 'cmd:date', 'cmd:vouchers'],
+    );
+    // Without vouchers.create no voucher recent is offered; unknown custom types are not offered.
+    const auditor = usableRecents(recent, { canOpen: () => true, voucherAvailable: () => false, voucherTypeIds: null });
+    assert.deepEqual(auditor.map((r) => r.id), ['menu:security.users', 'menu:ledger', 'cmd:date', 'cmd:vouchers']);
   });
 });

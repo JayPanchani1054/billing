@@ -99,7 +99,11 @@ Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersio
   cannot replace a company — checked against the manifest first and again against the company inside the
   extracted data (the manifest is plain JSON, so a forged manifest cannot smuggle another company's data
   over this one). `restoreFromFile` / `verifyFile` / `inspectFile` are for the Company Select
-  screen and refuse to run while a company is open.
+  screen and refuse to run while a company is open. The F12 backup folder inside the backup is not
+  trusted: it is kept only when it lies in the data folder, was picked in a dialog this session, contains
+  the backup file being restored (local folders only) or is the replaced company's own folder; otherwise
+  it is cleared (automatic backups go to the default folder until a folder is picked again in F12) and the
+  `restore` entry records it as `backupFolderNotKept` (docs/SECURITY.md §3.5).
 
 ## Export
 

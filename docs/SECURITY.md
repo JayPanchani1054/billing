@@ -116,6 +116,12 @@ added to `connect-src` and `'unsafe-inline'` to `script-src` (React Fast Refresh
   in a native dialog this session (`authorizePath` → `user-choices.ts`). UNC (`\\server\share`) and
   device (`\\?\`, `\\.\`) paths are refused unless picked — a remote share would leak the user's NTLM
   hash and ship the books off the machine. Anything else gets `FORBIDDEN`.
+- The F12 backup folder stored **inside a restored backup** is untrusted too (a crafted backup could
+  name `\\attacker\share`, and automatic backups would then copy the books there after every login).
+  A restore keeps it only when it lies in the data folder, was picked in a dialog this session, is the
+  folder the backup file itself was chosen from (local folders only), or is the folder of the company
+  being replaced; otherwise it is cleared and the restore's edit-log entry names the folder dropped
+  (`backupFolderNotKept`).
 
 ### 3.6 Printing and PDF — `src/main/print.ts`
 

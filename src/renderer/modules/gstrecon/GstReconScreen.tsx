@@ -249,7 +249,7 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
   };
 
   const printRows = async (): Promise<void> => {
-    if (rows.length === 0) return;
+    if (rows.length === 0 || !canExport) return; // printing is export: data.export (checked again by the core)
     const filter = statusFilterOptions(source, resultsQ.data?.counts ?? {}).find((o) => o.value === status)?.label ?? '';
     const def = resultsExport(rows, source, periodLabel(period), `${filter}${supplier ? ` · ${supplier}` : ''}`);
     try {
@@ -343,7 +343,7 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
       hint: canExport ? 'Workbook with the summary, every status and the supplier-wise sheet' : 'You need the "Export data" permission',
       group: 'output',
     },
-    { key: 'Alt+P', label: 'Print rows', icon: 'print', onClick: () => void printRows(), disabled: rows.length === 0, hidden: !reconTab, group: 'output' },
+    { key: 'Alt+P', label: 'Print rows', icon: 'print', onClick: () => void printRows(), disabled: rows.length === 0 || !canExport, hidden: !reconTab, group: 'output', hint: canExport ? undefined : 'You need the "Export data" permission' },
   ];
 
   const statusOptions = useMemo(

@@ -327,7 +327,7 @@ function EditLogView({ params }: { params: Params }) {
   };
 
   const print = async () => {
-    if (rows.length === 0) return;
+    if (rows.length === 0 || !exporter.canExport) return; // printing is export: data.export (checked again by the core)
     const first = (filters.page - 1) * filters.pageSize + 1;
     try {
       await printReport({
@@ -369,7 +369,7 @@ function EditLogView({ params }: { params: Params }) {
       hint: exporter.canExport ? 'Excel or CSV of every matching entry.' : 'You need the “Export data” permission.',
       group: 'output',
     },
-    { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => void print(), disabled: rows.length === 0, hint: 'Prints the entries on this page.', group: 'output' },
+    { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => void print(), disabled: rows.length === 0 || !exporter.canExport, hint: exporter.canExport ? 'Prints the entries on this page.' : 'You need the “Export data” permission.', group: 'output' },
   ]);
 
   const columns = useMemo<Column<AuditListRow>[]>(

@@ -573,6 +573,81 @@ describe('backup paths: only what the user picked in a dialog (main’s authoriz
     assert.equal((await call<BackupVerifyResult>('data.backup.verifyFile', { path: copy })).ok, true);
     assert.equal((await call<BackupVerifyResult>('data.backup.verifyFile', { path: own.path })).ok, true, 'data folder');
   });
+
+  it('a restored backup cannot bring its own F12 backup folder: cleared unless this installation vouches for it', async () => {
+    type Cfg = { backup: { folder: string | null } };
+    const opened = await call<OpenResult>('app.company.create', { name: 'Leak Co', stateCode: '27', gstRegistrationType: 'regular', gstin: makeGstin('27'), booksFrom: '2026-04-01' });
+    const sourceId = opened.company?.id as string;
+    // A backup whose F12 folder is somewhere the restoring user never chose (in real life: a crafted
+    // file naming \\attacker\share — automatic backups after every login would then copy the books there).
+    const attacker = path.join(root, 'attacker-share');
+    fs.mkdirSync(attacker);
+    chosenFolders.add(attacker);
+    await call('company.config.save', { backup: { folder: attacker } });
+    const crafted = await call<BackupCreateResult>('data.backup.create', { folder: path.join(root, 'data', 'backups', 'outbox') });
+    // A second backup, kept in a folder the user picked and configured.
+    const picked = path.join(root, 'picked');
+    fs.mkdirSync(picked);
+    chosenFolders.add(picked);
+    await call('company.config.save', { backup: { folder: picked } });
+    const own = await call<BackupCreateResult>('data.backup.create', {});
+    assert.equal(path.dirname(own.path), picked);
+    const ownElsewhere = await call<BackupCreateResult>('data.backup.create', { folder: path.join(root, 'data', 'backups', 'outbox2') });
+    await call('app.company.close');
+    chosenFolders.clear(); // a later session: nothing picked yet
+
+    const restoredFolder = async (backupPath: string): Promise<{ folder: string | null; notKept: unknown }> => {
+      const res = await call<BackupRestoreResult>('data.backup.restoreFromFile', { path: backupPath, mode: 'new' });
+      const db = new Db(path.join(root, 'data', 'companies', res.company.id, 'company.db'), { readOnly: true });
+      try {
+        const cfg = JSON.parse(db.value<string>(`SELECT value FROM settings WHERE key = 'config'`) ?? '{}') as Cfg;
+        const entry = db.get<{ after_json: string }>(`SELECT after_json FROM audit_log WHERE action = 'restore' ORDER BY id DESC LIMIT 1`);
+        assert.equal(verifyAuditChain(db).ok, true);
+        return { folder: cfg.backup.folder, notKept: (JSON.parse(entry?.after_json ?? '{}') as { backupFolderNotKept?: unknown }).backupFolderNotKept };
+      } finally {
+        db.close();
+      }
+    };
+
+    // Not vouched for: cleared, and the edit log says which folder was dropped.
+    const r1 = await restoredFolder(crafted.path);
+    assert.equal(r1.folder, null);
+    assert.equal(r1.notKept, attacker);
+    // Restored from inside its own configured folder (picked in the file dialog): kept.
+    chosenFiles.add(own.path);
+    const r2 = await restoredFolder(own.path);
+    assert.equal(r2.folder, picked);
+    assert.equal(r2.notKept, undefined);
+    // A folder picked in the dialog this session is kept too.
+    chosenFolders.add(attacker);
+    assert.equal((await restoredFolder(crafted.path)).folder, attacker);
+    chosenFolders.clear();
+
+    // Replacing a company keeps the folder that company already used.
+    const r3 = await call<BackupRestoreResult>('data.backup.restoreFromFile', { path: crafted.path, mode: 'replace', replaceId: sourceId });
+    assert.ok(r3.replacedTo);
+    const db = new Db(path.join(root, 'data', 'companies', sourceId, 'company.db'), { readOnly: true });
+    try {
+      // The replaced company's own F12 folder was `picked`, not the backup's `attacker`.
+      assert.equal((JSON.parse(db.value<string>(`SELECT value FROM settings WHERE key = 'config'`) ?? '{}') as Cfg).backup.folder, null);
+    } finally {
+      db.close();
+    }
+    // Now the company's folder is the default one; a backup naming `picked` over a company that uses
+    // `picked` keeps it (restored from the data folder, nothing picked this session).
+    await call('app.company.open', { id: sourceId });
+    chosenFolders.add(picked);
+    await call('company.config.save', { backup: { folder: picked } });
+    await call('app.company.close');
+    chosenFolders.clear();
+    await call('data.backup.restoreFromFile', { path: ownElsewhere.path, mode: 'replace', replaceId: sourceId });
+    const db2 = new Db(path.join(root, 'data', 'companies', sourceId, 'company.db'), { readOnly: true });
+    try {
+      assert.equal((JSON.parse(db2.value<string>(`SELECT value FROM settings WHERE key = 'config'`) ?? '{}') as Cfg).backup.folder, picked);
+    } finally {
+      db2.close();
+    }
+  });
 });
 
 // ───────────────────────────── Untrusted backup contents ─────────────────────────────

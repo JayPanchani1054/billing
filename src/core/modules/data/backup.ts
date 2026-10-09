@@ -46,8 +46,8 @@ import { auditHead } from '../../lib/auditAnchor.ts';
 import { randomToken } from '../../lib/crypto.ts';
 import { AppError, notFound, validation } from '../../lib/errors.ts';
 import { ensureDir, exists, probeWritable } from '../../lib/fsutil.ts';
-import { authorizeUserPath } from '../../lib/paths.ts';
-import { getConfig } from '../company/service.ts';
+import { authorizeUserPath, isUncOrDevicePath, isWithin } from '../../lib/paths.ts';
+import { getConfig, readSetting, writeSetting } from '../company/service.ts';
 import { localStamp, safeFileNamePart } from './common.ts';
 import { BackupFileError, checkPayloadDigest, extractPayload, readContainerInfo, writeContainer, type ContainerInfo } from './container.ts';
 
@@ -618,6 +618,37 @@ async function assertOwnerForReplace(dbPath: string, input: BackupRestoreInput, 
   }
 }
 
+/**
+ * The F12 backup folder stored INSIDE a backup file is untrusted: a crafted backup could name a remote
+ * share (\\host\share) or any other folder, and automatic backups (data.backup.auto, run after every
+ * login) and the folder's "trusted root" status would then keep copying the books there — the hole
+ * company.config.save closes for the renderer. A restore keeps the folder only when this installation
+ * vouches for it: it lies in the data folder, the user picked it in a dialog this session, or (local
+ * folders only) the backup being restored was itself chosen from inside it, or it is the folder the
+ * replaced company already used. Otherwise it is cleared
+ * (automatic backups go to the default folder until the user picks a folder in F12 again) and the
+ * folder dropped is returned, for the restore's edit-log entry. `db` is the extracted, writable copy.
+ */
+function dropUntrustedBackupFolder(app: AppRuntime, db: Db, restoredFile: string, trusted: string | null, now: Date): string | null {
+  const stored = readSetting(db, 'config');
+  if (!stored || typeof stored !== 'object') return null;
+  const backup = (stored as { backup?: unknown }).backup;
+  if (!backup || typeof backup !== 'object') return null;
+  const folder = (backup as { folder?: unknown }).folder;
+  if (folder === null || folder === undefined) return null;
+  if (typeof folder === 'string' && path.isAbsolute(folder) && !folder.includes('\0')) {
+    if (!isUncOrDevicePath(folder) && isWithin(folder, restoredFile)) return null;
+    try {
+      authorizeUserPath(app, folder, 'write-dir', { field: 'backup.folder', what: 'backup folder', trusted: [trusted] });
+      return null;
+    } catch (err) {
+      if (!(err instanceof AppError)) throw err;
+    }
+  }
+  writeSetting(db, 'config', { ...(stored as Record<string, unknown>), backup: { ...(backup as Record<string, unknown>), folder: null } }, now);
+  return typeof folder === 'string' ? folder.slice(0, 500) : String(folder).slice(0, 500);
+}
+
 export interface RestoreEnv {
   app: AppRuntime;
   clock: Clock;
@@ -652,6 +683,7 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
   assertSupportedVersion(m.schemaVersion);
 
   let replaceGuid: string | undefined;
+  let replacedBackupFolder: string | null = null;
   if (replaceDbPath && input.replaceId) {
     const target = new Db(replaceDbPath, { readOnly: true, timeoutMs: 2000 });
     let targetGuid: string | undefined;
@@ -661,6 +693,7 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
       const row = target.get<{ guid: string; name: string }>('SELECT guid, name FROM company WHERE id = 1');
       targetGuid = row?.guid;
       targetName = row?.name;
+      replacedBackupFolder = configuredBackupFolder(target);
     } finally {
       target.close();
     }
@@ -708,6 +741,8 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
     // The restored company keeps its edit log; record the restore in it (hash-chained like any entry).
     const db = new Db(extracted);
     try {
+      const droppedBackupFolder = dropUntrustedBackupFolder(env.app, db, file, replacedBackupFolder, env.clock.now());
+      if (droppedBackupFolder !== null) env.app.log('warn', 'A restored backup named a backup folder this computer has not approved; it was cleared', {});
       appendAudit(
         db,
         {
@@ -725,6 +760,7 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
             replacedCompanyId: input.mode === 'replace' ? (input.replaceId ?? null) : null,
             restoredBy: env.session ? env.session.displayName || env.session.username : null,
             restoredByApp: env.app.appVersion,
+            ...(droppedBackupFolder !== null ? { backupFolderNotKept: droppedBackupFolder } : {}),
           },
         },
         env.session,

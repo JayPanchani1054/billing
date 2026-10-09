@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { autoBackupNotice, withTimeout } from './autoBackup.ts';
 
 describe('autoBackupNotice', () => {
@@ -28,5 +31,31 @@ describe('withTimeout', () => {
     assert.equal(await withTimeout(Promise.resolve(42), 1_000), 42);
     const never = new Promise<number>(() => undefined);
     assert.equal(await withTimeout(never, 10), 'timeout');
+  });
+});
+
+/**
+ * The finding this guards: 'data.backup.auto' had no caller at all, so "Back up automatically" did
+ * nothing. The shell (React, read from source) must call it after opening and before F3 / Ctrl+Q.
+ */
+describe('shell wiring of the automatic backup', () => {
+  const shellSrc = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../shell.tsx'), 'utf8');
+  const body = (name: string): string => {
+    const start = shellSrc.indexOf(`const ${name} = useCallback(`);
+    assert.ok(start >= 0, `${name} not found in shell.tsx`);
+    return shellSrc.slice(start, shellSrc.indexOf('\n  );\n', start));
+  };
+
+  test("runs with trigger 'open' after the workspace mounts and 'close' before closing", () => {
+    assert.match(shellSrc, /api\('data\.backup\.auto', \{ trigger: 'open' \}\)/);
+    assert.match(body('backupBeforeClose'), /api\('data\.backup\.auto', \{ trigger: 'close' \}\)/);
+    assert.match(body('backupBeforeClose'), /withTimeout\(work, AUTO_BACKUP_CLOSE_WAIT_MS\)/);
+  });
+
+  test('F3 (close company) and Ctrl+Q (quit) back up first', () => {
+    const close = body('closeCompany');
+    assert.ok(close.indexOf('backupBeforeClose()') >= 0 && close.indexOf('backupBeforeClose()') < close.indexOf("api('app.company.close')"));
+    const quit = body('quit');
+    assert.ok(quit.indexOf('backupBeforeClose()') >= 0 && quit.indexOf('backupBeforeClose()') < quit.indexOf("native('app.quit'"));
   });
 });

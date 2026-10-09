@@ -4,7 +4,10 @@
  * by 'data.export.audit' BEFORE anything is printed or saved. Runs against a stubbed preload bridge.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { exportTable, printReport, savePdf } from './export.ts';
 import type { TableExportDef } from './export.ts';
 
@@ -87,5 +90,45 @@ describe('report export / print go through the core', () => {
       await assert.rejects(run(), (e: unknown) => (e as { code?: string }).code === 'FORBIDDEN');
     }
     assert.equal(calls.filter((c) => c.kind === 'native').length, 0, 'no save dialog, no PDF, no printer');
+  });
+});
+
+/**
+ * Screens that print or export through these helpers must not offer Print / Export to a user the
+ * core will refuse (FORBIDDEN after the click): their Alt+P / Alt+E actions are disabled without
+ * data.export. Business documents (reminder letters, invoices) are not report output and stay open.
+ */
+describe('screens offer report Print / Export only with data.export', () => {
+  const modulesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../modules');
+  const files = (function walk(dir: string): string[] {
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : e.name.endsWith('.tsx') ? [path.join(dir, e.name)] : []));
+  })(modulesDir);
+
+  /** `{ key: 'Alt+P', … }` action objects (balanced braces, may span lines). */
+  function outputActions(text: string): string[] {
+    const out: string[] = [];
+    for (const m of text.matchAll(/\{\s*key:\s*'Alt\+[PE]'/g)) {
+      let depth = 0;
+      let end = m.index;
+      for (; end < text.length; end++) {
+        if (text[end] === '{') depth++;
+        else if (text[end] === '}' && --depth === 0) break;
+      }
+      out.push(text.slice(m.index, end + 1));
+    }
+    return out;
+  }
+
+  test('every Alt+P / Alt+E of a screen using printReport / savePdf / exportTable is gated', () => {
+    const users = files.filter((f) => /import\s*\{[^}]*\b(printReport|savePdf|exportTable)\b[^}]*\}\s*from\s*'\.\.\/\.\.\/app\//.test(fs.readFileSync(f, 'utf8')));
+    assert.ok(users.length >= 4, `only ${users.length} screens found`);
+    const ungated: string[] = [];
+    for (const f of users) {
+      for (const a of outputActions(fs.readFileSync(f, 'utf8'))) {
+        if (/label:\s*'[^']*letter/i.test(a)) continue; // reminder letters: business documents
+        if (!/canExport|EXPORT_PERMISSION|'data\.export'/.test(a)) ungated.push(`${path.relative(modulesDir, f)}: ${a.slice(0, 80)}`);
+      }
+    }
+    assert.deepEqual(ungated, []);
   });
 });

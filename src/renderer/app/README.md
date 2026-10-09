@@ -347,7 +347,9 @@ registerGotoProvider({
 
 Register at module import time (top level of your `index.ts`) or in an effect. Failures are silent.
 The palette drops results the user cannot open (`nav.canOpen(screen)`, else `fallback`), and skips a
-provider whose `screens` are all forbidden (no API call). Built-ins (`ledgers`, `items`, `vouchers`)
+provider whose `screens` are all forbidden (no API call). Recents are stored per company, not per user,
+so they too are shown only when the current user can open them now (`usableRecents`: screen allowed,
+voucher type enterable and still active). Built-ins (`ledgers`, `items`, `vouchers`)
 call `accounts.ledger.list`, `inventory.item.picker` and `vouchers.list` with `{ search, limit }` and
 are replaced by the accounts, inventory and vouchers modules' own providers.
 

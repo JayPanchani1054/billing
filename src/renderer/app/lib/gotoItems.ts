@@ -7,7 +7,7 @@ import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { ModuleDef } from '../registry.ts';
 import type { GotoItem } from './goto.ts';
 import { collectMenu, filterMenu, isAllowed, screenIndex, SECTION_LABELS, sortMenu } from './menu.ts';
-import { voucherCommand } from './voucherTypes.ts';
+import { parseVoucherCommand, voucherCommand } from './voucherTypes.ts';
 import type { MenuContext } from './menu.ts';
 
 export const SHELL_COMMANDS: readonly GotoItem[] = [
@@ -93,4 +93,31 @@ export function parseRecent(raw: unknown): GotoItem[] {
     });
   }
   return out;
+}
+
+export interface RecentCheck {
+  /** nav.canOpen — permission, features and registration of the screen. */
+  canOpen: (screen: string) => boolean;
+  /** shell.voucherAvailability(b).ok — vouchers.create and F11 features. */
+  voucherAvailable: (baseType: VoucherBaseType) => boolean;
+  /** Company-defined voucher types offered right now (active, readable); null = not known. */
+  voucherTypeIds: ReadonlySet<number> | null;
+}
+
+/**
+ * Recents as the CURRENT user may open them. Recents are remembered per company, not per user, so
+ * an Owner's "Users & Roles" must not be offered to a Data Entry user who logs in next; nor a
+ * voucher type the company has since deactivated, or a feature turned off in F11. The stored list
+ * itself is kept (the Owner still sees their recents).
+ */
+export function usableRecents(recent: readonly GotoItem[], check: RecentCheck): GotoItem[] {
+  return recent.filter((item) => {
+    if (item.command) {
+      const v = parseVoucherCommand(item.command);
+      if (!v) return !/^voucher(-type)?:/.test(item.command); // a malformed voucher command is dropped; shell commands stay
+      if (!check.voucherAvailable(v.baseType)) return false;
+      return v.voucherTypeId === undefined || (check.voucherTypeIds !== null && check.voucherTypeIds.has(v.voucherTypeId));
+    }
+    return item.screen !== '' && check.canOpen(item.screen);
+  });
 }

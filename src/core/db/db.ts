@@ -58,7 +58,9 @@ interface ArrayRows {
 /** Plain object rows from array rows and the statement's column names (see the header). */
 function toObjects(stmt: StatementSync, rows: readonly unknown[]): Row[] {
   const names = ((stmt as unknown as ArrayRows).columns as () => Array<{ name: string }>).call(stmt).map((c) => c.name);
-  const n = names.length;
+  // Never more values than the row has (node:sqlite may report a schema change's new column count one
+  // execution before the rows carry it; exec() also drops cached statements to avoid that).
+  const n = rows.length > 0 ? Math.min(names.length, (rows[0] as SqlValue[]).length) : names.length;
   const out: Row[] = new Array(rows.length);
   if (names.includes('__proto__')) {
     // A column literally named __proto__ must stay a data property (assignment would set the prototype).
@@ -177,10 +179,25 @@ export class Db {
   /** Execute one or more statements without parameters (DDL, PRAGMA). */
   exec(sql: string): void {
     this.raw.exec(sql);
+    // DDL may change what a cached `SELECT *` returns: prepare afresh (exec is rare — DDL, PRAGMA, BEGIN).
+    this.cache.clear();
+    this.readCache.clear();
   }
 
   get inTransaction(): boolean {
     return this.depth > 0;
+  }
+
+  /**
+   * Cache key for "has the data changed?": rows written through this connection (`total_changes()`,
+   * which also counts writes later rolled back — they simply invalidate) and commits by any other
+   * connection (`PRAGMA data_version`). Null while a transaction is open (here or a raw BEGIN), so
+   * nothing computed from uncommitted data is ever cached. Read-model memos (stock valuation,
+   * dashboard) key their entries on it.
+   */
+  dataRevision(): string | null {
+    if (this.depth > 0 || this.raw.isTransaction) return null;
+    return `${this.value<number>('SELECT total_changes()') ?? 0}:${this.value<number>('PRAGMA data_version') ?? 0}`;
   }
 
   transaction<T>(fn: () => T): T {

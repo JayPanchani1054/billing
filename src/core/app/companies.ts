@@ -443,7 +443,7 @@ export class CompanyStore {
         this.log('info', 'Company installed from file', { id: p.id });
         return { paths: p, replacedTo: null };
       }
-      const trashTarget = path.join(this.trashDir, `${replace.id}--${fileTimestamp(this.clock.now())}--replaced`);
+      const trashTarget = this.freeTrashPath(`${replace.id}--${fileTimestamp(this.clock.now())}--replaced`);
       fs.renameSync(replace.dir, trashTarget);
       try {
         fs.renameSync(staging, replace.dir);
@@ -460,6 +460,16 @@ export class CompanyStore {
   }
 
   /**
+   * A not-yet-used path in the trash for `name` (a second replace / delete within the same millisecond,
+   * or after the clock went back, gets `name-2`, `name-3`, … instead of failing with ENOTEMPTY).
+   */
+  private freeTrashPath(name: string): string {
+    let target = path.join(this.trashDir, name);
+    for (let n = 2; exists(target); n++) target = path.join(this.trashDir, `${name}-${n}`);
+    return target;
+  }
+
+  /**
    * Move a company folder to <dataDir>/trash/<id>--<timestamp>. `confirmName` must equal the company
    * name. The caller is responsible for ensuring it is not open in this process.
    */
@@ -471,7 +481,7 @@ export class CompanyStore {
     const holder = lockHolder(p.dir, this.clock.now());
     if (holder) throw new AppError('LOCKED', `"${meta.name}" is open in another window. Close it there first.`);
     ensureDir(this.trashDir);
-    const target = path.join(this.trashDir, `${id}--${fileTimestamp(this.clock.now())}`);
+    const target = this.freeTrashPath(`${id}--${fileTimestamp(this.clock.now())}`);
     try {
       fs.renameSync(p.dir, target);
     } catch (err) {
