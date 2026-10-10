@@ -105,10 +105,10 @@ export const TEMPLATE_PARTS: Readonly<Record<TemplateKind, readonly PrintPartId[
   ],
   inventory: [
     'logo', 'company.name', 'company.address', 'company.gstin', 'company.pan', 'company.cin', 'company.contact',
-    'title', 'stamp',
-    'doc.number', 'doc.date', 'refs', 'ewayBill',
+    'title', 'copyLabel', 'stamp',
+    'doc.number', 'doc.date', 'refs', 'placeOfSupply', 'ewayBill',
     'party', 'party.gstin', 'party.contact', 'consignee',
-    'col.sno', 'col.description', 'col.batch', 'col.qty', 'col.unit', 'col.rate', 'col.amount',
+    'col.sno', 'col.description', 'col.hsn', 'col.batch', 'col.qty', 'col.unit', 'col.mrp', 'col.rate', 'col.discount', 'col.amount',
     'amountInWords',
     'narration', 'notes', 'signature', 'footer', 'pageNumbers',
   ],

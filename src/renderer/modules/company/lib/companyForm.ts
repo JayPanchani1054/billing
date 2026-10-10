@@ -103,7 +103,7 @@ export function applyRecommended(d: CompanyDraft, today: string, furthest = WIZA
 export function recommendedSummary(today: string): string {
   const def = defaultDraft(today);
   const fy = financialYear(def.booksFrom, def.fyStartMonth);
-  return `Financial year April to March (FY ${fy.label}, books from ${formatDate(def.booksFrom)}), stock and bill-wise dues on, password protection on. Change any of it later with F11 and F12.`;
+  return `Financial year April to March (FY ${fy.label}, books from ${formatDate(def.booksFrom)}), stock and bill-wise dues on, password protection on. Change any of it later in Settings.`;
 }
 
 /**

@@ -115,7 +115,7 @@ export const PRINT_PARTS = [
   { id: 'company.cin', group: 'header', label: 'Company CIN', layouts: ALL, kind: 'dto' },
   { id: 'company.contact', group: 'header', label: 'Phone, e-mail and website', layouts: ALL, kind: 'dto' },
   { id: 'title', group: 'header', label: 'Document title', layouts: ALL, kind: 'gate', statutory: 'title' },
-  { id: 'copyLabel', group: 'header', label: 'Copy label (Original / Duplicate …)', layouts: INV, kind: 'gate', statutory: 'copies' },
+  { id: 'copyLabel', group: 'header', label: 'Copy label (Original / Duplicate …)', layouts: INV_STOCK, kind: 'gate', statutory: 'copies' },
   { id: 'endorsement', group: 'header', label: 'Export / SEZ endorsement', layouts: INV, kind: 'dto' },
   { id: 'statutoryNotes', group: 'header', label: 'Statutory notes (reverse charge, composition)', layouts: INV, kind: 'dto', statutory: 'reverseCharge' },
   { id: 'stamp', group: 'header', label: 'CANCELLED / OPTIONAL stamp', layouts: ALL, kind: 'gate', locked: true },
@@ -123,7 +123,7 @@ export const PRINT_PARTS = [
   { id: 'doc.number', group: 'details', label: 'Document number', layouts: ALL, kind: 'gate', locked: true },
   { id: 'doc.date', group: 'details', label: 'Date', layouts: ALL, kind: 'gate', locked: true },
   { id: 'refs', group: 'details', label: 'References (order, dispatch, due date)', layouts: INV_STOCK, kind: 'dto' },
-  { id: 'placeOfSupply', group: 'details', label: 'Place of supply', layouts: INV, kind: 'dto', statutory: 'placeOfSupply' },
+  { id: 'placeOfSupply', group: 'details', label: 'Place of supply', layouts: INV_STOCK, kind: 'dto', statutory: 'placeOfSupply' },
   { id: 'ewayBill', group: 'details', label: 'E-way bill number', layouts: INV_STOCK, kind: 'dto' },
   { id: 'originalInvoice', group: 'details', label: 'Original invoice (credit / debit note)', layouts: INV, kind: 'dto', statutory: 'originalInvoice' },
   // Parties
@@ -134,13 +134,13 @@ export const PRINT_PARTS = [
   // Item columns
   { id: 'col.sno', group: 'columns', label: 'S.No.', layouts: INV_STOCK, kind: 'column' },
   { id: 'col.description', group: 'columns', label: 'Description', layouts: INV_STOCK, kind: 'column', locked: true },
-  { id: 'col.hsn', group: 'columns', label: 'HSN/SAC', layouts: INV, kind: 'column', statutory: 'hsn' },
+  { id: 'col.hsn', group: 'columns', label: 'HSN/SAC', layouts: INV_STOCK, kind: 'column', statutory: 'hsn' },
   { id: 'col.batch', group: 'columns', label: 'Batch', layouts: INV_STOCK, kind: 'column' },
   { id: 'col.qty', group: 'columns', label: 'Quantity', layouts: INV_STOCK, kind: 'column', statutory: 'quantity' },
   { id: 'col.unit', group: 'columns', label: 'Unit', layouts: INV_STOCK, kind: 'column', statutory: 'quantity' },
-  { id: 'col.mrp', group: 'columns', label: 'MRP', layouts: INV, kind: 'legacy', legacy: { company: 'showMrp', voucherType: 'showMrp' } },
+  { id: 'col.mrp', group: 'columns', label: 'MRP', layouts: INV_STOCK, kind: 'legacy', legacy: { company: 'showMrp', voucherType: 'showMrp' } },
   { id: 'col.rate', group: 'columns', label: 'Rate', layouts: INV_STOCK, kind: 'column' },
-  { id: 'col.discount', group: 'columns', label: 'Discount', layouts: INV, kind: 'column' },
+  { id: 'col.discount', group: 'columns', label: 'Discount', layouts: INV_STOCK, kind: 'column' },
   { id: 'col.taxable', group: 'columns', label: 'Taxable value', layouts: INV, kind: 'column', statutory: 'taxableValue' },
   { id: 'col.gstRate', group: 'columns', label: 'GST rate', layouts: INV, kind: 'column', statutory: 'tax' },
   { id: 'lineTax', group: 'columns', label: 'Tax amount on each line', layouts: INV, kind: 'legacy', legacy: { company: 'itemwiseTax', voucherType: 'itemwiseTax' } },
@@ -729,8 +729,9 @@ export function layoutWarnings(doc: PrintVoucherData, layout: ResolvedPrintLayou
     warn('delivery', family, family === '55' ? 'the consignee (ship-to)' : 'the delivery address (ship-to)', family === '46' ? `${onDoc} when goods go to another address` : onDoc);
   }
 
-  // HSN / SAC: the column and the summary both off.
-  const hsnSummaryOff = !doc.options.showHsnSummary || doc.layout !== 'invoice' || doc.taxByHsn.length === 0;
+  // HSN / SAC: the column and the summary both off. The summary prints inside the "Tax summary" part
+  // (Modern's tax summary table, Classic's HSN table), so hiding that part hides the summary too.
+  const hsnSummaryOff = !doc.options.showHsnSummary || hidden('taxSummary') || doc.layout !== 'invoice' || doc.taxByHsn.length === 0;
   if (doc.lines.some((l) => !!l.hsnSac) && hidden('col.hsn') && hsnSummaryOff) warn('hsn', family, 'the HSN/SAC codes', onDoc);
 
   // Quantity and unit of goods.

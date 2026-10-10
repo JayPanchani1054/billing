@@ -207,7 +207,9 @@ export function numberGaps(db: Db, input: NumberGapsInput): NumberGapsResult {
   if (keysInOrder.length > 0) {
     const lastKey = keysInOrder[keysInOrder.length - 1];
     const seqs = byPeriod.get(lastKey) as Map<number, { number: string | null; date: string }>;
-    const hi = Math.max(...seqs.keys());
+    // A loop, not Math.max(...keys): a busy year (> ~125,000 numbers) overflows V8's argument stack.
+    let hi = -Infinity;
+    for (const seq of seqs.keys()) if (seq > hi) hi = seq;
     last = { seq: hi, key: lastKey, number: seqs.get(hi)?.number ?? null };
   }
   const missing: string[] = [];

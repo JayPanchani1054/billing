@@ -459,7 +459,8 @@ registers keys, so `prominent` changes only what is visible. Write `prominent` (
 The 1.0 right rail survives as the optional **shortcut bar** (user menu › *Show shortcut bar*).
 
 **Ctrl+S** is an alias of **Ctrl+A** in the hotkey layer (`ui/lib/hotkeyRegistry.ts`): never bind Ctrl+S
-in a screen; binding Ctrl+A is enough.
+in a screen; binding Ctrl+A is enough. The one exception is the kit's Yes/No `ConfirmDialog`, which takes
+Ctrl+S and does nothing (`ui/lib/confirmKeys.ts`): a save reflex must never confirm "Discard changes".
 
 ### Screen conventions
 

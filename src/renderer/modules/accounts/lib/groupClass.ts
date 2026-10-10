@@ -102,6 +102,17 @@ export function groupIsUnder(index: GroupIndex, groupId: number | null | undefin
   return groupId !== null && groupId !== undefined && index.codes(groupId).has(code);
 }
 
+/**
+ * Ledger Creation's subtitle in plain words: "Create ▾ › Customer" (and Get started) open the form
+ * under Sundry Debtors, so it says that this is the customer and where their dues will show; any other
+ * group keeps the general sentence.
+ */
+export function ledgerCreateSubtitle(cls: Pick<LedgerClass, 'isDebtor' | 'isCreditor'> | null): string {
+  if (cls?.isDebtor) return 'A new customer — kept as a ledger under Sundry Debtors; what they owe you shows in Receivables.';
+  if (cls?.isCreditor) return 'A new supplier — kept as a ledger under Sundry Creditors; what you owe them shows in Payables.';
+  return 'A ledger is an account: a customer, supplier, bank, expense, income or tax head.';
+}
+
 export const NATURE_LABELS: Readonly<Record<GroupNature, string>> = {
   assets: 'Assets',
   liabilities: 'Liabilities',

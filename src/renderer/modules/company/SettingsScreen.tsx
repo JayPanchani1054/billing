@@ -16,7 +16,7 @@ import { native, Screen, useAppState, useCompany, useCompanyConfig, useNav, useS
 import type { ScreenProps } from '../../app/index.ts';
 import { AppearancePanel } from '../../app/AppearancePanel.tsx';
 import { Button, Card, EmptyState, Icon, Kbd, Stack, TextInput, useRovingFocus } from '../../ui/index.ts';
-import { searchSettings, SETTINGS_INDEX, settingStatus, visibleSettings } from './lib/settingsIndex.ts';
+import { searchSettings, searchTopics, SETTINGS_INDEX, settingStatus, visibleSettings } from './lib/settingsIndex.ts';
 import type { SettingsCategory, SettingsCategoryId, SettingsFacts, SettingsRow } from './lib/settingsIndex.ts';
 
 export interface SettingsParams {
@@ -32,13 +32,15 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
   const dataDir = useAppState().state?.dataDir ?? '';
   const secured = session !== null && !session.implicit;
   const categories = useMemo(
-    () => visibleSettings(SETTINGS_INDEX, { canOpen: (id) => nav.isRegistered(id) && nav.canOpen(id), gstEnabled: company.gstEnabled, secured }),
-    [nav, company.gstEnabled, company.features, secured],
+    () => visibleSettings(SETTINGS_INDEX, { canOpen: (id) => nav.isRegistered(id) && nav.canOpen(id), gstEnabled: company.gstEnabled, secured, gstRegistration: company.gstRegistration ?? null }),
+    [nav, company.gstEnabled, company.gstRegistration, company.features, secured],
   );
   const [picked, setPicked] = useState<SettingsCategoryId | undefined>(params?.category);
   const current = categories.find((c) => c.id === picked) ?? categories[0];
   const [query, setQuery] = useState('');
   const matches = useMemo(() => searchSettings(categories, query), [categories, query]);
+  // Topics whose content is on the hub itself (Appearance, the data folder): "dark", "theme" find them.
+  const topicMatches = useMemo(() => searchTopics(categories, query), [categories, query]);
   const searching = query.trim() !== '';
   const facts: SettingsFacts = { companyName: company.name, gstin: company.gstin, features: company.features, config };
 
@@ -55,6 +57,11 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
   const rows = useRovingFocus(rowsRef, { orientation: 'vertical' });
 
   const open = (row: SettingsRow) => nav.push(row.screen, row.params ?? {});
+  /** A topic found by the search: show it (the search is cleared). */
+  const showTopic = (c: SettingsCategory) => {
+    setPicked(c.id);
+    setQuery('');
+  };
   const focusRows = () => rows.focusItem(0);
   const focusCats = () => {
     const items = cats.getItems();
@@ -70,6 +77,9 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
     } else if (e.key === 'Enter' && searching && matches[0]) {
       e.preventDefault();
       open(matches[0].row);
+    } else if (e.key === 'Enter' && searching && topicMatches[0]) {
+      e.preventDefault();
+      showTopic(topicMatches[0]);
     }
   };
   // "Type to search" holds in the lists too: a printable key continues in the search box.
@@ -154,7 +164,7 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
         </Stack>
 
         <Card headingLevel={2} padding="sm" title={searching ? `Results for “${query.trim()}”` : (current?.title ?? 'Settings')} subtitle={searching ? undefined : current?.description}>
-          {searching && matches.length === 0 ? (
+          {searching && matches.length === 0 && topicMatches.length === 0 ? (
             <EmptyState
               icon="search"
               title={`No results for “${query.trim()}”`}
@@ -170,8 +180,21 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
                 </Button>
               }
             />
-          ) : shownRows.length > 0 ? (
+          ) : shownRows.length > 0 || (searching && topicMatches.length > 0) ? (
             <ul ref={rowsRef} className="bx-settings__list" aria-label={searching ? 'Matching settings' : `${current?.title ?? ''} settings`} onKeyDown={onRowsKey} onFocus={rows.onFocus}>
+              {searching
+                ? topicMatches.map((c) => (
+                    <li key={`topic:${c.id}`}>
+                      <button type="button" className="bx-settings__item bx-settings__row" data-roving-item="" data-topic={c.id} onClick={() => showTopic(c)}>
+                        <span className="bx-settings__text">
+                          <span className="bx-settings__title">{c.title}</span>
+                          <span className="bx-settings__note">{c.description}</span>
+                        </span>
+                        <Icon name="chevron-right" size="sm" />
+                      </button>
+                    </li>
+                  ))
+                : null}
               {shownRows.map(({ row, category }) => {
                 const status = settingStatus(row.id, facts);
                 return (

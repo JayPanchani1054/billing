@@ -99,6 +99,34 @@ describe('template part and text lists', () => {
     }
   });
 
+  it('(V3) a delivery challan lists every part its template prints and every particular the GST guard can warn about', () => {
+    // The stock-document templates print HSN, MRP and discount columns, the copy marking (Rule 55: original
+    // for consignee …) and the place of supply. Without a switch, a hide saved from an invoice ("for all
+    // documents") silently removed them from challans too, with a Rule 55 warning and no way to undo it here.
+    const d = sampleDoc();
+    const dc = sampleDoc({
+      layout: 'inventory',
+      kind: 'delivery_challan',
+      baseType: 'delivery_note',
+      title: 'Delivery Challan',
+      partyLabel: 'Consignee (Ship to)',
+      placeOfSupply: { code: '29', name: 'Karnataka', label: '29-Karnataka' },
+      gst: { showTax: false, taxMode: 'none', interState: true, sgstLabel: 'SGST', nature: null },
+      lines: [line({ mrp: 6000 }), line({ sl: 2, name: 'Mixer', hsnSac: '8509', qty: 2, rate: 150, discountPct: 10, discount: 3000, amount: 27000, taxableValue: 27000 })],
+      mrpSummary: { show: true, mrpValue: 60000, savings: 0 },
+      declaration: null,
+      options: { ...d.options, showMrp: true },
+    });
+    for (const template of ['modern', 'classic', 'compact'] as const) {
+      const listed = supportedParts(dc, template).map((p) => p.id);
+      for (const id of ['col.hsn', 'col.discount', 'col.mrp', 'copyLabel', 'placeOfSupply'] as const) assert.ok(listed.includes(id), `${template}: ${id} prints on a challan but has no switch`);
+      for (const def of PRINT_PARTS) {
+        if (layoutWarnings(dc, resolvePrintLayout(layer({ hide: [def.id] }))).length > 0) assert.ok(listed.includes(def.id), `${template}: hiding ${def.id} is warned about but cannot be undone here`);
+      }
+      assert.equal(partHasData(dc, 'col.hsn', { template, pageSize: template === 'compact' ? '80mm' : 'A4' }), true, template);
+    }
+  });
+
   it('page numbers: sheets only; locked parts are listed where they print', () => {
     for (const kind of ['modern', 'classic', 'inventory', 'voucher'] as const) assert.ok(TEMPLATE_PARTS[kind].includes('pageNumbers'), kind);
     assert.equal(TEMPLATE_PARTS.compact.includes('pageNumbers'), false, 'a roll has no page numbers');

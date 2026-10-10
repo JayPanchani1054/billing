@@ -150,6 +150,17 @@ test('Settings hub (⚙): topics, search, and Invoice numbering opens its screen
   // Appearance is inline (per user): the Home view switch is there.
   await topics.getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(hub.getByRole('radiogroup', { name: 'Home view' })).toBeVisible();
+
+  // V7: topic names keep no trace of features that are off (TDS / TCS and cheque printing are off on a
+  // recommended company), and the search finds the inline Appearance topic ("dark").
+  await expect(topics.getByRole('button', { name: 'GST', exact: true })).toBeVisible();
+  await expect(topics.getByRole('button', { name: 'Banking', exact: true })).toBeVisible();
+  await expect(topics.getByRole('button', { name: 'GST & TDS', exact: true })).toHaveCount(0);
+  await topics.getByRole('button', { name: 'Business', exact: true }).click();
+  await search.fill('dark');
+  await hub.getByRole('list', { name: 'Matching settings' }).getByRole('button', { name: /^Appearance/ }).click();
+  await expect(search).toHaveValue('');
+  await expect(hub.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
   await toGateway(page);
   expect(pageErrors).toEqual([]);
 });

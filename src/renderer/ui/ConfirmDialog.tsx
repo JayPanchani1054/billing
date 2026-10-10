@@ -6,6 +6,7 @@ import { Modal } from './Modal.tsx';
 import { TextInput } from './TextInput.tsx';
 import { useHotkeys } from './hooks/useHotkeys.ts';
 import { HotkeyScope } from './HotkeyScope.tsx';
+import { confirmHotkeys } from './lib/confirmKeys.ts';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -27,7 +28,8 @@ export interface ConfirmDialogProps {
 
 /**
  * Yes/No confirmation. Keyboard: Enter on the focused button, Ctrl+A / Y confirms, N / Esc cancels
- * (keyboard-first). Errors thrown by onConfirm are shown inline and the dialog stays open.
+ * (keyboard-first); Ctrl+S does nothing here (it means "save", not "yes"). Errors thrown by onConfirm
+ * are shown inline and the dialog stays open.
  */
 export function ConfirmDialog({
   open,
@@ -181,6 +183,7 @@ function ConfirmImpl({
 }
 
 function ConfirmKeys({ onYes, onNo, typing }: { onYes: () => boolean; onNo: () => void; typing: boolean }) {
-  useHotkeys({ 'Ctrl+A': onYes, y: typing ? undefined : onYes, n: typing ? undefined : onNo }, [typing]);
+  // Ctrl+S (the save alias of Ctrl+A) never answers a confirmation (lib/confirmKeys.ts).
+  useHotkeys(confirmHotkeys({ onYes, onNo, typing }), [typing]);
   return null;
 }

@@ -138,7 +138,8 @@ the dashboard gets a short greeting instead.
   theme (match Windows, light, dark), density (comfortable / compact), the Home view, *Show shortcut
   bar*, *Appearance…* (all four in one panel), *About Pevqori* and — for a password-protected company —
   *Change password*, *Lock* and *Log out*.
-- **Ctrl+S** saves wherever **Ctrl+A** accepts or saves (forms, voucher entry, dialogs).
+- **Ctrl+S** saves wherever **Ctrl+A** accepts or saves (forms, voucher entry, dialogs). It never answers
+  a question such as "Discard unsaved changes?" or "Delete …?" — answer those with **Y** / **N** (or Ctrl+A / Esc).
 
 ## 2. Company, features (F11) and configuration (F12)
 
@@ -153,8 +154,8 @@ folder chosen*…). Choosing a setting opens its usual screen; **Esc** brings yo
 |---|---|
 | Business | Company details · Features (**F11**) · Configuration (**F12**) |
 | Invoices & printing | Invoice printing · Invoice numbering · Voucher types (every option, for experts) |
-| GST & TDS | GST settings (the GST tab of F12) · TDS / TCS setup |
-| Banking & cheques | Cheque printing settings · Cheque books · Payee bank details |
+| GST & TDS | GST settings (the GST tab of F12) · Composition rates (composition dealers) · TDS / TCS setup |
+| Banking & cheques | Cheque printing settings · Cheque books · Payee bank details · Cheque layouts |
 | Users & security | Users & roles · Security settings · Lock books · Change password |
 | Data & backup | Backup · Automatic backups · Restore a backup · Import from Excel · XML data import · Export data · XML data export · the data folder (*Show in folder*) |
 | Modules | POS settings · Multi-currency settings |
@@ -162,9 +163,11 @@ folder chosen*…). Choosing a setting opens its usual screen; **Esc** brings yo
 | About & updates | About Pevqori and updates |
 
 You only see what you may open: a setting of a feature that is off (F11), or one your role does not
-allow, is not listed, and a topic with nothing left disappears. The search box at the top has the focus
-when Settings opens (**Ctrl+F** returns to it): type a word — *logo*, *prefix*, *password*, *backup* —
-to list the matching settings of every topic, **↓** to move into the list and **Enter** to open one.
+allow, is not listed, and a topic with nothing left disappears — its name, too, only names what is
+left (with TDS / TCS and cheque printing off the topics read *GST* and *Banking*). The search box at the
+top has the focus when Settings opens (**Ctrl+F** returns to it): type a word — *logo*, *prefix*,
+*password*, *backup*, *dark* — to list the matching settings of every topic (and the Appearance topic or
+the data folder line), **↓** to move into the list and **Enter** to open one.
 In the topic list **↑ ↓** choose a topic and **→** (or **Enter**) moves to its settings; **←** goes back.
 Typing a letter while a list has the focus continues in the search box.
 
@@ -248,7 +251,7 @@ Get started* brings it back).
 
 ## 3. Masters
 
-Masters are created from the Gateway (*Masters* section), from Go To, or from inside any picker with
+Masters are created from Home (*Masters* in All menus, or *Create Ledger* / *Create Stock Item* in Essentials), from Go To, or from inside any picker with
 **Alt+C** — type a name that does not exist yet in a ledger or item field and press Alt+C to create it on
 the spot; it is then selected for you.
 
@@ -401,7 +404,7 @@ entering a voucher. **Alt+H** shows the edit history of the highlighted series.
 | **Ctrl+F10** | Memorandum | A provisional entry that never touches the books |
 | **F10** | Other vouchers… | Picks any other type: Reversing Journal, Quotation, Proforma Invoice, Manufacturing Journal, Material In / Out, POS Sales and your own types |
 
-The same voucher types are in *Transactions* on the Gateway (for example *Transactions › **Sales***).
+The same voucher types are in *Transactions* in Home's All menus (for example *Transactions › **Sales***).
 A key whose feature is off tells you which F11 switch to turn on. While entering a voucher you can press
 another voucher key (or F10) to switch type; the date is kept.
 
@@ -810,7 +813,7 @@ tools have no limit. Goods not back in time are treated as **supplied by you on 
 — GST is payable with interest.
 
 *Inventory Reports › **Pending Job Work*** lists every challan still (partly) with a job worker, its
-return-by date and status (*Overdue*, *Due in n days*, *No time limit*); the Gateway and the dashboard warn
+return-by date and status (*Overdue*, *Due in n days*, *No time limit*); Home and the dashboard warn
 you about overdue and soon-due goods. If the Commissioner has extended the time, enter the new date in the
 challan line's *Return extended to* field. Ctrl+2 shows principals' goods lying with you.
 
@@ -841,7 +844,7 @@ principal's godown asks you to confirm first, because that stock is never valued
 
 ## 6. GST
 
-Everything here needs *F11 › Taxation › **GST*** and lives under **GST** on the Gateway. Reading needs
+Everything here needs *F11 › Taxation › **GST*** and lives under **GST** in Home's All menus. Reading needs
 the *View GST reports* permission; marking returns filed, posting the set-off or a challan and saving return
 files need *Prepare GST filings*. The figures come from your books — always compare them with the GST portal
 before you file, because the portal is the legal record.
@@ -863,7 +866,7 @@ before you file, because the portal is the legal record.
 
 ### 6.2 Returns and reports
 
-| Gateway item | What it is |
+| Menu item | What it is |
 |---|---|
 | *GST › **GSTR-1*** | Outward supplies for the return period (Alt+F2): tiles for tables 4A, 4B, 5, 6A, 6B, 6C, 7, 8, 9B, 11, 12 and 13, uncertain transactions with links to fix them, **Alt+J** saves the portal JSON (asking first when there are errors), **Alt+F** marks the return filed, **Alt+M** amendments, **Alt+X** GST exceptions. Enter on a tile opens its documents (Alt+← / Alt+→ moves between parts) |
 | *GST › **GSTR-3B*** | Portal-style form 3.1, 3.1.1, 3.2, 4, 5, 5.1 and 6.1 with the ITC set-off explained; *Your entries* for figures the books do not hold (ISD credit, interest, late fee, credit on the portal when the books began — **Ctrl+A** saves only the changed cells); **Alt+J** JSON, **Alt+F** mark filed, **Alt+S** GST set-off, **Alt+P** print |
@@ -1055,7 +1058,7 @@ minerals, forest produce, motor vehicles above ₹10 lakh).* Salary TDS (section
 covered — Pevqori has no payroll.
 
 **1. Turn it on.** Press **F11** and turn on *F11 › Taxation › **TDS*** and / or *F11 › Taxation ›
-**TCS***. A **TDS / TCS** section appears on the Gateway. Nothing about TDS / TCS is shown while both are
+**TCS***. A **TDS / TCS** section appears in Home's All menus. Nothing about TDS / TCS is shown while both are
 off.
 
 **2. Setup** (*TDS / TCS › **TDS / TCS Setup***). Enter your **TAN**, the deductor category and the
@@ -1134,7 +1137,7 @@ deductor, Section, Transaction date, Amount paid/credited, Tax deducted). Each c
 your books against 26AS; differences are the ones to follow up.
 
 Reports open with Enter down to the voucher, and export (Alt+E) or print (Alt+P) like every other report.
-The Gateway reminds you when a deposit is overdue or due within a week. Form 16A / 27D certificates come
+Home reminds you when a deposit is overdue or due within a week. Form 16A / 27D certificates come
 from TRACES; Pevqori does not produce them.
 
 ## 8. Banking and cheques
@@ -1716,7 +1719,7 @@ Owner; nobody can change their own role; there is always at least one active Own
 permissions you hold yourself. Users are never deleted (the edit log refers to them) — **deactivate**
 them instead. Role and permission changes apply from the user's next login.
 
-What a role does not allow is simply not offered: such actions are left out of the action bar (for
+What a role does not allow is simply not offered: such actions are left out of the command bar (for
 example *Create challan* or *Mark filed* for a user who may view but not file GST or TDS). On a form or
 settings screen the user may only view, **Save** is greyed out with the permission it needs (or not
 offered at all) and a "view only" note shows at the top; **Export** and **Print** stay visible and say

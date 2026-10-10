@@ -66,7 +66,7 @@ itself), `filter?(row)`, plus the usual input props. `useGroups({ includeCounts?
 | `accounts.numbering` | — | **Invoice Numbering** (2.0; Company menu, Home Essentials, Settings hub, Go To): every number series on one screen — see below |
 | `accounts.openingBalances` | — | Dr/Cr totals, difference explained, ledgers with openings (Enter alters). With integrated inventory the opening stock is read from `reports.trialBalance` (as on the books beginning) when the user may view reports, and included in the difference |
 
-### Invoice Numbering (`NumberingScreen.tsx`, 2.0 — SPEC §8.3)
+### Invoice Numbering (`NumberingScreen.tsx`, 2.0 — docs/ARCHITECTURE.md "Invoice numbering and renumbering (2.0)")
 
 A focused facade over the voucher types' numbering; the Voucher Type form keeps every option.
 

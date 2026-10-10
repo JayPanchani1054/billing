@@ -169,14 +169,14 @@ describe('print layout catalogue (SPEC §7.2 / §7.3 — ids are persisted)', ()
       'company.cin | header | all | dto |  |  | ',
       'company.contact | header | all | dto |  |  | ',
       'title | header | all | gate |  |  | title',
-      'copyLabel | header | invoice | gate |  |  | copies',
+      'copyLabel | header | invoice+inventory | gate |  |  | copies',
       'endorsement | header | invoice | dto |  |  | ',
       'statutoryNotes | header | invoice | dto |  |  | reverseCharge',
       'stamp | header | all | gate | locked |  | ',
       'doc.number | details | all | gate | locked |  | ',
       'doc.date | details | all | gate | locked |  | ',
       'refs | details | invoice+inventory | dto |  |  | ',
-      'placeOfSupply | details | invoice | dto |  |  | placeOfSupply',
+      'placeOfSupply | details | invoice+inventory | dto |  |  | placeOfSupply',
       'ewayBill | details | invoice+inventory | dto |  |  | ',
       'originalInvoice | details | invoice | dto |  |  | originalInvoice',
       'party | parties | all | gate |  |  | recipient',
@@ -185,13 +185,13 @@ describe('print layout catalogue (SPEC §7.2 / §7.3 — ids are persisted)', ()
       'consignee | parties | invoice+inventory | dto |  |  | delivery',
       'col.sno | columns | invoice+inventory | column |  |  | ',
       'col.description | columns | invoice+inventory | column | locked |  | ',
-      'col.hsn | columns | invoice | column |  |  | hsn',
+      'col.hsn | columns | invoice+inventory | column |  |  | hsn',
       'col.batch | columns | invoice+inventory | column |  |  | ',
       'col.qty | columns | invoice+inventory | column |  |  | quantity',
       'col.unit | columns | invoice+inventory | column |  |  | quantity',
-      'col.mrp | columns | invoice | legacy |  | showMrp/showMrp | ',
+      'col.mrp | columns | invoice+inventory | legacy |  | showMrp/showMrp | ',
       'col.rate | columns | invoice+inventory | column |  |  | ',
-      'col.discount | columns | invoice | column |  |  | ',
+      'col.discount | columns | invoice+inventory | column |  |  | ',
       'col.taxable | columns | invoice | column |  |  | taxableValue',
       'col.gstRate | columns | invoice | column |  |  | tax',
       'lineTax | columns | invoice | legacy |  | itemwiseTax/itemwiseTax | ',
@@ -686,6 +686,13 @@ describe('layoutWarnings', () => {
     assert.equal(warningsFor(sampleDoc(), 'col.hsn').length, 1, 'no HSN rows → the column is the only place');
     const noHsn = sampleDoc({ lines: [line({ hsnSac: null })] });
     assert.deepEqual(warningsFor(noHsn, 'col.hsn'), [], 'nothing to hide');
+  });
+
+  it('(V3) HSN: the summary prints inside the "Tax summary" part — hiding that part with the column hides every code', () => {
+    // Modern draws the HSN summary as its tax summary table and Classic its HSN table, both gated by `taxSummary`.
+    const withSummary = sampleDoc({ taxByHsn: fullDoc().taxByHsn });
+    assert.deepEqual(warningsFor(withSummary, 'taxSummary'), [], 'the column still prints the codes');
+    assert.deepEqual(warningsFor(withSummary, 'col.hsn', 'taxSummary'), ['Hidden on this print: the HSN/SAC codes — required on a tax invoice (Rule 46(g)).']);
   });
 
   it('B2C below ₹50,000: the buyer block may go; at ₹50,000 and above it is required (Rule 46(e))', () => {

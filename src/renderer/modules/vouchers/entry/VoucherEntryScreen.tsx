@@ -1083,7 +1083,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const isOrderOrNote = trackKinds.length > 0 && form.partyLedgerId !== null;
   const printTarget = entryPrintTarget(detail ? detail.id : null, lastSaved);
   const actions: ScreenActionItem[] = [
-    { key: 'Ctrl+A', label: isAlter ? 'Save changes' : 'Accept', icon: 'save', primary: true, onClick: () => void doSave(), disabled: busy !== null },
+    { key: 'Ctrl+A', label: isAlter ? 'Save changes' : 'Save', icon: 'save', primary: true, onClick: () => void doSave(), disabled: busy !== null },
     { key: 'F10', label: 'Voucher type', icon: 'invoice', onClick: () => setDialog({ kind: 'type' }), hidden: isAlter, group: 'type' },
     {
       key: 'Alt+I',
@@ -1557,7 +1557,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         meta={metaBadges}
         dirty={form.touched}
         actions={actions}
-        hint="Enter Next · Shift+Enter Back · Ctrl+A Accept · Alt+C Create master · Ctrl+D Delete line · Esc Back"
+        hint="Enter Next · Shift+Enter Back · Ctrl+A Save · Alt+C Create master · Ctrl+D Delete line · Esc Back"
         toolbar={
           allowed.length > 1 && !isAlter ? (
             <SegmentedControl<VoucherMode>
@@ -1574,7 +1574,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
             <span className="bx-vch-foot__sum bx-num">{docTotalText ? `Total ${docTotalText}` : summaryShort(form, invoice.grandTotal, ledgerTotals, stockTotals.total)}</span>
             <Button onClick={() => void nav.back()}>Back</Button>
             <Button variant="primary" shortcut="Ctrl+A" loading={busy === 'save'} onClick={() => void doSave()}>
-              {isAlter ? 'Save changes' : 'Accept'}
+              {isAlter ? 'Save changes' : 'Save'}
             </Button>
           </div>
         }

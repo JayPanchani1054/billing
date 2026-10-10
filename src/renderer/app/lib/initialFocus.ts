@@ -44,3 +44,16 @@ export function markShellFocus(el: object): void {
 export function isShellFocus(el: object | null | undefined): boolean {
   return el != null && shellPicks.has(el);
 }
+
+/**
+ * A lazy screen's code has arrived (nav.tsx): has the user put focus somewhere else on purpose while it
+ * loaded, so the screen must not take it? Only a move made during the load counts. Focus still on the
+ * element that held it when the screen opened — e.g. the topbar "Search or jump to…" button that Go To
+ * handed focus back to, or the shortcut-bar button that was clicked — is focus an eager screen takes at
+ * once, so the lazy screen takes it too. Nothing focused, the page body, the screen itself or an element
+ * that is no longer shown (inside the hidden screen that opened this one) is never a choice.
+ */
+export function keepUserFocusAfterLazyLoad(f: { active: object | null; atOpen: object | null; isBody: boolean; inScreen: boolean; shown: boolean }): boolean {
+  if (f.active === null || f.isBody || f.inScreen || !f.shown) return false;
+  return f.active !== f.atOpen;
+}

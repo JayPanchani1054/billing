@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,7 +29,16 @@ function cssFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-const sizes = new Map(cssFiles(RENDERER).map((f) => [relative(RENDERER, f).split('\\').join('/'), statSync(f).size]));
+/**
+ * Bytes as committed (LF line ends). A Windows checkout (core.autocrlf) turns every LF into CRLF,
+ * which adds ~4 % — the same stylesheets would fail the budget on Windows CI only. Lines are counted
+ * once either way; nothing else is discounted.
+ */
+export function committedSize(text: string): number {
+  return Buffer.byteLength(text.replace(/\r\n/g, '\n'), 'utf8');
+}
+
+const sizes = new Map(cssFiles(RENDERER).map((f) => [relative(RENDERER, f).split('\\').join('/'), committedSize(readFileSync(f, 'utf8'))]));
 const total = [...sizes.values()].reduce((a, b) => a + b, 0);
 
 function report(): string {
@@ -39,6 +48,13 @@ function report(): string {
 test('the budget sees every renderer stylesheet', () => {
   assert.ok(sizes.has('styles/components.css') && sizes.has('styles/tokens.css') && sizes.has('styles/base.css'));
   assert.ok(sizes.size >= 15, `found ${sizes.size} stylesheets`);
+});
+
+test('sizes are measured as committed: a CRLF (Windows) checkout weighs the same as LF', () => {
+  const lf = '.a {\n  color: red;\n}\n';
+  assert.equal(committedSize(lf.replace(/\n/g, '\r\n')), committedSize(lf));
+  assert.equal(committedSize(lf), Buffer.byteLength(lf));
+  assert.equal(committedSize('/* ₹ */\n'), 10, 'UTF-8 bytes, not characters');
 });
 
 test(`total renderer CSS stays within ${CSS_BUDGET.total} bytes`, () => {

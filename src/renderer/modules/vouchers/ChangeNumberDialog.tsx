@@ -147,10 +147,12 @@ export function ChangeNumberDialog(p: ChangeNumberDialogProps) {
           label="New number"
           required
           error={message.tone === 'danger' ? message.text : undefined}
-          hint={message.tone === 'danger' ? undefined : <span role="status">{message.tone === 'success' ? <OkHint>{message.text.replace(/^✓ /, '')}</OkHint> : message.text}</span>}
+          hint={message.tone === 'danger' ? undefined : message.tone === 'success' ? <OkHint>{message.text.replace(/^✓ /, '')}</OkHint> : message.text}
         >
           <TextInput value={typed} maxLength={p.gstDoc ? 40 : 80} mono spellCheck={false} autoComplete="off" onValueChange={setTyped} data-autofocus />
         </Field>
+        {/* Every verdict of the live check is announced, a refusal too (the field's error is not a live region). */}
+        <span role="status" className="bx-sr-only">{message.text}</span>
         {/* One line: Enter moves on (on the last field it uses the number) instead of starting a new line. */}
         <Field label="Reason (edit log)" optional hint="Why the number changes — kept with the change in the edit history (Alt+H).">
           <TextInput value={reason} maxLength={RENUMBER_REASON_MAX} autoComplete="off" onValueChange={setReason} />

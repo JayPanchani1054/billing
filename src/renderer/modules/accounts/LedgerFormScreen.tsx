@@ -48,7 +48,7 @@ import {
 import type { Column } from '../../ui/index.ts';
 import { focusFirstInvalid, OkHint, StatePicker } from './components.tsx';
 import { LEDGER_DEPENDENTS, useDeleteLedger } from './hooks.ts';
-import { classOfGroup, groupIsUnder, indexGroups, initialGroupId } from './lib/groupClass.ts';
+import { classOfGroup, groupIsUnder, indexGroups, initialGroupId, ledgerCreateSubtitle } from './lib/groupClass.ts';
 import { applyGstin, gstinOkText, NO_GSTIN, REGISTRATION_OPTIONS } from './lib/gstin.ts';
 import { applyGroupDefaults, buildSaveInput, draftFromDetail, emptyLedgerDraft, gstHistoryEffect, isDraftDirty, validateLedgerDraft } from './lib/ledgerDraft.ts';
 import type { LedgerDraft } from './lib/ledgerDraft.ts';
@@ -323,7 +323,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
     ? `${original.groupPath.join(' › ')}${original.voucherCount ? ` · used in ${original.voucherCount} voucher${original.voucherCount === 1 ? '' : 's'}` : ''}`
     : savedCount > 0
       ? `${savedCount} created in this session`
-      : 'A ledger is an account: a customer, supplier, bank, expense, income or tax head.';
+      : ledgerCreateSubtitle(cls);
 
   const openingDisabled = !sections.openingBalance;
   const gstOn = sections.gstDetails && d.gstApplicable;

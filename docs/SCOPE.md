@@ -11,8 +11,10 @@ detail. How to use what *is* built is in the [User Guide](USER_GUIDE.md).
 
 Three principles explain most of the list:
 
-- **Offline first.** Pevqori makes no network calls. Anything that needs a government or bank API (with
-  credentials, a whitelisted IP and a live connection) is done by a file round trip instead, or not at all.
+- **Offline first.** Pevqori makes no network calls except the update check you start (or turn on once a
+  week), which sends no company data ([SECURITY.md](SECURITY.md#311-updates--srcmainupdates)).
+  Anything that needs a government or bank API (with credentials, a whitelisted IP and a live connection)
+  is done by a file round trip instead, or not at all.
 - **One company, one place, one user at a time.** A company is a folder with one database, opened by one
   copy of Pevqori at a time. There is no server.
 - **Never guess a legal format.** Where an official file layout (FVU, portal offline-tool JSON, a bank's
@@ -37,7 +39,7 @@ Three principles explain most of the list:
 | **Other GST returns and forms**: GSTR-9C (reconciliation statement), GSTR-6 (ISD), GSTR-7 / GSTR-8 (GST TDS deductors, e-commerce operators), ITC-03, GSTR-10 | Outside a regular or composition supplier's monthly cycle; GSTR-9 is a summary from the books only | Prepare them on the portal or with your CA; the GSTR-9 summary, registers and Trial Balance give the figures |
 | **Fixed-asset register and automatic depreciation** (Companies Act Schedule II, Income-tax block of assets) | Not built | Keep the asset register outside Pevqori and pass the depreciation journal (F7) |
 | **B2C dynamic QR code** (Notification 14/2020-CT, aggregate turnover above ₹500 crore) | Out of the target market | The printed UPI "Scan to pay" QR is a payment QR only |
-| **Automatic updates**, cloud sync, uploading backups | Offline by design; nothing to verify an update against | Install new versions yourself (INSTALL.md); point the backup folder at a cloud-synchronised folder if you want |
+| **Silent updates** (downloading or installing a new version without asking), cloud sync, uploading backups | Offline by design: Pevqori goes online only when you ask it to | *Check for updates* in *About Pevqori* (or the weekly check), then *Download update* and *Restart to update* ([User Guide, *Updating Pevqori*](USER_GUIDE.md#updating-pevqori)), or run a newer installer yourself (INSTALL.md); point the backup folder at a cloud-synchronised folder if you want |
 | **macOS, Linux, 32-bit or ARM Windows** installers | One supported platform is tested end to end | Windows 10 / 11, 64-bit |
 | **Unattended recurring postings** | Pevqori has no background process; posting without review would bypass warnings | Review the due list and post with one key (User Guide §4.6) |
 | **Sending e-mail or WhatsApp messages itself** | No network access | Pevqori prepares the PDF and the draft; your mail program or WhatsApp sends it |

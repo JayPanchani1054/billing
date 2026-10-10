@@ -153,7 +153,7 @@ describe('create with recommended settings (2.0)', () => {
   test('summary names the financial year and what is switched on', () => {
     assert.equal(
       recommendedSummary(TODAY),
-      'Financial year April to March (FY 2026-27, books from 01-Apr-2026), stock and bill-wise dues on, password protection on. Change any of it later with F11 and F12.',
+      'Financial year April to March (FY 2026-27, books from 01-Apr-2026), stock and bill-wise dues on, password protection on. Change any of it later in Settings.',
     );
   });
 });

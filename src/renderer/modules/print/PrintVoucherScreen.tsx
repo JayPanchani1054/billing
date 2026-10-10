@@ -453,9 +453,11 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
             printer={printer}
           />
           <WarningsBanner warnings={layoutLines.length > 0 ? [...doc.warnings, ...layoutLines] : doc.warnings} />
-          {editing && model ? (
-            <Grid columns="minmax(0, 1fr) 360px" gap={4} align="start">
-              {preview}
+          {/* One place for the preview, panel open or not: moved between two parents it would be remounted on
+              every Alt+L, and the focus given back to it when the panel closes would be lost. */}
+          <Grid columns={editing && model ? 'minmax(0, 1fr) 360px' : 'minmax(0, 1fr)'} gap={4} align="start">
+            {preview}
+            {editing && model ? (
               <LayoutEditor
                 model={model}
                 warnings={layoutLines}
@@ -467,10 +469,8 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
                 notice={offerNotice}
                 footer={editorFooter}
               />
-            </Grid>
-          ) : (
-            preview
-          )}
+            ) : null}
+          </Grid>
           {sharing !== null ? (
             <ShareDialog subject={{ voucherId: doc.id }} render={actions.render} onClose={() => setSharing(null)} channel={sharing === true ? undefined : sharing} />
           ) : null}

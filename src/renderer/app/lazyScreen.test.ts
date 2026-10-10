@@ -249,18 +249,17 @@ function screensOf(m: string): Array<{ id: string; component: string; dialog: bo
   return out;
 }
 
-/** Static (value) imports of a source file, resolved to absolute paths. Type-only imports are skipped. */
+/**
+ * Static imports of a source file, resolved to absolute paths. Only `import type` / `export type` are
+ * skipped: under `verbatimModuleSyntax` (tsconfig.base.json) `import { type A } from './X.tsx'` is
+ * emitted as `import {} from './X.tsx'`, a side-effect import that keeps X in the importer's chunk.
+ */
 function staticImports(file: string): string[] {
   const text = read(file);
   const out: string[] = [];
   const re = /^\s*(?:import|export)\s+(type\s+)?([^'";]*?)\s*from\s*'([^']+)'|^\s*import\s*'([^']+)'/gm;
   for (const m of text.matchAll(re)) {
     if (m[1]) continue;
-    const names = m[2]?.trim();
-    if (names && /^\{[^}]*\}$/.test(names)) {
-      const parts = names.slice(1, -1).split(',').map((s) => s.trim()).filter(Boolean);
-      if (parts.length > 0 && parts.every((p) => p.startsWith('type '))) continue;
-    }
     const spec = m[3] ?? m[4];
     if (!spec.startsWith('.')) continue;
     const abs = path.resolve(path.dirname(file), spec);
@@ -448,9 +447,13 @@ describe('idle prefetch of the Essentials screens', () => {
     // Focus left on the (now hidden) Home button would let Enter open the screen again.
     assert.match(nav, /if \(opener instanceof HTMLElement && opener !== document\.body && !c\.contains\(opener\) && !isShown\(opener\)\) opener\.blur\(\);/);
     assert.match(nav, /function isShown\(el: Element\): boolean \{\s*return el\.isConnected && el\.getClientRects\(\)\.length > 0;/);
-    // After the load, focus the user put on something visible elsewhere is kept; a hidden leftover is not a choice.
-    assert.match(nav, /return active !== null && active !== document\.body && !container\.contains\(active\) && isShown\(active\);/);
-    assert.match(nav, /whenLazyScreenLoaded\(c, \(\) => \{\s*if \(!focusIsElsewhere\(c\)\) focusNow\(\);/);
+    // After the load, focus the user put on something visible elsewhere *during the load* is kept; a hidden
+    // leftover is not a choice, nor is focus still where it was when the screen opened (an eager screen
+    // takes that at once — e.g. the topbar search button Go To hands focus back to). The rule itself is
+    // keepUserFocusAfterLazyLoad (lib/initialFocus.test.ts).
+    assert.match(nav, /return keepUserFocusAfterLazyLoad\(\{ active, atOpen, isBody: active === document\.body, inScreen: active !== null && container\.contains\(active\), shown: active !== null && isShown\(active\) \}\);/);
+    assert.match(nav, /const opener = document\.activeElement;/);
+    assert.match(nav, /whenLazyScreenLoaded\(c, \(\) => \{\s*if \(!focusIsElsewhere\(c, opener\)\) focusNow\(\);/);
   });
 
   test('idle prefetch and "Try again" are wired', () => {

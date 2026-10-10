@@ -490,6 +490,9 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput, opts: { keepFigu
     gstOutward: isGstOutwardDocument(db, vt, env.features.gst, input),
     gstDoc: isGstNumberedType(vt, env.features.gst),
   });
+  // 2.0 (V2 review): a number other vouchers cite (a note's original invoice, an order fulfilled, a note
+  // billed) is not changed under them — vouchers.renumber, an override and a typed change alike.
+  if (existing && existing.number !== null && decision.number !== existing.number) assertNumberNotCited(db, existing);
   const notes: VoucherWarning[] = [];
   if (existing && decision.override && decision.number !== existing.number) input = keepSettledBillNames(db, existing, input, notes);
   // Extension point (hooks.ts › prepare): masters the posting needs, created in this transaction.
@@ -1097,6 +1100,79 @@ function assertAlterKeepsLinks(db: Db, existing: VoucherRow, plan: PostingPlan):
   }
 }
 
+/** Order base type → the base types that fulfil it (via inventory_entries.order_ref; stock/orders.ts). */
+const FULFILLED_BY: Record<string, readonly string[]> = {
+  sales_order: ['delivery_note', 'sales'],
+  purchase_order: ['receipt_note', 'purchase'],
+};
+
+/**
+ * 2.0 (V2 review): the other vouchers that cite this voucher's number, oldest first (at most 4):
+ *  - an invoice (sales / purchase): notes whose "against invoice no." is the number (same party; the
+ *    original date, when given, is the invoice's) — GSTR-1 CDNR and the e-invoice cite it;
+ *  - an order: delivery / receipt notes and invoices that fulfil it (order_ref, same party);
+ *  - a delivery / receipt note or rejection: the invoices / notes that bill it (tracking_ref, same party).
+ * Cancelled vouchers do not count (they cannot be altered and report nothing).
+ */
+function numberCitations(db: Db, row: VoucherRow): Array<{ id: number; type_name: string; number: string | null }> {
+  if (row.number === null) return [];
+  const params = { no: row.number, party: row.party_ledger_id, id: row.id };
+  const select = 'SELECT DISTINCT v.id, vt.name AS type_name, v.number, v.date FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id';
+  const hits: Array<{ id: number; type_name: string; number: string | null; date: string }> = [];
+  if (row.base_type === 'sales' || row.base_type === 'purchase') {
+    hits.push(
+      ...db.all<{ id: number; type_name: string; number: string | null; date: string }>(
+        `${select}
+          WHERE v.party_ledger_id IS :party AND v.original_invoice_no = :no COLLATE NOCASE
+            AND (v.original_invoice_date IS NULL OR v.original_invoice_date = :date) AND v.id <> :id AND v.is_cancelled = 0
+          ORDER BY v.date, v.id LIMIT 4`,
+        { ...params, date: row.date },
+      ),
+    );
+  }
+  const fulfilledBy = FULFILLED_BY[row.base_type];
+  if (fulfilledBy) {
+    hits.push(
+      ...db.all<{ id: number; type_name: string; number: string | null; date: string }>(
+        `${select} JOIN inventory_entries ie ON ie.voucher_id = v.id
+          WHERE ie.order_ref = :no AND v.base_type IN (:b1, :b2) AND v.party_ledger_id IS :party AND v.id <> :id AND v.is_cancelled = 0
+          ORDER BY v.date, v.id LIMIT 4`,
+        { ...params, b1: fulfilledBy[0], b2: fulfilledBy[1] },
+      ),
+    );
+  }
+  const billBase = BILLED_BY[row.base_type];
+  if (billBase) {
+    hits.push(
+      ...db.all<{ id: number; type_name: string; number: string | null; date: string }>(
+        `${select} JOIN inventory_entries ie ON ie.voucher_id = v.id
+          WHERE ie.tracking_ref = :no AND v.base_type = :billBase AND v.party_ledger_id IS :party AND v.id <> :id AND v.is_cancelled = 0
+          ORDER BY v.date, v.id LIMIT 4`,
+        { ...params, billBase },
+      ),
+    );
+  }
+  hits.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
+  const out: Array<{ id: number; type_name: string; number: string | null }> = [];
+  for (const h of hits) {
+    if (out.length < 4 && !out.some((o) => o.id === h.id)) out.push({ id: h.id, type_name: h.type_name, number: h.number });
+  }
+  return out;
+}
+
+/** "Credit Note 3 and Sales 7 refer to this number — change those references first." */
+function numberCitationsMessage(cites: ReadonlyArray<{ type_name: string; number: string | null }>): string {
+  const names = cites.slice(0, 3).map((c) => `${c.type_name} ${c.number ?? ''}`.trim());
+  const list =
+    cites.length > 3 ? `${names.join(', ')} and others` : names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return cites.length === 1 ? `${list} refers to this number — change that reference first.` : `${list} refer to this number — change those references first.`;
+}
+
+function assertNumberNotCited(db: Db, row: VoucherRow): void {
+  const cites = numberCitations(db, row);
+  if (cites.length > 0) throw rule(numberCitationsMessage(cites));
+}
+
 function loadForChange(ctx: CompanyCtx, id: number): { row: VoucherRow; vt: VoucherTypeInfo } {
   const row = loadVoucherRow(ctx.db, id);
   if (!row) throw notFound('Voucher', id);
@@ -1324,6 +1400,12 @@ export function checkVoucherNumber(ctx: CompanyCtx, input: VoucherNumberCheckInp
   const number = input.number.trim();
   const problems = voucherNumberProblems(number, gstDoc);
   const exclude = input.excludeId ?? null;
+  // 2.0 (V2 review): the save refuses to change a number other vouchers cite; say so before it is tried.
+  const self = exclude !== null ? loadVoucherRow(db, exclude) : undefined;
+  if (self && self.voucher_type_id === vt.id && self.number !== null && number !== '' && number !== self.number) {
+    const cites = numberCitations(db, self);
+    if (cites.length > 0) problems.push(numberCitationsMessage(cites));
+  }
   let outward: boolean[];
   if (!gstDoc) outward = [false];
   else if (vt.baseType !== 'debit_note') outward = [true];

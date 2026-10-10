@@ -143,7 +143,8 @@ test('"Save for Sales" keeps it hidden on reopening and in batch printing', asyn
   const picker = await openFromGateway(page, 'Print Vouchers', 'print.batch');
   const tick = picker.getByRole('checkbox', { name: /^Print Sales/ });
   await expect(tick).toHaveCount(1);
-  await tick.click();
+  // The box's larger hit area (::after, the label) sits over the input; check() still asserts the tick.
+  await tick.check({ force: true });
   await page.keyboard.press('Control+a');
   const batch = topScreen(page);
   await expect(batch.getByRole('heading', { name: 'Print Vouchers', level: 1 })).toBeVisible();

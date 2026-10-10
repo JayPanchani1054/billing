@@ -41,7 +41,8 @@ node --test "src/**/*.test.ts"       # run all tests (Node 22 strips types nativ
 node --test "src/core/modules/gst/**/*.test.ts"   # one module's tests (folder paths do not work; use a glob)
 ```
 
-`types/offline/*.d.ts` are faithful subsets of `@types/react` 19, `react-dom`, `qrcode` and Electron's types.
+`types/offline/*.d.ts` are faithful subsets of `@types/react` 19, `react-dom`, `qrcode`, Electron's and
+(2.0, main process only) `electron-updater`'s types.
 They exist only so renderer/main code can be typechecked without npm; CI uses the real packages
 (`npm run typecheck && npm run build`). Only use React/Electron APIs that exist in the real libraries; if a
 real API is missing from a shim, add it to the shim with its exact upstream signature (never loosen to `any`).
@@ -281,7 +282,9 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   from a picker, `Ctrl+A` accept/save, `Alt+P` print, `Alt+E` export. **`Ctrl+S` is an alias of `Ctrl+A`**
   (2.0), implemented once in the hotkey layer (`ui/lib/hotkeyRegistry.ts`): when no eligible binding
   has Ctrl+S of its own, the key goes to the Ctrl+A bindings with the same layering (a dialog's Ctrl+A
-  while a dialog is open); where nothing binds Ctrl+A it does nothing. Screens never bind Ctrl+S.
+  while a dialog is open); where nothing binds Ctrl+A it does nothing. Screens never bind Ctrl+S. A Yes/No
+  confirmation (`ui/ConfirmDialog.tsx`, keys in `ui/lib/confirmKeys.ts`) takes Ctrl+S and does nothing: a
+  save reflex must never answer "Discard unsaved changes?" or "Delete …?" (Ctrl+A / Y still confirm).
 - Forms: `Enter` advances to the next field (the convention accountants expect), `Shift+Enter`/`Shift+Tab` goes back,
   `Ctrl+A` saves. Validation errors appear inline next to the field and focus the first invalid field.
   On push the shell focuses `[data-autofocus]` (else the first field / grid) — also after the screen
@@ -463,13 +466,17 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
   `rendererJsMaxBytes` / `rendererCssMaxBytes` (absolute, null = off). With `enforce: false` the spec only
   reports; with `enforce: true` a failed ceiling fails it (warn-only ones become Playwright annotations).
   Timing ceilings are compared only against the baseline of the platform the run is on.
-- **Capturing the baseline** — from the CI run of the commit to measure (1.0: the merge commit of the baseline
-  package), save the log of each e2e job (`ubuntu-latest`, `windows-latest`) — the whole log, the copied
+- **Capturing the baseline** — from the CI run of the commit to measure, save the log of each e2e job (`ubuntu-latest`, `windows-latest`) — the whole log, the copied
   `[perf] report {…}` line, or a downloaded `perf-report.json` all work (in a log, the last report wins) — then
   `node scripts/size-report.mjs --baseline linux.log win32.log [--from "CI run <id> @ <sha>"]` prints the
   `baseline` block (sizes from the Linux report — the gate is a ratio and the platforms' bundles differ by a
   few bytes at most — and timings per platform) to paste into `build/perf-budget.json` as a data-only commit. Raising a ceiling or the baseline is a
-  reviewed decision, never a fix for a slower build.
+  reviewed decision, never a fix for a slower build. **The 1.0 baseline** cannot be read from any 2.0 commit (the
+  harness was merged together with the lazy screens and the CSS diet): run CI once on 1.0 (`0ddf9b6`) with only
+  the harness added — `scripts/size-report.mjs`, `build/perf-budget.json`, `app/lib/perfMarks.ts` (+ test),
+  `src/main/size-report.test.ts`, the `markBoot()` call in `main.tsx` and the `markPhase(app.phase)` effect in
+  `App.tsx`, `e2e/perf.spec.ts` and the additive `e2e/support.ts` options (1.0's own `e2e/flows.ts`) — and capture
+  from that run's e2e logs.
 - **Lazy screens** (2.0) — the screens of `attachments`¹, `banking`, `cheques`, `data`, `documents`, `forex`, `gst`,
   `gstrecon`, `inventory`, `mfg`, `outstanding`, `pos`, `reports`, `security`, `stock` and `tds` are fetched the first
   time they open, so their code is not in the initial JS. A module's `index.ts` declares them with
@@ -482,8 +489,9 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
   `ScreenHost` as soon as the chunk has arrived, so the screen shows at once (left to Suspense's own retry, React
   would hold it back until 300 ms after the skeleton appeared). Esc works meanwhile; focus left on the hidden
   screen that opened this one (e.g. the Home button) is released so no key reaches it, and the initial focus is
-  picked once the screen has rendered, exactly as for an eager screen (unless the user has put focus on something
-  else that is visible). Other keys typed during a cold load are not delivered to the screen. A chunk that fails
+  picked once the screen has rendered, exactly as for an eager screen (unless the user has moved focus to something
+  else that is visible while it loaded — focus still where it was when the screen opened, such as the topbar search
+  button Go To hands it back to, is taken as an eager screen takes it). Other keys typed during a cold load are not delivered to the screen. A chunk that fails
   to load shows the screen's error boundary; its "Try again" re-arms every failed load (`retryLazyScreens`) and
   imports the chunk again — if the engine keeps refusing that chunk (a damaged installation), only reinstalling
   helps. After `pevqori:shell-ready` the shell prefetches the lazy targets of Home ›
@@ -871,7 +879,7 @@ both layers live in JSON that backup, restore and the XML export already carry.
   plain-language line ("Hidden on this print: the buyer's GSTIN — required on a B2B tax invoice (Rule
   46(d)).") and never blocks printing. Tax / export / SEZ / self invoices cite CGST Rule 46 by clause
   (supplier (a), recipient (d)/(e) — B2C below ₹50,000 exempt, HSN (g) when the column and the HSN summary
-  are both off, quantity and unit of goods (i), taxable value (k), rate and amount of tax (l)/(m), place of
+  (its option, or the Tax summary part that prints it) are both off, quantity and unit of goods (i), taxable value (k), rate and amount of tax (l)/(m), place of
   supply on inter-State supplies (n), delivery address when different (o), reverse-charge note (p),
   signature (q)), copy marking on goods invoices Rule 48(1), an e-invoice's IRN and QR Rule 48(4); bills of
   supply Rule 49, credit / debit notes Rule 53 (with the original invoice), delivery challans Rule 55. A
@@ -1014,8 +1022,8 @@ and counter period keys are unchanged.
 
 | Route | Access | Input → output |
 |---|---|---|
-| `vouchers.numberCheck` | `vouchers.view` | `{ voucherTypeId, date, number, excludeId?, partyLedgerId?, mode? }` → `{ ok, taken, problems, seq, scopeLabel }`; the same rule as the save (`numberClash`, indexed `NUMBER_TAKEN_SQL`); a debit note's direction comes from the party / mode, else the altered voucher, else both rules apply |
-| `vouchers.renumber` | `vouchers.alter` + `vouchers.renumber` (service) | `{ id, number, reason?, continueSeries?, expectedUpdatedAt, acknowledgeWarnings? }` → `VoucherSaveResult`; re-runs the alter with the stored `meta.input` + `numberOverride` (entries, stock and GST rows unchanged — a rebuilt posting that differs from the saved one, e.g. a physical stock count re-derived from today's books, → BUSINESS_RULE "Alter the voucher (Alt+A), check the figures and change the number there"); a voucher without `meta.input` → BUSINESS_RULE "Alter the voucher (Alt+A) and change the number there"; a party bill another voucher settles keeps its name (info warning `numbering`) |
+| `vouchers.numberCheck` | `vouchers.view` | `{ voucherTypeId, date, number, excludeId?, partyLedgerId?, mode? }` → `{ ok, taken, problems, seq, scopeLabel }`; the same rule as the save (`numberClash`, indexed `NUMBER_TAKEN_SQL`); a debit note's direction comes from the party / mode, else the altered voucher, else both rules apply With `excludeId`, a different number for a voucher other vouchers cite adds that refusal message to `problems` (`ok: false`). |
+| `vouchers.renumber` | `vouchers.alter` + `vouchers.renumber` (service) | `{ id, number, reason?, continueSeries?, expectedUpdatedAt, acknowledgeWarnings? }` → `VoucherSaveResult`; re-runs the alter with the stored `meta.input` + `numberOverride` (entries, stock and GST rows unchanged — a rebuilt posting that differs from the saved one, e.g. a physical stock count re-derived from today's books, → BUSINESS_RULE "Alter the voucher (Alt+A), check the figures and change the number there"); a voucher without `meta.input` → BUSINESS_RULE "Alter the voucher (Alt+A) and change the number there"; a party bill another voucher settles keeps its name (info warning `numbering`); refused (`BUSINESS_RULE`, `assertNumberNotCited`) — like any alter that changes a number — while other vouchers cite the old number: a credit / debit note's original invoice no. (same party; its original date, when given, is the invoice's), the fulfilling notes / invoices of an order (`order_ref`), the invoices billing a delivery / receipt note or rejection (`tracking_ref`); cancelled vouchers do not count. The message names them: "Credit Note 3 and Sales 7 refer to this number — change those references first." |
 | `accounts.voucherType.numberingStatus` | `masters.view` | `{ ids?, date }` → `NumberingStatusRow[]` (`periodKey`, `periodLabel`, `counter`, `highestUsed`, `nextSeq`, `next`, `vouchersInPeriod`) |
 | `accounts.voucherType.setNextNumber` | `vouchers.renumber` | `{ id, date, next, acknowledgeWarnings? }` → `{ next, warnings }`; 1 ≤ next ≤ 999 999 999, not below the starting number, GST format of the formatted number; `last_number = next − 1` (may lower the counter — used numbers are skipped); confirm warnings for lowering to or below a used number and for raising past the number the series would give next ("report them in GSTR-1 Table 13") |
 | `accounts.voucherType.numberGaps` | `vouchers.view` | `{ id, from, to }` → `{ first, last, issued, cancelled, missing (≤ 200), missingCount }`, per numbering period, read-only |

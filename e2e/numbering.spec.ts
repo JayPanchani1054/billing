@@ -132,7 +132,7 @@ test('Sales: prefix INV/{FY}/ with the code chip, 4 digits → the next sale is 
 test('set the next number to 41 (confirm the skipped numbers) → the next sale is INV/<fy>/0041; the gaps are listed', async () => {
   const s = await openNumbering();
   const drawer = await openSalesEditor(s);
-  const next = drawer.getByLabel('Next number');
+  const next = drawer.getByRole('textbox', { name: 'Next number', exact: true });
   await expect(next).toHaveValue('2');
   await next.fill('41');
   await next.press('Tab');

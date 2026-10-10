@@ -78,7 +78,7 @@ test('the bridge reports updates as turned off for a test run, and never checks'
 });
 
 test('About Pevqori shows the Updates panel with the test-run reason and nothing to click', async () => {
-  await openGotoItem(page, { id: 'screen:company.about', label: 'About Pevqori' });
+  await openGotoItem(page, { id: 'menu:company:company.about:About Pevqori', label: 'About Pevqori' });
   const about = screen(page, 'company.about');
   await expect(about.getByRole('heading', { name: 'About Pevqori', level: 1 })).toBeVisible();
   await expect(about.getByRole('heading', { name: 'Updates', level: 2 })).toBeVisible();

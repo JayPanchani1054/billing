@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CONFIG, DEFAULT_FEATURES } from '../../../../shared/settings.ts';
 import type { CompanyConfig } from '../../../../shared/settings.ts';
-import { searchSettings, SETTINGS_INDEX, settingStatus, visibleSettings } from './settingsIndex.ts';
+import { searchSettings, searchTopics, SETTINGS_INDEX, settingStatus, visibleSettings } from './settingsIndex.ts';
 import type { SettingsFacts, SettingsViewer } from './settingsIndex.ts';
 
 const modulesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -43,9 +43,11 @@ describe('Settings hub index', () => {
     const screens = (id: string) => SETTINGS_INDEX.find((c) => c.id === id)?.rows.map((r) => r.screen);
     assert.deepEqual(screens('business'), ['company.profile', 'company.features', 'company.config']);
     assert.deepEqual(screens('invoices'), ['print.settings', 'accounts.numbering', 'accounts.voucherTypes']);
-    assert.deepEqual(screens('gst'), ['company.config', 'tds.setup']);
+    // V7: + Composition rates (composition dealers only) — the 2.0 index had no place for that setting.
+    assert.deepEqual(screens('gst'), ['company.config', 'gst.composition', 'tds.setup']);
     assert.deepEqual(SETTINGS_INDEX.find((c) => c.id === 'gst')?.rows[0].params, { tab: 'gst' });
-    assert.deepEqual(screens('banking'), ['cheques.bank', 'cheques.books', 'cheques.payees']);
+    // V7: + Cheque layouts (the layout editor with its test print is a setting of cheque printing).
+    assert.deepEqual(screens('banking'), ['cheques.bank', 'cheques.books', 'cheques.payees', 'cheques.layouts']);
     assert.deepEqual(screens('security'), ['security.users', 'security.settings', 'company.periodLock', 'company.changePassword']);
     assert.deepEqual(screens('data'), ['data.backup', 'company.config', 'data.restore', 'data.import', 'data.xmlImport', 'data.export', 'data.xmlExport']);
     assert.deepEqual(screens('modules'), ['pos.settings', 'forex.settings']);
@@ -82,7 +84,9 @@ describe('Settings hub screen wiring (SettingsScreen.tsx)', () => {
   const src = readFileSync(path.join(modulesDir, 'company', 'SettingsScreen.tsx'), 'utf8');
 
   test('rows are gated by nav.isRegistered && nav.canOpen, and search only sees the visible topics', () => {
-    assert.match(src, /visibleSettings\(SETTINGS_INDEX, \{ canOpen: \(id\) => nav\.isRegistered\(id\) && nav\.canOpen\(id\), gstEnabled: company\.gstEnabled, secured \}\)/);
+    assert.match(src, /visibleSettings\(SETTINGS_INDEX, \{ canOpen: \(id\) => nav\.isRegistered\(id\) && nav\.canOpen\(id\), gstEnabled: company\.gstEnabled, secured, gstRegistration: company\.gstRegistration \?\? null \}\)/);
+    assert.match(src, /searchTopics\(categories, query\)/);
+    assert.ok(!/searchTopics\(SETTINGS_INDEX/.test(src), 'searching the whole index would list hidden topics');
     assert.match(src, /searchSettings\(categories, query\)/);
     assert.ok(!/searchSettings\(SETTINGS_INDEX/.test(src), 'searching the whole index would list hidden settings');
   });
@@ -107,12 +111,42 @@ describe('visibleSettings', () => {
   });
 
   test('a row shows only when its screen may be opened; a topic with nothing left is hidden (F11 off ⇒ no trace)', () => {
-    const off = new Set(['pos.settings', 'forex.settings', 'cheques.bank', 'cheques.books', 'tds.setup']);
+    const off = new Set(['pos.settings', 'forex.settings', 'cheques.bank', 'cheques.books', 'cheques.layouts', 'tds.setup']);
     const cats = visibleSettings(SETTINGS_INDEX, { ...everything, canOpen: (id) => !off.has(id) });
     assert.ok(!cats.some((c) => c.id === 'modules'), 'POS and multi-currency off: no Modules topic');
     assert.deepEqual(cats.find((c) => c.id === 'banking')?.rows.map((r) => r.id), ['payees']);
     assert.deepEqual(cats.find((c) => c.id === 'gst')?.rows.map((r) => r.id), ['gstConfig']);
     assert.ok(cats.flatMap((c) => c.rows).every((r) => !off.has(r.screen)));
+    // V7: the topic names keep no trace of the features that are off either (default company: TDS / TCS
+    // and cheque printing off) — and searching "tds" or "cheque" no longer lands on unrelated rows.
+    assert.deepEqual(
+      cats.map((c) => c.title),
+      ['Business', 'Invoices & printing', 'GST', 'Banking', 'Users & security', 'Data & backup', 'Appearance', 'About & updates'],
+    );
+    assert.ok(!cats.some((c) => /TDS|cheque/i.test(`${c.title} ${c.description}`)), JSON.stringify(cats.map((c) => [c.title, c.description])));
+    // "tds" leads to Features, where TDS is switched on — not to GST settings through the topic name.
+    assert.deepEqual(searchSettings(cats, 'tds').map((m) => m.row.id), ['features']);
+    assert.deepEqual(searchSettings(cats, 'cheque').map((m) => m.row.id), []);
+  });
+
+  test('V7: narrower topic names apply only when the other rows are hidden', () => {
+    const all = visibleSettings(SETTINGS_INDEX, everything);
+    assert.equal(all.find((c) => c.id === 'gst')?.title, 'GST & TDS');
+    assert.equal(all.find((c) => c.id === 'banking')?.title, 'Banking & cheques');
+    const tdsOnly = visibleSettings(SETTINGS_INDEX, { ...everything, gstEnabled: false });
+    assert.equal(tdsOnly.find((c) => c.id === 'gst')?.title, 'TDS / TCS');
+    const chequesOnly = visibleSettings(SETTINGS_INDEX, { ...everything, canOpen: (id) => id !== 'cheques.payees' });
+    assert.equal(chequesOnly.find((c) => c.id === 'banking')?.title, 'Banking & cheques');
+  });
+
+  test('V7: Composition rates only for a composition dealer with GST on', () => {
+    const rowIds = (v: SettingsViewer) => visibleSettings(SETTINGS_INDEX, v).flatMap((c) => c.rows.map((r) => r.id));
+    assert.ok(!rowIds(everything).includes('composition'), 'registration unknown: hidden');
+    assert.ok(!rowIds({ ...everything, gstRegistration: 'regular' }).includes('composition'));
+    assert.ok(rowIds({ ...everything, gstRegistration: 'composition' }).includes('composition'));
+    assert.ok(!rowIds({ ...everything, gstRegistration: 'composition', gstEnabled: false }).includes('composition'));
+    const comp = visibleSettings(SETTINGS_INDEX, { ...everything, gstRegistration: 'composition', canOpen: (id) => id !== 'tds.setup' });
+    assert.equal(comp.find((c) => c.id === 'gst')?.title, 'GST');
   });
 
   test('GST settings only with GST on; Change password only for a signed-in user of a protected company', () => {
@@ -152,6 +186,21 @@ describe('searchSettings (Ctrl+F)', () => {
   test('blank query: nothing (the selected topic shows instead); no match: empty', () => {
     assert.deepEqual(ids('   '), []);
     assert.deepEqual(ids('zzzz'), []);
+  });
+
+  test('V7: the inline topics are found too — "dark", "theme", "shortcut bar", "data folder"', () => {
+    const topics = (q: string) => searchTopics(cats, q).map((c) => c.id);
+    assert.deepEqual(topics('dark'), ['appearance']);
+    assert.deepEqual(topics('Theme'), ['appearance']);
+    assert.deepEqual(topics('shortcut bar'), ['appearance']);
+    assert.deepEqual(topics('home view'), ['appearance']);
+    assert.deepEqual(topics('data folder'), ['data']);
+    assert.deepEqual(topics('logo'), [], 'topics with rows are found through their rows');
+    assert.deepEqual(topics('   '), []);
+    // Data & backup without a row the viewer may open is hidden: its data folder line is not found either.
+    const none = visibleSettings(SETTINGS_INDEX, { ...everything, canOpen: () => false });
+    assert.deepEqual(searchTopics(none, 'data folder'), []);
+    assert.deepEqual(searchTopics(none, 'dark').map((c) => c.id), ['appearance']);
   });
 
   test('only what the viewer sees is searched', () => {

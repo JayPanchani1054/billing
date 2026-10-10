@@ -176,7 +176,7 @@ function PartRow({ row, readOnly, onPart }: { row: EditorPartRow; readOnly: bool
     <Stack gap={1}>
       {row.locked ? (
         <Inline gap={2} id={`${partSwitchId(row.id)}-row`} tabIndex={-1} aria-describedby={notes.length > 0 ? noteId : undefined}>
-          <Icon name="lock" size="sm" />
+          <Icon name="lock" size="sm" label="Always printed" />
           <span>{row.label}</span>
         </Inline>
       ) : (

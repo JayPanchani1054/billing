@@ -12,6 +12,7 @@
  */
 import { formatDate } from '../../../../shared/dates.ts';
 import type { CompanyConfig, CompanyFeatures } from '../../../../shared/settings.ts';
+import type { GstRegistrationType } from '../../../../shared/types/company.ts';
 import type { IconName } from '../../../ui/icons.ts';
 
 export type SettingsCategoryId = 'business' | 'invoices' | 'gst' | 'banking' | 'security' | 'data' | 'modules' | 'appearance' | 'about';
@@ -33,6 +34,19 @@ export interface SettingsRow {
   gstOnly?: boolean;
   /** Shown only to a signed-in user of a password-protected company (Change password). */
   securedOnly?: boolean;
+  /** Shown only for these GST registrations (Composition rates: composition dealers only). */
+  gstRegistrations?: readonly GstRegistrationType[];
+}
+
+/**
+ * A narrower name for a topic when only some of its rows are left — a feature that is off leaves no
+ * trace in the topic's name either ("GST & TDS" with TDS / TCS off reads "GST").
+ */
+export interface SettingsTopicName {
+  /** Applies when every visible row of the topic is one of these. */
+  rows: readonly string[];
+  title: string;
+  description: string;
 }
 
 export interface SettingsCategory {
@@ -43,6 +57,10 @@ export interface SettingsCategory {
   rows: readonly SettingsRow[];
   /** Inline content rendered by the hub (not a screen): shown whatever the rows. */
   inline?: 'appearance' | 'dataFolder';
+  /** Search words for the inline content (it has no rows to match): Ctrl+F finds the topic itself. */
+  inlineKeywords?: readonly string[];
+  /** Narrower names when some rows are hidden (first match wins); see SettingsTopicName. */
+  narrow?: readonly SettingsTopicName[];
 }
 
 /** The index (§3.5 of the 2.0 build spec). Order is the order on screen. */
@@ -76,7 +94,20 @@ export const SETTINGS_INDEX: readonly SettingsCategory[] = [
     icon: 'gst',
     rows: [
       { id: 'gstConfig', title: 'GST settings', description: 'Return filing (monthly or quarterly), HSN digits, LUT, B2C large and e-way bill limits', screen: 'company.config', params: { tab: 'gst' }, gstOnly: true, keywords: ['gst', 'qrmp', 'quarterly', 'hsn', 'lut', 'e-way bill', 'b2cl'] },
+      {
+        id: 'composition',
+        title: 'Composition rates',
+        description: 'Your composition category and the rate of tax on turnover',
+        screen: 'gst.composition',
+        gstOnly: true,
+        gstRegistrations: ['composition'],
+        keywords: ['composition', 'category', 'rate', 'turnover', 'cmp-08', 'rule 7'],
+      },
       { id: 'tds', title: 'TDS / TCS setup', description: 'TAN, deductor details and the sections you deduct or collect under', screen: 'tds.setup', keywords: ['tds', 'tcs', 'tan', 'deductor', '194q', '206c'] },
+    ],
+    narrow: [
+      { rows: ['gstConfig', 'composition'], title: 'GST', description: 'Tax settings used by invoices and returns.' },
+      { rows: ['tds'], title: 'TDS / TCS', description: 'Tax deducted or collected at source.' },
     ],
   },
   {
@@ -88,7 +119,9 @@ export const SETTINGS_INDEX: readonly SettingsCategory[] = [
       { id: 'chequePrinting', title: 'Cheque printing settings', description: 'Signatory, A/c payee crossing and the cheque layout of each bank', screen: 'cheques.bank', keywords: ['cheque', 'signatory', 'crossing', 'a/c payee'] },
       { id: 'chequeBooks', title: 'Cheque books', description: 'Cheque book series and the leaves still unused', screen: 'cheques.books', keywords: ['cheque book', 'leaves', 'series'] },
       { id: 'payees', title: 'Payee bank details', description: 'Account number and IFSC of suppliers for NEFT / RTGS and e-payments', screen: 'cheques.payees', keywords: ['beneficiary', 'ifsc', 'neft', 'rtgs', 'vendor bank'] },
+      { id: 'chequeLayouts', title: 'Cheque layouts', description: 'Where the date, payee and amount print on each bank’s cheque, with a test print', screen: 'cheques.layouts', keywords: ['cheque format', 'calibration', 'cts-2010', 'alignment'] },
     ],
+    narrow: [{ rows: ['payees'], title: 'Banking', description: 'The bank details of the people you pay, for transfers and e-payments.' }],
   },
   {
     id: 'security',
@@ -108,6 +141,7 @@ export const SETTINGS_INDEX: readonly SettingsCategory[] = [
     description: 'Keep your books safe and move data in or out.',
     icon: 'database',
     inline: 'dataFolder',
+    inlineKeywords: ['data folder', 'where is my data', 'location', 'path'],
     rows: [
       { id: 'backup', title: 'Backup', description: 'Take a backup now and see the backups taken', screen: 'data.backup', keywords: ['backup', 'copy', 'usb', 'pen drive'] },
       { id: 'backupSettings', title: 'Automatic backups', description: 'Backup folder, automatic backups and how many to keep', screen: 'company.config', params: { tab: 'backup' }, keywords: ['backup folder', 'auto backup', 'keep last'] },
@@ -134,6 +168,7 @@ export const SETTINGS_INDEX: readonly SettingsCategory[] = [
     description: 'Theme, density, Home view and the shortcut bar — for you on this computer.',
     icon: 'sliders',
     inline: 'appearance',
+    inlineKeywords: ['appearance', 'theme', 'dark', 'light', 'dark mode', 'match windows', 'density', 'compact', 'comfortable', 'home view', 'essentials', 'all menus', 'shortcut bar', 'colour', 'color', 'look'],
     rows: [],
   },
   {
@@ -152,6 +187,8 @@ export interface SettingsViewer {
   gstEnabled: boolean;
   /** A signed-in user of a password-protected company (not the implicit owner session). */
   secured: boolean;
+  /** The company's GST registration (rows limited to some registrations need it). */
+  gstRegistration?: GstRegistrationType | null;
 }
 
 /**
@@ -161,8 +198,17 @@ export interface SettingsViewer {
 export function visibleSettings(index: readonly SettingsCategory[], viewer: SettingsViewer): SettingsCategory[] {
   const out: SettingsCategory[] = [];
   for (const c of index) {
-    const rows = c.rows.filter((r) => viewer.canOpen(r.screen) && (!r.gstOnly || viewer.gstEnabled) && (!r.securedOnly || viewer.secured));
-    if (rows.length > 0 || c.inline === 'appearance') out.push({ ...c, rows });
+    const rows = c.rows.filter(
+      (r) =>
+        viewer.canOpen(r.screen) &&
+        (!r.gstOnly || viewer.gstEnabled) &&
+        (!r.securedOnly || viewer.secured) &&
+        (!r.gstRegistrations || (viewer.gstRegistration != null && r.gstRegistrations.includes(viewer.gstRegistration))),
+    );
+    if (rows.length === 0 && c.inline !== 'appearance') continue;
+    // A topic keeps no trace of a feature that is off in its name either (first narrower name that fits).
+    const name = rows.length > 0 ? c.narrow?.find((n) => rows.every((r) => n.rows.includes(r.id))) : undefined;
+    out.push(name ? { ...c, title: name.title, description: name.description, rows } : { ...c, rows });
   }
   return out;
 }
@@ -193,6 +239,21 @@ export function searchSettings(categories: readonly SettingsCategory[], query: s
     }
   }
   return out;
+}
+
+/**
+ * Ctrl+F also finds the topics whose content sits on the hub itself (Appearance, the data folder line
+ * of Data & backup) — they have no rows for searchSettings to match: "dark", "theme", "data folder".
+ * Matched against the topic's inline keywords only (every word of the query), in index order.
+ */
+export function searchTopics(categories: readonly SettingsCategory[], query: string): SettingsCategory[] {
+  const q = words(query);
+  if (q.length === 0) return [];
+  return categories.filter((c) => {
+    if (!c.inline || !c.inlineKeywords || c.inlineKeywords.length === 0) return false;
+    const hay = c.inlineKeywords.join(' \u0001 ').toLowerCase();
+    return q.every((w) => hay.includes(w));
+  });
 }
 
 /** Facts the hub already has (app state, features, the cached F12 configuration). */

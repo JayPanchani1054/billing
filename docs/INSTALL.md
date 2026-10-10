@@ -10,8 +10,9 @@ folder, upgrading and uninstalling. Using the program is described in the [User 
 - No administrator rights for the usual "Only for me" installation.
 - Disk space for the program, plus room for your data and its backups (each company is one database
   file; backups are compressed copies of it).
-- No internet connection is needed to run Pevqori. You need one only to download the installer — and to
-  use the GST / TDS portals, e-mail or WhatsApp outside Pevqori.
+- No internet connection is needed to run Pevqori. You need one only to download the installer (or to let
+  Pevqori check for and download a new version when you ask it to, §4) — and to use the GST / TDS portals,
+  e-mail or WhatsApp outside Pevqori.
 - Optional: an A4 / A5 printer, an 80 mm or 58 mm thermal receipt printer (POS), a cheque printer, a
   barcode scanner that types like a keyboard.
 

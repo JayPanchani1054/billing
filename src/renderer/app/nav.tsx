@@ -24,7 +24,7 @@ import { isLazyScreen, PREFETCH_SCREENS, retryLazyScreens } from './lazyScreen.t
 import { featureLabel } from './lib/featureCatalog.ts';
 import { KeyedStore } from './lib/keyedStore.ts';
 import { browserIdleScheduler, runWhenIdle } from './lib/lazyLoader.ts';
-import { FOCUS_RANK, INITIAL_FOCUS_WATCH_MS, markShellFocus, needsFocusWatch, shouldUpgradeFocus } from './lib/initialFocus.ts';
+import { FOCUS_RANK, INITIAL_FOCUS_WATCH_MS, keepUserFocusAfterLazyLoad, markShellFocus, needsFocusWatch, shouldUpgradeFocus } from './lib/initialFocus.ts';
 import { isAllowed, screenIndex } from './lib/menu.ts';
 import { createRootStack, makeEntry, mountedKeys, MAX_MOUNTED, ResultBroker, ROOT_SCREEN, topFullIndex, transition } from './lib/navStack.ts';
 import type { NavAction, NavEntry, NavParams } from './lib/navStack.ts';
@@ -657,13 +657,15 @@ function isShown(el: Element): boolean {
 }
 
 /**
- * Has the user put focus somewhere else than `container` (and the page body) on purpose? Focus left
- * on an element that is no longer shown — e.g. the Home menu button that opened this screen, now in a
- * hidden screen — is not a choice.
+ * Has the user put focus somewhere else than `container` (and the page body) on purpose while the
+ * screen's code loaded? Focus left on an element that is no longer shown — e.g. the Home menu button
+ * that opened this screen, now in a hidden screen — is not a choice, nor is focus still on `atOpen`, the
+ * element that held it when the screen opened (an eager screen takes focus from it at once — e.g. the
+ * topbar search button Go To hands focus back to): lib/initialFocus.ts keepUserFocusAfterLazyLoad.
  */
-function focusIsElsewhere(container: HTMLElement): boolean {
+function focusIsElsewhere(container: HTMLElement, atOpen: Element | null): boolean {
   const active = document.activeElement;
-  return active !== null && active !== document.body && !container.contains(active) && isShown(active);
+  return keepUserFocusAfterLazyLoad({ active, atOpen, isBody: active === document.body, inScreen: active !== null && container.contains(active), shown: active !== null && isShown(active) });
 }
 
 /** Call `done` once the lazy screen in `container` has replaced its loading fallback. Returns a stop function. */
@@ -718,7 +720,7 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
           const opener = document.activeElement;
           if (opener instanceof HTMLElement && opener !== document.body && !c.contains(opener) && !isShown(opener)) opener.blur();
           stopWait = whenLazyScreenLoaded(c, () => {
-            if (!focusIsElsewhere(c)) focusNow();
+            if (!focusIsElsewhere(c, opener)) focusNow();
           });
         });
         wasTop.current = isTop;
