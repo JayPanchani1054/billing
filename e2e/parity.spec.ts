@@ -186,9 +186,11 @@ test('purchase (F9) in accounting-invoice mode gets the TDS auto-line', async ()
   await expect(entry).toBeVisible();
   await entry.getByRole('radiogroup', { name: 'Entry mode' }).getByRole('radio', { name: 'Accounting invoice' }).click();
 
-  await entry.getByLabel(/^Party A\/c name/).focus();
+  // A purchase names its party field after the supplier (sales-side documents: "Party A/c name").
+  const supplier = entry.getByLabel(/^Supplier \(party A\/c\)/);
+  await supplier.focus();
   await pick(page, 'Sharma Con', new RegExp(lit(PARITY.tds.supplier)));
-  await expect(entry.getByLabel(/^Party A\/c name/)).toHaveValue(PARITY.tds.supplier);
+  await expect(supplier).toHaveValue(PARITY.tds.supplier);
   await entry.getByLabel(/^Supplier invoice no/).fill(PARITY.tds.supplierInvoiceNo);
 
   const lines = entry.getByRole('table', { name: 'Invoice lines' });
@@ -227,10 +229,13 @@ test('Manufacturing Journal from the default BOM', async () => {
   const finished = journal.getByRole('region', { name: 'Finished goods' });
   await finished.getByRole('combobox', { name: /^Item/ }).focus();
   await pick(page, 'Bolt Kit', new RegExp(lit(PARITY.kit.name)));
+  // The item's default BOM is chosen at once; its components fill in once the quantity is known
+  // (as in Tally: item → quantity → components scaled to it).
+  await expect(finished.getByLabel('Bill of materials')).toHaveValue(String(m.bom));
+  const qty = finished.getByLabel(/^Quantity/);
+  await qty.fill(String(PARITY.kit.qty));
+  await qty.press('Tab');
   const consumed = journal.getByLabel(`Quantity of ${PARITY.item.name}`, { exact: true });
-  await expect(consumed).toBeVisible(); // components filled in from the default BOM
-  await finished.getByLabel(/^Quantity/).fill(String(PARITY.kit.qty));
-  await finished.getByLabel(/^Quantity/).press('Tab');
   await expect(consumed).toHaveValue(new RegExp(`^${PARITY.kit.consumed}(\\.0+)?\\b`));
   await page.keyboard.press('Control+a');
   await saveAnywayIfAsked(page);
