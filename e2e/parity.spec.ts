@@ -53,11 +53,15 @@ async function goTo(label: string, screenId: string): Promise<Locator> {
   return s;
 }
 
-/** Day Book row of a party (optionally of a voucher type) → voucher view (Alt+Enter). */
-async function viewFromDayBook(party: string, type?: RegExp): Promise<Locator> {
+/**
+ * Day Book row of a party (optionally of a voucher type, by its exact Vch Type cell) → voucher view
+ * (Alt+Enter). The type is matched on its own grid cell: a row's text joins its cells without spaces
+ * ("Kavya TradersSales1"), so a word-bounded `hasText` never matches a type name.
+ */
+async function viewFromDayBook(party: string, type?: string): Promise<Locator> {
   const daybook = await openFromGateway(page, 'Day Book', 'vouchers.daybook');
   let row = daybook.getByRole('grid', { name: 'Day Book', exact: true }).getByRole('row', { name: new RegExp(lit(party)) });
-  if (type) row = row.filter({ hasText: type });
+  if (type) row = row.filter({ has: page.getByRole('gridcell', { name: type, exact: true }) });
   await expect(row).toHaveCount(1);
   await row.click();
   await page.keyboard.press('Alt+Enter');
@@ -132,7 +136,7 @@ test('quotation → Quotation Register › Alt+V → Sales 1', async () => {
 });
 
 test('print preview of Sales 1 on A5, then on the 80 mm roll', async () => {
-  await viewFromDayBook(PARITY.customer.name, /\bSales\b/);
+  await viewFromDayBook(PARITY.customer.name, 'Sales');
   await page.keyboard.press('Alt+p');
   const preview = screen(page, 'print.voucher');
   await expect(preview.getByRole('heading', { name: 'Print Preview', level: 1 })).toBeVisible();
