@@ -10,7 +10,9 @@ import { cx } from '../ui/lib/cx.ts';
 import { useInactiveBaseTypes, useVoucherChoices } from './hooks/useVoucherChoices.ts';
 import { getGotoProviders, onGotoProvidersChange, pushRecent, rankGoto, resolveGotoTarget, searchProviders, usableProviders } from './lib/goto.ts';
 import type { GotoItem, GotoProvider, RankedGoto } from './lib/goto.ts';
+import { answerGotoCatalogRequest, GOTO_CATALOG_EVENT, gotoCatalogSnapshot } from './lib/gotoCatalog.ts';
 import { buildStaticGotoItems, parseRecent, usableRecents } from './lib/gotoItems.ts';
+import { screenIndex } from './lib/menu.ts';
 import { customVoucherGotoItems, parseVoucherCommand } from './lib/voucherTypes.ts';
 import { useModules, useNav } from './nav.tsx';
 import { useShell, VOUCHER_ENTRY_SCREEN } from './shell.tsx';
@@ -87,6 +89,16 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
       },
     );
   }, [modules, app.can, app.company, nav, shell, voucherTypes, inactiveBaseTypes]);
+
+  // The every-screen e2e sweep reads this palette's own list (lib/gotoCatalog.ts): a read-only answer
+  // to a window CustomEvent while the palette is open — nothing is exposed on window.
+  useEffect(() => {
+    const onRequest = (e: Event) => {
+      answerGotoCatalogRequest(e, () => gotoCatalogSnapshot(staticItems, screenIndex(modules).values()));
+    };
+    window.addEventListener(GOTO_CATALOG_EVENT, onRequest);
+    return () => window.removeEventListener(GOTO_CATALOG_EVENT, onRequest);
+  }, [staticItems, modules]);
 
   // Recents are kept per company (not per user): show only those THIS user can open now.
   const shownRecent = useMemo(
@@ -272,6 +284,7 @@ function GotoOption({ id, ranked, active, onPick, onHover }: { id: string; ranke
       id={id}
       role="option"
       aria-selected={active}
+      data-goto-id={item.id}
       className={cx('bx-goto__option', active && 'is-active')}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onPick}

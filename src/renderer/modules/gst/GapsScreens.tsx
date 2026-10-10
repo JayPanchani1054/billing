@@ -110,7 +110,8 @@ export function Rule37Screen({ params }: ScreenProps<{ asOf?: string }>) {
   const actions: ScreenActionItem[] = [
     { key: 'Alt+R', label: 'Post reversal', icon: 'check', onClick: () => setPosting('reversal'), disabled: !canFile || reversible === 0, group: 'file' },
     { key: 'Alt+L', label: 'Post reclaim', icon: 'check', onClick: () => setPosting('reclaim'), disabled: !canFile || reclaimable === 0, group: 'file' },
-    { key: 'Alt+S', label: 'GSTR-3B', icon: 'gst', onClick: () => nav.push('gst.gstr3b'), group: 'go' },
+    // Alt+B GSTR-3B as on GSTR-1 (Alt+S means set-off on the GST screens).
+    { key: 'Alt+B', label: 'GSTR-3B', icon: 'gst', onClick: () => nav.push('gst.gstr3b'), group: 'go' },
   ];
   return (
     <ReportScreen

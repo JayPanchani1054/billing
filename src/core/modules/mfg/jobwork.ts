@@ -26,7 +26,7 @@ import type {
 } from '../../../shared/types/mfg.ts';
 import type { Db } from '../../db/db.ts';
 import { rule } from '../../lib/errors.ts';
-import { resolveItemGstProfile } from '../inventory/gst.ts';
+import { createDatedGstResolver } from '../inventory/gst.ts';
 import { roundQty, STOCK_MOVEMENT_FILTER } from '../inventory/stock.ts';
 
 const EPS = 1e-9;
@@ -373,13 +373,19 @@ export function itc04(db: Db, today: string, input: Itc04Input): Itc04Result {
     const it = items.get(itemId);
     return (it?.uqc || it?.unit || 'OTH').toUpperCase();
   };
+  // GST profile of each challan line on its date: the items' rates and dated history read once for
+  // the period (createDatedGstResolver), not two or more queries per line.
+  const profileOf = createDatedGstResolver(
+    db,
+    lots.filter((l) => !l.isOpening && l.date >= input.from && l.date <= input.to && !l.fromThirdParty).map((l) => l.itemId),
+  );
 
   const sent: Itc04SentRow[] = [];
   for (const lot of lots) {
     if (lot.isOpening || lot.date < input.from || lot.date > input.to || lot.fromThirdParty) continue;
     const p = party(lot.partyLedgerId);
     if (!p.gstin) warnings.push(`Challan ${lot.number ?? '(no number)'} of ${formatDate(lot.date)}: the job worker ${p.name ?? ''} has no GSTIN — ITC-04 reports unregistered job workers by state.`);
-    const profile = resolveItemGstProfile(db, lot.itemId, lot.date);
+    const profile = profileOf(lot.itemId, lot.date);
     const rate = profile && profile.taxability === 'taxable' ? profile.rate : 0;
     const inter = p.state !== null && company?.state_code !== null && p.state !== company?.state_code;
     sent.push({

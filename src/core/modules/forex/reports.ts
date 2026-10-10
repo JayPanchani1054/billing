@@ -329,7 +329,7 @@ export function forexRevaluation(db: Db, today: string, input: ForexRevaluationI
     }
   }
   const posted = db.all<{ voucher_id: number; number: string | null; date: string; as_of: string }>(
-    `SELECT r.voucher_id, v.number, v.date, r.as_of FROM forex_revaluations r JOIN vouchers v ON v.id = r.voucher_id
+    `SELECT r.voucher_id, v.number, v.date, r.as_of FROM forex_revaluations r CROSS JOIN vouchers v ON v.id = r.voucher_id
       WHERE v.is_cancelled = 0 ORDER BY r.as_of DESC, v.id DESC`,
   );
   return {

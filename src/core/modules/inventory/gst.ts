@@ -483,3 +483,76 @@ export function createGstResolver(db: Db, date: string): (item: ItemGstSource) =
     return { ...found, hsnSac: hsnOf(h?.hsn_sac) ?? hsnOf(item.hsn_sac) ?? chain.firstHsn };
   };
 }
+
+/**
+ * Bulk resolver for many (item, date) pairs — e.g. every challan line of an ITC-04 period, each on its
+ * own date: four queries whatever the number of lines (the items' rows and their whole dated history,
+ * every stock group and the groups' history), instead of two or more per line. `resolve(itemId, date)`
+ * gives exactly what resolveItemGstProfile(db, itemId, date) would (same levels, same precedence); an
+ * item outside `itemIds` resolves to null.
+ */
+export function createDatedGstResolver(db: Db, itemIds: readonly number[]): (itemId: number, date: string) => ItemGstProfile | null {
+  const ids = JSON.stringify([...new Set(itemIds)]);
+  const items = new Map<number, GstColumns & { group_id: number | null }>();
+  for (const r of db.all<GstColumns & { id: number; group_id: number | null }>(
+    `SELECT id, group_id, ${GST_COLS} FROM stock_items WHERE id IN (SELECT value FROM json_each(:ids))`,
+    { ids },
+  )) {
+    items.set(r.id, r);
+  }
+  /** History rows per entity, ascending by applicable_from (the latest ≤ date is found by bisection). */
+  const byEntity = (rows: readonly HistoryRow[]): Map<number, HistoryRow[]> => {
+    const out = new Map<number, HistoryRow[]>();
+    for (const r of rows) {
+      const list = out.get(r.entity_id);
+      if (list) list.push(r);
+      else out.set(r.entity_id, [r]);
+    }
+    return out;
+  };
+  const HISTORY_COLS = 'id, entity_id, applicable_from, hsn_sac, taxability, rate, cess_rate, cess_per_unit';
+  const itemHistory = byEntity(
+    db.all<HistoryRow>(
+      `SELECT ${HISTORY_COLS} FROM gst_rate_history
+        WHERE entity_type = 'stock_item' AND entity_id IN (SELECT value FROM json_each(:ids))
+        ORDER BY entity_id, applicable_from`,
+      { ids },
+    ),
+  );
+  const groupHistory = byEntity(db.all<HistoryRow>(`SELECT ${HISTORY_COLS} FROM gst_rate_history WHERE entity_type = 'stock_group' ORDER BY entity_id, applicable_from`));
+  const groups = new Map<number, GstColumns & { parent_id: number | null }>();
+  for (const g of db.all<GstColumns & { id: number; parent_id: number | null }>(`SELECT id, parent_id, ${GST_COLS} FROM stock_groups`)) groups.set(g.id, g);
+
+  const at = (rows: readonly HistoryRow[] | undefined, date: string): HistoryRow | undefined => {
+    if (!rows || rows.length === 0 || rows[0].applicable_from > date) return undefined;
+    let lo = 0;
+    let hi = rows.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (rows[mid].applicable_from <= date) lo = mid;
+      else hi = mid - 1;
+    }
+    return rows[lo];
+  };
+  // The same levels as itemLevels() / groupLevels(), read from the preloaded rows.
+  function* levels(itemId: number, item: GstColumns & { group_id: number | null }, date: string): Generator<Level> {
+    const h = at(itemHistory.get(itemId), date);
+    yield { profile: h ? fromHistory('item_history', itemId, h) : null, hsn: hsnOf(h?.hsn_sac) };
+    yield { profile: columnsComplete(item) ? fromColumns('item', itemId, item) : null, hsn: hsnOf(item.hsn_sac) };
+    const seen = new Set<number>();
+    let gid = item.group_id;
+    for (let depth = 0; gid !== null && depth < MAX_GROUP_DEPTH && !seen.has(gid); depth++) {
+      seen.add(gid);
+      const gh = at(groupHistory.get(gid), date);
+      yield { profile: gh ? fromHistory('group_history', gid, gh) : null, hsn: hsnOf(gh?.hsn_sac) };
+      const g = groups.get(gid);
+      if (!g) return;
+      yield { profile: columnsComplete(g) ? fromColumns('group', gid, g) : null, hsn: hsnOf(g.hsn_sac) };
+      gid = g.parent_id;
+    }
+  }
+  return (itemId, date) => {
+    const item = items.get(itemId);
+    return item ? pickProfile(levels(itemId, item, date)) : null;
+  };
+}

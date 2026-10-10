@@ -1500,7 +1500,7 @@ class PostingBuilder {
         ? []
         : this.db
             .all<{ bill_name: string }>(
-              `SELECT DISTINCT bill_name FROM bill_allocations
+              `SELECT DISTINCT bill_name FROM bill_allocations INDEXED BY idx_bills_voucher
                 WHERE voucher_id = :self AND ledger_id = :ledgerId AND ref_type IN ('new', 'advance') AND bill_name IS NOT NULL`,
               { self, ledgerId },
             )

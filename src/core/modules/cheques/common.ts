@@ -80,7 +80,7 @@ export function issuedCheques(db: Db, bankLedgerId: number, opts: { excludeVouch
   }>(
     `SELECT le.voucher_id, le.line_no, le.ledger_id, le.instrument_no, le.date, le.instrument_date, le.amount, le.bank_date,
             le.favouring, le.is_post_dated, le.affects_books, vt.name AS type_name, v.number
-       FROM ledger_entries le
+       FROM ledger_entries le INDEXED BY idx_le_cheques
        JOIN vouchers v ON v.id = le.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
       WHERE le.ledger_id = :bank AND le.instrument_type = 'cheque' AND le.amount < 0 AND le.voucher_id <> :ex
@@ -125,7 +125,7 @@ export interface IssuedLeaf {
 export function issuedLeaves(db: Db, bankLedgerId: number): IssuedLeaf[] {
   const out: IssuedLeaf[] = [];
   for (const r of db.all<{ voucher_id: number; instrument_no: string }>(
-    "SELECT voucher_id, instrument_no FROM ledger_entries WHERE ledger_id = :bank AND instrument_type = 'cheque' AND amount < 0",
+    "SELECT voucher_id, instrument_no FROM ledger_entries INDEXED BY idx_le_cheques WHERE ledger_id = :bank AND instrument_type = 'cheque' AND amount < 0",
     { bank: bankLedgerId },
   )) {
     const n = chequeNumber(r.instrument_no);

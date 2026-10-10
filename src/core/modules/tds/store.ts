@@ -231,7 +231,7 @@ export class TdsStore {
   payableLedgerId(kind: TdsKind, section: string): number | null {
     return (
       this.db.value<number>(
-        `SELECT ledger_id FROM tds_ledger_details WHERE payable_kind = :kind AND payable_section = :section`,
+        `SELECT ledger_id FROM tds_ledger_details WHERE payable_kind = :kind AND payable_kind IN ('tds', 'tcs') AND payable_section = :section`,
         { kind, section: payableKey(kind, section) },
       ) ?? null
     );
@@ -249,7 +249,7 @@ export function payableLedgerName(kind: TdsKind, section: string): string {
 export function ensurePayableLedger(ctx: CompanyCtx, kind: TdsKind, section: string): number {
   const { db } = ctx;
   const key = payableKey(kind, section);
-  const existing = db.value<number>(`SELECT ledger_id FROM tds_ledger_details WHERE payable_kind = :kind AND payable_section = :key`, { kind, key });
+  const existing = db.value<number>(`SELECT ledger_id FROM tds_ledger_details WHERE payable_kind = :kind AND payable_kind IN ('tds', 'tcs') AND payable_section = :key`, { kind, key });
   if (existing !== undefined) return existing;
   const name = payableLedgerName(kind, section);
   return adoptOrCreateLedger(ctx, {

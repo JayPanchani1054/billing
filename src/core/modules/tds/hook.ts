@@ -371,7 +371,7 @@ function grossBillJournal(ctx: PostingAdjustContext, store: TdsStore, manual: Re
     const def = d.defaultNatureId !== null ? store.nature(d.defaultNatureId) : null;
     const billLine = bill
       ? (db.get<{ nature_id: number; assessable: number; base: number; status: string }>(
-          `SELECT nature_id, assessable, base, status FROM tds_lines WHERE voucher_id = :v AND kind = 'tds' AND section = :s ORDER BY line_no LIMIT 1`,
+          `SELECT nature_id, assessable, base, status FROM tds_lines INDEXED BY idx_tds_lines_voucher WHERE voucher_id = :v AND kind = 'tds' AND section = :s ORDER BY line_no LIMIT 1`,
           { v: bill.id, s: section },
         ) ?? null)
       : null;

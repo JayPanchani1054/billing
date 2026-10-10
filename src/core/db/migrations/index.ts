@@ -36,6 +36,7 @@ import { migration221 } from './221_numbering_rows.ts';
 import { migration222 } from './222_attachments.ts';
 import { migration230 } from './230_forex.ts';
 import { migration240 } from './240_final_gaps.ts';
+import { migration241 } from './241_perf_indexes.ts';
 
 export interface Migration {
   version: number;
@@ -75,4 +76,5 @@ export const migrations: readonly Migration[] = [
   migration222,
   migration230,
   migration240,
+  migration241,
 ];
