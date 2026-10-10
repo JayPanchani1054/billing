@@ -56,9 +56,11 @@ async function toGateway(): Promise<void> {
 /** Open a Gateway menu item by its label (Tally-style menu on the left). */
 async function openFromGateway(label: string, screenId: string): Promise<Locator> {
   await toGateway();
+  // Match the item's label exactly (data-text-value): a prefix would also match newer items such as
+  // "GSTR-1 Amendments" next to "GSTR-1".
   await page
     .getByRole('navigation', { name: 'Gateway menu' })
-    .getByRole('button', { name: new RegExp(`^${lit(label)}`) })
+    .locator(`button[data-text-value="${label.replace(/["\\]/g, '\\$&')}"]`)
     .click();
   const s = screen(screenId);
   await expect(s).toBeVisible();
