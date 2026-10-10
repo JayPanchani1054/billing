@@ -20,7 +20,9 @@ import type { MenuSection } from '../registry.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const modulesDir = path.join(repoRoot, 'src/renderer/modules');
-const read = (rel: string): string => fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+/** Text with LF line ends: a Windows checkout (core.autocrlf) gives CRLF, which would end every heading in '\r'. */
+const readText = (file: string): string => fs.readFileSync(file, 'utf8').replace(/\r\n?/g, '\n');
+const read = (rel: string): string => readText(path.join(repoRoot, rel));
 
 /** Gateway labels per section label, from the modules' static menus plus the generated entries. */
 function gatewayItems(): Map<string, Set<string>> {
@@ -34,7 +36,7 @@ function gatewayItems(): Map<string, Set<string>> {
   for (const dir of fs.readdirSync(modulesDir, { withFileTypes: true })) {
     const file = path.join(modulesDir, dir.name, 'index.ts');
     if (!dir.isDirectory() || !fs.existsSync(file)) continue;
-    for (const m of fs.readFileSync(file, 'utf8').matchAll(re)) add(m[1] as MenuSection, m[2]);
+    for (const m of readText(file).matchAll(re)) add(m[1] as MenuSection, m[2]);
   }
   for (const r of REGISTERS) add('reports', r.label);
   for (const e of voucherMenuEntries(VOUCHER_FEATURE)) add('transactions', e.label);
@@ -137,7 +139,7 @@ function boundKeys(rels: readonly string[]): { keys: Set<string>; ctrlDigits: bo
   const keys = new Set<string>();
   let ctrlDigits = false;
   for (const f of files) {
-    for (const m of fs.readFileSync(f, 'utf8').matchAll(/'([^'\n]*)'|"([^"\n]*)"|`([^`\n]*)`/g)) {
+    for (const m of readText(f).matchAll(/'([^'\n]*)'|"([^"\n]*)"|`([^`\n]*)`/g)) {
       const lit = m[1] ?? m[2] ?? m[3] ?? '';
       if (lit.startsWith('Ctrl+${')) ctrlDigits = true;
       const parts = lit.split(/,\s*/);
@@ -293,7 +295,7 @@ describe('docs/USER_GUIDE.md', () => {
     const undocumented: string[] = [];
     for (const [key, { conventional, screens }] of Object.entries(KEY_DEVIATIONS)) {
       for (const file of sourceFiles(modulesDir)) {
-        const src = fs.readFileSync(file, 'utf8');
+        const src = readText(file);
         for (const m of src.matchAll(new RegExp(`key: '${key.replace('+', '\\+')}',[\\s\\S]{0,40}?label: ([^,\\n]+)`, 'g'))) {
           if (conventional.test(m[1])) continue;
           const rel = path.relative(modulesDir, file).split(path.sep).join('/');
@@ -367,7 +369,7 @@ describe('links between the documents', () => {
           broken.push(`${d}: ${target} (no such file)`);
           continue;
         }
-        if (anchor && resolved.endsWith('.md') && !anchorsOf(fs.readFileSync(resolved, 'utf8')).has(anchor)) {
+        if (anchor && resolved.endsWith('.md') && !anchorsOf(readText(resolved)).has(anchor)) {
           broken.push(`${d}: ${target} (no such heading)`);
         }
       }
