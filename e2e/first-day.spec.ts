@@ -53,7 +53,7 @@ async function toGateway(): Promise<void> {
   await expect(gateway).toBeVisible();
 }
 
-/** Open a Gateway menu item by its label (Tally-style menu on the left). */
+/** Open a Gateway menu item by its label (the keyboard-first menu on the left). */
 async function openFromGateway(label: string, screenId: string): Promise<Locator> {
   await toGateway();
   // Match the item's label exactly (data-text-value): a prefix would also match newer items such as

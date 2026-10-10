@@ -34,7 +34,7 @@ listed in [SCOPE.md](SCOPE.md). Installing, upgrading and uninstalling are in [I
 10. [Reports and budgets](#10-reports-and-budgets)
 11. [Multiple currencies](#11-multiple-currencies)
 12. [Printing and sharing](#12-printing-and-sharing)
-13. [Data: backup, restore, import, Tally, attachments](#13-data-backup-restore-import-tally-attachments)
+13. [Data: backup, restore, import, export, attachments](#13-data-backup-restore-import-export-attachments)
 14. [Security and users](#14-security-and-users)
 15. [Keyboard reference](#15-keyboard-reference)
 16. [Troubleshooting and FAQ](#16-troubleshooting-and-faq)
@@ -90,7 +90,7 @@ the full dashboard, *Reports › **Dashboard***, brings the card back if you hid
 ### Moving around
 
 - **Esc** goes back one screen (asking first if you typed something). The breadcrumb at the top shows
-  where you are; screens stack like in Tally.
+  where you are; each screen opens on top of the one before it.
 - **Go To** (**Ctrl+G**, **Alt+G** or **Ctrl+K**) finds any screen, report, ledger, stock item or
   voucher (by number, party, reference, narration or exact amount).
 - **F2** changes the *working date* — the default date of new vouchers and of "as on" reports.
@@ -186,8 +186,8 @@ the spot; it is then selected for you.
 item by a supplier's code. In the ledger or stock item form, **Alias** holds the first one and **More
 aliases** takes more (one per line, up to 20 in all). Every alias works in every picker, in Go To and in
 the lists. Two ledgers (or a ledger and a group) cannot share a name or alias, and neither can two
-items. In Excel import / export the **Alias** column holds all aliases separated by `;`, and Tally import
-/ export keeps them all.
+items. In Excel import / export the **Alias** column holds all aliases separated by `;`, and XML data
+import / export keeps them all.
 
 ### 3.2 Stock masters
 
@@ -233,7 +233,7 @@ In **Numbering** (the preview under the fields shows the next number):
   an invoice is checked when the invoice is saved: a warning you confirm (for numbers carried over from an
   older system), listed again by the GSTR-1 and e-invoice checks.
 - Changing the numbering never renumbers vouchers already saved; a voucher keeps its number when its
-  date is altered (as in Tally).
+  date is altered.
 
 The voucher type also holds its defaults: party, godown, invoice mode, the title, template, MRP
 column, bank details, declaration and terms printed on the document, and whether it prints after saving.
@@ -290,8 +290,8 @@ another voucher key (or F10) to switch type; the date is kept.
   cheque (number filled from the cheque book, section 8.2), DD, NEFT / RTGS / IMPS, UPI, card.
 - **Ctrl+B** puts the Dr / Cr difference on the last line. **Ctrl+D** removes a line, **Alt+N** /
   **Ctrl+N** inserts one above.
-- **Ctrl+L** makes the voucher **optional** (kept, numbered, but not in the books — like Tally's
-  optional vouchers); **Ctrl+T** makes it **post-dated** (it joins the books on its date;
+- **Ctrl+L** makes the voucher **optional** (kept, numbered, but not in the books); **Ctrl+T** makes it
+  **post-dated** (it joins the books on its date;
   *Transactions › **Post-dated Vouchers*** lists them).
 - **Alt+J** GST details (advances, bill of entry, challans, ITC reversals — section 6.4), **Alt+U** TDS /
   TCS (section 7), **Alt+Y** foreign currency (section 11). Files are attached from the saved voucher's
@@ -593,7 +593,7 @@ Sub-assemblies are not exploded automatically: make them first with their own Ma
 vouchers; altering an optional journal keeps it optional until you press Ctrl+L again.
 
 The journal moves stock only. Additional costs raise the value of the finished goods but **are not
-posted to the expense ledgers** (as in Tally) — record the actual expense with a Payment or Journal
+posted to the expense ledgers** (the usual convention) — record the actual expense with a Payment or Journal
 voucher as usual. If a purchase is entered later with an earlier date, the cost of the finished goods is
 recomputed automatically in every report. *Inventory Reports › **Production Register*** lists what was
 made, at what cost, against the BOM's estimate today.
@@ -1303,7 +1303,7 @@ come from the texts in Invoice Printing, which you can change (placeholders such
 Sharing needs the *Export* permission, and every share is recorded in the edit log. Pevqori itself sends
 nothing over the internet: your mail program or WhatsApp does.
 
-## 13. Data: backup, restore, import, Tally, attachments
+## 13. Data: backup, restore, import, export, attachments
 
 ### 13.1 Backups
 
@@ -1378,67 +1378,71 @@ unchanged. Each problem is explained in plain words; **Alt+R** checks again.
 Every export is recorded in the edit log and needs the *Export* permission; importing needs *Import* plus
 the right to create the masters or vouchers concerned.
 
-### 13.5 Moving from Tally, and Export to Tally
+### 13.5 Moving from another accounting program (XML data import), and XML data export
 
-**XML Data Import** (*Data › **XML Data Import***):
+**XML Data Import** (*Data › **XML Data Import***) brings your masters and vouchers across from your
+previous accounting software, if it can export them as XML:
 
-1. In Tally, open the company and export **masters** and **transactions** as XML (TallyPrime:
-   *Gateway of Tally › Export*, **Alt+E**; Tally ERP 9: *Display › List of Accounts › Alt+E* for masters).
-   Copy the `.xml` files to this computer.
+1. In your previous accounting program, open the company and export its **masters** and **transactions**
+   as XML (see that program's help for its export command). Copy the `.xml` files to this computer.
 2. Choose the file (**Alt+O**). The preview shows what is in it — masters by kind, vouchers by type and
    date range, how many already exist here, and issues — without writing anything.
 3. Choose masters and / or vouchers, the period and what to do with vouchers already imported (skip, or
-   update those that came from Tally — a voucher entered in Pevqori is never overwritten). **Alt+B** backs up
-   first. **Ctrl+A** imports; a progress bar shows the vouchers.
-4. Compare: **Alt+T** opens Pevqori's Trial Balance for the same period as Tally's.
+   update those that came from the earlier import — a voucher entered in Pevqori is never overwritten).
+   **Alt+B** backs up first. **Ctrl+A** imports; a progress bar shows the vouchers.
+4. Compare: **Alt+T** opens Pevqori's Trial Balance for the same period, to check against the Trial
+   Balance of your previous program.
 
 Vouchers are imported **as recorded** — amounts, tax, round-off and numbers are never recalculated.
 Unbalanced vouchers, unknown ledgers or items, dates before the books begin or inside a locked period are
 listed as issues and skipped. Points to know: a **debit note to a customer** is imported for value and GST
-only (Tally reduces stock for it; Pevqori does not, the import log lists each one); Tally's **job work**
-(Material In / Out) vouchers and **budgets** are not imported; foreign-currency amounts come in as rupees;
-GST on advances recorded with the GST system ledgers is recognised, but Tally's stat-adjustment journals
-arrive as plain journals. Features the data uses (cost centres, godowns, …) are switched on for you.
+only (your previous program may have reduced stock for it; Pevqori does not, and the import log lists each
+one); **job work** (Material In / Out) vouchers and **budgets** are not imported; foreign-currency amounts
+come in as rupees; GST on advances recorded with the GST system ledgers is recognised, but stat-adjustment
+journals arrive as plain journals. Features the data uses (cost centres, godowns, …) are switched on for
+you.
 
-**Export to Tally (for your CA or auditor).** Most chartered accountants finalise accounts in TallyPrime.
-*Data › **XML Data Export*** writes your books as a file TallyPrime can import:
+**XML Data Export (for your CA or auditor).** Many chartered accountants finalise accounts in their own
+accounting program. *Data › **XML Data Export*** writes your books as an XML file that such a program can
+import:
 
 1. Tick **Masters** (groups, ledgers with GST, address, bank and bill-wise opening details, units,
    godowns, stock groups and items with opening stock, cost centres, voucher types, aliases) and / or
    **Vouchers of the period**, and enter the period. **Ctrl+A** exports; you choose where to save.
 2. Masters alone come as one `.xml` file. With vouchers you get a `.zip` holding `1-Masters.xml` and
-   `2-Vouchers.xml` — extract it first (right-click › Extract All); Tally cannot read a ZIP.
-3. In TallyPrime, open (or create) the company with the books-beginning date the screen shows under
-   **Opening balances as on** and the same GST details, then **Gateway of Tally › Import › Masters** with
-   `1-Masters.xml`, then **Import › Transactions** with `2-Vouchers.xml`.
-4. Compare the Trial Balance and Stock Summary in Tally with Pevqori for the same period (**Alt+B** on the
+   `2-Vouchers.xml` — extract it first (right-click › Extract All); the receiving program needs the `.xml`
+   files, not the ZIP.
+3. In the receiving program, open (or create) the company with the books-beginning date the screen shows
+   under **Opening balances as on** and the same GST details, then import the masters from
+   `1-Masters.xml` first and the transactions from `2-Vouchers.xml` after them.
+4. Compare the Trial Balance and Stock Summary there with Pevqori's for the same period (**Alt+B** on the
    export screen opens Pevqori's Trial Balance).
 
 **Opening balances.** If you export the vouchers of, say, 2026-27 while your books here began earlier, the
 masters carry the balances as on 1-Apr-2026 — every ledger's balance on that day (last year's profit in
 the Profit & Loss A/c), the bills still pending (an amount received or paid without a bill becomes one
-opening bill called "On Account") and the stock in each godown and batch at its value — so your CA's Tally
+opening bill called "On Account") and the stock in each godown and batch at its value — so your CA's
 company can simply begin on that date. Masters exported on their own, or with vouchers from your first
 day, carry the opening balances you entered.
 
 Vouchers go exactly as recorded — the same tax, round-off, numbers, bill references, cost centres, cheque
 details and stock lines; nothing is recalculated. The one exception is a Manufacturing Journal or Material
 In / Out: its stock lines go at the cost Pevqori's stock reports show today, so if a purchase entered later
-(back-dated) changed the cost of what was produced, Tally gets the corrected value and the closing stock
-agrees. GST on advances received (Alt+J on a receipt), its adjustment on the invoice and a refund of it
-come back as advances when the file is imported into Pevqori again. Freight or packing that you include in
-the goods' taxable value stays on its own ledger, and the freight ledger is marked so that Tally includes
-it in the assessable value too. Not exported: quotations, proforma invoices and physical stock vouchers
-(the screen tells you how many were left out), e-invoice / e-way bill details, an export's shipping bill
-number / date / port code (enter them again in Tally), attachments, price lists, BOMs, budgets and
-scenarios, and foreign-currency amounts (exported in rupees). POS bills go as ordinary sales vouchers with
-their payment entries. SEZ, deemed-export and UIN parties arrive in Tally as Regular — set their party
-type there. For a credit or debit note the original invoice number and date go in Tally's Reference No.
-and Date.
+(back-dated) changed the cost of what was produced, the receiving company gets the corrected value and the
+closing stock agrees. GST on advances received (Alt+J on a receipt), its adjustment on the invoice and a
+refund of it come back as advances when the file is imported into Pevqori again. Freight or packing that
+you include in the goods' taxable value stays on its own ledger, and the freight ledger is marked so that
+the receiving program includes it in the assessable value too. Not exported: quotations, proforma
+invoices and physical stock vouchers (the screen tells you how many were left out), e-invoice / e-way bill
+details, an export's shipping bill number / date / port code (enter them again in the receiving program),
+attachments, price lists, BOMs, budgets and scenarios, and foreign-currency amounts (exported in rupees).
+POS bills go as ordinary sales vouchers with their payment entries. SEZ, deemed-export and UIN parties
+arrive as Regular — set their party type there. For a credit or debit note the original invoice number
+and date go in the voucher's Reference No. and Date.
 
 The export has been tested by importing it back into an empty Pevqori company (same trial balance, stock
-summary, GST returns and pending bills); it has not been tried against TallyPrime itself, so the first
-time import it into a **copy** of the Tally company and check.
+summary, GST returns and pending bills); it has not been tried against the receiving program itself, so
+the first time import it into a **copy** of the company there and check.
 
 ### 13.6 Attaching bills, challans and other papers
 
@@ -1455,8 +1459,8 @@ with the payment, the agreement with the party's ledger:
   XML file that is really a web page. There is no preview inside Pevqori.
 - The files are kept in the company's own folder (under `attachments`), go into every backup (and are
   encrypted with it when the backup has a password), and come back with a restore. **Check Books**
-  confirms that every attached file is still there and unchanged. They are not part of the Excel or Tally
-  exports.
+  confirms that every attached file is still there and unchanged. They are not part of the Excel or XML
+  data exports.
 - Attaching and removing appear in the voucher's or master's edit history (**Alt+H**). Files of a voucher
   in the locked period can be added but not removed. A voucher, ledger or item with files cannot be
   deleted until the files are removed (so a bill scan can never disappear with a deleted entry);
@@ -1579,7 +1583,7 @@ with the screen (15.4 and the sections above).
 | **Shift+Enter** | Previous field |
 | **Ctrl+Enter** | Next field from a multi-line box |
 | **Ctrl+A** | Accept / save |
-| **Alt+C** | Create a new master from a list or picker (ledger, item, …); on the Balance Sheet and P&L, a comparison column (Tally's "New Column") |
+| **Alt+C** | Create a new master from a list or picker (ledger, item, …); on the Balance Sheet and P&L, a comparison column ("New Column") |
 | **Alt+A** | Alter the selected voucher or master; in a tick list with nothing to alter (Print Cheques, E-payment File, Print batch, Reminders) tick / untick everything |
 | **Alt+D** | Delete the master or voucher on screen (**Ctrl+D** also deletes in master lists) |
 | **Ctrl+D** | Remove the line (voucher and grid rows) |
@@ -1606,8 +1610,8 @@ Screens where one of these keys does something else: **Alt+W** switches to the o
 *Receivables* / *Payables* (share a party's statement from *Statement of Account*), shows all customers
 on *Payment Reminders*, cycles the expiry filter on *Batch Summary* and changes your password on *My
 Session*; **Alt+X** discards typed dates on *Bank Reconciliation*, switches A/c Payee on *Print Cheques*,
-cancels a leaf on the *Cheque Leaf Register*, opens GST exceptions on GSTR-1 / GSTR-3B, opens Tally
-migration on *Import from Excel* and clears the filters on the *Edit Log*.
+cancels a leaf on the *Cheque Leaf Register*, opens GST exceptions on GSTR-1 / GSTR-3B, opens the
+XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 
 ### 15.3 Voucher entry
 
@@ -1674,7 +1678,7 @@ company is open in one place at a time. Several people can use the same computer
 **"This company was created by a newer version of Pevqori."** Install the newer version (or newer) on
 this computer; an older version never writes into a newer company.
 
-**"Another task is running in this company."** An Excel or Tally import cannot start while the company is
+**"Another task is running in this company."** An Excel or XML data import cannot start while the company is
 busy with another long task — for example the automatic backup that runs a few seconds after you open the
 company or log in, an export, or another import. The message offers **Wait and retry**: Pevqori tries again
 every 2 seconds (for up to 2 minutes) and starts the import as soon as the company is free.
@@ -1701,9 +1705,10 @@ may view masters; others still see every type, as F10 does).
 with a button to open it; the window's hidden menu (press and release Alt) also has *Help › Open Logs
 Folder*. Logs never contain passwords or voucher data; send them when reporting a problem.
 
-**My Tally figures and Pevqori's differ after migrating.** Compare the Trial Balance (Alt+T on the migration
-screen) and read the import log: skipped vouchers (unbalanced, unknown masters, dates before the books
-begin) and debit notes to customers (Pevqori does not move stock for them; Tally does) are listed there.
+**My previous program's figures and Pevqori's differ after moving.** Compare the Trial Balance (Alt+T on
+the XML Data Import screen) and read the import log: skipped vouchers (unbalanced, unknown masters, dates
+before the books begin) and debit notes to customers (Pevqori does not move stock for them; your previous
+program may have) are listed there.
 
 **Excel shows my account numbers / GSTINs wrongly.** Excel drops leading zeros when it opens a CSV. Use
 the `.xlsx` export, or import the column as *Text*.

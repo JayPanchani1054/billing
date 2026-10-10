@@ -3,7 +3,7 @@
  *
  * Each row holds quantity (base unit), rate (rupees per base unit, like voucher lines) and value
  * (paise). The value is calculated as round(qty × rate × 100) paise until the user types a value
- * of their own (override, as in Tally): from then on the value is kept when the quantity changes,
+ * of their own (override): from then on the value is kept when the quantity changes,
  * the rate shown is value ÷ qty, and only the value is sent (the core derives the rate). Typing a
  * rate again switches the row back to calculated.
  */

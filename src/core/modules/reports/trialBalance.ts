@@ -99,7 +99,7 @@ export function trialBalance(env: ReportEnv, input: TrialBalanceInput): TrialBal
     special.push({ key: 'stock:opening', kind: 'stock', id: null, name: 'Opening Stock', level: 0, parentKey: null, hasChildren: false, opening: s, debit: 0, credit: 0, closing: s });
   }
   rows = [...special, ...rows];
-  // Profit & Loss A/c: a primary line of its own, as in Tally (profit brought forward + entries posted to it).
+  // Profit & Loss A/c: a primary line of its own, as accountants expect (profit brought forward + entries posted to it).
   const plId = env.plLedgerId;
   const plBal = plId !== null ? snap.ledgers.get(plId) : undefined;
   if (plId !== null && plBal && (showZero || !isZero(plBal))) {
@@ -127,7 +127,7 @@ export function trialBalance(env: ReportEnv, input: TrialBalanceInput): TrialBal
   };
 }
 
-/** Sub-groups and ledgers of one group with Trial-Balance figures (Tally "Group Summary"). */
+/** Sub-groups and ledgers of one group with Trial-Balance figures ("Group Summary"). */
 export function groupSummary(env: ReportEnv, input: GroupSummaryInput): GroupSummaryResult {
   const g = groupNode(env, input.groupId);
   const isNominal = g.cls.isIncome || g.cls.isExpense;
@@ -204,7 +204,7 @@ export function groupSummary(env: ReportEnv, input: GroupSummaryInput): GroupSum
   };
 }
 
-/** Cash-in-Hand, Bank Accounts and Bank OD A/c with their ledgers (Tally "Cash/Bank Book(s)"). */
+/** Cash-in-Hand, Bank Accounts and Bank OD A/c with their ledgers ("Cash/Bank Book(s)"). */
 export function cashBank(env: ReportEnv, input: { from: string; to: string }): CashBankResult {
   const roots: number[] = [];
   for (const code of ['CASH_IN_HAND', 'BANK_ACCOUNTS', 'BANK_OD'] as const) {

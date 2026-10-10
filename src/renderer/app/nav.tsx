@@ -1,5 +1,5 @@
 /**
- * Screen navigation (Tally-style stack) for the open company.
+ * Screen navigation (keyboard-first screen stack) for the open company.
  *
  *   const nav = useNav();
  *   nav.push('accounts.ledger.form', { id });                 // open a screen

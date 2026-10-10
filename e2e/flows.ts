@@ -59,7 +59,7 @@ export async function toGateway(page: Page): Promise<boolean> {
   return asked;
 }
 
-/** Open a Gateway menu item by its label (Tally-style menu on the left). */
+/** Open a Gateway menu item by its label (the keyboard-first menu on the left). */
 export async function openFromGateway(page: Page, label: string, screenId: string): Promise<Locator> {
   await toGateway(page);
   await page

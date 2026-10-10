@@ -421,7 +421,7 @@ export const NO_LEDGER_BASES: ReadonlySet<VoucherBaseType> = new Set<VoucherBase
   'proforma',
 ]);
 
-/** Provisional base types a scenario usually includes (Tally: memorandum, reversing journal, optional). */
+/** Provisional base types a scenario usually includes (memorandum, reversing journal, optional). */
 export const PROVISIONAL_BASES: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['memorandum', 'reversing_journal']);
 
 /** First problem of a scenario being edited (mirrors the core rules). */

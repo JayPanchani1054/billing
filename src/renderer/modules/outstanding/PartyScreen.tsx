@@ -1,5 +1,5 @@
 /**
- * 'outstanding.party' { ledgerId } — Tally "Ledger Outstandings": the party's pending bills, each
+ * 'outstanding.party' { ledgerId } — "Ledger Outstandings": the party's pending bills, each
  * expandable (→ / +) into its history (new / against / advance lines; Enter opens the voucher), and
  * the On Account entries. Actions: Statement of Account, Interest, Reminder letter, Ledger.
  * As on = the period's end date (Alt+F2). Amounts are ledger-signed (Dr / Cr).

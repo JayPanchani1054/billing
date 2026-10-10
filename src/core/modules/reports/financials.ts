@@ -1,5 +1,5 @@
 /**
- * Profit & Loss A/c and Balance Sheet (Tally horizontal layout + Schedule III-style vertical P&L).
+ * Profit & Loss A/c and Balance Sheet (conventional horizontal layout + Schedule III-style vertical P&L).
  * See README §5–§6 for the layout rules and the proof that the Balance Sheet balances.
  */
 import { addDays, addMonths, daysInMonth, endOfMonth, parts } from '../../../shared/dates.ts';

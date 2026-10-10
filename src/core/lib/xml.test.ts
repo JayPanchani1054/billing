@@ -57,7 +57,7 @@ const SAMPLE_ENVELOPE = `<?xml version="1.0" encoding="UTF-16"?>
 `;
 
 describe('parseXml', () => {
-  it('parses a Tally envelope: declaration, comments, attributes with both quotes, self-closing, namespaces', () => {
+  it('parses an Import Data envelope: declaration, comments, attributes with both quotes, self-closing, namespaces', () => {
     const root = parseXml(SAMPLE_ENVELOPE);
     assert.equal(root.name, 'ENVELOPE');
     assert.equal(textOf(firstChild(firstChild(root, 'HEADER'), REQUEST_TAG)), 'Import Data');
@@ -177,7 +177,7 @@ describe('parseXml', () => {
     throwsAt(() => parseXml(many, { maxNodes: 100 }), /more than the limit of 100 elements/, 1, 400);
   });
 
-  it('decodes a BOM-less UTF-16LE Tally export with decodeText before parsing', () => {
+  it('decodes a BOM-less UTF-16LE XML data export with decodeText before parsing', () => {
     const bytes = new Uint8Array(Buffer.from(SAMPLE_ENVELOPE, 'utf16le'));
     const decoded = decodeText(bytes);
     assert.equal(decoded.encoding, 'utf-16le');

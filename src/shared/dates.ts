@@ -173,7 +173,7 @@ function nearestCentury(yy: number, refYear: number): number {
 }
 
 /**
- * Tally-style forgiving date entry, resolved against a reference date (the current working date):
+ * Keyboard-first forgiving date entry, resolved against a reference date (the current working date):
  *   '5'          → 5th of reference month/year
  *   '5-10' '5/10' '5.10' → 5 Oct of reference year
  *   '5-10-26' '5/10/2026' '05102026' '051026' '2026/10/5'   (2-digit years: nearest century)

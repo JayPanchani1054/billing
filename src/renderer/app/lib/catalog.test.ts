@@ -53,7 +53,7 @@ describe('global shortcuts', () => {
     }
   });
 
-  test('the Tally voucher keys are present', () => {
+  test('the conventional voucher keys are present', () => {
     const byType = Object.fromEntries(VOUCHER_SHORTCUTS.map((s) => [s.baseType, s.keys]));
     assert.equal(byType.contra, 'F4');
     assert.equal(byType.payment, 'F5');

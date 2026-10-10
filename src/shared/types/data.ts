@@ -1,7 +1,7 @@
 /**
  * DTOs for the data module (src/core/modules/data): backup & restore, generic table export,
- * masters/voucher export, Excel/CSV import, Tally XML migration and the data integrity check.
- * Full file formats, column specifications and the Tally mapping table: src/core/modules/data/README.md.
+ * masters/voucher export, Excel/CSV import, XML data import / export and the data integrity check.
+ * Full file formats, column specifications and the XML mapping table: src/core/modules/data/README.md.
  *
  * Route table:
  *
@@ -29,7 +29,7 @@
  *   'data.xmlImport.preview'          XmlPreviewInput      → XmlPreviewResult       data.import     (no writes)
  *   'data.xmlImport.commit'           XmlImportInput       → XmlImportResult        data.import     (async, chunked)
  *   'data.xmlImport.progress'         none                   → XmlImportProgress            data.import
- *   'data.xmlExport.create'           XmlExportInput       → XmlExportResult        data.export     (Tally "Import Data" XML)
+ *   'data.xmlExport.create'           XmlExportInput       → XmlExportResult        data.export     ("Import Data" XML)
  *
  *   'data.verify'                 none                   → DataVerifyResult         data.backup
  *
@@ -439,7 +439,7 @@ export interface ImportCommitResult {
   rows: ImportRowResult[];
 }
 
-// ───────────────────────────── Tally migration ─────────────────────────────
+// ───────────────────────────── XML data import / export ─────────────────────────────
 
 export const XML_OBJECT_TYPES = [
   'GROUP',
@@ -545,7 +545,7 @@ export interface XmlExportInput {
   to: string;
 }
 
-/** Counts of masters written to the Tally XML. */
+/** Counts of masters written to the XML file. */
 export interface XmlExportMasterCounts {
   groups: number;
   ledgers: number;
@@ -570,7 +570,7 @@ export interface XmlExportResult {
   /**
    * Date of the opening balances written on the masters (null without masters): the books beginning,
    * or — with the vouchers of a later period — the period's first day (balances, pending bills and
-   * stock on that date). The Tally company should begin its books on this date.
+   * stock on that date). The receiving company should begin its books on this date.
    */
   openingsAsOf: string | null;
   /** Vouchers written. */

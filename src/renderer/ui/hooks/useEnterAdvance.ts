@@ -8,12 +8,12 @@ export interface EnterAdvanceOptions {
   enabled?: boolean;
   /** Enter on the last field (e.g. ask "Accept?" / save). Without it Enter on the last field does nothing. */
   onComplete?: () => void;
-  /** Select the text of the field that receives focus (Tally overwrite behaviour). Default true. */
+  /** Select the text of the field that receives focus (overwrite-on-entry behaviour). Default true. */
   selectOnFocus?: boolean;
 }
 
 /**
- * Tally-style form navigation. Returns a ref for the form container (it gets `data-enter-scope`):
+ * Keyboard-first form navigation. Returns a ref for the form container (it gets `data-enter-scope`):
  * - Enter moves to the next field, Shift+Enter to the previous one.
  * - In a textarea plain Enter is a newline; Ctrl+Enter / Ctrl+Shift+Enter move instead.
  * - Buttons and links keep their native Enter activation. Controls that consume Enter themselves

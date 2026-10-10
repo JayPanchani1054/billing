@@ -1,5 +1,5 @@
 /**
- * 'tds.ledgers' { role? } — TDS/TCS details of ledgers (Tally "TDS details" of a ledger master):
+ * 'tds.ledgers' { role? } — TDS/TCS details of ledgers ("TDS details" of a ledger master):
  * parties (deductee type, PAN, lower-deduction certificate, default nature, deductor TAN of a customer),
  * expense / fixed-asset ledgers (TDS applicable + nature of payment), sales ledgers (TCS + nature of
  * goods). Ctrl+1 / Ctrl+2 / Ctrl+3 switch the view, Ctrl+F search, Enter alters, Alt+M opens the

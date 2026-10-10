@@ -67,7 +67,7 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
   const [busy, setBusy] = useState<null | 'template' | 'file' | 'preview' | 'commit'>(null);
   /**
    * `retry`: the request was refused only because another task holds the company (the automatic backup
-   * right after login, an export, a Tally import) — the banner offers "Wait and retry", which repeats
+   * right after login, an export, an XML data import) — the banner offers "Wait and retry", which repeats
    * it until that task finishes (apiErrors.ts retryWhileBusy).
    */
   const [error, setError] = useState<{ title: string; message: string; details?: string; retry?: () => void } | null>(null);

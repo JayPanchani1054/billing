@@ -24,7 +24,7 @@ test('P&L figures for April (hand-computed in testkit.ts)', () => {
   });
 });
 
-test('P&L horizontal layout: trading and P&L blocks balance (Tally Expenses | Income)', () => {
+test('P&L horizontal layout: trading and P&L blocks balance (Expenses | Income)', () => {
   const b = makeBooks();
   const pl = profitLoss(b.env(), APRIL);
   // Trading: 1,00,00,000 + 60,00,000 + GP 34,66,667 = 1,94,66,667 = 1,20,00,000 + 74,66,667

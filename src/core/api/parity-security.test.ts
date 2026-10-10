@@ -1,6 +1,6 @@
 /**
  * Security review of the parity-wave routes (tds, documents, mfg, forex, cheques, attachments, print
- * sharing, POS, Tally export, GST plus): access declarations, permission names and roles, and strict
+ * sharing, POS, XML data export, GST plus): access declarations, permission names and roles, and strict
  * filters. Statically over the real route table, so a route added later is covered too.
  */
 import assert from 'node:assert/strict';

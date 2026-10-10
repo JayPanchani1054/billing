@@ -1,7 +1,7 @@
 /**
  * Documents group, part 4: Scenarios and Budgets (src/core/modules/documents/{scenarios,budgets}.ts).
  *
- *  - scenarios / scenario_voucher_types  Tally Scenario: include actuals (yes/no), voucher types whose
+ *  - scenarios / scenario_voucher_types  Scenario: include actuals (yes/no), voucher types whose
  *    provisional vouchers (memorandum, reversing journal within its "applicable up to", optional) are
  *    INCLUDED, and voucher types whose actual vouchers are EXCLUDED. Read by the reports engine
  *    (reports/scenario.ts) when a Balance Sheet / P&L / Trial Balance / Group Summary is run with a

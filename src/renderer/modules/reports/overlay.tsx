@@ -1,6 +1,6 @@
 /**
  * Scenario picker (Alt+S) and budget column (Alt+B) of the Trial Balance, Profit & Loss and Balance
- * Sheet (Tally: Scenario Management / "New Column" with a budget). Scenarios and budgets are masters of
+ * Sheet (Scenario Management / "New Column" with a budget). Scenarios and budgets are masters of
  * the documents module; this hook only reads them ('documents.scenario.list', 'documents.budget.list',
  * 'documents.budget.columns') and gives the screen the scenarioId for its report query and the budget
  * per row key for its Budget column. Choices stay for the life of the screen.

@@ -1,5 +1,5 @@
 /**
- * DTOs for the outstanding module (src/core/modules/outstanding) — Tally "Statements of Accounts ›
+ * DTOs for the outstanding module (src/core/modules/outstanding) — "Statements of Accounts ›
  * Outstandings": bills receivable/payable, group (party) outstandings, ageing, interest, statement of
  * account, payment reminders and the dashboard "due soon" list. Semantics and worked examples:
  * src/core/modules/outstanding/README.md.

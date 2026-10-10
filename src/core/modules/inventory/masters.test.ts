@@ -130,7 +130,7 @@ describe('godowns', () => {
       () => saveGodown(t.ctx, { id: t.ids.mainGodownId, name: 'Main Location', isThirdParty: true }),
       fails('VALIDATION', /third-party/),
     );
-    // Renaming the main godown is allowed (Tally allows it).
+    // Renaming the main godown is allowed (as accountants expect).
     assert.equal(saveGodown(t.ctx, { id: t.ids.mainGodownId, name: 'Shop' }).isPredefined, true);
     t.close();
   });

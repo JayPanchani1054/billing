@@ -1,5 +1,5 @@
 /**
- * Pure logic of the BRS screen: Tally-fast bank-date entry (drafts typed per row, shorthand, validation
+ * Pure logic of the BRS screen: fast keyboard bank-date entry (drafts typed per row, shorthand, validation
  * mirroring the server), "set all to statement date", the projected balance after saving and the
  * books ↔ bank explanation panel. No React here — tested with node:test.
  */
@@ -24,7 +24,7 @@ export type ParsedCell = { kind: 'clear' } | { kind: 'date'; iso: string } | { k
  *   ''            clear the bank date
  *   'v'           the voucher date
  *   '.' or '"'    same as the row above (ditto)
- *   '5', '5-4', '05042026', '5 apr', 't' …   Tally shorthand against `reference` (the BRS date)
+ *   '5', '5-4', '05042026', '5 apr', 't' …   date shorthand against `reference` (the BRS date)
  */
 export function parseBankDateCell(text: string, entry: Pick<BrsEntry, 'date' | 'instrumentDate'>, reference: string, previous: string | null): ParsedCell {
   const s = text.trim().toLowerCase();

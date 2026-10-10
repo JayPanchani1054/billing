@@ -1,8 +1,8 @@
 /**
- * Tally XML export of a Manufacturing Journal re-valued after it was saved (found by the cross-feature
+ * XML data export of a Manufacturing Journal re-valued after it was saved (found by the cross-feature
  * tie-out, all-features-year.test.ts): the journal's stored line amounts are the cost estimate made on
  * saving; a later back-dated purchase re-values the production in every stock report (valuation engine).
- * The export used to write the stale stored amounts, so the Tally company (and our own importer, which
+ * The export used to write the stale stored amounts, so the receiving company (and our own importer, which
  * takes a stock journal's inward values as written) closed with a different stock value. It now writes
  * the engine's values.
  *
@@ -38,7 +38,7 @@ const byItem = async (t: TestCompany): Promise<Record<string, [number | null, nu
   return out;
 };
 
-describe('Tally export: manufacturing journals at the engine’s current cost', () => {
+describe('XML data export: manufacturing journals at the engine’s current cost', () => {
   it('a journal re-valued by a back-dated purchase is exported (and re-imported) at its re-valued cost', async () => {
     k = mfgKit();
     const { t, I, VT } = k;

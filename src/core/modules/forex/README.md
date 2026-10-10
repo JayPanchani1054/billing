@@ -24,7 +24,7 @@ is refused with a field error that says how to turn it on.
 * `forex_revaluations` records each "Forex adjustment" journal posted by the revaluation helper (as-of
   date, rate type, rates JSON); CASCADE with the voucher.
 * The currency of a ledger cannot be changed once vouchers record it in that currency
-  (`accounts/ledgerRules.ts`); create a new ledger instead (Tally behaves the same way).
+  (`accounts/ledgerRules.ts`); create a new ledger instead (as accountants expect).
 
 ## 2. Voucher integration (vouchers/hooks.ts extension point — `hook.ts`)
 
@@ -84,7 +84,7 @@ exactly (vouchers/lib/forexDecimals.test.ts).
 
 The exchange-rate master is the accounts module's (`accounts.exchangeRate.*`: per date, standard /
 selling / buying). `forex.rate.suggest {currencyId, date, rateType? | baseType?}` returns the latest row
-on or before the date. Default rate type by voucher (banking convention, as TallyPrime's voucher rate):
+on or before the date. Default rate type by voucher (banking convention, the usual voucher rate):
 sales / receipt / credit note → **buying**; purchase / payment / debit note → **selling**; others →
 standard (`defaultRateType`). The rate typed on the voucher is what posts.
 
@@ -141,18 +141,18 @@ every currency needs a closing rate). Renderer pure logic: `src/renderer/modules
 
 * Voucher entry shows the GST figure under an invoice line of a foreign-currency invoice with a ₹ sign
   (it is in the currency); the server's preview and the print show the rupees.
-* Item invoices in a foreign currency: stock is valued in rupees at the converted rate (as Tally).
+* Item invoices in a foreign currency: stock is valued in rupees at the converted rate (as accountants expect).
   Inventory reports show rupees only.
 * No automatic reversal of the revaluation journal; no FCMITDA / hedge accounting (§3).
 * CBIC customs exchange-rate notifications are not downloaded (offline app): type the notified rate.
 * The Compact (thermal) print template does not print the foreign-currency block.
-* Tally XML import ignores foreign amounts (it takes the rupee part of `… = ₹ …` amounts).
+* XML data import ignores foreign amounts (it takes the rupee part of `… = ₹ …` amounts).
 * Opening balances in the currency survive a re-save of the ledger master: opening bills re-entered
   with the same name and side keep their foreign amount, and an opening balance moved to the other side
   (or to zero) drops its foreign amount. The ledger's currency cannot be changed while its opening is
   entered in the currency (clear it in Opening Balance in Currency first) or vouchers record it in the
   currency.
-* Realised differences on settling an advance by an invoice are booked like any other bill (Tally's
+* Realised differences on settling an advance by an invoice are booked like any other bill (the conventional
   behaviour); Ind AS 21 Appendix B would instead record the invoice at the advance's rate.
 * TDS u/s 195 is computed on the rupee value at the voucher's rate (Rule 26 asks for the SBI TT buying
   rate on the date of deduction: type that rate on the bill when it differs).

@@ -2,7 +2,7 @@
  * Documents group, part 3: order pre-close / short-close (src/core/modules/documents/orders.ts).
  *
  * order_closures — the balance of a sales/purchase order item that will not be supplied, closed with
- * a reason on a date (Tally "Pre-close order"). One row per order + item: `closed_qty` is the quantity
+ * a reason on a date ("Pre-close order"). One row per order + item: `closed_qty` is the quantity
  * that was pending when it was closed. The order itself is never altered (its history stays intact);
  * pending-order reports (stock.pendingOrders, vouchers.trackingRefs, reorder status) subtract
  * closures dated on or before their as-of date. Reopen deletes the rows (audited). Deleting the order

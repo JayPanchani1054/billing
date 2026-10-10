@@ -178,5 +178,5 @@ from the voucher meta) and by counter. MRP saving is one SQL aggregate (not a ro
   rate changed since the sale is not carried from the bill (the value caps above still apply).
 - The register / summary attribute bills to the user who *created* them (an alteration by another user
   keeps the creator).
-- Tally XML export writes POS bills as ordinary sales vouchers with their tender entries (no POS class in
+- XML data export writes POS bills as ordinary sales vouchers with their tender entries (no POS class in
   the file).

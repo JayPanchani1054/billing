@@ -611,7 +611,7 @@ export interface StockValuationInput {
   to: string;
   itemIds?: number[];
   godownId?: number;
-  /** With godownId: include the godowns under it (Tally's godown summary of a parent location). Default false. */
+  /** With godownId: include the godowns under it (the usual godown summary of a parent location). Default false. */
   includeSubGodowns?: boolean;
 }
 

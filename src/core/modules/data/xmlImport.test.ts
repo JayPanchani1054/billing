@@ -1,5 +1,5 @@
 /**
- * Tally XML migration: parsing helpers, preview (no writes) and the import of the hand-written
+ * XML data import: parsing helpers, preview (no writes) and the import of the hand-written
  * "Shree Ganesh Appliances" export (xmlFixture.ts — every figure there is hand-verified).
  */
 import assert from 'node:assert/strict';
@@ -66,8 +66,8 @@ const stockQty = (item: string): number =>
     { item },
   ) ?? NaN;
 
-describe('tally: value parsers', () => {
-  it('amounts: Tally negative = Debit; ours is Dr +', () => {
+describe('XML data import: value parsers', () => {
+  it('amounts: XML negative = Debit; ours is Dr +', () => {
     assert.equal(xmlAmount('-25000.00'), -25_000_00);
     assert.equal(ourAmount('-25000.00'), 25_000_00); // Dr ₹25,000
     assert.equal(ourAmount('233000.00'), -2_33_000_00); // Cr ₹2,33,000
@@ -91,8 +91,8 @@ describe('tally: value parsers', () => {
   });
 });
 
-describe('tally: reading the file', () => {
-  it('decodes UTF-16LE without a BOM (as Tally writes it) and finds every object', () => {
+describe('XML data import: reading the file', () => {
+  it('decodes UTF-16LE without a BOM (as accounting programs write it) and finds every object', () => {
     const f = parseXmlFile(xmlFixtureBytes());
     assert.equal(f.encoding, 'utf-16le');
     assert.equal(f.companyName, 'Shree Ganesh Appliances');
@@ -109,10 +109,10 @@ describe('tally: reading the file', () => {
     assert.equal(f.counts.VOUCHER, 11);
   });
 
-  it('refuses a file that is not a Tally export, with directions', () => {
+  it('refuses a file that is not an XML data export, with directions', () => {
     assert.throws(
       () => parseXmlFile(utf16le('<html><body>hello</body></html>')),
-      (e: unknown) => e instanceof AppError && /Gateway/.test(e.message),
+      (e: unknown) => e instanceof AppError && /previous accounting program/.test(e.message),
     );
     assert.throws(() => parseXmlFile(new Uint8Array()), AppError);
   });
@@ -181,7 +181,7 @@ describe('data.xmlImport.commit: masters', () => {
       contact_person: 'Ravi Kumar',
       maintain_bill_wise: 1,
       default_credit_days: 30,
-      opening_balance: 25_000_00, // Tally -25000.00 = Dr
+      opening_balance: 25_000_00, // XML -25000.00 = Dr
       grp: 'Mumbai Debtors',
     });
     assert.deepEqual(
@@ -224,7 +224,7 @@ describe('data.xmlImport.commit: masters', () => {
     assert.equal(t.db.value(`SELECT g.name FROM stock_openings o JOIN godowns g ON g.id = o.godown_id JOIN stock_items i ON i.id = o.item_id WHERE i.name = 'Rice Bag 25kg'`), 'Bhiwandi Warehouse');
   });
 
-  it("maps Tally's Cash and Profit & Loss A/c to the reserved ledgers (no duplicates)", async () => {
+  it("maps the file's Cash and Profit & Loss A/c to the reserved ledgers (no duplicates)", async () => {
     await runImport({ vouchers: false });
     assert.equal(t.db.value(`SELECT COUNT(*) FROM ledgers WHERE name LIKE 'Cash%'`), 1);
     assert.equal(t.db.value(`SELECT opening_balance FROM ledgers WHERE id = :id`, { id: t.ids.ledgers.CASH }), 20_000_00);
@@ -284,7 +284,7 @@ describe('data.xmlImport.commit: vouchers', () => {
   it('keeps GST exactly as recorded (never recomputed) and derives gst_lines from the duty ledgers', async () => {
     await runImport();
     const id = t.db.value<number>(`SELECT id FROM vouchers WHERE number = 'S-1'`);
-    // 8,851.50 × 9% = 796.635 → Tally recorded 796.64 for each head.
+    // 8,851.50 × 9% = 796.635 → the file recorded 796.64 for each head.
     assert.deepEqual(t.db.get(`SELECT hsn_sac, rate, taxable_value, cgst, sgst, igst FROM gst_lines WHERE voucher_id = :id`, { id }), {
       hsn_sac: '8509',
       rate: 18,
@@ -324,7 +324,7 @@ describe('data.xmlImport.commit: vouchers', () => {
       'SELECT action, entity_type, entity_id, after_json FROM audit_log WHERE id > :before ORDER BY id',
       { before },
     );
-    // Vouchers: one 'create' per voucher written (10), each pointing at the voucher, marked as from Tally.
+    // Vouchers: one 'create' per voucher written (10), each pointing at the voucher, marked as from the XML import.
     const vouchers = rows.filter((x) => x.entity_type === 'voucher');
     assert.equal(vouchers.length, r.vouchers.created);
     assert.equal(r.vouchers.created, 10);
@@ -344,7 +344,7 @@ describe('data.xmlImport.commit: vouchers', () => {
   });
 
   it('altering an existing ledger or re-importing a voucher with "update" leaves before/after in their history', async () => {
-    // Cash exists in Pevqori with no opening balance: the import takes over Tally's opening (even with "skip").
+    // Cash exists in Pevqori with no opening balance: the import takes over the file's opening (even with "skip").
     const cash = t.db.value<number>(`SELECT id FROM ledgers WHERE reserved_code = 'CASH'`) as number;
     const bytes = withVouchers(payment('g-pay-40', '40', '20260410', '100.00'));
     await runImport({}, bytes);
@@ -444,8 +444,8 @@ const payment = (guid: string, num: string, date: string, rupees: string): strin
     ${MESSAGE_CLOSE}`;
 
 describe('data.xmlImport.commit: repeated numbers and existing vouchers', () => {
-  it('Tally vouchers sharing a number (different GUIDs) are all imported; a re-import skips them all', async () => {
-    // Tally lets Payment vouchers repeat numbers (manual numbering). Three payments, two numbered 7.
+  it('imported vouchers sharing a number (different GUIDs) are all imported; a re-import skips them all', async () => {
+    // Accounting programs let Payment vouchers repeat numbers (manual numbering). Three payments, two numbered 7.
     const bytes = withVouchers(payment('g-pay-1', '7', '20260410', '1000.00') + payment('g-pay-2', '7', '20260411', '250.00') + payment('g-pay-3', '8', '20260412', '50.00'));
     const r = await runImport({}, bytes);
     assert.equal(r.vouchers.created, 3, JSON.stringify(r.issues.filter((i) => i.object?.startsWith('VOUCHER'))));
@@ -482,7 +482,7 @@ describe('data.xmlImport.commit: repeated numbers and existing vouchers', () => 
     assert.equal(closing('Office Rent'), 1_450_00);
   });
 
-  it('"update existing" refreshes Tally vouchers but never overwrites a voucher entered in Pevqori', async () => {
+  it('"update existing" refreshes imported vouchers but never overwrites a voucher entered in Pevqori', async () => {
     await runImport({ vouchers: false });
     const rent = ledgerId('Office Rent');
     const cash = t.db.value<number>(`SELECT id FROM ledgers WHERE reserved_code = 'CASH'`) as number;
@@ -508,12 +508,12 @@ describe('data.xmlImport.commit: repeated numbers and existing vouchers', () => 
     assert.ok(skip.issues.some((i) => i.code === 'number_exists' && i.severity === 'warning'), 'the skipped number clash is reported');
 
     const upd = await runImport({ masters: false, onDuplicate: 'update' }, withVouchers(payment('g-pay-9', ownNo, '20260410', '1000.00') + payment('g-pay-10', '10', '20260411', '350.00')));
-    assert.equal(upd.vouchers.updated, 1); // only the Tally voucher 10 (300 → 350)
+    assert.equal(upd.vouchers.updated, 1); // only the imported voucher 10 (300 → 350)
     assert.equal(upd.vouchers.skipped, 1);
     assert.ok(upd.issues.some((i) => i.code === 'number_exists'));
     // The hand-entered voucher is untouched: still ₹ 400 Dr to rent.
     assert.equal(t.db.value('SELECT amount FROM ledger_entries WHERE voucher_id = :id AND ledger_id = :l', { id: own.id, l: rent }), 400_00);
-    // Rent = 400 (own) + 350 (Tally 10, updated) = 750 Dr.
+    // Rent = 400 (own) + 350 (imported 10, updated) = 750 Dr.
     assert.equal(closing('Office Rent'), 750_00);
   });
 
@@ -532,7 +532,7 @@ describe('data.xmlImport.commit: repeated numbers and existing vouchers', () => 
     assert.equal(r3.ok, true, JSON.stringify(r3));
   });
 
-  it('a Tally voucher in the locked period is not updated', async () => {
+  it('an imported voucher in the locked period is not updated', async () => {
     const bytes = withVouchers(payment('g-pay-20', '20', '20260410', '100.00'));
     await runImport({}, bytes);
     t.db.transaction(() => setPeriodLock(t.ctx, '2026-04-30'));
@@ -625,7 +625,7 @@ describe('data.xmlImport: tricky XML', () => {
     assert.equal(r.masters.groups.created, 2, JSON.stringify(r.issues));
     assert.equal(r.masters.ledgers.created, 1);
     assert.equal(r.masters.ledgers.failed, 1);
-    // OPENINGBALANCE -1,500.50 in Tally = 1,500.50 Dr here.
+    // OPENINGBALANCE -1,500.50 in the file = 1,500.50 Dr here.
     assert.equal(t.db.value(`SELECT opening_balance FROM ledgers WHERE name = 'Lab Rent <Andheri>'`), 1_500_50);
     assert.equal(
       t.db.value(`SELECT p.name FROM groups g JOIN groups p ON p.id = g.parent_id WHERE g.name = 'Mumbai R&D'`),

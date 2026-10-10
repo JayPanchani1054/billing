@@ -42,7 +42,7 @@ export interface ActionRailProps {
 }
 
 /**
- * Tally-style right-hand button bar: every screen action with its key chip ("F2 Date",
+ * Keyboard-first right-hand button bar: every screen action with its key chip ("F2 Date",
  * "Alt+F2 Period", "Ctrl+A Accept"). One Tab stop with ↑/↓ roving; the keys work from anywhere on
  * the screen because the rail registers them as screen-level hotkeys.
  */

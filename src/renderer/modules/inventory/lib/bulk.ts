@@ -1,5 +1,5 @@
 /**
- * Multiple stock item creation grid (Tally's "Multiple Stock Items"), pure part — tested in
+ * Multiple stock item creation grid ("Multiple Stock Items"), pure part — tested in
  * bulk.test.ts. Each non-blank row becomes one StockItemSaveInput; the core creates all rows or
  * none and reports the first problem with its row number.
  */

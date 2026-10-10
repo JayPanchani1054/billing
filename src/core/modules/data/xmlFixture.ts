@@ -1,7 +1,7 @@
 /**
- * Test helper (used by *.test.ts only): a realistic, hand-written Tally XML export — masters and a
+ * Test helper (used by *.test.ts only): a realistic, hand-written XML data export — masters and a
  * month of transactions of "Shree Ganesh Appliances" (Maharashtra, books from 1-Apr-2026) — as
- * Tally writes it: UTF-16LE without a BOM, CRLF line ends, '&#4;' markers, negative = Debit.
+ * accounting programs write it: UTF-16LE without a BOM, CRLF line ends, '&#4;' markers, negative = Debit.
  *
  * Hand-verified figures (paise in the tests; rupees here):
  *  Openings  Cash 20,000 Dr · HDFC Bank 1,50,000 Dr · Acme Traders 25,000 Dr (bills INV-0911 10,000,
@@ -370,7 +370,7 @@ const masters = (): string => `
 
 interface Line {
   ledger: string;
-  /** Tally sign: negative = Dr. */
+  /** XML sign: negative = Dr. */
   amount: string;
   extra?: string;
 }
@@ -616,7 +616,7 @@ export function xmlFixtureXml(opts: { masters?: boolean; vouchers?: boolean } = 
 `.replace(/\n/g, '\r\n');
 }
 
-/** UTF-16LE bytes without a BOM, exactly as Tally writes its XML exports. */
+/** UTF-16LE bytes without a BOM, exactly as accounting programs write their XML exports. */
 export function utf16le(text: string): Uint8Array {
   const out = new Uint8Array(text.length * 2);
   for (let i = 0; i < text.length; i++) {

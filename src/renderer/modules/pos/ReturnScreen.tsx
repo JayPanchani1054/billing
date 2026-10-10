@@ -79,7 +79,7 @@ function Returns({ billId }: { billId?: number }) {
     setSaveError(null);
   };
 
-  // Tally: Enter moves from one return quantity to the next and on to the reason; Enter on the reason opens the refund.
+  // Enter moves from one return quantity to the next and on to the reason; Enter on the reason opens the refund.
   const linesRef = useEnterAdvance<HTMLElement>({ onComplete: openRefund });
 
   const save = async (): Promise<void> => {

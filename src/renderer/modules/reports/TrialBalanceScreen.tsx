@@ -1,5 +1,5 @@
 /**
- * 'reports.trialBalance' — Tally Trial Balance. Groups / Detailed (Alt+F1) / Ledger-wise (Alt+L),
+ * 'reports.trialBalance' — Trial Balance. Groups / Detailed (Alt+F1) / Ledger-wise (Alt+L),
  * opening column (Alt+O), transactions columns (Alt+T), zero balances (Alt+Z). Enter drills a group
  * into its Group Summary, a ledger into Ledger Vouchers, the opening stock into the Stock Summary.
  */

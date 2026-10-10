@@ -1,5 +1,5 @@
 /**
- * Job Work Orders — planning documents (no stock, no books), like Tally's Job Work Out / In Orders.
+ * Job Work Orders — planning documents (no stock, no books), like the conventional Job Work Out / In Orders.
  *   out  we give work to a job worker: the product to be made, the material to send, the due date;
  *   in   a principal gives work to us.
  * Material Out / In vouchers link to an order (`stockJournal.jobWorkOrderId`); the order shows what

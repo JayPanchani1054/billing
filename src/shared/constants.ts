@@ -47,7 +47,7 @@ export interface PredefinedVoucherType {
   name: string;
   baseType: VoucherBaseType;
   abbreviation: string;
-  /** Tally-style hotkey shown in the UI (e.g. 'F8'). */
+  /** Keyboard-first hotkey shown in the UI (e.g. 'F8'). */
   hotkey?: string;
 }
 
@@ -70,7 +70,7 @@ export const PREDEFINED_VOUCHER_TYPES: readonly PredefinedVoucherType[] = [
   { name: 'Physical Stock', baseType: 'physical_stock', abbreviation: 'Phy Stk', hotkey: 'Ctrl+F7' },
   { name: 'Memorandum', baseType: 'memorandum', abbreviation: 'Memo', hotkey: 'Ctrl+F10' },
   { name: 'Reversing Journal', baseType: 'reversing_journal', abbreviation: 'Rev Jrn', hotkey: 'F10' },
-  // No hotkey (Tally has none either): Gateway › Transactions, Go To and F10 open them.
+  // No hotkey (conventionally none): Gateway › Transactions, Go To and F10 open them.
   { name: 'Quotation', baseType: 'quotation', abbreviation: 'Quote' },
   { name: 'Proforma Invoice', baseType: 'proforma', abbreviation: 'Pro Inv' },
 ];

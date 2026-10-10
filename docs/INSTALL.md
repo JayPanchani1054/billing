@@ -123,6 +123,13 @@ created by a newer version of Pevqori") rather than damage it — so upgrade eve
 same company. A backup folder chosen with an older version is confirmed once after upgrading. There is
 no automatic update: install new versions yourself.
 
+**Upgrading from a build made before the product was renamed.** On its first launch the new version
+copies your settings (the chosen data folder, confirmed backup folders, the edit log's check-points,
+window position and zoom) from the earlier build's settings folder, once and only when it has none of its
+own yet; the old folder is left in place and your companies stay where they are. Backups made by earlier
+builds — files with the earlier backup extension — are still listed, verified and restored like `.pvqbak`
+files; new backups are always written as `.pvqbak`.
+
 ## 5. Uninstalling
 
 Use **Settings › Apps › Installed apps › Pevqori › Uninstall** (or *Add or remove programs*). This

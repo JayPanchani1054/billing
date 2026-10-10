@@ -11,7 +11,7 @@
  *       AND ie.date <= :asOf
  * Quantities are signed in the item's base unit (inward +, outward −). An entry without a godown
  * counts in 'Main Location'. Godown filters are exact unless `includeSubGodowns` is set (then the
- * godown and every godown under it, like Tally's godown summary of a parent location). Without a godown
+ * godown and every godown under it, like the usual godown summary of a parent location). Without a godown
  * filter the figures are OUR stock: a principal's goods with us for job work ('party_with_us' godowns)
  * are left out, as in valuation.ts.
  * Batch names match case-insensitively.

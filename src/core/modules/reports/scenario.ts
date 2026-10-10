@@ -1,5 +1,5 @@
 /**
- * Scenarios (Tally "Scenario Management") for the balance engine. A scenario changes which vouchers a
+ * Scenarios ("Scenario Management") for the balance engine. A scenario changes which vouchers a
  * report counts — the books stay as they are:
  *
  *   counted = (includeActuals ? books − actual vouchers of the EXCLUDED types : nothing)

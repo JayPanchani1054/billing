@@ -651,7 +651,7 @@ export function saveItem(ctx: CompanyCtx, input: StockItemSaveInput): StockItemS
   return saveItemCore(ctx, input);
 }
 
-/** Tally's "Multiple Stock Items" creation: all rows are created, or none (first error reported with its row). */
+/** Keyboard-first "Multiple Stock Items" creation: all rows are created, or none (first error reported with its row). */
 export function bulkCreateItems(ctx: CompanyCtx, input: StockItemBulkCreateInput): StockItemBulkCreateResult {
   requirePermission(ctx, 'masters.create', 'create stock items');
   const created: Array<{ id: number; name: string }> = [];

@@ -1,5 +1,5 @@
 /**
- * 'reports.ledger' {ledgerId, from?, to?} — Tally Ledger Vouchers: opening balance, one line per
+ * 'reports.ledger' {ledgerId, from?, to?} — Ledger Vouchers: opening balance, one line per
  * voucher (particulars = the other ledger or "(as per details)"), running balance, current total and
  * closing balance. Alt+L (or the picker) switches ledger, Alt+F1 adds narration and reference
  * columns, Alt+Y opens the monthly summary, Alt+M the ledger master, Enter opens the voucher and Alt+A alters it.

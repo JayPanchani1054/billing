@@ -1,10 +1,10 @@
 /**
- * Text decoding helpers for files the user imports (CSV, Tally XML, GST portal JSON, bank statements)
+ * Text decoding helpers for files the user imports (CSV, accounting XML, GST portal JSON, bank statements)
  * and the shared error type used by every file-format library in core/lib (csv, xml, zip, xlsx).
  *
  * Real-world inputs arrive in a handful of encodings:
  *  - UTF-8 with or without BOM (most tools, GST portal),
- *  - UTF-16LE, very often WITHOUT a BOM (Tally XML exports),
+ *  - UTF-16LE, very often WITHOUT a BOM (XML exports of accounting programs),
  *  - UTF-16BE (rare),
  *  - Windows-1252 (older Excel "CSV" saves and bank statements with ₹-less symbols such as “smart quotes”).
  *

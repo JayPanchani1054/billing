@@ -1,5 +1,5 @@
 /**
- * Single-ledger documents: 'outstanding.ledgerBills' (Tally "Ledger Outstandings" with each bill's
+ * Single-ledger documents: 'outstanding.ledgerBills' ("Ledger Outstandings" with each bill's
  * history) and 'outstanding.statement' (statement of account with running balance and pending bills).
  * Amounts are ledger-signed: Dr +, Cr −.
  */

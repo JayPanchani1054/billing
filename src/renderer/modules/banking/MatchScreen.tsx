@@ -681,7 +681,7 @@ function CreateVoucherForm({ line, initial, bankLedgerId, onClose, onCreated, on
   const [touched, setTouched] = useState(initial?.touched ?? false);
   const [narration, setNarration] = useState(initial?.narration ?? line.description);
   const create = useApiMutation('banking.createVoucher', { invalidates: BOOK_ROUTES });
-  // Enter moves Voucher type → Ledger → Narration; Enter on the narration creates the voucher (Tally style).
+  // Enter moves Voucher type → Ledger → Narration; Enter on the narration creates the voucher (keyboard-first).
   const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => void submit() });
 
   // Propose a ledger from the narration until the user picks one.

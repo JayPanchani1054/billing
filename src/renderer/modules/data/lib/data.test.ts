@@ -222,7 +222,7 @@ describe('import wizard', () => {
   });
 });
 
-describe('Tally wizard', () => {
+describe('XML data import wizard', () => {
   const p = (over: Partial<XmlPreviewResult> = {}): XmlPreviewResult => ({
     fileName: 'Master.xml',
     encoding: 'utf-16le',
@@ -291,7 +291,7 @@ describe('restore wizard steps', () => {
   });
 });
 
-describe('busy company: Excel / Tally import offer "Wait and retry" (follow-up)', () => {
+describe('busy company: Excel / XML data import offer "Wait and retry" (follow-up)', () => {
   const read = (f: string) => fs.readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
   it('ImportScreen: preview and import retry while busy; the banner offers the button', () => {
     const src = read('ImportScreen.tsx');

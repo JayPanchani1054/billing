@@ -6,7 +6,7 @@
  * journal item lines from it (consumption = source, production = destination) plus the per-line
  * costing basis and job work details. The vouchers module posts those lines exactly like any stock
  * journal (no ledger entries: additional costs only add to the value of the finished goods, as in
- * Tally — book the expense itself with a Payment / Journal), and the stock valuation engine values
+ * conventional accounting software — book the expense itself with a Payment / Journal), and the stock valuation engine values
  * the production side with the basis (shared/mfg/costing.ts), so every stock report and the Balance
  * Sheet agree. Composition runs for preview and save alike (vouchers/hooks.ts › compose) and never
  * writes; the derived rows are written by hook.ts in the save transaction.

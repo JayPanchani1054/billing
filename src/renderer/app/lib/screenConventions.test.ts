@@ -1,7 +1,7 @@
 /**
  * Screen conventions across the real feature modules (app/README.md "Screen conventions",
  * CONVENTION_SHORTCUTS): screens never take a global key with another meaning, Alt+digit is only
- * "Duplicate" (Alt+2) — views and tabs switch with Ctrl+1…9 — and action labels use the Tally verb
+ * "Duplicate" (Alt+2) — views and tabs switch with Ctrl+1…9 — and action labels use the conventional verb
  * "Create", not "New". The module screens import React, so their action keys are read from source.
  */
 import assert from 'node:assert/strict';

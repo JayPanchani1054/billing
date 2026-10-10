@@ -27,7 +27,7 @@ export interface ConfirmDialogProps {
 
 /**
  * Yes/No confirmation. Keyboard: Enter on the focused button, Ctrl+A / Y confirms, N / Esc cancels
- * (Tally-style). Errors thrown by onConfirm are shown inline and the dialog stays open.
+ * (keyboard-first). Errors thrown by onConfirm are shown inline and the dialog stays open.
  */
 export function ConfirmDialog({
   open,

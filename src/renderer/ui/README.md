@@ -16,7 +16,7 @@ Load the styles **once** at the renderer entry: `import '../styles/index.css';`
 ## 1. Principles
 
 1. **Keyboard first, mouse friendly.** Every control is reachable and operable by keyboard; Enter
-   advances through forms (Tally), Esc goes back, hotkeys are shown next to the actions they fire.
+   advances through forms, Esc goes back, hotkeys are shown next to the actions they fire.
 2. **Dense but calm.** 13px base text, 36px controls (28px compact), hairline borders, one accent
    colour (indigo) and saffron used sparingly. Data is loud; chrome is quiet.
 3. **Numbers are sacred.** Amounts are right-aligned, tabular, Indian-grouped (`12,34,567.00`).
@@ -133,7 +133,7 @@ Wrap controls in `Field`; kit controls read the Field context (id, `aria-describ
 
 | Component | Key props |
 |---|---|
-| `Field` | `label`, `hint?`, `error?` (replaces hint), `required?` (*), `optional?`, `layout?: 'stack'\|'inline'` (Tally "Label : value"), `labelWidth?`, `hideLabel?`, `labelAction?`, `htmlFor?` |
+| `Field` | `label`, `hint?`, `error?` (replaces hint), `required?` (*), `optional?`, `layout?: 'stack'\|'inline'` ("Label : value"), `labelWidth?`, `hideLabel?`, `labelAction?`, `htmlFor?` |
 | `FieldGroup` | `legend?`, `description?`, `columns?: 1–4` |
 | `TextInput` | all input attrs + `size?`, `invalid?`, `leadingIcon?`, `prefix?`, `suffix?`, `trailing?` (buttons; skipped by Enter-advance), `align?`, `mono?`, `uppercase?` (GSTIN/PAN), `selectOnFocus?`, `onValueChange?` |
 | `TextArea` | `autoGrow?`, `maxRows?`, `showCount?`, `onValueChange?` (Ctrl+Enter advances in forms) |
@@ -353,7 +353,7 @@ cells: amount + fixed-width `Dr`/`Cr` suffix in `--dr`/`--cr`. Define `columns` 
 | `useDraftField<V>({ value, format, parse, onChange, normalize?, validate?, onCommit?, equals? })` | build your own formatted input |
 | `useMergedRefs(...refs)`, `useLatestRef(value)` | utilities |
 
-### useEnterAdvance (Tally form navigation)
+### useEnterAdvance (keyboard-first form navigation)
 
 - **Enter** → next field, **Shift+Enter** → previous; textareas use **Ctrl+Enter** (plain Enter =
   newline). Enter on the last field calls `onComplete` (e.g. "Accept?" / save).

@@ -6,7 +6,7 @@
  * Interest accrues on each day d with  interestFrom < d ≤ to  and  d ≥ from, where
  * interestFrom = basis date (due date or bill date) + grace days. The balance for day d is the bill's
  * pending amount from all its lines dated BEFORE d — so a payment dated d still bears interest for
- * day d (interest runs "up to the date of payment", the usual Indian practice and Tally's).
+ * day d (interest runs "up to the date of payment", the usual Indian practice).
  * Only days with a positive side-signed balance accrue: debtors' Dr bills (interest receivable),
  * creditors' Cr bills (interest payable), other ledgers' bills in the direction of their origin.
  * Advances and On Account amounts never bear interest.

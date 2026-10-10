@@ -30,7 +30,7 @@ const index = indexGroups(listGroups(t.db).rows);
 const features = getFeatures(t.db);
 const defaultsCtx = { features, gstEnabled: true, companyStateCode: '27' };
 const secOf = (groupId: number | null, billWiseOn = false) => ledgerSections(classOfGroup(index, groupId), { features, gstEnabled: true, billWiseOn });
-/** A new ledger draft exactly as the form starts it under `group` (Tally-like defaults applied). */
+/** A new ledger draft exactly as the form starts it under `group` (the group's usual defaults applied). */
 const fresh = (name: string, groupId: number): LedgerDraft => applyGroupDefaults(emptyLedgerDraft(name, groupId), null, classOfGroup(index, groupId), defaultsCtx);
 /** Save a draft the way the form does; returns the stored detail. */
 function save(d: LedgerDraft, id: number | null = null) {

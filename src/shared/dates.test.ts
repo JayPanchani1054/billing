@@ -96,7 +96,7 @@ describe('formatting', () => {
   });
 });
 
-describe('parseDateInput (Tally-style entry)', () => {
+describe('parseDateInput (keyboard-first entry)', () => {
   const ref = '2026-10-05';
   const p = (s: string): string | null => parseDateInput(s, ref);
 

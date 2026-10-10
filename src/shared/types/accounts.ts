@@ -609,7 +609,7 @@ export interface VoucherTypeRow {
   parentName: string | null;
   isPredefined: boolean;
   isActive: boolean;
-  /** Tally-style hotkey of a predefined type ('F8'); null for custom types. */
+  /** Keyboard-first hotkey of a predefined type ('F8'); null for custom types. */
   hotkey: string | null;
   numbering: VoucherNumbering;
   voucherCount: number;

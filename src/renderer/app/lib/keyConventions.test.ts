@@ -80,7 +80,7 @@ describe('key conventions across modules', () => {
     }
   });
 
-  test('Alt+C creates — except the comparison column of a financial statement (Tally "New Column")', () => {
+  test('Alt+C creates — except the comparison column of a financial statement ("New Column")', () => {
     const multi = [...files.flatMap((f) => [...f.text.matchAll(/key:\s*'Alt\+C',\s*label:\s*([^\n]+?),\s*(?:icon|onClick|primary|disabled|hidden)/g)].map((m) => ({ file: f.file, label: m[1].trim() })))];
     assert.ok(multi.length >= 15);
     const COMPARE = new Set(['reports/BalanceSheetScreen.tsx', 'reports/ProfitLossScreen.tsx']);

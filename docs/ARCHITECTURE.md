@@ -1,8 +1,9 @@
 # Pevqori — Architecture & Engineering Contract
 
 Pevqori is an offline-first, keyboard-first accounting, GST invoicing and inventory system for Indian
-businesses, delivered as a Windows desktop app (Electron). Functionally it follows the Tally model
-(Gateway → masters → vouchers → reports with drill-down) with a modern, calmer UI.
+businesses, delivered as a Windows desktop app (Electron). Functionally it follows the model of
+conventional Indian accounting software (Gateway → masters → vouchers → reports with drill-down) with a
+modern, calmer UI.
 
 This document is the **contract** for everyone working on the codebase. Read it fully before writing code.
 
@@ -91,6 +92,16 @@ outstanding gst gstrecon banking data dashboard print documents tds mfg forex ch
 Shared contract files (`route.ts`, `context.ts`, `db.ts`, `validate.ts`, `constants.ts`, `settings.ts`,
 `registry.ts`, aggregators) are **extend-only**; if you need a contract change, make the smallest additive
 change and call it out in your final report.
+
+**Naming rule:** the product is called Pevqori everywhere (window title, `window.pevqori`, `pevqori:*` IPC
+channels, `PEVQORI_*` environment variables, `.pvqbak` backups, `pevqori.log`). Names and formats written by
+builds before the rename are spelled in exactly two modules and only read, never written:
+`src/core/lib/legacyNames.ts` (core: backup extension, container and envelope magic, audit-anchor prefix) and
+`src/main/legacyUserData.ts` (shell: the earlier settings folder, migrated once on the first launch). Element
+names fixed by the XML interchange format live as named constants in `src/core/modules/data/xmlFormat.ts`
+and are used through those constants everywhere else, tests included. Code, UI text and docs never name
+other accounting products — describe the behaviour instead ("keyboard-first", "your previous accounting
+program").
 
 ---
 
@@ -201,7 +212,8 @@ Use `:name` placeholders with an object. Always parameterise — **never interpo
 - Stock: sales/delivery note/rejection out/debit note(with items, to a supplier) = outward; purchase/receipt note/rejection in/
   credit note(with items) = inward. An invoice line tracked against a delivery/receipt note does not move stock again.
   A debit note to a customer (price revision, CGST s.34(3)) is value-only: its item lines never move stock
-  — also when imported from Tally (the import log lists each such note; Tally itself moves stock).
+  — also when brought in by the XML data import (the import log lists each such note, because the source
+  program may have moved stock for it).
 - Closing stock (integrated inventory): valued by item costing method (default weighted average) and shown in
   P&L and Balance Sheet (Current Assets › Stock-in-Hand).
 
@@ -225,7 +237,7 @@ Use `:name` placeholders with an object. Always parameterise — **never interpo
 
 Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mouse-friendly, dense but calm.
 
-- **Navigation stack** like Tally: every screen is pushed on a stack; `Esc` pops (confirming if the form is dirty);
+- **Navigation stack**: every screen is pushed on a stack; `Esc` pops (confirming if the form is dirty);
   breadcrumbs show the stack. `nav.push(screenId, params)`, `nav.replace`, `nav.pop`.
 - **Gateway** (home) lists menu sections contributed by modules (`ModuleDef.menu`) + a dashboard panel.
 - **Go To** (`Ctrl+G` / `Alt+G` / `Ctrl+K`) — fuzzy palette over screens, reports, masters and voucher numbers.
@@ -236,7 +248,7 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   `Ctrl+F10` Memorandum), `F10` other vouchers, `F11` features, `F12` configure, `F1`/`Ctrl+H` keyboard
   help, `Ctrl+Q` quit; `Esc` back. Conventions every screen follows (not global): `Alt+C` create master
   from a picker, `Ctrl+A` accept/save (there is no `Ctrl+S`), `Alt+P` print, `Alt+E` export.
-- Forms: `Enter` advances to the next field (Tally behaviour), `Shift+Enter`/`Shift+Tab` goes back,
+- Forms: `Enter` advances to the next field (the convention accountants expect), `Shift+Enter`/`Shift+Tab` goes back,
   `Ctrl+A` saves. Validation errors appear inline next to the field and focus the first invalid field.
   On push the shell focuses `[data-autofocus]` (else the first field / grid) — also after the screen
   finishes loading, unless the user already moved.
@@ -245,7 +257,7 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   `Alt+X` cancel voucher, `Alt+Enter` view, `Alt+M` open the report subject's master, `Alt+F1`
   detailed/condensed, `Ctrl+1…9` switch view/tab, `Ctrl+F` search box, `Alt+E` export, `Alt+P` print (`Ctrl+P` the highlighted voucher in the Day Book).
   Screens never bind the global keys (`reservedGlobalKeys()`), e.g. `Alt+F5` = Sales Order. Labels use
-  Tally verbs ("Create …", "Alter", "Delete").
+  the familiar accounting verbs ("Create …", "Alter", "Delete").
   A screen with nothing of a convention's kind (no voucher to cancel, nothing to share) may give that
   key a meaning of its own; every such use of `Alt+W` / `Alt+X` is named in USER_GUIDE §15.2, and
   `app/lib/userGuide.test.ts` fails on an undocumented one.
@@ -327,7 +339,7 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   dealer). They assert that the trial balance, every ledger's own report, cash / bank books, P&L, Balance
   Sheet, stock summary / valuation / godowns, GSTR-1 / 3B (+ their JSON files) / 9, ITC register, electronic
   ledgers ↔ Output / Input tax ledgers, TDS / TCS reports and statements, outstanding (INR and currency),
-  cheque register ↔ BRS, dashboard, POS day-end and production register agree; that a Tally XML export
+  cheque register ↔ BRS, dashboard, POS day-end and production register agree; that an XML data export
   imported into an empty company reproduces the trial balance, stock summary and GSTR-1 / 3B of every month
   (Table 11 included); and that a backup restored as a new company reproduces the books, stock, GST, TDS /
   TCS, outstanding, forex, BRS, cheque, POS, production and dashboard figures and the attachment. A
@@ -451,7 +463,7 @@ BOM explosion, s.143 / rule 45 as effective-dated data). Migration **210** (bloc
 - **Voucher types**: stock journal types carry `config.stockJournalClass` = `manufacturing` |
   `material_out` | `material_in` (Masters › Voucher Types › Use as; fixed once used). They are not new
   base types — they post as stock journals (no ledger entries; additional costs only add to the value of
-  the finished goods, as in Tally).
+  the finished goods — the usual convention).
 - **Posting**: only through the vouchers hook (`vouchers/hooks.ts`, `mfgVoucherHook`): `compose` turns the
   `VoucherInput.stockJournal` block into ordinary stock journal item lines (consumption / production),
   `adjust` adds confirm-level warnings, `write` rebuilds `stock_journal_details` / `_lines` / `_costs` in
@@ -648,15 +660,16 @@ and `src/renderer/modules/cheques`; Electron main `src/main/printPage.ts` (paper
   Leaf register: Ctrl+1…6 views, Alt+X cancel leaf, Alt+U re-open, Alt+R BRS. E-payment File:
   Space tick, Alt+A tick all ready, Ctrl+A save file, Alt+M payee bank details.
 
-## Data plus (`dataplus`) — Tally XML export, attachments, numbering tokens, multiple aliases
+## Data plus (`dataplus`) — XML data export, attachments, numbering tokens, multiple aliases
 
 Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledger_aliases`,
 `stock_item_aliases`), `221_numbering_rows` (`voucher_type_numbering_rows`), `222_attachments`
 (`attachments`, transport-only `attachment_blobs`, grants for the system roles).
 
-- **Tally XML export** — `data.xmlExport.create` (`data.export`, async, `transactional:false`) in
+- **XML data export** — `data.xmlExport.create` (`data.export`, async, `transactional:false`) in
   `src/core/modules/data/xmlExport.ts`; screen `data.xmlExport` "XML Data Export" (Gateway › Data,
-  Go To; Ctrl+A export, Alt+B Trial Balance). TallyPrime "Import Data" envelope, UTF-16LE + BOM;
+  Go To; Ctrl+A export, Alt+B Trial Balance). The interchange format's "Import Data" envelope (element names in
+  `src/core/modules/data/xmlFormat.ts`), UTF-16LE + BOM;
   masters only → `.xml`, with vouchers → `.zip` (`1-Masters.xml`, `2-Vouchers.xml`) streamed through
   `ZipFileWriter` from one read snapshot (`openSnapshot`, yields every 5 000 vouchers). Vouchers are
   written as recorded (no recomputation): entries, bill-wise, cost centres, bank instruments,
@@ -667,7 +680,7 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   With the vouchers of a period after the books beginning, the masters carry the openings ON the
   period's first day (`openingsAsOf`: Trial Balance openings with that day as carry-forward date, pending
   bills + an "On Account" bill for the unallocated rest, stock per godown / batch at its value) so the
-  Tally company can begin its books there. Item lines carry their share of their sales / purchase
+  receiving company can begin its books there. Item lines carry their share of their sales / purchase
   ledger's posting (assessable-value charges such as freight stay on their own ledger), so every
   voucher in the file balances. Children are read per batch of 2 000 vouchers (one query per table).
   The importer recovers reverse charge (RCM-liability duty ledgers), overseas parties (country),
@@ -676,7 +689,7 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   by name + group). Final wave:
   the stock lines of manufacturing / job work journals are written at the valuation engine's current
   value (`journalCosts`), not the estimate stored when they were saved, so a back-dated cost change
-  reaches the Tally company too. Not exported: quotations / proforma / physical stock (reported as skipped),
+  reaches the receiving company too. Not exported: quotations / proforma / physical stock (reported as skipped),
   forex amounts (rupees only), e-invoice / e-way bill and shipping bill details, attachments.
 - **Attachments** — core `src/core/modules/attachments` (README), routes `attachments.list / counts /
   add / read / remove / register`, permissions `attachments.add` / `attachments.remove` (view follows
@@ -703,7 +716,7 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   extra tables hold the rest in order (≤ 20 per master); unique case-insensitively across names and all
   aliases within the kind (ledgers also against groups); `aliases: string[]` on ledger / item save;
   searched by every ledger / item picker, Go To and lists; Excel import / export (the "Alias" column,
-  `;`-separated) and the Tally import (`NAME.LIST`) / export carry them all.
+  `;`-separated) and the XML data import (`NAME.LIST`) / export carry them all.
 
 ## POS / counter billing (`pos`) — scan, split tender, change, hold / recall, returns, day-end
 

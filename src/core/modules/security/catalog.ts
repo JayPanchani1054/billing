@@ -81,7 +81,7 @@ const ENTRIES: Partial<Record<Permission, Entry>> = {
   },
   'banking.reconcile': { group: 'banking', label: 'Reconcile bank accounts', description: 'Bank reconciliation and statement import.' },
   'data.export': { group: 'data', label: 'Export data', description: 'Export reports and records to Excel, CSV, JSON or PDF.' },
-  'data.import': { group: 'data', label: 'Import data', description: 'Import masters and vouchers from Excel, CSV or Tally.' },
+  'data.import': { group: 'data', label: 'Import data', description: 'Import masters and vouchers from Excel, CSV or another accounting program (XML).' },
   'data.backup': { group: 'data', label: 'Back up', description: 'Create backups of the company.' },
   'data.restore': { group: 'data', label: 'Restore backups', description: 'Restore a backup, replacing data. Give this only to trusted people.' },
   'security.manage': {

@@ -2,7 +2,7 @@
  * Navigation stack — pure state + result delivery (unit-tested in navStack.test.ts).
  *
  * The stack always starts with the Gateway (`ROOT_SCREEN`), which can never be popped. Screens are
- * pushed on top; Esc pops. Lower screens stay mounted (Tally keeps your place) up to MAX_MOUNTED.
+ * pushed on top; Esc pops. Lower screens stay mounted (your place is kept) up to MAX_MOUNTED.
  *
  * Results ("Alt+C create a master from a picker and come back"): `pushForResult` registers a waiter
  * for the new entry's key in a ResultBroker. When that exact entry is popped with a value the waiter

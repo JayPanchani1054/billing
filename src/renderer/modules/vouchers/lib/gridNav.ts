@@ -1,7 +1,7 @@
 /**
  * Keyboard model of the entry grids (pure; tested in gridNav.test.ts).
  *
- * Tally behaviour: Enter moves cell by cell and row by row; Enter on the first cell of an EMPTY row
+ * Keyboard-first behaviour: Enter moves cell by cell and row by row; Enter on the first cell of an EMPTY row
  * leaves the grid (items → additional ledgers → narration); Shift+Enter goes back; from the first
  * cell of the first row it leaves the grid backwards (to the header).
  */
@@ -84,7 +84,7 @@ export function neighbourSection(sections: readonly EntrySection[], current: Ent
 }
 
 /**
- * Where the cursor starts on the entry screen (Tally): a manually numbered new voucher asks for its
+ * Where the cursor starts on the entry screen: a manually numbered new voucher asks for its
  * number first; a purchase starts on the supplier's invoice no. (then its date and the party); then
  * the party of an invoice / order / note; then the cash or bank Account of a
  * single-entry payment / receipt / contra; otherwise the first line of the first grid. The date is

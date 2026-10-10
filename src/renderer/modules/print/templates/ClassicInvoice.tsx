@@ -1,5 +1,5 @@
 /**
- * 'classic' — the familiar Tally-style boxed GST invoice: seller / consignee / buyer boxes on the
+ * 'classic' — the familiar boxed GST invoice: seller / consignee / buyer boxes on the
  * left, reference grid on the right, goods table with tax ledgers listed under the items, amount
  * chargeable in words, HSN/SAC tax table, declaration and "for <company>" signature box.
  */
@@ -102,7 +102,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
   const logo = safeImage(doc.company.logo);
   const taxRows = classicTaxRows(doc);
   const t = doc.totals;
-  // Rule 46(i): the rate of tax per line — Tally's "GST Rate" column next to HSN/SAC.
+  // Rule 46(i): the rate of tax per line — the "GST Rate" column next to HSN/SAC.
   const gstCol = doc.gst.showTax;
   const nCols = 3 + (cols.hsn ? 1 : 0) + (gstCol ? 1 : 0) + (cols.mrp ? 1 : 0) + (cols.qty ? 1 : 0) + (cols.rate ? 2 : 0) + (cols.discount ? 1 : 0);
   const descSpan = 2 + (cols.hsn ? 1 : 0) + (gstCol ? 1 : 0) + (cols.mrp ? 1 : 0);

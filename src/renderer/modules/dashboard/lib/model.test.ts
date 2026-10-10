@@ -298,7 +298,7 @@ test("GST: last month's return comes first on the card and in the alerts", () =>
 const ALL = { manageCompany: true, createMasters: true, createVouchers: true, importData: true, inventory: true } as const;
 const NOTHING_DONE = { profileComplete: false, featuresReviewed: false, invoicePrintingSet: false, hasOwnLedgers: false, hasItems: false, hasSales: false, backupFolderSet: false };
 
-test('getting started: one list — company details, features, printing, ledgers, items, sale, backups (+ Tally while empty)', () => {
+test('getting started: one list — company details, features, printing, ledgers, items, sale, backups (+ XML data import while empty)', () => {
   const all = startSteps({ ...ALL, setup: NOTHING_DONE, hasVouchers: false });
   assert.deepEqual(all.map((x) => x.id), ['profile', 'features', 'printing', 'ledgers', 'items', 'sale', 'backup', 'xmlImport']);
   const by = new Map(all.map((x) => [x.id, x]));
@@ -313,8 +313,8 @@ test('getting started: one list — company details, features, printing, ledgers
   assert.deepEqual(by.get('xmlImport')?.target, { screen: 'data.xmlImport' });
   assert.equal(by.get('xmlImport')?.optional, true);
   assert.ok(all.every((x) => !x.done));
-  assert.deepEqual(startProgress(all), { done: 0, total: 7, complete: false }, 'Tally is optional, not counted');
-  // Once there are vouchers the Tally step goes; the rest stay until done.
+  assert.deepEqual(startProgress(all), { done: 0, total: 7, complete: false }, 'XML data import is optional, not counted');
+  // Once there are vouchers the XML data import step goes; the rest stay until done.
   assert.ok(!startSteps({ ...ALL, setup: NOTHING_DONE, hasVouchers: true }).some((x) => x.id === 'xmlImport'));
 });
 
@@ -347,7 +347,7 @@ test('getting started card: stays after the first voucher until all done or hidd
   // Nothing the user can do: an empty note while the books are empty, nothing afterwards.
   assert.equal(startCardMode([], { hidden: false, hasVouchers: false }), 'empty');
   assert.equal(startCardMode([], { hidden: false, hasVouchers: true }), null);
-  // Only the optional Tally step: shown while the books are empty.
+  // Only the optional XML data import step: shown while the books are empty.
   const xmlOnly = startSteps({ manageCompany: false, createMasters: false, createVouchers: false, importData: true, inventory: false, hasVouchers: false });
   assert.equal(startCardMode(xmlOnly, { hidden: false, hasVouchers: false }), 'steps');
 });

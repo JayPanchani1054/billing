@@ -87,7 +87,7 @@ describe('every-screen sweep setup (API twin of e2e/screens.spec.ts)', () => {
     const bs = await e.call<{ balanced: boolean; openingDifference: number }>('reports.balanceSheet', { asOf: T, mode: 'condensed' });
     assert.equal(bs.balanced, true);
     // The seed enters opening stock (100 Nos × ₹60.00) without a capital opening balance: the Balance
-    // Sheet reports that as the opening difference (as Tally does), Dr side → −₹6,000.00.
+    // Sheet reports that as the opening difference (as accountants expect), Dr side → −₹6,000.00.
     assert.equal(bs.openingDifference, -PARITY.item.openingQty * PARITY.item.openingRate * 100);
   });
 });

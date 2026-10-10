@@ -35,7 +35,7 @@ const isErr = (code: string, re?: RegExp) => (e: unknown) => e instanceof AppErr
 const history = (t: ReturnType<typeof createTestCompany>, id: number): Array<[string, number, string | null, string]> =>
   getLedger(t.db, id, t.today).gstRateHistory.map((h) => [h.applicableFrom, h.rate, h.hsnSac, h.taxability]);
 
-describe('new sales/purchase ledgers take the Tally defaults', () => {
+describe('new sales/purchase ledgers take the conventional defaults', () => {
   it('GST applicable (taxable, rate from items) and inventory affected, like the predefined Sales ledger', () => {
     const t = createTestCompany();
     const s = saveLedger(t.ctx, { name: 'Sales - Retail', groupId: t.ids.groups.SALES_ACCOUNTS });

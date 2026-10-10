@@ -1,5 +1,5 @@
 /**
- * Job Work Orders (feature: Job work) — planning documents like Tally's Job Work Out / In Orders. They
+ * Job Work Orders (feature: Job work) — planning documents (Job Work Out / In Orders). They
  * move no stock and post nothing; Material Out / In vouchers linked to an order show its progress.
  *
  *   'mfg.jobWorkOrder.list'  {direction?}                 Ctrl+1 Out orders · Ctrl+2 In orders · Ctrl+3 open ·

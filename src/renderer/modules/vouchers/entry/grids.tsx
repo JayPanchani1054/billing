@@ -282,7 +282,7 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
             invalid={!!err('amount')}
             onChange={(a) => {
               if (a === value) return;
-              // Tally: typing the amount re-derives the rate from the quantity.
+              // Typing the amount re-derives the rate from the quantity.
               const q = row.billedQty ?? row.qty ?? 0;
               const d = row.discountPct ?? 0;
               const rate = a !== null && q > 0 && d < 100 ? Math.round((a / 10 ** dp / q / (1 - d / 100)) * 10_000) / 10_000 : row.rate;

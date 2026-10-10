@@ -84,7 +84,7 @@ says whether it was served from the memo (`cached`) and how long the call took (
   customers / to suppliers, Cash & bank (overdrawn), Gross loss), captions use words (`compactSigned`).
 - GST card: last month's return (when `gstDue`) above this month so far; the GST alert prefers it.
 - A company without vouchers gets numbered first steps by permission (Features F11, ledgers, items,
-  first sale F8, Migrate from Tally).
+  first sale F8, Import from another accounting program).
 - Get started: "Create ledger" opens Ledger Creation under Sundry Debtors (`DRILL.newLedger('SUNDRY_DEBTORS')`,
   "Under" stays editable). **Hide** is remembered per company in this browser (localStorage) and can be
   undone: **Alt+S Show Get started** on the full dashboard's rail, or a **Show Get started** button in the

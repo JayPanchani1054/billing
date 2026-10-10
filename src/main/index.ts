@@ -2,7 +2,8 @@
  * Electron main-process entry (bundled to out/main/index.cjs by scripts/build.mjs).
  *
  * Boot order matters:
- *   1. before 'ready': path overrides, single-instance lock, sandbox, privileged schemes, global guards
+ *   1. before 'ready': path overrides, single-instance lock, settings carry-over from a pre-rename
+ *                      installation (legacyUserData.ts), sandbox, privileged schemes, global guards
  *   2. on 'ready':     session hardening, app:// protocol, core worker (started, awaited), IPC, menu,
  *                      main window
  *   3. on quit:        windows close (unsaved-work prompt) → 'will-quit' → core shutdown (bounded) →
@@ -34,6 +35,7 @@ import { evaluateSmoke, SMOKE_SCRIPT, SMOKE_TIMEOUT_MS } from './smoke.ts';
 import type { SmokeVerdict } from './smoke.ts';
 import { createWindowManager } from './window.ts';
 import { migrateLegacyUserData } from './legacyUserData.ts';
+import type { LegacyMigrationResult } from './legacyUserData.ts';
 import type { WindowManager } from './window.ts';
 
 const isE2E = process.env.PEVQORI_E2E === '1';
@@ -113,10 +115,14 @@ app.enableSandbox();
 if (process.env.PEVQORI_DISABLE_GPU === '1') app.disableHardwareAcceleration();
 protocol.registerSchemesAsPrivileged(PRIVILEGED_SCHEMES);
 
+/** Outcome of carryOverLegacySettings, logged once the log file exists (initialise). */
+let legacySettings: LegacyMigrationResult | null = null;
+
 // The lock is keyed on the userData directory, so E2E runs with their own PEVQORI_USER_DATA never collide.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
+  carryOverLegacySettings();
   start();
 }
 
@@ -157,24 +163,44 @@ function openLogsFolder(): void {
   });
 }
 
+/** PEVQORI_DATA_DIR (tests / smoke runs), else <Documents>/<profile name>. */
+function dataDirOverride(): string | null {
+  return absoluteEnvPath(process.env.PEVQORI_DATA_DIR);
+}
+function defaultDataDir(): string {
+  return dataDirOverride() ?? path.join(documentsDir(), PROFILE_NAME);
+}
+
 /**
  * First launch after the product rename: copy the settings of the installation made by an older build
- * (legacyUserData.ts) before anything reads them. Skipped when a test / smoke run points userData or
- * the data folder somewhere explicit. Never stops the app from starting.
+ * (legacyUserData.ts). Runs before 'ready' — before Chromium reads the userData folder's "Local State"
+ * (the safeStorage sealing key on Windows) and before anything of ours reads userData — and after the
+ * single-instance lock, so two first launches never copy at once. Skipped when a test / smoke run
+ * points userData or the data folder somewhere explicit. Never stops the app from starting.
  */
-function carryOverLegacySettings(dataDirOverridden: boolean, defaultDataDir: string): void {
-  if (dataDirOverridden || absoluteEnvPath(process.env.PEVQORI_USER_DATA)) return;
+function carryOverLegacySettings(): void {
+  if (dataDirOverride() || absoluteEnvPath(process.env.PEVQORI_USER_DATA)) return;
   try {
-    const r = migrateLegacyUserData({
+    legacySettings = migrateLegacyUserData({
       appDataDir: app.getPath('appData'),
       userDataDir: app.getPath('userData'),
       documentsDir: documentsDir(),
-      defaultDataDir,
+      defaultDataDir: defaultDataDir(),
       dev: !app.isPackaged,
     });
-    if (r.status === 'migrated') log('info', 'Settings of the earlier installation were carried over', { copied: r.copied, dataDir: r.dataDir });
+    if (legacySettings.status === 'migrated') console.log(`[pevqori] settings of the earlier installation carried over from ${legacySettings.from}`);
   } catch (err) {
     log('warn', 'Settings of the earlier installation could not be carried over', describeError(err));
+  }
+}
+
+/** Record the carry-over in the log file (the log file only exists once the core runs). */
+function logLegacySettings(): void {
+  const r = legacySettings;
+  if (!r || r.status !== 'migrated') return;
+  log('info', 'Settings of the earlier installation were carried over', { from: r.from, copied: r.copied, dataDir: r.dataDir });
+  if (r.skipped.length > 0) {
+    log('warn', 'Some settings of the earlier installation were not carried over; edit-log check-points start afresh', { skipped: r.skipped });
   }
 }
 
@@ -202,9 +228,6 @@ function faultError(error: { name: string; message: string; stack?: string }): E
  * trip to this thread.
  */
 async function bootRuntime(): Promise<CoreProxy | null> {
-  const dataDirOverride = absoluteEnvPath(process.env.PEVQORI_DATA_DIR);
-  const defaultDataDir = dataDirOverride ?? path.join(documentsDir(), PROFILE_NAME);
-  carryOverLegacySettings(dataDirOverride !== null, defaultDataDir);
   // The edit-log anchor key is sealed with the OS here (safeStorage exists only on this thread) and
   // handed to the worker; see anchor-key.ts and docs/SECURITY.md T4.
   const auditAnchorKey = loadAnchorKeyForWorker(app.getPath('userData'), safeStorage, log);
@@ -212,7 +235,7 @@ async function bootRuntime(): Promise<CoreProxy | null> {
     appVersion: appVersion(),
     spawn: nodeWorkerSpawner(workerScriptPath(__dirname), {
       userDataDir: app.getPath('userData'),
-      defaultDataDir,
+      defaultDataDir: defaultDataDir(),
       appVersion: appVersion(),
       logDir: app.getPath('logs'),
       consoleLog: !app.isPackaged,
@@ -270,6 +293,7 @@ async function initialise(): Promise<void> {
     e2e: isE2E,
     smoke: isSmoke,
   });
+  logLegacySettings();
 
   const wm = createWindowManager({
     userDataDir: app.getPath('userData'),

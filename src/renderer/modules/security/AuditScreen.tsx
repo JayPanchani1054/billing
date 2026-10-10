@@ -300,7 +300,7 @@ function EditLogView({ params }: { params: Params }) {
     gridRef.current = el;
     el?.setAttribute('data-autofocus', '');
   }, []);
-  // Enter moves through the filters (Tally style); Enter on the last one goes to the list.
+  // Enter moves through the filters (keyboard-first); Enter on the last one goes to the list.
   const filterRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => gridRef.current?.focus() });
   const selected = rows.find((r) => String(r.id) === cursor) ?? null;
 

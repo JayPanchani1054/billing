@@ -216,7 +216,7 @@ const MASTER_COUNTS: ReadonlyArray<{ key: string; label: string; table: string }
   { key: 'priceLevels', label: 'Price Levels', table: 'price_levels' },
 ];
 
-/** Voucher counts per type for the period and master counts (Tally "Statistics"). */
+/** Voucher counts per type for the period and master counts ("Statistics"). */
 export function statistics(env: ReportEnv, input: { from: string; to: string }): StatisticsResult {
   assertPeriod(input.from, input.to);
   const vouchers: VoucherStatRow[] = env.db

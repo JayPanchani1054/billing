@@ -432,7 +432,7 @@ export function validateLedger(f: LedgerFields, bills: OpeningBillInput[], rc: L
     }
   }
 
-  // ── Opening stock with integrated inventory (Tally: the Stock-in-Hand opening is computed from items) ──
+  // ── Opening stock with integrated inventory (the Stock-in-Hand opening is computed from items) ──
   if (rc.integratedInventory && group.codes.has('STOCK_IN_HAND') && f.openingBalance !== 0) {
     const entered = !rc.existing || rc.existing.openingBalance !== f.openingBalance || rc.existing.groupId !== f.groupId;
     if (entered) {
@@ -540,7 +540,7 @@ function validateParty(f: LedgerFields, cls: LedgerClass, rc: LedgerRuleContext,
     }
   }
 
-  // New party ledgers default to the company's state (as in Tally).
+  // New party ledgers default to the company's state (as accountants expect).
   if (rc.id === null && cls.isParty && f.stateCode === null && reg !== 'overseas' && rc.companyStateCode && getState(rc.companyStateCode)) {
     f.stateCode = rc.companyStateCode;
   }
@@ -705,7 +705,7 @@ export function checkLedgerNames(
       );
     }
   }
-  // Ledgers and groups share one name space (as in Tally): a ledger may not take a group's name or alias.
+  // Ledgers and groups share one name space (as accountants expect): a ledger may not take a group's name or alias.
   // Checked for new or changed values only, so an old clash does not block unrelated edits.
   const same = (a: string | null | undefined, b: string | null): boolean => (a ?? '').toLowerCase() === (b ?? '').toLowerCase();
   for (const [path, value] of [['name', name], ['alias', alias]] as const) {

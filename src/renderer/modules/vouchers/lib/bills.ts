@@ -75,7 +75,7 @@ export function dueDateFor(date: string, creditDays: number | null | undefined):
 }
 
 /**
- * What the bill-wise dialog starts with (Tally): an entry that can settle pending bills of the other
+ * What the bill-wise dialog starts with: an entry that can settle pending bills of the other
  * side (a receipt from a customer who owes, a payment to a supplier) is allocated against the oldest
  * bills first, the rest On Account; an invoice party — or a ledger with nothing to settle — starts a
  * New Ref named after the voucher (purchase: the supplier's invoice no.) with the credit period.

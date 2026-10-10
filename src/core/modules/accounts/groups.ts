@@ -114,7 +114,7 @@ function checkGroupNames(db: Db, name: string | null, alias: string | null, excl
     const c = clash(alias);
     if (c) issues.add('alias', `Alias '${alias}' is already used by group '${c.name}'. Choose a different alias.`);
   }
-  // Groups and ledgers share one name space (as in Tally).
+  // Groups and ledgers share one name space (as accountants expect).
   for (const [path, value] of [['name', name], ['alias', alias]] as const) {
     if (!value || issues.has(path)) continue;
     const l = ledgerNameClash(db, value);

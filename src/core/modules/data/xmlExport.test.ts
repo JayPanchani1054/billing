@@ -1,8 +1,8 @@
 /**
- * Tally XML export ('data.xmlExport.create'): value formats, the file shape, permissions / audit, and the
+ * XML data export ('data.xmlExport.create'): value formats, the file shape, permissions / audit, and the
  * ROUND TRIP — a company with GST invoices (intra- and inter-state), purchases, bill-wise receipts,
  * bank instruments, cost centres, a godown transfer, opening balances / bills / stock and aliases is
- * exported, the two XML files are imported by our own Tally importer into an EMPTY company, and the
+ * exported, the two XML files are imported by our own XML importer into an EMPTY company, and the
  * trial balance, the stock summary, the GST totals, the pending bills and the aliases come out the same.
  */
 import assert from 'node:assert/strict';
@@ -149,7 +149,7 @@ function populate(): Record<string, number> {
   save(k, { voucherTypeId: vt.journal, date: '2026-04-29', mode: 'ledger', isOptional: true, ledgers: [{ ledgerId: L.rent, amount: 500_00 }, { ledgerId: L.capital, amount: -500_00 }] });
   const cancelled = save(k, { voucherTypeId: vt.payment, date: '2026-04-29', mode: 'ledger', ledgers: [{ ledgerId: L.rent, amount: 700_00 }, { ledgerId: L.cash, amount: -700_00 }] }).id;
   cancelVoucher(ctx, cancelled, 'Entered twice');
-  // 12. A quotation: Tally has no such voucher type — reported as skipped, never written.
+  // 12. A quotation: the XML format has no such voucher type — reported as skipped, never written.
   save(k, { voucherTypeId: vt.quotation, date: '2026-04-29', mode: 'item_invoice', partyLedgerId: L.acme, validUntil: '2026-05-29', items: [{ itemId: I.mixer, qty: 1, rate: 450 }] });
   return { travel, pune, opener };
 }
@@ -175,7 +175,7 @@ function voucherDigest(t: TestCompany): Array<Record<string, unknown>> {
     )
     .map(({ id, ...head }) => ({
       ...head,
-      // A cancelled voucher has no entries; the importer keeps it without a party (as Tally shows it).
+      // A cancelled voucher has no entries; the importer keeps it without a party (as the file shows it).
       party: head.is_cancelled === 1 ? null : head.party,
       entries: t.db.all(`SELECT l.name, SUM(e.amount) AS amount FROM ledger_entries e JOIN ledgers l ON l.id = e.ledger_id WHERE e.voucher_id = :id GROUP BY l.name ORDER BY l.name`, { id }),
       stock: t.db.all(
@@ -234,8 +234,8 @@ function stripVolatile(x: unknown): unknown {
   return x;
 }
 
-describe('tally export: value formats', () => {
-  it('amounts flip sign (Tally Dr is negative), dates, quantities and rates', () => {
+describe('XML data export: value formats', () => {
+  it('amounts flip sign (XML Dr is negative), dates, quantities and rates', () => {
     assert.equal(xmlAmountText(1_044_500), '-10445.00'); // ours Dr ₹10,445
     assert.equal(xmlAmountText(-2_33_000_00), '233000.00'); // ours Cr
     assert.equal(xmlAmountText(5), '-0.05');
@@ -248,7 +248,7 @@ describe('tally export: value formats', () => {
   });
 });
 
-describe('tally export: round trip through our own importer', () => {
+describe('XML data export: round trip through our own importer', () => {
   it('reproduces the trial balance, stock summary, GST totals, bills and aliases in an empty company', async () => {
     populate();
     const { result, target: tg, file } = await roundTrip();
@@ -259,7 +259,7 @@ describe('tally export: round trip through our own importer', () => {
     }
     // 10 + the optional journal + the cancelled payment; the quotation is skipped and said so.
     assert.equal(file.vouchers, 12);
-    assert.deepEqual(file.skipped, [{ reason: 'Quotations and proforma invoices (Tally has no such voucher type)', count: 1 }]);
+    assert.deepEqual(file.skipped, [{ reason: 'Quotations and proforma invoices (the XML format has no such voucher type)', count: 1 }]);
     assert.equal(result[1].vouchers.created, 12);
     assert.deepEqual(voucherDigest(tg), voucherDigest(k.t).filter((v) => v.type !== 'Quotation'));
     assert.deepEqual(ledgerClosings(tg), ledgerClosings(k.t));
@@ -297,7 +297,7 @@ describe('tally export: round trip through our own importer', () => {
   });
 });
 
-describe('tally export: the file, permissions and audit', () => {
+describe('XML data export: the file, permissions and audit', () => {
   it('masters only: one UTF-16LE XML with a BOM in the ENVELOPE / IMPORTDATA shape, values escaped', async () => {
     writeExtraAliases(k.t.db, 'ledger', k.L.acme, ['A&B <Co>']);
     const r = await exportXml(k.t.ctx, { masters: true, vouchers: false, from: FROM, to: TO });
@@ -315,7 +315,7 @@ describe('tally export: the file, permissions and audit', () => {
     assert.match(xml, /<LEDGER NAME="Acme Traders" ACTION="Create">/);
     assert.match(xml, /<GSTREGISTRATIONTYPE>Regular<\/GSTREGISTRATIONTYPE>/);
     assert.match(xml, /<STOCKITEM NAME="Rice Bag" ACTION="Create">[\s\S]*?<HSNCODE>1006<\/HSNCODE>[\s\S]*?<GSTRATEDUTYHEAD>Integrated Tax<\/GSTRATEDUTYHEAD>\r\n\s*<GSTRATE> 5<\/GSTRATE>/);
-    // Our own reader accepts it (what Tally reads, we read).
+    // Our own reader accepts it (what other programs read, we read).
     const parsed = parseXmlFile(r.bytes);
     assert.equal(parsed.encoding, 'utf-16le');
     assert.equal(parsed.companyName, 'Round Trip Traders');
@@ -323,7 +323,7 @@ describe('tally export: the file, permissions and audit', () => {
     assert.equal(parsed.counts.STOCKITEM, 3);
   });
 
-  it('vouchers only: a ZIP of Vouchers.xml; the period is honoured and amounts are signed as Tally expects', async () => {
+  it('vouchers only: a ZIP of Vouchers.xml; the period is honoured and amounts are signed as the format expects', async () => {
     populate();
     const r = await exportXml(k.t.ctx, { masters: false, vouchers: true, from: '2026-04-05', to: '2026-04-08' });
     assert.equal(r.fileName, 'Round-Trip-Traders-XML-Vouchers-20260405-20260408.zip');
@@ -336,7 +336,7 @@ describe('tally export: the file, permissions and audit', () => {
     assert.deepEqual([raw[0], raw[1]], [0xff, 0xfe]);
     const xml = new TextDecoder('utf-16le').decode(raw.subarray(2));
     assert.match(xml, /<REPORTNAME>Vouchers<\/REPORTNAME>/);
-    // Acme Dr 1,574 → Tally -1574.00 with ISDEEMEDPOSITIVE Yes; sales line Cr 600 → 600.00.
+    // Acme Dr 1,574 → XML -1574.00 with ISDEEMEDPOSITIVE Yes; sales line Cr 600 → 600.00.
     assert.match(xml, /<LEDGERNAME>Acme Traders<\/LEDGERNAME>\r\n\s*<ISDEEMEDPOSITIVE>Yes<\/ISDEEMEDPOSITIVE>\r\n\s*<ISPARTYLEDGER>Yes<\/ISPARTYLEDGER>\r\n\s*<AMOUNT>-1574.00<\/AMOUNT>/);
     assert.match(xml, /<STOCKITEMNAME>Rice Bag<\/STOCKITEMNAME>[\s\S]*?<AMOUNT>600.00<\/AMOUNT>/);
     assert.match(xml, /<BILLTYPE>New Ref<\/BILLTYPE>/);
@@ -420,9 +420,9 @@ function stockByPlace(t: TestCompany): Array<Record<string, unknown>> {
   );
 }
 
-describe('tally export: openings when the period starts after the books beginning', () => {
-  it('the Tally company starts at the period: balances, pending bills and stock (per godown and batch) as on that day', async () => {
-    // Books from 1-Apr-2025; a year of business, then FY 2026-27 is exported for a CA whose Tally
+describe('XML data export: openings when the period starts after the books beginning', () => {
+  it('the receiving company starts at the period: balances, pending bills and stock (per godown and batch) as on that day', async () => {
+    // Books from 1-Apr-2025; a year of business, then FY 2026-27 is exported for a CA whose
     // company begins on 1-Apr-2026.
     const s = setupKit({ name: 'Two Years', today: '2026-12-31', booksFrom: '2025-04-01', features: { multipleGodowns: true, batches: true } });
     try {
@@ -485,7 +485,7 @@ describe('tally export: openings when the period starts after the books beginnin
   });
 });
 
-describe('tally export: invoices whose lines carry more than their sales ledger', () => {
+describe('XML data export: invoices whose lines carry more than their sales ledger', () => {
   it('freight in the assessable value, cost centres on a carried ledger, orders, notes, rejections, memorandum, advance: balanced and reproduced', async () => {
     const s = setupKit({ name: 'Mixed', today: '2026-04-30', booksFrom: FROM, features: { costCentres: true } });
     try {
@@ -522,7 +522,7 @@ describe('tally export: invoices whose lines carry more than their sales ledger'
       assertFileBalanced(readZip(file.bytes).read('2-Vouchers.xml'));
       const { tg, vouchersXml } = await exportImport(s.t, FROM, TO, { booksFrom: FROM, today: '2026-04-30', features: { costCentres: true } });
       try {
-        // The item amounts in the file are the lines' share of the Sales posting (Tally adds the
+        // The item amounts in the file are the lines' share of the Sales posting (the receiving program adds the
         // assessable-value freight itself): 389.98 and 183.33, not 492.01 / 231.30.
         assert.match(vouchersXml, /<STOCKITEMNAME>Mixer Grinder<\/STOCKITEMNAME>[\s\S]*?<AMOUNT>389\.98<\/AMOUNT>/);
         assert.match(vouchersXml, /<LEDGERNAME>Freight Outward<\/LEDGERNAME>[\s\S]*?<AMOUNT>150\.00<\/AMOUNT>/);
@@ -559,7 +559,7 @@ describe('tally export: invoices whose lines carry more than their sales ledger'
   });
 });
 
-describe('tally export: GST treatment our importer recovers', () => {
+describe('XML data export: GST treatment our importer recovers', () => {
   it('a reverse-charge purchase and an export under LUT keep their returns', async () => {
     const s = setupKit({ name: 'RCM Exporter', today: '2026-04-30', booksFrom: FROM });
     try {
@@ -581,7 +581,7 @@ describe('tally export: GST treatment our importer recovers', () => {
         const a = await s.t.callOk(gstRoutes, 'gst.gstr3b.summary', { period: '042026' });
         const b = await tg.callOk(gstRoutes, 'gst.gstr3b.summary', { period: '042026' });
         // Same 3.1(b) zero-rated and 3.1(d) / 4(A)(3) reverse-charge figures (shipping bill details are not
-        // carried — no Tally tag we could verify — so only the exceptions count may differ).
+        // carried — no XML tag we could verify — so only the exceptions count may differ).
         assert.deepEqual(strip3b(b), strip3b(a));
       } finally {
         tg.close();

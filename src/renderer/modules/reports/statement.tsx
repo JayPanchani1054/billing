@@ -1,5 +1,5 @@
 /**
- * Tally horizontal statement block (two sides with their own trees and equal totals) used by the
+ * Horizontal statement block (two sides with their own trees and equal totals) used by the
  * Profit & Loss A/c and the Balance Sheet.
  */
 import { useMemo } from 'react';

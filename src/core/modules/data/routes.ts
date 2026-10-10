@@ -1,8 +1,8 @@
 /**
- * Data module routes: backup & restore, exports, Excel/CSV import, Tally migration, data verification.
+ * Data module routes: backup & restore, exports, Excel/CSV import, XML data import / export, data verification.
  * DTOs and the route table: src/shared/types/data.ts; behaviour: README.md in this folder.
  *
- * Async handlers (backup, verify, restore, Tally import) are `transactional: false` and open their own
+ * Async handlers (backup, verify, restore, XML data import) are `transactional: false` and open their own
  * transactions. Heavy read-only routes (exports, previews, verify) are `transactional: false` too.
  */
 import type { FieldIssue } from '../../../shared/api.ts';
@@ -59,7 +59,7 @@ import { exportXml } from './xmlExport.ts';
 import { importXml, previewXml, xmlImportProgress } from './xmlImport.ts';
 import { verifyData } from './verify.ts';
 
-/** Largest file accepted for import / Tally migration (Tally exports of a few years run to ~100 MB). */
+/** Largest file accepted for import / XML data import (XML exports of a few years run to ~100 MB). */
 export const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
 const MAX_EXPORT_ROWS = 500_000;
 
@@ -352,7 +352,7 @@ export const dataRoutes = {
     handler: (ctx): XmlImportProgress => importProgress(ctx),
   }),
 
-  // ── Tally migration ──
+  // ── XML data import / export ──
   'data.xmlImport.preview': companyRoute({
     access: 'data.import',
     transactional: false,

@@ -30,7 +30,7 @@ export function toDayBookRow(r: VoucherListRow): DayBookRow {
   if (r.isCancelled) flags.push('Cancelled');
   if (r.isOptional) flags.push('Optional');
   if (r.isPostDated) flags.push('Post-dated');
-  // Cancelled vouchers keep their number but carry no amount (Tally shows them blank).
+  // Cancelled vouchers keep their number but carry no amount (shown blank).
   const amount = r.isCancelled ? 0 : Math.abs(r.amount);
   return {
     id: r.id,
@@ -104,7 +104,7 @@ export function dayBookExportTotals(rows: readonly DayBookRow[]): Array<string |
   return ['', 'Total (optional and cancelled vouchers not counted)', '', '', t.debit, t.credit];
 }
 
-/** Screen for opening a voucher from a register: alteration (Tally), else the read-only view. */
+/** Screen for opening a voucher from a register: alteration, else the read-only view. */
 export function openTarget(r: Pick<DayBookRow, 'isCancelled' | 'irnGenerated'>, canAlter: boolean): 'vouchers.entry' | 'vouchers.view' {
   return r.isCancelled || r.irnGenerated || !canAlter ? 'vouchers.view' : 'vouchers.entry';
 }

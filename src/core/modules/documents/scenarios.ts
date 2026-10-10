@@ -1,5 +1,5 @@
 /**
- * Scenario masters (Tally: Accounts Info › Scenarios). How a scenario changes the reports:
+ * Scenario masters (Accounts Info › Scenarios). How a scenario changes the reports:
  * reports/scenario.ts. Masters permissions; every change audited.
  */
 import { randomUUID } from 'node:crypto';

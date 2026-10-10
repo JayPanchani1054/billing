@@ -1,4 +1,5 @@
-// The Tally-parity features through the real UI of the built app, keyboard first:
+// The extended accounting features (TDS, forex, cheques, manufacturing, POS …) through the real UI
+// of the built app, keyboard first:
 //
 //   wizard company → F11: TDS, multiple currencies, cheque printing, manufacturing, POS → masters
 //   (through window.pevqori.api) → quotation → Quotation Register › Alt+V → Sales 1 (Ctrl+A) →
@@ -230,7 +231,7 @@ test('Manufacturing Journal from the default BOM', async () => {
   await finished.getByRole('combobox', { name: /^Item/ }).focus();
   await pick(page, 'Bolt Kit', new RegExp(lit(PARITY.kit.name)));
   // The item's default BOM is chosen at once; its components fill in once the quantity is known
-  // (as in Tally: item → quantity → components scaled to it).
+  // (as accountants expect: item → quantity → components scaled to it).
   await expect(finished.getByLabel('Bill of materials')).toHaveValue(String(m.bom));
   const qty = finished.getByLabel(/^Quantity/);
   await qty.fill(String(PARITY.kit.qty));

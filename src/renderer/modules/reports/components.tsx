@@ -1,6 +1,6 @@
 /**
  * Shared building blocks of the reports screens: report period (global or drilled-down), remembered
- * tree expansion, drill-down navigation, the Trial-Balance style tree table and one side of a Tally
+ * tree expansion, drill-down navigation, the Trial-Balance style tree table and one side of a
  * horizontal statement.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -179,7 +179,7 @@ export interface StatementSideProps {
 
 const KEY_LINES = new Set(['gross', 'net', 'stock', 'profit_loss', 'difference']);
 
-/** One side of a Tally horizontal statement (Expenses / Income, Liabilities / Assets). */
+/** One side of a horizontal statement (Expenses / Income, Liabilities / Assets). */
 export function StatementSide({ title, lines, total, compareTotal, compareLabel, expansion, onActivate, loading, autoFocus, heightRows, budget = null }: StatementSideProps) {
   const columns = useMemo<Column<StatementLine>[]>(
     () => [

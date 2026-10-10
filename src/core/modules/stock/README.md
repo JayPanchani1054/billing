@@ -1,6 +1,6 @@
 # Stock module (core): inventory reports
 
-Read-only inventory reports in the Tally mould: Stock Summary (by group, by category), Stock Item
+Read-only inventory reports in the conventional mould: Stock Summary (by group, by category), Stock Item
 Vouchers, Godown Summary, Movement Analysis, Ageing, Reorder Status, Negative Stock, Batch Summary,
 Pending Orders (order processing), Item Profitability and the Physical Stock variance register.
 

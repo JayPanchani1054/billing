@@ -298,7 +298,7 @@ export function totalRows(doc: PrintVoucherData): TotalRow[] {
   return rows;
 }
 
-/** Tax head rows for the classic (Tally) layout, with rates when a single rate applies. */
+/** Tax head rows for the classic (boxed) layout, with rates when a single rate applies. */
 export function classicTaxRows(doc: PrintVoucherData): Array<{ label: string; rate: string; amount: Paise }> {
   if (!doc.gst.showTax) return [];
   const rates = (pick: (l: PrintLine) => number): string => {

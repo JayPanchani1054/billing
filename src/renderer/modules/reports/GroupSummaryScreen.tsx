@@ -1,7 +1,7 @@
 /**
  * 'reports.groupSummary' {groupId, from?, to?, view?, basis?} — sub-groups and ledgers of a group with
- * opening, debit, credit and closing (Tally Group Summary). Alt+V shows the group's vouchers instead
- * (Tally Group Vouchers); Alt+M opens the monthly summary. Enter drills further (sub-group → its
+ * opening, debit, credit and closing (Group Summary). Alt+V shows the group's vouchers instead
+ * (Group Vouchers); Alt+M opens the monthly summary. Enter drills further (sub-group → its
  * summary, ledger → Ledger Vouchers, voucher → the voucher; Alt+A alters it).
  * `basis: 'profitLoss'` (drilled from the P&L): income/expense groups show this period only, so the
  * total agrees with the P&L line; sub-groups opened from here keep that basis.

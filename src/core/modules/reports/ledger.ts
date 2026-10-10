@@ -58,7 +58,7 @@ function voucherSums(env: ReportEnv, ledgerIds: readonly number[], from: string,
   );
 }
 
-/** Tally "Ledger Vouchers": opening, one row per voucher with particulars and running balance, closing. */
+/** "Ledger Vouchers": opening, one row per voucher with particulars and running balance, closing. */
 export function ledgerReport(env: ReportEnv, input: LedgerReportInput): LedgerReportResult {
   assertPeriod(input.from, input.to);
   const l = ledgerMeta(env, input.ledgerId);
@@ -123,7 +123,7 @@ export function ledgerReport(env: ReportEnv, input: LedgerReportInput): LedgerRe
 
 /**
  * Particulars of a ledger line: the single ledger on the opposite side; on an invoice (several
- * ledgers opposite, one of them a sales/purchase ledger) the largest sales/purchase ledger, as Tally
+ * ledgers opposite, one of them a sales/purchase ledger) the largest sales/purchase ledger, as conventional software
  * shows "Sales" against the customer; otherwise '(as per details)'.
  */
 export function particularsFor(net: Paise, others: ReadonlyArray<{ ledgerName: string; amount: Paise; role?: string }>): string {
@@ -140,7 +140,7 @@ export function particularsFor(net: Paise, others: ReadonlyArray<{ ledgerName: s
   return AS_PER_DETAILS;
 }
 
-/** Tally "Group Vouchers": every voucher touching a ledger of the group, net per voucher, running balance. */
+/** "Group Vouchers": every voucher touching a ledger of the group, net per voucher, running balance. */
 export function groupVouchers(env: ReportEnv, input: GroupVouchersInput): GroupVouchersResult {
   assertPeriod(input.from, input.to);
   const g = groupNode(env, input.groupId);
@@ -195,7 +195,7 @@ export function groupVouchers(env: ReportEnv, input: GroupVouchersInput): GroupV
   };
 }
 
-/** Month-wise Dr / Cr / closing of a ledger or group (Tally "Monthly Summary"). */
+/** Month-wise Dr / Cr / closing of a ledger or group ("Monthly Summary"). */
 export function monthlySummary(env: ReportEnv, input: MonthlySummaryInput): MonthlySummaryResult {
   assertPeriod(input.from, input.to);
   if ((input.ledgerId === undefined) === (input.groupId === undefined)) {

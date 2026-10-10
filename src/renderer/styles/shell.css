@@ -113,7 +113,7 @@ body:has(.bx-shell) {
   z-index: var(--z-rail);
 }
 
-/* One screen of the stack. Hidden ones stay mounted (state is kept, like Tally). */
+/* One screen of the stack. Hidden ones stay mounted (state is kept). */
 .bx-screen {
   position: absolute;
   inset: 0;

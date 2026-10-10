@@ -106,7 +106,7 @@ export function getEnterTargets(container: HTMLElement): HTMLElement[] {
   return out;
 }
 
-/** Select the text of a text-like input (Tally overwrite-on-entry behaviour). */
+/** Select the text of a text-like input (overwrite-on-entry behaviour). */
 export function selectAllText(el: HTMLElement): void {
   if (el instanceof HTMLInputElement) {
     const selectable = ['text', 'search', 'tel', 'url', 'email', 'password', 'number', ''];

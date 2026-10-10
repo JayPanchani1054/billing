@@ -1,6 +1,6 @@
 # outstanding (renderer) — receivables, payables, ageing, statements, interest, reminders
 
-Screens for Tally's **Statements of Accounts › Outstandings**, built on the core routes in
+Screens for **Statements of Accounts › Outstandings**, built on the core routes in
 `src/core/modules/outstanding` (semantics, sign conventions and worked examples: its README).
 All routes are read-only (`reports.view`). Amounts arrive **side-signed** from side reports and are
 shown **ledger-signed with Dr/Cr** (`ledgerSign(side)`: receivable ×1, payable ×−1), so a supplier

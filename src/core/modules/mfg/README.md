@@ -1,6 +1,6 @@
 # mfg — Bill of Materials, Manufacturing Journal, job work (ITC-04), third-party godowns
 
-Closes the Tally-parity gaps "no BOM / manufacturing journal" and "no job work / ITC-04; third-party
+Closes the gaps "no BOM / manufacturing journal" and "no job work / ITC-04; third-party
 godowns valued as own stock". Two F11 features (Inventory group): **Bill of materials and
 manufacturing** (`features.manufacturing`) and **Job work** (`features.jobWork`, needs Multiple godowns).
 
@@ -46,7 +46,7 @@ module's hook (`vouchers/hooks.ts`) calls `hook.ts`:
    the job work godown, one product, components present, BOM of the product, party = the godown's
    party, order of the same party and direction …) and derives the ordinary stock journal item lines
    (consumption = source, production = destination). The vouchers module posts them exactly like any
-   stock journal — **no ledger entries** (Tally behaviour: additional costs only add to the value of the
+   stock journal — **no ledger entries** (the conventional behaviour: additional costs only add to the value of the
    finished goods; book the expense itself with a Payment / Journal).
 2. **adjust** — confirm-level warnings (godown of another party, closed order, by-products worth more than
    the cost, extension date not after the challan).
@@ -166,9 +166,9 @@ details is refused).
 
 ## Known gaps
 
-- Tally XML import still skips Tally's Job Work / Material In / Out vouchers (`data/xmlImport.ts`); they
+- XML data import still skips the file's Job Work / Material In / Out vouchers (`data/xmlImport.ts`); they
   can be re-entered here.
-- Additional costs never post to their ledgers (Tally behaviour); the expense is booked separately.
+- Additional costs never post to their ledgers (the conventional behaviour); the expense is booked separately.
 - The "AATO above ₹5 crore" switch of the ITC-04 screen is remembered per computer (browser storage), not
   stored in the company.
 - No multi-level BOM explosion (sub-assemblies are made with their own Manufacturing Journal first).

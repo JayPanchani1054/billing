@@ -74,7 +74,7 @@ export function confirmationOf(err: unknown): ConfirmationRequest | null {
 }
 
 /**
- * CONFLICT that only means "busy right now": an automatic backup, an export, a Tally import or another
+ * CONFLICT that only means "busy right now": an automatic backup, an export, an XML data import or another
  * import holds the company (core api/jobs.ts BUSY_DETAILS). The same request works once that task
  * finishes, so screens offer "Wait and retry" (retryWhileBusy) instead of a dead end.
  */

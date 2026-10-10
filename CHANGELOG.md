@@ -13,6 +13,12 @@ how to install it is in [docs/INSTALL.md](docs/INSTALL.md) and how to use it in
 > Release note for maintainers: `package.json` still says `0.1.0`. Bump `"version"` to `1.0.0` and tag
 > `v1.0.0` to publish this release (the release workflow refuses a tag that does not match).
 
+### Renamed
+- The product is now called **Pevqori** (program, installer `Pevqori-Setup-<version>.exe`, settings folder
+  `%APPDATA%\Pevqori`, backups `.pvqbak`). Upgrading keeps your data: the settings of the earlier build
+  are copied once on the first launch, and backups made by earlier builds (with the earlier backup
+  extension) are still listed, verified and restored — see [docs/INSTALL.md](docs/INSTALL.md#4-upgrading).
+
 ### Foundation
 - Windows 10 / 11 (x64) installer: per-user by default, no administrator rights, data and settings kept on
   uninstall; hardened Electron (sandboxed, context-isolated renderer with no network access, strict CSP,
@@ -20,7 +26,7 @@ how to install it is in [docs/INSTALL.md](docs/INSTALL.md) and how to use it in
 - Each company is a folder with one SQLite database (`node:sqlite`) in a data folder you choose; several
   companies, one open at a time, protected by a lock file. Money is held in integer paise; every voucher
   balances to the paisa.
-- Tally-style navigation: Gateway, Go To (Ctrl+G / Alt+G / Ctrl+K), F2 working date, Alt+F2 period,
+- Keyboard-first navigation: Gateway, Go To (Ctrl+G / Alt+G / Ctrl+K), F2 working date, Alt+F2 period,
   voucher keys F4–F10, F11 features, F12 configuration, drill-down from every report to the voucher;
   shared key conventions across screens (F1 lists them; the User Guide lists each screen's own keys).
   Light and dark themes.
@@ -51,7 +57,7 @@ how to install it is in [docs/INSTALL.md](docs/INSTALL.md) and how to use it in
   your stock); Production Register; ITC-04 tables as CSV / Excel.
 - POS counter billing: barcode / code scan, split tender (cash, card, UPI, credit) in one sales voucher,
   change, hold / recall, thermal receipts with MRP, returns and exchanges as credit notes, day-end
-  summary with cash tally.
+  summary with a counted-cash check.
 
 ### GST
 - GST engine: CGST / SGST / UTGST / IGST and cess, place of supply, reverse charge, exports and SEZ (LUT
@@ -88,8 +94,9 @@ how to install it is in [docs/INSTALL.md](docs/INSTALL.md) and how to use it in
 - Backups in one file, optionally encrypted (AES-256-GCM), automatic backups (when the last one is over a
   day old, on opening and closing the company), verified restore as
   a new company or over a closed one; Check Books integrity report.
-- Excel / CSV import with templates and a row-by-row preview; export of masters and vouchers; migration
-  from Tally XML; Export to Tally XML (masters with openings at the period start, and vouchers).
+- Excel / CSV import with templates and a row-by-row preview; export of masters and vouchers; XML data
+  import from another accounting program; XML data export for another accounting program (masters with
+  openings at the period start, and vouchers).
 - Attachments (PDF, images, Office files without macros, CSV / TXT / JSON / XML) on vouchers, ledgers and
   items, carried in backups and checked by Check Books.
 - Optional password protection with users and roles (Owner, Accountant, Data Entry, Auditor and your
@@ -99,7 +106,7 @@ how to install it is in [docs/INSTALL.md](docs/INSTALL.md) and how to use it in
 ### Quality
 - Unit and cross-module tests on real in-memory companies (a full trading year and a year with every
   feature on must tie out across the trial balance, P&L, Balance Sheet, stock, GST, TDS, outstanding,
-  forex, BRS, POS and dashboard, and survive a backup / restore and a Tally export / re-import);
+  forex, BRS, POS and dashboard, and survive a backup / restore and an XML export / re-import);
   performance checked on a 60,000-voucher company; Playwright end-to-end tests on Windows and Ubuntu;
   an install-and-launch smoke test of the packaged installer on Windows.
 

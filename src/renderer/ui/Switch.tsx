@@ -8,7 +8,7 @@ export interface SwitchProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   onChange: (checked: boolean) => void;
   /** Visible label (to the right). When used inside <Field>, the Field label names it. */
   label?: ReactNode;
-  /** Show "Yes"/"No" text next to the track (Tally style; default true — never colour alone). */
+  /** Show "Yes"/"No" text next to the track (default true — never colour alone). */
   showState?: boolean;
   onText?: string;
   offText?: string;
@@ -17,7 +17,7 @@ export interface SwitchProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
 }
 
 /**
- * On/off switch (role="switch"). Space/click toggles; Y/N set Yes/No (Tally); inside an
+ * On/off switch (role="switch"). Space/click toggles; Y/N set Yes/No; inside an
  * Enter-advance form Enter moves to the next field.
  */
 export function Switch({

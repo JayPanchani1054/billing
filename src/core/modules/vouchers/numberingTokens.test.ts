@@ -125,7 +125,7 @@ describe('dated prefix / suffix rows', () => {
     k.t.close();
   });
 
-  it('a typed number in the dated format advances nothing it should not: Tally-style parse uses the date', () => {
+  it('a typed number in the dated format advances nothing it should not: the dated parse uses the date', () => {
     const k = setupKit();
     salesNumbering(k, { prefix: 'A/', prefixRows: [{ applicableFrom: '2026-10-01', text: 'B/' }] });
     const vt = loadVoucherType(k.t.db, k.vt.sales);

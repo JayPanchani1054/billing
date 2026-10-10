@@ -469,7 +469,7 @@ export async function postAllFeaturesYear(w: AfWorld): Promise<void> {
   // A supplier bill received late and entered AFTER the journal, back-dated to 5-Apr: paint 100 L × 250 = 25,000
   // + C/S 2,250 = 29,500. The engine re-values batch 1 (paint average (20,000 + 21,000 + 25,000) / 300 = 220 →
   // 80 L = 17,600): consumption 67,600 + 20,000 − 2,000 = 85,600 (428 a chair), while the journal's stored
-  // amounts keep the estimate made on 10-Apr (205 a litre). Every report — and the Tally export — must use 220.
+  // amounts keep the estimate made on 10-Apr (205 a litre). Every report — and the XML data export — must use 220.
   const late = await post(
     w,
     'pur-nagpur-late',

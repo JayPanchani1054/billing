@@ -1,5 +1,5 @@
 /**
- * Reports routes (Tally "Display" reports). All are read-only: transactional: false. Access is
+ * Reports routes ("Display" reports). All are read-only: transactional: false. Access is
  * reports.view, or reports.financial for the Balance Sheet, P&L, ratios, cash flow and funds flow.
  * DTOs: src/shared/types/reports.ts · semantics and formulas: README.md in this folder.
  */

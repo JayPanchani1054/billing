@@ -41,7 +41,7 @@ DTOs and the route table are in `src/shared/types/inventory.ts`. Migration `040_
 - **Aliases (dataplus, migration 220):** `aliases: string[]` on an item save is the complete list (first →
   `alias` column, the rest → `stock_item_aliases` in order; at most 20). Names and aliases are unique among
   stock items (case-insensitive, names and all aliases); the item picker, Go To, lists, the Excel import /
-  export (the "Alias" column, several separated by `;`) and the Tally import / export use every alias.
+  export (the "Alias" column, several separated by `;`) and the XML data import / export use every alias.
   Files can be attached to an item (Alt+F on the form; `src/core/modules/attachments`); an item with
   attachments cannot be deleted until they are removed.
 - **Units:** decimal places cannot be reduced below what existing opening / voucher quantities of
@@ -62,7 +62,7 @@ One definition, used by every quantity and value function (`STOCK_MOVEMENT_FILTE
 
 An entry without a godown counts in *Main Location*. Godown filters are exact by default; with
 `includeSubGodowns: true` (functions and the `stockOnHand` / `batches` / `valuation` routes) a godown
-also covers every godown under it, like Tally's godown summary of a parent location. Batch names
+also covers every godown under it, like the usual godown summary of a parent location. Batch names
 match case-insensitively.
 
 **Whose stock** (final wave): without a godown filter, `stockOnHand`, `batchesFor` and `stockByItem`
@@ -282,7 +282,7 @@ no `today`, post-dated vouchers up to `asOf` count.
 ## Known gaps
 
 - Physical stock entries must carry the signed difference; a later back-dated entry before a
-  physical stock voucher is not re-absorbed (Tally re-bases on the counted quantity).
+  physical stock voucher is not re-absorbed (conventional accounting software re-bases on the counted quantity).
 - (Resolved by the mfg module, migration 210.) Godowns now say whose stock they hold
   (`third_party_kind`): 'ours_with_party' (our goods at a job worker — valued, in the Balance Sheet;
   existing third-party godowns became this kind, so nothing changed in value) or 'party_with_us'

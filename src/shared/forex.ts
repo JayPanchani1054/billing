@@ -125,7 +125,7 @@ export function pickRate(row: { standard: number | null; selling: number | null;
 }
 
 /**
- * Default rate type of a voucher (banking convention, as in TallyPrime's "selling / buying voucher
+ * Default rate type of a voucher (banking convention, the usual "selling / buying voucher
  * rate"): foreign currency coming IN (sales, receipts, credit notes reversing a sale) is converted at the
  * bank's BUYING rate; going OUT (purchases, payments, debit notes) at its SELLING rate; journals and
  * contras at the standard rate. The user can always type another rate on the voucher.

@@ -44,7 +44,7 @@ export const accountsModule: ModuleDef = {
 params), `keywords?`, `feature?: keyof CompanyFeatures` (e.g. `'inventory'`), `gstOnly?`.
 A screen the user may not open is refused with a toast; one whose feature is off says how to turn it on.
 
-**MenuItem**: `section`, `label` (Title Case, short — it gets a Tally accelerator letter), `screen`,
+**MenuItem**: `section`, `label` (Title Case, short — it gets an accelerator letter), `screen`,
 `params?`, `hotkey?` (display only — global keys belong to the shell, see §9), `keywords?`, `access?`,
 `order?` (lower first), `gstOnly?`, and (additive) `feature?`, `description?` (tooltip on the
 Gateway, second line in Go To), `voucherBaseType?` (a voucher-entry item for that predefined type:
@@ -54,7 +54,7 @@ hidden when the company deactivated it — `MenuContext.inactiveBaseTypes`, from
 Busy company: a request refused only because another long task holds the company (`CONFLICT` with
 `details.reason === 'busy'`, core `api/jobs.ts BUSY_DETAILS`) is recognised by `lib/apiErrors.ts
 isBusyConflict`; screens offer "Wait and retry", which repeats the call with `retryWhileBusy` (every 2 s,
-up to 2 minutes; Excel import and Tally import do).
+up to 2 minutes; Excel import and XML data import do).
 
 Gateway sections, in display order: `masters`, `transactions`, `banking`, `utilities`, `reports`,
 `inventory_reports`, `gst`, `data`, `security`, `company`. Accelerator letters (one per item, unique
@@ -161,7 +161,7 @@ await nav.reset();                           // back to the Gateway
 nav.canOpen(id); nav.isRegistered(id); nav.screenDef(id); nav.getStack();
 ```
 
-### Create-and-return (Tally Alt+C from a picker)
+### Create-and-return (Alt+C from a picker)
 
 ```tsx
 // In a voucher, the party Picker:
@@ -194,7 +194,7 @@ const { forResult, returnResult, cancel } = useScreenResult<{ id: number; name: 
 | `useScreenResult()` | see above |
 
 **Stack behaviour:** the Gateway is always at the bottom. Lower screens stay mounted and hidden
-(state kept, like Tally) — the 8 most recent; deeper ones unmount and remount when you return.
+(state kept, so you return to where you were) — the 8 most recent; deeper ones unmount and remount when you return.
 Hidden screens keep their queries subscribed but do **not** refetch while hidden: an invalidation
 (e.g. after a voucher save) only marks their data stale, and they refetch once when shown again
 (`screenVisibility.ts`, `lib/queryVisibility.ts`) — so a save never recomputes the Gateway dashboard
@@ -461,14 +461,14 @@ One meaning per key in every module (`CONVENTION_SHORTCUTS` in `lib/shortcuts.ts
 | `Alt+M` | open the master of the report's subject (ledger, item) |
 | `Alt+F1` | detailed / condensed |
 | `Alt+X` (reports) | expand / collapse all — on vouchers `Alt+X` is cancel (always confirmed) |
-| `Alt+C` (Balance Sheet, P&L) | comparison column (Tally "New Column"); everywhere else `Alt+C` creates |
+| `Alt+C` (Balance Sheet, P&L) | comparison column ("New Column"); everywhere else `Alt+C` creates |
 | `Ctrl+1` … `Ctrl+9` | switch view / tab |
 | `Ctrl+F` | focus the screen's search box |
 | `Alt+E` / `Alt+P` | export / print (need `data.export`); in voucher entry `Alt+P` prints the voucher altered or just saved |
 | `Ctrl+P` | print the highlighted voucher (Day Book, voucher lists — `Alt+P` there prints the list) |
 
 Screens must not bind `reservedGlobalKeys()` (the voucher screen's own F-keys and the documented
-GST exceptions aside) — e.g. never `Alt+F5` (Sales Order). Action labels use Tally verbs ("Create
+GST exceptions aside) — e.g. never `Alt+F5` (Sales Order). Action labels use the conventional accounting verbs ("Create
 ledger", "Alter", "Delete"); hints read `<Key> <Capitalised action>` ("Alt+C Create Ledger", "Ctrl+A Save", "Enter Next field";
 `lib/screenConventions.test.ts` checks every module's status-bar hints, labels and keys). Plain
 letter keys are free for screen accelerators (ignored while typing). Put every action in the rail via
@@ -502,7 +502,7 @@ with each turned on, and checks both voucher-panel rules on the panels' source.
 
 **Grids, tables and dates.** Every `DataTable` has an `aria-label`; hand-made `<table>`s in screens
 too; every `DateInput` gets a `referenceDate` (the working date, or the date the field is about) so
-"5" or "5-10" resolve the Tally way (company settings dates aside); every report offers Export / Print
+"5" or "5-10" resolve as accountants expect (company settings dates aside); every report offers Export / Print
 and focuses its main grid (`lib/screenA11y.test.ts` checks the parity-wave reports). Lists that hold editable cells (e.g. POS return quantities) wrap them in a
 `useEnterAdvance` container so Enter moves from cell to cell and on to the next field.
 

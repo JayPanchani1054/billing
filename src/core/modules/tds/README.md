@@ -192,7 +192,7 @@ for non-bank payers). Salary (192) is out of scope.
   2026 and the rules notified under the 2025 Act and add dated rows if they differ.
 - **206C(1F)**: the seed takes the base including GST (common practice); the ₹10 lakh test is on that
   value — on the invoice's value under the nature, not per vehicle (enter one vehicle per invoice, or
-  override), and at the sale (the section speaks of receipt of consideration; Tally computes on the
+  override), and at the sale (the section speaks of receipt of consideration; conventional software computes on the
   invoice too). Change "Base includes GST" on the nature if your advisor reads it otherwise. Luxury goods
   notified from 22-Apr-2025 need a nature of their own.
 - **206C(1H)** (TCS on sale of goods) was omitted from 1-Apr-2025 and is not seeded; 206AB/206CCA

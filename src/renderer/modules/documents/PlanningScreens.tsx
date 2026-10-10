@@ -1,5 +1,5 @@
 /**
- * Scenarios and budgets (Tally: Accounts Info › Scenarios / Budgets; Display › Budget Variance).
+ * Scenarios and budgets (masters: Scenarios / Budgets; report: Budget Variance).
  *
  *  'documents.scenarios'        Scenario masters. Enter Alter · Alt+C Create · Alt+D Delete.
  *                               A scenario = include actuals (yes / no) + voucher types whose provisional

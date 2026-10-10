@@ -3,7 +3,7 @@
  * Params: { id?: number; initialName?: string; forResult?: boolean; groupId?: number }.
  * Opened for a result (pushForResult from an ItemPicker), saving returns { id, name }.
  *
- * One Tally-style page: Enter moves through every field, Ctrl+A saves. Sections: Basic, Tax (GST
+ * One keyboard-first page: Enter moves through every field, Ctrl+A saves. Sections: Basic, Tax (GST
  * on), Pricing, Stock (goods only) and Opening stock (goods only).
  */
 import { useMemo, useState } from 'react';
@@ -294,7 +294,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
       if (forResult) {
         returnResult({ id: item.id, name: item.name });
       } else if (!saved && mode === 'next') {
-        // Tally-style: the creation screen stays for the next item, keeping group, unit and GST.
+        // Keyboard-first: the creation screen stays for the next item, keeping group, unit and GST.
         const next: ItemDraft = {
           ...emptyItemDraft({ groupId: d.groupId }),
           categoryId: d.categoryId,

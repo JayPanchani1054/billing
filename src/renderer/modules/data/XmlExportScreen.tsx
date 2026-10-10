@@ -1,8 +1,9 @@
 /**
- * 'data.xmlExport' — Export to Tally: masters and / or the vouchers of a period as a TallyPrime
- * "Import Data" XML (masters only → one .xml; with vouchers → a .zip of 1-Masters.xml + 2-Vouchers.xml),
- * saved through the native Save dialog. Shows what went into the file and how to load it in Tally.
- * Keys: Enter next field · Ctrl+A Export · Alt+B Trial Balance (to compare in Tally) · Esc Back.
+ * 'data.xmlExport' — XML data export: masters and / or the vouchers of a period as an "Import Data"
+ * XML for another accounting program (masters only → one .xml; with vouchers → a .zip of
+ * 1-Masters.xml + 2-Vouchers.xml), saved through the native Save dialog. Shows what went into the
+ * file and how to load it in the other program.
+ * Keys: Enter next field · Ctrl+A Export · Alt+B Trial Balance (to compare after loading) · Esc Back.
  */
 import { useState } from 'react';
 import type { XmlExportResult } from '../../../shared/types/data.ts';
@@ -41,7 +42,7 @@ export function XmlExportScreen() {
       const input = { masters, vouchers, from: from ?? period.from, to: to ?? period.to };
       const out = await api('data.xmlExport.create', input);
       if (vouchers && !masters && out.vouchers === 0) {
-        setError('There are no vouchers in this period that Tally can take. Change the dates.');
+        setError('There are no vouchers in this period that can go into the XML file. Change the dates.');
         return;
       }
       const savedTo = await save(out.bytes, out.fileName, 'XML Data Export');
@@ -60,7 +61,7 @@ export function XmlExportScreen() {
   return (
     <Screen
       title="XML Data Export"
-      subtitle="Masters and vouchers as a TallyPrime import file — for your CA or auditor, or to move the books to Tally."
+      subtitle="Export for another accounting program (XML): masters and vouchers as an import file — for your CA or auditor, or to move the books to another program."
       icon="export"
       width="form"
       hint="Enter Next field · Ctrl+A Export · Alt+B Trial Balance · Esc Back"
@@ -106,7 +107,7 @@ export function XmlExportScreen() {
         </form>
         {problem ? <p className="bx-muted">{problem}</p> : openings ? <p className="bx-muted">{openings}</p> : null}
         <Banner tone="info" inline>
-          Quotations, proforma invoices and physical stock vouchers are not exported (Tally has no such vouchers). Amounts in foreign currency are exported in rupees.
+          Quotations, proforma invoices and physical stock vouchers are not exported (they are not part of the XML interchange). Amounts in foreign currency are exported in rupees.
         </Banner>
         {done ? (
           <Panel title="Exported">
@@ -116,7 +117,7 @@ export function XmlExportScreen() {
               </p>
               <KeyValueList items={summary.map((r) => ({ key: r.key, label: r.label, value: r.value }))} alignValues="right" />
               <div>
-                <strong>Loading it in TallyPrime</strong>
+                <strong>Loading it in the other program</strong>
                 <ol className="bx-data-howto">
                   {steps.map((s) => (
                     <li key={s}>{s}</li>

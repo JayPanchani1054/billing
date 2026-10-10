@@ -71,6 +71,6 @@ must be paid in full; a customer's may leave the rest on account.
 | `lib/cart.ts` | scan parsing, add / increment, quantity slabs, line values, MRP, bill input, held drafts |
 | `lib/tender.ts` | tender rows, balance row, exchange row, change, problems, posBill |
 | `lib/returns.ts` | returnable quantities, credit note input |
-| `lib/summary.ts` | KPI tiles, drawer tally, export tables |
+| `lib/summary.ts` | KPI tiles, cash drawer count, export tables |
 | `lib/print.ts` | printed "Paid by" rows |
 | `lib/counter.ts` | counter name (per computer) |

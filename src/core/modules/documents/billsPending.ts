@@ -1,5 +1,5 @@
 /**
- * Sales Bills Pending / Purchase Bills Pending (Tally › Statements of Inventory): delivery / receipt
+ * Sales Bills Pending / Purchase Bills Pending (Statements of Inventory): delivery / receipt
  * notes and rejections whose goods moved but which are not (fully) billed yet.
  *
  *   sales:    delivery_note ← sales invoice,   rejection_in  ← credit note

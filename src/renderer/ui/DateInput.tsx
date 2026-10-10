@@ -32,7 +32,7 @@ export interface DateInputProps extends Omit<TextInputProps, 'value' | 'defaultV
 }
 
 /**
- * Tally-style date entry: type `5`, `5-10`, `5/10/26`, `05102026`, `5 oct`, `t` (today) or `y`
+ * Keyboard-first date entry: type `5`, `5-10`, `5/10/26`, `05102026`, `5 oct`, `t` (today) or `y`
  * (yesterday) — resolved against `referenceDate` on blur/Enter. Shows the formatted date and
  * weekday; Alt+↓ (or the button) opens a calendar.
  */

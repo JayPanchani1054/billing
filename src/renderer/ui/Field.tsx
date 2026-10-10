@@ -17,7 +17,7 @@ export interface FieldProps extends Omit<HTMLAttributes<HTMLDivElement>, 'childr
   /** Shows "(optional)" after the label — use on forms where most fields are required. */
   optional?: boolean;
   disabled?: boolean;
-  /** 'stack' (label above, default) or 'inline' (Tally-style "Label : value" row). */
+  /** 'stack' (label above, default) or 'inline' ("Label : value" row). */
   layout?: 'stack' | 'inline';
   /** Label column width for inline layout (default var(--field-label-width)). */
   labelWidth?: number | string;

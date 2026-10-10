@@ -1,5 +1,5 @@
 /**
- * 'vouchers.daybook' {from?, to?} — every voucher of a day or period (Tally Day Book).
+ * 'vouchers.daybook' {from?, to?} — every voucher of a day or period (Day Book).
  *
  * Defaults to the working date (and follows F2 until the range is changed here). Filters: type chips,
  * search (number / party / narration / exact amount), optional and cancelled toggles.

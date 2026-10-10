@@ -1,5 +1,5 @@
 /**
- * 'reports.ratios' — Tally Ratio Analysis: principal groups (left) and key ratios (right) with the
+ * 'reports.ratios' — Ratio Analysis: principal groups (left) and key ratios (right) with the
  * formula of each. Enter on a principal group opens its group summary. "—" means the ratio cannot be
  * worked out because its denominator is zero.
  */

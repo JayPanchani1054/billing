@@ -1,5 +1,5 @@
 /**
- * 'accounts.ledger.form' — Ledger Creation / Alteration, a Tally-like single page.
+ * 'accounts.ledger.form' — Ledger Creation / Alteration, a single keyboard-first page.
  * Params: { id? (alter) | initialName? (create), groupId? | groupCode? (create under a group, by id or by
  * reserved code such as 'SUNDRY_DEBTORS' / 'BANK_ACCOUNTS'), forResult? }.
  *
@@ -178,7 +178,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [original]);
   /**
-   * The group whose Tally-like defaults are in the draft (create only). Defaults are applied when the
+   * The group whose usual defaults are in the draft (create only). Defaults are applied when the
    * group's class becomes known — also for a group just created with Alt+C, which reaches the group
    * index only after the list refetches.
    */

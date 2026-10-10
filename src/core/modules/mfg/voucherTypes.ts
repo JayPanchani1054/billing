@@ -4,7 +4,7 @@
  *
  * They are ordinary (non-predefined) types under the predefined Stock Journal, created when the
  * Manufacturing / Job work feature is turned on (F11, or a new company created with it) — like
- * Tally's Manufacturing Journal and Material In / Out types — so the user may rename, renumber or
+ * the conventional Manufacturing Journal and Material In / Out types — so the user may rename, renumber or
  * deactivate them and create more of the same class under Masters › Voucher Types.
  * Imports nothing but node:crypto (and types), so the seed and the company module may call it.
  */

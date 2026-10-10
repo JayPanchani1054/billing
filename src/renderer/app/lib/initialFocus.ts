@@ -32,7 +32,7 @@ export function needsFocusWatch(rank: number): boolean {
 /**
  * Elements the shell itself focused as a screen's provisional starting point (nav.tsx). A screen that
  * places its own cursor once its form renders (e.g. Voucher Entry: number / party / Account / first
- * line, as Tally does) must treat focus on one of these as "not chosen by the user" and move it;
+ * line, as accountants expect) must treat focus on one of these as "not chosen by the user" and move it;
  * focus anywhere else means the user already moved and must be left alone.
  */
 const shellPicks = new WeakSet<object>();

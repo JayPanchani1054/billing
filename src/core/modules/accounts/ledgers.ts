@@ -288,7 +288,7 @@ interface SaveContext {
 }
 
 /**
- * Tally defaults for a NEW ledger (only for fields the caller did not set):
+ * Conventional defaults for a NEW ledger (only for fields the caller did not set):
  *  - customers/suppliers keep bills when bill-wise details are enabled (F11);
  *  - sales/purchase ledgers: "Inventory values are affected" when inventory is on, and GST applicable
  *    (taxable, rate from the items) when the company has GST — like the predefined Sales/Purchase ledgers.
@@ -393,7 +393,7 @@ function saveLedgerTx(ctx: CompanyCtx, input: LedgerSaveInput, sc: SaveContext):
     for (const i of [...aliasListIssues(full), ...aliasClashIssues(db, 'ledger', fields.name, full, row ? row.id : null)]) {
       if (!issues.has(i.path)) issues.add(i.path, i.message);
     }
-    // Ledgers and groups share one name space (as in Tally): an additional alias may not be a group's name or alias.
+    // Ledgers and groups share one name space (as accountants expect): an additional alias may not be a group's name or alias.
     extras.forEach((a, k) => {
       const g = groupNameClash(db, a);
       if (g) issues.add(`aliases[${k + 1}]`, `'${a}' is already ${g.name.toLowerCase() === a.toLowerCase() ? 'the name' : 'an alias'} of the group '${g.name}'. Choose a different alias.`);
@@ -468,7 +468,7 @@ export function saveLedger(ctx: CompanyCtx, input: LedgerSaveInput): LedgerDetai
 }
 
 /**
- * Tally-style "multiple ledgers" creation. All-or-nothing: if any row is invalid nothing is created
+ * Keyboard-first "multiple ledgers" creation. All-or-nothing: if any row is invalid nothing is created
  * and the VALIDATION error lists every problem with paths like `rows[3].gstin`.
  */
 export function bulkCreateLedgers(ctx: CompanyCtx, input: LedgerBulkCreateInput): LedgerBulkCreateResult {

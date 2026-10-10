@@ -35,6 +35,7 @@ import { verifyAuditChain } from '../../lib/audit.ts';
 import { checkAuditAnchor, type AnchorCheck } from '../../lib/auditAnchor.ts';
 import { toCsv } from '../../lib/csv.ts';
 import { forbidden, notFound, rule } from '../../lib/errors.ts';
+import { LEGACY_XML_DATA_KIND } from '../../lib/legacyNames.ts';
 import { encodeUtf8WithBom } from '../../lib/text.ts';
 import { writeXlsx, type XlsxCell } from '../../lib/xlsx.ts';
 import { likePattern } from './common.ts';
@@ -85,6 +86,9 @@ const ENTITY_LABELS: Readonly<Record<string, string>> = {
   role: 'Role',
   security_settings: 'Security settings',
   audit_log: 'Edit log',
+  xml_data: 'XML data',
+  // XML data exports recorded by builds before the rename (append-only rows keep their entity type).
+  [LEGACY_XML_DATA_KIND]: 'XML data',
 };
 
 /** 'stock_item' → 'Stock item'; unknown types are humanised. */

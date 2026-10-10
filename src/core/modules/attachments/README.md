@@ -100,6 +100,6 @@ the unused-files list and sweep (permission, attached files kept, edit-log entry
 ## Known gaps
 
 - No preview inside the app: files open in the program Windows uses for their kind.
-- Attachments are not part of the Excel / Tally exports (Tally has no attachment format).
+- Attachments are not part of the Excel / XML data exports (the XML format has no attachment element).
 - A CSV opened in Excel is not checked for formula injection (Excel's own protected view / DDE settings
   apply); attach a PDF of a bank statement where possible.

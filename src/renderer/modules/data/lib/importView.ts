@@ -1,5 +1,5 @@
 /**
- * Pure logic of the Excel/CSV import wizard and the Tally migration wizard (tested in
+ * Pure logic of the Excel/CSV import wizard and the XML data import wizard (tested in
  * importView.test.ts).
  */
 import type {
@@ -46,9 +46,9 @@ export function spreadsheetFileProblem(fileName: string): string | null {
 export function xmlFileProblem(fileName: string): string | null {
   const ext = /\.([a-z0-9]+)$/i.exec(fileName)?.[1]?.toLowerCase() ?? '';
   if (ext === 'xml') return null;
-  if (ext === 'json') return 'Tally JSON exports are not supported. In Tally choose the XML (Data Interchange) format when exporting.';
-  if (ext === '900' || ext === 'tsf' || ext === 'zip') return 'This looks like Tally’s own data folder or a backup. Export the data from Tally as XML instead (Gateway › Export).';
-  return 'Choose the .xml file exported from Tally.';
+  if (ext === 'json') return 'JSON exports are not supported. Export the data in the XML (Data Interchange) format instead.';
+  if (ext === '900' || ext === 'tsf' || ext === 'zip') return 'This looks like the data folder or a backup of another accounting program. Export the data from that program as XML instead.';
+  return 'Choose the .xml file exported from your previous accounting program.';
 }
 
 // ───────────────────────────── Import preview ─────────────────────────────
@@ -145,7 +145,7 @@ export function commitResultText(r: ImportCommitResult): { tone: 'success' | 'wa
   };
 }
 
-// ───────────────────────────── Tally ─────────────────────────────
+// ───────────────────────────── XML data import ─────────────────────────────
 
 const XML_LABELS: Readonly<Record<XmlObjectType, string>> = {
   GROUP: 'Groups',
@@ -193,13 +193,13 @@ export function issueTone(severity: XmlImportIssue['severity']): BadgeTone {
   return severity === 'error' ? 'danger' : severity === 'warning' ? 'warning' : 'info';
 }
 
-/** Problem with the chosen Tally import options, or null. */
+/** Problem with the chosen XML data import options, or null. */
 export function xmlOptionsProblem(p: XmlPreviewResult, o: XmlImportOptions): string | null {
   const masters = o.masters !== false;
   if (!masters && !o.vouchers) return 'Choose masters, vouchers or both.';
   if (o.vouchers && p.counts.VOUCHER === 0) return 'The file has no vouchers. Untick “Vouchers” or choose a Day Book export.';
   const mastersInFile = (Object.keys(p.counts) as XmlObjectType[]).some((k) => k !== 'VOUCHER' && p.counts[k] > 0);
-  if (masters && !o.vouchers && !mastersInFile) return 'The file has no masters. Export “All Masters” from Tally, or import the vouchers.';
+  if (masters && !o.vouchers && !mastersInFile) return 'The file has no masters. Export “All Masters” from your previous program, or import the vouchers.';
   if (o.from && o.to && o.from > o.to) return 'The “from” date is after the “to” date.';
   return null;
 }
@@ -222,5 +222,5 @@ export function xmlResultSummary(r: XmlImportResult): { tone: 'success' | 'warni
   const errors = r.issues.filter((i) => i.severity === 'error').length;
   if (r.stopped) return { tone: 'danger', title: 'The import stopped part-way', lines: [...lines, 'Everything up to the problem was saved. Fix the cause and import the same file again — existing records are skipped.'] };
   if (errors > 0 || m.failed > 0 || r.vouchers.failed > 0) return { tone: 'warning', title: 'Imported, with some records left out', lines };
-  return { tone: 'success', title: 'Your Tally data is in Pevqori', lines };
+  return { tone: 'success', title: 'Your data is in Pevqori', lines };
 }

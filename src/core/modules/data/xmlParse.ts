@@ -1,16 +1,16 @@
 /**
- * Tally XML reader: bytes → a typed, database-independent model of the masters and vouchers in a
- * Tally "Export → XML" file (Gateway of Tally › Export › Masters / Transactions, Tally.ERP 9 and
- * TallyPrime). Nothing here touches the database; xmlImport.ts maps the model onto the company.
+ * XML data reader: bytes → a typed, database-independent model of the masters and vouchers in an
+ * "Export → XML" file of another accounting program (its Export › Masters / Transactions, older and
+ * current versions). Nothing here touches the database; xmlImport.ts maps the model onto the company.
  *
  * File shape: ENVELOPE › BODY › IMPORTDATA (or DATA) › REQUESTDATA › MESSAGE_TAG* › <object>.
- * Tally writes UTF-16LE (often without a BOM); decodeText() detects it. The document is read with the
+ * Such files are UTF-16LE (often without a BOM); decodeText() detects it. The document is read with the
  * streaming parser and only one object's subtree is built at a time, so a 100 MB export does not turn
  * into a 100 MB element tree.
  *
- * Tally conventions handled here:
+ * Format conventions handled here:
  *  - AMOUNT / OPENINGBALANCE / OPENINGVALUE: negative = Debit. The model uses this app's convention
- *    (Dr +, Cr −) in integer paise, so every Tally amount is negated once, here.
+ *    (Dr +, Cr −) in integer paise, so every XML amount is negated once, here.
  *  - Quantities '10 Nos', ' 2.500 Kg', '60 Nos = 5 Box' (the part before '=' is the base unit);
  *    rates '100.00/Nos'; dates 'yyyymmdd'; credit periods '30 Days'.
  *  - '&#4;' (U+0004) markers such as '&#4; Primary' / '&#4; Applicable' are removed.
@@ -33,7 +33,7 @@ export interface TNode {
   text: string;
 }
 
-/** Remove Tally's control markers and collapse whitespace. */
+/** Remove the format's control markers and collapse whitespace. */
 export function clean(s: string | undefined | null): string {
   if (!s) return '';
   return s
@@ -103,7 +103,7 @@ function listValues(n: TNode, listName: string, itemName: string): string[] {
 
 // ───────────────────────────── Value parsers ─────────────────────────────
 
-/** Tally amount text → paise in Tally's sign (negative = Dr). Forex '… = -₹ 800.00' uses the rupee part. */
+/** XML amount text → paise in the file's sign (negative = Dr). Forex '… = -₹ 800.00' uses the rupee part. */
 export function xmlAmount(raw: string): number | null {
   let s = clean(raw);
   if (s === '') return null;
@@ -125,7 +125,7 @@ export function xmlAmount(raw: string): number | null {
   return p === 0 ? 0 : sign * p;
 }
 
-/** Tally amount → this app's signed paise (Dr +, Cr −). */
+/** XML amount → this app's signed paise (Dr +, Cr −). */
 export function ourAmount(raw: string): number | null {
   const t = xmlAmount(raw);
   return t === null ? null : t === 0 ? 0 : -t;
@@ -230,7 +230,7 @@ export interface TLedger {
   gstin: string | null;
   registrationType: string | null;
   stateName: string | null;
-  /** COUNTRYNAME (Tally's mailing details); an overseas party has a country other than India. */
+  /** COUNTRYNAME (the mailing details); an overseas party has a country other than India. */
   country: string | null;
   address: string | null;
   pincode: string | null;
@@ -361,7 +361,7 @@ export interface TInventoryLine {
   discountPct: number;
   /** Unsigned line value, paise. */
   amount: number;
-  /** Tally's own direction when the list says it (stock journal IN/OUT lists), else from ISDEEMEDPOSITIVE. */
+  /** The file's own direction when the list says it (stock journal IN/OUT lists), else from ISDEEMEDPOSITIVE. */
   direction: 'in' | 'out' | null;
   isDeemedPositive: boolean | null;
   /** Sales/purchase ledger (first accounting allocation, or the enclosing ledger entry). */
@@ -571,7 +571,7 @@ function parseGroup(n: TNode): TGroup {
 
 function parseLedger(n: TNode): TLedger {
   const name = objectName(n);
-  // TallyPrime keeps mailing details and GST registration effective-dated in lists (latest wins).
+  // Newer files keep mailing details and GST registration effective-dated in lists (latest wins).
   const mailing = kidsOf(n, 'LEDMAILINGDETAILS.LIST').sort((a, b) => val(a, 'APPLICABLEFROM').localeCompare(val(b, 'APPLICABLEFROM'))).pop();
   const reg = kidsOf(n, 'LEDGSTREGDETAILS.LIST').sort((a, b) => val(a, 'APPLICABLEFROM').localeCompare(val(b, 'APPLICABLEFROM'))).pop();
   const addressLines = mailing ? listValues(mailing, 'ADDRESS.LIST', 'ADDRESS') : [];
@@ -858,13 +858,13 @@ const emptyCounts = (): Record<XmlObjectType, number> => ({
   VOUCHER: 0,
 });
 
-/** Decode and parse a Tally XML export. Throws FileFormatError when it is not one. */
+/** Decode and parse an XML data export. Throws FileFormatError when it is not one. */
 export function parseXmlFile(bytes: Uint8Array): XmlFile {
   if (bytes.length === 0) throw new FileFormatError('xml', 'The file is empty.');
   const { text, encoding } = decodeText(bytes);
   const { company, objects, root } = readXmlObjects(text);
   if (root !== 'ENVELOPE' && objects.length === 0) {
-    throw new FileFormatError('xml', 'This is not a Tally XML export (it has no ENVELOPE). In Tally use Gateway › Export › Masters or Transactions with the XML format.');
+    throw new FileFormatError('xml', 'This is not an XML data export (it has no ENVELOPE). In your previous accounting program, export Masters or Transactions in XML format.');
   }
   const file: XmlFile = {
     encoding,

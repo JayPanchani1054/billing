@@ -15,7 +15,7 @@
   min-height: 240px;
 }
 
-/* Tally horizontal statement: two equal columns (Expenses | Income, Liabilities | Assets). */
+/* Horizontal statement: two equal columns (Expenses | Income, Liabilities | Assets). */
 .bx-rep-sides {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

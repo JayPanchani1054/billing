@@ -105,7 +105,7 @@ its value, `null` clears it. Validation problems come back as one VALIDATION err
 **Groups.** Sub-groups take nature and "affects gross profit" from the parent (moving a group or changing a
 primary group's nature updates the whole sub-tree). A new primary group needs a nature; only income/expense
 primary groups may affect gross profit. Predefined groups: only alias, sort order and display flags change. No
-cycles. Names/aliases unique across groups **and ledgers** (one name space, as in Tally; case-insensitive). A move
+cycles. Names/aliases unique across groups **and ledgers** (one name space, as accountants expect; case-insensitive). A move
 or nature change is refused when ledgers below would hold details their new group does not allow. Every sub-group
 whose nature changes with a move gets its own audit row. Delete: not predefined, no sub-groups, no ledgers.
 
@@ -115,7 +115,7 @@ whose nature changes with a move gets its own audit row. Delete: not predefined,
   first is stored in the `alias` column (shown everywhere it always was), the rest in `ledger_aliases` in
   order. Every alias is unique (case-insensitive) across all ledger names and aliases, and ledgers share
   one name space with groups; pickers, Go To, lists, the Excel import / export (the "Alias" column, several
-  separated by `;`) and the Tally import / export use all of them (`src/core/lib/masterAliases.ts`).
+  separated by `;`) and the XML data import / export use all of them (`src/core/lib/masterAliases.ts`).
 - Name required; name and alias unique among ledgers, and neither may equal another ledger's name/alias **or a
   group's name/alias** (checked for new/changed values, so an old clash never blocks unrelated edits).
 - Defaults on create (fields not given): parties keep bills when F11 bill-wise is on; ledgers under Sales/Purchase
@@ -152,7 +152,7 @@ whose nature changes with a move gets its own audit row. Delete: not predefined,
   amounts and the difference); bill dates on/before the books beginning; due ≥ bill date; references unique.
   An opening balance without bills is allowed (treated as on-account by outstanding).
 - Opening stock: with inventory integrated (F11 inventory + integrate), a Stock-in-Hand ledger takes no opening
-  balance — opening stock is the stock items' opening value (as in Tally); entering one is refused.
+  balance — opening stock is the stock items' opening value (as accountants expect); entering one is refused.
 - Period lock: when the books are locked up to a date on/after the books beginning, entering or changing an
   opening balance or opening bills fails with LOCKED (they belong to the locked period).
 - Credit limit ≥ 0, credit days 0–3650, interest rate 0–100 (required when interest is on); currency exists.
@@ -178,7 +178,7 @@ numbers would repeat within the financial year — GSTR-1 rejects duplicates); o
 {YY}, {MM}, {MMM} — expanded with the voucher date when the number is allocated; the 16-character / allowed
 characters check uses each token's longest expansion. `numbering.prefixRows` / `suffixRows`
 (`[{applicableFrom, text|null}]`, stored in `voucher_type_numbering_rows`, replaced as a whole when given)
-change the prefix / suffix for vouchers dated on or after a date (TallyPrime "Applicable from"); the type's
+change the prefix / suffix for vouchers dated on or after a date ("Applicable from"); the type's
 own prefix / suffix applies before the first row. Existing numbers are never changed; with no tokens and no
 rows numbering behaves exactly as before. When a custom type changes base type, the types based on it follow, each with an audit row.
 Changing numbering never renumbers existing vouchers and does not touch `voucher_counters`. Config is a
@@ -210,9 +210,9 @@ The list returns each currency's latest rate from one query.
 - Ledger delete finds other modules' references only through foreign keys; ids kept inside JSON settings of
   other modules (other than voucher-type config and the F12 invoice bank) are not seen.
 - Numbering tokens cover the financial year, calendar year and month; there is no day token or free date
-  format (Tally's own set is similar). Restart periods remain yearly / monthly / never (no quarterly).
+  format (conventional accounting software uses a similar set). Restart periods remain yearly / monthly / never (no quarterly).
 - A voucher keeps its number when altered — also when its new date falls in another month or financial
-  year, so `INV/25-26/0100` moved to 1-Apr-2026 keeps the 25-26 label (as in Tally). Renumber it by hand
+  year, so `INV/25-26/0100` moved to 1-Apr-2026 keeps the 25-26 label (as accountants expect). Renumber it by hand
   (automatic-with-override types) if the old label must not stay.
 - The 16-character / allowed-character rule (CGST Rule 46(b)) is enforced on the numbering of GST voucher
   types; a number TYPED on a sales invoice / note is checked when the voucher is saved as a confirm-level

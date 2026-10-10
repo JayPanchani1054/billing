@@ -1,5 +1,5 @@
 /**
- * Outstanding routes (Tally "Statements of Accounts › Outstandings"). All are read-only reports:
+ * Outstanding routes ("Statements of Accounts › Outstandings"). All are read-only reports:
  * access 'reports.view', transactional: false. DTOs: src/shared/types/outstanding.ts; semantics:
  * README.md in this folder.
  */

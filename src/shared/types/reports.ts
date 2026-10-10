@@ -1,5 +1,5 @@
 /**
- * DTOs for the reports module (src/core/modules/reports) — Tally "Display" reports with drill-down.
+ * DTOs for the reports module (src/core/modules/reports) — "Display" reports with drill-down.
  * Semantics, formulas and worked examples: src/core/modules/reports/README.md.
  *
  * Route table (scope 'company', transactional: false; access reports.view unless noted):
@@ -68,7 +68,7 @@ export interface ReportTreeRow {
 /**
  * 'groups': group tree (no ledgers) · 'detailed': groups with their ledgers · 'ledgers': flat ledger list.
  * In every mode the reserved Profit & Loss A/c ledger is a level-0 line of its own (key 'l:<id>'), never
- * inside Capital Account — as in Tally, and so Capital Account agrees with its Balance Sheet line.
+ * inside Capital Account — as accountants expect, and so Capital Account agrees with its Balance Sheet line.
  */
 export type TrialBalanceMode = 'groups' | 'ledgers' | 'detailed';
 export const TRIAL_BALANCE_MODES: readonly TrialBalanceMode[] = ['groups', 'ledgers', 'detailed'];
@@ -137,7 +137,7 @@ export interface StatementLine extends ReportTreeRow {
   compare: Paise | null;
 }
 
-/** One two-sided block (Tally horizontal layout). Each side's lines are in display order. */
+/** One two-sided block (conventional horizontal layout). Each side's lines are in display order. */
 export interface StatementBlock {
   left: StatementLine[];
   right: StatementLine[];

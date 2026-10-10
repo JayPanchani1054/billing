@@ -14,7 +14,7 @@ import { readSetting, writeSetting } from '../company/service.ts';
 /** reserved_code of the system ledger realised / unrealised exchange differences go to by default. */
 export const FOREX_LEDGER_CODE = 'FOREX_GAIN_LOSS';
 export const FOREX_LEDGER_NAME = 'Forex Gain/Loss';
-/** Group of the system ledger (Tally keeps it under Indirect Expenses; a net gain shows as a credit). */
+/** Group of the system ledger (kept under Indirect Expenses, as accountants expect; a net gain shows as a credit). */
 const FOREX_LEDGER_GROUP = 'INDIRECT_EXPENSES';
 
 export const DEFAULT_FOREX_SETTINGS: ForexSettings = { gainLossLedgerId: null, unrealisedLedgerId: null, revaluationRateType: 'standard' };

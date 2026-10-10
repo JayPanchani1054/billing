@@ -1,5 +1,5 @@
 /**
- * Order pre-close / short-close (Tally "Pre-close order"): close the balance quantity of a sales or
+ * Order pre-close / short-close ("Pre-close order"): close the balance quantity of a sales or
  * purchase order that will not be supplied, with a reason and a date, without altering the order.
  * Closed balances leave Sales/Purchase Orders Pending, Reorder Status and the "From orders" picker
  * (closures.ts). Reopen removes the closure. Both are audited on the order, need vouchers.alter (and

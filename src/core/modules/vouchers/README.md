@@ -319,7 +319,7 @@ Round-off (F12 › roundOff) applies to the whole invoice value including such c
 | `unbalanced` | block | ledger mode Σ ≠ 0: "Voucher is not balanced: Dr ₹ X ≠ Cr ₹ Y (difference ₹ Z Dr/Cr)" |
 | `cash_bank_required` | block | Payment without a Cr to cash/bank, or Receipt without a Dr to cash/bank |
 | `contra_ledger` | block | Contra line not Cash/Bank/Bank OD |
-| `journal_cash_bank` | block | Journal touching Cash/Bank (as Tally does by default) |
+| `journal_cash_bank` | block | Journal touching Cash/Bank (the conventional default) |
 | `zero_value` | block | no non-zero entries (unless the type allows zero value) |
 | `negative_value` | block | invoice modes: the invoice value G is below zero (discount/deduction lines exceed the goods/services) |
 | `bill_mismatch` / `bill_name_required` / `bill_not_found` | block | bill-wise rules (§5) |
@@ -360,9 +360,9 @@ Guards are skipped for optional vouchers. The voucher being altered is always ex
 - `ledgers.gst_nature_override` (set in the ledger master) is not applied by the engine: the nature always comes from the computation.
 - Cost-centre allocation is only possible on ledger lines, not on the sales/purchase ledger of item lines.
 - Stock valuation (closing stock) is the stock/reports modules' job. `inventory_entries.amount` is the input to it.
-- Physical stock stores **counted − book** as at its save. A voucher entered later but dated before it changes the book quantity, so the count no longer equals the closing quantity (Tally resets to the count). Re-save the physical stock voucher after such entries.
+- Physical stock stores **counted − book** as at its save. A voucher entered later but dated before it changes the book quantity, so the count no longer equals the closing quantity (conventional software resets to the count). Re-save the physical stock voucher after such entries.
 - `include_in_assessable = 'services'` is not apportioned (only `'goods'`); such a ledger is treated by rules 3–4.
-- Optional vouchers take the next number of their type's series (as in Tally). GSTR-1 Table 13 leaves such a number out of the range (neither issued nor cancelled) and raises `optional_in_series` so it is regularised or deleted before filing; a separate voucher type for optional / pro-forma documents avoids the question. For quotations and proforma invoices use the **Quotation** / **Proforma Invoice** voucher types (documents module, base types `quotation` / `proforma`): their own series, no books, conversion into an order or invoice.
+- Optional vouchers take the next number of their type's series (as accountants expect). GSTR-1 Table 13 leaves such a number out of the range (neither issued nor cancelled) and raises `optional_in_series` so it is regularised or deleted before filing; a separate voucher type for optional / pro-forma documents avoids the question. For quotations and proforma invoices use the **Quotation** / **Proforma Invoice** voucher types (documents module, base types `quotation` / `proforma`): their own series, no books, conversion into an order or invoice.
 - An item-mode Credit Note always brings the goods back (a sales return); a price reduction on goods the customer keeps is entered in accounting_invoice mode (§3).
 - Debit Notes to customers saved before value-only lines were introduced keep their stock movement until re-saved.
 - GST reconciliation (`gst_portal_docs.match_status`) is not reset when a matched voucher is deleted or cancelled (the FK clears `matched_voucher_id`); the gstrecon module re-matches.

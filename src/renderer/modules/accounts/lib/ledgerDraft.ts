@@ -1,5 +1,5 @@
 /**
- * Ledger form model: the editable draft, conversion from LedgerDetail, Tally-like defaults when a
+ * Ledger form model: the editable draft, conversion from LedgerDetail, the usual defaults when a
  * group is chosen, client validation (same messages as the core where they overlap) and the
  * LedgerSaveInput (full values on create; only changed fields on alter — patch semantics).
  * Pure — tested in ledgerDraft.test.ts.
@@ -221,7 +221,7 @@ export interface DefaultsContext {
 }
 
 /**
- * Tally-like defaults when a NEW ledger's group changes (same defaults the server applies to
+ * The usual defaults when a NEW ledger's group changes (same defaults the server applies to
  * fields it is not given, shown up-front so the user sees and can change them):
  * customers/suppliers keep bills (F11 bill-wise) and start in the company's state; Sales/Purchase
  * ledgers affect inventory and are GST-applicable, taxable, rate from the items.
@@ -345,7 +345,7 @@ const optEnum = <T extends string>(v: T | ''): T | null => (v === '' ? null : v)
  * What is cleared when its section is hidden:
  * - bank, tax and GST rate details whenever the group does not allow them (the core would refuse
  *   or clear them anyway);
- * - party details only on create (on alter they are kept, as Tally does, so moving a ledger
+ * - party details only on create (on alter they are kept, as accountants expect, so moving a ledger
  *   between groups never loses an address);
  * - nothing that is hidden only because an F11 feature (bill-wise, interest, cost centres,
  *   inventory, TDS, multi-currency) or the company's GST is off — turning a feature off must not
@@ -368,7 +368,7 @@ export function fieldsFromDraft(d: LedgerDraft, sec: LedgerSections, mode: 'crea
     defaultCreditDays: party ? d.defaultCreditDays : null,
     creditLimit: party ? d.creditLimit : null,
     interestEnabled: d.interestEnabled,
-    // On alter a switched-off rate / section is kept (Tally keeps it; the core does not need it cleared).
+    // On alter a switched-off rate / section is kept (as accountants expect; the core does not need it cleared).
     interestRate: d.interestEnabled || mode === 'alter' ? d.interestRate : null,
     costCentresApplicable: d.costCentresApplicable,
     inventoryValuesAffected: d.inventoryValuesAffected,

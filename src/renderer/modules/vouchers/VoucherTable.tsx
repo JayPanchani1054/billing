@@ -1,7 +1,7 @@
 /**
  * Voucher register table shared by the Day Book and the generic voucher list.
  *
- * Enter / double-click opens the voucher for alteration (Tally); Alt+Enter opens the read-only view
+ * Enter / double-click opens the voucher for alteration; Alt+Enter opens the read-only view
  * (also for cancelled vouchers and users who may not alter); Alt+A alters, Ctrl+P prints (Alt+P
  * prints the register itself), Alt+2 duplicates and Alt+D deletes the highlighted voucher.
  */
@@ -37,7 +37,7 @@ export function useVoucherTable(rows: readonly DayBookRow[]): VoucherTableState 
   const selected = rows.find((r) => String(r.id) === selectedKey) ?? null;
 
   const view = (r: DayBookRow) => nav.push('vouchers.view', { id: r.id });
-  // Enter alters (Tally); cancelled vouchers, generated e-invoices and users who may not alter get the view.
+  // Enter alters; cancelled vouchers, generated e-invoices and users who may not alter get the view.
   const open = (r: DayBookRow) => nav.push(openTarget(r, canAlter), { id: r.id });
   const remove = async (r: DayBookRow) => {
     if (r.irnGenerated) {

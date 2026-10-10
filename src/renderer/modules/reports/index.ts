@@ -1,5 +1,5 @@
 /**
- * Reports module (Tally "Display"): Balance Sheet, Profit & Loss, Trial Balance, Group Summary,
+ * Reports module ("Display"): Balance Sheet, Profit & Loss, Trial Balance, Group Summary,
  * Ledger, Cash/Bank books, registers, Monthly Summary, Cash Flow, Funds Flow, Ratio Analysis,
  * Exception Reports, Cost Centres and Statistics — all with keyboard drill-down down to the voucher.
  */

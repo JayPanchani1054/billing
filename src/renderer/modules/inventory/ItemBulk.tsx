@@ -1,5 +1,5 @@
 /**
- * 'inventory.item.bulk' — Multiple Stock Item Creation (Tally's "Multiple Stock Items").
+ * 'inventory.item.bulk' — Multiple Stock Item Creation ("Multiple Stock Items").
  * Params: { groupId?: number }. One row per item: name, alias, group (blank = the default "Under"
  * at the top), unit, HSN, GST rate, selling price and opening stock. A new blank row appears as
  * soon as the last one is used; Enter on an empty name finishes (asks to save). All rows are
@@ -175,7 +175,7 @@ function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, u
 
   const formRef = useEnterAdvance<HTMLFormElement>({ onComplete: () => void submit() });
   const onNameKeyDown = (e: KeyboardEvent<HTMLInputElement>, r: BulkRow): void => {
-    // Enter on the empty last row finishes the list (Tally): save.
+    // Enter on the empty last row finishes the list: save.
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && r.name.trim() === '' && rows[rows.length - 1]?.key === r.key && used.length > 0) {
       e.preventDefault();
       void submit();

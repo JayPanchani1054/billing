@@ -2,7 +2,7 @@
  * Opening stock grid of the stock item form: one row per godown / batch with quantity, rate and
  * value (calculated as qty × rate, or typed to override). Enter moves through the cells (the form's
  * useEnterAdvance); with godown or batch columns, Enter on the value of a filled last row adds the
- * next row (Tally). Ctrl+Enter adds a row from anywhere in the grid (also the "Add row" button);
+ * next row. Ctrl+Enter adds a row from anywhere in the grid (also the "Add row" button);
  * Ctrl+Delete removes the current row.
  */
 import type { KeyboardEvent } from 'react';
@@ -68,7 +68,7 @@ export function OpeningStockGrid({ rows, onChange, ctx, errors, defaultGodownId,
       e.target instanceof HTMLElement &&
       e.target.id === openingCellId(idPrefix, i, 'value')
     ) {
-      // Tally: after the last filled row comes a fresh row for the next godown / batch. Enter on
+      // After the last filled row comes a fresh row for the next godown / batch. Enter on
       // that blank row's cells then runs on to the end of the form (blank rows are not saved).
       e.preventDefault();
       addRow();

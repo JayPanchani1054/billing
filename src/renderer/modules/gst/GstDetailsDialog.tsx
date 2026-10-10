@@ -1,5 +1,5 @@
 /**
- * Voucher entry › Alt+J "GST details" (Tally: Stat Adjustment / advance / bill of entry) — the GST side of
+ * Voucher entry › Alt+J "GST details" (statutory adjustment / advance / bill of entry) — the GST side of
  * a voucher that is not an ordinary invoice line. The vouchers module opens it and keeps the value in
  * the form (`VoucherForm.gstDetails` → `VoucherInput.gstDetails`); the gst voucher hook posts and
  * derives it (src/core/modules/gst/hook.ts). One section per base type (lib/gstplus.ts gstDetailsKinds):

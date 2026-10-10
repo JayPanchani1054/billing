@@ -1,36 +1,36 @@
 /**
- * 'data.xmlExport.create' — the books as a Tally "Import Data" XML file, for the CA / auditor who works in
- * TallyPrime (Gateway of Tally › Import › Masters / Transactions), and for moving back.
+ * 'data.xmlExport.create' — the books as an "Import Data" XML file, for the CA / auditor who works in
+ * another accounting program (its Import › Masters / Transactions), and for moving back.
  *
  * Shape: ENVELOPE › HEADER (REQUEST_TAG Import Data) › BODY › IMPORTDATA › REQUESTDESC (REPORTNAME
- * "All Masters" or "Vouchers", SVCURRENTCOMPANY) › REQUESTDATA › MESSAGE_TAG* — the shape TallyPrime
- * writes on export and reads on import. Written as UTF-16LE with a BOM (what Tally itself writes, BOM
- * aside; Tally reads both). With masters AND vouchers the result is a ZIP of Masters.xml + Vouchers.xml:
- * Tally imports masters first, then transactions.
+ * "All Masters" or "Vouchers", SVCURRENTCOMPANY) › REQUESTDATA › MESSAGE_TAG* — the shape such programs
+ * write on export and read on import. Written as UTF-16LE with a BOM (what they write themselves, BOM
+ * aside; they read both). With masters AND vouchers the result is a ZIP of Masters.xml + Vouchers.xml:
+ * the receiving program imports masters first, then transactions.
  *
  * Masters: user groups, every ledger (opening balance, bill-wise openings, party / GST registration,
  * mailing details, bank details, GST duty heads, effective-dated GST rate details of sales / purchase
  * / income / expense ledgers, aliases), units, user godowns, stock groups (GST details), stock
  * categories, stock items (base unit, alternate unit, costing method, batches, HSN / rate history,
  * opening stock per godown and batch, aliases), cost categories / centres, user voucher types (numbering
- * method, parent). Tally's own predefined groups, "Primary Cost Category" and "Main Location" are not
- * written (Tally has them); our predefined voucher types and groups carry Tally's names.
+ * method, parent). The format's predefined groups, "Primary Cost Category" and "Main Location" are not
+ * written (the receiving program has them); our predefined voucher types and groups carry the same names.
  *
- * Vouchers (the period; optional / cancelled / post-dated flagged as Tally does): accounting entries
+ * Vouchers (the period; optional / cancelled / post-dated flagged as the format does): accounting entries
  * (ALLLEDGERENTRIES.LIST, or LEDGERENTRIES.LIST beside inventory lines), bill-wise allocations,
  * cost-centre allocations, bank instrument details, inventory lines with godown / batch allocations
  * and the sales / purchase ledger as ACCOUNTINGALLOCATIONS, stock journal IN / OUT lists, and the GST
  * facts of the invoice (party GSTIN, registration type, place of supply, the duty-ledger postings).
- * Amounts are written AS RECORDED — Tally receives the same tax, round-off and totals.
+ * Amounts are written AS RECORDED — the receiving program gets the same tax, round-off and totals.
  *
- * Conventions: Tally amounts are negative for Debit (ours are Dr +), dates 'yyyymmdd', quantities
- * ' 10 Nos', rates '100.00/Nos', '&#4;' marks Tally's logical values ('&#4; Applicable'). Every
+ * Conventions: XML amounts are negative for Debit (ours are Dr +), dates 'yyyymmdd', quantities
+ * ' 10 Nos', rates '100.00/Nos', '&#4;' marks the format's logical values ('&#4; Applicable'). Every
  * value is XML-escaped; nothing typed by a user is written as markup.
  *
- * Not written (documented in the module README): quotations / proforma invoices (no Tally voucher
- * type), physical stock vouchers, e-invoice / e-way bill details, per-line GST override tags
- * (TallyPrime takes the rate details from the exported masters), SEZ / deemed export / UIN party types
- * (exported as Regular — set "Party type" in Tally), price lists, BOMs, budgets, scenarios.
+ * Not written (documented in the module README): quotations / proforma invoices (no such voucher
+ * type in the format), physical stock vouchers, e-invoice / e-way bill details, per-line GST override tags
+ * (the receiving program takes the rate details from the exported masters), SEZ / deemed export / UIN party
+ * types (exported as Regular — set "Party type" in the receiving program), price lists, BOMs, budgets, scenarios.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -84,7 +84,7 @@ class Out {
     if (value === null || value === undefined || value === '') return;
     this.parts.push(`${this.pad()}<${tag}>${escapeXml(String(value))}</${tag}>\r\n`);
   }
-  /** A Tally logical value ('&#4; Applicable') — the marker is Tally's own character reference. */
+  /** A logical value ('&#4; Applicable') — the marker is the format's own character reference. */
   logical(tag: string, value: string): void {
     this.parts.push(`${this.pad()}<${tag}>&#4; ${escapeXml(value)}</${tag}>\r\n`);
   }
@@ -97,7 +97,7 @@ class Out {
     for (const v of values) this.el(itemTag, v);
     this.close(listTag);
   }
-  /** Name + aliases as Tally's LANGUAGENAME.LIST › NAME.LIST (the first NAME is the name). */
+  /** Name + aliases as the format's LANGUAGENAME.LIST › NAME.LIST (the first NAME is the name). */
   names(name: string, aliases: readonly string[]): void {
     this.open('LANGUAGENAME.LIST');
     this.list('NAME.LIST', 'NAME', [name, ...aliases]);
@@ -111,7 +111,7 @@ class Out {
 
 // ───────────────────────────── Value formats ─────────────────────────────
 
-/** Paise (ours, Dr +) → Tally amount text (Dr −): 1044500 → '-10445.00'. */
+/** Paise (ours, Dr +) → XML amount text (Dr −): 1044500 → '-10445.00'. */
 export function xmlAmountText(ourPaise: number): string {
   const t = -ourPaise;
   const neg = t < 0;
@@ -126,7 +126,7 @@ const rupees = (paise: number): string => xmlAmountText(-Math.abs(paise));
 /** 'YYYY-MM-DD' → 'yyyymmdd'. */
 export const xmlDateText = (iso: string): string => iso.replace(/-/g, '');
 
-/** Quantity ' 10 Nos' (Tally pads a space); up to 4 decimals, trailing zeros dropped. */
+/** Quantity ' 10 Nos' (the format pads a space); up to 4 decimals, trailing zeros dropped. */
 export function xmlQtyText(qty: number, unit: string): string {
   const q = Math.abs(qty);
   const s = Number.isInteger(q) ? String(q) : String(Math.round(q * 10_000) / 10_000);
@@ -152,7 +152,7 @@ const REGISTRATION_XML: Readonly<Record<string, string>> = {
   composition: 'Composition',
   consumer: 'Consumer',
   unregistered: 'Unregistered',
-  // Tally keeps these as a "party type" beside a Regular / Unregistered registration (set it there).
+  // The format keeps these as a "party type" beside a Regular / Unregistered registration (set it there).
   sez: 'Regular',
   deemed_export: 'Regular',
   uin: 'Regular',
@@ -162,7 +162,7 @@ const COSTING_XML: Readonly<Record<string, string>> = { avg_cost: 'Avg. Cost', f
 const NUMBERING_XML: Readonly<Record<string, string>> = { automatic: 'Automatic', automatic_override: 'Automatic (Manual Override)', manual: 'Manual', none: 'None' };
 const INSTRUMENT_XML: Readonly<Record<string, string>> = { cheque: 'Cheque', dd: 'DD', neft: 'e-Fund Transfer', rtgs: 'e-Fund Transfer', imps: 'e-Fund Transfer', upi: 'e-Fund Transfer', card: 'Others', cash: 'Others', other: 'Others' };
 const BILL_TYPE_XML: Readonly<Record<string, string>> = { new: 'New Ref', against: 'Agst Ref', advance: 'Advance', on_account: 'On Account' };
-/** Our base types with a Tally voucher type (quotation / proforma have none; physical stock is not written). */
+/** Our base types with a voucher type in the format (quotation / proforma have none; physical stock is not written). */
 const XML_TYPE_OF: Partial<Record<VoucherBaseType, string>> = Object.fromEntries(
   PREDEFINED_VOUCHER_TYPES.filter((t) => t.baseType !== 'quotation' && t.baseType !== 'proforma' && t.baseType !== 'physical_stock').map((t) => [t.baseType, t.name]),
 );
@@ -240,15 +240,15 @@ interface OpeningStockRow {
 
 /**
  * Opening balances written on the masters. At the books beginning they are the stored ones (null maps).
- * When vouchers of a LATER period go with the masters, the Tally company starts at that period
- * (books beginning = `asOf`) and the openings must be the balances on that date — otherwise Tally
+ * When vouchers of a LATER period go with the masters, the receiving company starts at that period
+ * (books beginning = `asOf`) and the openings must be the balances on that date — otherwise it
  * would see the books-beginning openings plus only the period's vouchers:
  *  - ledgers: the Trial Balance opening on `asOf` with `asOf` as the carry-forward date (reports
  *    engine): real ledgers carry their balance; income / expense ledgers start at 0 and everything
  *    they earned before `asOf`, less the stock movement, is in the Profit & Loss A/c opening;
  *  - bill-wise ledgers: the bills pending at the end of the previous day (outstanding engine); a
  *    balance not allocated to any bill becomes one opening bill named "On Account" (bills must add up
- *    to the opening balance, in Tally as here);
+ *    to the opening balance, there as here);
  *  - stock: quantity per item, godown and batch at the end of the previous day, valued at the item's
  *    stock value on that date (valuation engine; spread over its godowns / batches by quantity).
  */
@@ -334,7 +334,7 @@ function openingsAt(db: Db, asOf: string, booksFrom: string, today: string): Ope
 function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): MasterCounts {
   const counts: MasterCounts = { groups: 0, ledgers: 0, units: 0, godowns: 0, stockGroups: 0, stockCategories: 0, stockItems: 0, costCategories: 0, costCentres: 0, voucherTypes: 0 };
 
-  // Groups created by the user (Tally has the 28 predefined ones under the same names), parents first.
+  // Groups created by the user (the receiving program has the 28 predefined ones under the same names), parents first.
   const groups = db.all<{ id: number; name: string; alias: string | null; parent_name: string | null; nature: string; affects_gross_profit: number; is_subledger: number; parent_id: number | null }>(
     `SELECT g.id, g.name, g.alias, p.name AS parent_name, g.nature, g.affects_gross_profit, g.is_subledger, g.parent_id
        FROM groups g LEFT JOIN groups p ON p.id = g.parent_id WHERE g.is_predefined = 0 ORDER BY g.id`,
@@ -369,7 +369,7 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
     counts.units++;
   }
 
-  // Godowns other than "Main Location" (Tally's own), parents first.
+  // Godowns other than "Main Location" (the receiving program's own), parents first.
   const godowns = db.all<{ id: number; name: string; alias: string | null; parent_name: string | null; address: string | null; parent_id: number | null }>(
     `SELECT g.id, g.name, g.alias, p.name AS parent_name, g.address, g.parent_id FROM godowns g LEFT JOIN godowns p ON p.id = g.parent_id WHERE g.is_predefined = 0 ORDER BY g.id`,
   );
@@ -416,7 +416,7 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
     counts.stockCategories++;
   }
 
-  // Cost categories (not Tally's "Primary Cost Category") and cost centres.
+  // Cost categories (not the predefined "Primary Cost Category") and cost centres.
   for (const c of db.all<{ name: string; allocate_revenue: number; allocate_non_revenue: number }>('SELECT name, allocate_revenue, allocate_non_revenue FROM cost_categories WHERE is_predefined = 0 ORDER BY id')) {
     message(o, () => {
       o.open('COSTCATEGORY', { NAME: c.name, ACTION: 'Create' });
@@ -448,13 +448,13 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
   );
   for (const l of ledgers) {
     const opening = openings.ledgers ? (openings.ledgers.get(l.id) ?? 0) : l.opening_balance;
-    if (l.reserved_code === 'PROFIT_LOSS' && opening === 0) continue; // Tally has its own
+    if (l.reserved_code === 'PROFIT_LOSS' && opening === 0) continue; // the receiving program has its own
     const str = (k: string): string | null => (typeof l[k] === 'string' && (l[k] as string).trim() !== '' ? (l[k] as string) : null);
     const num = (k: string): number | null => (typeof l[k] === 'number' ? (l[k] as number) : null);
     message(o, () => {
       const reserved = l.reserved_code === 'CASH' ? 'Cash' : l.reserved_code === 'PROFIT_LOSS' ? 'Profit & Loss A/c' : null;
       o.open('LEDGER', { NAME: l.name, ...(reserved ? { RESERVEDNAME: reserved } : {}), ACTION: 'Create' });
-      // Tally's own Profit & Loss A/c sits at the top of the chart (Primary), not under a group.
+      // The receiving program's own Profit & Loss A/c sits at the top of the chart (Primary), not under a group.
       if (l.reserved_code === 'PROFIT_LOSS') o.logical('PARENT', 'Primary');
       else o.el('PARENT', l.group_name);
       o.el('OPENINGBALANCE', xmlAmountText(opening));
@@ -464,7 +464,7 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
       if (num('credit_limit')) o.el('CREDITLIMIT', xmlAmountText(num('credit_limit') as number));
       o.yesNo('ISCOSTCENTRESON', num('cost_centres_applicable') === 1);
       o.yesNo('AFFECTSSTOCK', num('inventory_values_affected') === 1);
-      // Mailing and party details (classic tags, read by every Tally version).
+      // Mailing and party details (classic tags, read by every version of the format).
       o.el('MAILINGNAME', str('mailing_name'));
       const address = (str('address') ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
       o.list('ADDRESS.LIST', 'ADDRESS', address);
@@ -480,7 +480,7 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
       const reg = str('gst_registration_type');
       if (reg) o.el('GSTREGISTRATIONTYPE', REGISTRATION_XML[reg] ?? 'Unknown');
       o.el('PARTYGSTIN', str('gstin'));
-      // TallyPrime keeps registration and mailing details effective-dated as well.
+      // Newer versions of the format keep registration and mailing details effective-dated as well.
       if (reg || str('gstin')) {
         o.open('LEDGSTREGDETAILS.LIST');
         o.el('APPLICABLEFROM', xmlDateText(booksFrom));
@@ -500,9 +500,9 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
       if (taxType) o.el('TAXTYPE', taxType === 'OTHER' ? 'Others' : taxType);
       const head = str('gst_duty_head');
       if (head) o.el('GSTDUTYHEAD', DUTY_HEAD_XML[head] ?? head);
-      // A charge included in the goods' / services' assessable value (freight, packing): Tally's
+      // A charge included in the goods' / services' assessable value (freight, packing): the format's
       // "Include in assessable value calculation — Appropriate to — Method of appropriation"
-      // (tag names as in Tally exports we have seen; not verified against a live TallyPrime).
+      // (tag names as in exports we have seen; not verified against a live import).
       const assessable = str('include_in_assessable');
       if (assessable === 'goods' || assessable === 'services') {
         o.el('APPROPRIATEFOR', 'GST');
@@ -613,7 +613,7 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
             ? [{ applicable_from: booksFrom, hsn_sac: it.hsn_sac, taxability: it.gst_taxability, rate: it.gst_rate ?? 0, cess_rate: it.cess_rate ?? 0 }]
             : [];
       // Own GST details only when the item has them; without a rate it follows its stock group /
-      // the sales ledger — in Tally that is GSTAPPLICABLE left out ("Applicable" with no details).
+      // the sales ledger — in the format that is GSTAPPLICABLE left out ("Applicable" with no details).
       if (itemRows.length > 0) {
         o.logical('GSTAPPLICABLE', 'Applicable');
         o.el('GSTTYPEOFSUPPLY', it.is_service === 1 ? 'Services' : 'Goods');
@@ -643,7 +643,7 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
     counts.stockItems++;
   }
 
-  // Voucher types created by the user (Tally has the predefined ones under the same names).
+  // Voucher types created by the user (the receiving program has the predefined ones under the same names).
   const vts = db.all<{ id: number; name: string; alias: string | null; abbreviation: string | null; base_type: VoucherBaseType; parent_name: string | null; parent_id: number | null; is_active: number; numbering_method: string }>(
     `SELECT t.id, t.name, t.alias, t.abbreviation, t.base_type, p.name AS parent_name, t.parent_id, t.is_active, t.numbering_method
        FROM voucher_types t LEFT JOIN voucher_types p ON p.id = t.parent_id WHERE t.is_predefined = 0 ORDER BY t.id`,
@@ -668,7 +668,7 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.UTC(+to.slice(0, 4), +to.slice(5, 7) - 1, +to.slice(8, 10)) - Date.UTC(+from.slice(0, 4), +from.slice(5, 7) - 1, +from.slice(8, 10))) / 86_400_000);
 }
 
-/** Records ordered so that a parent always comes before its children (Tally creates in file order). */
+/** Records ordered so that a parent always comes before its children (the receiving program creates in file order). */
 function parentsFirst<T extends { id: number; parent_id: number | null }>(rows: readonly T[]): T[] {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const out: T[] = [];
@@ -823,7 +823,7 @@ function writeCostAllocations(o: Out, costs: readonly CostSlice[], deemedPositiv
  * mfg module) as the valuation engine applies them NOW — by inventory_entries id. The amounts stored on
  * such a journal are the estimate made when it was saved; a later back-dated purchase or alteration
  * re-values the production in every stock report (inventory/valuation.ts), so the file carries the
- * engine's figures: the Tally company (and our importer, which takes a stock journal's inward values as
+ * engine's figures: the receiving company (and our importer, which takes a stock journal's inward values as
  * written) then holds the same closing stock. One replay, only when the period has such journals.
  */
 function journalCosts(db: Db, from: string, to: string, today: string): Map<number, number> {
@@ -919,7 +919,7 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
     for (const v of vouchers) {
       const xmlBase = XML_TYPE_OF[v.base_type];
       if (!xmlBase) {
-        skip(v.base_type === 'physical_stock' ? 'Physical stock vouchers (enter the counted stock in Tally)' : 'Quotations and proforma invoices (Tally has no such voucher type)');
+        skip(v.base_type === 'physical_stock' ? 'Physical stock vouchers (enter the counted stock in the receiving program)' : 'Quotations and proforma invoices (the XML format has no such voucher type)');
         continue;
       }
       const entries: LeRow[] = v.is_cancelled ? [] : (entriesOf.get(v.id) ?? []);
@@ -934,7 +934,7 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
         o.el('GUID', v.guid);
         o.el('VOUCHERTYPENAME', v.type_name);
         o.el('VOUCHERNUMBER', v.number);
-        // A note's Reference No. / Date carry the original invoice (what the accountant enters there in Tally).
+        // A note's Reference No. / Date carry the original invoice (what the accountant enters there in the receiving program).
         const isNote = v.base_type === 'credit_note' || v.base_type === 'debit_note';
         const ref = isNote ? (v.original_invoice_no ?? v.reference_no) : v.reference_no;
         const refDate = isNote ? (v.original_invoice_date ?? v.reference_date) : v.reference_date;
@@ -1139,7 +1139,7 @@ export function buildXmlMasters(
 
 /**
  * 'data.xmlExport.create'. Masters only → one XML file. With vouchers → a ZIP (1-Masters.xml +
- * 2-Vouchers.xml, or Vouchers.xml alone): Tally XML runs to ~4.5 KB a voucher, so the vouchers are
+ * 2-Vouchers.xml, or Vouchers.xml alone): the XML runs to ~4.5 KB a voucher, so the vouchers are
  * streamed into the ZIP in the company folder (constant memory, one read snapshot, yielding between
  * batches) and the finished file — about a twentieth of the XML — is read back and deleted.
  */

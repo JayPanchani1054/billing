@@ -13,7 +13,7 @@ import type { GstJsonFile, ReturnPeriodRef, TaxAmounts, TaxHead, TaxValue } from
 
 // ───────────────────────────── Voucher input (VoucherInput.gstDetails) ─────────────────────────────
 
-/** Natures of a GST stat adjustment journal (Tally: Journal › Alt+J Stat Adjustment). */
+/** Natures of a GST stat adjustment journal (Journal › Alt+J Stat Adjustment). */
 export const GST_ADJUSTMENT_NATURES = [
   'itc_reversal_r42',
   'itc_reversal_r43',

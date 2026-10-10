@@ -447,7 +447,7 @@ export interface StockValuationOptions {
   itemIds?: readonly number[];
   /** Quantities and movements of this godown only. */
   godownId?: number | null;
-  /** With godownId: include its sub-godowns (Tally's godown summary of a parent location). Default false (exact). */
+  /** With godownId: include its sub-godowns (the usual godown summary of a parent location). Default false (exact). */
   includeSubGodowns?: boolean;
   /** Working date for the post-dated rule. */
   today: string;

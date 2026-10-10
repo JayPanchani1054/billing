@@ -1,5 +1,5 @@
 /**
- * Stock Item Vouchers (Tally "Stock Item Vouchers" / item ledger): every voucher that moved the item
+ * Stock Item Vouchers (item ledger): every voucher that moved the item
  * in the period with inward / outward quantity and value (at cost) and the running closing balance.
  * Opening, closing, every line's cost and each day's closing come from ONE engine replay
  * (traceStockMovements), and the running value is re-based on the engine's closing at the end of

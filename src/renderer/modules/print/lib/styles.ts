@@ -97,7 +97,7 @@ export const DOCUMENT_CSS = `
 .bp-sigs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12pt; margin-top: 18mm; text-align: center; }
 .bp-sigs div { border-top: .75pt solid ${INK}; padding-top: 2pt; font-size: .9em; }
 
-/* ── Classic (Tally-style boxed) ── */
+/* ── Classic (boxed) ── */
 .bp-classic .bp-title-c { text-align: center; font-size: 13pt; font-weight: 700; margin-bottom: 3pt; }
 .bp-classic .bp-topline { display: flex; justify-content: space-between; font-size: .86em; margin-bottom: 2pt; }
 .bp-box, .bp-box th, .bp-box td { border: .75pt solid ${INK}; }

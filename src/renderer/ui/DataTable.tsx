@@ -92,7 +92,7 @@ export interface DataTableProps<T> {
   onSelect?: (key: string | null, row: T | null) => void;
   /** Tree reports: indentation level per row (0 = top). Rows must be in display (pre-order) order. */
   getRowLevel?: (row: T) => number;
-  /** Bold group rows (Tally "group" lines). */
+  /** Bold group rows ("group" lines). */
   isGroupRow?: (row: T) => boolean;
   /** Allow collapsing rows that have children (→/← or +/−). Requires getRowLevel. */
   expandable?: boolean;
@@ -663,7 +663,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
           aria-activedescendant={activeInWindow && activeRowIndex >= 0 ? `${baseId}-r${activeRowIndex}` : undefined}
           onKeyDown={onKeyDown}
           onFocus={(e) => {
-            // Tally always shows a cursor line: focusing the grid highlights the first row.
+            // There is always a cursor line: focusing the grid highlights the first row.
             if (e.target === tableRef.current && activePos < 0 && visible.length > 0) setActiveKey(keys[visible[0]]);
           }}
         >

@@ -1,5 +1,5 @@
 /**
- * Outstanding module (Tally "Statements of Accounts › Outstandings"): receivables / payables
+ * Outstanding module ("Statements of Accounts › Outstandings"): receivables / payables
  * (party-wise, bill-wise, ageing), party outstanding with bill history, statement of account,
  * interest on overdue bills and payment reminder letters; plus the dashboard's <DueSoonWidget>.
  * See ./README.md.

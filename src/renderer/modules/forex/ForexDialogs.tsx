@@ -266,7 +266,7 @@ export function ForexLineDialog(props: ForexLineDialogProps) {
   const pendingQ = usePendingForex(ledgerId, date, excludeVoucherId, billWise && !adjust);
   const pending = pendingQ.data ?? [];
   const drafts = useDrafts(initial.forexAmount ? initial.bills : null);
-  // Tally: against the oldest pending bills by default, until the user edits the split.
+  // Against the oldest pending bills by default, until the user edits the split.
   useEffect(() => {
     if (!billWise || adjust || drafts.edited.current || fx === null || fx <= 0 || !pendingQ.data) return;
     drafts.setLines(() => autoForexFifo(pendingQ.data ?? [], fx, side, dp).map((d) => ({ ...d, k: drafts.nextK() })));

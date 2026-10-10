@@ -1,4 +1,4 @@
-/* Data module screens (backup, restore, export, import, Tally, data check). Semantic tokens only. Prefix: bx-data- */
+/* Data module screens (backup, restore, export, import, XML data import / export, data check). Semantic tokens only. Prefix: bx-data- */
 
 /* ── Wizard steps ─────────────────────────────────────────────── */
 .bx-data-steps {

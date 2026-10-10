@@ -29,7 +29,7 @@ const row = (over: Partial<VoucherListRow>): VoucherListRow => ({
 describe('Transactions menu', () => {
   const entries = voucherMenuEntries(VOUCHER_FEATURE);
 
-  it('lists the Tally vouchers first, in Tally order, with their global hotkeys', () => {
+  it('lists the conventional vouchers first, in the conventional order, with their global hotkeys', () => {
     // ARCHITECTURE §7 global keys.
     assert.deepEqual(
       entries.slice(0, 8).map((e) => [e.label, e.hotkey]),

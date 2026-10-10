@@ -12,7 +12,7 @@
  *
  * Dated rows: the voucher type's own prefix / suffix applies from the beginning; a row
  * `{ applicableFrom, text }` replaces it for vouchers dated on or after that date (the latest row on
- * or before the voucher date wins; `text` null/'' = no prefix / suffix from that date) — TallyPrime's
+ * or before the voucher date wins; `text` null/'' = no prefix / suffix from that date) — the usual
  * "Prefix / Suffix details" with "Applicable from".
  *
  * GST (CGST Rule 46(b), Rules 49, 53): a tax invoice / bill of supply / credit or debit note carries a

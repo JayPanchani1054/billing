@@ -337,7 +337,7 @@ export function sectionRoles(sections: JournalSections): Array<{ id: 'outputs' |
 const isBlank = (r: JournalRow): boolean => r.itemId === null && (r.qty === null || r.qty === 0);
 
 /**
- * Keep exactly one blank row at the end of every section (Tally-style: type on the empty line to add
+ * Keep exactly one blank row at the end of every section (type on the empty line to add
  * one), one product row for journals that make goods, and drop rows of roles the journal no longer has.
  */
 export function withTrailingBlanks(form: JournalForm, sections: JournalSections): JournalForm {

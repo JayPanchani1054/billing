@@ -1,5 +1,5 @@
 /**
- * Data module: backup & restore, export centre, Excel/CSV import, Tally migration and the data check.
+ * Data module: backup & restore, export centre, Excel/CSV import, XML data import / export and the data check.
  * The Company Select screen's "Restore a backup…" dialog is RestoreBackupDialog (RestoreFlow.tsx).
  */
 import type { ModuleDef } from '../../app/registry.ts';

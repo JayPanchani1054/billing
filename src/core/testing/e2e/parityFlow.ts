@@ -1,5 +1,5 @@
 /**
- * The Tally-parity business flows shared by the Playwright spec e2e/parity.spec.ts (which runs these
+ * The parity business flows shared by the Playwright spec e2e/parity.spec.ts (which runs these
  * calls through `window.pevqori.api` in the built app, then drives the screens) and its API-level twin
  * parity.test.ts (which runs them through runtime.dispatch in `npm test`). One copy of every master,
  * input and expected figure, so the UI flow and its twin cannot drift apart.

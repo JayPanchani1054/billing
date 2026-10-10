@@ -1,7 +1,7 @@
 /**
  * Multiple aliases for ledgers and stock items (dataplus, migration 220): storage (first alias in the
  * master's column, the rest in ledger_aliases / stock_item_aliases), uniqueness across names and
- * aliases within the entity kind, search in lists / pickers / Go To, import and export, Tally import.
+ * aliases within the entity kind, search in lists / pickers / Go To, import and export, XML data import.
  */
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -180,7 +180,7 @@ describe('stock item aliases', () => {
   });
 });
 
-describe('aliases in import / export and Tally import', () => {
+describe('aliases in import / export and XML data import', () => {
   it('masters export writes every alias into the Alias cell and the import reads them back', async () => {
     debtor('Acme Traders', ['ACME', 'C-0042']);
     const book = exportMasters(t.ctx, { kinds: ['ledgers'], format: 'xlsx' });
@@ -198,7 +198,7 @@ describe('aliases in import / export and Tally import', () => {
     }
   });
 
-  it('a Tally ledger / stock item keeps all its NAME.LIST aliases', async () => {
+  it('an XML-imported ledger / stock item keeps all its NAME.LIST aliases', async () => {
     const xml = `<ENVELOPE><HEADER><${REQUEST_TAG}>Import Data</${REQUEST_TAG}></HEADER><BODY><IMPORTDATA><REQUESTDESC><REPORTNAME>All Masters</REPORTNAME></REQUESTDESC><REQUESTDATA>
 <${MESSAGE_TAG}><UNIT NAME="Nos"><NAME>Nos</NAME><ISSIMPLEUNIT>Yes</ISSIMPLEUNIT></UNIT>${MESSAGE_CLOSE}
 <${MESSAGE_TAG}><LEDGER NAME="Acme Traders"><PARENT>Sundry Debtors</PARENT><LANGUAGENAME.LIST><NAME.LIST TYPE="String"><NAME>Acme Traders</NAME><NAME>ACME</NAME><NAME>C-0042</NAME><NAME>Acme Old</NAME></NAME.LIST></LANGUAGENAME.LIST></LEDGER>${MESSAGE_CLOSE}

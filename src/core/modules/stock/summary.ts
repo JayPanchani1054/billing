@@ -5,7 +5,7 @@
  * figures as the closing stock in the P&L and Balance Sheet. With `showValues: false` no valuation
  * runs: quantities are added up from the movements directly (fast) and every value is 0.
  *
- * Tree rules (Tally): sub-groups first, then items, each by name. A group's quantity is the sum of
+ * Tree rules (as accountants expect): sub-groups first, then items, each by name. A group's quantity is the sum of
  * its items' quantities only when the group has "Add quantities" on and all its items share one
  * unit; otherwise null (values always add up). Categories add quantities whenever the units agree.
  */

@@ -114,7 +114,7 @@ function nameKey(s: string): string {
 }
 
 /**
- * Other spellings seen in imported masters (Tally exports, e-way bill/ISO/vehicle codes, old names)
+ * Other spellings seen in imported masters (accounting-software exports, e-way bill/ISO/vehicle codes, old names)
  * → current code. Reorganised names resolve to the CURRENT state ('AP' → 37, 'Daman and Diu' → 26);
  * the legacy codes stay reachable by their code.
  */

@@ -451,7 +451,7 @@ export interface StartStep {
   done: boolean;
   /** Done because the books say so (the user cannot untick it). */
   doneFromBooks: boolean;
-  /** Not counted in the progress (e.g. migrating from Tally). */
+  /** Not counted in the progress (e.g. the XML data import). */
   optional?: boolean;
 }
 
@@ -473,7 +473,7 @@ export interface StartStepsInput {
 /**
  * The company's first steps — one list for the whole app (the Gateway shows it through the
  * dashboard): company details, features, invoice printing, ledgers, items, the first sale and
- * backups, plus the Tally migration while the books are empty. Filtered by what the user may do
+ * backups, plus the XML data import while the books are empty. Filtered by what the user may do
  * and open; each step is done when the books say so (`setup`) or when the user ticked it.
  */
 export function startSteps(o: StartStepsInput): StartStep[] {
@@ -532,7 +532,7 @@ export function startCardMode(steps: readonly StartStep[], o: { hidden: boolean;
   if (steps.length === 0) return o.hasVouchers ? null : 'empty';
   if (o.hidden) return null;
   const p = startProgress(steps);
-  if (p.total === 0) return o.hasVouchers ? null : 'steps'; // only optional steps (Tally migration)
+  if (p.total === 0) return o.hasVouchers ? null : 'steps'; // only optional steps (XML data import)
   return p.complete ? null : 'steps';
 }
 

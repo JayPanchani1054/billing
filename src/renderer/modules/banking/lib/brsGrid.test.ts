@@ -30,7 +30,7 @@ const row = (id: number, date: string, debit: number, credit: number, more: Part
 describe('BRS grid: typing bank dates', () => {
   const e = { date: '2026-04-10', instrumentDate: null };
 
-  it('understands Tally shorthand, v (voucher date), ditto and clearing', () => {
+  it('understands date shorthand, v (voucher date), ditto and clearing', () => {
     assert.deepEqual(parseBankDateCell('12', e, REF, null), { kind: 'date', iso: '2026-04-12' });
     assert.deepEqual(parseBankDateCell('12-4', e, REF, null), { kind: 'date', iso: '2026-04-12' });
     assert.deepEqual(parseBankDateCell('12042026', e, REF, null), { kind: 'date', iso: '2026-04-12' });

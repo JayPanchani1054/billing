@@ -7,7 +7,7 @@
  * preview); the Invoices tab summarises it and opens that screen (Alt+I). F12 saves only its own
  * sections (lib/configForm.ts), so it never overwrites a print-settings change.
  *
- * Enter / Shift+Enter move through the fields of the open tab (Tally); Enter on the last field saves.
+ * Enter / Shift+Enter move through the fields of the open tab; Enter on the last field saves.
  */
 import { useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';

@@ -1,15 +1,15 @@
 /**
- * Tally migration: preview and import of a Tally XML export (model: xmlParse.ts).
+ * XML data import: preview and import of an XML export from another accounting program (model: xmlParse.ts).
  *
  * Masters are created through the accounts / inventory services (same validation as the screens) in
  * dependency order: groups → units → godowns → stock groups → stock categories → cost categories →
  * cost centres → ledgers → stock items → voucher types. A master that fails validation is retried
  * without the offending optional fields (e.g. an invalid GSTIN) and reported as a warning; one that
- * still fails is reported as an error and skipped. Predefined groups map by name or Tally's reserved
- * name; Tally's 'Cash' and 'Profit & Loss A/c' map to this app's reserved ledgers (their opening
+ * still fails is reported as an error and skipped. Predefined groups map by name or the file's reserved
+ * name; the file's 'Cash' and 'Profit & Loss A/c' map to this app's reserved ledgers (their opening
  * balances are taken over).
  *
- * Vouchers are written AS RECORDED in Tally (amounts, tax, round-off and numbers are never
+ * Vouchers are written AS RECORDED in the file (amounts, tax, round-off and numbers are never
  * recomputed): vouchers + ledger_entries + bill/cost allocations + inventory_entries + gst_lines,
  * following the conventions of src/core/modules/vouchers/README.md §3–§5. gst_lines are derived from
  * the GST duty-ledger postings (per head) allocated over the taxable lines by HSN/rate where the
@@ -96,14 +96,14 @@ const SAMPLE = 10;
 const key = (s: string): string => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
 const XML_BASE: Record<string, VoucherBaseType> = Object.fromEntries(PREDEFINED_VOUCHER_TYPES.map((t) => [key(t.name), t.baseType]));
-// Older Tally spellings.
+// Older spellings of voucher type names.
 XML_BASE['rejection in'] = 'rejection_in';
 XML_BASE['rejection out'] = 'rejection_out';
 XML_BASE['memo'] = 'memorandum';
 
 const UNSUPPORTED_BASES: ReadonlySet<VoucherBaseType> = new Set(['physical_stock']);
 
-/** Base type of a Tally voucher type name: built-in name, the file's VOUCHERTYPE chain, or this company's types. */
+/** Base type of a voucher type name in the file: built-in name, the file's VOUCHERTYPE chain, or this company's types. */
 function baseTypeResolver(db: Db, file: XmlFile): (name: string) => VoucherBaseType | null {
   const parents = new Map(file.voucherTypes.map((t) => [key(t.name), t.parent]));
   const dbTypes = new Map(db.all<{ name: string; base_type: string }>('SELECT name, base_type FROM voucher_types').map((r) => [key(r.name), r.base_type as VoucherBaseType]));
@@ -146,7 +146,7 @@ function nameIndex(db: Db, table: 'groups' | 'ledgers' | 'stock_items' | 'stock_
 }
 
 /**
- * Every Tally alias (NAME.LIST) of a ledger / stock item that no other master of the kind uses yet;
+ * Every alias (NAME.LIST) of a ledger / stock item that no other master of the kind uses yet;
  * the ones in use elsewhere are reported and left out (dataplus: all aliases are kept, not only the first).
  */
 function importableAliases(run: Run, kind: AliasKind, aliases: readonly string[], selfId: number | null, object: string): string[] {
@@ -172,7 +172,7 @@ function unitIndex(db: Db): Map<string, number> {
 }
 
 const PREDEFINED_GROUP_BY_NAME = new Map(PREDEFINED_GROUPS.map((g) => [key(g.name), g.code]));
-// Tally's alternative names of predefined groups.
+// Alternative names of predefined groups seen in such files.
 const XML_GROUP_ALIASES: Record<string, string> = {
   'bank occ a/c': 'BANK_OD',
   'bank od a/c': 'BANK_OD',
@@ -218,7 +218,7 @@ function stateCodeOrNull(text: string | null): string | null {
 
 // ───────────────────────────── Preview ─────────────────────────────
 
-/** Σ ledger openings + opening stock value (0 when the Tally books balance). */
+/** Σ ledger openings + opening stock value (0 when the imported books balance). */
 function openingDifference(file: XmlFile): number {
   const ledgers = file.ledgers.reduce((s, l) => s + l.opening, 0);
   const stock = file.stockItems.reduce((s, i) => s + i.openings.reduce((a, o) => a + (o.value ?? Math.round(o.qty * (o.rate ?? 0) * 100)), 0), 0);
@@ -365,7 +365,7 @@ interface Run {
   update: boolean;
   add: (i: XmlImportIssue) => void;
   masters: XmlImportResult['masters'];
-  /** Tally group name → this company's group id (covers renamed predefined groups). */
+  /** Group name in the file → this company's group id (covers renamed predefined groups). */
   groupIds: Map<string, number>;
   ledgerIds: Map<string, number>;
   booksFrom: string;
@@ -406,7 +406,7 @@ function saveTolerant<T extends object, R>(run: Run, object: string, input: T, r
 /**
  * Order records parents-first. `ready` says whether a record's parent already exists in the company
  * (true), will never exist ('never' — reported when the record is processed), or is still to come
- * (false). A parent placed earlier in the order also counts as ready: Tally lists masters
+ * (false). A parent placed earlier in the order also counts as ready: such files list masters
  * alphabetically, so 'Mumbai R&D' often comes before its parent 'R&D Projects'.
  */
 function inDependencyOrder<T extends { name: string; parent: string | null }>(records: T[], ready: (r: T) => boolean | 'never'): { ordered: T[]; stuck: T[] } {
@@ -463,7 +463,7 @@ function importGroups(run: Run): void {
   }
   for (const g of ordered) {
     const object = `GROUP ${g.name}`;
-    // A predefined Tally group (possibly renamed): map to ours by its reserved name.
+    // A predefined group of the file (possibly renamed): map to ours by its reserved name.
     const reservedCode = g.reservedName ? (PREDEFINED_GROUP_BY_NAME.get(key(g.reservedName)) ?? XML_GROUP_ALIASES[key(g.reservedName)]) : undefined;
     if (reservedCode) {
       const id = run.db.value<number>('SELECT id FROM groups WHERE reserved_code = :c', { c: reservedCode });
@@ -682,7 +682,7 @@ function ledgerFields(run: Run, l: TLedger, groupId: number): LedgerSaveInput {
   const abroad = l.country !== null && !/^india$/i.test(l.country.trim());
   if (abroad) input.country = l.country;
   const reg = l.registrationType ? REGISTRATION[key(l.registrationType)] : undefined;
-  // A party outside India without a GSTIN is an overseas party (Tally marks it only by its country).
+  // A party outside India without a GSTIN is an overseas party (the file marks it only by its country).
   if (abroad && !l.gstin && cls?.isParty && (reg === undefined || reg === 'unregistered' || reg === 'consumer')) input.registrationType = 'overseas';
   else if (reg) input.registrationType = reg;
   else if (l.gstin && cls?.isParty) input.registrationType = 'regular';
@@ -791,7 +791,7 @@ function importLedgers(run: Run): void {
     if (!l.name) continue;
     const object = `LEDGER ${l.name}`;
     try {
-      // Tally's own Cash / Profit & Loss A/c (possibly renamed) → this company's reserved ledgers.
+      // The file's own Cash / Profit & Loss A/c (possibly renamed) → this company's reserved ledgers.
       const reservedCode = RESERVED_LEDGER_BY_NAME.get(key(l.reservedName ?? '')) ?? RESERVED_LEDGER_BY_NAME.get(key(l.name));
       let existing: number | undefined = reservedCode ? run.db.value<number>('SELECT id FROM ledgers WHERE reserved_code = :c', { c: reservedCode }) : undefined;
       existing ??= nameIndex(run.db, 'ledgers').get(key(l.name));
@@ -971,11 +971,11 @@ function enableNeededFeatures(run: Run): void {
   const names = keys.map((k) => ({ costCentres: 'Cost centres', multipleGodowns: 'Multiple godowns', batches: 'Batches' })[k as 'costCentres']).join(', ');
   // Changing F11 needs the same right as on the Features screen; without it the data is still imported.
   if (!hasPermission(run.ctx, 'company.manage')) {
-    run.add({ severity: 'warning', code: 'features_not_enabled', message: `The Tally data uses: ${names}. Ask a user who can manage the company to turn ${keys.length === 1 ? 'it' : 'them'} on in Features (F11).` });
+    run.add({ severity: 'warning', code: 'features_not_enabled', message: `The imported data uses: ${names}. Ask a user who can manage the company to turn ${keys.length === 1 ? 'it' : 'them'} on in Features (F11).` });
     return;
   }
   saveFeatures(run.ctx, want); // audited ('settings' entry with before/after)
-  run.add({ severity: 'info', code: 'features_enabled', message: `Turned on in F11 (used in the Tally data): ${names}.` });
+  run.add({ severity: 'info', code: 'features_enabled', message: `Turned on in F11 (used in the imported data): ${names}.` });
 }
 
 function importMasters(run: Run, baseOf: (name: string) => VoucherBaseType | null): void {
@@ -1103,7 +1103,7 @@ interface VoucherEnv {
   now: string;
   userName: string | null;
   counts: XmlImportCounts;
-  /** Tally GUID → voucher id of vouchers already imported from Tally (loaded once; kept up to date). */
+  /** GUID in the file → voucher id of vouchers already imported from XML (loaded once; kept up to date). */
   guids: Map<string, number>;
   /** Set by writeVoucher: the id written for the voucher being processed (committed into `guids` by the caller). */
   lastWritten: { guid: string; id: number } | null;
@@ -1112,7 +1112,7 @@ interface VoucherEnv {
 }
 
 /**
- * GST plus system ledgers (GST on Advances Received, GST Electronic Cash Ledger, …) arrive from a Tally file
+ * GST plus system ledgers (GST on Advances Received, GST Electronic Cash Ledger, …) arrive from an XML file
  * as ordinary ledgers. One with the system name in the system group is adopted (reserved code set, audited
  * — exactly what the gst module does when it first needs the ledger), so the GST features keep using it
  * instead of creating a "(System)" twin, and imported advances are recognised (see writeVoucher).
@@ -1390,7 +1390,7 @@ function snapRate(rate: number): number {
  * GST on an advance as our gst module posts it (exported as recorded): a Receipt with Dr "GST on Advances
  * Received" / Cr Output tax is an advance with tax (Table 11A); a Sales / Debit Note with Cr "GST on Advances
  * Received" / Dr Output tax adjusts the advances its bill-wise "Agst Ref" names (Table 11B); a Payment with
- * the same Cr / Dr refunds the one advance its "Agst Ref" names (Table 11B). Tally itself records advance
+ * the same Cr / Dr refunds the one advance its "Agst Ref" names (Table 11B). Conventional accounting software records advance
  * tax with stat adjustment journals, which import as plain journals; null for anything else.
  */
 function recoverAdvance(env: VoucherEnv, base: VoucherBaseType, outward: boolean, cancelled: boolean, entries: EntryRow[], partyId: number | null): AdvanceRecovery | null {
@@ -1468,7 +1468,7 @@ function recoverAdvance(env: VoucherEnv, base: VoucherBaseType, outward: boolean
   return null;
 }
 
-/** Write one Tally voucher (inside the caller's savepoint). Returns 'created' | 'updated' | 'skipped'. */
+/** Write one voucher of the file (inside the caller's savepoint). Returns 'created' | 'updated' | 'skipped'. */
 function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'skipped' {
   const { run } = env;
   const db = run.db;
@@ -1481,9 +1481,9 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
   if (v.date < run.booksFrom) throw new SkipVoucher('before_books', `The voucher is dated before the books beginning date (${run.booksFrom}).`);
   if (env.lockedUpTo && v.date <= env.lockedUpTo) throw new SkipVoucher('locked', `The books are locked up to ${env.lockedUpTo}.`);
 
-  // Duplicate: same Tally GUID, or the same number in the same voucher type and numbering period.
-  // Tally allows repeated numbers (manual numbering, Receipt/Payment "1" every day), so a number match
-  // against a voucher that came from Tally with ANOTHER GUID is a different voucher, not a duplicate.
+  // Duplicate: same GUID, or the same number in the same voucher type and numbering period.
+  // Accounting programs allow repeated numbers (manual numbering, Receipt/Payment "1" every day), so a number match
+  // against a voucher that came from an XML import with ANOTHER GUID is a different voucher, not a duplicate.
   const vt = loadVoucherType(db, typeId);
   let existingId: number | undefined = v.guid ? env.guids.get(v.guid) : undefined;
   let matchedByNumber = false;
@@ -1513,18 +1513,18 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
         run.add({
           severity: 'warning',
           code: 'number_exists',
-          message: `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Pevqori; the Tally voucher was not imported. Check that it is the same transaction.`,
+          message: `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Pevqori; the voucher in the file was not imported. Check that it is the same transaction.`,
           object: `VOUCHER ${voucherLabel(v)}`,
         });
       }
       return 'skipped';
     }
-    // "Update existing" only refreshes vouchers that came from Tally: a voucher entered (or altered
+    // "Update existing" only refreshes vouchers that came from an XML import: a voucher entered (or altered
     // into shape) in this app is never overwritten by an import.
     if (!fromXml) {
       throw new SkipVoucher(
         'number_exists',
-        `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Pevqori; it was not overwritten. Alter or delete it yourself if the Tally voucher should replace it.`,
+        `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Pevqori; it was not overwritten. Alter or delete it yourself if the voucher in the file should replace it.`,
         'warning',
       );
     }
@@ -1608,14 +1608,14 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
       // A Debit Note to a customer (supplementary invoice / upward price revision, CGST s.34(3)) is
       // value-only, exactly as when it is entered here (vouchers/posting.ts › valueOnlyItemLines): its
       // item lines keep their value and GST but never move stock, so the stock summary, the Balance
-      // Sheet's closing stock and a later alteration of the imported voucher all agree. Tally reduces
-      // stock for such a note; the import log says so for each voucher affected.
+      // Sheet's closing stock and a later alteration of the imported voucher all agree. The previous program
+      // may reduce stock for such a note; the import log says so for each voucher affected.
       const valueOnlyNote = base === 'debit_note' && partyId !== null && env.ledgerById.get(partyId)?.cls.isDebtor === true;
       if (valueOnlyNote && env.features.inventory && v.inventory.some((l) => { const it = env.items.get(key(l.item)); return it !== undefined && !it.isService; })) {
         run.add({
           severity: 'info',
           code: 'debit_note_value_only',
-          message: 'Debit Note to a customer: its stock lines are imported for value and GST only and do not reduce stock (a price revision; goods going out are entered as a Sales invoice). Tally reduces stock for such a note, so the closing stock may differ from Tally by these quantities.',
+          message: 'Debit Note to a customer: its stock lines are imported for value and GST only and do not reduce stock (a price revision; goods going out are entered as a Sales invoice). Your previous accounting program may have reduced stock for such a note, so the closing stock may differ from it by these quantities.',
           object: `VOUCHER ${voucherLabel(v)}`,
         });
       }
@@ -1779,7 +1779,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     }
   }
   if (notes.length > 0) {
-    run.add({ severity: 'info', code: 'gst_as_recorded', message: `Kept as recorded in Tally: ${notes.join('; ')}.`, object: `VOUCHER ${voucherLabel(v)}` });
+    run.add({ severity: 'info', code: 'gst_as_recorded', message: `Kept as recorded in the file: ${notes.join('; ')}.`, object: `VOUCHER ${voucherLabel(v)}` });
     notes = [];
   }
 
@@ -1825,7 +1825,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     input,
     createdByName: env.userName,
     updatedByName: env.userName,
-    ...(cancelled ? { cancelled: { reason: 'Cancelled in Tally', at: env.now, by: run.ctx.session.userId, byName: env.userName, snapshot: null } } : {}),
+    ...(cancelled ? { cancelled: { reason: 'Cancelled before import', at: env.now, by: run.ctx.session.userId, byName: env.userName, snapshot: null } } : {}),
   };
 
   const header = {
@@ -1834,8 +1834,8 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     number: v.number,
     number_seq: numberSeq(db, typeId, v.number, v.date ?? undefined, env.company.fyStartMonth),
     date: v.date,
-    // Credit / debit notes: Tally's Reference No. / Date on a note is the original invoice (dataplus convention,
-    // see README › Tally export); it fills the GSTR-1 CDNR original-invoice fields.
+    // Credit / debit notes: the Reference No. / Date on a note is the original invoice (dataplus convention,
+    // see README › XML data export); it fills the GSTR-1 CDNR original-invoice fields.
     reference_no: isNote ? null : v.reference,
     reference_date: isNote ? null : v.referenceDate,
     original_invoice_no: isNote ? v.reference : null,
@@ -2122,26 +2122,26 @@ export async function importXml(ctx: CompanyCtx, input: XmlImportInput): Promise
   const opts = input.options;
   const doMasters = opts.masters !== false;
   if (!doMasters && !opts.vouchers) throw validation([{ path: 'options', message: 'Choose masters, vouchers or both to import' }]);
-  if (doMasters && !hasPermission(ctx, 'masters.create')) throw new AppError('FORBIDDEN', 'You need permission to create masters to import them from Tally.');
-  if (opts.vouchers && !hasPermission(ctx, 'vouchers.create')) throw new AppError('FORBIDDEN', 'You need permission to create vouchers to import them from Tally.');
+  if (doMasters && !hasPermission(ctx, 'masters.create')) throw new AppError('FORBIDDEN', 'You need permission to create masters to import them.');
+  if (opts.vouchers && !hasPermission(ctx, 'vouchers.create')) throw new AppError('FORBIDDEN', 'You need permission to create vouchers to import them.');
   // Same rights as entering the data by hand: migrated vouchers are back-dated, and "update" alters.
   if (opts.vouchers && !hasPermission(ctx, 'vouchers.backdate')) {
-    throw new AppError('FORBIDDEN', 'Vouchers from Tally are dated in the past. You need permission to enter back-dated vouchers ("vouchers.backdate") to import them.');
+    throw new AppError('FORBIDDEN', 'Imported vouchers are dated in the past. You need permission to enter back-dated vouchers ("vouchers.backdate") to import them.');
   }
   if (opts.onDuplicate === 'update') {
-    if (doMasters && !hasPermission(ctx, 'masters.alter')) throw new AppError('FORBIDDEN', 'You need permission to alter masters to update existing ones from Tally. Choose "Skip" for existing records, or ask the owner.');
-    if (opts.vouchers && !hasPermission(ctx, 'vouchers.alter')) throw new AppError('FORBIDDEN', 'You need permission to alter vouchers to update existing ones from Tally. Choose "Skip" for existing records, or ask the owner.');
+    if (doMasters && !hasPermission(ctx, 'masters.alter')) throw new AppError('FORBIDDEN', 'You need permission to alter masters to update existing ones from the file. Choose "Skip" for existing records, or ask the owner.');
+    if (opts.vouchers && !hasPermission(ctx, 'vouchers.alter')) throw new AppError('FORBIDDEN', 'You need permission to alter vouchers to update existing ones from the file. Choose "Skip" for existing records, or ask the owner.');
   }
   if (opts.from && opts.to && opts.to < opts.from) throw validation([{ path: 'options.to', message: 'The end date is before the start date' }]);
   const lockKey = ctx.company.dbPath + '|' + ctx.company.id;
-  if (RUNNING.has(lockKey)) throw new AppError('CONFLICT', 'A Tally import is already running for this company. Wait for it to finish.', BUSY_DETAILS);
+  if (RUNNING.has(lockKey)) throw new AppError('CONFLICT', 'An XML data import is already running for this company. Wait for it to finish.', BUSY_DETAILS);
   RUNNING.add(lockKey);
   const started = Date.now();
   const issues: XmlImportIssue[] = [];
   const add = issueSink(issues);
   let openBatch: number | null = null;
   try {
-    setProgress(ctx, { running: true, phase: 'parse', done: 0, total: 0, message: 'Reading the Tally file…' });
+    setProgress(ctx, { running: true, phase: 'parse', done: 0, total: 0, message: 'Reading the XML file…' });
     await yieldToEventLoop();
     const file = parseXmlFile(input.bytes);
     for (const i of file.issues) add(i);

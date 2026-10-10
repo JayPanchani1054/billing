@@ -22,8 +22,8 @@ const activeWork = new WeakMap<Db, number>();
 /**
  * Count one asynchronous company request on `db` (the dispatcher calls this for every
  * `transactional: false` route before its handler starts) until the returned function is called.
- * Such requests (an export, a backup, a Tally import) yield to the event loop and write later — e.g.
- * their edit-log entry, a Tally chunk — with ctx.db.transaction(): if an exclusive job had started
+ * Such requests (an export, a backup, an XML data import) yield to the event loop and write later — e.g.
+ * their edit-log entry, an XML import chunk — with ctx.db.transaction(): if an exclusive job had started
  * meanwhile, those writes would nest inside the job's transaction and vanish when it rolls back (a
  * preview always does). So a job only starts when no other such request is in flight.
  */
@@ -46,13 +46,13 @@ export function companyWorkInFlight(db: Db): number {
 
 /**
  * Details of a CONFLICT that only means "busy right now — the same request will work once the other
- * task finishes" (a backup, export, Tally import or import job holds the company). The renderer offers
+ * task finishes" (a backup, export, XML data import or import job holds the company). The renderer offers
  * "Wait and retry" for it (app/lib/apiErrors.ts isBusyConflict).
  */
 export const BUSY_DETAILS: { readonly reason: 'busy'; readonly retryable: true } = { reason: 'busy', retryable: true };
 
 export const OTHER_WORK_RUNNING_MESSAGE =
-  'Another task is still running in this company (an export, a backup or a Tally import). Wait for it to finish, then try again.';
+  'Another task is still running in this company (an export, a backup or an XML data import). Wait for it to finish, then try again.';
 
 /** The job holding `db`, if any (the dispatcher checks this for every company route). */
 export function exclusiveJobFor(db: Db): ExclusiveJob | undefined {

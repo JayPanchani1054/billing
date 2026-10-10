@@ -1,8 +1,8 @@
 /**
- * 'outstanding.receivables' / 'outstanding.payables' — Tally "Outstandings" for one side, in three
+ * 'outstanding.receivables' / 'outstanding.payables' — "Outstandings" for one side, in three
  * views (Ctrl+1/2/3):
- *   Parties — KPI strip + party-wise outstanding with credit-limit use (Tally "Group Outstandings")
- *   Bills   — every pending bill with due date and overdue days (Tally "Bills Receivable/Payable")
+ *   Parties — KPI strip + party-wise outstanding with credit-limit use ("Group Outstandings")
+ *   Bills   — every pending bill with due date and overdue days ("Bills Receivable/Payable")
  *   Ageing  — party amounts in ageing buckets (editable periods, due-date or bill-date basis) + chart
  * "As on" = the period's end date (Alt+F2). Enter opens the party (bills: the voucher; Alt+V the party).
  * Amounts are shown ledger-signed with Dr/Cr; parties without bill-wise details are aged FIFO

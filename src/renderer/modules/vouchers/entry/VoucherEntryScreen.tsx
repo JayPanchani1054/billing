@@ -1,5 +1,5 @@
 /**
- * 'vouchers.entry' — Tally-style voucher creation / alteration, one screen for every voucher type.
+ * 'vouchers.entry' — keyboard-first voucher creation / alteration, one screen for every voucher type.
  *
  * Params: { baseType? | voucherTypeId?, id? (alter), duplicateOf?, draft?, date?, partyId? }
  *   draft: a new voucher pre-filled by 'documents.draft' — a quotation / proforma converted into an
@@ -565,7 +565,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     const els = headerRef.current ? [...headerRef.current.querySelectorAll<HTMLElement>('input:not([readonly]):not([disabled]), select:not([disabled]), textarea:not([readonly])')] : [];
     els[els.length - 1]?.focus();
   };
-  /** Tally: the cursor starts on the number (manual), the party, the Account, or the first line. */
+  /** The cursor starts on the number (manual), the party, the Account, or the first line. */
   const focusStart = () => {
     const f = formRef.current;
     const first = entrySections(f.mode, baseType)[0];
@@ -582,7 +582,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     );
   };
   // The shell focuses a screen once, when it is pushed — before this form exists (it waits for its
-  // data). Put the cursor where Tally does once the form is on screen (two frames: after the shell's).
+  // data). Put the cursor where accountants expect it once the form is on screen (two frames: after the shell's).
   useEffect(() => {
     let inner = 0;
     const outer = requestAnimationFrame(() => {
@@ -628,7 +628,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     const s = sectionOfRow(f, section, rowKey);
     const m = modelOf(s, f, filled ? rowKey : undefined);
     // (forex module) Leaving the ledger of a line kept in a foreign currency: its amount in that currency
-    // and the rate first (Tally's "$ … @ rate"); the rupees and bill-wise split come from that dialog.
+    // and the rate first ("$ … @ rate"); the rupees and bill-wise split come from that dialog.
     if (!billsAsked && dir === 'forward' && section === 'ledgers' && column === 'ledger' && f.mode === 'ledger') {
       const row = f.ledgers.find((r) => r.key === rowKey);
       if (row && row.ledgerId !== null && fx.currencyOfLedger(row.ledgerId) && (row.forexAmount === undefined || row.forexAmount === null)) {
@@ -637,7 +637,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         return;
       }
     }
-    // Leaving the amount of a bill-wise ledger line in a ledger voucher: allocate bills first (Tally).
+    // Leaving the amount of a bill-wise ledger line in a ledger voucher: allocate bills first.
     if (!billsAsked && dir === 'forward' && section === 'ledgers' && column === 'amount' && f.mode === 'ledger') {
       const row = f.ledgers.find((r) => r.key === rowKey);
       if (row && row.ledgerId !== null && row.amount && !row.bills && rowDetailNeeds(gridEnvRef.current, row.ledgerId).bills) {

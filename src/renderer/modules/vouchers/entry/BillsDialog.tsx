@@ -1,5 +1,5 @@
 /**
- * Bill-wise allocation (Tally "Bill-wise Details"): split one party entry into New Ref / Agst Ref /
+ * Bill-wise allocation ("Bill-wise Details"): split one party entry into New Ref / Agst Ref /
  * Advance / On Account lines, with the party's pending bills alongside and FIFO auto-allocation.
  *
  * Keys: Enter next field · Alt+F oldest bills first · Alt+N add line · Ctrl+D remove line ·
@@ -52,7 +52,7 @@ export function BillsDialog(props: BillsDialogProps) {
     const src = fresh ? defaultAllocation({ pending: [], amount, side, date, suggestedName, creditDays, invoiceParty: !!allowDefault }) : initial;
     return src.map((b, i) => ({ ...b, k: i }));
   });
-  // Tally: a receipt / payment against a party with pending bills starts as "Agst Ref" on the oldest
+  // A receipt / payment against a party with pending bills starts as "Agst Ref" on the oldest
   // bills. The bills arrive after the dialog opens: apply that default once, unless the user has typed.
   const edited = useRef(false);
   const defaulted = useRef(false);

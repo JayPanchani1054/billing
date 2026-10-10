@@ -1,5 +1,5 @@
 /**
- * Bank Reconciliation Statement (Tally semantics), manual bank dates and the per-bank summary.
+ * Bank Reconciliation Statement (conventional semantics), manual bank dates and the per-bank summary.
  *
  * An entry on a bank ledger is "not reflected in the bank" as of a date when it has no bank date, or a bank
  * date after that date. Balance as per bank (computed) = balance as per books + cheques issued but not

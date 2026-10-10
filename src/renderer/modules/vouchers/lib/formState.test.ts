@@ -79,7 +79,7 @@ describe('form reducer — rows', () => {
   });
 });
 
-describe('form reducer — double entry (Tally behaviour)', () => {
+describe('form reducer — double entry (keyboard-first behaviour)', () => {
   it('picking a ledger on an empty line pre-fills the balancing amount and side', () => {
     let f = journal();
     f = formReducer(f, { type: 'ledger', key: f.ledgers[0].key, patch: { ledgerId: 1, amount: 120000 } });

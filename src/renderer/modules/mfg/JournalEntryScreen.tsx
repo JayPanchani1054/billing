@@ -418,7 +418,7 @@ function JournalEntry({
       return;
     }
     setLastSaved({ id: out.id, number: out.number });
-    // A fresh voucher of the same type and date, like Tally.
+    // A fresh voucher of the same type and date.
     const fresh = withTrailingBlanks(emptyForm(form.cls, form.voucherTypeId, form.date), sectionsFor(form.cls, null));
     applied.current = '';
     setAutoFill(true);
@@ -757,7 +757,7 @@ function JournalEntry({
 
           {sections.costs ? (
             <p className="bx-mfg-note">
-              Additional costs only add to the value of the finished goods — the journal posts no ledger entry (as in Tally). Book the expense itself with a Payment or Journal voucher.
+              Additional costs only add to the value of the finished goods — the journal posts no ledger entry. Book the expense itself with a Payment or Journal voucher.
             </p>
           ) : null}
 

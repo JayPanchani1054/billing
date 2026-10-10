@@ -111,7 +111,7 @@ export function settleableForex<T extends PendingForexBill>(pending: readonly T[
 }
 
 /**
- * Tally "Agst Ref, oldest first": settle the oldest bills of the other side with `forexTotal`
+ * "Agst Ref, oldest first": settle the oldest bills of the other side with `forexTotal`
  * (magnitude); what is left becomes On Account (or a New Ref named `newName` when given).
  */
 export function autoForexFifo(pending: readonly PendingForexBill[], forexTotal: number, side: 'dr' | 'cr', dp: number, newName?: string): ForexBillDraft[] {

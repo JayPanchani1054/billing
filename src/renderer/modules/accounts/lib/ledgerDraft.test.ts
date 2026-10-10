@@ -90,7 +90,7 @@ function detail(over: Partial<LedgerDetail> = {}): LedgerDetail {
   };
 }
 
-describe('applyGroupDefaults (new ledgers, Tally-like)', () => {
+describe('applyGroupDefaults (new ledgers, usual defaults per group)', () => {
   it('choosing Sundry Debtors turns bill-wise on and starts in the company state', () => {
     const d = applyGroupDefaults(emptyLedgerDraft('A'), null, classOfGroup(index, DEBTORS), DEFAULTS);
     assert.equal(d.billWise, true);
@@ -260,7 +260,7 @@ describe('fieldsFromDraft — hidden is not the same as cleared', () => {
     assert.equal(out.unchanged, true);
   });
 
-  it('alter: moving a customer to an expense group keeps the address (Tally keeps it too)', () => {
+  it('alter: moving a customer to an expense group keeps the address (as accountants expect)', () => {
     const orig = detail({ address: '12 MG Road', email: 'a@b.in' });
     const EXP = 102;
     const { input } = buildSaveInput({ ...draftFromDetail(orig), groupId: EXP }, ledgerSections(classOfGroup(index, EXP), CTX), orig);

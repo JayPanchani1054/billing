@@ -164,7 +164,7 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
             {readOnly ? <ReadOnlyNotice /> : null}
             {saveError ? <Banner tone="danger" title="Could not save">{saveError}</Banner> : null}
             <FieldGroup legend="Layout">
-              <Field label="Template" hint="Classic is the boxed Tally-style invoice; Compact prints on thermal receipt rolls.">
+              <Field label="Template" hint="Classic is the familiar boxed GST invoice; Compact prints on thermal receipt rolls.">
                 <SegmentedControl aria-label="Template" options={TEMPLATE_OPTIONS} value={draft.template} disabled={readOnly} onChange={(t) => patch({ template: t })} />
               </Field>
               <Field label="Paper" hint="For the Modern and Classic templates (each print preview can still change it).">

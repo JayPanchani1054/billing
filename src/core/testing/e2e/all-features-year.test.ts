@@ -12,7 +12,7 @@
  *   TDS / TCS ledgers ↔ computation ↔ lines ↔ outstanding ↔ challans ↔ quarterly return data;
  *   party ledgers ↔ outstanding (INR and in the currency) ↔ the scenario's own bill-by-bill expectation;
  *   cheque register ↔ BRS; dashboard ↔ reports; POS day-end ↔ the books; production register ↔ stock;
- *   Tally XML export → import into an empty company; backup → restore.
+ *   XML data export → import into an empty company; backup → restore.
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
@@ -536,7 +536,7 @@ describe('every feature on: a business year tied out across all modules', () => 
     assert.equal(att.length, 1);
   });
 
-  it('Tally XML export → import into an empty company reproduces the trial balance, stock summary and GST totals', async () => {
+  it('XML data export → import into an empty company reproduces the trial balance, stock summary and GST totals', async () => {
     const file = await e.call<{ bytes: Uint8Array; vouchers: number; skipped: Array<{ reason: string; count: number }> }>('data.xmlExport.create', { masters: true, vouchers: true, ...FY });
     const zip = readZip(file.bytes);
     const srcTb = await tbByName(e);
@@ -554,18 +554,18 @@ describe('every feature on: a business year tied out across all modules', () => 
       return out;
     };
     const srcMonthly = await monthly();
-    assert.deepEqual(file.skipped, [{ reason: 'Quotations and proforma invoices (Tally has no such voucher type)', count: 2 }]);
+    assert.deepEqual(file.skipped, [{ reason: 'Quotations and proforma invoices (the XML format has no such voucher type)', count: 2 }]);
     await e.call('app.company.close');
     try {
       const st = await e.call<{ companies: Array<{ id: string; name: string }> }>('app.company.create', {
-        name: 'Godavari Tally Copy',
+        name: 'Godavari XML Copy',
         stateCode: '27',
         gstRegistrationType: 'regular',
         gstin: makeGstin('27', 'AAACG1001A'),
         booksFrom: AF_BOOKS_FROM,
         owner: { username: 'owner', displayName: 'Copy Owner', password: 'CopyOwner#2026' },
       });
-      assert.ok(st.companies.some((c) => c.name === 'Godavari Tally Copy'));
+      assert.ok(st.companies.some((c) => c.name === 'Godavari XML Copy'));
       await e.call('company.features.save', { inventory: true, integrateInventory: true, billWise: true, multipleGodowns: true });
       for (const [fileName, options] of [
         ['1-Masters.xml', { masters: true, vouchers: false, onDuplicate: 'skip' }],

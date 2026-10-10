@@ -221,7 +221,7 @@ describe('docs/USER_GUIDE.md', () => {
       'Reports and budgets',
       'Multiple currencies',
       'Printing and sharing',
-      'Data: backup, restore, import, Tally, attachments',
+      'Data: backup, restore, import, export, attachments',
       'Security and users',
       'Keyboard reference',
       'Troubleshooting and FAQ',

@@ -1,6 +1,6 @@
 /**
  * Gateway (home screen 'app.gateway'): every module's menu in sections on the left — arrow keys,
- * Enter, or the highlighted letter opens an item (Tally style) — and the dashboard (with its
+ * Enter, or the highlighted letter opens an item (keyboard-first) — and the dashboard (with its
  * "Get started" card) on the right; users who may not open the dashboard get a welcome panel with
  * quick actions instead.
  */

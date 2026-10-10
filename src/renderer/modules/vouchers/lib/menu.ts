@@ -41,7 +41,7 @@ const DESCRIPTIONS: Readonly<Partial<Record<VoucherBaseType, { text: string; key
   proforma: { text: 'Proforma invoice for advance payment — not a tax invoice; convert it to a sales invoice', keywords: ['pro forma', 'pi', 'advance', 'estimate'] },
 };
 
-/** Base types the Transactions section lists, in Tally order. */
+/** Base types the Transactions section lists, in the conventional order. */
 const MENU_ORDER: readonly VoucherBaseType[] = [
   'sales',
   'purchase',
@@ -96,7 +96,7 @@ export interface VoucherGotoItem {
   params: { id: number };
 }
 
-/** Go To results for vouchers: open in alteration (Tally), or the read-only view when cancelled or its e-invoice is generated. */
+/** Go To results for vouchers: open in alteration, or the read-only view when cancelled or its e-invoice is generated. */
 export function voucherGotoItems(rows: readonly VoucherListRow[]): VoucherGotoItem[] {
   return rows.map((r) => {
     const status = r.isCancelled ? 'Cancelled' : r.isOptional ? 'Optional' : '';

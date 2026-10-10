@@ -1,13 +1,13 @@
 /**
  * 'documents.billsPending' {kind?: 'sales' | 'purchase', partyLedgerId?} — Sales Bills Pending / Purchase
- * Bills Pending (Tally: Statements of Inventory): delivery / receipt notes (and rejections) not yet
+ * Bills Pending (under Statements of Inventory): delivery / receipt notes (and rejections) not yet
  * fully invoiced, as on the period's end date, with quantities, value and ageing. Views: note lines,
  * by party, by item. Enter on a line opens the note; on a party / item it lists that party's / item's lines.
  * Keys: Ctrl+1 Sales · Ctrl+2 Purchase · Ctrl+3 Lines · Ctrl+4 By party · Ctrl+5 By item ·
  * Alt+I Invoice now (sales) / Enter bill (purchase) · Alt+F2 Date · Alt+E Export · Alt+P Print.
  *
  * 'documents.order.preclose' {orderId, kind?} (dialog) — close the balance of a sales / purchase order
- * that will not be supplied, per item, with a date and a reason (Tally "Pre-close order"). The order
+ * that will not be supplied, per item, with a date and a reason ("Pre-close order"). The order
  * itself is not altered; reopen from the voucher view. Ctrl+A Save.
  */
 import { useMemo, useState } from 'react';

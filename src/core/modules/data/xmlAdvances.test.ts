@@ -1,5 +1,5 @@
 /**
- * Tally XML round trip of GST on advances (found by the cross-feature tie-out, all-features-year.test.ts):
+ * XML data round trip of GST on advances (found by the cross-feature tie-out, all-features-year.test.ts):
  * the gst module posts an advance for services as Dr "GST on Advances Received" / Cr Output tax on the
  * receipt, and the invoice adjusting it as Dr Output tax / Cr "GST on Advances Received". The export writes
  * both as recorded; the importer used to net the invoice's Output debits into its own tax (GSTR-1 showed
@@ -75,7 +75,7 @@ const pick = (g: Gstr1Summary) => ({
   adjusted: g.advances?.adjusted.map((x) => [x.pos, x.rate, x.taxable, x.cgst, x.sgst]) ?? [],
 });
 
-describe('Tally round trip: GST on advances', () => {
+describe('XML data round trip: GST on advances', () => {
   it('the invoice keeps its own tax and Table 11A / 11B come back (GSTR-1, GSTR-3B)', async () => {
     populate();
     const tg = await roundTrip();

@@ -1,4 +1,4 @@
-# reports — Tally "Display" reports (core)
+# reports — "Display" reports (core)
 
 Trial Balance, Profit & Loss, Balance Sheet, Group Summary / Group Vouchers, Ledger, Monthly Summary,
 Cash/Bank books, voucher registers, Cash Flow, Funds Flow, Ratio Analysis, Exception reports, Cost
@@ -49,7 +49,7 @@ Trial Balance, P&L, Balance Sheet and Group Summary routes take `scenarioId`; ev
 `ledgerSums` (snapshot, P&L, Balance Sheet balancing) follows. Stock values are not affected. The
 renderer's scenario picker (Alt+S) and budget column (Alt+B) are `renderer/modules/reports/overlay.tsx`.
 
-### Year-end treatment (Tally semantics) — `buildSnapshot`
+### Year-end treatment (conventional semantics) — `buildSnapshot`
 
 Notation: `ob` = a ledger's opening balance (at the books beginning), `L` = Σ `ob` of all ledgers,
 `S0` = opening stock at the books beginning (as entered in the items), `Y` = **year start** = start of
@@ -63,7 +63,7 @@ the financial year containing `from` (never before the books beginning).
   `retained = Σ nominal (ob + pre) − (stock at Y − S0)`; it is added to the opening and closing of the
   reserved **Profit & Loss A/c** ledger. In the first year `retained = 0`.
 - `closing = opening + dr − cr`; groups roll up over all sub-groups. The reserved **Profit & Loss A/c**
-  ledger never rolls into the group it is stored under (Capital Account): as in Tally it is a primary
+  ledger never rolls into the group it is stored under (Capital Account): as accountants expect it is a primary
   line of its own, so Capital Account's Trial Balance / Group Summary figure equals its Balance Sheet line
   (`ledgersByGroup` and `ledgerIdsUnder` leave it out too — Group Vouchers and Monthly Summary of
   Capital Account do not include it).
@@ -89,7 +89,7 @@ Input `{ from, to, mode?: 'groups' | 'ledgers' | 'detailed' (default groups), sh
 - `detailed`: groups with their sub-groups first, then their ledgers (pre-order, `level`, `parentKey`).
 - `ledgers`: every ledger at level 0, in group order then name.
 - With integrated inventory a top row **Opening Stock** (`kind 'stock'`, key `stock:opening`) shows the
-  stock value at the year start (closing stock is not a ledger balance, as in Tally).
+  stock value at the year start (closing stock is not a ledger balance, as accountants expect).
 - **Profit & Loss A/c** (the reserved ledger, `kind 'ledger'`, key `l:<id>`) is a level-0 row of its own
   in every mode, after the groups (opening = profit brought forward + its opening balance; Dr/Cr =
   entries posted to it, e.g. a transfer to capital). Shown when non-zero (or `showZero`).
@@ -97,8 +97,8 @@ Input `{ from, to, mode?: 'groups' | 'ledgers' | 'detailed' (default groups), sh
 - `showZero: false` (default) hides ledgers whose opening, debit, credit and closing are all 0, and groups
   that are all 0 with nothing shown below them. `showOpening` is a UI hint only.
 - `totals` are over the level-0 rows: opening / transactions / closing, each as Dr and Cr columns
-  (closing Dr column = Σ positive closings, Cr = Σ |negative|). Group mode nets each group (Tally
-  condensed); ledger mode sums ledgers, so the column totals differ between modes but always agree Dr = Cr.
+  (closing Dr column = Σ positive closings, Cr = Σ |negative|). Group mode nets each group (the
+  condensed view); ledger mode sums ledgers, so the column totals differ between modes but always agree Dr = Cr.
 - `unbalancedBy` = closing Dr − Cr; `balanced` = it is 0 (only stored-data corruption breaks it).
 - `yearStart`, `openingStock`, `openingDifference` are returned for headers and notes.
 
@@ -188,8 +188,8 @@ credit of this ledger in the voucher, running `balance`), `totals`, `closing`, `
 (rows are cut at `limit`; totals and closing are always complete).
 
 **Particulars**: the single ledger on the opposite side; when several ledgers are opposite and some are
-sales/purchase ledgers (an invoice), the largest of those — the customer's ledger shows "Sales" as in
-Tally; otherwise `(as per details)`. `details` lists every other ledger with its signed amount.
+sales/purchase ledgers (an invoice), the largest of those — the customer's ledger shows "Sales" as
+accountants expect; otherwise `(as per details)`. `details` lists every other ledger with its signed amount.
 
 ## 8. Group Vouchers — `reports.groupVouchers`
 
@@ -336,8 +336,8 @@ cold before); Trial Balance ≈ 75 ms; Ratios ≈ 0.16 s (was 1.8 s).
 - Without integrated inventory there is no automatic opening/closing stock: Stock-in-Hand ledgers are
   plain asset ledgers (record closing stock by journal).
 - Ledger Vouchers opened from a P&L-basis Group Summary show Trial-Balance figures (opening = year to
-  date before `from`), as Tally does; the period's Dr/Cr agree with the summary.
+  date before `from`), as accountants expect; the period's Dr/Cr agree with the summary.
 - Statements here are in rupees. A ledger kept in a foreign currency is shown in both currencies by
   `forex.ledger` (Ledger Vouchers screen: Alt+R) — see src/core/modules/forex/README.md.
 - Group "net Dr/Cr balances" flags are not applied: groups always show the net of their ledgers.
-- Cash flow does not split operating / investing / financing activities (Tally's monthly view only).
+- Cash flow does not split operating / investing / financing activities (monthly view only).

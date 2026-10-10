@@ -1,6 +1,6 @@
 /**
- * dataplus group (block 220–229), part 1: multiple aliases for ledgers and stock items (TallyPrime
- * allows any number of aliases per master — local-language names, supplier codes, old codes).
+ * dataplus group (block 220–229), part 1: multiple aliases for ledgers and stock items (any
+ * number of aliases per master, as accountants expect — local-language names, supplier codes, old codes).
  *
  *  - The existing `ledgers.alias` / `stock_items.alias` column stays the FIRST alias (every report,
  *    print and picker already shows it); these tables hold the ADDITIONAL aliases, in order.

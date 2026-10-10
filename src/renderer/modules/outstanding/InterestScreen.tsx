@@ -1,5 +1,5 @@
 /**
- * 'outstanding.interest' { ledgerId?, groupId? } — interest on overdue bills (Tally "Interest
+ * 'outstanding.interest' { ledgerId?, groupId? } — interest on overdue bills ("Interest
  * Calculation"): one party, a group, or all debtors and creditors, for the period (Alt+F2).
  * Rate: the party ledger's own rate by default (blank = each ledger's rate); basis due/bill date;
  * grace days. Enter on a bill opens a drawer with its balance segments (how the interest was worked
@@ -71,7 +71,7 @@ export function InterestScreen({ params }: ScreenProps<InterestParams>) {
   const pickerRef = useRef<HTMLInputElement | null>(null);
   const rateRef = useRef<HTMLInputElement | null>(null);
   const gridRef = useRef<HTMLTableElement | null>(null);
-  // Enter moves rate → basis → grace days, then on to the bill list (Tally-style).
+  // Enter moves rate → basis → grace days, then on to the bill list.
   const paramsRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => gridRef.current?.focus() });
 
   const parties = usePartyOptions(to, scope === 'party');

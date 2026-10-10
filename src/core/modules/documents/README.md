@@ -1,6 +1,6 @@
 # Documents module (`src/core/modules/documents`)
 
-Tally-parity features around vouchers that are not posting rules themselves:
+Features around vouchers that are not posting rules themselves:
 
 1. **Quotations and proforma invoices** — non-accounting pre-sale documents with their own numbering,
    validity, status and one-key conversion into a sales order / sales invoice that links back.
@@ -186,7 +186,7 @@ today, and respect the period lock. Optional and cancelled orders cannot be pre-
   stand), amount signed Dr + / Cr − (an expense budget Dr, a sales budget Cr). One line per master.
 - **Report period ≠ budget period**: nett-transaction budgets are pro-rated by days of overlap (rounded
   to the paisa); closing-balance budgets are shown as they are. This pro-rating is our documented choice
-  (Tally shows budgets for their own period) so a monthly review of an annual budget works.
+  (conventional accounting software shows budgets for their own period) so a monthly review of an annual budget works.
 - **Actuals**: nominal ledgers as in the P&L (period movement; + opening when the period contains the
   books beginning); other ledgers Dr − Cr of the period; closing = the Trial-Balance closing at `to`;
   groups = the sum over their ledgers (Profit & Loss A/c excluded; closing stock is not a ledger balance);
@@ -219,8 +219,8 @@ dates re-checked on alteration; cost-centre actuals under a scenario).
 
 - Recurring vouchers post only when someone reviews the due list (no unattended auto-posting: the app has
   no background process, and posting without review would bypass warnings).
-- A quotation in a foreign currency, revision history of a quotation (Tally keeps none either) and an
+- A quotation in a foreign currency, revision history of a quotation (conventionally none is kept) and an
   e-mail of the quotation are not built here (print / share belong to the print module).
-- Budgets are not imported from Tally XML (BUDGET objects are still skipped by the importer).
+- Budgets are not imported from XML data (BUDGET objects are still skipped by the importer).
 - Ledger Vouchers, outstanding, GST reports and the Day Book always show the books (no scenario); the
   scenario and budget chosen on a report are not remembered after the screen closes.

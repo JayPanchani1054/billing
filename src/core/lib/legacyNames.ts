@@ -16,4 +16,4 @@ export const LEGACY_ENC_MAGIC = 'BAHIENC1';
 /** Domain-separation prefix of audit-anchor MACs (auditAnchor.ts) recorded before the rename. */
 export const LEGACY_ANCHOR_MAC_PREFIX = 'bahi-audit-anchor-v1';
 
-export { LEGACY_IMPORT_META_KEY, LEGACY_IMPORT_SOURCE } from '../modules/data/xmlFormat.ts';
+export { LEGACY_IMPORT_META_KEY, LEGACY_IMPORT_SOURCE, LEGACY_XML_DATA_KIND } from '../modules/data/xmlFormat.ts';

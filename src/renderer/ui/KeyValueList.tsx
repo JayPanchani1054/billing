@@ -17,7 +17,7 @@ export interface KeyValueItem {
 
 export interface KeyValueListProps extends HTMLAttributes<HTMLDListElement> {
   items: readonly KeyValueItem[];
-  /** 'inline' (Tally "Label : value") or 'stacked' (label above value). */
+  /** 'inline' ("Label : value") or 'stacked' (label above value). */
   layout?: 'inline' | 'stacked';
   /** Number of columns for the pairs (default 1). */
   columns?: 1 | 2 | 3;

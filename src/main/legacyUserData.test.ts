@@ -4,8 +4,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import * as coreAnchors from '../core/app/auditAnchors.ts';
+import { BACKUP_FOLDERS_FILE } from '../core/app/backupFolders.ts';
 import { APP_NAME } from '../shared/constants.ts';
-import { legacyProfileName, migrateLegacyUserData, MIGRATED_FILES, type LegacyMigrationOptions } from './legacyUserData.ts';
+import {
+  ANCHOR_KEY_FILE,
+  ANCHORS_FILE,
+  BROWSER_STATE_FILE,
+  legacyProfileName,
+  migrateLegacyUserData,
+  MIGRATED_FILES,
+  SETTINGS_FILES,
+  type LegacyMigrationOptions,
+} from './legacyUserData.ts';
 
 let root: string;
 let opts: LegacyMigrationOptions;
@@ -27,6 +38,7 @@ beforeEach(() => {
     documentsDir: documents,
     defaultDataDir: path.join(documents, APP_NAME),
     dev: false,
+    platform: 'win32',
   };
   legacyDir = path.join(appData, legacyProfileName(false));
 });
@@ -47,19 +59,79 @@ describe('legacy userData migration', () => {
   it('copies every settings file once and keeps the chosen data folder; the old folder stays', () => {
     for (const f of MIGRATED_FILES) write(path.join(legacyDir, f), JSON.stringify({ file: f }));
     write(path.join(legacyDir, 'config.json'), JSON.stringify({ dataDir: path.join(root, 'D', 'Books'), firstRunComplete: true }));
+    write(path.join(legacyDir, ANCHOR_KEY_FILE), JSON.stringify({ v: 1, sealed: true, key: 'c2VhbGVk' }));
+    write(path.join(legacyDir, BROWSER_STATE_FILE), '{"os_crypt":{"encrypted_key":"x"}}');
     write(path.join(legacyDir, 'Cache', 'junk'), 'x');
     const r = migrateLegacyUserData(opts);
     assert.equal(r.status, 'migrated');
-    assert.deepEqual([...r.copied].sort(), [...MIGRATED_FILES].sort());
+    assert.deepEqual([...r.copied].sort(), [...MIGRATED_FILES, BROWSER_STATE_FILE].sort());
+    assert.deepEqual(r.skipped, []);
     assert.equal(r.dataDir, null, 'an explicitly chosen data folder is kept as it is');
     assert.deepEqual(readJson(path.join(opts.userDataDir, 'config.json')), { dataDir: path.join(root, 'D', 'Books'), firstRunComplete: true });
-    assert.deepEqual(readJson(path.join(opts.userDataDir, 'audit-anchor.key')), { file: 'audit-anchor.key' });
+    assert.deepEqual(readJson(path.join(opts.userDataDir, ANCHOR_KEY_FILE)), { v: 1, sealed: true, key: 'c2VhbGVk' });
+    assert.deepEqual(readJson(path.join(opts.userDataDir, ANCHORS_FILE)), { file: ANCHORS_FILE });
+    assert.deepEqual(readJson(path.join(opts.userDataDir, BROWSER_STATE_FILE)), { os_crypt: { encrypted_key: 'x' } }, 'the sealing key travels with the sealed key');
     assert.equal(fs.existsSync(path.join(opts.userDataDir, 'Cache')), false, 'only settings files are copied');
-    assert.ok(fs.existsSync(path.join(legacyDir, 'config.json')), 'the old folder is left in place');
+    for (const f of MIGRATED_FILES) assert.ok(fs.existsSync(path.join(legacyDir, f)), `the old folder is left in place (${f})`);
     // Runs once: the next launch finds the new folder set up and changes nothing.
     fs.writeFileSync(path.join(legacyDir, 'config.json'), JSON.stringify({ dataDir: path.join(root, 'Other') }));
     assert.equal(migrateLegacyUserData(opts).status, 'already_set_up');
     assert.deepEqual(readJson(path.join(opts.userDataDir, 'config.json')).dataDir, path.join(root, 'D', 'Books'));
+  });
+
+  it('a key stored without OS sealing carries over with its anchors on any platform', () => {
+    write(path.join(legacyDir, 'config.json'), '{}');
+    write(path.join(legacyDir, ANCHOR_KEY_FILE), JSON.stringify({ v: 1, sealed: false, key: 'ab'.repeat(32) }));
+    write(path.join(legacyDir, ANCHORS_FILE), '{"v":1,"anchors":{}}');
+    const r = migrateLegacyUserData({ ...opts, platform: 'linux' });
+    assert.deepEqual([...r.copied].sort(), ['config.json', ANCHOR_KEY_FILE, ANCHORS_FILE].sort());
+    assert.equal(fs.existsSync(path.join(opts.userDataDir, BROWSER_STATE_FILE)), false);
+  });
+
+  it('a sealed key that cannot be unsealed in the new folder stays behind together with its anchors', () => {
+    const seed = (): void => {
+      write(path.join(legacyDir, 'config.json'), '{}');
+      write(path.join(legacyDir, ANCHOR_KEY_FILE), JSON.stringify({ v: 1, sealed: true, key: 'c2VhbGVk' }));
+      write(path.join(legacyDir, ANCHORS_FILE), '{"v":1,"anchors":{}}');
+      write(path.join(legacyDir, BROWSER_STATE_FILE), '{"old":true}');
+    };
+    // Another OS: the seal is tied to the old product name.
+    seed();
+    let r = migrateLegacyUserData({ ...opts, platform: 'darwin' });
+    assert.deepEqual(r.copied, ['config.json']);
+    assert.deepEqual(r.skipped.map((s) => s.file).sort(), [ANCHOR_KEY_FILE, ANCHORS_FILE].sort());
+    assert.equal(fs.existsSync(path.join(opts.userDataDir, ANCHORS_FILE)), false, 'no anchors without the key that signed them');
+
+    // Windows, but the new folder already has its own sealing key: never overwritten.
+    fs.rmSync(opts.userDataDir, { recursive: true, force: true });
+    write(path.join(opts.userDataDir, BROWSER_STATE_FILE), '{"new":true}');
+    r = migrateLegacyUserData(opts);
+    assert.equal(r.status, 'migrated');
+    assert.deepEqual(r.copied, ['config.json']);
+    assert.equal(fs.readFileSync(path.join(opts.userDataDir, BROWSER_STATE_FILE), 'utf8'), '{"new":true}');
+    assert.equal(fs.existsSync(path.join(opts.userDataDir, ANCHOR_KEY_FILE)), false);
+
+    // Windows, the old folder has no sealing key.
+    fs.rmSync(opts.userDataDir, { recursive: true, force: true });
+    fs.rmSync(path.join(legacyDir, BROWSER_STATE_FILE));
+    r = migrateLegacyUserData(opts);
+    assert.deepEqual(r.copied, ['config.json']);
+    assert.equal(r.skipped.length, 2);
+  });
+
+  it('anchors without their key are never copied', () => {
+    write(path.join(legacyDir, 'window-state.json'), '{}');
+    write(path.join(legacyDir, ANCHORS_FILE), '{"v":1,"anchors":{}}');
+    const r = migrateLegacyUserData(opts);
+    assert.deepEqual(r.copied, ['window-state.json']);
+    assert.deepEqual(r.skipped.map((s) => s.file), [ANCHORS_FILE]);
+  });
+
+  it('settings files are the app config, backup-folder approvals, shell preferences and window state', () => {
+    assert.deepEqual([...SETTINGS_FILES].sort(), ['backup-folders.json', 'config.json', 'shell-preferences.json', 'window-state.json']);
+    assert.ok(SETTINGS_FILES.includes(BACKUP_FOLDERS_FILE));
+    assert.equal(ANCHOR_KEY_FILE, coreAnchors.ANCHOR_KEY_FILE);
+    assert.equal(ANCHORS_FILE, coreAnchors.ANCHORS_FILE);
   });
 
   it('never overwrites a new userData folder that already has settings', () => {

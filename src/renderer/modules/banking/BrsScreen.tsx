@@ -1,5 +1,5 @@
 /**
- * 'banking.brs' — Bank Reconciliation (Tally style). Params: { ledgerId? }.
+ * 'banking.brs' — Bank Reconciliation (keyboard-first). Params: { ledgerId? }.
  *
  * As on the period's end date (Alt+F2). The grid lists the bank ledger's entries not yet reflected in the
  * bank (or reconciled ones / all, Ctrl+1/2/3); type the bank date in each row — '5', '5-4', '05042026',
@@ -156,7 +156,7 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
       e.preventDefault();
       openVoucher(visible[i]);
     } else if (e.key === 'Enter' && !e.shiftKey && i === visible.length - 1 && pending.entries.length > 0) {
-      // Enter on the last row accepts, like Tally.
+      // Enter on the last row accepts.
       e.preventDefault();
       void submit();
     } else if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'ArrowDown') {

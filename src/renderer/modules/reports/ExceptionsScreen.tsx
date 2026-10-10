@@ -1,5 +1,5 @@
 /**
- * 'reports.exceptions' — Tally Exception Reports in tabs: ledgers with unusual balances (negative
+ * 'reports.exceptions' — Exception Reports in tabs: ledgers with unusual balances (negative
  * cash, customer credit balances, …), optional, post-dated, cancelled and memorandum vouchers, and
  * accounting vouchers without narration. Enter opens the ledger or the voucher.
  */

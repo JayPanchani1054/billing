@@ -12,11 +12,12 @@ import type { AuditEntry, Session } from '../../api/context.ts';
 import { setStrictRouteInput } from '../../api/dispatch.ts';
 import { appendAudit } from '../../lib/audit.ts';
 import { parseCsv } from '../../lib/csv.ts';
+import { LEGACY_XML_DATA_KIND } from '../../lib/legacyNames.ts';
 import { decodeText } from '../../lib/text.ts';
 import { readXlsx } from '../../lib/xlsx.ts';
 import { readZip } from '../../lib/zip.ts';
 import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
-import { localDayStartIso } from './auditlog.ts';
+import { entityTypeLabel, localDayStartIso } from './auditlog.ts';
 import { securityRoutes as R } from './routes.ts';
 
 const HOUR = 3_600_000;
@@ -123,6 +124,25 @@ describe('edit log: list', () => {
     assert.deepEqual(f.users.map((u) => `${u.username}:${u.count}`), ['ravi:4', 'sita:3']);
     assert.equal(f.actions.find((a) => a.value === 'create')?.count, 3);
     assert.ok(f.firstTs && f.lastTs && f.firstTs < f.lastTs);
+    t.close();
+  });
+});
+
+describe('edit log: XML data entries recorded before the rename', () => {
+  it('labels the legacy entity type exactly like the current one, without rewriting the row', async () => {
+    const t = createTestCompany({ security: true, today: '2026-04-15' });
+    const s = t.sessionAs({ role: 'Accountant', username: 'ravi', userId: 2 });
+    appendAudit(t.db, { action: 'export', entityType: LEGACY_XML_DATA_KIND, entityLabel: 'masters', after: { masters: 3 } }, s, t.clock.now());
+    appendAudit(t.db, { action: 'export', entityType: 'xml_data', entityLabel: 'masters', after: { masters: 3 } }, s, t.clock.now());
+    assert.notEqual(LEGACY_XML_DATA_KIND, 'xml_data');
+    assert.equal(entityTypeLabel(LEGACY_XML_DATA_KIND), 'XML data');
+    assert.equal(entityTypeLabel('xml_data'), 'XML data');
+    const r = await list(t);
+    assert.deepEqual(r.rows.map((x) => x.entityTypeLabel), ['XML data', 'XML data']);
+    // The append-only row keeps what was recorded; only its label is shared.
+    assert.equal(t.db.value(`SELECT COUNT(*) FROM audit_log WHERE entity_type = :k`, { k: LEGACY_XML_DATA_KIND }), 1);
+    const f = await t.callOk<{ entityTypes: Array<{ value: string; label: string }> }>(R, 'security.audit.facets', {});
+    assert.deepEqual(f.entityTypes.map((e) => e.label), ['XML data', 'XML data']);
     t.close();
   });
 });

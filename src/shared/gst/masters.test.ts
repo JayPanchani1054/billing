@@ -77,8 +77,8 @@ describe('states', () => {
     assert.equal(findState(''), undefined);
   });
 
-  test('findState understands Tally/ISO spellings and prefers current states (regression)', () => {
-    // '&' instead of 'and' (Tally exports), punctuation and extra spaces.
+  test('findState understands accounting-export/ISO spellings and prefers current states (regression)', () => {
+    // '&' instead of 'and' (accounting-software exports), punctuation and extra spaces.
     assert.equal(findState('Jammu & Kashmir')?.code, '01');
     assert.equal(findState('Andaman & Nicobar Islands')?.code, '35');
     assert.equal(findState('Dadra & Nagar Haveli & Daman & Diu')?.code, '26');

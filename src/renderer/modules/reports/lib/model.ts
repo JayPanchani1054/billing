@@ -1,6 +1,6 @@
 /**
  * Pure presentation logic for the reports screens: drill-down targets, periods, amount text,
- * Tally horizontal-statement pairing and export tables. Tested in model.test.ts.
+ * Horizontal-statement pairing and export tables. Tested in model.test.ts.
  */
 import { sideBudget, type BudgetByKey } from './overlay.ts';
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
@@ -144,7 +144,7 @@ export function ratioText(item: Pick<RatioItem, 'unit' | 'value'>): string {
 
 // ───────────────────────────── Horizontal statements ─────────────────────────────
 
-/** Pair two visible line lists row by row (Tally two-column layout); the shorter side is padded. */
+/** Pair two visible line lists row by row (two-column layout); the shorter side is padded. */
 export function pairLines<A, B>(left: readonly A[], right: readonly B[]): Array<[A | null, B | null]> {
   const n = Math.max(left.length, right.length);
   const out: Array<[A | null, B | null]> = [];
@@ -262,7 +262,7 @@ export interface RegisterChoice {
   label: string;
 }
 
-/** Registers offered in the menu and on the register screen, in Tally order. */
+/** Registers offered in the menu and on the register screen, in the conventional order. */
 export const REGISTERS: readonly RegisterChoice[] = [
   { baseType: 'sales', label: 'Sales Register' },
   { baseType: 'purchase', label: 'Purchase Register' },

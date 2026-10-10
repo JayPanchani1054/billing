@@ -16,7 +16,7 @@ describe('xmlExportView', () => {
       {
         masters: { groups: 2, ledgers: 1250, units: 0, godowns: 1, stockGroups: 0, stockCategories: 0, stockItems: 40, costCategories: 0, costCentres: 3, voucherTypes: 0 },
         vouchers: 12345,
-        skipped: [{ reason: 'Quotations and proforma invoices (Tally has no such voucher type)', count: 4 }],
+        skipped: [{ reason: 'Quotations and proforma invoices (no such voucher type in the XML format)', count: 4 }],
       },
       true,
     );
@@ -29,7 +29,7 @@ describe('xmlExportView', () => {
         ['Godowns', '1'],
         ['Stock items', '40'],
         ['Vouchers', '12,345'],
-        ['Not exported: Quotations and proforma invoices (Tally has no such voucher type)', '4'],
+        ['Not exported: Quotations and proforma invoices (no such voucher type in the XML format)', '4'],
       ],
     );
     assert.deepEqual(xmlExportSummary({ masters: null, vouchers: 0, skipped: [] }, false), []);

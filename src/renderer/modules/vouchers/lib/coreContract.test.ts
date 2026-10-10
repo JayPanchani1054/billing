@@ -157,7 +157,7 @@ describe('alteration: vouchers.get().input → form → VoucherInput is the save
     let f = newForm({ voucherTypeId: vt.sales, baseType: 'sales', mode: 'item_invoice', date: DATE, partyLedgerId: L.acme });
     f = addItem(f, { itemId: I.rice, qty: 4, billedQty: 3, altQty: 2, rate: 52.5, discountPct: 5, description: 'Basmati' });
     f = addLedger(f, L.freight, 15000);
-    // An additional ledger the grid shows without GST columns, carrying an override (e.g. from a Tally import).
+    // An additional ledger the grid shows without GST columns, carrying an override (e.g. from an XML data import).
     f = addLedger(f, L.rent, 20000, { gstRate: 18, hsnSac: '997212' });
     f = formReducer(f, { type: 'patch', patch: { narration: 'Round trip', referenceNo: 'PO-77' } });
     // The override takes part in the live totals in item mode too, exactly as on the server.

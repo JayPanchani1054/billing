@@ -1,5 +1,5 @@
 /**
- * Budgets (Tally: Accounts Info › Budgets) and the Budget Variance report.
+ * Budgets (Accounts Info › Budgets) and the Budget Variance report.
  *
  * A budget covers a period; each line targets one group, ledger or cost centre and is either
  *  - on NET TRANSACTIONS: what should move in the period (an expense or income budget), or
@@ -9,7 +9,7 @@
  *
  * Reporting a period other than the budget's own: a net-transactions budget is pro-rated by days of
  * overlap (budget × overlap days ÷ budget days, rounded to the paisa); a closing-balance budget is a
- * target for the end of the budget period and is shown as it is. (Tally shows budgets for the period
+ * target for the end of the budget period and is shown as it is. (conventional accounting software shows budgets for the period
  * they were defined for; pro-rating is our documented choice so monthly reviews of an annual budget
  * work.)
  *

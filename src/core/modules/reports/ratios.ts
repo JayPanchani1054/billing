@@ -1,5 +1,5 @@
 /**
- * Ratio Analysis (Tally "Ratio Analysis"): principal groups and key ratios with documented formulas
+ * Ratio Analysis: principal groups and key ratios with documented formulas
  * (README §15). Balances are as at the end of `to`; flows (sales, purchases, profit) are for [from, to].
  */
 import type { GroupCode } from '../../../shared/constants.ts';

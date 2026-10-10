@@ -1,7 +1,8 @@
 # Pevqori
 
 **Offline-first GST accounting, invoicing and inventory for Indian businesses** — a fast,
-keyboard-first Windows desktop app in the spirit of Tally, with a calmer, modern interface.
+keyboard-first Windows desktop app that works the way Indian accountants expect, with a calmer, modern
+interface.
 
 Your books live on your own computer, in a folder you choose. No cloud account, no subscription
 server, no internet connection required.
@@ -21,7 +22,7 @@ server, no internet connection required.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Engineering contract for contributors (data conventions, routes, posting and GST rules, UI rules) |
 | [docs/BUILD.md](docs/BUILD.md) | Building, testing, packaging and releasing |
 
-## Compared with Tally
+## Feature coverage
 
 **Built** = available and covered by tests. **Partial** = available with the limits noted (details in
 [docs/SCOPE.md](docs/SCOPE.md)). **Out of scope** = not in 1.0, deliberately.
@@ -29,7 +30,7 @@ server, no internet connection required.
 | Area | Capability | Pevqori 1.0 | Notes |
 |---|---|---|---|
 | Accounting | Groups, ledgers (several aliases), multiple ledger creation, opening balances, chart of accounts | Built | |
-| | Contra, payment, receipt, journal, sales, purchase, credit / debit note; item and accounting invoices | Built | Tally keys F4–F9, Ctrl+F8 / F9 |
+| | Contra, payment, receipt, journal, sales, purchase, credit / debit note; item and accounting invoices | Built | Keys F4–F9, Ctrl+F8 / F9 |
 | | Optional, post-dated, memorandum vouchers; reversing journals; scenarios | Built | |
 | | Voucher numbering: prefix / suffix with date codes, dated rows, yearly / monthly restart | Built | GST 16-character rule checked |
 | | Bill-wise details, credit periods, ageing, overdue, statements, reminder letters | Built | |
@@ -40,7 +41,7 @@ server, no internet connection required.
 | | Bank reconciliation | Built | Plus bank statement import (9 bank layouts + generic) and auto-matching |
 | | Cheque printing, cheque books, leaf register | Built | Generic CTS-2010 layout, calibrated per bank |
 | | Bulk bank payment file (NEFT / RTGS / IMPS) | Partial | Generic documented CSV; no bank-specific or host-to-host format |
-| | Period lock, edit log (Tally's "edit log") with hash-chain verification | Built | |
+| | Period lock, edit log with hash-chain verification | Built | |
 | | Fixed-asset register, automatic depreciation | Out of scope | Pass the depreciation journal yourself |
 | Inventory | Stock items, groups, categories, units (compound), godowns, batches and expiry, price levels | Built | |
 | | Orders, delivery / receipt notes, rejections, pending bills, pre-closing orders | Built | |
@@ -66,15 +67,15 @@ server, no internet connection required.
 | | Share by e-mail / WhatsApp | Built | Via your mail program / WhatsApp; Pevqori sends nothing itself |
 | Data | Backup and restore (optionally encrypted), automatic backups, integrity check | Built | |
 | | Excel / CSV import and export of masters and vouchers | Built | |
-| | Migration from Tally XML | Built | Job work vouchers and budgets not imported |
-| | Export to Tally XML | Partial | Verified by re-import into Pevqori, not yet against TallyPrime |
+| | XML data import from another accounting program | Built | Job work vouchers and budgets not imported |
+| | XML data export for another accounting program | Partial | Verified by re-import into Pevqori, not yet against the receiving program itself |
 | | Attachments on vouchers and masters | Built | No in-app preview |
 | Company | Several companies, users, roles and passwords | Built | One company open at a time |
 | | Several users at once, remote access, consolidation | Out of scope | Single-user desktop design |
 
 ## Highlights
 
-- **Tally-style workflow** — Gateway → masters → vouchers → reports, with drill-down from any report
+- **Keyboard-first workflow** — Gateway → masters → vouchers → reports, with drill-down from any report
   to the voucher, a navigation stack (`Esc` goes back) and a Go To palette (`Ctrl+G` / `Ctrl+K`).
 - **Keyboard-complete** — `F4`–`F9` vouchers (Contra, Payment, Receipt, Journal, Sales, Purchase),
   `Ctrl+F8`/`Ctrl+F9` credit/debit notes, `Alt+C` create a master from any picker, `Ctrl+A` accept,
@@ -120,7 +121,7 @@ server, no internet connection required.
   customer's account); hold / recall bills; receipt printing to the roll printer (silently once one is
   chosen on the computer); returns and exchanges (never more back, in quantity or value, than was sold)
   as credit notes (refund, exchange credit for the next bill, or credit to the account); a day-end summary
-  by tender, cashier and counter with a cash tally.
+  by tender, cashier and counter with a counted-cash check (excess / short).
 - **Sales documents & planning** — quotations and proforma invoices (own numbering, validity, status,
   one-key conversion to a sales order or invoice), recurring vouchers (rent, retainers, EMIs) reviewed
   and posted from a due list, Sales / Purchase Bills Pending for unbilled challans, order pre-close,
@@ -142,22 +143,23 @@ server, no internet connection required.
   `**…/-` guards, A/c Payee crossing) with per-bank layouts in millimetres, presets and a calibration
   print, and a bulk NEFT / RTGS / IMPS payment file (a documented generic CSV — banks' upload formats
   differ, map the columns once).
-- **Tally both ways** — migrate from Tally XML, and **Export to Tally**: masters (groups, ledgers with
-  GST / party / bank / bill-wise openings, units, godowns, stock groups and items, cost centres, voucher
-  types, aliases) and the vouchers of a period (bill-wise, cost centres, bank details, stock lines, GST
-  facts — exactly as recorded) as a TallyPrime "Import Data" XML for your CA; for a later period the
-  masters carry the balances, pending bills and stock on its first day. Tested by importing the export
-  back into an empty company with the same trial balance, stock summary and GST totals; not yet tried
-  against TallyPrime itself, so test on a copy of the Tally company first.
+- **XML data import and export** — bring your books across from your previous accounting program's XML
+  export, and **XML Data Export** writes masters (groups, ledgers with GST / party / bank / bill-wise
+  openings, units, godowns, stock groups and items, cost centres, voucher types, aliases) and the vouchers
+  of a period (bill-wise, cost centres, bank details, stock lines, GST facts — exactly as recorded) as an
+  XML file your CA can import into their accounting program; for a later period the masters carry the
+  balances, pending bills and stock on its first day. Tested by importing the export back into an empty
+  company with the same trial balance, stock summary and GST totals; not yet tried against the receiving
+  program itself, so import into a copy of the company there first.
 - **Attachments** — attach scanned bills, challans, agreements and payment proofs (PDF, images,
   Office files, CSV / TXT / JSON / XML; up to 25 MB, no programs or macros) to vouchers, ledgers and
   stock items (`Alt+F`); open, save a copy or remove them; an Attachment Register; files are kept in the
   company folder, travel in backups (encrypted with the backup) and are checked by Check Books.
-- **Voucher numbering like Tally** — prefix / suffix tokens `{FY}` (26-27), `{FYYYYY}` (2026-27), `{YY}`,
+- **Flexible voucher numbering** — prefix / suffix tokens `{FY}` (26-27), `{FYYYYY}` (2026-27), `{YY}`,
   `{MM}`, `{MMM}`, prefix / suffix rows with an "applicable from" date, restart yearly / monthly / never,
   width and zero-fill; GST invoice numbers are checked for 16 characters and the allowed characters.
 - **Several aliases per ledger and item** — local-language names, supplier codes, old codes: every alias
-  is searched in pickers and Go To, and kept by Excel and Tally import / export.
+  is searched in pickers and Go To, and kept by Excel and XML import / export.
 - **Security** — optional per-company users and roles, scrypt-hashed passwords with lockout,
   tamper-evident (hash-chained) edit log, encrypted backups. See [docs/SECURITY.md](docs/SECURITY.md).
 - **Multi-company** — each company is a self-contained folder; open one at a time, switch with `F3`.

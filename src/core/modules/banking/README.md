@@ -1,6 +1,6 @@
 # Banking module: BRS, statement import, matching, cheque registers
 
-Bank reconciliation the Tally way (bank dates on bank-ledger entries) plus what Tally lacks: importing the
+Bank reconciliation the conventional way (bank dates on bank-ledger entries) plus what conventional software lacks: importing the
 bank's own statement, matching it automatically and creating vouchers for the lines the books do not have.
 DTOs: `src/shared/types/banking.ts`. Money is integer **paise**; dates `'YYYY-MM-DD'`.
 

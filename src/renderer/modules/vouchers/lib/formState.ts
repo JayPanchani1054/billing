@@ -2,7 +2,7 @@
  * Voucher entry form state + reducer (pure; tested in formState.test.ts).
  *
  * Rows are identified by stable string keys (never by index) so server error paths, focus and React
- * memoisation survive inserts and deletes. Grids always end with one blank row (Tally: the cursor
+ * memoisation survive inserts and deletes. Grids always end with one blank row (the cursor
  * waits on an empty line; Enter on it leaves the grid).
  */
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
@@ -326,7 +326,7 @@ export function normalize(f: VoucherForm): VoucherForm {
   return out;
 }
 
-/** Double-entry: a new row defaults to the side that balances the voucher (Tally). */
+/** Double-entry: a new row defaults to the side that balances the voucher. */
 export function nextDefaultSide(f: VoucherForm): Side {
   const filled = f.ledgers.filter((r) => !isBlankLedger(r));
   const diff = filled.reduce((a, r) => a + signedOf(r), 0);
@@ -475,7 +475,7 @@ export function balanceLast(f: VoucherForm): VoucherForm {
 }
 
 /**
- * Switch between Tally's single-entry layout (Account + particulars) and the Dr/Cr layout.
+ * Switch between the single-entry layout (Account + particulars) and the Dr/Cr layout.
  * single → double: the Account becomes the first line with the balancing amount.
  * double → single: possible when one cash/bank line (the caller marks it as the first line on the
  * account side) carries the account side and every other line the opposite side; otherwise unchanged.

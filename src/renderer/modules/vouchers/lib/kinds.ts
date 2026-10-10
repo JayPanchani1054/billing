@@ -64,7 +64,7 @@ export function partySign(b: VoucherBaseType): 1 | -1 {
 }
 
 /**
- * Tally single-entry layout ("Account" at the top + particulars): which side the Account line takes.
+ * Single-entry layout ("Account" at the top + particulars): which side the Account line takes.
  * Payment / Contra: the account (cash/bank) is credited, particulars debited. Receipt: the reverse.
  * Other ledger vouchers only have the double-entry layout.
  */
@@ -129,7 +129,7 @@ export function defaultTypeFor<T extends { id: number; baseType: VoucherBaseType
 }
 
 /**
- * Day Book column a voucher's amount goes in (Tally: the side of the first particulars line).
+ * Day Book column a voucher's amount goes in (the side of the first particulars line).
  * Sales / debit note: party Dr → Debit. Purchase / credit note: party Cr → Credit. Payment / contra /
  * journal: the particulars are debited → Debit. Receipt: credited → Credit. Stock documents follow the
  * direction of the goods (outward like a sale → Debit, inward → Credit).

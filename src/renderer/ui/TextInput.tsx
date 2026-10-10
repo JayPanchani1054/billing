@@ -24,7 +24,7 @@ export interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElemen
   mono?: boolean;
   /** Uppercase as you type (GSTIN/PAN). */
   uppercase?: boolean;
-  /** Select all text when focused (Tally overwrite behaviour). */
+  /** Select all text when focused (overwrite-on-entry behaviour). */
   selectOnFocus?: boolean;
   /** Convenience: receive the string value. */
   onValueChange?: (value: string) => void;

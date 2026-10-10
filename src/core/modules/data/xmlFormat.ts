@@ -28,3 +28,9 @@ export const MESSAGE_CLOSE = `</${MESSAGE_TAG}>`;
 export const LEGACY_IMPORT_SOURCE = 'tally';
 /** Key of the per-voucher interchange details inside vouchers.meta (`meta.<key>.guid`). */
 export const LEGACY_IMPORT_META_KEY = 'tally';
+/**
+ * audit_log.entity_type of an XML data export and import_batches.kind of an XML data import as those
+ * builds recorded them (now 'xml_data'). The edit log is append-only, so such rows keep the value; the
+ * edit log only gives it a readable label (security/auditlog.ts).
+ */
+export const LEGACY_XML_DATA_KIND = 'tally_xml';

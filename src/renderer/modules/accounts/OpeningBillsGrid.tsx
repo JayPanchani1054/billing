@@ -3,7 +3,7 @@
  * live "bills total vs opening balance" check. Enter moves across the cells (the form's
  * useEnterAdvance scope); Alt+N adds a row; the last row is always blank so typing just continues.
  * Enter on the blank last row's bill number leaves the grid (its other cells are skipped until a
- * bill number or amount is typed), so finishing the bills takes one key, as in Tally.
+ * bill number or amount is typed), so finishing the bills takes one key.
  */
 import { useRef } from 'react';
 import type { Paise } from '../../../shared/money.ts';

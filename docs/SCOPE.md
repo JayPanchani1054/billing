@@ -32,7 +32,7 @@ Three principles explain most of the list:
 | **Portal offline-tool files** for ITC-04 and GSTR-4 (and CMP-08, which has no upload at all) | Schemas not reproduced with certainty | Pevqori's documented CSV / Excel / JSON of the same tables to key into the offline tool or portal |
 | **Downloading exchange rates**; FCMITDA (AS 11 para 46A), hedge accounting; automatic reversal of a revaluation | Offline; these are judgements for your CA | Type the rates (bank's or CBIC's); pass journals; duplicate and reverse the revaluation journal yourself |
 | **Bank integrations** — host-to-host payments, bank-specific bulk-upload formats, automatic statement download; bank-specific cheque layouts | Each bank's format differs and changes; no network access | Generic documented e-payment CSV (map its columns once in net banking); import downloaded statements (CSV / Excel); calibrate a cheque layout once per bank |
-| **Tally job work vouchers** (Material In / Out) and **budgets** in the Tally XML import | Not mapped; budgets are skipped as unsupported objects | Re-enter them in Pevqori after migrating |
+| **Job work vouchers** (Material In / Out) and **budgets** in the XML data import | Not mapped; budgets are skipped as unsupported objects | Re-enter them in Pevqori after migrating |
 | **Multi-level BOM explosion** | One level per BOM keeps costing traceable | Make sub-assemblies with their own Manufacturing Journal first |
 | **Other GST returns and forms**: GSTR-9C (reconciliation statement), GSTR-6 (ISD), GSTR-7 / GSTR-8 (GST TDS deductors, e-commerce operators), ITC-03, GSTR-10 | Outside a regular or composition supplier's monthly cycle; GSTR-9 is a summary from the books only | Prepare them on the portal or with your CA; the GSTR-9 summary, registers and Trial Balance give the figures |
 | **Fixed-asset register and automatic depreciation** (Companies Act Schedule II, Income-tax block of assets) | Not built | Keep the asset register outside Pevqori and pass the depreciation journal (F7) |
@@ -67,7 +67,7 @@ Three principles explain most of the list:
 
 ### Vouchers and numbering
 - Numbering codes cover the financial year, calendar year and month — no day code and no quarterly
-  restart. A voucher keeps its number when its date is moved to another month or year (as in Tally);
+  restart. A voucher keeps its number when its date is moved to another month or year (the usual convention);
   renumber it by hand if the old label must not stay.
 - A GST invoice number typed by hand that breaks CGST Rule 46(b) (16 characters; letters, digits, `/`,
   `-`) is a warning you confirm, not a block.
@@ -88,12 +88,13 @@ Three principles explain most of the list:
 
 ### Inventory and manufacturing
 - **Physical stock** stores the difference counted − books at its save; a back-dated voucher entered later
-  is not re-absorbed (re-save the count). Tally re-bases on the counted quantity.
+  is not re-absorbed (re-save the count); conventional Indian accounting software re-bases on the counted
+  quantity.
 - No lower-of-cost-or-market valuation (market value is stored, not used). Value-only inward lines are
   ignored by valuation. Average cost with negative stock restarts the average at the next inward rate.
 - Batch Summary is not split by godown and shows no values; orders have no per-line due date; Movement
   Analysis values notes at their own rate; Stock Ageing treats LIFO items like FIFO.
-- Manufacturing additional costs never post to their expense ledgers (as in Tally) — book the expense
+- Manufacturing additional costs never post to their expense ledgers (the usual convention) — book the expense
   separately. The ITC-04 "turnover above ₹5 crore" switch is remembered per computer, not per company.
   The Material Out print lists both sides of the stock journal.
 - A stock item switched from "inherit GST from the group" to its own GST details with a later
@@ -105,22 +106,23 @@ Three principles explain most of the list:
 ### Multiple currencies
 - Books, inventory and GST are in rupees; stock bought in a currency is valued at the converted rate.
 - The Compact (thermal) print template does not print the foreign-currency block.
-- A realised difference on settling an advance by an invoice is booked like any other bill (Tally's way);
+- A realised difference on settling an advance by an invoice is booked like any other bill (the usual practice);
   Ind AS 21 Appendix B would record the invoice at the advance's rate.
 - TDS u/s 195 uses the voucher's rate (type the SBI TT buying rate of the deduction date when it differs).
 - Foreign-currency quotations are not supported. Voucher entry shows the GST under a foreign-currency
   invoice line with a ₹ sign although it is in the currency (the preview and print are correct).
 
-### Tally migration and Export to Tally
-- Import: foreign-currency amounts come in as rupees; Tally's stat-adjustment journals arrive as plain
-  journals; a debit note to a customer is imported for value only (Tally moves stock for it — listed in
-  the import log); the original invoice of a note is read from Tally's *Reference* fields only.
-- Export: tested by re-importing into Pevqori, **not** against a live TallyPrime — import into a copy of the
-  Tally company first. Not exported: foreign-currency amounts, e-invoice / e-way bill details, shipping
+### XML data import and export
+- Import: foreign-currency amounts come in as rupees; the source program's stat-adjustment journals arrive
+  as plain journals; a debit note to a customer is imported for value only (the source program may have
+  moved stock for it — listed in the import log); the original invoice of a note is read from the
+  *Reference* fields only.
+- Export: tested by re-importing into Pevqori, **not** against the receiving program itself — import into
+  a copy of the company there first. Not exported: foreign-currency amounts, e-invoice / e-way bill details, shipping
   bill details, per-line GST overrides, price lists, BOMs, budgets, scenarios, attachments, quotations,
   proforma invoices, physical stock vouchers. SEZ / deemed export / UIN parties go as Regular and overseas
   parties as Unregistered. Some tag names (assessable-value charges, alternate units, part numbers) follow
-  Tally files we have seen and are unverified.
+  the interchange files we have seen and are unverified.
 
 ### Outstanding, reports and dashboard
 - Interest is simple interest on a 365-day year only (no compounding, slabs or rate changes inside a
@@ -139,11 +141,11 @@ Three principles explain most of the list:
 - Drivers that ignore a custom page length cut thermal receipts at their own page size.
 - POS exchange credit is tied to the return that issued it (no gift-card store credit); held bills keep
   their prices; a return uses the item's current GST rate; bills are attributed to the user who created
-  them; POS bills go to Tally as ordinary sales vouchers.
+  them; the XML data export writes POS bills as ordinary sales vouchers.
 - Cheque layouts are generic CTS-2010 positions (calibrate per bank).
 
 ### Data, attachments and security
-- Attachments open in their Windows program (no preview) and are not part of Excel or Tally exports. A
+- Attachments open in their Windows program (no preview) and are not part of Excel or XML data exports. A
   CSV attachment opened in Excel is not checked for formulas.
 - Automatic backups are not password-protected (make an encrypted backup by hand when a copy leaves your
   control). Recurring vouchers post only from the reviewed due list.

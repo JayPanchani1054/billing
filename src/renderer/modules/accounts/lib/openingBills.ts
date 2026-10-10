@@ -135,7 +135,7 @@ export function sameBills(a: readonly OpeningBillInput[], b: readonly OpeningBil
   return a.every((x, i) => x.billName === b[i].billName && x.billDate === b[i].billDate && (x.dueDate ?? null) === b[i].dueDate && x.amount === b[i].amount);
 }
 
-/** Fill the last row with the unallocated difference (Tally-style quick balance). */
+/** Fill the last row with the unallocated difference (quick balance). */
 export function fillDifference(bills: readonly BillDraft[], opening: Paise, booksFrom: string): BillDraft[] {
   const check = checkBills(opening, bills);
   if (check.difference === 0) return bills.slice();

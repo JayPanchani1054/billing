@@ -1,5 +1,5 @@
 /**
- * 'reports.profitLoss' — Profit & Loss A/c in Tally's two-column layout (Expenses | Income): the
+ * 'reports.profitLoss' — Profit & Loss A/c in the conventional two-column layout (Expenses | Income): the
  * Trading account down to Gross Profit, then the P&L account down to Net Profit. Groups expand to
  * sub-groups and ledgers (→/←, Alt+F1 opens or closes everything), Alt+C adds a comparison column
  * (previous period → same period last year → none), Alt+V switches to the Schedule III vertical

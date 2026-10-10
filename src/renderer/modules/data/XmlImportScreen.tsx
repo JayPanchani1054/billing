@@ -1,7 +1,7 @@
 /**
- * 'data.xmlImport' — Tally migration wizard: 1 how to export from Tally + choose the XML → 2 what is in
+ * 'data.xmlImport' — XML data import wizard: 1 how to export from the previous program + choose the XML → 2 what is in
  * the file, issues and options (nothing saved yet) → 3 importing (progress) → 4 result with
- * "Check books". Vouchers are imported exactly as recorded in Tally.
+ * "Check books". Vouchers are imported exactly as recorded in the file.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { XmlImportResult, XmlImportIssue, XmlPreviewResult, XmlImportProgress } from '../../../shared/types/data.ts';
@@ -22,7 +22,7 @@ import { issueCounts, issueTone, progressPercent, XML_FILTERS, xmlCountRows, xml
 type Step = 'file' | 'preview' | 'import' | 'done';
 
 const STEPS = [
-  { id: 'file', label: 'Export from Tally' },
+  { id: 'file', label: 'Export your data' },
   { id: 'preview', label: 'Check the file' },
   { id: 'import', label: 'Import' },
   { id: 'done', label: 'Done' },
@@ -103,8 +103,8 @@ export function XmlImportScreen() {
     if (!file || !preview || busy || optionsProblem) return;
     const errs = issueCounts(preview.issues).error;
     const ok = await confirm({
-      title: `Import this Tally data${company ? ` into ${company.name}` : ''}?`,
-      message: `${masters ? 'Masters' : ''}${masters && vouchers ? ' and ' : ''}${vouchers ? `vouchers${from && to ? ` from ${formatDate(from)} to ${formatDate(to)}` : ''}` : ''} will be added.${onDuplicate === 'update' ? ' Masters that already exist here are changed to match Tally.' : ''} ${errs ? `${errs} record${errs === 1 ? '' : 's'} with errors will be left out. ` : ''}Take a backup first if this company already has data.`,
+      title: `Import this XML data${company ? ` into ${company.name}` : ''}?`,
+      message: `${masters ? 'Masters' : ''}${masters && vouchers ? ' and ' : ''}${vouchers ? `vouchers${from && to ? ` from ${formatDate(from)} to ${formatDate(to)}` : ''}` : ''} will be added.${onDuplicate === 'update' ? ' Masters that already exist here are changed to match the file.' : ''} ${errs ? `${errs} record${errs === 1 ? '' : 's'} with errors will be left out. ` : ''}Take a backup first if this company already has data.`,
       tone: onDuplicate === 'update' ? 'danger' : undefined,
       confirmLabel: 'Start import',
     });
@@ -150,7 +150,7 @@ export function XmlImportScreen() {
 
   const primary =
     step === 'file'
-      ? { label: 'Choose Tally file…', icon: 'upload' as const, run: () => void pick(), disabled: busy !== null }
+      ? { label: 'Choose XML file…', icon: 'upload' as const, run: () => void pick(), disabled: busy !== null }
       : step === 'preview'
         ? { label: 'Start import', icon: 'check' as const, run: () => void runImport(), disabled: !!optionsProblem }
         : step === 'done'
@@ -160,7 +160,7 @@ export function XmlImportScreen() {
   return (
     <Screen
       title="XML Data Import"
-      subtitle="Bring your masters and vouchers over from Tally ERP 9 or TallyPrime."
+      subtitle="Import from another accounting program (XML): bring your masters and vouchers over from its XML export."
       icon="sync"
       width="form"
       dirty={step === 'preview' || step === 'import'}
@@ -199,7 +199,7 @@ export function XmlImportScreen() {
               <Stack gap={3}>
                 <FieldGroup columns={2}>
                   <Checkbox label="Masters" description="Groups, ledgers with opening balances and bills, units, godowns, items with opening stock" checked={masters} onChange={setMasters} />
-                  <Checkbox label="Vouchers" description="Exactly as recorded in Tally — amounts and GST are not recalculated" checked={vouchers} onChange={setVouchers} disabled={preview.counts.VOUCHER === 0} />
+                  <Checkbox label="Vouchers" description="Exactly as recorded in your previous program — amounts and GST are not recalculated" checked={vouchers} onChange={setVouchers} disabled={preview.counts.VOUCHER === 0} />
                 </FieldGroup>
                 {vouchers && preview.dateRange ? (
                   <FieldGroup legend="Vouchers dated" columns={2}>
@@ -218,7 +218,7 @@ export function XmlImportScreen() {
                   orientation="horizontal"
                   options={[
                     { value: 'skip', label: 'Keep mine (skip)', description: 'Safe to import the same file twice' },
-                    { value: 'update', label: 'Update from Tally', description: 'Masters change to match Tally; vouchers imported from Tally before are refreshed. Vouchers entered here are never overwritten.' },
+                    { value: 'update', label: 'Update from the file', description: 'Masters change to match the file; vouchers brought in by an earlier XML import are refreshed. Vouchers entered here are never overwritten.' },
                   ]}
                 />
                 {optionsProblem ? <p className="bx-muted" role="status">{optionsProblem}</p> : null}
@@ -241,23 +241,23 @@ export function XmlImportScreen() {
 function HowTo({ busy, onChoose }: { busy: boolean; onChoose: () => void }) {
   return (
     <Stack gap={4}>
-      <Panel title="1. Export your data from Tally" description="Do this on the computer that has Tally. It does not change anything in Tally.">
+      <Panel title="1. Export your data from your previous accounting program" description="Do this on the computer that has that program. Exporting does not change anything there.">
         <ol className="bx-data-howto">
           <li>
-            Open the company in Tally and go to <strong>Gateway of Tally › Export</strong> (TallyPrime: <strong>Alt+E</strong>; Tally ERP 9: <strong>Display › List of Accounts › Alt+E</strong> for masters).
+            Open the company in that program and choose its <strong>Export</strong> option (it may be called <strong>Data Interchange</strong>).
           </li>
           <li>
-            Choose <strong>Masters</strong> (All Masters) and set <strong>Format = XML (Data Interchange)</strong>. Press <strong>Ctrl+A</strong> or <strong>E: Send</strong> to export.
+            Choose <strong>Masters</strong> (All Masters) and set <strong>Format = XML (Data Interchange)</strong>, then export.
           </li>
           <li>
             For vouchers, choose <strong>Transactions</strong> (Day Book) with the same XML format and the period you need — usually the whole financial year.
           </li>
-          <li>Copy the .xml files to this computer (a USB drive is fine). Tally saves them in its installation folder unless you change “Export location”.</li>
+          <li>Copy the .xml files to this computer (a USB drive is fine). If you cannot find them, check the export folder the program shows when exporting.</li>
         </ol>
       </Panel>
       <Panel title="2. Choose the exported file" description="Import masters first, then transactions. You will see what is in the file before anything is saved.">
         <Button variant="primary" icon="upload" loading={busy} onClick={onChoose} shortcut="Ctrl+A" data-autofocus>
-          {busy ? 'Reading the file…' : 'Choose Tally file…'}
+          {busy ? 'Reading the file…' : 'Choose XML file…'}
         </Button>
       </Panel>
     </Stack>
@@ -277,7 +277,7 @@ function PreviewPanel({ preview, file }: { preview: XmlPreviewResult; file: Chos
   );
   const typeCols = useMemo<Column<XmlPreviewResult['vouchersByType'][number]>[]>(
     () => [
-      { key: 'voucherType', header: 'Voucher type in Tally' },
+      { key: 'voucherType', header: 'Voucher type in the file' },
       { key: 'baseType', header: 'Imported as', width: 160, value: (r) => r.baseType ?? '', render: (r) => (r.baseType ? r.baseType.replace(/_/g, ' ') : <Badge size="sm" tone="danger">Not supported</Badge>) },
       { key: 'count', header: 'Vouchers', kind: 'number', width: 100 },
     ],
@@ -306,7 +306,7 @@ function PreviewPanel({ preview, file }: { preview: XmlPreviewResult; file: Chos
         <KeyValueList
           columns={2}
           items={[
-            { key: 'company', label: 'Tally company', value: preview.companyName ?? '—', strong: true },
+            { key: 'company', label: 'Company in the file', value: preview.companyName ?? '—', strong: true },
             { key: 'dates', label: 'Vouchers dated', value: preview.dateRange ? `${formatDate(preview.dateRange.from)} to ${formatDate(preview.dateRange.to)}` : 'No vouchers' },
             { key: 'issues', label: 'Issues', value: `${counts.error} left out · ${counts.warning} warnings · ${counts.info} notes` },
             { key: 'encoding', label: 'File encoding', value: preview.encoding.toUpperCase() },
@@ -350,7 +350,7 @@ function PreviewPanel({ preview, file }: { preview: XmlPreviewResult; file: Chos
 function ImportProgress({ progress }: { progress: XmlImportProgress | null }) {
   const pct = progressPercent(progress);
   return (
-    <Panel title="Importing your Tally data" description="Keep Pevqori open. Large files take a few minutes; each batch is saved as it completes.">
+    <Panel title="Importing your data" description="Keep Pevqori open. Large files take a few minutes; each batch is saved as it completes.">
       <Stack gap={2}>
         <ProgressBar value={pct ?? undefined} indeterminate={pct === null} label={progress?.message || 'Working…'} showValue={pct !== null} aria-label="Import progress" />
         {progress && progress.total > 0 ? (
@@ -384,7 +384,7 @@ function ResultPanel({ result, onVerify, onTb }: { result: XmlImportResult; onVe
           </span>
         ))}
       </Banner>
-      <Panel title="Next: check that the books agree with Tally" description="Compare the Trial Balance with Tally's for the same date, then run Check books to confirm every voucher balances.">
+      <Panel title="Next: check that the books agree with your previous program" description="Compare the Trial Balance with the one in your previous program for the same date, then run Check books to confirm every voucher balances.">
         <Inline gap={2}>
           <Button variant="primary" icon="shield" onClick={onVerify} shortcut="Ctrl+A">
             Check books

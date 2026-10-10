@@ -32,7 +32,7 @@ describe('decodeText', () => {
     assert.deepEqual(be, { text: s, encoding: 'utf-16be', bom: true });
   });
 
-  it('detects BOM-less UTF-16LE (Tally export) and UTF-16BE from NUL byte positions', () => {
+  it('detects BOM-less UTF-16LE (accounting XML export) and UTF-16BE from NUL byte positions', () => {
     const xml = `<ENVELOPE><HEADER><${REQUEST_TAG}>Import Data</${REQUEST_TAG}></HEADER></ENVELOPE>`;
     assert.deepEqual(decodeText(utf16le(xml)), { text: xml, encoding: 'utf-16le', bom: false });
     assert.deepEqual(decodeText(utf16be(xml)), { text: xml, encoding: 'utf-16be', bom: false });

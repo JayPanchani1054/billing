@@ -5,7 +5,7 @@
  *  - `yearStartOf(env, date)`    start of the financial year containing `date` (never before the books)
  *  - `ledgerSums(env, q)`        ONE aggregate query over ledger_entries (books filter) per ledger
  *  - `buildSnapshot(env, q)`     Trial-Balance style per-ledger / per-group opening, Dr, Cr, closing with
- *                                Tally's year-end treatment of nominal ledgers (see README §1)
+ *                                the conventional year-end treatment of nominal ledgers (see README §1)
  *  - `stockAt(env, date)`        value of stock at the START of `date` (integrated inventory only)
  *  - `prepareStock(env, q)`      fetch several stock values with ONE valuation replay (call it first
  *                                when a report needs more than one; the inventory module also keeps
@@ -247,7 +247,7 @@ export function openingDifference(env: ReportEnv): Paise {
 }
 
 /**
- * Trial-Balance balances for [from, to] with Tally's year-end treatment:
+ * Trial-Balance balances for [from, to] with the conventional year-end treatment:
  *  - real (asset/liability) ledgers: opening = opening balance + every entry before `from`;
  *  - nominal (income/expense) ledgers start again at the financial year containing `from`
  *    (`yearStart`): opening = entries in [yearStart, from) (+ their opening balance in the first year);
@@ -308,7 +308,7 @@ export function buildSnapshot(env: ReportEnv, q: { from: string; to: string; yea
   const groups = new Map<number, GroupBalance>();
   for (const id of env.tree.order) groups.set(id, zeroBalance());
   for (const l of env.ledgers) {
-    // The reserved Profit & Loss A/c is a primary line of its own (Tally): it never rolls into the
+    // The reserved Profit & Loss A/c is a primary line of its own (as accountants expect): it never rolls into the
     // group it is stored under (Capital Account), so a group's figures match its Balance Sheet line.
     if (l.id === env.plLedgerId) continue;
     const b = ledgers.get(l.id);

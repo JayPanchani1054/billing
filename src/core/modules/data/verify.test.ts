@@ -103,7 +103,7 @@ describe('data.verify', () => {
       b: second,
     });
     assert.ok(failing(run()).includes('duplicate_numbers'));
-    // A type that allows repeated numbers (e.g. Tally data with manual numbering) is not a problem.
+    // A type that allows repeated numbers (e.g. imported data with manual numbering) is not a problem.
     k.t.db.run('UPDATE voucher_types SET prevent_duplicates = 0 WHERE id = :id', { id: k.vt.journal });
     assert.ok(!failing(run()).includes('duplicate_numbers'));
   });

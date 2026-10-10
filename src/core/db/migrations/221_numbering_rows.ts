@@ -1,6 +1,6 @@
 /**
- * dataplus group (block 220–229), part 2: dated prefix / suffix rows of voucher numbering (TallyPrime
- * "Prefix / Suffix details — Applicable from"). The voucher type's own numbering_prefix /
+ * dataplus group (block 220–229), part 2: dated prefix / suffix rows of voucher numbering
+ * ("Prefix / Suffix details — Applicable from"). The voucher type's own numbering_prefix /
  * numbering_suffix apply from the beginning; a row replaces it for vouchers dated on or after
  * `applicable_from` (text NULL = no prefix / suffix from that date). Prefix / suffix texts may hold the
  * tokens {FY} {FYYYYY} {YY} {MM} {MMM} (src/shared/numbering.ts), expanded with the voucher date when

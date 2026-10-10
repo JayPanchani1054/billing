@@ -58,7 +58,7 @@ export const GLOBAL_SHORTCUTS: readonly ShortcutDef[] = [
 /**
  * Conventions every screen follows (documented, registered by screens/the UI kit — not global).
  * One meaning per key across modules; screens must not bind reservedGlobalKeys() (the voucher
- * screen's own F-keys and the GST screens' documented exceptions aside). Labels use Tally verbs
+ * screen's own F-keys and the GST screens' documented exceptions aside). Labels use the conventional accounting verbs
  * ("Create …", "Alter …", "Delete"); hints read "<Key> <Title Case action>".
  */
 export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
@@ -82,7 +82,7 @@ export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'Alt+M', label: "Open the report subject's master (ledger, item)", group: 'Lists & reports', global: false },
   { keys: 'Alt+F1', label: 'Detailed / condensed', group: 'Lists & reports', global: false },
   { keys: 'Alt+X', label: 'Expand / collapse all (tree reports)', group: 'Lists & reports', global: false },
-  { keys: 'Alt+C', label: 'Comparison column (Balance Sheet, P&L — Tally "New Column")', group: 'Lists & reports', global: false, description: 'Nothing is created from a report, so Alt+C keeps its Tally meaning there' },
+  { keys: 'Alt+C', label: 'Comparison column (Balance Sheet, P&L — "New Column")', group: 'Lists & reports', global: false, description: 'Nothing is created from a report, so Alt+C adds a comparison column there' },
   { keys: 'Ctrl+1, Ctrl+2, Ctrl+3', label: 'Switch view or tab (Ctrl+1…9)', group: 'Lists & reports', global: false },
   { keys: 'Ctrl+F', label: "Search box of the screen", group: 'Lists & reports', global: false },
   { keys: 'Alt+E', label: 'Export (Excel / CSV / PDF)', group: 'Lists & reports', global: false, description: 'Needs the Data › Export permission (also for Print)' },

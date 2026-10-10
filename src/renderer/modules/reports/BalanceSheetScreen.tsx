@@ -1,5 +1,5 @@
 /**
- * 'reports.balanceSheet' — Balance Sheet as on the period's end date, Tally layout (Liabilities |
+ * 'reports.balanceSheet' — Balance Sheet as on the period's end date, horizontal layout (Liabilities |
  * Assets). Profit & Loss A/c shows its opening balance and current period; closing stock sits under
  * Stock-in-Hand. Alt+F1 opens every group, Alt+C adds the same date last year as a comparison column.
  * Enter drills a group into its Group Summary (year to date), a ledger into Ledger Vouchers, the P&L

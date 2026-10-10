@@ -1,6 +1,6 @@
 /**
  * Gateway menu building — pure (tested in menu.test.ts): collect ModuleDef.menu entries, filter by
- * permission / GST / feature, sort into sections, and assign Tally-style single-letter accelerators.
+ * permission / GST / feature, sort into sections, and assign single-letter accelerators.
  */
 import type { Permission } from '../../../shared/constants.ts';
 import type { CompanyFeatures } from '../../../shared/settings.ts';
@@ -162,7 +162,7 @@ export const GATEWAY_PRIORITY: readonly string[] = [
 ];
 
 /**
- * Tally-style accelerators: each label gets a unique letter, preferring (1) its first letter,
+ * Keyboard-first accelerators: each label gets a unique letter, preferring (1) its first letter,
  * (2) the first letter of a later word, (3) any other letter in the label, (4) a digit in the
  * label. Labels are processed in
  * order, so earlier (more important) items win their natural letter. `reserved` letters are never

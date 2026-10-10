@@ -1,5 +1,5 @@
 /**
- * API-level twin of the Playwright flows in e2e/parity.spec.ts: the Tally-parity features used the way
+ * API-level twin of the Playwright flows in e2e/parity.spec.ts: the parity features used the way
  * the screens use them, through runtime.dispatch exactly as the Electron main process does.
  *
  *   company (wizard defaults) → F11: TDS, multiple currencies, cheque printing, manufacturing, POS →
@@ -28,7 +28,7 @@ import type { ApiCall, ParityMasters } from './parityFlow.ts';
 
 const T = PARITY.today;
 
-describe('Tally-parity flows (API twin of e2e/parity.spec.ts)', () => {
+describe('parity flows (API twin of e2e/parity.spec.ts)', () => {
   let e: E2E;
   let m: ParityMasters;
   let call: ApiCall;
