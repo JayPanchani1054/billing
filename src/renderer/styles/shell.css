@@ -1,23 +1,17 @@
-/* ==========================================================================
-   Pevqori — application shell: workspace frame (top bar, screen bar with
-   breadcrumbs + command bar, screen stack, optional shortcut bar, status bar),
-   Home, Go To palette, shortcuts, gate screens (data folder, company list,
-   wizard, login) and company screens.
-   Semantic tokens only — no raw colours. Loaded after styles/index.css.
-   ========================================================================== */
+/* Pevqori application shell: top bar, screen bar (breadcrumbs + command bar), screen stack,
+   shortcut bar, status bar, page header, screen layout, gate and company screens.
+   Semantic tokens only. Home, Go To and F1: gateway.css; report frame: report.css. */
 
 :root {
   --topbar-h: 48px;
   --statusbar-h: 24px;
   --crumbs-h: 40px;
-  --gateway-menu-w: 320px;
 }
 
 [data-density='compact'] {
   --topbar-h: 44px;
   --statusbar-h: 22px;
   --crumbs-h: 36px;
-  --gateway-menu-w: 288px;
 }
 
 /* Toasts clear the status bar (and the shortcut bar when it is shown). */
@@ -29,7 +23,7 @@ body:has(.bx-shell--shortcut-bar) {
   --toast-inset-right: calc(var(--rail-width) + var(--space-4));
 }
 
-/* ── Splash / full-page notices ─────────────────────────────────────────── */
+/* ── Splash / full-page notices */
 .bx-splash,
 .bx-fullpage {
   display: flex;
@@ -62,7 +56,7 @@ body:has(.bx-shell--shortcut-bar) {
   letter-spacing: var(--tracking-tight);
 }
 
-/* ── Workspace frame ─────────────────────────────────────────────────────── */
+/* ── Workspace frame */
 .bx-shell {
   display: grid;
   grid-template-rows: var(--topbar-h) minmax(0, 1fr) var(--statusbar-h);
@@ -120,7 +114,7 @@ body:has(.bx-shell--shortcut-bar) {
   margin-left: auto;
 }
 
-/* ── Command bar (screen bar, right side) ───────────────────────────────── */
+/* ── Command bar (screen bar, right side) */
 .bx-cmdbar {
   display: flex;
   align-items: center;
@@ -157,7 +151,7 @@ body:has(.bx-shell--shortcut-bar) {
   display: none;
 }
 
-/* ── Top bar ────────────────────────────────────────────────────────────── */
+/* ── Top bar */
 .bx-topbar {
   position: relative;
   z-index: var(--z-header);
@@ -312,7 +306,7 @@ body:has(.bx-shell--shortcut-bar) {
   }
 }
 
-/* ── Status bar ─────────────────────────────────────────────────────────── */
+/* ── Status bar */
 .bx-statusbar {
   display: flex;
   align-items: center;
@@ -342,7 +336,7 @@ body:has(.bx-shell--shortcut-bar) {
   color: var(--text-muted);
 }
 
-/* ── Crash fallback (per-screen error boundary) ─────────────────────────── */
+/* ── Crash fallback (per-screen error boundary) */
 .bx-crash {
   display: flex;
   flex-direction: column;
@@ -370,7 +364,7 @@ body:has(.bx-shell--shortcut-bar) {
   gap: var(--space-2);
 }
 
-/* ── Screen layout (Screen component) ───────────────────────────────────── */
+/* ── Screen layout (Screen component) */
 .bx-screen-layout {
   display: flex;
   flex-direction: column;
@@ -412,6 +406,63 @@ body:has(.bx-shell--shortcut-bar) {
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-2) 0;
+}
+
+/* ── Page header (PageHeader) */
+.bx-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.bx-page-header__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.bx-page-header__titles {
+  min-width: 0;
+}
+.bx-page-header__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.bx-page-header__icon {
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--brand-subtle);
+  color: var(--brand-text);
+  width: 32px;
+  height: 32px;
+}
+.bx-page-header__title {
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+.bx-page-header__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bx-page-header__meta {
+  display: flex;
+  gap: var(--space-1-5);
+}
+.bx-page-header__subtitle {
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+.bx-page-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 /* Export format chooser */
@@ -484,256 +535,6 @@ body:has(.bx-shell--shortcut-bar) {
   color: var(--text-primary);
 }
 
-/* ── Go To palette / voucher picker ─────────────────────────────────────── */
-.bx-goto__search {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border-subtle);
-}
-.bx-goto__search-icon {
-  color: var(--text-muted);
-}
-.bx-goto__input {
-  flex: 1;
-  min-width: 0;
-  height: 40px;
-  border: 0;
-  background: transparent;
-  font-size: var(--fs-16);
-}
-.bx-goto__input::placeholder {
-  color: var(--text-placeholder);
-}
-.bx-goto__input:focus-visible {
-  outline: none;
-}
-.bx-goto__results {
-  overflow-y: auto;
-  max-height: min(56vh, 480px);
-  padding: var(--space-1) 0 var(--space-2);
-}
-.bx-goto__results--short {
-  max-height: min(48vh, 420px);
-}
-.bx-goto__group {
-  padding: var(--space-2) var(--space-4) var(--space-1);
-  color: var(--text-muted);
-  font-size: var(--text-caption);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-}
-.bx-goto__option {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-height: var(--option-h);
-  margin: 0 var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-.bx-goto__option.is-active {
-  background: var(--row-selected);
-  box-shadow: inset 3px 0 0 var(--row-selected-indicator);
-}
-.bx-goto__option.is-disabled {
-  color: var(--text-disabled);
-  cursor: default;
-}
-.bx-goto__label {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-.bx-goto__desc {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: var(--text-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.bx-goto__option.is-disabled .bx-goto__desc {
-  color: var(--text-muted);
-}
-.bx-goto__empty {
-  padding: var(--space-6) var(--space-4);
-  color: var(--text-secondary);
-  text-align: center;
-}
-.bx-goto__hints {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--text-muted);
-  font-size: var(--text-small);
-}
-
-/* ── Keyboard shortcuts ─────────────────────────────────────────────────── */
-.bx-shortcuts-overlay {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-.bx-shortcuts {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--space-5) var(--space-6);
-}
-.bx-shortcuts__heading {
-  margin-bottom: var(--space-2);
-  color: var(--text-muted);
-  font-size: var(--text-caption);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-}
-.bx-shortcuts__table {
-  width: 100%;
-}
-.bx-shortcuts__table td {
-  padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--border-subtle);
-  vertical-align: top;
-}
-.bx-shortcuts__keys {
-  width: 1%;
-  padding-right: var(--space-3) !important;
-  white-space: nowrap;
-}
-.bx-shortcuts__desc {
-  display: block;
-  color: var(--text-secondary);
-  font-size: var(--text-small);
-}
-.bx-shortcuts__empty {
-  color: var(--text-secondary);
-}
-
-/* ── Gateway ────────────────────────────────────────────────────────────── */
-.bx-gateway {
-  display: grid;
-  grid-template-columns: var(--gateway-menu-w) minmax(0, 1fr);
-  height: 100%;
-}
-.bx-gateway__menu {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--space-4) var(--space-3) var(--space-6);
-  border-right: 1px solid var(--border-subtle);
-  background: var(--surface-1);
-}
-.bx-gateway__title {
-  padding: 0 var(--space-2) var(--space-3);
-  font-family: var(--font-display);
-  font-size: var(--text-subtitle);
-}
-.bx-gateway__views {
-  margin: 0 var(--space-2) var(--space-4);
-}
-.bx-gateway__empty {
-  padding: var(--space-2);
-  color: var(--text-secondary);
-}
-.bx-gateway__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-.bx-gateway__section-title {
-  padding: 0 var(--space-2) var(--space-1);
-  color: var(--text-muted);
-  font-size: var(--text-caption);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-}
-.bx-gateway__items {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.bx-gateway__item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: var(--row-h);
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  text-align: left;
-}
-.bx-gateway__item:hover {
-  background: var(--row-hover);
-}
-.bx-gateway__item:focus-visible {
-  outline-offset: -2px;
-  background: var(--row-selected);
-  box-shadow: inset 3px 0 0 var(--row-selected-indicator);
-}
-.bx-gateway__text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-.bx-gateway__label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.bx-gateway__item--detailed {
-  padding-block: var(--space-1-5);
-}
-.bx-gateway__desc {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: var(--text-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.bx-gateway__accel {
-  color: var(--brand-text);
-  font-weight: var(--fw-bold);
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 2px;
-}
-.bx-gateway__panel {
-  min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/* Home panel: "Try the simpler Home" card and the greeting (users without the dashboard). */
-.bx-gateway__try {
-  margin: var(--space-4) var(--space-6) 0;
-}
-.bx-gateway__greeting {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  max-width: 720px;
-  padding: var(--space-6) var(--space-8);
-}
-.bx-gateway__greeting-title {
-  font-family: var(--font-display);
-  font-size: var(--text-heading);
-  letter-spacing: var(--tracking-tight);
-}
-.bx-gateway__greeting-text {
-  color: var(--text-secondary);
-  font-size: var(--text-body);
-}
-
 /* Appearance panel (user menu › Appearance…, Settings hub) */
 .bx-appearance {
   display: flex;
@@ -759,7 +560,7 @@ body:has(.bx-shell--shortcut-bar) {
   font-weight: var(--fw-regular);
 }
 
-/* ── Gate screens (before a company is open) ────────────────────────────── */
+/* ── Gate screens (before a company is open) */
 .bx-gate {
   display: flex;
   flex-direction: column;
@@ -1165,7 +966,7 @@ body:has(.bx-shell--shortcut-bar) {
   min-width: 0;
 }
 
-/* ── Print: only the active screen ──────────────────────────────────────── */
+/* ── Print: only the active screen */
 @media print {
   .bx-topbar,
   .bx-statusbar,
@@ -1184,7 +985,7 @@ body:has(.bx-shell--shortcut-bar) {
   }
 }
 
-/* ── Workspace host & idle lock (App.tsx, LockScreen.tsx) ───────────────── */
+/* ── Workspace host & idle lock (App.tsx, LockScreen.tsx) */
 .bx-workspace-host {
   display: contents;
 }

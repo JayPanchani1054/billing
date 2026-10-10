@@ -11,10 +11,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import type { RefObject } from 'react';
 import type { ModuleDef } from './registry.ts';
 import { formatDate, financialYear } from '../../shared/dates.ts';
-import { ActionRail, CommandBar, DropdownMenu, Icon, IconButton, Kbd, Modal, Spinner } from '../ui/index.ts';
+import { ActionRail, CommandBar, DropdownMenu, Icon, IconButton, Kbd, Spinner } from '../ui/index.ts';
 import type { ActionRailItem, MenuEntry } from '../ui/index.ts';
 import { cx } from '../ui/lib/cx.ts';
-import { AppearancePanel } from './AppearancePanel.tsx';
 import { apiActivity, onApiActivity } from './api.ts';
 import { formatRelative } from './display.ts';
 import { installBuiltinGotoProviders } from './gotoProviders.ts';
@@ -22,9 +21,10 @@ import { commandBarSlots, layoutCommandBar } from './lib/commandBar.ts';
 import { createMenuGroups } from './lib/createMenu.ts';
 import type { CreateTarget } from './lib/createMenu.ts';
 import { NavBreadcrumbs, NavProvider, ScreenStack, useActionLookup, useAnyDirty, useEntryTitle, useNav, useNavStack, useTopScreenActions, useTopScreenHint } from './nav.tsx';
-import { setPreferences, setUiPrefs, usePreferences, useUiPrefs } from './preferences.ts';
+import { useUiPrefs } from './preferences.ts';
 import { ShellProvider, useShell } from './shell.tsx';
 import { useAppState, useCompany } from './state.tsx';
+import { UserMenu } from './UserMenu.tsx';
 import { WELL_KNOWN_SCREENS } from './wellKnown.ts';
 import { usePeriod, useWorkingDate, WorkingContextProvider } from './working.tsx';
 
@@ -101,11 +101,7 @@ function TopBar() {
   const nav = useNav();
   const date = useWorkingDate();
   const period = usePeriod();
-  const prefs = usePreferences();
-  const ui = useUiPrefs();
-  const session = app.session;
   const fy = financialYear(date.date, company.fyStartMonth);
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
 
   const companyItems: MenuEntry[] = useMemo(() => {
     const items: MenuEntry[] = [{ type: 'label', key: 'gstin', label: company.gstin ? `GSTIN ${company.gstin}` : 'No GSTIN' }];
@@ -136,42 +132,6 @@ function TopBar() {
     // app.company changes when features or permissions change; voucherAvailability reads it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shell, nav, app.can, app.company, company.features.inventory]);
-
-  const userItems: MenuEntry[] = useMemo(() => {
-    const secured = session && !session.implicit;
-    const items: MenuEntry[] = [];
-    if (secured) items.push({ type: 'label', key: 'who', label: `${session.displayName || session.username} · ${session.role}` });
-    items.push({ type: 'label', key: 'theme-label', label: 'Theme' });
-    items.push({ key: 'theme-system', label: 'Match Windows', icon: 'grid', checked: prefs.theme === 'system', onSelect: () => setPreferences({ theme: 'system' }) });
-    items.push({ key: 'theme-light', label: 'Light', icon: 'sun', checked: prefs.theme === 'light', onSelect: () => setPreferences({ theme: 'light' }) });
-    items.push({ key: 'theme-dark', label: 'Dark', icon: 'moon', checked: prefs.theme === 'dark', onSelect: () => setPreferences({ theme: 'dark' }) });
-    items.push({ type: 'label', key: 'density-label', label: 'Density' });
-    items.push({ key: 'density-comfortable', label: 'Comfortable', icon: 'list', checked: prefs.density === 'comfortable', onSelect: () => setPreferences({ density: 'comfortable' }) });
-    items.push({ key: 'density-compact', label: 'Compact', icon: 'columns', checked: prefs.density === 'compact', onSelect: () => setPreferences({ density: 'compact' }) });
-    items.push({ type: 'label', key: 'home-label', label: 'Home view (Ctrl+1 / Ctrl+2 on Home)' });
-    items.push({ key: 'home-essentials', label: 'Essentials', icon: 'home', checked: ui.homeView === 'essentials', onSelect: () => setUiPrefs({ homeView: 'essentials' }) });
-    items.push({ key: 'home-all', label: 'All menus', icon: 'menu', checked: ui.homeView === 'all', onSelect: () => setUiPrefs({ homeView: 'all' }) });
-    items.push({ type: 'separator', key: 's1' });
-    items.push({ key: 'shortcut-bar', label: 'Show shortcut bar', icon: 'panel-right', checked: ui.shortcutBar, onSelect: () => setUiPrefs({ shortcutBar: !ui.shortcutBar }) });
-    items.push({ key: 'appearance', label: 'Appearance…', icon: 'sliders', onSelect: () => setAppearanceOpen(true) });
-    items.push({ type: 'separator', key: 's2' });
-    items.push({ key: 'shortcuts', label: 'Keyboard shortcuts', icon: 'keyboard', shortcut: 'F1', onSelect: () => shell.openShortcuts() });
-    if (nav.isRegistered(WELL_KNOWN_SCREENS.companyAbout)) items.push({ key: 'about', label: 'About Pevqori', icon: 'info', onSelect: () => nav.push(WELL_KNOWN_SCREENS.companyAbout) });
-    if (secured) {
-      items.push({ type: 'separator', key: 's3' });
-      items.push({ key: 'password', label: 'Change password', icon: 'key', onSelect: () => nav.push('company.changePassword') });
-      items.push({ key: 'lock', label: 'Lock', icon: 'lock', onSelect: () => void shell.lock() });
-      items.push({ key: 'logout', label: 'Log out', icon: 'logout', onSelect: () => void shell.logout() });
-    }
-    return items;
-  }, [session, prefs, ui, nav, shell]);
-
-  const initials = (session && !session.implicit ? session.displayName || session.username : company.name)
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('');
 
   const settingsOpenable = nav.isRegistered(WELL_KNOWN_SCREENS.settings) && nav.canOpen(WELL_KNOWN_SCREENS.settings);
 
@@ -220,25 +180,8 @@ function TopBar() {
         {createItems.length > 0 ? <DropdownMenu items={createItems} label="Create" icon="plus" variant="primary" size="sm" placement="bottom-end" aria-label="Create" /> : null}
         {settingsOpenable ? <IconButton icon="settings" aria-label="Settings" variant="ghost" size="sm" onClick={() => nav.push(WELL_KNOWN_SCREENS.settings)} /> : null}
         <IconButton icon="help" aria-label="Keyboard shortcuts and help" variant="ghost" size="sm" shortcut="F1" onClick={() => shell.openShortcuts()} />
-        <DropdownMenu
-          items={userItems}
-          aria-label="User menu"
-          placement="bottom-end"
-          renderTrigger={(p) => (
-            <button type="button" className="bx-topbar__user" {...p} aria-label="User menu">
-              <span className="bx-avatar" aria-hidden="true">
-                {initials || <Icon name="user" size="sm" />}
-              </span>
-              <Icon name="chevron-down" size="xs" />
-            </button>
-          )}
-        />
+        <UserMenu />
       </div>
-      {appearanceOpen ? (
-        <Modal open onClose={() => setAppearanceOpen(false)} title="Appearance" description="How Pevqori looks on this computer, for you." size="sm">
-          <AppearancePanel />
-        </Modal>
-      ) : null}
     </header>
   );
 }

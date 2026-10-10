@@ -329,7 +329,7 @@ cells: amount + fixed-width `Dr`/`Cr` suffix in `--dr`/`--cr`. Define `columns` 
 | `SplitPane` | `orientation?`, `size?`/`defaultSize?`/`onSizeChange?`, `minSize?`, `maxSize?`, `first`, `second`, `separatorLabel?` — keyboard-resizable separator |
 | `ScrollArea` | `maxHeight?`, `height?`, `horizontal?`, `aria-label?`, `shadows?` — focusable when it overflows |
 | `ActionRail` | `items: {key:'F2', label, onClick, disabled?, hidden?, group?, icon?, hint?, primary?, id?}[]`, `registerHotkeys?` (true), `showGroupLabels?` |
-| `ReportFrame` | `title`, `subtitle?`, `companyName?`, `period?: {from,to}\|node`, `onPeriodClick?`, `breadcrumbs?`, `filters?`, `actions?`, `children` (body), `footer?`, `rail?`, `refreshing?` |
+| `ReportFrame` | `title`, `subtitle?`, `companyName?` (accepted, not shown on screen since 2.1 — the top bar names the company; print/export take it from `TableExportDef`), `period?: {from,to}\|node`, `onPeriodClick?`, `breadcrumbs?`, `filters?`, `actions?`, `children` (body), `footer?`, `rail?`, `refreshing?` |
 
 ```tsx
 <ReportFrame

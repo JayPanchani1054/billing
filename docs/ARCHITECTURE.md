@@ -182,6 +182,10 @@ export const accountsRoutes = {
   (`api/jobs.ts BUSY_DETAILS`); the renderer offers "Wait and retry" (`app/lib/apiErrors.ts`
   `isBusyConflict` / `retryWhileBusy`).
 - Lists accept `{ search?, limit?, offset? }` where relevant and return `{ rows, total }` for paging.
+- Graph data (2.1) is read-only and additive: `reports.profitTrend` (`{ from, to, scenarioId? }`,
+  reports.financial) gives the P&L's figures month by month, Σ months = the P&L exactly (README §5a of
+  core/modules/reports); `reports.monthlySummary` gained `subject.isNominal`. Every other graph reads
+  data its screen already fetches.
 
 ### Contexts (`core/api/context.ts`)
 `ctx.db` (Db), `ctx.session` (user, permissions), `ctx.company` (open company info), `ctx.clock`
@@ -355,6 +359,11 @@ One calm visual language for every screen, defined once in `src/renderer/styles/
   committed) at 180 KB in total, `components.css` at 67.5 KB and `tokens.css` at 16 KB (1.0: 206 /
   76 / 24 KB; 2.0 measured 179.75 / 65.8 / 15.6 KB — the file ceilings are that + 2 %, the total stays
   at the 180 KB gate). Raising a ceiling is a reviewed decision, never a fix for a heavier stylesheet.
+  2.1 splits the global stylesheets by owner (rules moved unchanged): `styles/index.css` imports
+  tokens, base, components, charts (`.bx-chart*`, `.bx-sparkline*`, `.bx-kpi*`), shell (frame, page
+  header, screen layout), report (`.bx-report*`) and gateway (Home menu, Go To, F1 overlay,
+  `--gateway-menu-w`); the vouchers module loads `vouchers-entry.css` + `vouchers-view.css`, the GST
+  module `gst-returns.css` + `gst.css`. Every file counts toward the same 180 KB total.
   `ui/lib/contrast.test.ts` keeps every text pair ≥ 4.5:1 and every control/focus/icon pair ≥ 3:1
   in both themes and asserts the system block stays gone.
 

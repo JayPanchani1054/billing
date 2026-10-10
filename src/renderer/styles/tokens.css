@@ -214,7 +214,6 @@
   --on-info-solid: var(--slate-0);
   --chart-4: #c98500;
   --chart-5: #d55181;
-  --chart-other: var(--slate-450);
 }
 
 /* Light theme (default) */
@@ -342,6 +341,7 @@
   --chart-1: var(--indigo-600);
   --chart-2: #e0701b;
   --chart-3: #1a9e72;
+  --chart-other: var(--slate-450);
   --chart-grid: var(--slate-150);
   --chart-axis: var(--slate-300);
   --chart-area-opacity: 0.1;
@@ -468,6 +468,7 @@
   --chart-1: var(--indigo-400);
   --chart-2: #d95926;
   --chart-3: #199e70;
+  --chart-other: #6e7686;
   --chart-grid: var(--slate-850);
   --chart-axis: var(--slate-700);
   --chart-area-opacity: 0.16;

@@ -461,7 +461,8 @@ describe('idle prefetch of the Essentials screens', () => {
     assert.match(nav, /runWhenIdle\(tasks, browserIdleScheduler\(\)\)/);
     assert.match(nav, /PREFETCH_SCREENS\.flatMap/);
     assert.match(nav, /retryLazyScreens\(\)/, '"Try again" re-arms a failed chunk load');
-    const screen = read(path.join(appDir, 'Screen.tsx'));
+    // ScreenSkeleton moved from Screen.tsx to screenParts.tsx in 2.1 (WP-0b); Screen.tsx re-exports it.
+    const screen = read(path.join(appDir, 'screenParts.tsx'));
     assert.match(screen, /className="bx-screen-skeleton" aria-busy="true"/, 'the fallback is busy for assistive tech and e2e waits');
   });
 });

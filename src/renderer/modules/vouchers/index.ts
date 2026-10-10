@@ -7,7 +7,8 @@
  *   'vouchers.view'    {id}
  *   'vouchers.list'    {from?, to?, voucherTypeIds?, baseTypes?, partyLedgerId?, ledgerId?, search?, includeOptional?, includeCancelled?, onlyPostDated?, title?}
  */
-import './vouchers.css';
+import './vouchers-entry.css';
+import './vouchers-view.css';
 import type { MenuItem, ModuleDef } from '../../app/registry.ts';
 import { api, registerGotoProvider } from '../../app/index.ts';
 import { VOUCHER_FEATURE } from '../../app/lib/shortcuts.ts';

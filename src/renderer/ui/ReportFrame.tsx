@@ -14,6 +14,7 @@ export interface ReportFrameProps {
   title: ReactNode;
   /** e.g. "Ledger: HDFC Bank" or "Detailed". */
   subtitle?: ReactNode;
+  /** Accepted but not shown on screen (2.1: the top bar names the company; print/export take it from TableExportDef). */
   companyName?: ReactNode;
   /** ISO range (rendered "1-Apr-2026 to 31-Mar-2027") or custom node. */
   period?: ReportPeriod | ReactNode;
@@ -41,11 +42,11 @@ function isPeriod(p: unknown): p is ReportPeriod {
 }
 
 /**
- * Standard report layout: company + title + period header, toolbar (filters left, export/print
+ * Standard report layout: title + period header, toolbar (filters left, export/print
  * right), a body that fills the height for the DataTable, a footer, and an optional ActionRail.
  * Prints cleanly (toolbar/rail hidden, header kept).
  */
-export function ReportFrame({ title, subtitle, companyName, period, onPeriodClick, breadcrumbs, filters, actions, children, footer, rail, refreshing = false, className, ref }: ReportFrameProps) {
+export function ReportFrame({ title, subtitle, period, onPeriodClick, breadcrumbs, filters, actions, children, footer, rail, refreshing = false, className, ref }: ReportFrameProps) {
   const periodNode = isPeriod(period) ? (
     <>
       {formatDate(period.from, 'D-MMM-YY')} <span className="bx-report__period-to">to</span> {formatDate(period.to, 'D-MMM-YY')}
@@ -59,7 +60,6 @@ export function ReportFrame({ title, subtitle, companyName, period, onPeriodClic
         {breadcrumbs ? <div className="bx-report__crumbs">{breadcrumbs}</div> : null}
         <header className="bx-report__header">
           <div className="bx-report__titles">
-            {companyName ? <p className="bx-report__company">{companyName}</p> : null}
             <h1 className="bx-report__title">{title}</h1>
             {subtitle ? <p className="bx-report__subtitle">{subtitle}</p> : null}
           </div>

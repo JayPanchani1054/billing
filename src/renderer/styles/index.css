@@ -2,3 +2,7 @@
 @import "./tokens.css";
 @import "./base.css";
 @import "./components.css";
+@import "./charts.css";
+@import "./shell.css";
+@import "./report.css";
+@import "./gateway.css";

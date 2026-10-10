@@ -1,0 +1,117 @@
+/* ReportFrame */
+.bx-report__footer {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+.bx-report__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.bx-report__title {
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+.bx-report__subtitle {
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+.bx-report__filters,
+.bx-report__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.bx-report {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--surface-0);
+}
+.bx-report__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-4) var(--space-5);
+}
+.bx-report__titles {
+  min-width: 0;
+}
+.bx-report__title {
+  margin-top: 2px;
+}
+.bx-report__period {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+button.bx-report__period:hover {
+  border-color: var(--border-strong);
+}
+.bx-report__period .bx-icon {
+  color: var(--text-muted);
+}
+.bx-report__period-to {
+  margin: 0 2px;
+  color: var(--text-muted);
+}
+.bx-report__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+.bx-report__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  transition: opacity var(--dur-base) var(--ease-standard);
+}
+.bx-report__body.is-refreshing {
+  opacity: 0.6;
+}
+.bx-report__body > .bx-table {
+  flex: 1;
+}
+.bx-report__rail {
+  display: flex;
+}
+
+@media print {
+  .bx-report__rail,
+  .bx-report__toolbar {
+    display: none !important;
+  }
+  .bx-report,
+  .bx-report__main,
+  .bx-report__body {
+    display: block;
+    height: auto;
+    padding: 0;
+    background: none;
+  }
+  .bx-report__period {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+  }
+}

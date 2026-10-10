@@ -623,7 +623,7 @@ export function TrialBalance() {
 |---|---|
 | `App.tsx`, `state.tsx`, `lib/appPhase.ts` | providers, top-level routing (no bridge → first run → login → company list → forced password → workspace); `CoreRestartNotice`: on the `core.restarted` command (main restarted a crashed core worker — nothing is open any more) shows an error toast and refreshes the app state |
 | `LockScreen.tsx`, `lib/sessionLock.ts` | idle lock (phase `locked`): lock screen over the kept workspace, lock/resume rules |
-| `Workspace.tsx`, `shell.tsx`, `lib/autoBackup.ts`, `lib/commandBar.ts`, `lib/createMenu.ts` | layout, top bar (company, Create ▾ — only what the user may create —, search, ⚙, ?, user menu), screen bar + command bar, optional shortcut bar, status bar; global hotkeys, menu commands, session keep-alive + idle timer, Lock, automatic backup |
+| `Workspace.tsx`, `UserMenu.tsx`, `shell.tsx`, `lib/autoBackup.ts`, `lib/commandBar.ts`, `lib/createMenu.ts` | layout, top bar (company, Create ▾ — only what the user may create —, search, ⚙, ?, user menu — `UserMenu.tsx`, with the Appearance dialog), screen bar + command bar, optional shortcut bar, status bar; global hotkeys, menu commands, session keep-alive + idle timer, Lock, automatic backup |
 | `nav.tsx`, `lib/navStack.ts`, `lib/initialFocus.ts`, `screenVisibility.ts` | stack, result delivery, per-screen hooks, initial focus, error boundary, DialogScreen |
 | `api.ts`, `bridge.ts`, `queryClient.ts`, `hooks/*`, `lib/queryCache.ts`, `lib/queryVisibility.ts`, `lib/apiErrors.ts` | API client, cache (hidden screens wait), errors |
 | `confirm.tsx` | useConfirm, withConfirmation |
@@ -633,7 +633,8 @@ export function TrialBalance() {
 | `lib/emptyStates.test.ts` | every module DataTable has its own `empty` state (ratchet of the 2.0 baseline; the list may only shrink) |
 | `GotoPalette.tsx`, `gotoProviders.ts`, `lib/goto.ts`, `lib/gotoItems.ts`, `lib/gotoCatalog.ts` | Go To (+ the catalogue the e2e sweep reads) |
 | `ShortcutsOverlay.tsx`, `VoucherPicker.tsx`, `lib/shortcuts.ts`, `lib/voucherTypes.ts`, `hooks/useVoucherChoices.ts` | keyboard map, F1, F10 (predefined + company voucher types) |
-| `Screen.tsx`, `export.ts`, `lib/exportFormat.ts`, `display.ts` | layout patterns, export/print, formatting |
+| `Screen.tsx`, `ReportScreen.tsx`, `screenParts.tsx`, `export.ts`, `lib/exportFormat.ts`, `display.ts` | layout patterns: `Screen` (Screen.tsx), `ReportScreen` + the Export dialog (ReportScreen.tsx), the skeleton and load-error state both use (screenParts.tsx) — Screen.tsx re-exports them all, so imports from it keep working; export/print, formatting |
+| `graphStrip.tsx` | the report graph strip (2.1): `ReportGraph`, `GraphStrip`, `useGraphsToggle` — a stub that renders nothing until the graph template lands |
 | `lib/featureCatalog.ts`, `preferences.ts` | F11 feature texts & rules, theme/density |
 | `lib/keyConventions.test.ts`, `lib/screenConventions.test.ts`, `lib/menuPositions.test.ts`, `lib/gatewayLabels.test.ts`, `lib/featureGating.test.ts`, `lib/screenA11y.test.ts`, `lib/parityWiring.test.ts` | conventions checked on the real module sources: keys, hints, menu positions and labels, F11 gating (menus, Go To, voucher panels), grid / table names, date shorthand, report export and focus, permission names, wiring of the parity-wave UX fixes |
 

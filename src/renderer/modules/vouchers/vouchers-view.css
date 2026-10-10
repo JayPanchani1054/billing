@@ -1,0 +1,47 @@
+/* Voucher view, Day Book and voucher lists. Prefix: bx-vch- */
+
+/* ── View screen ──────────────────────────────────────────────────── */
+.bx-vch-view__head {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-3);
+}
+.bx-vch-view__entry {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.bx-vch-view__detail {
+  font-size: var(--text-caption);
+  white-space: normal;
+}
+.bx-vch-view__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--fs-13);
+}
+.bx-vch-view__foot p {
+  margin: 0;
+}
+
+/* ── Day Book / lists ─────────────────────────────────────────────── */
+.bx-vch-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.bx-vch-list__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+  max-width: 100%;
+}
+.bx-vch-list__name.is-cancelled .bx-truncate {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+.bx-vch-list__row.is-muted {
+  color: var(--text-secondary);
+}

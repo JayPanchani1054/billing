@@ -10,6 +10,7 @@ import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
 import { CompositionCard } from './CompositionCard.tsx';
 import { VoucherGstPanel } from './VoucherGstPanel.tsx';
+import './gst-returns.css';
 import './gst.css';
 
 // Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
