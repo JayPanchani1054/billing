@@ -4,7 +4,7 @@
  * palette and the screen router from these. Extend — don't rename.
  */
 import type { ComponentType } from 'react';
-import type { Permission } from '../../shared/constants.ts';
+import type { Permission, VoucherBaseType } from '../../shared/constants.ts';
 import type { CompanyFeatures } from '../../shared/settings.ts';
 
 export interface ScreenProps<P = Record<string, unknown>> {
@@ -34,6 +34,8 @@ export interface ScreenDef {
   feature?: keyof CompanyFeatures;
   /** Requires the company GST feature to be on. */
   gstOnly?: boolean;
+  /** (additive) Requires at least one of these features to be on (e.g. ['tds', 'tcs']). */
+  anyFeature?: ReadonlyArray<keyof CompanyFeatures>;
 }
 
 export type MenuSection =
@@ -42,6 +44,8 @@ export type MenuSection =
   | 'reports'
   | 'inventory_reports'
   | 'gst'
+  /** TDS / TCS (tds module; shown only when F11 › TDS or TCS is on). */
+  | 'tds'
   | 'banking'
   | 'utilities'
   | 'data'
@@ -64,6 +68,8 @@ export interface MenuItem {
   gstOnly?: boolean;
   /** Requires this company feature (F11) to be on, e.g. 'inventory' for stock reports. */
   feature?: keyof CompanyFeatures;
+  /** (additive) Requires at least one of these features to be on (e.g. ['tds', 'tcs']). */
+  anyFeature?: ReadonlyArray<keyof CompanyFeatures>;
   /** One plain-language line shown as a tooltip on the Gateway and under the label in Go To. */
   description?: string;
 }
@@ -72,4 +78,26 @@ export interface ModuleDef {
   id: string;
   screens: ScreenDef[];
   menu?: MenuItem[];
+  /**
+   * (additive) Notices at the top of the Gateway's right panel, shown when the company opens (e.g.
+   * "3 recurring vouchers are due"). Render null when there is nothing to say; dismissible; they must
+   * not bind hotkeys (plain letters belong to the Gateway menu).
+   */
+  gatewayNotices?: ComponentType[];
+  /** (additive) Cards another module adds to the dashboard grid (no hotkeys: the Gateway embeds it). */
+  dashboardCards?: ComponentType<{ className?: string }>[];
+  /**
+   * (additive) Panels at the end of 'vouchers.view' for the voucher shown (links, status). They may add
+   * rail actions with useScreenActions (keys must not clash with the voucher view's own).
+   */
+  voucherPanels?: ComponentType<VoucherPanelProps>[];
+}
+
+export interface VoucherPanelProps {
+  voucherId: number;
+  baseType: VoucherBaseType;
+  isCancelled: boolean;
+  isOptional: boolean;
+  /** VoucherDetail.updatedAt — changes when the voucher is saved again. */
+  updatedAt: string;
 }

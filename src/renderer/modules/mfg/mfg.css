@@ -1,0 +1,83 @@
+/* Manufacturing & job work screens. Semantic design tokens only (no raw colours). Prefix: bx-mfg- */
+
+.bx-mfg-lines {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--text-base);
+}
+.bx-mfg-lines caption {
+  text-align: left;
+  padding: var(--space-2) 0 var(--space-1);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+.bx-mfg-lines th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  padding: var(--space-1-5) var(--space-2);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  text-align: left;
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+.bx-mfg-lines th.is-num,
+.bx-mfg-lines td.is-num {
+  text-align: right;
+}
+.bx-mfg-lines td {
+  padding: var(--space-0-5) var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+.bx-mfg-lines tr.bx-mfg-row:focus-within {
+  background: var(--row-selected);
+  box-shadow: inset 3px 0 0 var(--row-selected-indicator);
+}
+.bx-mfg-lines td.bx-mfg-lines__no {
+  width: 36px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  padding-top: var(--space-2);
+}
+.bx-mfg-lines tr.bx-mfg-row__error td {
+  padding-top: 0;
+  border-bottom-color: var(--border-subtle);
+  color: var(--danger-text);
+  font-size: var(--fs-12);
+}
+.bx-mfg-lines__value {
+  display: block;
+  padding-top: var(--space-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.bx-mfg-lines tfoot td {
+  padding: var(--space-1-5) var(--space-2);
+  border-top: 1px solid var(--border-default);
+  font-weight: var(--fw-semibold);
+}
+
+.bx-mfg-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bx-mfg-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.bx-mfg-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-snug);
+}

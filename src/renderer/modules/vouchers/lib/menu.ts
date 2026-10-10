@@ -37,6 +37,8 @@ const DESCRIPTIONS: Readonly<Partial<Record<VoucherBaseType, { text: string; key
   physical_stock: { text: 'Enter counted stock to correct the books', keywords: ['stock count', 'verification'] },
   memorandum: { text: 'Provisional entry that does not touch the books', keywords: ['memo'] },
   reversing_journal: { text: 'Journal that applies only up to a date', keywords: ['reversing'] },
+  quotation: { text: 'Price offer to a customer — no books, own numbering; convert it to an order or invoice', keywords: ['quote', 'estimate', 'offer', 'tender'] },
+  proforma: { text: 'Proforma invoice for advance payment — not a tax invoice; convert it to a sales invoice', keywords: ['pro forma', 'pi', 'advance', 'estimate'] },
 };
 
 /** Base types the Transactions section lists, in Tally order. */
@@ -58,6 +60,8 @@ const MENU_ORDER: readonly VoucherBaseType[] = [
   'stock_journal',
   'physical_stock',
   'memorandum',
+  'quotation',
+  'proforma',
 ];
 
 /**

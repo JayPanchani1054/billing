@@ -280,6 +280,11 @@ export interface MfgJournalDetail {
   isOptional: boolean;
   block: StockJournalExtInput;
   updatedAt: string | null;
+  /** Names of the items and ledgers the block refers to (for the entry screen). */
+  items: Array<{ id: number; name: string; unit: string; decimals: number }>;
+  ledgers: Array<{ id: number; name: string }>;
+  bomName: string | null;
+  orderNumber: string | null;
 }
 
 export interface ProductionRegisterInput {

@@ -1,7 +1,9 @@
 /**
  * 'vouchers.entry' — Tally-style voucher creation / alteration, one screen for every voucher type.
  *
- * Params: { baseType? | voucherTypeId?, id? (alter), duplicateOf?, date?, partyId? }
+ * Params: { baseType? | voucherTypeId?, id? (alter), duplicateOf?, draft?, date?, partyId? }
+ *   draft: a new voucher pre-filled by 'documents.draft' — a quotation / proforma converted into an
+ *   order / invoice (links back), a note billed by its invoice, or a recurring occurrence (Edit & post).
  *
  * Modes (lib/kinds.ts ALLOWED_MODES): item invoice, accounting invoice, ledger (single-entry
  * Account + particulars or Dr/Cr double entry), inventory (notes, orders, stock journal, physical
@@ -88,10 +90,20 @@ export interface VoucherEntryParams {
   id?: number;
   /** New voucher pre-filled from this one. */
   duplicateOf?: number;
+  /** New voucher pre-filled by the documents module ('documents.draft'): conversion, billing a note, recurring occurrence. */
+  draft?: VoucherDraftParams;
   /** Voucher date (default: the working date). */
   date?: string;
   /** Pre-selected party (e.g. from a party's ledger). */
   partyId?: number;
+}
+
+export interface VoucherDraftParams {
+  sourceId?: number;
+  targetBaseType?: VoucherBaseType;
+  voucherTypeId?: number;
+  templateId?: number;
+  periodKey?: string;
 }
 
 /** Everything a voucher save can change elsewhere. */
@@ -119,11 +131,13 @@ export function VoucherEntryScreen({ params }: ScreenProps<VoucherEntryParams>) 
   const typesQ = useApiQuery('accounts.voucherType.list', {}, { staleTime: 60_000 });
   const detailQ = useApiQuery('vouchers.get', { id: params.id ?? 0 }, { enabled: params.id !== undefined, staleTime: 0 });
   const dupQ = useApiQuery('vouchers.duplicate', { id: params.duplicateOf ?? 0 }, { enabled: params.duplicateOf !== undefined && params.id === undefined, staleTime: 0 });
+  const wantsDraft = params.draft !== undefined && params.id === undefined && params.duplicateOf === undefined;
+  const draftQ = useApiQuery('documents.draft', params.draft ?? {}, { enabled: wantsDraft, staleTime: 0 });
   const types = typesQ.data?.rows;
   const detail = params.id !== undefined ? detailQ.data : undefined;
-  const dup = params.duplicateOf !== undefined && params.id === undefined ? dupQ.data : undefined;
+  const dup = params.duplicateOf !== undefined && params.id === undefined ? dupQ.data : wantsDraft ? draftQ.data : undefined;
 
-  const waiting = (params.id !== undefined && !detail) || (params.duplicateOf !== undefined && params.id === undefined && !dup);
+  const waiting = (params.id !== undefined && !detail) || ((params.duplicateOf !== undefined || wantsDraft) && params.id === undefined && !dup);
   const type: VoucherTypeRow | null = useMemo(() => {
     // Alteration / duplicate: the type is the saved voucher's — never guess one while it loads (a
     // guessed Sales type would fetch, and briefly use, the wrong entry context).
@@ -150,10 +164,10 @@ export function VoucherEntryScreen({ params }: ScreenProps<VoucherEntryParams>) 
   const label = params.baseType && params.voucherTypeId === undefined ? baseTypeLabel(params.baseType) : (type?.name ?? (params.baseType ? baseTypeLabel(params.baseType) : 'Voucher'));
   const title = params.id !== undefined ? `${detail?.voucherType.name ?? label} Alteration` : `${type?.name ?? label} Voucher`;
   const loading = typesQ.loading || waiting || (type !== null && !ctx0);
-  const error = typesQ.error ?? (params.id !== undefined ? detailQ.error : null) ?? (params.duplicateOf !== undefined ? dupQ.error : null) ?? ctxQ.error;
+  const error = typesQ.error ?? (params.id !== undefined ? detailQ.error : null) ?? (params.duplicateOf !== undefined ? dupQ.error : null) ?? (wantsDraft ? draftQ.error : null) ?? ctxQ.error;
 
   if (error || loading || !types || readOnly) {
-    return <Screen title={title} icon="invoice" loading={!error} error={error} onRetry={() => void (typesQ.refetch(), detailQ.refetch(), dupQ.refetch(), ctxQ.refetch())} />;
+    return <Screen title={title} icon="invoice" loading={!error} error={error} onRetry={() => void (typesQ.refetch(), detailQ.refetch(), dupQ.refetch(), draftQ.refetch(), ctxQ.refetch())} />;
   }
   if (!type) {
     return (
@@ -179,7 +193,7 @@ export function VoucherEntryScreen({ params }: ScreenProps<VoucherEntryParams>) 
       </Screen>
     );
   }
-  return <EntryForm key={`${type.id}:${params.id ?? ''}:${params.duplicateOf ?? ''}`} type={type} types={types} ctx0={ctx0} detail={detail} dup={dup} params={params} />;
+  return <EntryForm key={`${type.id}:${params.id ?? ''}:${params.duplicateOf ?? ''}:${params.draft ? JSON.stringify(params.draft) : ''}`} type={type} types={types} ctx0={ctx0} detail={detail} dup={dup} params={params} />;
 }
 
 // ───────────────────────────── Inner: the form ─────────────────────────────
@@ -763,6 +777,12 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       setLastSaved(saved);
       setPreview(null);
       setSaveWarnings(null);
+      if (f.docLinks) {
+        // A converted document / recurring occurrence: back to the list it came from (it shows the result).
+        dispatch({ type: 'load', form: { ...formRef.current, touched: false } });
+        nav.pop({ id: out.id });
+        return;
+      }
       dispatch({ type: 'next', date: f.date, isOptional: ctx.voucherType.optionalByDefault, partyLedgerId: startParty });
       if (printNow) {
         nav.push('print.voucher', printNow);
@@ -996,6 +1016,16 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           onChange={(d) => d && dispatch({ type: 'patch', patch: { date: d } })}
         />
       </Field>
+      {baseType === 'quotation' || baseType === 'proforma' ? (
+        <Field label="Valid until" htmlFor={headerId('validUntil')} optional error={cellErrors[headerId('validUntil')]} hint="Last date the offer holds">
+          <DateInput id={headerId('validUntil')} value={form.validUntil} referenceDate={form.date} minDate={form.date} onChange={(d) => dispatch({ type: 'patch', patch: { validUntil: d } })} />
+        </Field>
+      ) : null}
+      {baseType === 'reversing_journal' ? (
+        <Field label="Applicable up to" htmlFor={headerId('applicableUpto')} optional error={cellErrors[headerId('applicableUpto')]} hint="Counts in scenario reports up to this date">
+          <DateInput id={headerId('applicableUpto')} value={form.applicableUpto} referenceDate={form.date} minDate={form.date} onChange={(d) => dispatch({ type: 'patch', patch: { applicableUpto: d } })} />
+        </Field>
+      ) : null}
       {showRef ? (
         <>
           <Field label={supplierRef ? 'Supplier invoice no.' : 'Reference no.'} htmlFor={headerId('referenceNo')} required={referenceRequired} optional={!referenceRequired} error={cellErrors[headerId('referenceNo')]}>
@@ -1253,6 +1283,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       <Badge tone="neutral">{MODE_LABEL[form.mode]}</Badge>
       {form.isOptional ? <Badge tone="warning">Optional — not in the books</Badge> : null}
       {form.isPostDated ? <Badge tone="info">Post-dated</Badge> : null}
+      {form.docLinks?.convertedFromId !== undefined ? <Badge tone="brand">Converts a {baseType === 'sales_order' ? 'quotation' : 'quotation / proforma'} — linked on save</Badge> : null}
+      {form.docLinks?.recurring ? <Badge tone="brand">Recurring voucher · {form.docLinks.recurring.periodKey}</Badge> : null}
       {isAlter && detail?.irn.status ? <Badge tone="info">e-Invoice: {detail.irn.status}</Badge> : null}
     </>
   );

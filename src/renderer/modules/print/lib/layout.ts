@@ -147,6 +147,10 @@ export function headerRefs(doc: PrintVoucherData): LabelValue[] {
           ? 'Order No.'
           : doc.kind === 'delivery_challan'
             ? 'Challan No.'
+            : doc.kind === 'quotation'
+              ? 'Quotation No.'
+              : doc.kind === 'proforma_invoice'
+                ? 'Proforma No.'
             : doc.layout === 'inventory'
               ? 'Voucher No.'
               : 'Invoice No.';

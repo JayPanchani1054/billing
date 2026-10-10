@@ -22,7 +22,25 @@ import type {
   Gstr3bSummary,
   Gstr9Summary,
 } from '../../../shared/types/gst-returns.ts';
-import { GSTR1_SECTIONS, GSTR3B_ADJUSTMENT_KEYS } from '../../../shared/types/gst-returns.ts';
+import { GSTR1_SECTIONS, GSTR3B_ADJUSTMENT_KEYS, TAX_HEADS } from '../../../shared/types/gst-returns.ts';
+import type {
+  Cmp08Summary,
+  CompositionSettings,
+  ElectronicCashLedger,
+  ElectronicCreditLedger,
+  GstAmendmentRow,
+  GstChallanRow,
+  GstFiling,
+  GstSetoffResult,
+  GstTextFile,
+  Gstr1AdvancesSummary,
+  Gstr4Summary,
+  PendingAdvance,
+  BoeReconResult,
+  BoeRow,
+} from '../../../shared/types/gst-plus.ts';
+import { CASH_MINOR_HEADS, COMPOSITION_CATEGORIES, GST_FILING_FORMS } from '../../../shared/types/gst-plus.ts';
+import type { VoucherSaveResult } from '../../../shared/types/vouchers.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { rule } from '../../lib/errors.ts';
@@ -36,6 +54,24 @@ import { buildGstr3bJson, computeGstr3b, saveAdjustments } from './gstr3b.ts';
 import { computeGstr9 } from './gstr9.ts';
 import { listPeriods, requireReturnPeriod, resolvePeriod } from './period.ts';
 import { collectIssues, exceptionsReport, gstRegister, hsnSummary, itcReport } from './reports.ts';
+import { pendingAdvances, table11 } from './advances.ts';
+import {
+  cmp08Export,
+  compositionSettings,
+  computeCmp08,
+  computeGstr4,
+  deleteCompositionRate,
+  gstr4Export,
+  requireComposition,
+  requireQuarter,
+  saveCmp08Interest,
+  saveCompositionCategory,
+  saveCompositionRate,
+} from './composition.ts';
+import { electronicCashLedger, electronicCreditLedger } from './eledgers.ts';
+import { listAmendments, listFilings, markFiled, unmarkFiled } from './filings.ts';
+import { computeSetoff, listChallans, postChallan, postSetoff } from './setoffPost.ts';
+import { listBillsOfEntry, reconcileBoe } from './boeRecon.ts';
 
 /** The open company's GST profile; refuses companies without GST. */
 export function gstCompany(ctx: CompanyCtx): GstCompany {
@@ -273,5 +309,246 @@ export const gstRoutes = {
     transactional: false,
     input: v.object({ fy: v.string({ min: 7, max: 7, pattern: /^\d{4}-\d{2}$/, patternMessage: 'Financial year must look like 2026-27' }) }),
     handler: (ctx, input): Gstr9Summary => computeGstr9(ctx.db, gstCompany(ctx), input.fy, ctx.clock.today()),
+  }),
+
+  // ───────────── Advances (GSTR-1 Table 11) ─────────────
+  'gst.advances.pending': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: v.object({ asOf: v.date().optional(), partyLedgerId: v.id().optional() }),
+    handler: (ctx, input): PendingAdvance[] => {
+      gstCompany(ctx);
+      const today = ctx.clock.today();
+      return pendingAdvances(ctx.db, input.asOf ?? today, today, input.partyLedgerId);
+    },
+  }),
+  'gst.advances.register': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: RangeInput,
+    handler: (ctx, input): Gstr1AdvancesSummary => table11(ctx.db, input.from, input.to, ctx.clock.today(), gstCompany(ctx).stateCode),
+  }),
+
+  // ───────────── Filing status & amendments ─────────────
+  'gst.filing.list': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: v.object({ form: v.enum(GST_FILING_FORMS).optional() }),
+    handler: (ctx, input): GstFiling[] => {
+      gstCompany(ctx);
+      return listFilings(ctx.db, input.form);
+    },
+  }),
+  'gst.filing.mark': companyRoute({
+    access: 'gst.file',
+    input: v.object({ form: v.enum(GST_FILING_FORMS), period: v.string({ min: 6, max: 10 }), filedOn: v.date(), arn: v.string({ max: 20 }).optional() }),
+    handler: (ctx, input): GstFiling => {
+      const company = gstCompany(ctx);
+      const today = ctx.clock.today();
+      const composition = company.registration === 'composition';
+      if (composition !== (input.form === 'cmp08' || input.form === 'gstr4')) {
+        throw rule(composition ? 'Composition taxpayers file CMP-08 and GSTR-4, not GSTR-1 / GSTR-3B.' : 'Regular taxpayers file GSTR-1 and GSTR-3B; CMP-08 and GSTR-4 are for composition taxpayers.');
+      }
+      let snapshot: unknown = null;
+      if (input.form === 'gstr1') snapshot = gstr1Summary(computeGstr1(ctx.db, company, requireReturnPeriod({ period: input.period }), today)).totals;
+      else if (input.form === 'gstr3b') {
+        const s = computeGstr3b(ctx.db, company, requireReturnPeriod({ period: input.period }), today);
+        snapshot = { supplies: s.supplies, itcNet: s.itc.net, payment: s.payment.rows };
+      } else if (input.form === 'cmp08') snapshot = computeCmp08(ctx.db, company, input.period, today).table3;
+      else snapshot = computeGstr4(ctx.db, company, input.period, today).table8;
+      return markFiled(ctx, input, snapshot);
+    },
+  }),
+  'gst.filing.unmark': companyRoute({
+    access: 'gst.file',
+    input: v.object({ form: v.enum(GST_FILING_FORMS), period: v.string({ min: 6, max: 10 }) }),
+    handler: (ctx, input): { ok: true } => {
+      gstCompany(ctx);
+      unmarkFiled(ctx, input.form, input.period);
+      return { ok: true };
+    },
+  }),
+  'gst.amendments.list': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: v.object({ period: v.string({ max: 20 }).optional(), voucherId: v.id().optional() }),
+    handler: (ctx, input): GstAmendmentRow[] => {
+      gstCompany(ctx);
+      return listAmendments(ctx.db, { amendPeriod: input.period, voucherId: input.voucherId });
+    },
+  }),
+
+  // ───────────── Set-off, challans, electronic ledgers ─────────────
+  'gst.setoff.compute': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: v.object({ period: v.string({ min: 1, max: 20 }), penalty: taxShape, others: taxShape }),
+    handler: (ctx, input): GstSetoffResult => {
+      const company = gstCompany(ctx);
+      const period = company.registration === 'composition' ? requireQuarter(input.period) : requireReturnPeriod(input);
+      return computeSetoff(ctx.db, company, period, ctx.clock.today(), { penalty: input.penalty, others: input.others });
+    },
+  }),
+  'gst.setoff.post': companyRoute({
+    access: 'gst.file',
+    input: v.object({ period: v.string({ min: 1, max: 20 }), date: v.date(), penalty: taxShape, others: taxShape, narration: v.string({ max: 500 }).optional() }),
+    handler: (ctx, input): VoucherSaveResult => {
+      const company = gstCompany(ctx);
+      const period = company.registration === 'composition' ? requireQuarter(input.period) : requireReturnPeriod(input);
+      return postSetoff(ctx, company, period, input);
+    },
+  }),
+  'gst.challan.post': companyRoute({
+    access: 'gst.file',
+    input: v.object({
+      date: v.date(),
+      bankLedgerId: v.id(),
+      cpin: v.string({ min: 1, max: 20 }),
+      cin: v.string({ max: 30 }).optional(),
+      brn: v.string({ max: 40 }).optional(),
+      challanDate: v.date().optional(),
+      bankName: v.string({ max: 100 }).optional(),
+      mode: v.enum(['epayment', 'neft_rtgs', 'otc'] as const).optional(),
+      period: v.string({ max: 20 }).optional(),
+      heads: v.array(v.object({ head: v.enum(TAX_HEADS), minor: v.enum(CASH_MINOR_HEADS), amount: v.paise({ min: 0 }) }), { min: 1, max: 20 }),
+      narration: v.string({ max: 500 }).optional(),
+    }),
+    handler: (ctx, input): VoucherSaveResult => {
+      gstCompany(ctx);
+      return postChallan(ctx, input);
+    },
+  }),
+  'gst.challan.list': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: RangeInput,
+    handler: (ctx, input): GstChallanRow[] => {
+      gstCompany(ctx);
+      return listChallans(ctx.db, input, ctx.clock.today());
+    },
+  }),
+  'gst.ledger.cash': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: RangeInput,
+    handler: (ctx, input): ElectronicCashLedger => {
+      gstCompany(ctx);
+      return electronicCashLedger(ctx.db, input.from, input.to, ctx.clock.today());
+    },
+  }),
+  'gst.ledger.credit': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: RangeInput,
+    handler: (ctx, input): ElectronicCreditLedger => {
+      gstCompany(ctx);
+      return electronicCreditLedger(ctx.db, input.from, input.to, ctx.clock.today());
+    },
+  }),
+
+  // ───────────── Bills of entry (imports) ─────────────
+  'gst.boe.list': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: RangeInput,
+    handler: (ctx, input): BoeRow[] => {
+      gstCompany(ctx);
+      return listBillsOfEntry(ctx.db, input.from, input.to, ctx.clock.today());
+    },
+  }),
+  'gst.boe.reconcile': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: checkRange(v.object({ ...rangeShape, fileName: v.string({ min: 1, max: 260 }), bytes: v.bytes({ max: 20 * 1024 * 1024 }) })),
+    handler: (ctx, input): BoeReconResult => {
+      gstCompany(ctx);
+      return reconcileBoe(ctx.db, input.bytes, input.from, input.to, ctx.clock.today());
+    },
+  }),
+
+  // ───────────── Composition: CMP-08, GSTR-4, rates ─────────────
+  'gst.cmp08.summary': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: v.object({ period: v.string({ min: 1, max: 20 }) }),
+    handler: (ctx, input): Cmp08Summary => computeCmp08(ctx.db, gstCompany(ctx), input.period, ctx.clock.today()),
+  }),
+  'gst.cmp08.saveInterest': companyRoute({
+    access: 'gst.file',
+    input: v.object({ period: v.string({ min: 1, max: 20 }), interest: v.object({ igst: v.paise({ min: 0 }).optional(), cgst: v.paise({ min: 0 }).optional(), sgst: v.paise({ min: 0 }).optional(), cess: v.paise({ min: 0 }).optional() }) }),
+    handler: (ctx, input): Cmp08Summary => {
+      const company = gstCompany(ctx);
+      requireComposition(company);
+      saveCmp08Interest(ctx, requireQuarter(input.period), input.interest);
+      return computeCmp08(ctx.db, company, input.period, ctx.clock.today());
+    },
+  }),
+  'gst.cmp08.export': companyRoute({
+    access: 'gst.file',
+    transactional: false,
+    input: v.object({ period: v.string({ min: 1, max: 20 }), format: v.enum(['json', 'csv'] as const) }),
+    handler: (ctx, input): GstTextFile => {
+      const s = computeCmp08(ctx.db, gstCompany(ctx), input.period, ctx.clock.today());
+      const f = cmp08Export(s, input.format);
+      auditExport(ctx, `CMP-08 ${s.period.label} (${f.fileName})`);
+      return { ...f, format: input.format, warnings: ['Bahi format: the portal has no CMP-08 upload — copy the figures into CMP-08 on the GST portal.'] };
+    },
+  }),
+  'gst.gstr4.summary': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: v.object({ fy: v.string({ min: 7, max: 7, pattern: /^\d{4}-\d{2}$/, patternMessage: 'Financial year must look like 2026-27' }) }),
+    handler: (ctx, input): Gstr4Summary => computeGstr4(ctx.db, gstCompany(ctx), input.fy, ctx.clock.today()),
+  }),
+  'gst.gstr4.export': companyRoute({
+    access: 'gst.file',
+    transactional: false,
+    input: v.object({ fy: v.string({ min: 7, max: 7, pattern: /^\d{4}-\d{2}$/, patternMessage: 'Financial year must look like 2026-27' }), format: v.enum(['json', 'csv'] as const) }),
+    handler: (ctx, input): GstTextFile => {
+      const s = computeGstr4(ctx.db, gstCompany(ctx), input.fy, ctx.clock.today());
+      const f = gstr4Export(s, input.format);
+      auditExport(ctx, `GSTR-4 FY ${s.fy} (${f.fileName})`);
+      return { ...f, format: input.format, warnings: ["Bahi format, not the portal's GSTR-4 offline-tool JSON: use it to fill the return (or the offline tool)."] };
+    },
+  }),
+  'gst.composition.settings': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: v.none(),
+    handler: (ctx): CompositionSettings => {
+      gstCompany(ctx);
+      return compositionSettings(ctx.db);
+    },
+  }),
+  'gst.composition.saveCategory': companyRoute({
+    access: 'gst.file',
+    input: v.object({ category: v.enum(COMPOSITION_CATEGORIES) }),
+    handler: (ctx, input): CompositionSettings => {
+      gstCompany(ctx);
+      return saveCompositionCategory(ctx, input.category);
+    },
+  }),
+  'gst.composition.saveRate': companyRoute({
+    access: 'gst.file',
+    input: v.object({
+      id: v.id().optional(),
+      category: v.enum(COMPOSITION_CATEGORIES),
+      effectiveFrom: v.date(),
+      rate: v.number({ min: 0, max: 28 }),
+      basis: v.enum(['turnover', 'taxable_turnover'] as const),
+      note: v.string({ max: 300 }).optional(),
+    }),
+    handler: (ctx, input): CompositionSettings => {
+      gstCompany(ctx);
+      return saveCompositionRate(ctx, input);
+    },
+  }),
+  'gst.composition.deleteRate': companyRoute({
+    access: 'gst.file',
+    input: v.object({ id: v.id() }),
+    handler: (ctx, input): CompositionSettings => {
+      gstCompany(ctx);
+      return deleteCompositionRate(ctx, input.id);
+    },
   }),
 } satisfies RouteMap;

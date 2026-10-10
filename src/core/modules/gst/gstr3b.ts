@@ -569,6 +569,13 @@ export function computeGstr3b(
         'Enter only credit the books do not hold — not the whole electronic credit ledger balance — or the credit is counted twice.',
     );
   }
+  if (book.advances.taxable !== 0 || book.advances.igst !== 0 || book.advances.cgst !== 0) {
+    notes.push(`3.1(a) includes tax on advances received less advances adjusted / refunded (GSTR-1 Table 11): taxable ${formatMoney(book.advances.taxable, { symbol: true })}.`);
+  }
+  if (!isZeroTax(book.billOfEntry)) notes.push('4(A)(1) uses the IGST paid on the bills of entry, not the tax worked out on the import invoices.');
+  if (corr.det.taxable !== 0 || corr.det.igst !== 0 || corr.det.cgst !== 0 || corr.zero.taxable !== 0 || corr.zero.igst !== 0) {
+    notes.push('Includes GSTR-1 amendments: documents of a filed period that were changed are reported in the period of amendment; a filed period keeps its filed figures.');
+  }
   if (company.registration === 'composition') notes.push('Composition taxpayers file CMP-08, not GSTR-3B. Reverse-charge tax shown here is payable through CMP-08.');
   notes.push('3.1.1 (supplies through e-commerce operators u/s 9(5)) is not recorded in the books and is shown as zero.');
 

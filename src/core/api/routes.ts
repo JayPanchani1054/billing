@@ -19,6 +19,7 @@ import { dashboardRoutes } from '../modules/dashboard/routes.ts';
 import { printRoutes } from '../modules/print/routes.ts';
 import { tdsRoutes } from '../modules/tds/routes.ts';
 import { documentsRoutes } from '../modules/documents/routes.ts';
+import { mfgRoutes } from '../modules/mfg/routes.ts';
 
 export const routes = {
   ...appRoutes,
@@ -38,6 +39,7 @@ export const routes = {
   ...printRoutes,
   ...tdsRoutes,
   ...documentsRoutes,
+  ...mfgRoutes,
 };
 
 export type ApiRoutes = typeof routes;

@@ -51,6 +51,7 @@ const VOUCHER_TITLES: Partial<Record<VoucherBaseType, [PrintDocKind, string]>> =
   rejection_out: ['rejection_out', 'Rejections Out'],
   credit_note: ['credit_note', 'Credit Note'],
   debit_note: ['debit_note', 'Debit Note'],
+  quotation: ['quotation', 'Quotation'],
 };
 
 export const EXPORT_LUT_ENDORSEMENT = 'Supply meant for export under LUT without payment of IGST';
@@ -59,6 +60,8 @@ export const SEZ_LUT_ENDORSEMENT = 'Supply meant for SEZ unit / developer for au
 export const SEZ_WPAY_ENDORSEMENT = 'Supply meant for SEZ unit / developer for authorised operations with payment of IGST';
 export const COMPOSITION_NOTE = 'Composition taxable person, not eligible to collect tax on supplies';
 export const REVERSE_CHARGE_NOTE = 'Tax on this supply is payable by the recipient under reverse charge';
+/** A proforma invoice is an offer / request for advance, not a supply document (CGST Rule 46 invoices only). */
+export const PROFORMA_ENDORSEMENT = 'This is not a tax invoice';
 
 /** Document kind and title. `printTitle` (voucher type › Print title) replaces non-statutory titles only. */
 export function documentTitle(input: DocKindInput, printTitle?: string | null): DocTitle {
@@ -106,6 +109,8 @@ export function documentTitle(input: DocKindInput, printTitle?: string | null): 
     return pick('purchase_voucher', 'Purchase Voucher');
   }
 
+  // A custom print title may replace "Proforma Invoice", never the endorsement.
+  if (base === 'proforma') return pick('proforma_invoice', 'Proforma Invoice', PROFORMA_ENDORSEMENT);
   const fixed = VOUCHER_TITLES[base];
   if (!fixed) return pick('journal_voucher', 'Voucher');
   const [kind, title] = fixed;

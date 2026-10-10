@@ -43,6 +43,8 @@ export function GatewayScreen() {
 
   const dashboard = nav.isRegistered(WELL_KNOWN_SCREENS.dashboard) && nav.canOpen(WELL_KNOWN_SCREENS.dashboard) ? nav.screenDef(WELL_KNOWN_SCREENS.dashboard) : undefined;
   const Dashboard = dashboard?.component;
+  // Modules' notices for the open company (ModuleDef.gatewayNotices), e.g. recurring vouchers due.
+  const notices = useMemo(() => modules.flatMap((m) => (m.gatewayNotices ?? []).map((C, i) => ({ key: `${m.id}:${i}`, C }))), [modules]);
 
   return (
     <div className="bx-gateway">
@@ -70,6 +72,11 @@ export function GatewayScreen() {
         )}
       </nav>
       <div className="bx-gateway__panel">
+        {notices.map(({ key, C }) => (
+          <ScreenErrorBoundary key={key} title="Notice">
+            <C />
+          </ScreenErrorBoundary>
+        ))}
         {Dashboard ? (
           <ScreenErrorBoundary title="Dashboard">
             <Dashboard params={{ embedded: true }} />

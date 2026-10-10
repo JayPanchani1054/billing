@@ -1071,9 +1071,15 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
       ) ?? null
     : null;
   const refs = references(parseJson<OrderDetailsInput>(row.order_details), parseJson<DispatchDetailsInput>(row.dispatch), exportDetails, isSalesDocument(title.kind) && detailParty !== null && detailParty > row.date ? detailParty : null);
+  // Quotation / proforma: the offer's validity (documents module, vouchers.valid_until).
+  if (title.kind === 'quotation' || title.kind === 'proforma_invoice') {
+    const validUntil = db.value<string | null>('SELECT valid_until FROM vouchers WHERE id = :id', { id });
+    if (validUntil) refs.unshift({ label: 'Valid Until', value: formatDate(validUntil) });
+  }
 
   // ── Payment details (documents asking the buyer to pay) ──
-  const asksPayment = layout === 'invoice' && direction === 'outward' && (isSalesDocument(title.kind) || title.kind === 'debit_note' || title.kind === 'sales_order');
+  const asksPayment =
+    layout === 'invoice' && direction === 'outward' && (isSalesDocument(title.kind) || title.kind === 'debit_note' || title.kind === 'sales_order' || title.kind === 'proforma_invoice');
   const bank = asksPayment && options.showBankDetails ? bankDetails(db, options.bankLedgerId) : null;
   let upi: PrintUpi | null = null;
   const upiId = txt(options.upiId) ?? (asksPayment ? (bankDetails(db, options.bankLedgerId)?.upiId ?? null) : null);
@@ -1143,7 +1149,7 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
     declaration: sellerDoc ? txt(options.declaration) : null,
     // Terms of sale belong on what the company sells (invoices, outward debit notes, sales orders) — not on a
     // credit note for returned goods or a challan.
-    terms: sellerDoc || (title.kind === 'sales_order' && layout !== 'voucher') ? txt(options.terms) : null,
+    terms: sellerDoc || ((title.kind === 'sales_order' || title.kind === 'quotation' || title.kind === 'proforma_invoice') && layout !== 'voucher') ? txt(options.terms) : null,
     signatoryLabel: txt(options.signatoryLabel) ?? 'Authorised Signatory',
     copyLabels: copyLabels(title.kind, direction === 'outward', lines.some((l) => l.kind === 'item')),
     options,

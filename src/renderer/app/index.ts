@@ -7,7 +7,7 @@
  */
 
 // Module contract
-export type { MenuItem, MenuSection, ModuleDef, ScreenDef, ScreenProps } from './registry.ts';
+export type { MenuItem, MenuSection, ModuleDef, ScreenDef, ScreenProps, VoucherPanelProps } from './registry.ts';
 export { WELL_KNOWN_SCREENS } from './wellKnown.ts';
 
 // API

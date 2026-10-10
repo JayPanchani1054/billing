@@ -57,6 +57,9 @@ const HEADER_FIELDS: Readonly<Record<string, string>> = {
   voucherTypeId: 'voucherType',
   partyBillAllocations: 'party',
   mode: 'mode',
+  // Documents module fields.
+  validUntil: 'validUntil',
+  applicableUpto: 'applicableUpto',
 };
 
 /** Grid column a line field is shown in. */

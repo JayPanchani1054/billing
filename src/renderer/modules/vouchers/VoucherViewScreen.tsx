@@ -10,7 +10,7 @@ import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney, formatPercent, formatQty, formatRate } from '../../../shared/format.ts';
 import { stateLabel } from '../../../shared/gst/index.ts';
 import type { GstLineView, PreviewInventoryLine, VoucherDetailEntry } from '../../../shared/types/vouchers.ts';
-import { formatDateTime, Screen, useApiMutation, useApiQuery, useCan, useConfirm, useNav, userMessage } from '../../app/index.ts';
+import { formatDateTime, Screen, useApiMutation, useApiQuery, useCan, useConfirm, useModules, useNav, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { amountInWords } from '../../../shared/words.ts';
 import { Badge, Banner, Card, DataTable, KeyValueList, Stack, useToast } from '../../ui/index.ts';
@@ -74,6 +74,9 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   const confirm = useConfirm();
   const q = useApiQuery('vouchers.get', { id: params.id }, { staleTime: 0 });
   const v = q.data;
+  // Other modules' panels for this voucher (ModuleDef.voucherPanels: conversion links, recurring, pre-close).
+  const modules = useModules();
+  const panels = useMemo(() => modules.flatMap((m) => (m.voucherPanels ?? []).map((C, i) => ({ key: `${m.id}:${i}`, C }))), [modules]);
   const canAlter = useCan('vouchers.alter');
   const canCreate = useCan('vouchers.create');
   const canDelete = useCan('vouchers.delete');
@@ -299,6 +302,10 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
               <DataTable<GstRateRow> aria-label="GST breakup" columns={gstColumns} rows={gstRows} getRowKey={(r) => r.key} density="compact" />
             </section>
           ) : null}
+
+          {panels.map(({ key, C }) => (
+            <C key={key} voucherId={v.id} baseType={v.voucherType.baseType} isCancelled={v.isCancelled} isOptional={v.isOptional} updatedAt={v.updatedAt} />
+          ))}
 
           <div className="bx-vch-view__foot">
             {v.totals.amount > 0 && !v.isCancelled ? <p className="bx-vch-totals__words">{amountInWords(v.totals.amount)}</p> : null}

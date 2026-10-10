@@ -214,3 +214,26 @@ describe('migration 190 on an existing company', () => {
     fresh.close();
   });
 });
+
+describe('printing quotations and proforma invoices', () => {
+  it('titles them "Quotation" / "Proforma Invoice" (not a tax invoice) with the validity date and the GST computed', async () => {
+    const { buildPrintDataFor } = await import('../print/data.ts');
+    const k = kit();
+    const q = save(k, quote(k));
+    const p = save(k, quote(k, { voucherTypeId: k.vt.proforma }));
+    const dq = buildPrintDataFor(k.t.ctx, q.id);
+    assert.equal(dq.kind, 'quotation');
+    assert.equal(dq.title, 'Quotation');
+    assert.equal(dq.endorsement, null);
+    assert.deepEqual(dq.references[0], { label: 'Valid Until', value: '30-Apr-2026' });
+    assert.equal(dq.totals.grandTotal, 118000);
+    assert.equal(dq.totals.tax, 18000);
+    const dp = buildPrintDataFor(k.t.ctx, p.id);
+    assert.equal(dp.kind, 'proforma_invoice');
+    assert.equal(dp.title, 'Proforma Invoice');
+    assert.equal(dp.endorsement, 'This is not a tax invoice');
+    assert.equal(dp.totals.grandTotal, 118000);
+    assert.deepEqual(dp.warnings.filter((w) => /differs|printed from the books/.test(w)), []);
+    k.t.close();
+  });
+});

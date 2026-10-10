@@ -16,7 +16,7 @@
 import { useEffect, useId, useRef } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import type { DashboardSummary } from '../../../shared/types/dashboard.ts';
-import { ReportScreen, useApiQuery, useNav, useOptionalScreen, usePeriod, userMessage, useWorkingDate } from '../../app/index.ts';
+import { ReportScreen, useApiQuery, useModules, useNav, useOptionalScreen, usePeriod, userMessage, useWorkingDate } from '../../app/index.ts';
 import type { ApiQueryResult, ScreenProps } from '../../app/index.ts';
 import { Button, EmptyState, IconButton } from '../../ui/index.ts';
 import {
@@ -134,6 +134,16 @@ function EmbeddedDashboard() {
   );
 }
 
+/** Cards other modules contribute (ModuleDef.dashboardCards), after the dashboard's own. */
+function ModuleCards() {
+  const modules = useModules();
+  return (
+    <>
+      {modules.flatMap((m) => (m.dashboardCards ?? []).map((C, i) => <C key={`${m.id}:${i}`} className="bx-db__card" />))}
+    </>
+  );
+}
+
 function DashboardBody({ s, loading, layout, workingDate }: { s: DashboardSummary | undefined; loading: boolean; layout: DashboardLayout; workingDate: string }) {
   // Getting started (one list for the app: company details, features, invoice printing, ledgers,
   // items, first sale, backups) stays — also after the first voucher — until done or hidden.
@@ -159,6 +169,7 @@ function DashboardBody({ s, loading, layout, workingDate }: { s: DashboardSummar
           <TrendCard s={s} loading={loading} layout="compact" className="bx-db__card bx-db__wide" />
           <CashBankCard s={s} loading={loading} className="bx-db__card" />
           <GstCard s={s} className="bx-db__card" />
+          <ModuleCards />
           <RecentVouchersCard s={s} loading={loading} className="bx-db__card bx-db__wide" />
         </div>
       </>
@@ -178,6 +189,7 @@ function DashboardBody({ s, loading, layout, workingDate }: { s: DashboardSummar
         <TopItemsCard s={s} loading={loading} className="bx-db__card" />
         <LowStockCard s={s} loading={loading} className="bx-db__card" />
         <PostDatedCard s={s} loading={loading} className="bx-db__card" />
+        <ModuleCards />
         <RecentVouchersCard s={s} loading={loading} className="bx-db__card bx-db__wide" />
       </div>
     </>

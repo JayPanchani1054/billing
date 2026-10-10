@@ -19,6 +19,8 @@ export const PERMISSION_PREREQUISITES: Readonly<Partial<Record<Permission, reado
   'vouchers.backdate': ['vouchers.create'],
   'reports.financial': ['reports.view'],
   'gst.file': ['gst.view'],
+  'tds.manage': ['tds.view'],
+  'tds.file': ['tds.view'],
 };
 
 export type GroupState = 'all' | 'some' | 'none';

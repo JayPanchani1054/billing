@@ -203,5 +203,5 @@ export function listPeriods(db: Db, today: string): GstPeriodsResult {
   const current = quarterly ? quarterPeriodKey(today) : todayMonth;
   const prevDate = quarterly ? addMonths(toIso(parts(today).y, parts(today).m, 1), -3) : addMonths(toIso(parts(today).y, parts(today).m, 1), -1);
   const suggested = quarterly ? quarterPeriodKey(prevDate) : monthPeriodKey(prevDate);
-  return { filingFrequency: cfg.gst.filingFrequency, periods, current, suggested };
+  return { filingFrequency: cfg.gst.filingFrequency, periods, current, suggested, registration: profile.gstRegistrationType };
 }

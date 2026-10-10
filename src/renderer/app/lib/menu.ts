@@ -15,6 +15,7 @@ export const SECTION_ORDER: readonly MenuSection[] = [
   'reports',
   'inventory_reports',
   'gst',
+  'tds',
   'data',
   'security',
   'company',
@@ -28,6 +29,7 @@ export const SECTION_LABELS: Readonly<Record<MenuSection, string>> = {
   reports: 'Reports',
   inventory_reports: 'Inventory Reports',
   gst: 'GST',
+  tds: 'TDS / TCS',
   data: 'Data',
   security: 'Security',
   company: 'Company',
@@ -80,12 +82,15 @@ export function collectMenu(modules: readonly ModuleDef[]): CollectedMenuItem[] 
 
 /** Is an item (or a screen) allowed for this user/company? */
 export function isAllowed(
-  req: { access?: Permission; gstOnly?: boolean; feature?: keyof CompanyFeatures },
+  req: { access?: Permission; gstOnly?: boolean; feature?: keyof CompanyFeatures; anyFeature?: ReadonlyArray<keyof CompanyFeatures> },
   ctx: MenuContext,
 ): boolean {
   if (req.access && !ctx.can(req.access)) return false;
   if (req.gstOnly && !ctx.gstEnabled) return false;
   if (req.feature && ctx.features && ctx.features[req.feature] === false) return false;
+  // (additive) At least one of these features must be on (e.g. TDS or TCS).
+  const feats = ctx.features;
+  if (req.anyFeature && req.anyFeature.length > 0 && feats && req.anyFeature.every((f) => feats[f] === false)) return false;
   return true;
 }
 

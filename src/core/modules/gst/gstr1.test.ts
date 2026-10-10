@@ -95,10 +95,12 @@ describe('GSTR-1 summary — April 2026 dataset', () => {
     assert.deepEqual(pick(section(s, 'cdnur')), [1, -1000000, -180000, 0, 0, 0, -1180000]);
   });
 
-  it('11 advances are not derived and say so', () => {
+  it('11 advances come from receipts marked as advances (none in this dataset) and say so', () => {
     assert.deepEqual(pick(section(s, 'at')), [0, 0, 0, 0, 0, 0, 0]);
-    assert.match(section(s, 'at').note ?? '', /not derived/);
-    assert.ok(s.notes.some((n) => /Amendment tables/.test(n)));
+    assert.match(section(s, 'at').note ?? '', /receipts marked as an advance/);
+    assert.ok(s.notes.some((n) => /Amendments \(9A, 9C, 10\)/.test(n)));
+    assert.deepEqual(s.advances?.received, []);
+    assert.deepEqual(s.amendments?.invoices, []);
   });
 
   it('12 HSN summary split B2B / B2C, truncated to 4 digits, services NA with qty 0', () => {

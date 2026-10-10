@@ -384,7 +384,7 @@ CREATE INDEX idx_tds_26as_fy ON tds_26as(fy_start, deductor_tan);
 
 -- New permissions for the system roles of existing companies (new companies get them from SYSTEM_ROLES).
 UPDATE roles SET permissions = json_insert(permissions, '$[#]', 'tds.view')
- WHERE is_system = 1 AND name IN ('Accountant', 'Data Entry', 'Auditor')
+ WHERE is_system = 1 AND name IN ('Accountant', 'Auditor')
    AND json_valid(permissions) AND NOT EXISTS (SELECT 1 FROM json_each(roles.permissions) WHERE value = 'tds.view');
 UPDATE roles SET permissions = json_insert(permissions, '$[#]', 'tds.manage')
  WHERE is_system = 1 AND name = 'Accountant'

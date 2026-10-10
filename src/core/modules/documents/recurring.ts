@@ -282,9 +282,10 @@ export function suggestFromVoucher(ctx: CompanyCtx, voucherId: number): Recurrin
   const party = row.party_name ?? (input.ledgers?.[0] ? db.value<string>('SELECT name FROM ledgers WHERE id = :id', { id: input.ledgers[0].ledgerId }) : null);
   const { y, m, d: day } = parts(row.date);
   const target = overrideTarget(input);
+  // A voucher on the last day of its month (30-Jun, 28-Feb) recurs on every month's last day.
+  const dom = day >= 28 && day === daysInMonth(y, m) ? 0 : day;
   // Start with next month's occurrence (this one is already entered).
-  const sched: RecurringSchedule = { frequency: 'monthly', dayOfMonth: day, startDate: row.date };
-  const next = nthOccurrence(sched, 1).date;
+  const next = nthOccurrence({ frequency: 'monthly', dayOfMonth: dom, startDate: row.date }, 1).date;
   return {
     name: `${vt.name}${party ? ` – ${party}` : ''}`.slice(0, 100),
     sourceVoucherId: row.id,
@@ -293,8 +294,7 @@ export function suggestFromVoucher(ctx: CompanyCtx, voucherId: number): Recurrin
     amount: templateValue(input),
     overridable: target !== null,
     frequency: 'monthly',
-    // A voucher on the last day of its month (30-Jun, 28-Feb) recurs on every month's last day.
-    dayOfMonth: day >= 28 && day === daysInMonth(y, m) ? 0 : day,
+    dayOfMonth: dom,
     startDate: next,
     endDate: null,
     intervalDays: null,

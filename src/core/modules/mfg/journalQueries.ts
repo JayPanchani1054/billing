@@ -92,6 +92,8 @@ export function getJournal(ctx: CompanyCtx, id: number): MfgJournalDetail {
       }),
     };
   }
+  const itemIds = [...new Set(block.lines.map((l) => l.itemId))];
+  const ledgerIds = [...new Set([...(block.additionalCosts ?? []).map((c) => c.ledgerId).filter((x): x is number => typeof x === 'number'), ...(row.party_ledger_id ? [row.party_ledger_id] : [])])];
   return {
     id: row.id,
     voucherTypeId: row.voucher_type_id,
@@ -103,6 +105,28 @@ export function getJournal(ctx: CompanyCtx, id: number): MfgJournalDetail {
     isOptional: row.is_optional === 1,
     block,
     updatedAt: row.updated_at,
+    items: db.all<{ id: number; name: string; unit: string; decimals: number }>(
+      `SELECT i.id, i.name, u.symbol AS unit, u.decimal_places AS decimals FROM stock_items i JOIN units u ON u.id = i.unit_id
+        WHERE i.id IN (SELECT value FROM json_each(:ids))`,
+      { ids: JSON.stringify(itemIds) },
+    ),
+    ledgers: db.all<{ id: number; name: string }>('SELECT id, name FROM ledgers WHERE id IN (SELECT value FROM json_each(:ids))', { ids: JSON.stringify(ledgerIds) }),
+    bomName: block.bomId !== undefined ? (db.value<string>('SELECT name FROM boms WHERE id = :id', { id: block.bomId }) ?? null) : null,
+    orderNumber: block.jobWorkOrderId !== undefined ? (db.value<string>('SELECT number FROM job_work_orders WHERE id = :id', { id: block.jobWorkOrderId }) ?? null) : null,
+  };
+}
+
+/** A copy of a journal for a new voucher dated `date` (Alt+2): no id, number or extension dates. */
+export function duplicateJournal(ctx: CompanyCtx, id: number): MfgJournalDetail {
+  const src = getJournal(ctx, id);
+  return {
+    ...src,
+    id: null,
+    number: null,
+    date: ctx.clock.today(),
+    updatedAt: null,
+    isOptional: false,
+    block: { ...src.block, lines: src.block.lines.map((l) => ({ ...l, extendedTo: undefined })) },
   };
 }
 

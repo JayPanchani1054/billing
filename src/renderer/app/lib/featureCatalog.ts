@@ -53,8 +53,19 @@ export const FEATURE_CATALOG: readonly FeatureInfo[] = [
   { key: 'gst', group: 'taxation', label: 'GST', description: 'Charge and track GST on sales and purchases, and prepare GST returns. Turning it on creates the GST tax ledgers.' },
   { key: 'einvoice', group: 'taxation', requires: 'gst', label: 'e-Invoicing', description: 'Prepare e-invoice (IRN) data, needed once your turnover crosses the e-invoicing limit.' },
   { key: 'ewayBill', group: 'taxation', requires: 'gst', label: 'e-Way Bill', description: 'Prepare e-way bill details for moving goods worth more than ₹50,000.' },
-  { key: 'tds', group: 'taxation', label: 'TDS', description: 'Deduct tax at source on payments such as rent, contracts and professional fees.' },
-  { key: 'tcs', group: 'taxation', label: 'TCS', description: 'Collect tax at source on specified sales.' },
+  {
+    key: 'tds',
+    group: 'taxation',
+    label: 'TDS',
+    description:
+      'Deduct tax at source on contracts, professional fees, rent, commission and other payments as you enter purchases, journals and payments; track TDS payable, challans, interest and 26Q / 27Q data.',
+  },
+  {
+    key: 'tcs',
+    group: 'taxation',
+    label: 'TCS',
+    description: 'Collect tax at source on sales of scrap, minerals, forest produce or motor vehicles above ₹10 lakh: the tax is added to the invoice; 27EQ data.',
+  },
   // Security
   {
     key: 'security',

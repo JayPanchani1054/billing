@@ -154,8 +154,14 @@ export function NavProvider({ modules, children }: { modules: readonly ModuleDef
         toast.warning(`You don't have permission to open ${def.title}`, { message: 'Ask the company owner or an administrator for access.', id: 'nav-denied' });
         return true;
       }
-      if (!isAllowed({ gstOnly: def.gstOnly, feature: def.feature }, { can, gstEnabled: company?.gstEnabled ?? false, features })) {
-        const why = def.gstOnly && !company?.gstEnabled ? 'Turn on GST in Features (F11) to use it.' : def.feature ? `Turn on ${featureLabel(def.feature)} in Features (F11) to use it.` : '';
+      if (!isAllowed({ gstOnly: def.gstOnly, feature: def.feature, anyFeature: def.anyFeature }, { can, gstEnabled: company?.gstEnabled ?? false, features })) {
+        const why = def.gstOnly && !company?.gstEnabled
+          ? 'Turn on GST in Features (F11) to use it.'
+          : def.feature
+            ? `Turn on ${featureLabel(def.feature)} in Features (F11) to use it.`
+            : def.anyFeature
+              ? `Turn on ${def.anyFeature.map((f) => featureLabel(f)).join(' or ')} in Features (F11) to use it.`
+              : '';
         toast.info(`${def.title} is turned off for this company`, { message: why, id: 'nav-feature' });
         return true;
       }

@@ -52,9 +52,45 @@ describe('GST routes', () => {
       'gst.ewaybill.update': 'gst.file',
       'gst.docEvents': 'gst.view',
       'gst.gstr9.summary': 'gst.view',
+      'gst.advances.pending': 'gst.view',
+      'gst.advances.register': 'gst.view',
+      'gst.filing.list': 'gst.view',
+      'gst.filing.mark': 'gst.file',
+      'gst.filing.unmark': 'gst.file',
+      'gst.amendments.list': 'gst.view',
+      'gst.setoff.compute': 'gst.view',
+      'gst.setoff.post': 'gst.file',
+      'gst.challan.post': 'gst.file',
+      'gst.challan.list': 'gst.view',
+      'gst.ledger.cash': 'gst.view',
+      'gst.ledger.credit': 'gst.view',
+      'gst.cmp08.summary': 'gst.view',
+      'gst.cmp08.saveInterest': 'gst.file',
+      'gst.cmp08.export': 'gst.file',
+      'gst.gstr4.summary': 'gst.view',
+      'gst.gstr4.export': 'gst.file',
+      'gst.composition.settings': 'gst.view',
+      'gst.composition.saveCategory': 'gst.file',
+      'gst.composition.saveRate': 'gst.file',
+      'gst.composition.deleteRate': 'gst.file',
+      'gst.boe.list': 'gst.view',
+      'gst.boe.reconcile': 'gst.view',
     });
     const writes = Object.entries(gstRoutes).filter(([, r]) => r.transactional !== false).map(([k]) => k);
-    assert.deepEqual(writes.sort(), ['gst.einvoice.importResponse', 'gst.einvoice.markCancelled', 'gst.ewaybill.update', 'gst.gstr3b.saveAdjustments']);
+    assert.deepEqual(writes.sort(), [
+      'gst.challan.post',
+      'gst.cmp08.saveInterest',
+      'gst.composition.deleteRate',
+      'gst.composition.saveCategory',
+      'gst.composition.saveRate',
+      'gst.einvoice.importResponse',
+      'gst.einvoice.markCancelled',
+      'gst.ewaybill.update',
+      'gst.filing.mark',
+      'gst.filing.unmark',
+      'gst.gstr3b.saveAdjustments',
+      'gst.setoff.post',
+    ]);
   });
 
   it('periods: months from the books beginning with document counts, newest first', async () => {

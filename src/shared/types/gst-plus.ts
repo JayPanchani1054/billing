@@ -419,6 +419,55 @@ export interface ElectronicCreditLedger {
   notes: string[];
 }
 
+// ───────────────────────────── Bills of entry (imports) ─────────────────────────────
+
+export interface BoeRow {
+  voucherId: number;
+  voucherNumber: string | null;
+  date: string;
+  supplier: string | null;
+  boeNo: string;
+  boeDate: string;
+  portCode: string | null;
+  assessableValue: Paise;
+  customsDuty: Paise;
+  igst: Paise;
+  cess: Paise;
+  itcClaimed: boolean;
+}
+
+export interface PortalBoe {
+  section: 'impg' | 'impgsez';
+  supplierGstin: string | null;
+  boeNo: string;
+  boeDate: string | null;
+  portCode: string | null;
+  taxable: Paise;
+  igst: Paise;
+  cess: Paise;
+  amended: boolean;
+}
+
+export interface BoeReconRow {
+  status: 'matched' | 'mismatch' | 'missing_in_books' | 'missing_in_portal';
+  boeNo: string;
+  boeDate: string | null;
+  portCode: string | null;
+  books: BoeRow | null;
+  portal: PortalBoe | null;
+  /** books − portal. */
+  igstDiff: Paise;
+  cessDiff: Paise;
+  note: string | null;
+}
+
+export interface BoeReconResult {
+  period: string | null;
+  rows: BoeReconRow[];
+  counts: Record<BoeReconRow['status'], number>;
+  warnings: string[];
+}
+
 // ───────────────────────────── Composition ─────────────────────────────
 
 export const COMPOSITION_CATEGORIES = ['manufacturer', 'trader', 'restaurant', 'services'] as const;
@@ -517,7 +566,10 @@ export type { GstJsonFile };
 
 // ───────────────────────────── Return files (our own documented formats) ─────────────────────────────
 
-export interface GstCsvFile {
+/** A return file in Bahi's own documented format (CMP-08 / GSTR-4: the portal schema is not reproduced). */
+export interface GstTextFile {
   fileName: string;
-  csv: string;
+  format: 'json' | 'csv';
+  content: string;
+  warnings: string[];
 }

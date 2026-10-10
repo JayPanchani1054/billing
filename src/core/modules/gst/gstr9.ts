@@ -3,7 +3,7 @@
  *
  *   Table 4  outward supplies + inward RCM on which tax is payable:
  *            4A B2C (B2CL + B2CS invoices, B2C notes netted) · 4B B2B (4A of GSTR-1, excl. reverse charge) ·
- *            4C exports with payment · 4D SEZ with payment · 4E deemed exports · 4F advances (0) ·
+ *            4C exports with payment · 4D SEZ with payment · 4E deemed exports · 4F advances (11A − 11B of the year) ·
  *            4G inward supplies on reverse charge (net of purchase returns) · 4I credit notes and
  *            4J debit notes on B–E · 4N total.
  *   Table 5  outward supplies on which tax is not payable: 5A exports under LUT · 5B SEZ without payment ·
@@ -24,6 +24,7 @@ import { validation } from '../../lib/errors.ts';
 import type { GstCompany } from './docs.ts';
 import { addTax, addTV, lineTV, loadDocs, zeroTax, zeroTV } from './docs.ts';
 import { computeGstr1 } from './gstr1.ts';
+import { bookAdjustments } from './bookAdjustments.ts';
 import { computeGstr3b, creditBroughtForward } from './gstr3b.ts';
 import { fyRange, monthsOf } from './period.ts';
 import { hsnSummary } from './reports.ts';
@@ -155,7 +156,14 @@ export function computeGstr9(db: Db, company: GstCompany, fy: string, today: str
     addTV(o, b, -1);
     return o;
   };
-  const h4 = sum(t.a4, t.b4, t.c4, t.d4, t.e4, t.g4);
+  // 4F: advances of the year on which tax was paid and no invoice issued by year end (11A − 11B); 4G and 6C/6D
+  // add reverse-charge journals; 6E uses the IGST of the bills of entry (bookAdjustments.ts).
+  const f4 = { ...g1.advances.net };
+  const book = bookAdjustments(db, from, to, today);
+  addTV(t.g4, book.rcmLiability);
+  addTV(t6.rcmUnreg, { taxable: book.rcmLiability.taxable, ...book.rcmCredit });
+  addTV(t6.impg, { taxable: 0, ...book.billOfEntry });
+  const h4 = sum(t.a4, t.b4, t.c4, t.d4, t.e4, f4, t.g4);
   const n4 = minus(sum(h4, t.j4), t.i4);
   const g5 = sum(t.a5, t.b5, t.c5, t.d5, t.e5, t.f5);
   const m5 = minus(sum(g5, t.i5), t.h5);
@@ -167,7 +175,7 @@ export function computeGstr9(db: Db, company: GstCompany, fy: string, today: str
     row('4C', 'Zero rated supply (export) on payment of tax (except supplies to SEZs)', t.c4),
     row('4D', 'Supply to SEZs on payment of tax', t.d4),
     row('4E', 'Deemed exports', t.e4),
-    row('4F', 'Advances on which tax has been paid but invoice has not been issued', zeroTV()),
+    row('4F', 'Advances on which tax has been paid but invoice has not been issued', f4),
     row('4G', 'Inward supplies on which tax is to be paid on reverse charge basis', t.g4),
     row('4H', 'Sub-total (A to G above)', h4),
     row('4I', 'Credit notes issued in respect of transactions specified in (B) to (E) above (−)', t.i4),

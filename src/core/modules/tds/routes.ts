@@ -66,8 +66,9 @@ export const tdsRoutes = {
   }),
 
   // ───────────── Natures ─────────────
+  // Voucher entry offers natures (advance payments), so anyone who may view vouchers may list them.
   'tds.natures.list': companyRoute({
-    access: 'tds.view',
+    access: 'vouchers.view',
     transactional: false,
     input: v.strictObject({ kind: kindOpt, asOf: v.date().optional(), includeInactive: v.boolean().optional() }),
     handler: (ctx, input) => {

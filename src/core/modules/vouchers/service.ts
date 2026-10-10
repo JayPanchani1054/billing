@@ -1058,6 +1058,12 @@ export function duplicateVoucher(ctx: CompanyCtx, id: number): VoucherInput {
   // A note's original invoice is specific to that note (a copy would settle the same bill again).
   delete out.originalInvoiceNo;
   delete out.originalInvoiceDate;
+  // A TDS/TCS challan is one deposit: a copy keeps the TDS choices but not the challan details.
+  if (out.tds?.challan) {
+    const { challan: _challan, ...rest } = out.tds;
+    if (rest.natureId !== undefined || rest.overrides) out.tds = rest;
+    else delete out.tds;
+  }
   // A copy is a new document: not a conversion of the source's quotation, not a recurring occurrence.
   delete out.convertedFromId;
   delete out.recurring;

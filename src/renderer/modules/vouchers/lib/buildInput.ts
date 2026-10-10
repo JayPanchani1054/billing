@@ -15,6 +15,7 @@ import type {
 } from '../../../../shared/types/vouchers.ts';
 import { blankItem, blankLedger, isBlankItem, isBlankLedger, newForm, normalize, splitForSingle } from './formState.ts';
 import type { ItemRow, LedgerLayout, LedgerRow, VoucherForm } from './formState.ts';
+import type { VoucherTdsInput } from '../../../../shared/types/tds.ts';
 import { isInvoiceMode, showsParty, singleEntryAccountSide } from './kinds.ts';
 
 /** Key used in `ledgerKeys` for the single-entry Account line. */
@@ -129,6 +130,16 @@ export function buildVoucherInput(f: VoucherForm): BuiltInput {
     if (txt(f.noteReason)) input.noteReason = txt(f.noteReason);
   }
   if (isInvoiceMode(f.mode) && f.partyBills && f.partyBills.length > 0) input.partyBillAllocations = f.partyBills.map((b) => ({ ...b }));
+  // Documents module fields (quotation / proforma validity, reversing journal, draft links).
+  if ((f.baseType === 'quotation' || f.baseType === 'proforma') && f.validUntil) input.validUntil = f.validUntil;
+  if (f.baseType === 'reversing_journal' && f.applicableUpto) input.applicableUpto = f.applicableUpto;
+  if (f.id === null && f.docLinks) {
+    if (f.docLinks.convertedFromId !== undefined) input.convertedFromId = f.docLinks.convertedFromId;
+    if (f.docLinks.recurring) input.recurring = { ...f.docLinks.recurring };
+  }
+  // TDS/TCS (tds module): sent only when the user chose a nature / override, or the voucher is a challan.
+  const tds = tdsOf(f);
+  if (tds) input.tds = tds;
 
   const itemKeys: string[] = [];
   const ledgerKeys: string[] = [];
@@ -292,8 +303,30 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
     originalInvoiceNo: input.originalInvoiceNo ?? '',
     originalInvoiceDate: input.originalInvoiceDate ?? null,
     noteReason: input.noteReason ?? '',
+    validUntil: input.validUntil ?? null,
+    applicableUpto: input.applicableUpto ?? null,
+    docLinks:
+      !o.alter && (input.convertedFromId !== undefined || input.recurring !== undefined)
+        ? { ...(input.convertedFromId !== undefined ? { convertedFromId: input.convertedFromId } : {}), ...(input.recurring ? { recurring: { ...input.recurring } } : {}) }
+        : null,
+    tds: input.tds ? cloneTds(input.tds) : null,
     touched: false,
     seq,
   };
   return normalize(out);
+}
+
+function cloneTds(t: VoucherTdsInput): VoucherTdsInput {
+  const out: VoucherTdsInput = {};
+  if (t.natureId !== undefined) out.natureId = t.natureId;
+  if (t.overrides && t.overrides.length > 0) out.overrides = t.overrides.map((o) => ({ ...o }));
+  if (t.challan) out.challan = { ...t.challan };
+  return out;
+}
+
+/** The voucher's `tds` input, or undefined when nothing was chosen (automatic computation). */
+export function tdsOf(f: VoucherForm): VoucherTdsInput | undefined {
+  if (!f.tds) return undefined;
+  const t = cloneTds(f.tds);
+  return t.natureId !== undefined || t.overrides !== undefined || t.challan !== undefined ? t : undefined;
 }

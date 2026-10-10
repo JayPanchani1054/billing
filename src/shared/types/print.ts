@@ -45,7 +45,10 @@ export type PrintDocKind =
   | 'memorandum'
   | 'reversing_journal'
   | 'stock_journal'
-  | 'physical_stock';
+  | 'physical_stock'
+  // Documents module: pre-sale documents (no books, not a tax invoice).
+  | 'quotation'
+  | 'proforma_invoice';
 
 export type PrintCopy = 'original' | 'duplicate' | 'triplicate';
 export const PRINT_COPIES: readonly PrintCopy[] = ['original', 'duplicate', 'triplicate'];

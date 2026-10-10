@@ -6,6 +6,7 @@ import { createTestCompany } from '../../testing/fixtures.ts';
 import { saveLedger } from './ledgers.ts';
 import { lastAudit, postRaw } from './testkit.ts';
 import { checkNumbering, deleteVoucherType, getVoucherType, listVoucherTypes, saveVoucherType } from './voucherTypes.ts';
+import { PREDEFINED_VOUCHER_TYPES } from '../../../shared/constants.ts';
 
 const isErr = (code: string, re?: RegExp) => (e: unknown) => e instanceof AppError && e.code === code && (!re || re.test(e.message));
 
@@ -23,11 +24,11 @@ function expectIssue(fn: () => unknown, path: string, re: RegExp): void {
 }
 
 describe('voucher types: list & create', () => {
-  it('lists the 18 predefined types in hotkey order with numbering and voucher counts', () => {
+  it('lists every predefined type in hotkey order with numbering and voucher counts', () => {
     const t = createTestCompany();
     postRaw(t, { date: '2026-04-02', baseType: 'sales', lines: [[t.ids.ledgers.CASH, 100], [t.ids.ledgers.SALES, -100]] });
     const { rows, total } = listVoucherTypes(t.db);
-    assert.equal(total, 18);
+    assert.equal(total, PREDEFINED_VOUCHER_TYPES.length);
     assert.deepEqual(
       rows.slice(0, 5).map((r) => r.name),
       ['Contra', 'Payment', 'Receipt', 'Journal', 'Sales'],

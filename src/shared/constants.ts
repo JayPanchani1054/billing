@@ -266,7 +266,7 @@ export const SYSTEM_ROLES: ReadonlyArray<{ name: string; description: string; pe
   {
     name: 'Data Entry',
     description: 'Create masters and vouchers; view basic reports',
-    permissions: ['company.view', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'reports.view', 'gst.view', 'tds.view'],
+    permissions: ['company.view', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'reports.view', 'gst.view'],
   },
   {
     name: 'Auditor',

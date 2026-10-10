@@ -81,6 +81,8 @@ export interface GstPeriodsResult {
   current: string;
   /** Key of the period most likely being filed now (the previous month / quarter). */
   suggested: string;
+  /** The company's GST registration (composition taxpayers file CMP-08 / GSTR-4 instead of GSTR-1 / 3B). */
+  registration?: 'regular' | 'composition' | 'unregistered';
 }
 
 // ───────────────────────────── Issues (uncertain transactions) ─────────────────────────────

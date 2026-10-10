@@ -20,6 +20,7 @@ import type {
   PartySnapshotInput,
   VoucherMode,
 } from '../../../../shared/types/vouchers.ts';
+import type { VoucherTdsInput } from '../../../../shared/types/tds.ts';
 import { singleEntryAccountSide } from './kinds.ts';
 
 export type Side = 'dr' | 'cr';
@@ -82,6 +83,12 @@ export interface LedgerRow {
   gstExtra: Omit<LedgerLineGstInput, 'rate' | 'hsnSac'> | null;
 }
 
+/** Links a new voucher carries from a documents-module draft (conversion of a quotation, a recurring occurrence). */
+export interface DocLinks {
+  convertedFromId?: number;
+  recurring?: { templateId: number; periodKey: string };
+}
+
 export interface VoucherForm {
   /** Present when altering. */
   id: number | null;
@@ -119,6 +126,13 @@ export interface VoucherForm {
   originalInvoiceNo: string;
   originalInvoiceDate: string | null;
   noteReason: string;
+  /** Documents module: quotation / proforma "valid until", reversing journal "applicable up to". */
+  validUntil: string | null;
+  applicableUpto: string | null;
+  /** Create only: the conversion / recurring link a draft carries (documents module); kept as given. */
+  docLinks: DocLinks | null;
+  /** TDS/TCS (tds module): nature for an advance, overrides with reasons, challan details; null = automatic. */
+  tds: VoucherTdsInput | null;
   /** Anything typed since load / reset (Esc asks before discarding). */
   touched: boolean;
   /** Key counter. */
@@ -218,6 +232,10 @@ export function newForm(o: NewFormOptions): VoucherForm {
     originalInvoiceNo: '',
     originalInvoiceDate: null,
     noteReason: '',
+    validUntil: null,
+    applicableUpto: null,
+    docLinks: null,
+    tds: null,
     touched: false,
     seq: 0,
   };
