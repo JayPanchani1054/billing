@@ -24,6 +24,39 @@ export function sharedExportsDir(dataDir: string, companyId: string): string | n
   return isPathInside(companies, dir) ? dir : null;
 }
 
+/** The exports folder is not a plain folder inside the company folder (see ensureSharedExportsDir). */
+export class SharedFolderError extends Error {}
+
+/**
+ * Create (when missing) and return <dataDir>/companies/<id>/exports/shared, walking the two folders
+ * below the company folder without following links: an `exports` or `shared` that is a symbolic link
+ * or junction (planted in a shared data folder) could point the PDF and the e-mail draft at another
+ * folder or a network share (an SMB path leaks the user's NTLM hash and ships the document off the
+ * machine), so it is refused. Returns null when the id or data folder is unusable.
+ */
+export async function ensureSharedExportsDir(dataDir: string, companyId: string): Promise<string | null> {
+  const dir = sharedExportsDir(dataDir, companyId);
+  if (!dir) return null;
+  let current = path.join(dataDir, 'companies', companyId);
+  for (const part of ['exports', 'shared']) {
+    current = path.join(current, part);
+    let st: Awaited<ReturnType<typeof fsp.lstat>> | null = null;
+    try {
+      st = await fsp.lstat(current);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    if (st === null) {
+      await fsp.mkdir(current);
+      continue;
+    }
+    if (st.isSymbolicLink() || !st.isDirectory()) {
+      throw new SharedFolderError(`${current} is a link or a file, not a folder of the company. Remove it; Bahi ERP will create the folder again.`);
+    }
+  }
+  return dir;
+}
+
 /** A name in `dir` that does not exist yet: 'Invoice 12.pdf', 'Invoice 12 (2).pdf', … */
 export async function freeFileName(dir: string, wanted: string, ext: string): Promise<string> {
   let base = sanitizeFileName(wanted, 'document');
@@ -141,7 +174,8 @@ export function buildDraftEml(m: DraftEmail): string {
   const body = m.body.replace(/\r?\n/g, '\r\n');
   const headers = [
     'X-Unsent: 1',
-    ...(m.to.length > 0 ? [`To: ${m.to.join(', ')}`] : []),
+    // One address per folded line keeps every header line far below RFC 5322's 998 characters.
+    ...(m.to.length > 0 ? [`To: ${m.to.join(',\r\n ')}`] : []),
     `Subject: ${encodeHeader(m.subject)}`,
     `Date: ${rfc5322Date(m.date)}`,
     'MIME-Version: 1.0',

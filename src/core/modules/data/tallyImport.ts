@@ -38,6 +38,7 @@ import {
 import { addDays, formatDate } from '../../../shared/dates.ts';
 import { classifySupply, findState, GST_RATES, isKnownStateCode, isStandardRate, normalizeStateCode } from '../../../shared/gst/index.ts';
 import { allocate } from '../../../shared/money.ts';
+import { GST_PLUS_LEDGERS, type GstPlusLedgerCode } from '../../../shared/types/gst-plus.ts';
 import type { LedgerSaveInput, OpeningBillInput, VoucherTypeSaveInput } from '../../../shared/types/accounts.ts';
 import type {
   TallyCounts,
@@ -66,6 +67,7 @@ import { getConfig, getFeatures, saveFeatures } from '../company/service.ts';
 import { mainGodownId, saveGodown, saveStockCategory, saveStockGroup } from '../inventory/masters.ts';
 import { saveItem } from '../inventory/items.ts';
 import { saveUnit } from '../inventory/units.ts';
+import { ensureStatLedger, statLedgerId } from '../gst/statLedgers.ts';
 import { loadVoucherType, parseVoucherSeq, periodKey, periodRange, type VoucherTypeInfo } from '../vouchers/numbering.ts';
 import { loadVoucherRow, snapshotFromDb } from '../vouchers/service.ts';
 import { dbTaxLookup, resolveItemTaxProfile, resolveLedgerTaxProfile, type TaxLookup } from '../vouchers/taxprofile.ts';
@@ -1104,6 +1106,35 @@ interface VoucherEnv {
   guids: Map<string, number>;
   /** Set by writeVoucher: the id written for the voucher being processed (committed into `guids` by the caller). */
   lastWritten: { guid: string; id: number } | null;
+  /** "GST on Advances Received" (gst module system ledger), when the company has it. */
+  advanceLedgerId: number | null;
+}
+
+/**
+ * GST plus system ledgers (GST on Advances Received, GST Electronic Cash Ledger, …) arrive from a Tally file
+ * as ordinary ledgers. One with the system name in the system group is adopted (reserved code set, audited
+ * — exactly what the gst module does when it first needs the ledger), so the GST features keep using it
+ * instead of creating a "(System)" twin, and imported advances are recognised (see writeVoucher).
+ */
+function adoptGstPlusLedgers(run: Run, ts: string): void {
+  const { db } = run;
+  for (const code of Object.keys(GST_PLUS_LEDGERS) as GstPlusLedgerCode[]) {
+    if (statLedgerId(db, code) !== undefined) continue;
+    const spec = GST_PLUS_LEDGERS[code];
+    const same = db.get<{ group_id: number; reserved_code: string | null }>('SELECT group_id, reserved_code FROM ledgers WHERE name = :name', { name: spec.name });
+    const groupId = db.value<number>('SELECT id FROM groups WHERE reserved_code = :g', { g: spec.group });
+    if (same && same.reserved_code === null && same.group_id === groupId) ensureStatLedger(db, code, ts, (e) => run.ctx.audit(e));
+  }
+}
+
+/** GST on an advance as the gst module's hook posts it (receipt: 'received'; sales / debit note: 'adjusted'; payment: 'refunded'). */
+interface AdvanceRecovery {
+  kind: 'received' | 'adjusted' | 'refunded';
+  heads: Record<TallyDutyHead, number>;
+  /** The customer the advance is from (PARTYLEDGERNAME, else the party line of the voucher). */
+  partyLedgerId: number | null;
+  /** received: the advance incl. tax; adjusted: one row per advance receipt it settles; refunded: the one receipt refunded. */
+  rows: Array<{ receiptVoucherId: number | null; gross: number; pos: string; rate: number; cessRate: number; heads: Record<TallyDutyHead, number> }>;
 }
 
 /** GUIDs of vouchers imported from Tally earlier (one scan instead of one per voucher). */
@@ -1332,6 +1363,88 @@ function snapRate(rate: number): number {
   return Math.round(rate * 100) / 100;
 }
 
+/**
+ * GST on an advance as our gst module posts it (exported as recorded): a Receipt with Dr "GST on Advances
+ * Received" / Cr Output tax is an advance with tax (Table 11A); a Sales / Debit Note with Cr "GST on Advances
+ * Received" / Dr Output tax adjusts the advances its bill-wise "Agst Ref" names (Table 11B); a Payment with
+ * the same Cr / Dr refunds the one advance its "Agst Ref" names (Table 11B). Tally itself records advance
+ * tax with stat adjustment journals, which import as plain journals; null for anything else.
+ */
+function recoverAdvance(env: VoucherEnv, base: VoucherBaseType, outward: boolean, cancelled: boolean, entries: EntryRow[], partyId: number | null): AdvanceRecovery | null {
+  if (cancelled || env.advanceLedgerId === null || env.company.registration !== 'regular') return null;
+  const advAmount = entries.filter((e) => e.ledger.id === env.advanceLedgerId).reduce((t, e) => t + e.amount, 0);
+  if (advAmount === 0) return null;
+  const output = entries.filter((e) => e.head !== null && e.ledger.taxDirection === 'output');
+  const headsOf = (pick: (amount: number) => number): Record<TallyDutyHead, number> => {
+    const h = { IGST: 0, CGST: 0, SGST: 0, CESS: 0 };
+    for (const e of output) h[e.head as TallyDutyHead] += pick(e.amount);
+    return h;
+  };
+  const total = (h: Record<TallyDutyHead, number>): number => h.IGST + h.CGST + h.SGST + h.CESS;
+  /** The advance receipts (with GST) of `party` named by its bill-wise "Agst Ref" lines on this voucher. */
+  const receiptsSettled = (party: number, bills: EntryRow['bills']): Array<{ gross: number; receipt: { id: number; pos: string; rate: number; cess_rate: number } }> => {
+    const found: Array<{ gross: number; receipt: { id: number; pos: string; rate: number; cess_rate: number } }> = [];
+    for (const b of bills) {
+      if (b.refType !== 'against' || !b.name) continue;
+      const receipt = env.run.db.get<{ id: number; pos: string; rate: number; cess_rate: number }>(
+        `SELECT a.voucher_id AS id, a.pos, a.rate, a.cess_rate FROM gst_advance_lines a
+           JOIN bill_allocations ba ON ba.voucher_id = a.voucher_id AND ba.ref_type = 'advance' AND ba.ledger_id = :party AND ba.bill_name = :name
+          WHERE a.kind = 'received' ORDER BY a.voucher_id LIMIT 1`,
+        { party, name: b.name },
+      );
+      if (receipt) found.push({ gross: Math.abs(b.amount), receipt });
+    }
+    return found;
+  };
+  if (base === 'receipt' && advAmount > 0) {
+    const heads = headsOf((a) => (a < 0 ? -a : 0));
+    const tax = total(heads);
+    const partyEntry = entries.find((e) => e.ledger.cls.isParty && e.amount < 0);
+    const advanceBills = (partyEntry?.bills ?? []).filter((b) => b.refType === 'advance');
+    const gross = advanceBills.length > 0 ? advanceBills.reduce((t, b) => t + Math.abs(b.amount), 0) : entries.filter((e) => e.ledger.cls.isCashOrBank && e.amount > 0).reduce((t, e) => t + e.amount, 0);
+    if (tax === 0 || gross <= tax) return null;
+    const taxable = gross - tax;
+    const pos = heads.IGST > 0 ? (partyEntry?.ledger.stateCode ?? env.company.stateCode ?? '') : (env.company.stateCode ?? '');
+    const row = { receiptVoucherId: null, gross, pos, rate: snapRate(((tax - heads.CESS) / taxable) * 100), cessRate: heads.CESS > 0 ? Math.round((heads.CESS / taxable) * 10_000) / 100 : 0, heads };
+    return { kind: 'received', heads, partyLedgerId: partyId ?? partyEntry?.ledger.id ?? null, rows: [row] };
+  }
+  if (base === 'payment' && advAmount < 0) {
+    // A refund: the gst module refunds one advance per Payment voucher (gstDetails.advanceRefund).
+    const heads = headsOf((a) => (a > 0 ? a : 0));
+    if (total(heads) === 0) return null;
+    const partyEntry = (partyId !== null ? entries.find((e) => e.ledger.id === partyId) : undefined) ?? entries.find((e) => e.ledger.cls.isParty && e.amount > 0);
+    if (!partyEntry) return null;
+    const found = receiptsSettled(partyEntry.ledger.id, partyEntry.bills);
+    if (found.length !== 1) return null;
+    const f = found[0];
+    return {
+      kind: 'refunded',
+      heads,
+      partyLedgerId: partyEntry.ledger.id,
+      rows: [{ receiptVoucherId: f.receipt.id, gross: f.gross, pos: f.receipt.pos, rate: f.receipt.rate, cessRate: f.receipt.cess_rate, heads }],
+    };
+  }
+  if (outward && (base === 'sales' || base === 'debit_note') && advAmount < 0 && partyId !== null) {
+    const heads = headsOf((a) => (a > 0 ? a : 0));
+    if (total(heads) === 0) return null;
+    const partyEntry = entries.find((e) => e.ledger.id === partyId);
+    const found = receiptsSettled(partyId, partyEntry?.bills ?? []);
+    if (found.length === 0) return null;
+    const weights = found.map((f) => f.gross);
+    const split = { IGST: allocate(heads.IGST, weights), CGST: allocate(heads.CGST, weights), SGST: allocate(heads.SGST, weights), CESS: allocate(heads.CESS, weights) };
+    const rows = found.map((f, i) => ({
+      receiptVoucherId: f.receipt.id,
+      gross: f.gross,
+      pos: f.receipt.pos,
+      rate: f.receipt.rate,
+      cessRate: f.receipt.cess_rate,
+      heads: { IGST: split.IGST[i], CGST: split.CGST[i], SGST: split.SGST[i], CESS: split.CESS[i] },
+    }));
+    return { kind: 'adjusted', heads, partyLedgerId: partyId, rows };
+  }
+  return null;
+}
+
 /** Write one Tally voucher (inside the caller's savepoint). Returns 'created' | 'updated' | 'skipped'. */
 function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'skipped' {
   const { run } = env;
@@ -1553,7 +1666,15 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
   // credit in the input ledgers) — the tax of the supply is what the RCM ledgers carry.
   const reverseCharge = isGstDoc && !outward && !cancelled && entries.some((e) => e.head !== null && e.ledger.taxDirection === 'rcm_liability');
   const heads = { IGST: 0, CGST: 0, SGST: 0, CESS: 0 };
-  for (const e of entries) if (e.head && (!reverseCharge || e.ledger.taxDirection === 'rcm_liability')) heads[e.head] += e.amount;
+  // GST on advances (posted by the gst module's hook, exported as recorded): an invoice adjusting an advance
+  // also debits the Output tax ledgers against "GST on Advances Received". That debit is the reversal of the
+  // advance's tax (Table 11B), not a reduction of the invoice's own tax — kept apart here.
+  const advance = recoverAdvance(env, base, outward, cancelled, entries, partyId);
+  for (const e of entries) {
+    if (!e.head || (reverseCharge && e.ledger.taxDirection !== 'rcm_liability')) continue;
+    if (advance?.kind === 'adjusted' && e.ledger.taxDirection === 'output' && e.amount > 0) continue;
+    heads[e.head] += e.amount;
+  }
   for (const h of Object.keys(heads) as TallyDutyHead[]) heads[h] = Math.abs(heads[h]);
   const totalTax = heads.IGST + heads.CGST + heads.SGST + heads.CESS;
   let notes: string[] = [];
@@ -1672,7 +1793,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
   const affectsStock = inv.some((r) => r.affectsStock) ? 1 : 0;
 
   const isNote = base === 'credit_note' || base === 'debit_note';
-  const input = buildInput(env, v, { typeId, base, partyId, entries, inv, partySign, posCode, reverseCharge });
+  const input = buildInput(env, v, { typeId, base, partyId, entries, inv, partySign, posCode, reverseCharge, advance });
   const meta = {
     v: 1,
     source: 'tally',
@@ -1725,7 +1846,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
   let id: number;
   if (existingId !== undefined) {
     id = existingId;
-    for (const t of ['bill_allocations', 'cost_allocations', 'ledger_entries', 'inventory_entries', 'gst_lines'] as const) db.run(`DELETE FROM ${t} WHERE voucher_id = :id`, { id });
+    for (const t of ['bill_allocations', 'cost_allocations', 'ledger_entries', 'inventory_entries', 'gst_lines', 'gst_advance_lines'] as const) db.run(`DELETE FROM ${t} WHERE voucher_id = :id`, { id });
     db.run(`UPDATE vouchers SET ${cols.map((c) => `${c} = :${c}`).join(', ')} WHERE id = :id`, { ...header, id });
   } else {
     const all = { ...header, guid: randomUUID(), created_by: run.ctx.session.userId, created_at: env.now };
@@ -1836,6 +1957,34 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
       },
     );
   });
+  if (advance) {
+    for (const r of advance.rows) {
+      const tax = r.heads.IGST + r.heads.CGST + r.heads.SGST + r.heads.CESS;
+      db.run(
+        `INSERT INTO gst_advance_lines (voucher_id, kind, receipt_voucher_id, party_ledger_id, pos, supply_type, rate, cess_rate, gross, taxable_value,
+                igst, cgst, sgst, cess, date, affects_books, is_post_dated)
+         VALUES (:id, :kind, :receipt, :party, :pos, 'services', :rate, :cessRate, :gross, :taxable, :igst, :cgst, :sgst, :cess, :date, :books, :pdc)`,
+        {
+          id,
+          kind: advance.kind,
+          receipt: advance.kind === 'received' ? id : r.receiptVoucherId,
+          party: advance.partyLedgerId,
+          pos: r.pos,
+          rate: r.rate,
+          cessRate: r.cessRate,
+          gross: r.gross,
+          taxable: r.gross - tax,
+          igst: r.heads.IGST,
+          cgst: r.heads.CGST,
+          sgst: r.heads.SGST,
+          cess: r.heads.CESS,
+          date: v.date,
+          books,
+          pdc,
+        },
+      );
+    }
+  }
   // One edit-log entry per voucher, in the same shape as a voucher saved on screen (vouchers/service.ts),
   // so the voucher's history shows the import (and, on "update", the amounts before and after).
   const saved = loadVoucherRow(db, id);
@@ -1857,8 +2006,18 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
 function buildInput(
   env: VoucherEnv,
   v: TVoucher,
-  x: { typeId: number; base: VoucherBaseType; partyId: number | null; entries: EntryRow[]; inv: InvRow[]; partySign: number; posCode: string | null; reverseCharge: boolean },
+  x: { typeId: number; base: VoucherBaseType; partyId: number | null; entries: EntryRow[]; inv: InvRow[]; partySign: number; posCode: string | null; reverseCharge: boolean; advance: AdvanceRecovery | null },
 ): VoucherInput {
+  // GST on an advance goes back into the voucher's GST details (the gst hook posts its lines again on alteration).
+  const isAdvanceLine = (e: EntryRow): boolean => x.advance !== null && (e.ledger.id === env.advanceLedgerId || (x.advance.kind !== 'adjusted' && e.head !== null && e.ledger.taxDirection === 'output'));
+  const gstDetails = (): Pick<VoucherInput, 'gstDetails'> => {
+    const a = x.advance;
+    if (!a) return {};
+    if (a.kind === 'adjusted') return { gstDetails: { advanceAdjustments: a.rows.map((r) => ({ receiptVoucherId: r.receiptVoucherId as number, amount: r.gross })) } };
+    if (a.kind === 'refunded') return { gstDetails: { advanceRefund: { receiptVoucherId: a.rows[0].receiptVoucherId as number, amount: a.rows[0].gross } } };
+    const r = a.rows[0];
+    return { gstDetails: { advance: { supplyType: 'services', rate: r.rate, ...(r.cessRate ? { cessRate: r.cessRate } : {}), ...(r.pos ? { placeOfSupply: r.pos } : {}), amount: r.gross } } };
+  };
   const common: Omit<VoucherInput, 'mode'> = {
     voucherTypeId: x.typeId,
     date: v.date as string,
@@ -1894,7 +2053,7 @@ function buildInput(
   if (isGstDoc && x.partyId !== null && (x.inv.length > 0 || x.entries.some((e) => e.role === 'tax'))) {
     const mode: VoucherMode = x.inv.length > 0 ? 'item_invoice' : 'accounting_invoice';
     const ledgers: LedgerLineInput[] = x.entries
-      .filter((e) => e.role !== 'party' && e.role !== 'tax' && e.role !== 'round_off' && !(mode === 'item_invoice' && e.fromInventory))
+      .filter((e) => e.role !== 'party' && e.role !== 'tax' && e.role !== 'round_off' && !(mode === 'item_invoice' && e.fromInventory) && !isAdvanceLine(e))
       .map((e) => ({ ledgerId: e.ledger.id, amount: -x.partySign * e.amount }));
     const partyEntry = x.entries.find((e) => e.role === 'party' && e.ledger.id === x.partyId);
     const partyBills = partyEntry ? bills(partyEntry) : undefined;
@@ -1907,6 +2066,7 @@ function buildInput(
       ...(mode === 'item_invoice' ? { items: items() } : {}),
       ...(ledgers.length ? { ledgers } : {}),
       ...(partyBills ? { partyBillAllocations: partyBills } : {}),
+      ...gstDetails(),
     };
   }
   if (!isAccounting && x.base !== 'memorandum' && x.base !== 'reversing_journal') {
@@ -1916,7 +2076,8 @@ function buildInput(
     ...common,
     mode: 'ledger',
     ...(x.partyId !== null ? { partyLedgerId: x.partyId } : {}),
-    ledgers: x.entries.map((e) => {
+    ...gstDetails(),
+    ledgers: x.entries.filter((e) => !isAdvanceLine(e)).map((e) => {
       const line: LedgerLineInput = { ledgerId: e.ledger.id, amount: e.amount };
       const b = bills(e);
       if (b) line.billAllocations = b;
@@ -2013,6 +2174,7 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
         'SELECT state_code, gst_registration_type, fy_start_month FROM company WHERE id = 1',
       );
       const config = getConfig(db);
+      db.transaction(() => adoptGstPlusLedgers(run, now));
       const loaded = loadLedgers(db);
       const env: VoucherEnv = {
         run,
@@ -2035,6 +2197,7 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
         counts,
         guids: loadTallyGuids(db),
         lastWritten: null,
+        advanceLedgerId: statLedgerId(db, 'GST_ADVANCE') ?? null,
       };
       for (let start = 0; start < list.length; start += CHUNK) {
         setProgress(ctx, { running: true, phase: 'vouchers', done: start, total: list.length, message: `Importing vouchers ${start + 1}–${Math.min(start + CHUNK, list.length)} of ${list.length}…` });

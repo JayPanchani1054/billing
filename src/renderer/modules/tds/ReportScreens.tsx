@@ -217,7 +217,7 @@ export function LinesScreen({ params }: ScreenProps<LinesParams>) {
       })}
       actions={[
         { key: 'Alt+Enter', label: 'View voucher', icon: 'eye', disabled: !current, onClick: () => current && nav.push('vouchers.view', { id: current.voucherId }) },
-        { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', disabled: !current || !canAlter, onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }) },
+        { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', hidden: !canAlter, disabled: !current || !canAlter, onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }) },
       ]}
       hint="Enter View voucher · Alt+A Alter voucher · Alt+E Export · Esc Back"
     >
@@ -330,7 +330,7 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
       exportDef={() => (d ? outstandingExport(d) : { columns: [], rows: [] })}
       actions={[
         ...kindActions,
-        { key: 'Alt+C', label: 'Create challan', icon: 'plus', primary: true, disabled: !canPay, onClick: () => (current ? payCurrent() : nav.push('tds.challan', { kind: k })) },
+        { key: 'Alt+C', label: 'Create challan', icon: 'plus', primary: true, hidden: !canPay, disabled: !canPay, onClick: () => (current ? payCurrent() : nav.push('tds.challan', { kind: k })) },
         { key: 'Alt+F1', label: all ? 'Only unsettled' : 'Include settled', group: 'view', onClick: () => setAll((x) => !x) },
       ]}
       hint="Enter Lines · Alt+C Create challan for the month · Alt+F1 Settled months · Alt+F2 Period · Alt+E Export · Esc Back"
@@ -423,7 +423,7 @@ export function ChallansScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
       exportDef={() => (q.data ? challansExport(q.data) : { columns: [], rows: [] })}
       actions={[
         ...kindActions,
-        { key: 'Alt+C', label: 'Create challan', icon: 'plus', primary: true, disabled: !canPay, onClick: () => nav.push('tds.challan', { kind: k }) },
+        { key: 'Alt+C', label: 'Create challan', icon: 'plus', primary: true, hidden: !canPay, disabled: !canPay, onClick: () => nav.push('tds.challan', { kind: k }) },
         { key: 'Alt+Enter', label: 'View voucher', icon: 'eye', disabled: !current, onClick: () => current && nav.push('vouchers.view', { id: current.voucherId }) },
       ]}
       hint="Enter Alter challan · Alt+C Create challan · Alt+Enter View voucher · Alt+F2 Period · Alt+E Export · Esc Back"
@@ -495,7 +495,7 @@ export function ExceptionsScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
       exportDef={() => exceptionsExport(rows)}
       actions={[
         ...kindActions,
-        { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', disabled: !current || !canAlter, onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }) },
+        { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', hidden: !canAlter, disabled: !current || !canAlter, onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }) },
         {
           key: 'Alt+M',
           label: 'Party TDS details',

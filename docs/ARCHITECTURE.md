@@ -78,7 +78,7 @@ src/
     modules/<module>/  index.ts (ModuleDef) + screens/components for that module
 scripts/               build.mjs, dev.mjs
 build/                 Installer resources (icon, NSIS include)
-e2e/                   Playwright Electron specs (smoke + first-day flow; CI, docs/BUILD.md §5.1)
+e2e/                   Playwright Electron specs (smoke, first day, every-screen sweep, parity flows; CI, docs/BUILD.md §5.1)
 ```
 
 Feature modules (same name on both sides): `company security accounts inventory vouchers reports stock
@@ -282,6 +282,11 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   CSVs, ITC-04 / CMP-08 / GSTR-4 files, e-payment files, edit log, reconciliation, data exports), as do
   `data.export.table` and the renderer's `exportFormat.ts`; in `.xlsx` (`lib/xlsx.ts`) text is never a
   formula and such cells also get the `quotePrefix` style. Never hand-build CSV text.
+- **New routes** declare a real permission (`authenticated` only where the service checks the owner's
+  view permission, e.g. attachment reads); report / list filters with optional narrowing keys use
+  `v.strictObject`; anything main opens with the OS (`shell.openPath`) is a file main wrote itself into
+  a folder it chose, reached without following links, after re-checking it (docs/SECURITY.md §4.0,
+  `core/api/parity-security.test.ts`).
 
 ## 9. Testing
 
@@ -289,6 +294,29 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
 - Use `src/core/testing/fixtures.ts` to create an in-memory company with seeded masters.
 - Every service with business rules gets tests for the happy path **and** the rules it enforces.
 - GST and posting tests use hand-verified numbers (write the arithmetic in a comment).
+- Performance regressions are tested by the SQL a path runs rather than by wall time: the app never runs
+  ANALYZE, so SQLite's plans depend on the schema alone and a plan checked on a test company is the plan
+  of a 60,000-voucher one. `src/core/testing/sqlPlans.ts` records a Db's statements (`recordSql`) and
+  checks each plan (`planProblems`: no scan of a table that grows with the books — including the
+  foreign-key look-ups a DELETE's plan lists — and a `voucher_id = :x` statement looks that voucher
+  up). `vouchers/perf-hooks.test.ts` runs every voucher hook on a 60,000-voucher company with every
+  feature on (statements and plans per save / alter / cancel / delete, stock replays, report and
+  drill-down statement counts; wall times logged with generous bounds — targets: save ≤ 50 ms p95,
+  reports ≤ 1 s cold, drill-downs ≤ 150 ms). A voucher hook must touch only the rows of its voucher
+  and of the party / bank / item / period it needs (indexes for that in migration 241).
+- Cross-module tie-outs run through `runtime.dispatch` only (`src/core/testing/e2e/`): `business-year.test.ts`
+  (a trading year) and `all-features-year.test.ts` (a year with every F11 feature on — `allFeatures.ts`:
+  GST with advances / RCM / set-off + challans, TDS / TCS with challans and note reversals, forex export +
+  realisation + revaluation, BOM manufacturing + job work, POS split tender / returns / credit, quotation →
+  invoice, recurring rent, cheques + statement + BRS, scenario, budget, attachment — plus a composition
+  dealer). They assert that the trial balance, every ledger's own report, cash / bank books, P&L, Balance
+  Sheet, stock summary / valuation / godowns, GSTR-1 / 3B (+ their JSON files) / 9, ITC register, electronic
+  ledgers ↔ Output / Input tax ledgers, TDS / TCS reports and statements, outstanding (INR and currency),
+  cheque register ↔ BRS, dashboard, POS day-end and production register agree; that a Tally XML export
+  imported into an empty company reproduces the trial balance, stock summary and GSTR-1 / 3B of every month
+  (Table 11 included); and that a backup restored as a new company reproduces the books, stock, GST, TDS /
+  TCS, outstanding, forex, BRS, cheque, POS, production and dashboard figures and the attachment. A
+  disagreement is fixed where it arises, never in the test.
 
 ## 10. Definition of done for any module
 
@@ -373,6 +401,10 @@ Core `src/core/modules/tds` (README there: tables, posting, legal assumptions), 
   rows (Income-tax Act 2025 references stored as a hint only).
 - **Routes** `tds.*`: settings, natures, ledgers, computation, lines, outstanding, challans, exceptions,
   voucher, challan.suggest/get/save, return.data/export, statement.save, receivable, 26as.import.
+- **Filed statements** (`tds/filed.ts`): once a quarter's 26Q / 27Q / 27EQ is marked filed, a voucher
+  save that changes what it reported (deductee rows with tax / certificate, challans) is a `confirm`
+  warning (correction statement), and deleting / cancelling such a voucher is refused (hook
+  `beforeRemove`) — the TDS counterpart of the filed GSTR-1 rule.
   Reports are `transactional: false`. Permissions `tds.view` / `tds.manage` / `tds.file`
   (Accountant all three, Auditor `tds.view`; migration 160 grants them to existing companies' roles).
 - **UI**: Gateway section "TDS / TCS"; voucher entry side panel + Alt+U dialog (override with reason,
@@ -381,7 +413,8 @@ Core `src/core/modules/tds` (README there: tables, posting, legal assumptions), 
   file, not the RPU column order (documented in the module README).
 - **Final wave** (migration 240 `tds_lines.bill_voucher_id`): a debit note (TDS) / credit note (TCS) in
   an invoice mode against a bill with tax reverses it in proportion (negative line carrying the bill,
-  netted into the bill's deduction by the outstanding report and the statement — `netReversals`); a
+  netted into the bill's deduction by the outstanding report, the statement and the challan suggestion
+  — `netReversals`); a
   Journal `Dr party / Cr TDS Payable` with nothing applicable is the deduction on the bill its
   bill-wise "Against" names (in every report); 194T only for a `firm` deductor category; s.195 on a
   foreign-currency bill nets the supplier's bill in both currencies (forex hook rescales bill-wise
@@ -620,8 +653,13 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   Tally company can begin its books there. Item lines carry their share of their sales / purchase
   ledger's posting (assessable-value charges such as freight stay on their own ledger), so every
   voucher in the file balances. Children are read per batch of 2 000 vouchers (one query per table).
-  The importer recovers reverse charge (RCM-liability duty ledgers), overseas parties (country) and
-  assessable-value charges. Not exported: quotations / proforma / physical stock (reported as skipped),
+  The importer recovers reverse charge (RCM-liability duty ledgers), overseas parties (country),
+  assessable-value charges and GST on advances (receipt → `gst_advance_lines` 'received', invoice → 'adjusted'
+  and refund payment → 'refunded' via its bill-wise "Agst Ref"; the gst module's system ledgers are adopted
+  by name + group). Final wave:
+  the stock lines of manufacturing / job work journals are written at the valuation engine's current
+  value (`journalCosts`), not the estimate stored when they were saved, so a back-dated cost change
+  reaches the Tally company too. Not exported: quotations / proforma / physical stock (reported as skipped),
   forex amounts (rupees only), e-invoice / e-way bill and shipping bill details, attachments.
 - **Attachments** — core `src/core/modules/attachments` (README), routes `attachments.list / counts /
   add / read / remove / register`, permissions `attachments.add` / `attachments.remove` (view follows

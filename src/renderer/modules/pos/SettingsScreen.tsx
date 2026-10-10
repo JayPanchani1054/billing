@@ -95,9 +95,9 @@ function Settings() {
       onRetry={() => void ctxQ.refetch()}
       hint="Enter Next field · Ctrl+A Save · Alt+C Create tender mode · Alt+D Delete mode · Alt+B POS counter · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canManage || !dirty || save.pending, onClick: () => void submit() },
-        { key: 'Alt+C', label: 'Create tender mode', icon: 'plus', disabled: !canManage, onClick: () => setEditing('new'), group: 'modes' },
-        { key: 'Alt+D', label: 'Delete mode', icon: 'trash', disabled: !canManage || !current, onClick: () => void remove(), group: 'modes' },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canManage || !dirty || save.pending, hint: canManage ? undefined : 'Needs the “Manage company” permission', onClick: () => void submit() },
+        { key: 'Alt+C', label: 'Create tender mode', icon: 'plus', hidden: !canManage, disabled: !canManage, onClick: () => setEditing('new'), group: 'modes' },
+        { key: 'Alt+D', label: 'Delete mode', icon: 'trash', hidden: !canManage, disabled: !canManage || !current, onClick: () => void remove(), group: 'modes' },
         { key: 'Alt+B', label: 'POS counter', icon: 'cart', onClick: () => nav.push('pos.counter'), group: 'go' },
       ]}
     >

@@ -47,7 +47,7 @@ import { allAliases, extraAliasMap } from '../../lib/masterAliases.ts';
 import { escapeAttr, escapeXml } from '../../lib/xml.ts';
 import { ZipFileWriter } from '../../lib/zip.ts';
 import { STOCK_MOVEMENT_FILTER } from '../inventory/stock.ts';
-import { computeStockValuation } from '../inventory/valuation.ts';
+import { computeStockValuation, traceStockMovements } from '../inventory/valuation.ts';
 import { billFromAggregate, loadBillAggregates } from '../outstanding/engine.ts';
 import { buildSnapshot, loadReportEnv } from '../reports/engine.ts';
 import { fileSlug, requirePermission, yieldToEventLoop } from './common.ts';
@@ -729,6 +729,7 @@ interface LeRow {
 }
 
 interface IeRow {
+  id: number;
   line_no: number;
   item: string;
   unit: string;
@@ -817,12 +818,50 @@ function writeCostAllocations(o: Out, costs: readonly CostSlice[], deemedPositiv
 }
 
 /**
+ * Stock values of the lines of manufacturing / job work journals (stock journals with a costing basis,
+ * mfg module) as the valuation engine applies them NOW — by inventory_entries id. The amounts stored on
+ * such a journal are the estimate made when it was saved; a later back-dated purchase or alteration
+ * re-values the production in every stock report (inventory/valuation.ts), so the file carries the
+ * engine's figures: the Tally company (and our importer, which takes a stock journal's inward values as
+ * written) then holds the same closing stock. One replay, only when the period has such journals.
+ */
+function journalCosts(db: Db, from: string, to: string, today: string): Map<number, number> {
+  const items = db
+    .all<{ item_id: number }>(
+      `SELECT DISTINCT ie.item_id FROM inventory_entries ie
+        WHERE ie.date BETWEEN :from AND :to AND ie.voucher_id IN (SELECT voucher_id FROM stock_journal_lines WHERE basis IS NOT NULL)`,
+      { from, to },
+    )
+    .map((r) => r.item_id);
+  if (items.length === 0) return new Map();
+  const journals = new Set(
+    db.all<{ id: number }>(`SELECT DISTINCT voucher_id AS id FROM stock_journal_lines WHERE basis IS NOT NULL`).map((r) => r.id),
+  );
+  const trace = traceStockMovements(db, { from, to, today, traceItemIds: items, traceFrom: from });
+  const out = new Map<number, number>();
+  for (const m of trace.movements) {
+    const value = trace.values.get(m.id);
+    if (value !== undefined && journals.has(m.voucherId)) out.set(m.id, value);
+  }
+  return out;
+}
+
+/** A stock-journal line at its engine value (rate = value ÷ quantity), else as recorded. */
+function withCost(r: IeRow, costs: ReadonlyMap<number, number>): IeRow {
+  const value = costs.get(r.id);
+  if (value === undefined || value === r.amount) return r;
+  const qty = Math.abs(r.qty);
+  return { ...r, amount: value, rate: qty > 0 ? Math.round((value / 100 / qty) * 1e4) / 1e4 : r.rate, discount_pct: 0 };
+}
+
+/**
  * Writes the period's vouchers one TALLYMESSAGE at a time through `emit` (constant memory), in
  * batches of VOUCHER_BATCH vouchers whose entries, stock lines, bills and cost allocations are read
  * with one query each (no per-voucher queries), calling `pause` every EXPORT_YIELD_ROWS vouchers so a
  * long export does not block the worker.
  */
-async function writeVouchers(db: Db, from: string, to: string, emit: (text: string) => void, pause: () => Promise<void>): Promise<VoucherCounts> {
+async function writeVouchers(db: Db, from: string, to: string, today: string, emit: (text: string) => void, pause: () => Promise<void>): Promise<VoucherCounts> {
+  const costs = journalCosts(db, from, to, today);
   const skipped = new Map<string, number>();
   const skip = (reason: string): void => {
     skipped.set(reason, (skipped.get(reason) ?? 0) + 1);
@@ -850,7 +889,7 @@ async function writeVouchers(db: Db, from: string, to: string, emit: (text: stri
     );
     const inventoryOf = groupBy(
       db.all<IeRow & { voucher_id: number }>(
-        `SELECT ie.voucher_id, ie.line_no, i.name AS item, u.symbol AS unit, g.name AS godown, g.is_predefined AS godown_predefined, ie.batch_name, ie.qty, ie.billed_qty,
+        `SELECT ie.voucher_id, ie.id, ie.line_no, i.name AS item, u.symbol AS unit, g.name AS godown, g.is_predefined AS godown_predefined, ie.batch_name, ie.qty, ie.billed_qty,
                 ie.rate, ie.discount_pct, ie.amount, ie.ledger_id, l.name AS ledger, ie.tracking_ref, ie.order_ref, ie.is_consumption
            FROM inventory_entries ie JOIN stock_items i ON i.id = ie.item_id JOIN units u ON u.id = i.unit_id
            LEFT JOIN godowns g ON g.id = ie.godown_id LEFT JOIN ledgers l ON l.id = ie.ledger_id
@@ -883,7 +922,7 @@ async function writeVouchers(db: Db, from: string, to: string, emit: (text: stri
         continue;
       }
       const entries: LeRow[] = v.is_cancelled ? [] : (entriesOf.get(v.id) ?? []);
-      const inventory: IeRow[] = v.is_cancelled ? [] : (inventoryOf.get(v.id) ?? []);
+      const inventory: IeRow[] = v.is_cancelled ? [] : (inventoryOf.get(v.id) ?? []).map((r) => withCost(r, costs));
       const o = new Out();
       const isInvoice = v.invoice_mode !== null || inventory.length > 0;
       const view = v.base_type === 'stock_journal' ? 'Consumption Voucher View' : inventory.length > 0 ? 'Invoice Voucher View' : 'Accounting Voucher View';
@@ -1149,6 +1188,7 @@ export async function exportTally(ctx: CompanyCtx, input: TallyExportInput): Pro
         db,
         input.from,
         input.to,
+        ctx.clock.today(),
         (text) => {
           pending.push(text);
           pendingChars += text.length;

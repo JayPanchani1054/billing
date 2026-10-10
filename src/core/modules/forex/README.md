@@ -117,7 +117,7 @@ voucher. Bahi does not decide which rate is legally right for your case; it reco
 | `forex.outstanding` | reports.view | per party and bill: forex, INR carried, booked rate, closing rate, revalued, unrealised; per-currency totals; `kind`, `ledgerId`, `currencyId` filters |
 | `forex.ledger` | reports.view | ledger vouchers in both currencies with running balances; closing at the closing rate |
 | `forex.revaluation.report` / `.post` | reports.view / vouchers.create | §3 |
-| `forex.opening.get` / `.save` | masters.view / masters.alter | opening balance and opening bills in the currency (same side as the rupees; bills must add up); audited |
+| `forex.opening.get` / `.save` | masters.view / masters.alter | opening balance and opening bills in the currency (same side as the rupees; bills must add up); audited; refused (`LOCKED`) when the period lock covers the books beginning, like the rupee openings |
 
 No new permissions: the routes use the existing ones above. Reports are `transactional: false`.
 Export / print of every report goes through the shared export path (data.export permission + audit).

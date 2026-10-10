@@ -35,7 +35,8 @@ Stock journal voucher types get a class in `voucher_types.config.stockJournalCla
 (`manufacturing` | `material_out` | `material_in`). Turning a feature on (F11, or a new company) creates
 **Manufacturing Journal**, **Material Out** (print title "Delivery Challan (Job Work)", CGST rule 55(1)(c))
 and **Material In** under the predefined Stock Journal — ordinary types the user may rename, renumber,
-deactivate or copy (Masters › Voucher Types › Use as). The class is fixed once vouchers of the type exist.
+deactivate or copy (Masters › Voucher Types › Use as). Each type created from F11 has its own edit-log
+`create` entry (`voucher_type`), besides the F11 settings entry. The class is fixed once vouchers of the type exist.
 
 A classed journal is saved through `vouchers.save` / `vouchers.preview` with a `stockJournal` block
 (`StockJournalExtInput`: roles, BOM, job work godown, order, process, additional costs). The vouchers
@@ -108,7 +109,10 @@ everywhere (costs are not frozen at entry). The preview estimate uses the same f
   voucher's reference no. — the job worker's own challan — when entered, else our number), 5B (sent on to another job
   worker), 5C (sold from the job worker's premises — a sale / delivery note from that godown). Frequency
   by rule 45(3): quarterly until 30-Sep-2021; from 01-Oct-2021 half-yearly when the previous year's AATO
-  exceeds ₹5 crore, else annual; due on the 25th after the period.
+  exceeds ₹5 crore, else annual; due on the 25th after the period. The HSN / rates of the table-4 lines
+  come from one dated resolver for the period's items (`inventory/gst.ts › createDatedGstResolver`):
+  the report runs the same ~11 statements for 4 or 4,000 challan lines (it ran two GST look-ups per
+  line before the final wave; vouchers/perf-hooks.test.ts).
 - **Orders** (`orders.ts`): Job Work Out / In Orders (JWO-n / JWI-n), material exploded from the BOM when
   not entered; progress from the linked Material In / Out vouchers; a linked order cannot be deleted.
 

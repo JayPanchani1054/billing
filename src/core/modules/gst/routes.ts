@@ -320,7 +320,7 @@ export const gstRoutes = {
   'gst.advances.pending': companyRoute({
     access: 'gst.view',
     transactional: false,
-    input: v.object({ asOf: v.date().optional(), partyLedgerId: v.id().optional() }),
+    input: v.strictObject({ asOf: v.date().optional(), partyLedgerId: v.id().optional() }),
     handler: (ctx, input): PendingAdvance[] => {
       gstCompany(ctx);
       const today = ctx.clock.today();
@@ -338,7 +338,7 @@ export const gstRoutes = {
   'gst.filing.list': companyRoute({
     access: 'gst.view',
     transactional: false,
-    input: v.object({ form: v.enum(GST_FILING_FORMS).optional() }),
+    input: v.strictObject({ form: v.enum(GST_FILING_FORMS).optional() }),
     handler: (ctx, input): GstFiling[] => {
       gstCompany(ctx);
       return listFilings(ctx.db, input.form);
@@ -376,7 +376,7 @@ export const gstRoutes = {
   'gst.amendments.list': companyRoute({
     access: 'gst.view',
     transactional: false,
-    input: v.object({ period: v.string({ max: 20 }).optional(), voucherId: v.id().optional() }),
+    input: v.strictObject({ period: v.string({ max: 20 }).optional(), voucherId: v.id().optional() }),
     handler: (ctx, input): GstAmendmentRow[] => {
       gstCompany(ctx);
       return listAmendments(ctx.db, { amendPeriod: input.period, voucherId: input.voucherId });
@@ -387,7 +387,7 @@ export const gstRoutes = {
   'gst.gstr3b.changes': companyRoute({
     access: 'gst.view',
     transactional: false,
-    input: v.object({ period: v.string({ max: 20 }).optional(), voucherId: v.id().optional() }),
+    input: v.strictObject({ period: v.string({ max: 20 }).optional(), voucherId: v.id().optional() }),
     handler: (ctx, input): Gstr3bChangeRow[] => {
       gstCompany(ctx);
       return listGstr3bChanges(ctx.db, { reportPeriod: input.period, voucherId: input.voucherId });
@@ -398,7 +398,7 @@ export const gstRoutes = {
   'gst.rule37.report': companyRoute({
     access: 'gst.view',
     transactional: false,
-    input: v.object({ asOf: v.date(), partyLedgerId: v.id().optional() }),
+    input: v.strictObject({ asOf: v.date(), partyLedgerId: v.id().optional() }),
     handler: (ctx, input): Rule37Result => {
       const company = gstCompany(ctx);
       return rule37Report(ctx.db, company, ctx.clock.today(), input);

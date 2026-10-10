@@ -76,7 +76,7 @@ export function SettingsScreen() {
       onRetry={() => void q.refetch()}
       hint="Enter Next field · Ctrl+A Save · Alt+R Rates of exchange · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canSave || save.pending, onClick: () => void submit() },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canSave || save.pending, hint: canSave ? undefined : 'Needs the “Manage company” permission', onClick: () => void submit() },
         { key: 'Alt+R', label: 'Rates of exchange', icon: 'rupee', onClick: () => nav.push('accounts.currencies'), group: 'details' },
       ]}
     >

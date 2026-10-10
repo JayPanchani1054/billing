@@ -95,8 +95,8 @@ export function OpeningScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
       onRetry={() => void q.refetch()}
       hint="Enter Next field · Alt+R Fill at a rate · Ctrl+A Save · Alt+M Ledger master · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canSave || save.pending || issues.length > 0, onClick: () => void submit() },
-        { key: 'Alt+R', label: 'Fill at a rate', icon: 'rupee', disabled: !canSave || !d, onClick: () => setFillOpen(true), group: 'details' },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canSave || save.pending || issues.length > 0, hint: canSave ? undefined : 'Needs the “Alter masters” permission', onClick: () => void submit() },
+        { key: 'Alt+R', label: 'Fill at a rate', icon: 'rupee', hidden: !canSave, disabled: !canSave || !d, onClick: () => setFillOpen(true), group: 'details' },
         { key: 'Alt+M', label: 'Ledger master', icon: 'edit', onClick: () => nav.push('accounts.ledger.form', { id: ledgerId }), group: 'details' },
       ]}
     >

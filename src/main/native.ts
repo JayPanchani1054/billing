@@ -29,7 +29,7 @@ import { describeError, log } from './log.ts';
 import { isThemeMode } from './prefs.ts';
 import type { PdfMargins, PrintService } from './print.ts';
 import { NATIVE_PAGE_SIZES, resolvePageSpec, validPrinterName, type PageSpec } from './printPage.ts';
-import { buildDraftEml, freeFileName, indianMobileForWhatsapp, mailtoUrl, MAX_SHARE_URL, parseRecipients, sharedExportsDir, whatsappUrl } from './share.ts';
+import { buildDraftEml, ensureSharedExportsDir, freeFileName, indianMobileForWhatsapp, mailtoUrl, MAX_SHARE_URL, parseRecipients, SharedFolderError, whatsappUrl } from './share.ts';
 import type { WindowManager } from './window.ts';
 
 export const MAX_OPEN_BYTES = 100 * 1024 * 1024;
@@ -233,13 +233,21 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
     const state = res.ok ? (res.data as { company?: { id?: unknown } | null } | null) : null;
     const id = state?.company && typeof state.company.id === 'string' ? state.company.id : null;
     if (!id) throw new AppError('NO_COMPANY', 'Open a company before sharing documents.');
-    const dir = sharedExportsDir(deps.runtime.app.dataDir, id);
-    if (!dir) throw new AppError('INTERNAL', 'The company folder could not be found. Details have been written to the application log.');
+    // The company folder must exist; 'exports' and 'shared' below it are created here, never followed
+    // through a link or junction (share.ts ensureSharedExportsDir).
+    const companyDir = path.join(deps.runtime.app.dataDir, 'companies', id);
+    let dir: string | null;
     try {
-      await fsp.mkdir(dir, { recursive: true });
+      if (!(await fsp.stat(companyDir)).isDirectory()) throw new Error('not a folder');
+      dir = await ensureSharedExportsDir(deps.runtime.app.dataDir, id);
     } catch (err) {
+      if (err instanceof SharedFolderError) {
+        log('warn', 'Refused a shared-documents folder that is not a plain folder of the company');
+        throw new AppError('FORBIDDEN', `The folder for shared documents is not safe to use: ${err.message}`);
+      }
       throw fileError(err, 'save');
     }
+    if (!dir) throw new AppError('INTERNAL', 'The company folder could not be found. Details have been written to the application log.');
     return dir;
   }
 

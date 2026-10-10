@@ -267,6 +267,24 @@ Nothing is written.
   into the goods lines' assessable value: on an item invoice its amount is spread over the goods lines
   (by value or quantity, largest remainder — as the posting engine does) and it gets no GST line of its
   own; the stored VoucherInput keeps the lines' own values.
+- GST on advances (final wave, cross-feature tie-out): the gst module's system ledgers arriving as plain
+  ledgers with the system name in the system group (e.g. "GST on Advances Received" under Duties &
+  Taxes, "GST Electronic Cash Ledger") are **adopted** before vouchers are imported (reserved code set,
+  audited — `adoptGstPlusLedgers`, the same adoption the gst module makes when it first needs one). A
+  Receipt posting Dr "GST on Advances Received" / Cr Output tax is an **advance with tax**
+  (`gst_advance_lines` 'received': gross = the party's advance bill(s), else the cash / bank debit; rate
+  from tax ÷ (gross − tax); place of supply the party's state when IGST, else the company's; services);
+  a Sales / Debit Note crediting "GST on Advances Received" and debiting Output tax **adjusts** the
+  advances its bill-wise "Agst Ref" names ('adjusted' rows linked to those receipts, tax split by the
+  amounts settled) — and that Output debit is no longer netted into the invoice's own tax (before: a
+  ₹27,000 invoice adjusting ₹18,000 of advance tax showed ₹9,000 in GSTR-1); a Payment with the same
+  Cr / Dr **refunds** the one advance its "Agst Ref" names ('refunded'; a payment naming several advance
+  receipts stays a plain payment, as the gst module refunds one advance per voucher). The advance rows
+  carry the customer (PARTYLEDGERNAME, else the voucher's party line); "update existing" replaces them with
+  the voucher's other child rows. The stored VoucherInput carries `gstDetails.advance` /
+  `advanceAdjustments` / `advanceRefund` instead of the raw tax lines, so altering the imported voucher
+  re-posts the same entries through the gst hook. Tally itself records advance tax with
+  stat-adjustment journals, which still import as plain journals.
 
 ## Tally export (`data.tally.export`, dataplus)
 
@@ -321,6 +339,13 @@ vouchers, skipped: [{reason, count}] }`. For the CA / auditor who works in Tally
   Tally exports we have seen, not verified against a live TallyPrime). Cost-centre allocations of a
   ledger carried by inventory lines go with the `ACCOUNTINGALLOCATIONS` (split where needed) and the rest
   with the ledger's own entry, so each adds up.
+  One exception to "as recorded" (final wave, cross-feature tie-out): the stock lines of a
+  **Manufacturing Journal / Material In / Material Out** (stock journals with a costing basis, mfg module)
+  are written at the valuation engine's value of each line **now** (`journalCosts`: one
+  `traceStockMovements` replay, only when the period has such journals; rate = value ÷ quantity). The
+  amounts stored on such a journal are the estimate made when it was saved; a later back-dated purchase
+  re-values the production in every stock report, so the stored figures would give the Tally company
+  (and our importer, which takes a stock journal's inward values as written) a different closing stock.
   Not written (reported in `skipped`): quotations and proforma invoices (no Tally voucher type), physical
   stock vouchers.
 - **Conventions.** Tally amounts are negative for Debit (ours Dr +); dates `yyyymmdd`; quantities
@@ -375,6 +400,14 @@ envelope, escaping, our parser reads it), vouchers-only ZIP and period, permissi
 dispatcher, validation messages; review regressions: openings at the period start (balances, P&L brought
 forward, bills incl. On Account, stock per godown / batch), balanced vouchers with assessable-value
 freight, cost centres on carried ledgers, reverse charge and export under LUT recovered by the importer.
+`tallyAdvances.test.ts` (final wave): GST on an advance and the invoice adjusting it (or a payment
+refunding part of it) come back as Table 11A / 11B with the invoice's own tax (GSTR-1 / GSTR-3B of both
+months), the system ledger is adopted, a second import with "update existing" does not duplicate the
+advance rows, and the imported vouchers can be altered without changing their postings. `tallyMfgCost.test.ts`
+(final wave): a Manufacturing Journal re-valued by a back-dated purchase is exported at its re-valued cost
+and the imported company closes with the same stock. The cross-feature year
+`src/core/testing/e2e/all-features-year.test.ts` exports a full year with every feature on and re-imports
+it (trial balance, stock summary, GSTR-1 / GSTR-3B of every month incl. Table 11).
 
 `backup.test.ts`, `export.test.ts`, `import.test.ts`, `tally.test.ts`, `verify.test.ts` (105 tests):
 backup round trip plain / encrypted / wrong password / tampered / truncated / newer schema, retention,

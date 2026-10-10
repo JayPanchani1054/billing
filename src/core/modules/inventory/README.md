@@ -244,6 +244,8 @@ April stock summary for A (Average Cost): opening 10 / 1,00,000; inward 33 / 3,9
 resolveItemGstProfile(db: Db, itemId: number, date: string): ItemGstProfile | null
 resolveGroupGstProfile(db: Db, groupId: number | null, date: string): ItemGstProfile | null
 createGstResolver(db: Db, date: string): (item: ItemGstSource) => ItemGstProfile | null   // bulk, same result
+createDatedGstResolver(db: Db, itemIds: number[]): (itemId: number, date: string) => ItemGstProfile | null
+                                         // bulk over (item, date) pairs: 4 queries, then none (ITC-04 lines)
 columnsComplete(row): boolean                                                            // "own details usable" rule
 
 // Quantities

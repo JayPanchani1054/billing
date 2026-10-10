@@ -290,7 +290,7 @@ function applyFeatures(ctx: CompanyCtx, current: CompanyFeatures, patch: Company
   }
   // Manufacturing Journal / Material In / Material Out voucher types (mfg module), when switched on.
   if ((next.manufacturing && !current.manufacturing) || (next.jobWork && !current.jobWork)) {
-    ensureMfgVoucherTypes(db, now.toISOString(), { manufacturing: next.manufacturing, jobWork: next.jobWork });
+    ensureMfgVoucherTypes(db, now.toISOString(), { manufacturing: next.manufacturing, jobWork: next.jobWork }, ctx.audit);
   }
   // Forex Gain/Loss system ledger (forex module), when Multiple currencies is switched on.
   if (next.multiCurrency && !current.multiCurrency) ensureForexLedger(db, now.toISOString(), ctx.audit);

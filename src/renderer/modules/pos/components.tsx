@@ -446,7 +446,7 @@ export function TenderDialog(props: {
       <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
         <Stack gap={3}>
           {props.error ? <Banner tone="danger">{props.error}</Banner> : null}
-          <table className="pos-tenders">
+          <table className="pos-tenders" aria-label={props.isReturn ? 'Refund by tender' : 'Payment by tender'}>
             <thead>
               <tr>
                 <th>{props.isReturn ? 'Refund by' : 'Paid by'}</th>

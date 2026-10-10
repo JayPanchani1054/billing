@@ -9,7 +9,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { AdvanceVoucherRow, BoeReconResult, BoeReconRow, BoeRow, PendingAdvance, Table11Row } from '../../../shared/types/gst-plus.ts';
-import { formatMoney, native, ReportScreen, useApiMutation, useApiQuery, useNav, userMessage } from '../../app/index.ts';
+import { formatMoney, native, ReportScreen, useApiMutation, useApiQuery, useCan, useNav, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, Banner, DataTable, EmptyState, Grid, KpiCard, Panel, SegmentedControl, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
@@ -34,6 +34,7 @@ function t11Columns(): Column<Table11Row>[] {
 
 export function AdvancesScreen({ params }: ScreenProps<{ from?: string; to?: string; view?: 'table11' | 'pending' }>) {
   const nav = useNav();
+  const canCreate = useCan('vouchers.create');
   const { from, to, override } = useGstRange(params);
   const [view, setView] = useState<'table11' | 'pending'>(params?.view === 'pending' ? 'pending' : 'table11');
   const reg = useApiQuery('gst.advances.register', { from, to }, { keepPrevious: true, enabled: view === 'table11' });
@@ -69,7 +70,7 @@ export function AdvancesScreen({ params }: ScreenProps<{ from?: string; to?: str
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+1', label: 'Table 11', onClick: () => setView('table11'), disabled: view === 'table11', group: 'view' },
     { key: 'Ctrl+2', label: 'Pending advances', onClick: () => setView('pending'), disabled: view === 'pending', group: 'view' },
-    { key: 'Alt+C', label: 'Create advance receipt', icon: 'plus', onClick: () => nav.push('vouchers.entry', { baseType: 'receipt' }), group: 'edit' },
+    { key: 'Alt+C', label: 'Create advance receipt', icon: 'plus', onClick: () => nav.push('vouchers.entry', { baseType: 'receipt' }), hidden: !canCreate, group: 'edit' },
     { key: 'Alt+R', label: 'GSTR-1', icon: 'gst', onClick: () => nav.push('gst.gstr1'), group: 'go' },
   ];
   return (
@@ -157,6 +158,7 @@ export function AdvancesScreen({ params }: ScreenProps<{ from?: string; to?: str
 
 export function BoeScreen({ params }: ScreenProps<{ from?: string; to?: string }>) {
   const nav = useNav();
+  const canCreate = useCan('vouchers.create');
   const toast = useToast();
   const { from, to, override } = useGstRange(params);
   const q = useApiQuery('gst.boe.list', { from, to }, { keepPrevious: true });
@@ -202,7 +204,7 @@ export function BoeScreen({ params }: ScreenProps<{ from?: string; to?: string }
   };
   const actions: ScreenActionItem[] = [
     { key: 'Alt+O', label: 'Reconcile with GSTR-2B', icon: 'upload', primary: true, onClick: () => void reconcile(), disabled: recon.pending, group: 'file' },
-    { key: 'Alt+C', label: 'Create import purchase', icon: 'plus', onClick: () => nav.push('vouchers.entry', { baseType: 'purchase' }), group: 'edit' },
+    { key: 'Alt+C', label: 'Create import purchase', icon: 'plus', onClick: () => nav.push('vouchers.entry', { baseType: 'purchase' }), hidden: !canCreate, group: 'edit' },
     { key: 'Ctrl+1', label: 'Register', onClick: () => setResult(null), disabled: result === null, group: 'view' },
   ];
   return (

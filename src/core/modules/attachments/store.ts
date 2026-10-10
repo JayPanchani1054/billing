@@ -110,13 +110,31 @@ function contains(b: Uint8Array, needle: readonly number[]): boolean {
   return Buffer.from(b.buffer, b.byteOffset, b.byteLength).indexOf(Buffer.from(needle)) >= 0;
 }
 
-/** Markers of XML that a browser or Office would run or render as a document rather than show as data. */
-const ACTIVE_XML = /<\?xml-stylesheet|<\?mso-application|<script[\s>/]|<!ENTITY|xmlns(?::[\w.-]+)?\s*=\s*["']https?:\/\/www\.w3\.org\/1999\/xhtml["']|xmlns(?::[\w.-]+)?\s*=\s*["']https?:\/\/www\.w3\.org\/2000\/svg["']|urn:schemas-microsoft-com:office/i;
+/**
+ * Markers of XML that a browser or Office would run or render as a document rather than show as data.
+ * DTD declarations are refused outright: an internal subset can declare entities, or default an
+ * `xmlns` attribute (<!ATTLIST … xmlns CDATA #FIXED "…xhtml">) so the file becomes a web page without
+ * the namespace ever being written on an element.
+ */
+const ACTIVE_XML = /<\?xml-stylesheet|<\?mso-application|<script[\s>/]|<!ENTITY|<!ATTLIST|xmlns(?::[\w.-]+)?\s*=\s*["']https?:\/\/www\.w3\.org\/1999\/xhtml["']|xmlns(?::[\w.-]+)?\s*=\s*["']https?:\/\/www\.w3\.org\/2000\/svg["']|urn:schemas-microsoft-com:office/i;
+
+/** ZIP part-name markers of Office / OpenDocument content that runs code (see contentProblem). */
+const ZIP_ACTIVE_PARTS: readonly (readonly number[])[] = ['vbaProject.bin', 'macrosheets/', 'activeX/', 'Basic/', 'Scripts/'].map(ascii);
+
+/** XML character references (&#NN; / &#xHH;) decoded; an invalid one is kept as written. */
+function decodeCharRefs(text: string): string {
+  if (!text.includes('&#')) return text;
+  const ch = (code: number, raw: string): string => (Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : raw);
+  return text.replace(/&#(?:x([0-9a-f]{1,6})|([0-9]{1,7}));/gi, (raw, hex: string | undefined, dec: string | undefined) =>
+    hex !== undefined ? ch(parseInt(hex, 16), raw) : ch(parseInt(dec ?? '', 10), raw),
+  );
+}
 
 /**
  * Does the content match its declared kind? Returns a reason when it does not (shown to the user),
  * else null. Programs are refused whatever their name ('MZ' / ELF / Mach-O / '#!'); Office files with
- * macros (vbaProject.bin in OOXML, _VBA_PROJECT in the old binary formats) are refused.
+ * macros (vbaProject.bin, Excel 4.0 macro sheets or ActiveX controls in OOXML, Basic / script macros in
+ * OpenDocument, _VBA_PROJECT in the old binary formats) are refused.
  */
 export function contentProblem(type: AttachmentType, b: Uint8Array): string | null {
   if (b.length === 0) return 'The file is empty.';
@@ -143,7 +161,10 @@ export function contentProblem(type: AttachmentType, b: Uint8Array): string | nu
       return starts(b, ascii('BM')) ? null : bad;
     case 'zip_office':
       if (!starts(b, [0x50, 0x4b, 0x03, 0x04])) return bad;
-      return contains(b, ascii('vbaProject.bin')) ? 'This document contains macros. Save it without macros (e.g. as .xlsx / .docx, or as PDF) and attach that.' : null;
+      // Part names are stored uncompressed in the ZIP headers. VBA (vbaProject.bin), Excel 4.0 macro
+      // sheets (xl/macrosheets/), ActiveX controls (*/activeX/) and OpenDocument Basic / script
+      // macros (Basic/…, Scripts/…) all run code when the document is opened.
+      return ZIP_ACTIVE_PARTS.some((p) => contains(b, p)) ? 'This document contains macros or ActiveX controls. Save it without them (e.g. as .xlsx / .docx, or as PDF) and attach that.' : null;
     case 'ole_office':
       if (!starts(b, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) return bad;
       return contains(b, utf16('_VBA_PROJECT')) ? 'This document contains macros. Save it without macros (e.g. as .xlsx / .docx, or as PDF) and attach that.' : null;
@@ -158,7 +179,9 @@ export function contentProblem(type: AttachmentType, b: Uint8Array): string | nu
       // An XML file opens in a browser or Office on most computers: one that is really a web page
       // (XHTML, scripts, a style sheet that turns it into one) or an Office document that may carry
       // macros could run code when opened from the books.
-      if (type.ext === 'xml' && ACTIVE_XML.test(text)) {
+      // Checked on the text as written AND with character references decoded: in an attribute value
+      // '&#104;ttp://www.w3.org/1999/xhtml' IS the XHTML namespace to an XML parser.
+      if (type.ext === 'xml' && (ACTIVE_XML.test(text) || ACTIVE_XML.test(decodeCharRefs(text)))) {
         return 'This XML file contains web-page or Office content (scripts, style sheets or an Office document) that could run when opened. Attach it as PDF, or save the plain data again.';
       }
       return null;

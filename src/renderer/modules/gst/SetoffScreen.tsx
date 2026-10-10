@@ -49,7 +49,7 @@ export function SetoffScreen({ params }: ScreenProps<{ period?: string }>) {
       hint: posted ? 'Already posted for this period' : canFile ? 'Post the set-off journal for this period' : 'You need the "File GST returns" permission',
       group: 'edit',
     },
-    { key: 'Alt+C', label: 'Create challan', icon: 'plus', onClick: () => setDialog('challan'), disabled: !s || !canFile, group: 'edit' },
+    { key: 'Alt+C', label: 'Create challan', icon: 'plus', onClick: () => setDialog('challan'), hidden: !canFile, disabled: !s || !canFile, group: 'edit' },
     { key: 'Alt+F2', label: 'Return period', icon: 'calendar', onClick: () => selectRef.current?.focus(), group: 'period' },
     { key: 'Alt+V', label: 'Open set-off journal', icon: 'external', onClick: () => posted && nav.push('vouchers.view', { id: posted.voucherId }), disabled: !posted, group: 'go' },
     { key: 'Alt+L', label: 'Electronic cash ledger', icon: 'book', onClick: () => nav.push('gst.ledger.cash'), group: 'go' },

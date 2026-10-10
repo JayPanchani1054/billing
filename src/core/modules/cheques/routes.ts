@@ -71,7 +71,7 @@ export const chequesRoutes = {
   'cheques.payee.list': companyRoute({
     access: 'masters.view',
     transactional: false,
-    input: v.object({
+    input: v.strictObject({
       search: v.string({ max: 100 }).optional(),
       withDetails: v.boolean().optional(),
       limit: v.int({ min: 1, max: 1000 }).optional(),
@@ -90,7 +90,7 @@ export const chequesRoutes = {
   'cheques.book.list': companyRoute({
     access: 'masters.view',
     transactional: false,
-    input: v.object({ bankLedgerId: v.id().optional() }),
+    input: v.strictObject({ bankLedgerId: v.id().optional() }),
     handler: (ctx, input) => {
       assertChequePrinting(ctx.db);
       return listBooks(ctx.db, input.bankLedgerId);
@@ -139,7 +139,7 @@ export const chequesRoutes = {
   'cheques.register': companyRoute({
     access: 'reports.view',
     transactional: false,
-    input: v.object({
+    input: v.strictObject({
       bankLedgerId: v.id(),
       bookId: v.id().optional(),
       status: v.enum([...CHEQUE_LEAF_STATUSES, 'all'] as const).optional(),
@@ -219,7 +219,7 @@ export const chequesRoutes = {
   'cheques.epayment.list': companyRoute({
     access: 'vouchers.view',
     transactional: false,
-    input: v.object({ from: v.date(), to: v.date(), bankLedgerId: v.id().optional() }),
+    input: v.strictObject({ from: v.date(), to: v.date(), bankLedgerId: v.id().optional() }),
     handler: (ctx, input) => listEPayments(ctx.db, input),
   }),
   'cheques.epayment.export': companyRoute({

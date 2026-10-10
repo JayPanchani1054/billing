@@ -141,7 +141,7 @@ export function ReturnScreen({ params }: ScreenProps<ReturnParams>) {
         { key: 'Ctrl+1', label: isTcs ? 'Collectees' : 'Deductees', group: 'view', disabled: view === 'deductees', onClick: () => setView('deductees') },
         { key: 'Ctrl+2', label: 'Challans', group: 'view', disabled: view === 'challans', onClick: () => setView('challans') },
         { key: 'Alt+S', label: 'Save CSV files', icon: 'download', primary: true, disabled: !canFile || !d || saving, hint: canFile ? undefined : 'Needs the "File TDS/TCS statements" permission', onClick: () => void saveFiles() },
-        { key: 'Alt+R', label: 'Record filing', icon: 'check', disabled: !canFile || !d, onClick: () => setFiling(true) },
+        { key: 'Alt+R', label: 'Record filing', icon: 'check', hidden: !canFile, disabled: !canFile || !d, onClick: () => setFiling(true) },
       ]}
       hint="Ctrl+1 Deductees · Ctrl+2 Challans · Alt+S Save CSV files · Alt+R Record filing · Enter Open voucher · Esc Back"
     >

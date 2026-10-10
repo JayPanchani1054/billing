@@ -119,7 +119,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
       hint: canFile ? 'Bulk file for the e-way bill portal' : 'You need the "File GST returns" permission',
       group: 'file',
     },
-    { key: 'Alt+N', label: 'Record e-Way Bill no.', icon: 'edit', onClick: () => current && setRecording(current), disabled: !current || !canFile, group: 'row' },
+    { key: 'Alt+N', label: 'Record e-Way Bill no.', icon: 'edit', onClick: () => current && setRecording(current), hidden: !canFile, disabled: !current || !canFile, group: 'row' },
     { key: 'Alt+H', label: 'History', icon: 'clock', onClick: () => current && setHistory({ id: current.voucherId, title: `${current.voucherTypeName} ${current.number ?? ''}` }), disabled: !current, group: 'row' },
     { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }), disabled: !current, group: 'row' },
   ];

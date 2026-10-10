@@ -122,16 +122,26 @@ describe('tds reports', () => {
     assert.equal(reg.totals.total, P(6_980));
 
     // Altering the challan voucher through the helper keeps one challan row; cancelling removes it.
+    // Q1's 26Q is marked filed: the change needs confirmation (correction statement) and the
+    // cancellation is refused until the filing record is removed (filed.ts).
     const got = await k.t.callOk<{ challan: { tax: number }; updatedAt: string }>(R, 'tds.challan.get', { voucherId: c1.id });
     assert.equal(got.challan.tax, P(800));
-    await k.t.callOk(R, 'tds.challan.save', {
+    const alter = {
       voucherId: c1.id,
       date: '2026-05-07',
       bankLedgerId: k.L.bank,
       challan: { ...challan('194C', '2026-04', '2026-05-07', P(800)), challanNo: '54321' },
       expectedUpdatedAt: got.updatedAt,
-    });
+    };
+    const asked = await k.t.call(R, 'tds.challan.save', alter);
+    assert.equal(asked.ok ? 'saved' : asked.error.code, 'BUSINESS_RULE');
+    assert.equal(asked.ok ? false : (asked.error.details as { needsConfirmation?: boolean }).needsConfirmation, true);
+    assert.match(asked.ok ? '' : asked.error.message, /Form 26Q for Q1 of FY 2026-27 .*correction statement/);
+    await k.t.callOk(R, 'tds.challan.save', { ...alter, acknowledgeWarnings: true });
     assert.equal(k.t.db.value<string>('SELECT challan_no FROM tds_challans WHERE voucher_id = :id', { id: c1.id }), '54321');
+    const refused = await k.t.call(R, 'vouchers.cancel', { id: c1.id, reason: 'Wrong challan' });
+    assert.equal(refused.ok ? 'cancelled' : refused.error.code, 'BUSINESS_RULE');
+    await k.t.callOk(R, 'tds.statement.save', { form: '26Q', fyStart: 2026, quarter: 1, filedOn: null });
     await k.t.callOk(R, 'vouchers.cancel', { id: c1.id, reason: 'Wrong challan' });
     assert.equal(k.t.db.value('SELECT COUNT(*) FROM tds_challans WHERE voucher_id = :id', { id: c1.id }), 0);
     k.t.close();

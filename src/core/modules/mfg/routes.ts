@@ -20,7 +20,7 @@ export const mfgRoutes = {
   // ── Bill of Materials ──
   'mfg.bom.list': companyRoute({
     access: 'masters.view',
-    input: v.object({
+    input: v.strictObject({
       itemId: v.id().optional(),
       search: v.string({ max: 100 }).optional(),
       includeInactive: v.boolean().optional(),
@@ -57,7 +57,7 @@ export const mfgRoutes = {
   'mfg.production.register': companyRoute({
     access: 'reports.view',
     transactional: false,
-    input: v.object({
+    input: v.strictObject({
       from: v.date(),
       to: v.date(),
       itemId: v.id().optional(),
@@ -70,7 +70,7 @@ export const mfgRoutes = {
   // ── Job work orders ──
   'mfg.jobWorkOrder.list': companyRoute({
     access: 'vouchers.view',
-    input: v.object({
+    input: v.strictObject({
       direction: DIRECTION.optional(),
       partyLedgerId: v.id().optional(),
       status: v.enum(['open', 'closed', 'all'] as const).optional(),
@@ -94,7 +94,7 @@ export const mfgRoutes = {
   'mfg.jobWork.pending': companyRoute({
     access: 'reports.view',
     transactional: false,
-    input: v.object({
+    input: v.strictObject({
       asOf: v.date(),
       direction: DIRECTION.optional(),
       partyLedgerId: v.id().optional(),
@@ -106,7 +106,7 @@ export const mfgRoutes = {
   'mfg.jobWork.alerts': companyRoute({
     access: 'reports.view',
     transactional: false,
-    input: v.object({ asOf: v.date().optional(), warnDays: v.int({ min: 0, max: 365 }).optional() }),
+    input: v.strictObject({ asOf: v.date().optional(), warnDays: v.int({ min: 0, max: 365 }).optional() }),
     handler: (ctx, input) => jobWorkAlerts(ctx.db, ctx.clock.today(), input.asOf ?? ctx.clock.today(), input.warnDays ?? 30),
   }),
   'mfg.itc04.periods': companyRoute({

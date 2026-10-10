@@ -19,6 +19,7 @@ Renderer: `src/renderer/modules/tds` (README there). Shared: `src/shared/types/t
 | `engine.ts` | Pure computation for one deductee + nature on one voucher (`computeTds`, `rateFor`) |
 | `hook.ts` | Voucher hook (vouchers/hooks.ts extension point): computes, posts the auto-lines, rebuilds `tds_lines` / `tds_challans` |
 | `masters.ts` | Natures (dated rates), ledger TDS details, setup, statement filing status — all audited |
+| `filed.ts` | Statements marked filed protect their quarter: a save that changes what was reported needs confirmation; delete / cancel refused (hook `adjust` / `beforeRemove`) |
 | `challan.ts` | Challan helper: builds and saves the Payment voucher through `saveVoucher` |
 | `reports.ts` | Computation, lines, outstanding (+ interest, statements, s.234E), challan register, return data, exceptions, one voucher |
 | `returnCsv.ts` | 26Q / 27Q / 27EQ deductee + challan CSV files |
@@ -40,6 +41,14 @@ Renderer: `src/renderer/modules/tds` (README there). Shared: `src/shared/types/t
 
 The ledger master's own `tds_applicable` / `tds_section` columns (Ledger form › Other settings) are
 kept in step when TDS details are saved; the computation reads only `tds_ledger_details`.
+
+Indexes that keep saves and reports to the rows they need (final wave, migration 241 and
+vouchers/perf-hooks.test.ts): the reports read a period of `tds_lines` through
+`idx_tds_lines_kind_date (kind, date)` — with no kind given the loader asks for `kind IN ('tds',
+'tcs')`, still one index range — instead of every line of the kind since the books began; the hook
+reads a bill's own TDS line by `idx_tds_lines_voucher` (it used to walk every line of the section);
+the duty-ledger look-up names `payable_kind IN ('tds', 'tcs')` so the partial unique index
+`idx_tds_ledger_payable` answers it.
 
 ## Posting (hook.ts)
 
@@ -126,11 +135,22 @@ kept in step when TDS details are saved; the computation reads only `tds_ledger_
   first month (the clearing pools are per month), the outstanding report only the taxed lines. The same
   challan (BSR code + deposit date + serial = CIN) recorded on a second voucher asks for confirmation. Due: 7th of the next month; TDS of March by 30 April
   (Rule 30); TCS by the 7th, March included (Rule 37CA).
+- The challan suggestion (`tds.challan.suggest`) nets a debit / credit note reversal into its bill exactly
+  as the outstanding report and the statement do (`netReversals`), counting notes dated up to the
+  deposit date — so the challan never over-deposits the reversed part and TDS Payable squares off
+  (final wave, found by the cross-feature tie-out; `challanNet.test.ts`).
 - Interest: s.201(1A)(ii) 1.5% / s.206C(7) 1% per month or part from deduction to payment when paid
   late; s.201(1A)(i) 1% from the date deductible to the date deducted (exceptions). Months are counted
   as calendar months, both ends included; interest rounded to the rupee.
 - Statements: 26Q / 27Q due 31 Jul, 31 Oct, 31 Jan, 31 May (Rule 31A); 27EQ 15 Jul, 15 Oct, 15 Jan,
   15 May (Rule 31AA). s.234E: ₹200 per day, capped at the tax of the statement.
+- Filed statements (`filed.ts`, security review): once `tds.statement.save` records a filing date, a
+  voucher save that changes what the quarter's Form 26Q / 27Q / 27EQ reported — a deductee row (section,
+  party, amount, base, status, date; lines with tax or a certificate) or a challan (identification and
+  amounts) — raises a `confirm` warning ("file a correction statement"); a new deduction dated in the
+  filed quarter asks too. Deleting / cancelling a voucher that the filed statement reported is refused
+  (`beforeRemove`) until the filing record is removed (`filedOn: null`, audited). A TDS challan counts
+  for both 26Q and 27Q of its month's quarter. Nothing is looked at while no statement is marked filed.
 
 ## Routes
 
@@ -205,7 +225,8 @@ year are skipped; a re-import replaces the year. Matching: customer's deductor T
 - No FVU text file generation and no Form 16A / 27D certificates (TRACES issues them).
 - No salary TDS (192 / Form 24Q) — there is no payroll.
 - Surcharge and cess are only entered on challans (non-resident rates are set per nature / override).
-- A statement correction (revised return) is not tracked beyond the filing date and token.
+- A statement correction (revised return) is not tracked beyond the filing date and token (the filed-quarter
+  confirmation only tells the user one is needed).
 - Interest on short deduction is an estimate (to the as-of date), shown in exceptions only.
 - Debit / credit notes reverse TDS / TCS in proportion in the invoice modes only; a note in ledger mode,
   or one without a bill-wise "Against" or original invoice number, reverses nothing (alter the bill or

@@ -17,8 +17,9 @@ import type {
 import type { VoucherInput } from '../../../shared/types/vouchers.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
-import { notFound, rule, validation } from '../../lib/errors.ts';
-import { getFeatures } from '../company/service.ts';
+import { formatDate } from '../../../shared/dates.ts';
+import { AppError, notFound, rule, validation } from '../../lib/errors.ts';
+import { getConfig, getFeatures } from '../company/service.ts';
 import { loadVoucherRow, parseMeta } from '../vouchers/service.ts';
 import {
   allCurrencies,
@@ -135,6 +136,27 @@ export function getForexOpening(db: Db, ledgerId: number): ForexOpeningView {
   };
 }
 
+/**
+ * Openings are as at the books beginning (like the rupee openings, accounts/ledgers.ts): when the books
+ * are locked up to a date on or after it, the foreign amounts of the opening balance and opening bills
+ * belong to the locked period — they drive the realised difference of every later settlement — and
+ * cannot change.
+ */
+function assertOpeningUnlocked(db: Db, before: ForexOpeningView, opening: number, bills: ReadonlyArray<{ name: string; fx: number }>): void {
+  const lockedUpTo = getConfig(db).lockedUpTo;
+  const booksFrom = db.value<string>('SELECT books_from FROM company WHERE id = 1');
+  if (!lockedUpTo || !booksFrom || lockedUpTo < booksFrom) return;
+  const stored = new Map(before.bills.map((b) => [b.billName, b.forexAmount]));
+  const changed = before.openingForex !== opening || bills.some((b) => (stored.get(b.name) ?? 0) !== b.fx);
+  if (!changed) return;
+  throw new AppError(
+    'LOCKED',
+    `Books are locked up to ${formatDate(lockedUpTo)}, which includes the opening balances (as at ${formatDate(booksFrom)}). ` +
+      `Unlock the period to change the opening of ${before.ledgerName} in ${before.currency.formalName}.`,
+    { lockedUpTo },
+  );
+}
+
 const sameSide = (inr: number, fx: number): boolean => inr === 0 || fx === 0 || Math.sign(inr) === Math.sign(fx);
 
 export function saveForexOpening(ctx: CompanyCtx, input: ForexOpeningInput): ForexOpeningView {
@@ -161,6 +183,7 @@ export function saveForexOpening(ctx: CompanyCtx, input: ForexOpeningInput): For
     }
   }
   if (issues.length > 0) throw validation(issues);
+  assertOpeningUnlocked(db, before, opening, bills);
   db.run('UPDATE ledgers SET opening_forex_amount = :fx, updated_at = :ts WHERE id = :id', { fx: opening, ts: ctx.clock.now().toISOString(), id: input.ledgerId });
   for (const b of bills) db.run('UPDATE opening_bills SET forex_amount = :fx WHERE ledger_id = :id AND bill_name = :name', { fx: b.fx, id: input.ledgerId, name: b.name });
   const after = getForexOpening(db, input.ledgerId);

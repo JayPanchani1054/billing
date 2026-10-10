@@ -23,6 +23,8 @@
  * Overrides: `input.tds.overrides` (amount + reason) replace the computed amount per nature; a credit the
  * user typed to the duty ledger is taken as the amount (never posted twice).
  * Challan: `input.tds.challan` on a payment is checked against the voucher and stored in tds_challans.
+ * Filed statements (filed.ts): changing what a quarter marked filed reported asks first ('confirm');
+ * deleting / cancelling such a voucher is refused.
  */
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import { formatMoney } from '../../../shared/format.ts';
@@ -35,6 +37,7 @@ import type { PostingAdjustContext, VoucherHook, VoucherHookWriteContext } from 
 import type { LedgerInfo } from '../vouchers/masters.ts';
 import type { PlanEntry } from '../vouchers/posting.ts';
 import { computeTds } from './engine.ts';
+import { anyStatementFiled, assertNotInFiledStatement, changedFiledStatements, filedChangeWarning, newReported, storedReported } from './filed.ts';
 import { ensurePayableLedger, payableLedgerName, rateFromRow, TdsStore, type Deductee, type NatureRow } from './store.ts';
 
 const TDS_BASES: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['purchase', 'journal', 'payment']);
@@ -70,7 +73,10 @@ function adjust(ctx: PostingAdjustContext): void {
   const w = wants(ctx.env.features, ctx.baseType, ctx.mode);
   const challan = ctx.input.tds?.challan ?? null;
   if (ctx.voucherId !== null && (!w.tds || !w.tcs)) warnTurnedOff(ctx, w);
-  if (!w.tds && !w.tcs && !challan && !noteKind(ctx)) return;
+  if (!w.tds && !w.tcs && !challan && !noteKind(ctx)) {
+    warnFiledStatement(ctx, [], null);
+    return;
+  }
   const store = new TdsStore(ctx.env.db);
   const lines: TdsVoucherLine[] = [];
   if (w.tds) lines.push(...computeKind(ctx, store, 'tds'));
@@ -78,7 +84,20 @@ function adjust(ctx: PostingAdjustContext): void {
   const nk = noteKind(ctx);
   if (nk) lines.push(...reverseOnNote(ctx, store, nk));
   if (challan) checkChallan(ctx, store, challan);
+  warnFiledStatement(ctx, lines, challan);
   if (lines.length > 0 || challan) ctx.setData({ lines, challan } satisfies TdsHookData);
+}
+
+/**
+ * A save that changes what a quarterly statement marked filed reported (filed.ts) asks first: the
+ * filed statement then needs a correction statement. Nothing is looked at unless one is marked filed.
+ */
+function warnFiledStatement(ctx: PostingAdjustContext, lines: readonly TdsVoucherLine[], challan: VoucherTdsChallanInput | null): void {
+  const db = ctx.env.db;
+  if (!anyStatementFiled(db)) return;
+  const before = ctx.voucherId === null ? [] : storedReported(db, ctx.voucherId);
+  const after = newReported(db, { date: ctx.date, isOptional: ctx.isOptional, lines, challan: ctx.baseType === 'payment' ? challan : null });
+  for (const s of changedFiledStatements(db, before, after)) ctx.warn('tds', filedChangeWarning(s, ctx.voucherId === null), 'confirm', 'tds');
 }
 
 /**
@@ -877,6 +896,11 @@ export const tdsVoucherHook: VoucherHook = {
   clear(db, voucherId) {
     db.run('DELETE FROM tds_lines WHERE voucher_id = :id', { id: voucherId });
     db.run('DELETE FROM tds_challans WHERE voucher_id = :id', { id: voucherId });
+  },
+
+  // A deduction, collection or challan reported in a statement marked filed stays on record (filed.ts).
+  beforeRemove(ctx, row, action) {
+    assertNotInFiledStatement(ctx.db, row.id, action);
   },
 
   preview(data) {

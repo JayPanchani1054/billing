@@ -11,7 +11,7 @@ import { useMemo, useRef, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { ForexLedgerCurrency, ForexLedgerRow } from '../../../shared/types/forex.ts';
-import { ReportScreen, useApiQuery, useFeatures, useNav } from '../../app/index.ts';
+import { ReportScreen, useApiQuery, useCan, useFeatures, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { DataTable, EmptyState, Field, Picker, Stack } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
@@ -27,6 +27,7 @@ export interface ForexLedgerParams {
 
 export function LedgerScreen({ params }: ScreenProps<ForexLedgerParams>) {
   const nav = useNav();
+  const canAlter = useCan('vouchers.alter');
   const features = useFeatures();
   const p = useReportPeriod(params);
   const [ledgerId, setLedgerId] = useState<number | null>(typeof params?.ledgerId === 'number' ? params.ledgerId : null);
@@ -81,7 +82,7 @@ export function LedgerScreen({ params }: ScreenProps<ForexLedgerParams>) {
   if (!features.multiCurrency) return <ForexOff title="Ledger in Foreign Currency" />;
   const actions: ScreenActionItem[] = [
     { key: 'Alt+L', label: 'Change ledger', icon: 'ledger', onClick: () => pickerRef.current?.focus(), group: 'ledger' },
-    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', disabled: !current, onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }), group: 'voucher' },
+    { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', hidden: !canAlter, disabled: !current, onClick: () => current && nav.push('vouchers.entry', { id: current.voucherId }), group: 'voucher' },
     { key: 'Alt+R', label: 'Rupee ledger', icon: 'rupee', disabled: ledgerId === null, onClick: () => ledgerId !== null && nav.push('reports.ledger', { ledgerId, from: p.from, to: p.to }), group: 'ledger' },
     { key: 'Alt+O', label: 'Opening in currency', icon: 'edit', disabled: ledgerId === null, onClick: () => ledgerId !== null && nav.push('forex.opening', { ledgerId }), group: 'ledger' },
     { key: 'Alt+M', label: 'Ledger master', icon: 'edit', disabled: ledgerId === null, onClick: () => ledgerId !== null && nav.push('accounts.ledger.form', { id: ledgerId }), group: 'ledger' },

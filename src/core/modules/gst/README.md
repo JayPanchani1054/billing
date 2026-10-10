@@ -608,6 +608,9 @@ manufacturers 2% (1-7-2017) → 1% (1-1-2018, N/N 3/2018-CT); traders 1% of turn
 1-4-2019) — each half CGST, half SGST/UTGST. The turnover basis of the 6% scheme is our reading
 (flagged in the seed comment); notified-goods exclusions (e.g. ice-cream, pan masala, tobacco) are the
 user's responsibility (such dealers cannot opt in). The rate effective on each document's date applies.
+A rate row added, altered or deleted with an effective date on or before F12 lockedUpTo (or moved
+from such a date), and a change of the composition category while any period is locked, are refused
+(`LOCKED`): they would change a locked quarter's CMP-08 / GSTR-4 tax (`composition-lock.test.ts`).
 
 **CMP-08** (quarterly, due the 18th of the month after the quarter — Rule 62): table 3 (1) outward
 supplies incl. exempt → composition tax on the tax base; (2) inward supplies attracting reverse charge

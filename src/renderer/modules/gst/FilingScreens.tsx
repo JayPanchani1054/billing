@@ -59,7 +59,7 @@ export function FilingsScreen() {
     }
   };
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+U', label: 'Unmark filed', icon: 'x-circle', onClick: () => void doUnmark(current), disabled: !canFile || !current, group: 'danger' },
+    { key: 'Alt+U', label: 'Unmark filed', icon: 'x-circle', onClick: () => void doUnmark(current), hidden: !canFile, disabled: !canFile || !current, group: 'danger' },
     { key: 'Alt+M', label: 'Amendments', icon: 'list', onClick: () => nav.push('gst.amendments', { all: true }), group: 'go' },
   ];
   return (

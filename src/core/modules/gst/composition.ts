@@ -40,9 +40,10 @@ import type { ReturnPeriodRef, TaxAmounts, TaxValue } from '../../../shared/type
 import { TAX_HEADS } from '../../../shared/types/gst-returns.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
-import { notFound, rule, validation } from '../../lib/errors.ts';
+import { formatDate } from '../../../shared/dates.ts';
+import { AppError, notFound, rule, validation } from '../../lib/errors.ts';
 import { BOOKS_FILTER } from '../accounts/books.ts';
-import { assertDateUnlocked } from '../company/service.ts';
+import { assertDateUnlocked, getConfig } from '../company/service.ts';
 import { bookAdjustments } from './bookAdjustments.ts';
 import { addTax, addTV, cleanTax, lineTV, loadDocs, rupees, zeroTax, zeroTV, type GstCompany, type GstDoc } from './docs.ts';
 import { getFiling } from './filings.ts';
@@ -88,8 +89,24 @@ export function compositionSettings(db: Db): CompositionSettings {
   };
 }
 
+/**
+ * The composition category and the dated rate rows decide the tax of every quarter they cover, so a
+ * change reaching into the locked period (on or before F12 lockedUpTo) would change locked CMP-08 /
+ * GSTR-4 figures: refused, like the GSTR-3B and CMP-08 manual entries of a locked period.
+ */
+function assertRatesUnlocked(db: Db, from: string, what: string): void {
+  const locked = getConfig(db).lockedUpTo;
+  if (!locked || from > locked) return;
+  throw new AppError(
+    'LOCKED',
+    `Books are locked up to ${formatDate(locked)}. ${what} would change the composition tax of the locked period. Add a rate from a date after ${formatDate(locked)}, or unlock the period first.`,
+    { lockedUpTo: locked },
+  );
+}
+
 export function saveCompositionCategory(ctx: CompanyCtx, category: CompositionCategory): CompositionSettings {
   const before = compositionCategory(ctx.db);
+  if (before !== category) assertRatesUnlocked(ctx.db, '0000-01-01', 'Changing the composition category');
   ctx.db.run(
     `INSERT INTO gst_settings (key, value, updated_at, updated_by) VALUES ('composition', :v, :ts, :uid)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
@@ -111,6 +128,12 @@ export function saveCompositionRate(
     id: input.id ?? 0,
   });
   if (clash !== undefined) throw validation([{ path: 'effectiveFrom', message: 'This category already has a rate from that date. Alter that row instead.' }]);
+  const changed =
+    !before || before.category !== input.category || before.effective_from !== input.effectiveFrom || before.rate !== input.rate || before.basis !== input.basis;
+  if (changed) {
+    const from = before && before.effective_from < input.effectiveFrom ? before.effective_from : input.effectiveFrom;
+    assertRatesUnlocked(ctx.db, from, before ? 'Altering this rate' : 'A rate from this date');
+  }
   const params = { c: input.category, f: input.effectiveFrom, r: input.rate, b: input.basis, n: input.note?.trim() || null };
   let id = input.id ?? 0;
   if (before) ctx.db.run('UPDATE gst_composition_rates SET category = :c, effective_from = :f, rate = :r, basis = :b, note = :n WHERE id = :id', { ...params, id });
@@ -130,6 +153,7 @@ export function saveCompositionRate(
 export function deleteCompositionRate(ctx: CompanyCtx, id: number): CompositionSettings {
   const before = ctx.db.get<RateRow>('SELECT * FROM gst_composition_rates WHERE id = :id', { id });
   if (!before) throw notFound('Composition rate', id);
+  assertRatesUnlocked(ctx.db, before.effective_from, 'Deleting this rate');
   ctx.db.run('DELETE FROM gst_composition_rates WHERE id = :id', { id });
   ctx.audit({ action: 'delete', entityType: 'gst_composition_rate', entityId: id, entityLabel: `Composition rate ${before.category} from ${before.effective_from}`, before: toRate(before) });
   return compositionSettings(ctx.db);

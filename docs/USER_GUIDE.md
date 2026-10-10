@@ -176,7 +176,10 @@ PANNOTAVBL where a PAN is missing), Ctrl+2 the challans; warnings tell you what 
 or send them to your tax practitioner. They are not the final FVU file: validate with the current FVU
 before filing. After filing, press **Alt+R** and enter the filing date and token: the late fee u/s
 234E (₹200 a day, up to the tax) stops counting. The Outstanding screen also lists each statement with
-its due date and late fee.
+its due date and late fee. Once a statement is recorded as filed, its quarter is protected: saving a
+voucher that changes the TDS / TCS or challan reported in it asks you to confirm (file a correction
+statement on TRACES afterwards), and such a voucher cannot be deleted or cancelled. If you recorded
+the filing by mistake, open the statement, press Alt+R and choose **Not filed**.
 
 **8. Check before you file.** TDS / TCS › **Exceptions** lists vouchers with no PAN or an invalid PAN,
 amounts deducted below the threshold, thresholds crossed but not deducted (with the interest that may
@@ -431,7 +434,9 @@ year); the government sometimes extends these dates, so check the portal.
 - **Composition Rates**: choose your category (manufacturer, trader, restaurant, service provider
   under s.10(2A)) and check the rates — 1% for manufacturers and traders (traders on taxable turnover),
   5% for restaurants, 6% for service providers, each half CGST and half SGST. If a rate changes, add a
-  new rate with its effective date (Alt+C); older documents keep the old rate.
+  new rate with its effective date (Alt+C); older documents keep the old rate. Once the books are locked
+  (F12), a rate (or the category) that would change the tax of a locked quarter cannot be added,
+  altered or deleted — add the new rate from a date after the lock.
 - **CMP-08** (quarterly): table 3 — your turnover and the composition tax on it, plus tax on purchases
   under reverse charge (including import of services), interest (Alt+I) — and table 4, the tax paid.
   Pay through GST Set-off (Alt+S): record the challan, then post the set-off. Save the figures as CSV /
@@ -473,7 +478,9 @@ and bank accounts that you deal with in a foreign currency are *also* kept in th
    new ledger instead.)
 4. Opening balances: enter the rupee opening balance in the ledger as usual, then **Masters › Opening
    Balance in Currency** (or Alt+O in Forex Outstanding / Ledger in Foreign Currency) to give the same balance — and each
-   opening bill — in the currency. **Alt+R** there fills every amount at one rate.
+   opening bill — in the currency. **Alt+R** there fills every amount at one rate. Like the rupee
+   openings, these cannot be changed once the books are locked (F12 › Period lock) up to the books
+   beginning or later — unlock the period first.
 5. Optional: **Masters › Multi-currency Settings** — choose other ledgers for realised and unrealised
    differences, and which rate (standard / selling / buying) is used at the year end.
 
@@ -564,7 +571,8 @@ change (placeholders such as {document}, {number}, {amount}, {party}).
 - **E-mail**: Bahi saves the PDF in the company's *exports\shared* folder and opens a ready e-mail
   in your mail program (Outlook, Windows Mail) with the PDF attached — check it and press Send. If
   no mail program is set up, your default mail link opens instead and the PDF is shown in its folder
-  to attach.
+  to attach. (If *exports* or *shared* in the company folder is a shortcut / link to another place,
+  Bahi refuses to use it — delete it and Bahi creates the folder again.)
 - **WhatsApp**: WhatsApp (app or web) opens a chat with the party's number and your message, and
   the PDF is shown in its folder — drag it into the chat. (WhatsApp does not let any program attach
   a file for you.)
@@ -613,7 +621,8 @@ Banking › **Cheque Leaf Register** shows every leaf of a bank's books as on a 
 (post-dated ones marked PDC), **cleared** (the bank date you entered in Bank Reconciliation — Alt+R
 opens it), **stale** (not cleared three months after the cheque date — banks will not pay it; issue
 a fresh cheque), **cancelled** and **unused**. Ctrl+1…6 switch the view. A spoilt or lost leaf:
-**Alt+X**, with the reason, so it is never used; Alt+U re-opens one cancelled by mistake. Cancelling
+**Alt+X**, with the reason, so it is never used; Alt+U re-opens one cancelled by mistake (neither works
+for a date in a locked period). Cancelling
 a payment cancels its leaf; deleting a payment frees it unless it was printed. Enter opens the
 payment. Change the *as on* date to see the register on an earlier day (a cheque cleared later shows
 as issued then); the "Issued, not cleared" total is the same figure as "cheques issued but not
@@ -662,7 +671,11 @@ your CA's Tally company can simply begin on that date. Masters exported on their
 from your first day, carry the opening balances you entered.
 
 Vouchers go exactly as recorded — the same tax, round-off, numbers, bill references, cost centres,
-cheque details and stock lines; nothing is recalculated. Freight or packing that you include in the
+cheque details and stock lines; nothing is recalculated. The one exception is a Manufacturing Journal or
+Material In / Out: its stock lines go at the cost Bahi's stock reports show today, so if a purchase
+entered later (back-dated) changed the cost of what was produced, Tally gets the corrected value and
+the closing stock agrees. GST on advances received (Alt+J on a receipt), its adjustment on the
+invoice and a refund of it come back as advances when the file is imported into Bahi again. Freight or packing that you include in the
 goods' taxable value stays on its own ledger, and the freight ledger is marked so that Tally includes
 it in the assessable value too. Not exported: quotations, proforma invoices
 and physical stock vouchers (the screen tells you how many were left out), e-invoice / e-way bill
@@ -685,7 +698,7 @@ advice with the payment, the agreement with the party's ledger:
   file dialog), **Enter** or **Alt+O** opens it in the program Windows uses for it, **Alt+K** saves a
   copy elsewhere, **Alt+D** removes it.
 - Allowed: PDF, pictures (JPG, PNG, GIF, WebP, TIFF, BMP), Excel / Word / OpenDocument files without
-  macros, CSV, TXT, JSON and XML — up to 25 MB each and 50 per voucher or master. Programs, scripts,
+  macros or ActiveX controls, CSV, TXT, JSON and XML — up to 25 MB each and 50 per voucher or master. Programs, scripts,
   web pages and archives are refused, as is a program renamed to look like a PDF or an XML file that is
   really a web page.
 - The files are kept in the company's own folder (under `attachments`), go into every backup (and

@@ -9,7 +9,8 @@ audited.
 | Asset | Where it lives |
 |---|---|
 | Company books (vouchers, ledgers, inventory, GST data) | `<data folder>\companies\<id>\company.db` (SQLite, WAL) |
-| Attachments | `<data folder>\companies\<id>\attachments\` |
+| Attachments | `<data folder>\companies\<id>\attachments\` (content-addressed); copies opened in other programs under `%TEMP%\bahi-attachments\` |
+| Shared documents | `<data folder>\companies\<id>\exports\shared\` (PDF + draft `.eml` written by main for e-mail / WhatsApp sharing) |
 | User accounts, password hashes, roles | inside each `company.db` |
 | Edit log (audit trail) | `audit_log` table in each `company.db` (append-only, hash-chained) |
 | Backups | files the user saves via **Data → Backup** (optionally encrypted) |
@@ -108,7 +109,9 @@ added to `connect-src` and `'unsafe-inline'` to `script-src` (React Fast Refresh
   ranges, file filters. Files are read/written only through dialogs the user operates; opened files are
   capped at 100 MB; saves are atomic (temp file + fsync + rename). `shell.showItem` only reveals paths
   inside the data folder or paths the user picked in a dialog during this session. Nothing ever calls
-  `shell.openPath` with a renderer-supplied path.
+  `shell.openPath` with a renderer-supplied path: it opens only a draft `.eml` main itself wrote into
+  the company's `exports\shared` folder (`share.email`) and an attachment copy main wrote into a fresh
+  temp folder after re-checking the file's kind **and content** (`attachment.openCopy`).
 - Paths that the renderer passes to **core routes** (backup folder to write or list, backup file to
   check or restore, the F12 backup folder) are authorised by the core (`core/lib/paths.ts`
   `authorizeUserPath`): allowed only inside the data folder, inside the company's configured backup
@@ -128,6 +131,18 @@ added to `connect-src` and `'unsafe-inline'` to `script-src` (React Fast Refresh
   company folder copied from another PC or a shared data folder therefore cannot make automatic backups
   copy the books to a share nobody picked here: backups go to the default folder and the user is asked
   to confirm the folder by picking it in the folder dialog (`data.backup.approveFolder`, company.manage).
+
+- **Sharing** (`src/main/share.ts`): the shared-documents folder is chosen by main from the open
+  company; `exports` and `shared` are created without following links (a link, junction or file in
+  their place is refused, so a junction planted in a shared data folder cannot redirect the PDF to a
+  network share). The draft e-mail's headers are built by main: recipients must be plain addresses
+  (no display names, no control characters, ≤ 20, `To:` folded one per line), the subject is a single
+  line (RFC 2047-encoded), the body and PDF are base64 — CR/LF header injection is impossible. The
+  WhatsApp link is built by main as `https://wa.me/91<validated mobile>?text=<encoded>` and opened only
+  after the user confirms the host.
+- **Attachment copies** (`src/main/attachments.ts`): the copies' parent `<temp>\bahi-attachments` is
+  refused when it is a link / junction or (POSIX) not a private folder of this account; the day-old
+  sweep removes links as links and never follows them; device names (`CON.pdf`) are renamed.
 
 ### 3.6 Printing and PDF — `src/main/print.ts`
 
@@ -232,10 +247,33 @@ IPC. Security properties:
 | Security on/off | only `security.enable` / `security.disable` (Owner + password); F11 (`company.features.save`) refuses any change to `security` |
 | Untrusted databases | backups and company files are schema-checked before any query (`core/db/schemaCheck.ts`): no views or virtual tables, only triggers our migrations create, core tables present; `PRAGMA trusted_schema = OFF` on every connection; backup unpacking is capped at the declared size (decompression bombs) and refused when it would not fit on the disk; leftover decrypted temporary copies are swept at start-up |
 | Renderer-supplied paths | backup folders/files (and the F12 backup folder) must be inside the data folder, the configured backup folder, or picked in a native dialog this session (`core/lib/paths.ts`, main's `authorizePath`); UNC/device paths are refused unless picked; the no-login backup routes accept nothing else |
-| Period lock | vouchers dated on or before the lock date cannot be created, altered or deleted |
+| Period lock | vouchers dated on or before the lock date cannot be created, altered or deleted — including every new voucher kind (POS bills / returns, recurring postings, GST set-off and challans, TDS challans, forex revaluation, manufacturing / job work journals), which all save through `saveVoucher`; opening balances **and their foreign-currency amounts** are frozen once the lock covers the books beginning; order pre-closures, cheque-leaf cancel / re-open, composition rate rows (and the composition category) reaching into the locked period, and attachment removal on locked vouchers are refused. Job work orders are memo documents (no books effect) and are not locked |
 | Backups | AES-256-GCM with a scrypt-derived key when a password is given; integrity/authenticity verified before restore |
 | Logging | JSON lines with rotation; secrets and document payloads are never logged (redaction in `core/app/logger.ts`) |
 | Data folder changes | copies are integrity-checked (`PRAGMA quick_check`) before the source is removed; failures roll back |
+
+### 4.0 Parity-wave surfaces (security review, final wave)
+
+| # | Surface | Threat | Control (code / test) |
+|---|---|---|---|
+| P1 | New routes (`tds`, `documents`, `mfg`, `forex`, `cheques`, `attachments`, `print.share`, `pos`, `data.tally.export`, GST plus) | missing or too-weak access | every route declares a real permission; `authenticated` only on the attachment reads, whose service checks the owner's `vouchers.view` / `masters.view`; save routes declared `*.view` check `create` / `alter` in the service; roles: Auditor `tds.view` only, Data Entry `attachments.add` only (`core/api/parity-security.test.ts`) |
+| P2 | Report / list filters | a misspelt optional filter (party, book, status, period, kind) silently widening what is shown or exported | `v.strictObject` on the filters of the cheque register / e-payment list / payees / books, attachment register, production register, pending job work, job work orders, BOMs, job work alerts, due recurring vouchers, GST amendments / 3B changes / Rule 37 / pending advances / filings, TDS lines / return, POS register / summary (same test) |
+| P3 | Mutations | change without an edit-log entry | every save / delete / post / import of the new modules audits; voucher types created by F11 Manufacturing / Job work now have their own `create` entries (`mfg/security.test.ts`); ledgers created on demand (TDS, GST plus, forex, POS) are audited |
+| P4 | Period lock | back-dated change of locked figures through a non-voucher path | forex opening in the currency refused when the lock covers the books beginning (`forex/security.test.ts`); cheque-leaf cancel / re-open dated in the locked period (`cheques/lock.test.ts`); composition rate rows / category that would change a locked quarter's CMP-08 / GSTR-4 tax (`gst/composition-lock.test.ts`); new voucher kinds go through `saveVoucher` |
+| P5 | Filed returns | silent change of a filed GSTR-1 / GSTR-3B / TDS-TCS statement | GST hook on every voucher kind (amendment log, filed-3B change log, delete / cancel of a filed GSTR-1 document refused); TDS hook (`tds/filed.ts`): a save that changes the deductions / collections / challan reported in a quarter whose Form 26Q / 27Q / 27EQ is marked filed needs confirmation (correction statement), and deleting / cancelling such a voucher is refused until the filing record is removed (audited) (`tds/filed.test.ts`) |
+| P6 | Attachments | malware opened from the books; path tricks | allowlisted kinds + content sniffing in the core **and again in main** (renderer untrusted); no programs; no VBA, Excel 4.0 macro sheets, ActiveX controls or OpenDocument Basic / script macros; no active XML (style sheets, scripts, XHTML / SVG namespaces — also when written with character references — and no DTD entity / attribute declarations) (`attachments/content-security.test.ts`); 25 MB; content-addressed storage; device names renamed; private temp folder (`main/attachments.test.ts`) |
+| P7 | Sharing | header injection in the `.eml`; arbitrary URL / path opened | addresses validated, single-line subject, base64 body; wa.me URL and mobile validated in main; folder chosen by main, links refused; file names never a Windows device (`CON .pdf`, `COM¹`, `CONIN$` — `main/files.ts` sanitizeFileName) (`main/share-security.test.ts`, `main/share.test.ts`, `main/files.test.ts`) |
+| P8 | CSV / bank / return files | formula injection; wrong rows exported | `toCsv` neutralises formulas (e-payment, TDS return, CMP-08 / GSTR-4, ITC-04 via the export path); e-payment files take regular Payments only and are recorded (batches, edit log) |
+| P9 | SQL | injection through filters / search | parameterised; dynamic SQL only joins constant fragments or table names from fixed maps |
+| P10 | Logs | PII in `bahi.log` | new modules log only error objects and reasons — no PAN, GSTIN, mobile, e-mail, account numbers or document payloads |
+| P11 | Security off (implicit Owner session) | user-keyed checks | the e-payment "discard" check compares the creating user with the current one (`null` = no login), so a batch made with security off cannot be discarded by a logged-in user and vice versa; `security.disable` still needs an Owner login + password |
+
+**Residual risks (not mitigated by the app):** a PDF may carry JavaScript / launch actions, an Office
+file embedded OLE objects (packages), and an old binary `.xls` Excel 4.0 macros (only VBA is detected
+in the binary formats) — the PDF reader / Office security prompts apply; an attached CSV opened in
+Excel is the original file (formulas are not neutralised). The filed-statement check compares what the
+voucher reports (section, party, amounts, status, date, challan details); a change of the deductee's
+PAN or name in the ledger master is not tied to a voucher and is not flagged.
 
 ### 4.1 Edit-log integrity: what is detected, and the limits
 

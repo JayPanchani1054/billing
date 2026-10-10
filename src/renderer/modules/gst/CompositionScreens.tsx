@@ -77,10 +77,10 @@ export function Cmp08Screen({ params }: ScreenProps<{ period?: string }>) {
 
   const actions: ScreenActionItem[] = [
     { key: 'Alt+F2', label: 'Quarter', icon: 'calendar', onClick: () => selectRef.current?.focus(), group: 'period' },
-    { key: 'Alt+J', label: 'Save JSON', icon: 'download', primary: true, onClick: () => void save('json'), disabled: !s || busy || !canFile, group: 'file' },
-    { key: 'Alt+K', label: 'Save CSV', icon: 'download', onClick: () => void save('csv'), disabled: !s || busy || !canFile, group: 'file' },
-    { key: 'Alt+I', label: 'Interest', icon: 'edit', onClick: () => setDialog('interest'), disabled: !s || !canFile, group: 'edit' },
-    { key: 'Alt+F', label: filing ? 'Filed' : 'Mark filed', icon: 'check', onClick: () => setDialog('filed'), disabled: !s || !canFile || filing !== null, group: 'edit' },
+    { key: 'Alt+J', label: 'Save JSON', icon: 'download', primary: true, onClick: () => void save('json'), hidden: !canFile, disabled: !s || busy || !canFile, group: 'file' },
+    { key: 'Alt+K', label: 'Save CSV', icon: 'download', onClick: () => void save('csv'), hidden: !canFile, disabled: !s || busy || !canFile, group: 'file' },
+    { key: 'Alt+I', label: 'Interest', icon: 'edit', onClick: () => setDialog('interest'), hidden: !canFile, disabled: !s || !canFile, group: 'edit' },
+    { key: 'Alt+F', label: filing ? 'Filed' : 'Mark filed', icon: 'check', onClick: () => setDialog('filed'), hidden: !canFile, disabled: !s || !canFile || filing !== null, group: 'edit' },
     { key: 'Alt+S', label: 'GST set-off', icon: 'gst', onClick: () => pp.key && nav.push('gst.setoff', { period: pp.key }), disabled: !pp.key, group: 'go' },
     { key: 'Alt+R', label: 'GSTR-4', icon: 'gst', onClick: () => nav.push('gst.gstr4', s ? { fy: s.period.key?.slice(0, 7) } : {}), group: 'go' },
   ];
@@ -287,9 +287,9 @@ export function Gstr4Screen({ params }: ScreenProps<{ fy?: string }>) {
 
   const actions: ScreenActionItem[] = [
     { key: 'Alt+F2', label: 'Financial year', icon: 'calendar', onClick: () => selectRef.current?.focus(), group: 'period' },
-    { key: 'Alt+J', label: 'Save JSON', icon: 'download', primary: true, onClick: () => void save('json'), disabled: !s || busy || !canFile, group: 'file' },
-    { key: 'Alt+K', label: 'Save CSV', icon: 'download', onClick: () => void save('csv'), disabled: !s || busy || !canFile, group: 'file' },
-    { key: 'Alt+F', label: filing ? 'Filed' : 'Mark filed', icon: 'check', onClick: () => setMarking(true), disabled: !s || !canFile || filing !== null, group: 'edit' },
+    { key: 'Alt+J', label: 'Save JSON', icon: 'download', primary: true, onClick: () => void save('json'), hidden: !canFile, disabled: !s || busy || !canFile, group: 'file' },
+    { key: 'Alt+K', label: 'Save CSV', icon: 'download', onClick: () => void save('csv'), hidden: !canFile, disabled: !s || busy || !canFile, group: 'file' },
+    { key: 'Alt+F', label: filing ? 'Filed' : 'Mark filed', icon: 'check', onClick: () => setMarking(true), hidden: !canFile, disabled: !s || !canFile || filing !== null, group: 'edit' },
   ];
   return (
     <>
@@ -501,9 +501,9 @@ export function CompositionRatesScreen() {
     }
   };
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+C', label: 'Create rate', icon: 'plus', primary: true, onClick: () => setEditing('new'), disabled: !canFile, group: 'edit' },
-    { key: 'Alt+A', label: 'Alter rate', icon: 'edit', onClick: () => current && setEditing(current), disabled: !canFile || !current, group: 'edit' },
-    { key: 'Alt+D', label: 'Delete rate', icon: 'trash', onClick: () => void remove(current), disabled: !canFile || !current, group: 'danger' },
+    { key: 'Alt+C', label: 'Create rate', icon: 'plus', primary: true, onClick: () => setEditing('new'), hidden: !canFile, disabled: !canFile, group: 'edit' },
+    { key: 'Alt+A', label: 'Alter rate', icon: 'edit', onClick: () => current && setEditing(current), hidden: !canFile, disabled: !canFile || !current, group: 'edit' },
+    { key: 'Alt+D', label: 'Delete rate', icon: 'trash', onClick: () => void remove(current), hidden: !canFile, disabled: !canFile || !current, group: 'danger' },
     { key: 'Alt+R', label: 'CMP-08', icon: 'gst', onClick: () => nav.push('gst.cmp08'), group: 'go' },
   ];
   return (

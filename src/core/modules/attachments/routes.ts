@@ -66,7 +66,7 @@ export const attachmentsRoutes = {
   'attachments.register': companyRoute({
     access: 'authenticated',
     transactional: false,
-    input: v.object({
+    input: v.strictObject({
       entityType: ENTITY.optional(),
       search: v.string({ max: 100 }).optional(),
       from: v.date().optional(),

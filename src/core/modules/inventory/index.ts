@@ -4,7 +4,7 @@
  *
  *   import { resolveItemGstProfile, stockOnHand, closingStockValue } from '../inventory/index.ts';
  */
-export { columnsComplete, createGstResolver, resolveGroupGstProfile, resolveItemGstProfile } from './gst.ts';
+export { columnsComplete, createDatedGstResolver, createGstResolver, resolveGroupGstProfile, resolveItemGstProfile } from './gst.ts';
 export type { ItemGstSource } from './gst.ts';
 export { batchesFor, godownSet, itemHasTransactions, roundQty, STOCK_MOVEMENT_FILTER, stockByItem, stockOnHand } from './stock.ts';
 export type { BatchQueryOptions, StockByItemQuery, StockOnHandQuery } from './stock.ts';

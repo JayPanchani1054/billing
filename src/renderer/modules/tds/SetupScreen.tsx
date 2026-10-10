@@ -86,8 +86,8 @@ export function SetupScreen() {
       onRetry={() => void q.refetch()}
       hint="Enter Next field · Ctrl+A Save · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canManage || !d || save.pending, onClick: accept },
-        { key: 'Alt+R', label: 'Create TDS Receivable', icon: 'plus', hidden: !features.tds, disabled: !canManage, onClick: () => void createReceivable() },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canManage || !d || save.pending, hint: canManage ? undefined : 'Needs the “Manage TDS/TCS setup” permission', onClick: accept },
+        { key: 'Alt+R', label: 'Create TDS Receivable', icon: 'plus', hidden: !canManage || !features.tds, disabled: !canManage, onClick: () => void createReceivable() },
       ]}
     >
       {d ? (

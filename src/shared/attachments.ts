@@ -75,16 +75,26 @@ export const ATTACHMENT_FILE_FILTERS: ReadonlyArray<{ name: string; extensions: 
 ];
 
 /**
+ * Windows device names (CON, PRN, AUX, NUL, COM0–9, LPT0–9 incl. the superscript digits, CONIN$ /
+ * CONOUT$): a file whose name before the first dot is one of them — 'CON.pdf', 'nul .txt' — is the
+ * device, not a file, on Windows. Matched on the stem with trailing spaces / dots removed.
+ */
+const WINDOWS_DEVICE_STEM = /^(con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]|conin\$|conout\$)$/i;
+
+/**
  * A file name safe to show and to use for a temporary copy: no folders, no control or reserved
- * characters, at most MAX_ATTACHMENT_NAME characters, extension kept.
+ * characters, never a Windows device name ('CON.pdf' → '_CON.pdf'), at most MAX_ATTACHMENT_NAME
+ * characters, extension kept.
  */
 export function cleanAttachmentName(name: string): string {
-  const base = (name.split(/[\\/]/).pop() ?? '')
+  let base = (name.split(/[\\/]/).pop() ?? '')
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f<>:"|?*]/g, '_')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^\.+/, '');
+  const stem = base.split('.')[0].replace(/[ .]+$/, '');
+  if (WINDOWS_DEVICE_STEM.test(stem)) base = `_${base}`;
   if (base.length <= MAX_ATTACHMENT_NAME) return base;
   const ext = fileExtension(base);
   const keep = MAX_ATTACHMENT_NAME - (ext ? ext.length + 1 : 0);

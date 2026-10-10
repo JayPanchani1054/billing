@@ -141,7 +141,8 @@ export const documentsRoutes = {
   'documents.recurring.due': companyRoute({
     access: 'vouchers.view',
     transactional: false,
-    input: v.object({ asOf: v.date().optional() }),
+    // Strict: a misspelt asOf would silently list everything due up to today.
+    input: v.strictObject({ asOf: v.date().optional() }),
     handler: (ctx, input) => dueOccurrences(ctx, input.asOf ?? ctx.clock.today()),
   }),
   'documents.recurring.post': companyRoute({

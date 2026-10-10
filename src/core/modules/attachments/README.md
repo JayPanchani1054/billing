@@ -34,17 +34,24 @@ the system roles of existing companies.
 
 - **No paths from the renderer.** The renderer sends the bytes of a file the user picked in the native
   Open dialog (`dialog.openFile`); opening sends the bytes read through `attachments.read` to main
-  (`attachment.openCopy`), which checks the kind again, writes a copy into a fresh temporary folder and
-  opens it with the program Windows uses for that kind.
+  (`attachment.openCopy`), which checks the kind **and the content** again (the renderer is untrusted:
+  `main/attachments.ts` runs the same `contentProblem` check as the core), writes a copy into a fresh
+  temporary folder and opens it with the program Windows uses for that kind. The copies' parent folder
+  (`<temp>/bahi-attachments`) is created private and refused when it is a link / junction or (POSIX) not
+  a private folder of this account; the day-old sweep never follows a link.
 - **Allowed kinds:** PDF; JPG / PNG / GIF / WebP / TIFF / BMP; XLSX / DOCX / ODT / ODS; XLS / DOC; CSV,
   TXT, JSON, XML (UTF-8). The extension must be allowed AND the first bytes must match it: a renamed
-  program (`MZ`, ELF, Mach-O, scripts) is refused, as are Office files with macros (`vbaProject.bin` /
-  `_VBA_PROJECT`) and non-UTF-8 text. Never programs, scripts, shortcuts, HTML or archives. An XML file
-  that is really a web page or an Office document (XHTML / SVG namespace, `<script>`, an
-  `<?xml-stylesheet?>` or `<?mso-application?>` instruction, `<!ENTITY>` declarations, Office
-  namespaces) is refused too — Windows opens `.xml` in a browser or Office, where it could run.
+  program (`MZ`, ELF, Mach-O, scripts) is refused, as are Office files that run code (`vbaProject.bin`,
+  `macrosheets/`, `activeX/` parts; OpenDocument `Basic/` and `Scripts/`; `_VBA_PROJECT` in the binary
+  formats) and non-UTF-8 text. Never programs, scripts, shortcuts, HTML or archives. An XML file
+  that is really a web page or an Office document (XHTML / SVG namespace — also when written with
+  character references such as `&#104;ttp:` — `<script>`, an `<?xml-stylesheet?>` or
+  `<?mso-application?>` instruction, `<!ENTITY>` / `<!ATTLIST>` declarations, Office namespaces) is
+  refused too — Windows opens `.xml` in a browser or Office, where it could run. Excel 4.0 macros in an
+  old binary `.xls` and embedded OLE packages are not detected (SECURITY.md §4.0 residual risks).
 - **Limits:** 25 MB a file, 50 files per voucher / master, names cleaned to 200 characters (no folders,
-  control or reserved characters). The same content twice on one owner is refused (`CONFLICT`).
+  control or reserved characters; a Windows device name such as `CON.pdf` or `nul .txt` gets a leading
+  `_`). The same content twice on one owner is refused (`CONFLICT`).
 - **Storage:** `<company folder>/attachments/<sha256>.<ext>`; the same scan attached to several vouchers
   is stored once. The database row keeps the original name, size, SHA-256, note, who and when. The file
   is written first, then the row in its own transaction; if the row cannot be written the file is

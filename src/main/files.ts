@@ -63,7 +63,13 @@ export function readJsonFile(file: string, maxBytes = 64 * 1024): unknown {
   }
 }
 
-const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+/**
+ * Windows device names (CON, PRN, AUX, NUL, COM0–9, LPT0–9 incl. the superscript digits, CONIN$ /
+ * CONOUT$). Windows treats a name as the device when the part before the first dot, with trailing
+ * spaces and dots removed, is one of them: 'CON.pdf', 'con .pdf' and 'NUL..txt' are all devices.
+ */
+const WINDOWS_DEVICE_STEM = /^(con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]|conin\$|conout\$)$/i;
+const isWindowsDeviceName = (name: string): boolean => WINDOWS_DEVICE_STEM.test(name.split('.')[0].replace(/[ .]+$/, ''));
 
 /**
  * Turn a renderer-suggested name into a safe default file name for a save dialog: no directory
@@ -81,7 +87,7 @@ export function sanitizeFileName(name: string, fallback = 'export'): string {
     const ext = path.extname(cleaned).slice(0, 12);
     cleaned = cleaned.slice(0, 180 - ext.length).trim() + ext;
   }
-  if (!cleaned || cleaned === '.' || cleaned === '..' || WINDOWS_RESERVED.test(cleaned)) return fallback;
+  if (!cleaned || cleaned === '.' || cleaned === '..' || isWindowsDeviceName(cleaned)) return fallback;
   return cleaned;
 }
 

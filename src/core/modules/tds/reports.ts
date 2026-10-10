@@ -173,6 +173,9 @@ function loadLines(db: Db, p: { kind?: TdsKind; from?: string; to: string; today
   if (p.kind) {
     where.push('tl.kind = :kind');
     params.kind = p.kind;
+  } else {
+    // Both kinds: still the (kind, date) index for the period, not a scan of every line.
+    where.push("tl.kind IN ('tds', 'tcs')");
   }
   return db
     .all<{
@@ -704,7 +707,14 @@ export function challanSuggestion(db: Db, p: { kind: TdsKind; section: string; p
   lines: number;
 } {
   const range = { from: `${p.period}-01`, to: `${p.period}-31` };
-  const lines = loadLines(db, { kind: p.kind, from: range.from, to: range.to, today: p.today }).filter((l) => l.section === p.section);
+  // A debit / credit note dated up to the deposit date that reverses part of a bill of this month nets
+  // into that bill's deduction (netReversals), exactly as the outstanding report and the statement count
+  // it — otherwise the suggestion asks for the gross and the challan over-deposits the reversed part.
+  const lines = netReversals(
+    loadLines(db, { kind: p.kind, from: range.from, to: p.depositDate > range.to ? p.depositDate : range.to, today: p.today }).filter(
+      (l) => l.section === p.section && (l.date <= range.to || (l.amount < 0 && l.billVoucherId !== undefined && l.billVoucherId !== null)),
+    ),
+  );
   const challans = loadChallans(db, { kind: p.kind, depositTo: '9999-12-31', today: p.today }).filter(
     (c) => c.section === p.section && c.period === p.period && c.voucherId !== (p.excludeVoucherId ?? 0),
   );

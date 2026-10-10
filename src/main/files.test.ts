@@ -53,6 +53,10 @@ describe('sanitizeFileName', () => {
     assert.equal(sanitizeFileName('..'), 'export');
     assert.equal(sanitizeFileName('CON'), 'export');
     assert.equal(sanitizeFileName('nul.txt', 'file'), 'file');
+    // The device is the stem before the first dot with trailing spaces / dots removed (security review).
+    for (const device of ['CON .pdf', 'nul..txt', 'Aux .x.pdf', 'COM\u00b9.pdf', 'CONIN$.txt', 'lpt9 .eml']) assert.equal(sanitizeFileName(device, 'file'), 'file', device);
+    assert.equal(sanitizeFileName('Console.pdf'), 'Console.pdf');
+    assert.equal(sanitizeFileName('CON-1.pdf'), 'CON-1.pdf');
   });
 
   it('bounds the length but keeps the extension', () => {

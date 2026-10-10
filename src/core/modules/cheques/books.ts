@@ -13,6 +13,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { notFound, rule, validation } from '../../lib/errors.ts';
 import { bankLedgers, requireBankLedger } from '../banking/common.ts';
+import { assertDateUnlocked } from '../company/service.ts';
 import { chequeNumber, issuedCheques, issuedLeaves, leafMarks, padCheque, requirePermission, spoiltByPrint } from './common.ts';
 
 interface BookRow {
@@ -234,6 +235,8 @@ export function cancelLeaf(ctx: CompanyCtx, input: { bankLedgerId: number; chequ
     throw rule(`Cheque ${input.chequeNo.trim()} is already cancelled.`);
   }
   const date = input.date ?? ctx.clock.today();
+  // The cheque register of a locked period (F12) stays as it was closed.
+  assertDateUnlocked(db, date);
   db.run(
     `INSERT INTO cheque_leaf_marks (bank_ledger_id, cheque_no, status, reason, date, voucher_id, created_by, created_at)
      VALUES (:b, :n, 'cancelled', :reason, :date, NULL, :by, :now)`,
@@ -251,6 +254,7 @@ export function restoreLeaf(ctx: CompanyCtx, input: { bankLedgerId: number; cheq
   if (n === null) throw validation([{ path: 'chequeNo', message: 'Enter the cheque number (digits only)' }]);
   const mark = db.get<{ reason: string | null; date: string }>('SELECT reason, date FROM cheque_leaf_marks WHERE bank_ledger_id = :b AND cheque_no = :n', { b: bank.id, n });
   if (!mark) throw rule(`Cheque ${input.chequeNo.trim()} is not marked cancelled. (A leaf spoilt by printing stays cancelled.)`);
+  assertDateUnlocked(db, mark.date);
   db.run('DELETE FROM cheque_leaf_marks WHERE bank_ledger_id = :b AND cheque_no = :n', { b: bank.id, n });
   ctx.audit({ action: 'alter', entityType: 'cheque_leaf', entityId: n, entityLabel: `Cheque ${input.chequeNo.trim()} — ${bank.name} re-opened`, before: mark });
   return { ok: true };

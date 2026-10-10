@@ -180,9 +180,9 @@ function Summary() {
               empty={<EmptyState title="No POS bills" body="Bills saved on the POS counter (Alt+B) appear here." />}
             />
           ) : view === 'user' ? (
-            <DataTable<PosSummaryUserRow> aria-label="By cashier" autoFocus columns={userCols} rows={s.byUser} getRowKey={(r) => String(r.userId ?? 0)} onRowActivate={(r) => openDrill(drillUser(r))} />
+            <DataTable<PosSummaryUserRow> aria-label="By cashier" autoFocus columns={userCols} rows={s.byUser} getRowKey={(r) => String(r.userId ?? 0)} onRowActivate={(r) => openDrill(drillUser(r))} empty={<EmptyState title="No POS bills" body="Bills saved on the POS counter appear here by cashier." />} />
           ) : view === 'counter' ? (
-            <DataTable<PosSummaryCounterRow> aria-label="By counter" autoFocus columns={counterCols} rows={s.byCounter} getRowKey={(r) => r.counter || '-'} onRowActivate={(r) => openDrill(drillCounter(r))} />
+            <DataTable<PosSummaryCounterRow> aria-label="By counter" autoFocus columns={counterCols} rows={s.byCounter} getRowKey={(r) => r.counter || '-'} onRowActivate={(r) => openDrill(drillCounter(r))} empty={<EmptyState title="No POS bills" body="Bills saved on the POS counter appear here by counter." />} />
           ) : (
             <DataTable<PosRegisterRow>
               aria-label="Bills and returns"

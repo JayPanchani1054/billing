@@ -366,3 +366,52 @@ Guards are skipped for optional vouchers. The voucher being altered is always ex
 - An item-mode Credit Note always brings the goods back (a sales return); a price reduction on goods the customer keeps is entered in accounting_invoice mode (§3).
 - Debit Notes to customers saved before value-only lines were introduced keep their stock movement until re-saved.
 - GST reconciliation (`gst_portal_docs.match_status`) is not reset when a matched voucher is deleted or cancelled (the FK clears `matched_voucher_id`); the gstrecon module re-matches.
+
+---
+
+## 10. Performance with every voucher hook on (final wave)
+
+`perf-hooks.test.ts` builds a company with every F11 feature on (bill-wise, cost centres, multiple
+currencies, cheque printing, integrated inventory, godowns, orders, tracking, manufacturing, job work,
+POS, GST, TDS, TCS), 2,000 ledgers, 1,000 items and 60,000 vouchers (`dashboard/testkit.ts ›
+bulkBusiness`) plus a few hundred real TDS journals, cheque payments, USD export invoices and Material
+Out challans, then saves / alters / cancels / deletes one voucher of each kind (sales / purchase
+invoice, receipt, cheque payment, TDS journal, TCS sale, export invoice, Material Out, Manufacturing
+Journal, POS bill, GST advance receipt, quotation) and five more hook paths built fresh per save (a
+debit note reversing a bill's TDS, a receipt settling a USD bill, an invoice converted from a
+quotation, a reverse-charge purchase, an import with a bill of entry). What it checks — deterministic,
+because the app never runs ANALYZE and SQLite's plans then depend on the schema only
+(`src/core/testing/sqlPlans.ts`):
+
+- **Plans.** Every statement of those saves (SELECT / UPDATE / DELETE / INSERT; a DELETE's plan also
+  lists its foreign-key look-ups, so a CASCADE / SET NULL child without an index shows) is EXPLAINed:
+  no scan of a table that grows with the books (vouchers, entries, bills, gst_lines, tds_lines,
+  derived hook tables, the edit log …; a `LIMIT 1` existence probe without WHERE is allowed), a
+  statement keyed by `voucher_id = :x` must look that voucher up, a bank's cheque leaves come from
+  `idx_le_cheques`, the TDS duty-ledger look-up from `idx_tds_ledger_payable`.
+- **Budgets.** ≤ 120 statements per save and ≤ 160 per alter (measured 23–56 / 59–91); stock is valued
+  only by a Manufacturing Journal / Material Out (one replay of its own items, for the cost estimate);
+  report routes and drill-downs (voucher, group summary, monthly summary, group vouchers, a party's
+  bills, an item's vouchers, the Sales ledger) run a bounded number of statements (ITC-04 no longer
+  grows with its lines).
+- **Times** are logged and bounded generously for CI (1 s per drill-down, 4 s per report, 250 ms save
+  p95). Measured on a developer machine: saves 1–7 ms p95; Day Book of a week 2 ms, ledger of a party
+  5–9 ms, Go To 2–75 ms, other drill-downs 1–105 ms, the Sales ledger (30,000 lines) 110–145 ms; Trial
+  Balance 0.14–0.17 s, Balance Sheet / P&L ≈ 0.2 s cold, GSTR-1 month 0.08–0.11 s, GSTR-3B month
+  0.6–0.85 s cold — its credit is chained from the books beginning and memoised per period afterwards,
+  so this cost grows with the years of history — TDS / forex / ITC-04 / pending job work under 10 ms,
+  bills pending 0.03 s, budget variance 0.1 s.
+- **Known, under target, not optimised:** the GSTR-3B chain above; Go To's voucher search counts the
+  matches over every voucher on each keystroke (≈ 60 ms); budget variance reads the ledger totals twice
+  (snapshot + nominal movement, ≈ 100 ms); deleting a ledger / item / godown / currency master scans
+  the derived tables that reference it without an index (≈ 20 ms for a ledger on 60,000 vouchers —
+  rare, and an index would cost every voucher save).
+
+Fixed in this pass (each one covered by the test): the default bill name of an altered voucher read
+every bill of the party (`posting.ts › defaultBillName`, now `INDEXED BY idx_bills_voucher`); the
+cheque hook read every entry of the bank ledger twice per save (partial index `idx_le_cheques`,
+migration 241); the TDS hook read every TDS line of a section to find one bill's line; deleting a
+voucher scanned `gstrecon_decisions` (CASCADE look-up, index in 241); the TDS reports read all lines of
+a kind since the books began; the forex revaluation report scanned every voucher; ITC-04 ran two GST
+look-ups per challan line; the e-way bill number check scanned every voucher (now `idx_vouchers_eway`,
+checked on the real `gst/ewaybill.ts › updateEwayBill` statement).

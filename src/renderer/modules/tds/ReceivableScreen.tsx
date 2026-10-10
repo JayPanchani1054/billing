@@ -99,9 +99,9 @@ export function ReceivableScreen({ params }: ScreenProps<{ fyStart?: number }>) 
       filters={<Select aria-label="Financial year" size="sm" value={String(fyStart)} options={years.map((y) => ({ value: String(y), label: `FY ${fyLabel(y)}` }))} onChange={(v) => setFyStart(Number(v))} />}
       exportDef={() => (d ? receivableExport(d) : { columns: [], rows: [] })}
       actions={[
-        { key: 'Alt+I', label: 'Import 26AS CSV', icon: 'upload', primary: true, disabled: !canManage || importer.pending, onClick: () => void importCsv() },
+        { key: 'Alt+I', label: 'Import 26AS CSV', icon: 'upload', primary: true, hidden: !canManage, disabled: !canManage || importer.pending, onClick: () => void importCsv() },
         { key: 'Alt+M', label: 'Customer TDS details', icon: 'ledger', disabled: !current?.partyLedgerId, onClick: () => current?.partyLedgerId && nav.push('tds.ledger.form', { ledgerId: current.partyLedgerId }) },
-        { key: 'Alt+R', label: 'Create TDS Receivable', icon: 'plus', hidden: (d?.receivableLedgers.length ?? 1) > 0, disabled: !canManage, onClick: () => void createLedger() },
+        { key: 'Alt+R', label: 'Create TDS Receivable', icon: 'plus', hidden: !canManage || ((d?.receivableLedgers.length ?? 1) > 0), disabled: !canManage, onClick: () => void createLedger() },
       ]}
       hint="Enter Customer ledger · Alt+I Import 26AS CSV · Alt+M Customer TDS details · Alt+E Export · Esc Back"
     >

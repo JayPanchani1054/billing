@@ -12,6 +12,7 @@
  *
  * The year (rupees; every voucher's arithmetic next to it below):
  *  Apr  steel 2,000 kg × 50 + paint 100 L × 210 from Nagpur (1,21,000 + C/S 10,890 each = 1,42,780, PDF attached);
+ *       a late Nagpur bill (paint 100 L × 250) entered after the first journal, back-dated before it;
  *       BOM 10 chairs = 50 kg steel + 4 L paint, 5 kg scrap at ₹20; Manufacturing Journal 200 chairs (labour 20,000);
  *       rent journal 60,000 (194I(b) 10% → TDS 6,000, landlord 54,000) made recurring monthly (May–Mar posted
  *       from the due list); quotation 50 chairs × 1,200 → converted into the invoice (70,800); POS day.
@@ -24,17 +25,18 @@
  *  Aug  scrap 80 kg × 100 to Bharat (TCS 1% on 9,440 = 94); GTA freight 10,000 under RCM (5%); POS day.
  *  Sep  Manufacturing Journal 100 chairs; Joshi 40,000 + 18% (194J(b) 4,000).
  *  Oct  optional sale (scenario only); open quotation.
- *  Nov  Shinde 50,000 + 18% (194C 1,000).
- *  Dec  POS day.
+ *  Nov  Shinde 50,000 + 18% (194C 1,000) and a debit note of 10,000 against it (TDS 200 reversed).
+ *  Dec  POS day; a POS customer (created by mobile) buys partly on credit.
+ *  Mar  (also) Bharat returns 10 kg scrap: credit note reversing TCS 12.
  *  Mar  scrap 50 kg × 100 to Bharat (TCS 59); POS day; revaluation of Atlantic's $1,500 at ₹85 (gain 3,000).
  *  Every month: rent cheque 54,000 on the 5th; TDS / TCS challans by the 7th of the next month (March's
  *  deductions stay payable); GST set-off + PMT-06 challan for April–February on the 20th of the next month
  *  (March stays payable). Bank statement Apr–Jun imported, auto-matched → BRS.
  */
 import assert from 'node:assert/strict';
-import type { VoucherInput } from '../../../shared/types/vouchers.ts';
+import type { InstrumentInput, VoucherInput } from '../../../shared/types/vouchers.ts';
 import { makeGstin } from '../fixtures.ts';
-import { FY_MONTHS, P, monthEnd, periodKey, type E2E } from './harness.ts';
+import { FY_MONTHS, P, periodKey, type E2E } from './harness.ts';
 import { post, type World } from './scenario.ts';
 
 export const AF_BOOKS_FROM = '2026-04-01';
@@ -293,7 +295,7 @@ function newBill(w: AfWorld, partyKey: string, billName: string, signed: number)
 }
 
 /** Pay a supplier's bill from the bank (cheque leaf filled on save, or NEFT). */
-async function payBill(w: AfWorld, name: string, date: string, partyKey: string, billName: string, amount: number, instrument: { type: string; number?: string }): Promise<void> {
+async function payBill(w: AfWorld, name: string, date: string, partyKey: string, billName: string, amount: number, instrument: InstrumentInput): Promise<void> {
   await post(
     w,
     name,
@@ -429,6 +431,9 @@ export async function postAllFeaturesYear(w: AfWorld): Promise<void> {
   w.attachmentId = (await e.call<{ id: number }>('attachments.add', { entityType: 'voucher', entityId: pn.id, fileName: 'Nagpur Steel NS-1.pdf', bytes: pdf })).id;
 
   // Rent (194I(b)): 60,000 > 50,000 for the month → 10% = 6,000; Patil credited 54,000 (on account).
+  // (GST: since 10-Oct-2024 commercial rent from an unregistered landlord to a regular taxpayer is under reverse
+  // charge — Notification 09/2024-CT(Rate). This scenario keeps the rent ledger without GST so the TDS figures
+  // stay readable; reverse charge itself is exercised by the GTA freight below.)
   const rent = await post(
     w,
     'rent-04',
@@ -441,7 +446,8 @@ export async function postAllFeaturesYear(w: AfWorld): Promise<void> {
   assert.ok(tpl.id > 0);
 
   // Manufacturing Journal 10-Apr: 200 chairs. Steel avg 50 → 1,000 kg = 50,000; paint avg (20,000 + 21,000) / 200 = 205
-  // → 80 L = 16,400; consumption 66,400 + labour 20,000 = 86,400 − scrap 100 kg × 20 = 2,000 → chairs 84,400 (422 each).
+  // → 80 L = 16,400; consumption 66,400 + labour 20,000 = 86,400 − scrap 100 kg × 20 = 2,000 → chairs 84,400 (422 each)
+  // as estimated on saving (re-valued by the late bill below).
   const mj1 = await post(w, 'mfg-1', {
     voucherTypeId: w.MJ.manufacturing,
     date: '2026-04-10',
@@ -460,6 +466,18 @@ export async function postAllFeaturesYear(w: AfWorld): Promise<void> {
   } as VoucherInput);
   assert.ok(mj1.id > 0);
   await post(w, 'labour-1', led(w, 'payment', '2026-04-10', [{ ledgerId: w.L.labour, amount: P(20_000) }, { ledgerId: w.L.CASH, amount: -P(20_000) }]));
+  // A supplier bill received late and entered AFTER the journal, back-dated to 5-Apr: paint 100 L × 250 = 25,000
+  // + C/S 2,250 = 29,500. The engine re-values batch 1 (paint average (20,000 + 21,000 + 25,000) / 300 = 220 →
+  // 80 L = 17,600): consumption 67,600 + 20,000 − 2,000 = 85,600 (428 a chair), while the journal's stored
+  // amounts keep the estimate made on 10-Apr (205 a litre). Every report — and the Tally export — must use 220.
+  const late = await post(
+    w,
+    'pur-nagpur-late',
+    inv(w, 'purchase', '2026-04-05', 'nagpur', [{ itemId: w.I.paint, qty: 100, rate: 250 }], { referenceNo: 'NS/2', referenceDate: '2026-04-05' }),
+  );
+  assert.equal(late.totals.grandTotal, P(29_500));
+  newBill(w, 'nagpur', 'NS/2', -P(29_500));
+  await payBill(w, 'pay-nagpur-2', '2026-04-28', 'nagpur', 'NS/2', P(29_500), { type: 'neft', number: 'UTRNAG2' });
 
   // Quotation 15-Apr: 50 chairs × 1,200 = 60,000 + C/S 5,400 = 70,800 → converted into the invoice on 20-Apr.
   const q = await post(w, 'quotation-1', inv(w, 'quotation', '2026-04-15', 'kolhapur', [{ itemId: w.I.chair, qty: 50, rate: 1200 }], { validUntil: '2026-05-15' }));
@@ -591,8 +609,8 @@ export async function postAllFeaturesYear(w: AfWorld): Promise<void> {
   await receiveBill(w, 'rcpt-kolhapur-2', '2026-08-20', 'kolhapur', s2.number!, P(84_960), 'UTRKOL2');
 
   // ── September ──
-  // Manufacturing Journal 100 chairs: steel avg still 50 → 500 kg = 25,000; paint avg 205 → 40 L = 8,200; labour 10,000;
-  // scrap 50 kg × 20 = 1,000 → chairs 42,200 (422 each).
+  // Manufacturing Journal 100 chairs: steel avg still 50 → 500 kg = 25,000; paint avg 220 → 40 L = 8,800; labour 10,000;
+  // scrap 50 kg × 20 = 1,000 → chairs 42,800 (428 each).
   await post(w, 'mfg-2', {
     voucherTypeId: w.MJ.manufacturing,
     date: '2026-09-05',
@@ -623,13 +641,58 @@ export async function postAllFeaturesYear(w: AfWorld): Promise<void> {
   // ── November: Shinde 50,000 + C/S 4,500 = 59,000; 194C 1,000 → 58,000 (unpaid at year end) ──
   await post(w, 'contract-2', acc(w, 'purchase', '2026-11-14', 'shinde', [{ ledgerKey: 'contract', amount: P(50_000) }], { referenceNo: 'SC/2', referenceDate: '2026-11-14' }));
   newBill(w, 'shinde', 'SC/2', -P(58_000));
+  // Debit note (deficient work) 25-Nov against SC/2: 10,000 + C/S 900 = 11,800; the bill's TDS is reversed in
+  // proportion: 1,000 × 10,000 / 50,000 = 200 → Shinde debited 11,600; November's 194C nets to 800.
+  const dnS = await post(
+    w,
+    'dn-shinde',
+    acc(w, 'debit_note', '2026-11-25', 'shinde', [{ ledgerKey: 'contract', amount: P(10_000) }], {
+      originalInvoiceNo: 'SC/2',
+      originalInvoiceDate: '2026-11-14',
+      referenceNo: 'DN-SC2',
+      noteReason: 'Deficiency in service',
+      partyBillAllocations: [{ refType: 'against', billName: 'SC/2', amount: P(11_600) }],
+    }),
+  );
+  assert.ok(dnS.id > 0);
+  newBill(w, 'shinde', 'SC/2', P(11_600));
 
   // ── December, March: POS days; March scrap 50 kg × 100 = 5,000 + 900 = 5,900; TCS 59 → 5,959 (unpaid) ──
   await posDay(w, 'dec', '2026-12-19');
+  // A POS customer created by mobile buys 2 chairs × 1,500 = 3,000 + C/S 270 = 3,540: cash 1,000, 2,540 on credit.
+  const cust = await e.call<{ ledgerId: number }>('pos.customer.create', { name: 'Kavita Joshi', mobile: '98220 12345' });
+  w.L.kavita = cust.ledgerId;
+  const credit = await post(w, 'pos-dec-credit', {
+    voucherTypeId: w.pos.saleTypeId,
+    date: '2026-12-19',
+    mode: 'item_invoice',
+    partyLedgerId: cust.ledgerId,
+    placeOfSupply: '27',
+    items: [{ itemId: w.I.chair, qty: 2, rate: 1500 }],
+    posBill: { tenders: [{ modeId: w.pos.cash, amount: P(1_000) }] },
+  } as VoucherInput);
+  assert.equal(credit.totals.grandTotal, P(3_540));
+  newBill(w, 'kavita', credit.number!, P(2_540));
+  w.posBills.sales += 1;
+  w.posBills.salesValue += P(3_540);
   await posDay(w, 'mar', '2027-03-20');
   const sp2 = await post(w, 'scrap-2', inv(w, 'sales', '2027-03-10', 'bharat', [{ itemId: w.I.scrap, qty: 50, rate: 100, ledgerId: w.L.scrapSales }]));
   assert.equal(sp2.totals.grandTotal, P(5_959));
   newBill(w, 'bharat', sp2.number!, P(5_959));
+  // Bharat returns 10 kg (25-Mar): 1,000 + C/S 90 = 1,180; TCS reversed in proportion 59 × 1,000 / 5,000 = 11.80 → 12
+  // → credit note 1,192 against the March invoice; Bharat owes 5,959 − 1,192 = 4,767.
+  const cnB = await post(
+    w,
+    'cn-bharat',
+    inv(w, 'credit_note', '2027-03-25', 'bharat', [{ itemId: w.I.scrap, qty: 10, rate: 100, ledgerId: w.L.scrapSales }], {
+      originalInvoiceNo: sp2.number!,
+      originalInvoiceDate: '2027-03-10',
+      noteReason: 'Sales return',
+      partyBillAllocations: [{ refType: 'against', billName: sp2.number!, amount: P(1_192) }],
+    }),
+  );
+  assert.equal(cnB.totals.grandTotal, P(1_192));
+  newBill(w, 'bharat', sp2.number!, -P(1_192));
   await receiveBill(w, 'rcpt-bharat', '2026-09-15', 'bharat', sp1.number!, P(9_534), 'UTRBHA1');
 
   // ── Recurring rent May–March from the due list (review, then post) ──
@@ -661,7 +724,7 @@ export async function postAllFeaturesYear(w: AfWorld): Promise<void> {
 export async function planning(w: AfWorld): Promise<void> {
   const types = await w.e.call<{ rows: Array<{ id: number; baseType: string; isPredefined: boolean }> }>('accounts.voucherType.list', {});
   const salesTypes = types.rows.filter((t) => t.baseType === 'sales').map((t) => t.id);
-  w.scenarioId = (await w.e.call<{ id: number }>('documents.scenario.save', { name: 'With optional sales', includeActuals: true, includeOptional: true, includeTypeIds: salesTypes, excludeTypeIds: [] })).id;
+  w.scenarioId = (await w.e.call<{ id: number }>('documents.scenario.save', { name: 'With optional sales', includeActuals: true, includeTypeIds: salesTypes, excludeTypeIds: [] })).id;
   w.budgetId = (
     await w.e.call<{ id: number }>('documents.budget.save', {
       name: 'FY 2026-27',
@@ -679,7 +742,7 @@ export async function planning(w: AfWorld): Promise<void> {
  * The bank statement of April–June written from the bank ledger itself (every entry the bank saw),
  * except the cheque to Shinde (not presented by 30-Jun); cheques clear two days after their date.
  */
-export async function bankStatementQ1(w: AfWorld): Promise<{ closing: number; notPresented: number; lines: number; autoMatched: number }> {
+export async function bankStatementQ1(w: AfWorld): Promise<{ closing: number; notPresented: number; lines: number; autoMatched: number; manual: number }> {
   const from = '2026-04-01';
   const to = '2026-06-30';
   const lg = await w.e.call<{ opening: number; rows: Array<{ voucherId: number; date: string; debit: number; credit: number; number: string | null }> }>('reports.ledger', { ledgerId: w.L.bank, from, to });
@@ -716,7 +779,18 @@ export async function bankStatementQ1(w: AfWorld): Promise<{ closing: number; no
   const imp = await w.e.call<{ batchId: number; imported: number; closingBalance: number }>('banking.statement.import', { ledgerId: w.L.bank, fileName: 'HDFC_Q1.csv', bytes, mapping: preview.mapping });
   assert.equal(imp.closingBalance, bal);
   const am = await w.e.call<{ applied: unknown[] }>('banking.autoMatch', { ledgerId: w.L.bank, batchId: imp.batchId });
-  return { closing: bal, notPresented, lines: rows.length, autoMatched: am.applied.length };
+  // Two TDS challans of ₹6,000 paid on the same day are ambiguous for the auto-match (it never guesses):
+  // the accountant matches them by hand from the suggestions.
+  const left = await w.e.call<{ rows: Array<{ id: number }> }>('banking.statement.lines', { ledgerId: w.L.bank, from, to, status: 'unmatched' });
+  const used = new Set<number>();
+  for (const line of left.rows) {
+    const cands = await w.e.call<Array<{ ledgerEntryId: number }>>('banking.suggestions', { lineId: line.id });
+    const pick = cands.find((c) => !used.has(c.ledgerEntryId));
+    assert.ok(pick, `statement line ${line.id} has a candidate`);
+    used.add(pick.ledgerEntryId);
+    await w.e.call('banking.match', { lineId: line.id, ledgerEntryId: pick.ledgerEntryId });
+  }
+  return { closing: bal, notPresented, lines: rows.length, autoMatched: am.applied.length, manual: used.size };
 }
 
 // ───────────────────────────── Composition variant ─────────────────────────────
@@ -832,5 +906,4 @@ export async function postCompositionYear(w: CmpWorld): Promise<void> {
     await e.call('gst.challan.post', { date: day(nm, 18), bankLedgerId: w.L.bank, cpin: `2700${q}0000000${q}`.slice(0, 14), challanDate: day(nm, 18), period, heads });
     await e.call('gst.setoff.post', { period, date: day(nm, 18) });
   }
-  void monthEnd;
 }

@@ -13,7 +13,7 @@ a BUSINESS_RULE naming F11 otherwise.
 |---|---|
 | `payee_bank_details` | one row per ledger: beneficiary name, A/c no., IFSC, bank, branch, account type, name on cheque, preferred mode (NEFT / RTGS / IMPS / cheque). Removed with the ledger (trigger), never blocks a ledger delete. |
 | `cheque_books` | leaf ranges per bank ledger (`from_no`–`to_no`, `digits` for zero padding, active flag). Ranges of one bank never overlap. |
-| `cheque_leaf_marks` | leaves cancelled by the user (reason, date) or cancelled with their voucher. |
+| `cheque_leaf_marks` | leaves cancelled by the user (reason, date) or cancelled with their voucher. Cancelling / re-opening a leaf dated in the locked period (F12) is refused (`LOCKED`, `lock.test.ts`). |
 | `cheque_prints` | every cheque printed (voucher, line, leaf, payee, amount, layout, user, time). |
 | `cheque_layouts` | named layouts: positions in mm as JSON (`ChequeLayoutSpec`), optional preset code. |
 | `cheque_bank_settings` | per bank ledger: layout, 'A/c Payee' by default, signatory text. |
@@ -34,9 +34,12 @@ Payment or Contra.
   preview shows the number it would get.
 - **adjust** — confirm-level warnings: leaf already issued on another voucher, used twice in the
   voucher, cancelled, or spoilt; info when the number is in no book or every leaf is used.
-- Cost per save: allocation and checks read the bank's cheque numbers once (`issuedLeaves`: one
-  indexed scan of the bank ledger's entries, no joins) plus its marks and prints — about 5 ms per
-  cheque payment with 2,000 cheques / 4,000 entries on the bank (measured in review).
+- Cost per save: allocation and checks read the bank's cheque numbers once (`issuedLeaves`) plus its
+  marks and prints. Since migration 241 the bank's cheque lines come from the partial covering index
+  `idx_le_cheques (ledger_id, instrument_no, voucher_id, amount) WHERE instrument_type = 'cheque'`
+  (pinned with `INDEXED BY` in `issuedLeaves` / `issuedCheques`), so the cost follows the cheques
+  issued, not every receipt / NEFT on the bank: a cheque payment on a 60,000-voucher company went from
+  ≈ 10 ms (two reads of ≈ 18,000 bank entries) to ≈ 2 ms (vouchers/perf-hooks.test.ts).
 - **beforeRemove** — cancelling a voucher marks its leaves cancelled (a written leaf cannot be
   reused); deleting a voucher frees its leaves unless they were printed (then they are *spoilt*).
 

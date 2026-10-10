@@ -144,6 +144,8 @@ npm, Electron and electron-builder downloads are cached (keys include the lockfi
 |---|---|
 | `e2e/smoke.spec.ts` | bridge and security invariants: product title, `app://bahi` origin, exact `window.bahi` shape, `app.state` over IPC, no Node in the renderer, malformed IPC rejected, no network |
 | `e2e/first-day.spec.ts` | a new user's first day, keyboard first: first-run data folder → Create Company wizard → party ledger → stock item → F8 sales invoice → Day Book → voucher view → Print Preview → Balance Sheet → GSTR-1 → backup |
+| `e2e/screens.spec.ts` | every screen renders: wizard company → **every** F11 feature on (Features screen) → masters and one voucher of each kind (API) → **every item of the Go To catalogue** opened through the palette and checked (visible `[data-screen]` with an h1, or a dialog with a heading; no error boundary — also one that replaced a dialog screen —, no "Something went wrong", no "This could not be loaded" / "You don't have access to this", no uncaught page error, no `[bahi]` / React console error), Enter on the first row of each list (the id screens: alterations, drill-downs) checked the same way, Esc back to the Gateway; then Day Book → voucher view → Print Preview. Failures are collected and reported together |
+| `e2e/parity.spec.ts` | the Tally-parity flows: quotation → Quotation Register › Alt+V → Sales 1; print preview on A5 (sheet 148 mm wide) and on the 80 mm roll (Compact receipt); POS counter: scan a barcode, UPI ₹50 + cash ₹68, ₹100 handed over → change ₹32; purchase (F9, accounting invoice) with the TDS 194C auto-line ₹800; export invoice in US$ shown in both currencies; Manufacturing Journal from the default BOM; cheque print preview of a payment (voucher view › Alt+K) with the leaf number and the amount in words |
 
 - `npm run build` **must** run before `npm run e2e`: the specs launch `out/main/index.cjs`.
 - `e2e/support.ts` launches the app with a throw-away `BAHI_USER_DATA`/`BAHI_DATA_DIR`, records a trace
@@ -152,6 +154,30 @@ npm, Electron and electron-builder downloads are cached (keys include the lockfi
 - The figures typed in `first-day.spec.ts` are pinned by its API-level twin
   `src/core/testing/e2e/first-day.test.ts` (same masters, same routes, same amounts), which runs in
   `npm test`. **Edit the two together.**
+- `parity.spec.ts` and its twin `src/core/testing/e2e/parity.test.ts` share one file,
+  `src/core/testing/e2e/parityFlow.ts` (masters, inputs, expected figures with the arithmetic): the spec
+  runs its calls through `window.bahi.api` (real preload → IPC → core worker), the twin through
+  `runtime.dispatch`. `screens.spec.ts` uses the same seed; its twin `src/core/testing/e2e/screens.test.ts`
+  proves the seed and vouchers are accepted with every F11 feature on (e.g. opening stock then needs its
+  godown).
+- The sweep does not keep a list of screens: the open Go To palette answers a `bahi:goto-catalog` event
+  with its own items and the registered screens (`src/renderer/app/lib/gotoCatalog.ts`), and each option
+  carries `data-goto-id`. Shell commands (working date, period, switch company, F1, F10) are skipped
+  with a logged reason, as are registered screens nothing reached (`[screens] skip …` lines: they need an
+  id and open from another screen). Lists whose first-row Enter could change data (backup / restore,
+  banking, due recurring vouchers, e-payment, POS, GST filing, users, an owner's attachments) are opened
+  but not drilled into.
+  The company is a Regular GST dealer, so the composition-only screens (CMP-08, GSTR-4, composition
+  rates) are not in its Go To and show up among the `[screens] skip …` lines. A screen whose first
+  load fails fails the sweep (its error text is in the problem line); the job log also carries
+  `[screens] note: …` lines for screens that handed over to another screen, were still loading after
+  15 s, logged a console error that is not the app's or React's, or asked to discard changes on an
+  untouched form.
+- Both company specs stub the main process's native dialogs (cancel) and switch POS receipt printing
+  off, so no step can wait on an OS dialog. Budget: the sweep is bounded at 9 minutes (aimed at about
+  5 per OS; the `[screens] opened N Go To items in S s` line gives the real figure) and is not retried
+  (a second pass finds the same screens and the e2e job has a 25-minute limit); each parity step has
+  the default 60 s and the usual CI retry.
 - Flows that open native dialogs must stub them in the main process before triggering them, e.g.
   ```ts
   await app.evaluate(({ dialog }, folder) => {

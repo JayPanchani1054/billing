@@ -12,6 +12,7 @@ import type {
   ForexRevaluationResult,
   ForexVoucherPreview,
 } from '../../../../shared/types/forex.ts';
+import { formatMoney } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
 
 export const RATE_TYPE_LABEL: Readonly<Record<ForexRateType, string>> = {
@@ -178,10 +179,8 @@ export function ledgerExport(d: ForexLedgerStatement): ExportTable {
       ...d.rows.map((r) => [r.date, r.particulars, r.voucherType, r.number ?? '', r.forexAmount, r.rate, r.amount, r.forexBalance, r.inrBalance] as Cell[]),
     ],
     totals: ['', 'Closing balance', '', '', null, null, null, d.closingForex, d.closingInr],
-    notes:
-      d.closingRate === null
-        ? 'No closing rate in the exchange-rate master.'
-        : `At the closing rate ₹${formatExchangeRate(d.closingRate)} the balance is worth ₹${((d.revaluedInr ?? 0) / 100).toFixed(2)}; unrealised ${(d.unrealised ?? 0) >= 0 ? 'gain' : 'loss'} ₹${(Math.abs(d.unrealised ?? 0) / 100).toFixed(2)}.`,
+    // The same sentence as under the screen's grid: Indian grouping and Dr / Cr, never a bare minus.
+    notes: ledgerFooterNote(d, (p) => formatMoney(p)),
   };
 }
 

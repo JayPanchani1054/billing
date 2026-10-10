@@ -360,12 +360,25 @@ registerGotoProvider({
 ```
 
 Register at module import time (top level of your `index.ts`) or in an effect. Failures are silent.
+
 The palette drops results the user cannot open (`nav.canOpen(screen)`, else `fallback`), and skips a
 provider whose `screens` are all forbidden (no API call). Recents are stored per company, not per user,
 so they too are shown only when the current user can open them now (`usableRecents`: screen allowed,
 voucher type enterable and still active). Built-ins (`ledgers`, `items`, `vouchers`)
 call `accounts.ledger.list`, `inventory.item.picker` and `vouchers.list` with `{ search, limit }` and
 are replaced by the accounts, inventory and vouchers modules' own providers.
+
+### Go To catalogue for the end-to-end sweep
+
+`e2e/screens.spec.ts` opens every item Go To offers instead of keeping its own list of screens. While
+the palette is open it answers a `bahi:goto-catalog` CustomEvent dispatched on `window`
+(`lib/gotoCatalog.ts`): the listener writes `detail.catalog = { items, screens }` — the palette's own
+static items (menu items, `goto: true` screens, voucher types, shell commands — already filtered by
+permission, F11 features and GST registration) and every registered screen id / title / presentation.
+It is read-only, adds nothing to `window` and calls no route. Each option also carries
+`data-goto-id="<item id>"` so the spec can click exactly that item after typing its label. A new
+screen is in the sweep as soon as Go To offers it; one that takes an id is reached by Enter on the
+first row of its list, or is logged as not reached.
 
 ---
 
@@ -561,7 +574,7 @@ export function TrialBalance() {
 | `confirm.tsx` | useConfirm, withConfirmation |
 | `working.tsx`, `lib/workingContext.ts` | working date & period |
 | `Gateway.tsx`, `lib/menu.ts`, `wellKnown.ts` | Gateway menu, accelerators, welcome panel |
-| `GotoPalette.tsx`, `gotoProviders.ts`, `lib/goto.ts`, `lib/gotoItems.ts` | Go To |
+| `GotoPalette.tsx`, `gotoProviders.ts`, `lib/goto.ts`, `lib/gotoItems.ts`, `lib/gotoCatalog.ts` | Go To (+ the catalogue the e2e sweep reads) |
 | `ShortcutsOverlay.tsx`, `VoucherPicker.tsx`, `lib/shortcuts.ts`, `lib/voucherTypes.ts`, `hooks/useVoucherChoices.ts` | keyboard map, F1, F10 (predefined + company voucher types) |
 | `Screen.tsx`, `export.ts`, `lib/exportFormat.ts`, `display.ts` | layout patterns, export/print, formatting |
 | `lib/featureCatalog.ts`, `preferences.ts` | F11 feature texts & rules, theme/density |

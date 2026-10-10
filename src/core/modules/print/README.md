@@ -170,9 +170,12 @@ offered as the recipient. The renderer calls `print.share.log` (data.export, edi
 and then the native action, which renders the PDF from the same preview HTML:
 
 - `share.email` — main saves the PDF in the company's own folder `<data>/companies/<id>/exports/shared`
-  (chosen by main, never a renderer path; collision-free names), writes a draft **.eml** next to it
+  (chosen by main, never a renderer path; collision-free names; `exports` / `shared` are created
+  without following links — a link, junction or file in their place is refused, `FORBIDDEN`, so a
+  planted junction cannot send the PDF to another folder or a network share), writes a draft **.eml** next to it
   (RFC 5322 / MIME `multipart/mixed`, base64 PDF attachment, RFC 2047 headers, `X-Unsent: 1` so
-  Outlook / Windows Mail open it as an editable draft, no `From:`; CR/LF in any header refused) and
+  Outlook / Windows Mail open it as an editable draft, no `From:`; CR/LF in any header refused; `To:`
+  folded one address per line) and
   opens it with the default mail program; when none opens .eml files it falls back to a `mailto:`
   link and shows the PDF in its folder.
 - `share.whatsapp` — main saves the PDF, validates the number (10-digit Indian mobile starting 6–9 →

@@ -111,7 +111,7 @@ test('entry summary from the server preview', () => {
 
 // ───────────────────────────── Ledger note, revaluation inputs, opening ─────────────────────────────
 
-import { forexAtRate, impliedRate, ledgerFooterNote, openingIssues, rateOverrides, revaluationBlocker, revaluationNarration, revaluationRateRows } from './model.ts';
+import { forexAtRate, impliedRate, ledgerExport, ledgerFooterNote, openingIssues, rateOverrides, revaluationBlocker, revaluationNarration, revaluationRateRows } from './model.ts';
 import type { ForexLedgerStatement } from '../../../../shared/types/forex.ts';
 
 const stmt = (over: Partial<ForexLedgerStatement>): ForexLedgerStatement => ({
@@ -143,6 +143,14 @@ test('ledger footer note: closing balance at the closing rate', () => {
   assert.match(ledgerFooterNote(stmt({ closingRate: null, revaluedInr: null, unrealised: null }), money), /No closing rate for USD/);
   assert.equal(ledgerFooterNote(stmt({ closingForex: 0, closingInr: 0 }), money), 'Nothing is outstanding at the end of the period.');
   assert.match(ledgerFooterNote(stmt({ unrealised: 0, revaluedInr: 6_640_000, closingRate: 83 }), money), /the same as in the books\.$/);
+});
+
+test('ledger export note: Indian grouping and Dr / Cr like the screen, never a bare minus', () => {
+  // A payable of $8,000 carried at ₹6,64,000 Cr, worth ₹6,80,000 Cr at ₹85 → unrealised loss ₹16,000.
+  const x = ledgerExport(stmt({ closingForex: -8000, closingInr: -66_400_000, revaluedInr: -68_000_000, unrealised: -1_600_000 }));
+  assert.equal(x.notes, 'At the closing rate ₹85.00 per USD the balance is worth ₹ 6,80,000.00 Cr: unrealised loss ₹ 16,000.00.');
+  assert.doesNotMatch(x.notes ?? '', /-\d/);
+  assert.match(ledgerExport(stmt({ closingRate: null, revaluedInr: null, unrealised: null })).notes ?? '', /No closing rate for USD/);
 });
 
 const reval: ForexRevaluationResult = {

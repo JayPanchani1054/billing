@@ -118,11 +118,11 @@ export function NaturesScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
       onRetry={() => void q.refetch()}
       hint="Enter Alter · Alt+C Create · Alt+D Delete · Ctrl+1 TDS · Ctrl+2 TCS · Esc Back"
       actions={[
-        { key: 'Alt+C', label: 'Create nature', icon: 'plus', primary: true, disabled: !canManage, onClick: () => nav.push('tds.nature.form', { kind: k }) },
+        { key: 'Alt+C', label: 'Create nature', icon: 'plus', primary: true, hidden: !canManage, disabled: !canManage, onClick: () => nav.push('tds.nature.form', { kind: k }) },
         { key: 'Alt+A', label: 'Alter', icon: 'edit', disabled: !current, onClick: () => current && nav.push('tds.nature.form', { id: current.id, kind: k }) },
         { key: 'Ctrl+1', label: 'TDS natures', group: 'view', hidden: !kinds.includes('tds'), disabled: k === 'tds', onClick: () => setKind('tds') },
         { key: 'Ctrl+2', label: 'TCS natures', group: 'view', hidden: !kinds.includes('tcs'), disabled: k === 'tcs', onClick: () => setKind('tcs') },
-        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canManage || !current || current.isSystem, onClick: () => void remove() },
+        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', hidden: !canManage, disabled: !canManage || !current || current.isSystem, onClick: () => void remove() },
       ]}
     >
       <Stack gap={3}>
