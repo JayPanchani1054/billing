@@ -159,6 +159,10 @@ async function seed(today: string): Promise<void> {
       await save({ voucherTypeId: types.payment, date: xDate, mode: 'ledger', ledgers: [{ ledgerId: suppliers[k % 2], amount: P(1_500 + 500 * k) }, { ledgerId: bank, amount: -P(1_500 + 500 * k) }] });
     }
   }
+  // Today's business: the Day Book (which opens on today) lists these; the voucher view and print shots open the first.
+  await save({ voucherTypeId: types.sales, date: today, mode: 'item_invoice', partyLedgerId: customers[0], items: [{ itemId: items[2], qty: 6, rate: 480 }, { itemId: items[1], qty: 24, rate: 70 }] });
+  await save({ voucherTypeId: types.sales, date: today, mode: 'item_invoice', partyLedgerId: customers[1], items: [{ itemId: items[3], qty: 10, rate: 260 }] });
+  await save({ voucherTypeId: types.receipt, date: today, mode: 'ledger', ledgers: [{ ledgerId: cash, amount: P(5_000) }, { ledgerId: customers[2], amount: -P(5_000) }] });
 }
 
 /** One planned capture: how to get there (from Home) and the file name. */
