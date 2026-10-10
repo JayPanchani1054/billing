@@ -2,7 +2,6 @@
 
 /* One-line explanation above a report table. */
 .bx-stock-note {
-  margin: 0;
   color: var(--text-secondary);
   font-size: var(--fs-12);
   line-height: var(--lh-snug);

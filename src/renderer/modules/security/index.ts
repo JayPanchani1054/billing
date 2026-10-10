@@ -7,14 +7,17 @@
  * { id?, copyFrom? } · 'security.settings' · 'security.audit' { entityType?, entityId?, entityGuid?,
  * label?, userId? } · 'security.session'.
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { AuditScreen } from './AuditScreen.tsx';
-import { RoleFormScreen } from './RoleFormScreen.tsx';
-import { SecuritySettingsScreen } from './SecuritySettingsScreen.tsx';
-import { SessionScreen } from './SessionScreen.tsx';
 import { UserFormScreen } from './UserFormScreen.tsx';
-import { UsersRolesScreen } from './UsersRolesScreen.tsx';
 import './security.css';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const AuditScreen = lazyScreen(() => import('./AuditScreen.tsx').then((m) => m.AuditScreen));
+const RoleFormScreen = lazyScreen(() => import('./RoleFormScreen.tsx').then((m) => m.RoleFormScreen));
+const SecuritySettingsScreen = lazyScreen(() => import('./SecuritySettingsScreen.tsx').then((m) => m.SecuritySettingsScreen));
+const SessionScreen = lazyScreen(() => import('./SessionScreen.tsx').then((m) => m.SessionScreen));
+const UsersRolesScreen = lazyScreen(() => import('./UsersRolesScreen.tsx').then((m) => m.UsersRolesScreen));
 
 export { auditHistoryParams } from './lib/auditQuery.ts';
 

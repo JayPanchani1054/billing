@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Production build: out/main/index.cjs + out/main/core-worker.cjs + out/preload/index.cjs (esbuild)
-// and out/renderer (Vite).
+// Production build: out/main/index.cjs + out/main/core-worker.cjs + out/main/updater.cjs +
+// out/preload/index.cjs (esbuild) and out/renderer (Vite).
 //
 //   node scripts/build.mjs          production build (minified, no source maps)
 //   node scripts/build.mjs --dev    unminified main/preload with linked source maps (debugging)
@@ -10,7 +10,16 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { build as esbuild } from 'esbuild';
 import { build as viteBuild } from 'vite';
-import { electronBuildOptions, forbiddenPreloadRequires, forbiddenWorkerRequires, outDir, root, viteConfigFile } from './build-config.mjs';
+import {
+  electronBuildOptions,
+  forbiddenPreloadRequires,
+  forbiddenUpdaterRequires,
+  forbiddenWorkerRequires,
+  mainBundlesUpdater,
+  outDir,
+  root,
+  viteConfigFile,
+} from './build-config.mjs';
 
 const mode = process.argv.includes('--dev') ? 'development' : 'production';
 
@@ -21,9 +30,9 @@ async function main() {
   console.log(`\n▸ Cleaning ${path.relative(root, outDir)}/`);
   await rm(outDir, { recursive: true, force: true });
 
-  console.log(`▸ Bundling main + core worker + preload (${mode})`);
+  console.log(`▸ Bundling main + core worker + updater + preload (${mode})`);
   const opts = electronBuildOptions(mode);
-  await Promise.all([esbuild(opts.main), esbuild(opts.coreWorker), esbuild(opts.preload)]);
+  await Promise.all([esbuild(opts.main), esbuild(opts.coreWorker), esbuild(opts.updater), esbuild(opts.preload)]);
 
   const preloadFile = path.join(outDir, 'preload/index.cjs');
   const bad = forbiddenPreloadRequires(readFileSync(preloadFile, 'utf8'));
@@ -37,10 +46,20 @@ async function main() {
     throw new Error(`Core worker bundle requires modules unavailable on a worker thread: ${badWorker.join(', ')}`);
   }
 
+  // electron-updater lives only in out/main/updater.cjs (loaded on the first update check), never in the
+  // start-up bundle; and the updater bundle needs nothing from node_modules at run time.
+  if (mainBundlesUpdater(readFileSync(path.join(outDir, 'main/index.cjs'), 'utf8'))) {
+    throw new Error('out/main/index.cjs contains electron-updater: it must only be loaded from out/main/updater.cjs');
+  }
+  const updaterCode = readFileSync(path.join(outDir, 'main/updater.cjs'), 'utf8');
+  if (!mainBundlesUpdater(updaterCode)) throw new Error('out/main/updater.cjs does not contain electron-updater');
+  const badUpdater = forbiddenUpdaterRequires(updaterCode);
+  if (badUpdater.length > 0) throw new Error(`Updater bundle requires modules that are not shipped: ${badUpdater.join(', ')}`);
+
   console.log('▸ Building renderer (Vite)');
   await viteBuild({ configFile: viteConfigFile, mode: 'production', logLevel: 'info' });
 
-  const expected = ['main/index.cjs', 'main/core-worker.cjs', 'preload/index.cjs', 'renderer/index.html'];
+  const expected = ['main/index.cjs', 'main/core-worker.cjs', 'main/updater.cjs', 'preload/index.cjs', 'renderer/index.html'];
   const missing = expected.filter((f) => !existsSync(path.join(outDir, f)));
   if (missing.length > 0) throw new Error(`Build output missing: ${missing.join(', ')}`);
 

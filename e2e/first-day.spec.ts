@@ -42,7 +42,7 @@ function lit(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Esc back down the stack until the Gateway is the visible screen. */
+/** Esc back down the stack until Home (the 'app.gateway' screen) is visible. */
 async function toGateway(): Promise<void> {
   const gateway = screen('app.gateway');
   for (let i = 0; i < 8; i++) {
@@ -53,9 +53,12 @@ async function toGateway(): Promise<void> {
   await expect(gateway).toBeVisible();
 }
 
-/** Open a Gateway menu item by its label (the keyboard-first menu on the left). */
+/** Open a Gateway menu item by its label (Home › All menus, the keyboard-first menu on the left). */
 async function openFromGateway(label: string, screenId: string): Promise<Locator> {
   await toGateway();
+  // A new profile opens Home on Essentials; All menus (Ctrl+2) lists every item.
+  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('navigation', { name: 'Gateway menu' }).getByRole('radio', { name: 'All menus' })).toHaveAttribute('aria-checked', 'true');
   // Match the item's label exactly (data-text-value): a prefix would also match newer items such as
   // "GSTR-1 Amendments" next to "GSTR-1".
   await page
@@ -135,7 +138,7 @@ test('create a GST company with the wizard', async () => {
   await page.getByRole('button', { name: 'Create company' }).click();
 
   await expect(screen('app.gateway')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('heading', { name: 'Gateway', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
   await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle() ?? '')).toContain(FLOW.company.name);
 });
 

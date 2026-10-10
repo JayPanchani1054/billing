@@ -19,14 +19,21 @@
 import './cheques.css';
 import { api } from '../../app/api.ts';
 import { registerGotoProvider } from '../../app/lib/goto.ts';
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { BankSettingsScreen, ChequeBookFormScreen, ChequeBooksScreen } from './BookScreens.tsx';
-import { EPaymentScreen } from './EPaymentScreen.tsx';
-import { ChequeLayoutFormScreen, ChequeLayoutsScreen } from './LayoutScreens.tsx';
-import { PayeeFormScreen, PayeeListScreen } from './PayeeScreens.tsx';
-import { PrintChequesScreen } from './PrintChequesScreen.tsx';
-import { ChequeLeafRegisterScreen } from './RegisterScreen.tsx';
 import { VoucherChequePanel } from './VoucherChequePanel.tsx';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const BankSettingsScreen = lazyScreen(() => import('./BookScreens.tsx').then((m) => m.BankSettingsScreen));
+const ChequeBookFormScreen = lazyScreen(() => import('./BookScreens.tsx').then((m) => m.ChequeBookFormScreen));
+const ChequeBooksScreen = lazyScreen(() => import('./BookScreens.tsx').then((m) => m.ChequeBooksScreen));
+const EPaymentScreen = lazyScreen(() => import('./EPaymentScreen.tsx').then((m) => m.EPaymentScreen));
+const ChequeLayoutFormScreen = lazyScreen(() => import('./LayoutScreens.tsx').then((m) => m.ChequeLayoutFormScreen));
+const ChequeLayoutsScreen = lazyScreen(() => import('./LayoutScreens.tsx').then((m) => m.ChequeLayoutsScreen));
+const PayeeFormScreen = lazyScreen(() => import('./PayeeScreens.tsx').then((m) => m.PayeeFormScreen));
+const PayeeListScreen = lazyScreen(() => import('./PayeeScreens.tsx').then((m) => m.PayeeListScreen));
+const PrintChequesScreen = lazyScreen(() => import('./PrintChequesScreen.tsx').then((m) => m.PrintChequesScreen));
+const ChequeLeafRegisterScreen = lazyScreen(() => import('./RegisterScreen.tsx').then((m) => m.ChequeLeafRegisterScreen));
 
 const CHQ = 'chequePrinting' as const;
 

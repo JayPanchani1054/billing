@@ -135,3 +135,22 @@ describe('dated prefix / suffix rows', () => {
     k.t.close();
   });
 });
+
+describe('numbering tokens and typed numbers (2.0)', () => {
+  it('an override in the token format of its date continues the series of that year only', () => {
+    const k = setupKit({ today: '2027-04-10', booksFrom: '2026-04-01' });
+    salesNumbering(k, { prefix: 'INV/{FY}/', width: 4 });
+    save(k, salesInput(k, { date: '2026-05-01' }));
+    // Typed in last year's format, dated last year: its sequence is parsed with that year's prefix.
+    const typed = save(k, salesInput(k, { date: '2026-06-01', numberOverride: { number: 'INV/26-27/0050', continueSeries: true } }));
+    assert.equal(typed.number, 'INV/26-27/0050');
+    assert.equal(save(k, salesInput(k, { date: '2026-06-02' })).number, 'INV/26-27/0051');
+    // The new year's series is not affected.
+    assert.equal(save(k, salesInput(k, { date: '2027-04-10' })).number, 'INV/27-28/0001');
+    // Typed in another year's format: no sequence, so continueSeries cannot move the counter.
+    const other = save(k, salesInput(k, { date: '2027-04-10', numberOverride: { number: 'INV/26-27/0900', continueSeries: true } }));
+    assert.equal(other.number, 'INV/26-27/0900');
+    assert.equal(save(k, salesInput(k, { date: '2027-04-10' })).number, 'INV/27-28/0002');
+    k.t.close();
+  });
+});

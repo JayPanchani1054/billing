@@ -1,6 +1,6 @@
 /* GST returns screens. Semantic design tokens only (no raw colours). Prefix: bx-gst- */
 
-/* ── Layout ───────────────────────────────────────────────────────── */
+/* Layout */
 .bx-gst-scroll {
   display: flex;
   flex: 1;
@@ -25,7 +25,6 @@
   display: flex;
   align-items: flex-start;
   gap: var(--space-1-5);
-  margin: 0;
   color: var(--text-secondary);
   font-size: var(--fs-12);
   line-height: var(--lh-snug);
@@ -48,9 +47,10 @@
   white-space: nowrap;
 }
 
-.bx-gst-list {
-  margin: 0;
+.bx-gst-list,
+.bx-gst-setoff {
   padding-left: var(--space-4);
+  list-style: disc;
 }
 .bx-gst-list li + li {
   margin-top: var(--space-1);
@@ -63,7 +63,7 @@
   font-weight: var(--fw-semibold);
 }
 
-/* ── GSTR-1 table tiles ───────────────────────────────────────────── */
+/* GSTR-1 table tiles */
 .bx-gst-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
@@ -82,17 +82,12 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition:
-    border-color var(--dur-fast) var(--ease-standard),
-    box-shadow var(--dur-fast) var(--ease-standard);
+  transition: var(--dur-fast) var(--ease-standard);
+  transition-property: border-color, box-shadow;
 }
 .bx-gst-tile:hover {
   border-color: var(--border-default);
   box-shadow: var(--shadow-1);
-}
-.bx-gst-tile:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
 }
 .bx-gst-tile.is-empty {
   background: var(--surface-0);
@@ -152,13 +147,10 @@
   min-height: 20px;
 }
 
-/* ── Issues ───────────────────────────────────────────────────────── */
+/* Issues */
 .bx-gst-issues {
   display: flex;
   flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .bx-gst-issue {
   display: flex;
@@ -179,15 +171,13 @@
   font-weight: var(--fw-medium);
 }
 .bx-gst-issue__message {
-  margin: 0;
 }
 .bx-gst-issue__fix {
-  margin: 0;
   color: var(--text-secondary);
   font-size: var(--fs-12);
 }
 
-/* ── Portal-style form tables (GSTR-3B, GSTR-9) ───────────────────── */
+/* Portal-style form tables (GSTR-3B, GSTR-9) */
 /* Wide tables scroll sideways inside their panel instead of stretching the screen. */
 .bx-gst-wide {
   overflow-x: auto;
@@ -259,8 +249,8 @@
   background: var(--surface-2);
 }
 .bx-gst-form .bx-gst-cash {
-  background: var(--accent-subtle);
-  color: var(--accent-text);
+  background: var(--brand-subtle);
+  color: var(--brand-text);
   font-weight: var(--fw-bold);
 }
 
@@ -270,10 +260,10 @@
   align-items: baseline;
   gap: var(--space-2) var(--space-4);
   padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--accent-solid);
+  border: 1px solid var(--brand-border);
   border-radius: var(--radius-lg);
-  background: var(--accent-subtle);
-  color: var(--accent-text);
+  background: var(--brand-subtle);
+  color: var(--brand-text);
 }
 .bx-gst-cashline__amount {
   font-size: var(--fs-20);
@@ -282,8 +272,6 @@
 }
 
 .bx-gst-setoff {
-  margin: 0;
-  padding-left: var(--space-4);
   color: var(--text-secondary);
   font-size: var(--fs-12);
 }

@@ -17,6 +17,7 @@ export const PERMISSION_PREREQUISITES: Readonly<Partial<Record<Permission, reado
   'vouchers.alter': ['vouchers.view'],
   'vouchers.delete': ['vouchers.view'],
   'vouchers.backdate': ['vouchers.create'],
+  'vouchers.renumber': ['vouchers.alter'],
   'reports.financial': ['reports.view'],
   'gst.file': ['gst.view'],
   'tds.manage': ['tds.view'],

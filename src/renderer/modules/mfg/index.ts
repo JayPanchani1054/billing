@@ -14,13 +14,20 @@
  *   'mfg.itc04'               —                              ITC-04 (tables 4, 5A, 5B, 5C)
  */
 import './mfg.css';
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
 import { api, registerGotoProvider } from '../../app/index.ts';
-import { BomFormScreen, BomListScreen } from './BomScreens.tsx';
-import { JobWorkOrderFormScreen, JobWorkOrderListScreen } from './JobWorkOrderScreens.tsx';
-import { JournalEntryScreen } from './JournalEntryScreen.tsx';
 import { JobWorkAlertNotice, MfgCard, MfgVoucherPanel } from './notices.tsx';
-import { Itc04Screen, PendingJobWorkScreen, ProductionRegisterScreen } from './ReportScreens.tsx';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const BomFormScreen = lazyScreen(() => import('./BomScreens.tsx').then((m) => m.BomFormScreen));
+const BomListScreen = lazyScreen(() => import('./BomScreens.tsx').then((m) => m.BomListScreen));
+const JobWorkOrderFormScreen = lazyScreen(() => import('./JobWorkOrderScreens.tsx').then((m) => m.JobWorkOrderFormScreen));
+const JobWorkOrderListScreen = lazyScreen(() => import('./JobWorkOrderScreens.tsx').then((m) => m.JobWorkOrderListScreen));
+const JournalEntryScreen = lazyScreen(() => import('./JournalEntryScreen.tsx').then((m) => m.JournalEntryScreen));
+const Itc04Screen = lazyScreen(() => import('./ReportScreens.tsx').then((m) => m.Itc04Screen));
+const PendingJobWorkScreen = lazyScreen(() => import('./ReportScreens.tsx').then((m) => m.PendingJobWorkScreen));
+const ProductionRegisterScreen = lazyScreen(() => import('./ReportScreens.tsx').then((m) => m.ProductionRegisterScreen));
 
 export type { MfgJournalParams } from './JournalEntryScreen.tsx';
 

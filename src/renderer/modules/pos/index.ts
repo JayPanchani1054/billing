@@ -8,13 +8,16 @@
  * templates render PosPrintBlock ("Paid by", cash tendered, change); 'vouchers.entry' hands POS
  * voucher types over to 'pos.counter'.
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { CounterScreen } from './CounterScreen.tsx';
-import { ReturnScreen } from './ReturnScreen.tsx';
-import { SettingsScreen } from './SettingsScreen.tsx';
-import { SummaryScreen } from './SummaryScreen.tsx';
 import { PosVoucherPanel } from './VoucherPanel.tsx';
 import './pos.css';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const CounterScreen = lazyScreen(() => import('./CounterScreen.tsx').then((m) => m.CounterScreen));
+const ReturnScreen = lazyScreen(() => import('./ReturnScreen.tsx').then((m) => m.ReturnScreen));
+const SettingsScreen = lazyScreen(() => import('./SettingsScreen.tsx').then((m) => m.SettingsScreen));
+const SummaryScreen = lazyScreen(() => import('./SummaryScreen.tsx').then((m) => m.SummaryScreen));
 
 const POS = 'pos' as const;
 

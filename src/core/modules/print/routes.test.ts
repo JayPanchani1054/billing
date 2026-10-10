@@ -25,6 +25,15 @@ describe('print routes (through the dispatcher)', () => {
     k.t.close();
   });
 
+  it('(2.0) carries the saved layout layers (empty by default) and never applies them', async () => {
+    const k = setupKit();
+    const id = sale(k);
+    const d = await k.t.callOk<PrintVoucherData>(printRoutes, 'print.voucherData', { id });
+    assert.deepEqual(d.savedLayout, { company: { hide: [], show: [], text: [] }, voucherType: { hide: [], show: [], text: [] } });
+    assert.equal(d.applied, undefined);
+    k.t.close();
+  });
+
   it('needs vouchers.view', async () => {
     const k = setupKit({ security: true });
     const id = sale(k);

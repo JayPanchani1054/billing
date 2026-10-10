@@ -91,7 +91,43 @@ export interface NativeActions {
   'window.zoom': { in: { factor: number }; out: void };
   'app.relaunch': { in: void; out: void };
   'app.quit': { in: void; out: void };
+  /**
+   * (2.0 updates, src/main/updates/) In-app updates from the project's GitHub Releases. The renderer can
+   * never pass a URL, path or version: main decides everything from its own configuration and policy.
+   * No action contacts the network except 'updates.check' and 'updates.download'.
+   */
+  'updates.status': { in: void; out: UpdateStatus };
+  'updates.check': { in: void; out: UpdateStatus };
+  'updates.download': { in: void; out: UpdateStatus };
+  /** 'now' quits through the normal close sequence (unsaved-work prompt can cancel) and installs; 'on-quit' installs at the next quit. */
+  'updates.install': { in: { when: 'now' | 'on-quit' }; out: UpdateStatus };
+  /** Refused (FORBIDDEN) when the policy is locked (administrator, environment, test run, unpackaged app). */
+  'updates.setMode': { in: { mode: 'manual' | 'weekly' }; out: UpdateStatus };
 }
+
+/** How the app looks for updates: never, only when the user asks, or once a week. */
+export type UpdateMode = 'off' | 'manual' | 'weekly';
+
+/** The effective update policy (src/main/updates/policy.ts resolveUpdatePolicy). */
+export interface UpdatePolicy {
+  mode: UpdateMode;
+  /** True when the user cannot change the mode (administrator policy, environment, test run, unpackaged app). */
+  locked: boolean;
+  source: 'policy' | 'env' | 'user' | 'build';
+  /** Plain-language reason shown when locked or off; null for the user's own choice. */
+  reason: string | null;
+}
+
+/** The update state machine as the renderer sees it ('update-status' event and every updates.* action). */
+export type UpdateStatus =
+  | { state: 'unavailable'; reason: string; policy: UpdatePolicy; current: string }
+  | { state: 'idle'; current: string; lastCheck: string | null; policy: UpdatePolicy }
+  | { state: 'checking'; current: string; policy: UpdatePolicy }
+  | { state: 'up-to-date'; current: string; checkedAt: string; policy: UpdatePolicy }
+  | { state: 'available'; current: string; version: string; releaseDate: string; notes: string; sizeBytes: number; policy: UpdatePolicy }
+  | { state: 'downloading'; current: string; version: string; percent: number; bytesPerSecond: number; policy: UpdatePolicy }
+  | { state: 'ready'; current: string; version: string; notes: string; installOnQuit: boolean; policy: UpdatePolicy }
+  | { state: 'error'; current: string; message: string; retryable: boolean; policy: UpdatePolicy };
 
 export type NativeAction = keyof NativeActions;
 
@@ -143,6 +179,8 @@ export interface BridgeEvents {
   /** Main is about to close the window; renderer may veto when there is unsaved work. */
   'before-close': void;
   'theme-changed': { dark: boolean };
+  /** (2.0 updates) The update state changed (check, download progress, ready, error, mode). */
+  'update-status': UpdateStatus;
 }
 
 export interface PevqoriBridge {

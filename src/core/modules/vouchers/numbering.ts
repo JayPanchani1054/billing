@@ -10,14 +10,20 @@
  *  - automatic_override: as automatic, but the user may type a number (the counter is not consumed).
  *  - manual: the user types the number (required); unique within the period when prevent_duplicates.
  *  - none: no number.
+ *  - 2.0 override (VoucherInput.numberOverride, permission vouchers.renumber): an authorised user's own
+ *    number on create or alter, whatever the method (except none); format-checked and always unique.
+ *  - 2.0 GST rule (CGST Rule 46(b)): an outward GST document (sales, credit note, debit note to a customer
+ *    of a GST company) is unique within its FINANCIAL YEAR on every save path, even with
+ *    prevent_duplicates off or a monthly / never restart.
  *  Allocation runs inside the save transaction, so a rolled-back save leaves no gap.
  */
 import type { VoucherBaseType } from '../../../shared/constants.ts';
-import { endOfMonth, financialYear, monthKey, startOfMonth } from '../../../shared/dates.ts';
-import { formatSchemeNumber, parseSchemeSeq, type NumberingTextRow } from '../../../shared/numbering.ts';
-import type { NumberingMethod, NumberingRestart, VoucherTypeView } from '../../../shared/types/vouchers.ts';
+import { endOfMonth, financialYear, monthKey, MONTH_NAMES, startOfMonth } from '../../../shared/dates.ts';
+import { formatSchemeNumber, GST_NUMBERED_BASE_TYPES, parseSchemeSeq, voucherNumberProblems, type NumberingTextRow } from '../../../shared/numbering.ts';
+import type { NumberingMethod, NumberingRestart, VoucherMode, VoucherNumberOverride, VoucherTypeView } from '../../../shared/types/vouchers.ts';
 import type { Db } from '../../db/db.ts';
-import { conflict, notFound, validation, type AppError } from '../../lib/errors.ts';
+import { conflict, forbidden, notFound, validation, type AppError } from '../../lib/errors.ts';
+import { classFromChain, groupChain } from '../accounts/books.ts';
 
 interface VoucherTypeRow {
   id: number;
@@ -152,26 +158,118 @@ export const NUMBER_TAKEN_SQL = `SELECT 1 FROM vouchers INDEXED BY idx_vouchers_
 /** Another voucher of this type already uses `number` in the period of `date`? */
 export function numberTaken(db: Db, vt: VoucherTypeInfo, number: string, date: string, fyStartMonth: number, excludeId: number | null): boolean {
   const { from, to } = periodRange(vt, date, fyStartMonth);
-  return db.value(NUMBER_TAKEN_SQL, { vt: vt.id, number, from, to, ex: excludeId ?? 0 }) !== undefined;
+  return numberTakenIn(db, vt.id, number, from, to, excludeId);
+}
+
+/** Another voucher of type `voucherTypeId` dated `from`…`to` uses `number`? (idx_vouchers_number) */
+export function numberTakenIn(db: Db, voucherTypeId: number, number: string, from: string, to: string, excludeId: number | null): boolean {
+  return db.value(NUMBER_TAKEN_SQL, { vt: voucherTypeId, number, from, to, ex: excludeId ?? 0 }) !== undefined;
+}
+
+/** Financial year of `date` (the GST uniqueness scope of an outward GST document). */
+export function fyRange(date: string, fyStartMonth: number): { from: string; to: string; label: string } {
+  const fy = financialYear(date, fyStartMonth);
+  return { from: fy.start, to: fy.end, label: fy.label };
+}
+
+/**
+ * Where a number of this type would clash with another voucher — the one uniqueness rule of the save
+ * path (decideNumber) and of 'vouchers.numberCheck':
+ *  - an outward GST document (`gstOutward`) is unique within the financial year of `date`, whatever
+ *    prevent_duplicates and the restart say (CGST Rule 46(b)); a series that never restarts and refuses
+ *    duplicates is also unique over all years;
+ *  - any other voucher is unique within its numbering period when the type refuses duplicates or
+ *    `always` (a number typed through numberOverride).
+ * null when the number is free.
+ */
+export function numberClash(
+  db: Db,
+  vt: VoucherTypeInfo,
+  number: string,
+  date: string,
+  fyStartMonth: number,
+  excludeId: number | null,
+  opts: { gstOutward: boolean; always: boolean },
+): { scope: 'fy'; fyLabel: string } | { scope: 'period' } | null {
+  if (opts.gstOutward) {
+    const fy = fyRange(date, fyStartMonth);
+    if (numberTakenIn(db, vt.id, number, fy.from, fy.to, excludeId)) return { scope: 'fy', fyLabel: fy.label };
+    if (vt.preventDuplicates && vt.numberingRestart === 'never' && numberTaken(db, vt, number, date, fyStartMonth, excludeId)) return { scope: 'period' };
+    return null;
+  }
+  return (vt.preventDuplicates || opts.always) && numberTaken(db, vt, number, date, fyStartMonth, excludeId) ? { scope: 'period' } : null;
+}
+
+/** Plain label of a numbering period key of a series: 'FY 2026-27', 'Apr 2026', 'All years'. */
+export function periodKeyLabel(restart: NumberingRestart, key: string): string {
+  if (restart === 'never' || key === 'all') return 'All years';
+  if (restart === 'monthly') {
+    const m = /^(\d{4})-(\d{2})$/.exec(key);
+    return m ? `${MONTH_NAMES[Number(m[2]) - 1] ?? m[2]} ${m[1]}` : key;
+  }
+  return `FY ${key}`;
+}
+
+/**
+ * The uniqueness scope of a number: the financial year for an outward GST document when its series
+ * restarts monthly (a yearly series' period IS the financial year; a series that never restarts is
+ * unique over all years, which includes it), else the numbering period.
+ */
+function allocationRange(vt: VoucherTypeInfo, date: string, fyStartMonth: number, gstFy: boolean): { from: string; to: string } {
+  return gstFy && vt.numberingRestart === 'monthly' ? fyRange(date, fyStartMonth) : periodRange(vt, date, fyStartMonth);
 }
 
 const MAX_SKIP = 100_000;
 
-function nextFree(db: Db, vt: VoucherTypeInfo, date: string, fyStartMonth: number): { number: string; seq: number } {
+/**
+ * The next free sequence of the period of `date`. `gstFy`: skip numbers already used in the financial
+ * year too (outward GST documents of a monthly series whose prefix carries the month — see allocationRange).
+ */
+export function nextFree(db: Db, vt: VoucherTypeInfo, date: string, fyStartMonth: number, gstFy = false): { number: string; seq: number } {
   const key = periodKey(vt, date, fyStartMonth);
   const last = db.value<number>('SELECT last_number FROM voucher_counters WHERE voucher_type_id = :vt AND period_key = :key', { vt: vt.id, key });
+  const { from, to } = allocationRange(vt, date, fyStartMonth, gstFy);
   let seq = Math.max(last ?? 0, vt.numberingStart - 1) + 1;
   for (let i = 0; i < MAX_SKIP; i++, seq++) {
     const number = formatVoucherNumber(vt, seq, date, fyStartMonth);
-    if (!numberTaken(db, vt, number, date, fyStartMonth, null)) return { number, seq };
+    if (!numberTakenIn(db, vt.id, number, from, to, null)) return { number, seq };
   }
   throw conflict(`Could not find a free voucher number for ${vt.name}`);
 }
 
 /** Next automatic number without consuming it ('' for manual / none). */
-export function previewNextNumber(db: Db, vt: VoucherTypeInfo, date: string, fyStartMonth: number): string {
+export function previewNextNumber(db: Db, vt: VoucherTypeInfo, date: string, fyStartMonth: number, gstFy = false): string {
   if (vt.numberingMethod === 'manual' || vt.numberingMethod === 'none') return '';
-  return nextFree(db, vt, date, fyStartMonth).number;
+  return nextFree(db, vt, date, fyStartMonth, gstFy).number;
+}
+
+/** Sales, credit note or debit note of a GST company: its number follows CGST Rule 46(b) (format). */
+export function isGstNumberedType(vt: Pick<VoucherTypeInfo, 'baseType'>, gstEnabled: boolean): boolean {
+  return gstEnabled && GST_NUMBERED_BASE_TYPES.includes(vt.baseType);
+}
+
+/**
+ * The series of an outward GST document whatever the party: sales and credit notes of a GST company
+ * (a debit note is outward only to a customer — isGstOutwardDocument). Used where no voucher is at
+ * hand (next-number previews) so they show what the save allocates.
+ */
+export function isGstSeriesOutward(vt: Pick<VoucherTypeInfo, 'baseType'>, gstEnabled: boolean): boolean {
+  return isGstNumberedType(vt, gstEnabled) && vt.baseType !== 'debit_note';
+}
+
+/**
+ * Is this voucher an OUTWARD GST document of a GST company (unique per financial year)? Sales and
+ * credit notes always; a debit note only in an invoice mode to a customer (Sundry Debtors) — a debit
+ * note to a supplier is a purchase return, not a document of ours in GSTR-1 (posting.ts › decideDirection).
+ */
+export function isGstOutwardDocument(db: Db, vt: Pick<VoucherTypeInfo, 'baseType'>, gstEnabled: boolean, input: { mode: VoucherMode; partyLedgerId?: number }): boolean {
+  if (!isGstNumberedType(vt, gstEnabled)) return false;
+  if (vt.baseType !== 'debit_note') return true;
+  if ((input.mode !== 'item_invoice' && input.mode !== 'accounting_invoice') || input.partyLedgerId === undefined) return false;
+  const groupId = db.value<number>('SELECT group_id FROM ledgers WHERE id = :id', { id: input.partyLedgerId });
+  if (groupId === undefined) return false;
+  const chain = groupChain(db, groupId);
+  return chain.length > 0 && classFromChain(chain).isDebtor;
 }
 
 /** Advance the counter of the numbering period of `date` to at least `seq`. */
@@ -195,12 +293,26 @@ export interface NumberDecision {
   seq: number | null;
   /** The automatic counter must be consumed when the voucher is written. */
   consume: boolean;
+  /** numberOverride with continueSeries: advance the counter to this sequence (commitNumber never lowers it). */
+  continueSeq?: number | null;
+  /** The number came from numberOverride (permission checked); `next` = the automatic number it replaced. */
+  override?: { next: string | null; reason: string | null };
 }
+
+const SAME_PERIOD_MSG = (vt: VoucherTypeInfo, number: string): string => `${vt.name} number ${number} is already used in this period. Enter a different number.`;
+const SAME_FY_MSG = (vt: VoucherTypeInfo, number: string, fyLabel: string): string =>
+  `${vt.name} number ${number} is already used in FY ${fyLabel}. GST invoice numbers must be unique within the financial year: enter a different number.`;
 
 /**
  * Decide the number of a voucher being created or altered. Pure decision + uniqueness checks; the
  * counter is only advanced by `commitNumber(decision.seq)` (save path, same transaction) when `consume`
- * is true — the decided number was found free inside that transaction, so it is not probed again.
+ * is true — the decided number was found free inside that transaction, so it is not probed again — and
+ * by `commitNumber(decision.continueSeq)` for an override that continues the series.
+ *
+ *  - `gstOutward`: an outward GST document (isGstOutwardDocument) — unique within the financial year
+ *    whatever prevent_duplicates / the restart say (CONFLICT, path 'number').
+ *  - `gstDoc`: a GST-numbered type of a GST company (isGstNumberedType) — the format rule of an override.
+ *  - `override` / `canRenumber`: VoucherInput.numberOverride and whether the user holds vouchers.renumber.
  */
 export function decideNumber(
   db: Db,
@@ -210,18 +322,32 @@ export function decideNumber(
     fyStartMonth: number;
     typed: string | undefined;
     existing: { id: number; number: string | null; seq: number | null; date: string } | null;
+    override?: VoucherNumberOverride;
+    canRenumber?: boolean;
+    gstOutward?: boolean;
+    gstDoc?: boolean;
   },
 ): NumberDecision {
   const typed = args.typed?.trim() || undefined;
   const { existing } = args;
+  const gstOutward = args.gstOutward === true;
+  const exclude = existing?.id ?? null;
   // CONFLICT details carry the field path (like VALIDATION issues) so the entry screen can highlight it.
-  const check = (number: string): void => {
-    if (vt.preventDuplicates && numberTaken(db, vt, number, args.date, args.fyStartMonth, existing?.id ?? null)) {
-      const message = `${vt.name} number ${number} is already used in this period. Enter a different number.`;
-      throw conflict(message, [{ path: 'number', message }]);
-    }
+  const taken = (path: 'number' | 'date', message: string): AppError => conflict(message, [{ path, message }]);
+  /** `always`: an override is unique in its scope even when the type allows duplicates (numberClash). */
+  const check = (number: string, always = false): void => {
+    const clash = numberClash(db, vt, number, args.date, args.fyStartMonth, exclude, { gstOutward, always });
+    if (clash) throw taken('number', clash.scope === 'fy' ? SAME_FY_MSG(vt, number, clash.fyLabel) : SAME_PERIOD_MSG(vt, number));
   };
   const required = (message: string): AppError => validation([{ path: 'number', message }]);
+
+  if (args.override) {
+    const decided = decideOverride(db, vt, args, check);
+    if (decided) return decided;
+    // The override repeats the voucher's own number: the plain alter path decides (date-move checks
+    // included), with the saved number as typed so a stale `number` in the input cannot change it.
+    return decideNumber(db, vt, { ...args, override: undefined, typed: existing?.number ?? undefined });
+  }
   if (vt.numberingMethod === 'none') return { number: existing?.number ?? null, seq: existing?.seq ?? null, consume: false };
 
   if (existing) {
@@ -238,8 +364,14 @@ export function decideNumber(
       vt.preventDuplicates &&
       numberTaken(db, vt, existing.number, args.date, args.fyStartMonth, existing.id)
     ) {
-      const message = `${vt.name} number ${existing.number} is already used in the period of the new date. Keep the old date or renumber the voucher.`;
-      throw conflict(message, [{ path: 'date', message }]);
+      throw taken('date', `${vt.name} number ${existing.number} is already used in the period of the new date. Keep the old date or renumber the voucher.`);
+    }
+    // GST: moving an outward document into another financial year where its number is taken.
+    if (existing.number && gstOutward && fyRange(existing.date, args.fyStartMonth).label !== fyRange(args.date, args.fyStartMonth).label) {
+      const fy = fyRange(args.date, args.fyStartMonth);
+      if (numberTakenIn(db, vt.id, existing.number, fy.from, fy.to, existing.id)) {
+        throw taken('date', `${vt.name} number ${existing.number} is already used in FY ${fy.label}. Keep the old date or renumber the voucher.`);
+      }
     }
     return { number: existing.number, seq: existing.seq, consume: false };
   }
@@ -250,12 +382,40 @@ export function decideNumber(
     return { number: typed, seq: parseVoucherSeq(vt, typed, args.date, args.fyStartMonth), consume: false };
   }
   if (vt.numberingMethod === 'automatic_override' && typed !== undefined) {
-    const next = previewNextNumber(db, vt, args.date, args.fyStartMonth);
+    const next = previewNextNumber(db, vt, args.date, args.fyStartMonth, gstOutward);
     if (typed !== next) {
       check(typed);
       return { number: typed, seq: parseVoucherSeq(vt, typed, args.date, args.fyStartMonth), consume: false };
     }
   }
-  const next = nextFree(db, vt, args.date, args.fyStartMonth);
+  const next = nextFree(db, vt, args.date, args.fyStartMonth, gstOutward);
   return { number: next.number, seq: next.seq, consume: true };
+}
+
+/** decideNumber for VoucherInput.numberOverride (create or alter); null when an alter keeps its own number. */
+function decideOverride(
+  db: Db,
+  vt: VoucherTypeInfo,
+  args: Parameters<typeof decideNumber>[2],
+  check: (number: string, always?: boolean) => void,
+): NumberDecision | null {
+  const o = args.override as VoucherNumberOverride;
+  const { existing } = args;
+  if (args.canRenumber !== true) throw forbidden('Changing a voucher number needs "Change voucher numbers and the next number" (Users & Roles).');
+  if (vt.numberingMethod === 'none') {
+    throw validation([{ path: 'number', message: `${vt.name} vouchers are not numbered (numbering "None"). Change the numbering of the voucher type first.` }]);
+  }
+  const number = o.number.trim();
+  const reason = o.reason?.trim() || null;
+  // Unchanged number on an alter: nothing to record — the caller runs the plain alter path.
+  if (existing && existing.number === number) return null;
+  const problems = voucherNumberProblems(number, args.gstDoc === true);
+  if (problems.length > 0) throw validation(problems.map((message) => ({ path: 'number', message })));
+  check(number, true);
+  const seq = parseVoucherSeq(vt, number, args.date, args.fyStartMonth);
+  const continueSeq = o.continueSeries === true && seq !== null ? seq : null;
+  if (existing) return { number, seq, consume: false, continueSeq, override: { next: null, reason } };
+  const next = previewNextNumber(db, vt, args.date, args.fyStartMonth, args.gstOutward === true) || null;
+  // Typing the number the series would give anyway consumes it, exactly like automatic numbering.
+  return { number, seq, consume: next !== null && number === next && seq !== null, continueSeq, override: { next, reason } };
 }

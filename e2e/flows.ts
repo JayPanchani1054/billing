@@ -27,7 +27,7 @@ export function localToday(): string {
 }
 
 /**
- * Esc back down the stack until the Gateway is the visible screen. A "Discard unsaved changes?"
+ * Esc back down the stack until Home (the 'app.gateway' screen) is visible. A "Discard unsaved changes?"
  * question is answered "Discard changes" (returns true when one was asked); a crashed dialog screen
  * (its error boundary drawn in place of the dialog, which Esc does not close) is left with its
  * "Go back" button; the breadcrumb is the last resort.
@@ -49,7 +49,7 @@ export async function toGateway(page: Page): Promise<boolean> {
     }
     await gateway.waitFor({ state: 'visible', timeout: 700 }).catch(() => undefined);
   }
-  const crumb = page.locator('.bx-shell__breadcrumbs').getByRole('button', { name: 'Gateway' });
+  const crumb = page.locator('.bx-shell__breadcrumbs').getByRole('button', { name: 'Home' });
   if (await crumb.isVisible()) await crumb.click();
   if (await discard.isVisible()) {
     asked = true;
@@ -59,9 +59,19 @@ export async function toGateway(page: Page): Promise<boolean> {
   return asked;
 }
 
-/** Open a Gateway menu item by its label (the keyboard-first menu on the left). */
+/**
+ * Home shows All menus (Ctrl+2): every module's menu, the full 1.0 Gateway. A new profile opens Home on
+ * Essentials (about 23 everyday entries), so helpers that open any menu item switch first.
+ */
+export async function showAllMenus(page: Page): Promise<void> {
+  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('navigation', { name: 'Gateway menu' }).getByRole('radio', { name: 'All menus' })).toHaveAttribute('aria-checked', 'true');
+}
+
+/** Open a Gateway menu item by its label (Home › All menus, the keyboard-first menu on the left). */
 export async function openFromGateway(page: Page, label: string, screenId: string): Promise<Locator> {
   await toGateway(page);
+  await showAllMenus(page);
   await page
     .getByRole('navigation', { name: 'Gateway menu' })
     .getByRole('button', { name: new RegExp(`^${lit(label)}`) })

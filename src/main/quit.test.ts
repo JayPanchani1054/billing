@@ -133,4 +133,133 @@ describe('quit controller', () => {
     await tick();
     assert.deepEqual(h.exits, [1]);
   });
+
+  describe('before-exit hooks (in-app updates install here)', () => {
+    it('run once, in registration order, after the core stopped and before exit', async () => {
+      const order: string[] = [];
+      const h = harness(async () => {
+        order.push('shutdown');
+      });
+      h.deps.exit = (code) => {
+        order.push(`exit ${code}`);
+        h.exits.push(code);
+      };
+      const q = createQuitController(h.deps);
+      q.onBeforeExit(() => {
+        order.push('a');
+      });
+      q.onBeforeExit(() => {
+        order.push('b');
+      });
+      q.onWillQuit(event());
+      await tick();
+      assert.deepEqual(order, ['shutdown', 'a', 'b', 'exit 0']);
+      // A late will-quit (e.g. the updater's own app.quit()) runs nothing again.
+      q.onWillQuit(event());
+      await tick();
+      assert.deepEqual(order, ['shutdown', 'a', 'b', 'exit 0']);
+    });
+
+    it('a throwing or rejecting hook is logged and the process still exits; later hooks still run', async () => {
+      const ran: string[] = [];
+      const h = harness(async () => undefined);
+      const q = createQuitController(h.deps);
+      q.onBeforeExit(() => {
+        throw new Error('installer missing');
+      });
+      q.onBeforeExit(() => Promise.reject(new Error('async boom')));
+      q.onBeforeExit(() => {
+        ran.push('last');
+      });
+      q.onWillQuit(event());
+      await tick();
+      await tick();
+      assert.deepEqual(ran, ['last']);
+      assert.deepEqual(h.exits, [0]);
+      assert.equal(h.logs.filter((l) => l.includes('before-exit step failed')).length, 2);
+    });
+
+    it('waits for an async hook, but never longer than beforeExitMs', async () => {
+      const h = harness(async () => undefined);
+      const q = createQuitController(h.deps);
+      q.onBeforeExit(() => new Promise<void>(() => undefined)); // never settles
+      q.onWillQuit(event());
+      await tick();
+      assert.deepEqual(h.exits, [], 'still waiting for the hook');
+      assert.equal(h.timers.size, 1, 'only the before-exit cap is pending (the quit deadline was cleared)');
+      h.fire();
+      assert.deepEqual(h.exits, [0]);
+
+      const quick = harness(async () => undefined);
+      const q2 = createQuitController(quick.deps);
+      let settled = false;
+      q2.onBeforeExit(async () => {
+        settled = true;
+      });
+      q2.onWillQuit(event());
+      await tick();
+      await tick();
+      assert.equal(settled, true);
+      assert.deepEqual(quick.exits, [0]);
+      assert.equal(quick.timers.size, 0, 'the cap timer is cleared');
+    });
+
+    it('hooks run on the deadline path too, and the late core result does not run them twice', async () => {
+      let release!: () => void;
+      const h = harness(() => new Promise<void>((resolve) => (release = resolve)));
+      const q = createQuitController(h.deps);
+      let runs = 0;
+      q.onBeforeExit(() => {
+        runs++;
+      });
+      q.onWillQuit(event());
+      h.fire(); // deadline
+      release();
+      await tick();
+      assert.equal(runs, 1);
+      assert.deepEqual(h.exits, [0]);
+    });
+
+    it('will-quit while hooks run is prevented (exit stays ours); before-quit and hook registration are ignored then', async () => {
+      const h = harness(async () => undefined);
+      const q = createQuitController(h.deps);
+      let late = 0;
+      q.onBeforeExit(() => {
+        // What electron-updater's quitAndInstall does: ask the app to quit again.
+        q.onBeforeQuit();
+        const e = event();
+        q.onWillQuit(e);
+        assert.equal(e.prevented, 1);
+        assert.equal(q.phase, 'exiting');
+        q.onBeforeExit(() => {
+          late++;
+        });
+        return new Promise<void>((resolve) => setImmediate(resolve));
+      });
+      q.onWillQuit(event());
+      await tick();
+      await tick();
+      await tick();
+      assert.equal(late, 0);
+      assert.deepEqual(h.exits, [0]);
+      assert.equal(q.phase, 'exited');
+    });
+
+    it('unsubscribing removes only that hook', async () => {
+      const h = harness(async () => undefined);
+      const q = createQuitController(h.deps);
+      const ran: string[] = [];
+      const off = q.onBeforeExit(() => {
+        ran.push('removed');
+      });
+      q.onBeforeExit(() => {
+        ran.push('kept');
+      });
+      off();
+      off();
+      q.onWillQuit(event());
+      await tick();
+      assert.deepEqual(ran, ['kept']);
+    });
+  });
 });

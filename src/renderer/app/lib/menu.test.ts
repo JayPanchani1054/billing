@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { Permission } from '../../../shared/constants.ts';
 import type { ModuleDef } from '../registry.ts';
-import { acceleratorOrder, assignAccelerators, buildGateway, collectMenu, filterMenu, sortMenu, splitAccelerator } from './menu.ts';
+import { acceleratorOrder, assignAccelerators, buildGateway, collectMenu, filterMenu, sortMenu, splitAccelerator, withAccelerators } from './menu.ts';
 
 const Dummy = () => null;
 
@@ -158,5 +158,39 @@ describe('accelerator priority', () => {
   test('a digit is the last resort (GSTR-3B after G, S, T, R and B are taken)', () => {
     const idx = assignAccelerators(['G', 'S', 'T', 'R', 'B', 'GSTR-3B']);
     assert.equal('GSTR-3B'[idx[5]], '3');
+  });
+});
+
+// (2.0) Home's Essentials view assigns letters over its own subset with the same rules (lib/essentials.ts).
+describe('withAccelerators (Essentials subset)', () => {
+  const subset = [
+    { section: 'transactions' as const, label: 'Sales', screen: 'vouchers.entry', params: { baseType: 'sales' }, hotkey: 'F8' },
+    { section: 'masters' as const, label: 'Create Ledger', screen: 'accounts.ledger.form' },
+    { section: 'transactions' as const, label: 'Day Book', screen: 'vouchers.daybook' },
+    { section: 'reports' as const, label: 'Balance Sheet', screen: 'reports.balanceSheet' },
+    { section: 'reports' as const, label: 'Backup', screen: 'data.backup' },
+  ];
+
+  test('same rules as All menus: priority screens first, keyed items get none, letters unique', () => {
+    const built = withAccelerators(subset);
+    const accel = (label: string) => built.find((i) => i.label === label)?.accelerator;
+    assert.equal(accel('Balance Sheet'), 'b');
+    assert.equal(accel('Day Book'), 'd');
+    assert.equal(accel('Sales'), null);
+    assert.equal(accel('Create Ledger'), 'c');
+    // Backup is a priority screen too, after Balance Sheet took 'b': its next letter.
+    assert.equal(accel('Backup'), 'a');
+    const letters = built.map((i) => i.accelerator).filter(Boolean);
+    assert.equal(new Set(letters).size, letters.length);
+    // The highlighted index points at the letter.
+    for (const i of built) if (i.accelerator) assert.equal(i.label[i.accelIndex].toLowerCase(), i.accelerator);
+  });
+
+  test('buildGateway output is unchanged by the refactor (same letters as withAccelerators over all items)', () => {
+    const mods: ModuleDef[] = [{ id: 'm', screens: [], menu: subset }];
+    const viaGateway = buildGateway(mods, { can: all, gstEnabled: true }).flatMap((s) => s.items.map((i) => `${i.label}:${i.accelerator}`));
+    const sorted = sortMenu(collectMenu(mods));
+    const direct = withAccelerators(sorted).map((i) => `${i.label}:${i.accelerator}`);
+    assert.deepEqual(viaGateway, direct);
   });
 });

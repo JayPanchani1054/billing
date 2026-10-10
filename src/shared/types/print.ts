@@ -12,6 +12,7 @@
  */
 import type { VoucherBaseType } from '../constants.ts';
 import type { Paise } from '../money.ts';
+import type { PrintLayoutSpec } from '../printLayout.ts';
 import type { CompanyConfig, InvoiceTemplate } from '../settings.ts';
 import type { GstNature, Taxability, TaxMode } from './gst.ts';
 import type { PrintForex } from './forex.ts';
@@ -377,9 +378,24 @@ export interface PrintVoucherData {
    * accountant; never blocks printing.
    */
   warnings: string[];
+  /**
+   * (2.0) Saved layout layers, copied and validated by core (company `config.invoice.layout`, voucher type
+   * `config.printLayout`; the sample document has an empty voucher-type layer). The renderer resolves them
+   * with the per-print layer and applies them (shared/printLayout.ts). Absent on DTOs built before 2.0.
+   */
+  savedLayout?: { company: PrintLayoutSpec; voucherType: PrintLayoutSpec };
+  /**
+   * (2.0) Set by applyPrintLayout (never by core): hidden part ids and replaced texts, for the template
+   * gates (isPartShown / printText in shared/printLayout.ts).
+   */
+  applied?: { hidden: readonly string[]; texts: Readonly<Record<string, string>> };
 }
 
-/** Partial invoice options applied on top of the saved configuration (live preview in print settings). */
+/**
+ * Partial invoice options applied on top of the saved configuration (live preview in print settings and
+ * the preview editor's legacy parts / texts). `layout` is accepted and ignored by the routes: layouts are
+ * applied by the renderer, never through overrides.
+ */
 export type InvoicePrintOverrides = Partial<InvoicePrintOptions>;
 
 export interface PrintDataInput {

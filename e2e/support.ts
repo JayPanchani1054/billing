@@ -23,6 +23,24 @@ export interface LaunchedApp {
   userDataDir: string;
   /** Set by captureFailures() when a test of this spec failed: keep the trace. */
   failed: boolean;
+  /** False when launched with `trace: false` (no trace to stop or keep). */
+  traced?: boolean;
+}
+
+export interface LaunchOptions {
+  /**
+   * Start the app again on the folders of an earlier launch of this spec (closed with
+   * `closeApp(…, { keepFolders: true })`): a second start of the same installation, data and settings
+   * kept. The last closeApp() without keepFolders deletes them.
+   */
+  reuse?: Pick<LaunchedApp, 'tmp' | 'dataDir' | 'userDataDir'>;
+  /** Record a Playwright trace (default true). Timing runs turn it off: tracing slows the app down. */
+  trace?: boolean;
+}
+
+export interface CloseOptions {
+  /** Keep the data and profile folders for a following `launchApp(…, { reuse })`. */
+  keepFolders?: boolean;
 }
 
 function childEnv(extra: Record<string, string>): Record<string, string> {
@@ -33,11 +51,15 @@ function childEnv(extra: Record<string, string>): Record<string, string> {
   return { ...env, ...extra };
 }
 
-/** Launch the built app (out/main/index.cjs — run `npm run build` first) with a throw-away profile. */
-export async function launchApp(prefix: string): Promise<LaunchedApp> {
-  const tmp = await mkdtemp(path.join(tmpdir(), prefix));
-  const dataDir = path.join(tmp, 'data');
-  const userDataDir = path.join(tmp, 'user-data');
+/**
+ * Launch the built app (out/main/index.cjs — run `npm run build` first) with a throw-away profile
+ * (or, with `reuse`, the profile of an earlier launch).
+ */
+export async function launchApp(prefix: string, options: LaunchOptions = {}): Promise<LaunchedApp> {
+  const tmp = options.reuse ? options.reuse.tmp : await mkdtemp(path.join(tmpdir(), prefix));
+  const dataDir = options.reuse ? options.reuse.dataDir : path.join(tmp, 'data');
+  const userDataDir = options.reuse ? options.reuse.userDataDir : path.join(tmp, 'user-data');
+  const traced = options.trace !== false;
   const app = await electron.launch({
     args: ['out/main/index.cjs'],
     cwd: repoRoot,
@@ -45,10 +67,10 @@ export async function launchApp(prefix: string): Promise<LaunchedApp> {
   });
   app.process().stdout?.on('data', (d: Buffer) => process.stdout.write(`[electron] ${d.toString()}`));
   app.process().stderr?.on('data', (d: Buffer) => process.stderr.write(`[electron] ${d.toString()}`));
-  await app.context().tracing.start({ screenshots: true, snapshots: true });
+  if (traced) await app.context().tracing.start({ screenshots: true, snapshots: true });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
-  return { app, page, tmp, dataDir, userDataDir, failed: false };
+  return { app, page, tmp, dataDir, userDataDir, failed: false, traced };
 }
 
 /**
@@ -97,7 +119,7 @@ export function captureFailures(getLaunched: () => LaunchedApp | undefined): voi
  * Stop tracing (kept as trace.zip in the test output folder only if a test failed), quit the app and
  * fail loudly if quitting hangs, then delete the throw-away folders.
  */
-export async function closeApp(launched: LaunchedApp | undefined, testInfo: TestInfo): Promise<void> {
+export async function closeApp(launched: LaunchedApp | undefined, testInfo: TestInfo, options: CloseOptions = {}): Promise<void> {
   if (!launched) return;
   const { app, tmp } = launched;
   // The afterAll hook gets the test timeout (60 s) by default; writing a long trace plus a quit that
@@ -105,7 +127,9 @@ export async function closeApp(launched: LaunchedApp | undefined, testInfo: Test
   // whole close bound on top of time for the trace. A real hang still fails, at CLOSE_TIMEOUT_MS below.
   testInfo.setTimeout(TRACE_STOP_BUDGET_MS + CLOSE_TIMEOUT_MS + 15_000);
   try {
-    if (launched.failed) await app.context().tracing.stop({ path: testInfo.outputPath('trace.zip') });
+    if (launched.traced === false) {
+      /* launched without a trace */
+    } else if (launched.failed) await app.context().tracing.stop({ path: testInfo.outputPath('trace.zip') });
     else await app.context().tracing.stop();
   } catch {
     /* tracing is best effort */
@@ -123,5 +147,5 @@ export async function closeApp(launched: LaunchedApp | undefined, testInfo: Test
     throw new Error(`The app did not quit within ${CLOSE_TIMEOUT_MS / 1000} s of app.close() (see [electron] "Quit:" log lines)`);
   }
   console.log(`[e2e] app closed in ${Date.now() - started} ms`);
-  await rm(tmp, { recursive: true, force: true });
+  if (!options.keepFolders) await rm(tmp, { recursive: true, force: true });
 }

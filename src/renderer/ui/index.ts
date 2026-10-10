@@ -137,6 +137,8 @@ export { ScrollArea } from './ScrollArea.tsx';
 export type { ScrollAreaProps } from './ScrollArea.tsx';
 export { ActionRail } from './ActionRail.tsx';
 export type { ActionRailProps, ActionRailItem } from './ActionRail.tsx';
+export { CommandBar } from './CommandBar.tsx';
+export type { CommandBarProps } from './CommandBar.tsx';
 export { ReportFrame } from './ReportFrame.tsx';
 export type { ReportFrameProps, ReportPeriod } from './ReportFrame.tsx';
 

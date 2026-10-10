@@ -42,6 +42,11 @@ const ENTRIES: Partial<Record<Permission, Entry>> = {
   'vouchers.alter': { group: 'vouchers', label: 'Alter vouchers', description: 'Change or cancel vouchers that were already saved.' },
   'vouchers.delete': { group: 'vouchers', label: 'Delete vouchers', description: 'Delete vouchers permanently (recorded in the edit log).' },
   'vouchers.backdate': { group: 'vouchers', label: 'Back-date vouchers', description: 'Create or alter vouchers dated before today.' },
+  'vouchers.renumber': {
+    group: 'vouchers',
+    label: 'Change voucher numbers and the next number',
+    description: 'Give an invoice or voucher a different number (with a reason in the edit log) and set the next number of a series.',
+  },
   'reports.view': { group: 'reports', label: 'View reports', description: 'Ledger statements, registers, stock and outstanding reports.' },
   'reports.financial': {
     group: 'reports',

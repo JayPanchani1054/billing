@@ -18,7 +18,13 @@
 import { randomUUID } from 'node:crypto';
 import type { FieldIssue } from '../../../shared/api.ts';
 import { PREDEFINED_VOUCHER_TYPES, type VoucherBaseType } from '../../../shared/constants.ts';
-import { checkNumberingScheme, numberingRowProblems, type NumberingTextRow } from '../../../shared/numbering.ts';
+import {
+  checkNumberingScheme,
+  GST_DOC_NUMBER_MAX_LENGTH,
+  GST_NUMBERED_BASE_TYPES,
+  numberingRowProblems,
+  type NumberingTextRow,
+} from '../../../shared/numbering.ts';
 import type {
   DeleteResult,
   ListResult,
@@ -34,6 +40,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { notFound, rule } from '../../lib/errors.ts';
 import { getFeatures } from '../company/service.ts';
+import { loadVoucherType, parseVoucherSeq, periodKey, periodRange } from '../vouchers/numbering.ts';
 import { classFromChain, groupChain } from './books.ts';
 import { Issues, cleanText, plural, requirePermission, requireSavePermission } from './common.ts';
 
@@ -70,9 +77,12 @@ const VT_SELECT = `SELECT vt.*, p.name AS parent_name,
        (SELECT COUNT(*) FROM vouchers v WHERE v.voucher_type_id = vt.id) AS voucher_count
   FROM voucher_types vt LEFT JOIN voucher_types p ON p.id = vt.parent_id`;
 
-/** GST documents issued by the company: invoice numbers ≤ 16 characters, A–Z a–z 0–9 / - only. */
-export const GST_DOCUMENT_BASE_TYPES: readonly VoucherBaseType[] = ['sales', 'credit_note', 'debit_note'];
-export const GST_DOC_NUMBER_MAX_LENGTH = 16;
+/**
+ * GST documents issued by the company: invoice numbers ≤ 16 characters, A–Z a–z 0–9 / - only. One source
+ * (src/shared/numbering.ts), re-exported under the names this module always used.
+ */
+export const GST_DOCUMENT_BASE_TYPES: readonly VoucherBaseType[] = GST_NUMBERED_BASE_TYPES;
+export { GST_DOC_NUMBER_MAX_LENGTH };
 const SALES_SIDE: readonly VoucherBaseType[] = ['sales', 'credit_note', 'sales_order', 'delivery_note', 'rejection_in'];
 const PURCHASE_SIDE: readonly VoucherBaseType[] = ['purchase', 'debit_note', 'purchase_order', 'receipt_note', 'rejection_out'];
 const INVOICE_BASES: readonly VoucherBaseType[] = ['sales', 'purchase', 'credit_note', 'debit_note'];
@@ -499,6 +509,7 @@ function writeVoucherType(ctx: CompanyCtx, input: VoucherTypeSaveInput): number 
     }
   }
   writeNumberingRows(id);
+  if (row && n.restart !== row.numbering_restart) seedRestartCounter(ctx, id);
   ctx.audit({
     action: row ? 'alter' : 'create',
     entityType: 'voucher_type',
@@ -509,6 +520,38 @@ function writeVoucherType(ctx: CompanyCtx, input: VoucherTypeSaveInput): number 
     after: getVoucherType(db, id),
   });
   return id;
+}
+
+/**
+ * 2.0: after the restart of a series changes (yearly ↔ monthly ↔ never), the counter of the new period
+ * key for today starts at the highest sequence already used in that scope — read from each number in the
+ * series' format of today (parseVoucherSeq), so numbers of another year's format ('INV/25-26/0900' when
+ * today's prefix is 'INV/26-27/') do not make the series jump — one pass, once. The first allocation
+ * then does not have to step over every number already used (a large series switched to "never" would
+ * otherwise probe thousands of numbers, up to the 100 000 skip limit). Never lowers a counter that is
+ * already higher.
+ */
+function seedRestartCounter(ctx: CompanyCtx, voucherTypeId: number): void {
+  const { db } = ctx;
+  const vt = loadVoucherType(db, voucherTypeId);
+  const fyStartMonth = db.value<number>('SELECT fy_start_month FROM company WHERE id = 1') ?? 4;
+  const today = ctx.clock.today();
+  const { from, to } = periodRange(vt, today, fyStartMonth);
+  let highest = 0;
+  const rows = db.all<{ number: string }>(
+    'SELECT number FROM vouchers WHERE voucher_type_id = :vt AND date BETWEEN :from AND :to AND number_seq IS NOT NULL',
+    { vt: vt.id, from, to },
+  );
+  for (const r of rows) {
+    const seq = parseVoucherSeq(vt, r.number, today, fyStartMonth);
+    if (seq !== null && seq > highest) highest = seq;
+  }
+  if (highest <= 0) return;
+  db.run(
+    `INSERT INTO voucher_counters (voucher_type_id, period_key, last_number) VALUES (:vt, :key, :seq)
+     ON CONFLICT(voucher_type_id, period_key) DO UPDATE SET last_number = MAX(last_number, excluded.last_number)`,
+    { vt: vt.id, key: periodKey(vt, today, fyStartMonth), seq: highest },
+  );
 }
 
 /** Create (no id) or alter (id) a voucher type. Requires masters.create / masters.alter. */

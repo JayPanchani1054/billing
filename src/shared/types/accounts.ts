@@ -51,6 +51,7 @@
 import type { NumberingTextRow } from '../numbering.ts';
 import type { GroupCode, GroupNature, GstDutyHead, GstTaxDirection, LedgerCode, VoucherBaseType } from '../constants.ts';
 import type { Paise } from '../money.ts';
+import type { PrintLayoutSpec } from '../printLayout.ts';
 import type { GstNature, RegistrationType, SupplyKind, Taxability } from './gst.ts';
 
 export interface ListResult<T> {
@@ -592,6 +593,20 @@ export interface VoucherTypeConfig {
   printTemplate?: 'classic' | 'modern' | 'compact' | null;
   /** (print group) MRP column on documents of this type: true / false; null/absent = as in Invoice Printing. */
   showMrp?: boolean | null;
+  /** (2.0) HSN/SAC summary on documents of this type; null/absent = as in Invoice Printing. */
+  showHsnSummary?: boolean | null;
+  /** (2.0) Bank details on documents of this type; null/absent = as in Invoice Printing. */
+  showBankDetails?: boolean | null;
+  /** (2.0) UPI QR code on documents of this type; null/absent = as in Invoice Printing. */
+  showUpiQr?: boolean | null;
+  /** (2.0) Item-wise tax columns on documents of this type; null/absent = as in Invoice Printing. */
+  itemwiseTax?: boolean | null;
+  /**
+   * (2.0) Voucher-type print layout layer (shared/printLayout.ts): replaced whole when given; null removes
+   * it. Parts and texts owned by a voucher-type key above (printTitle, declaration, terms, the four flags,
+   * showMrp) are never in it.
+   */
+  printLayout?: PrintLayoutSpec | null;
   /** Stock journal types only (mfg module): Manufacturing Journal, Material Out or Material In. */
   stockJournalClass?: 'manufacturing' | 'material_out' | 'material_in' | null;
   /** Sales types only (pos module): POS invoice class — bills are entered on the POS counter with split tender. */

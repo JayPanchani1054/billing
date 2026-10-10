@@ -45,6 +45,11 @@ export interface ShellApi {
   /** F3: close the company (asks about unsaved work) and return to the company list. */
   closeCompany: () => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * (2.0) Lock a secured company now (user menu › Lock): the same as the idle timeout — the workspace
+   * stays open behind the lock screen until the same user logs in again.
+   */
+  lock: () => Promise<void>;
   /** Ctrl+Q: confirm and quit the app. */
   quit: () => Promise<void>;
 }
@@ -165,6 +170,15 @@ export function ShellProvider({ children }: { children?: ReactNode }) {
     }
   }, [nav, toast]);
 
+  const lock = useCallback(async () => {
+    try {
+      const next = await api('app.session.lock');
+      appRef.current.applyState(next, { lock: true });
+    } catch (err) {
+      toast.error('Could not lock', { message: userMessage(err) });
+    }
+  }, [toast]);
+
   const quit = useCallback(async () => {
     const dirty = nav.hasUnsavedChanges();
     const ok = await confirmDialog({
@@ -195,9 +209,10 @@ export function ShellProvider({ children }: { children?: ReactNode }) {
       voucherAvailability,
       closeCompany,
       logout,
+      lock,
       quit,
     }),
-    [openVoucher, voucherAvailability, closeCompany, logout, quit],
+    [openVoucher, voucherAvailability, closeCompany, logout, lock, quit],
   );
 
   const close = useCallback(() => setOverlay(null), []);

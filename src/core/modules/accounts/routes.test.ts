@@ -42,7 +42,10 @@ describe('accounts routes', () => {
       'accounts.voucherType.delete',
       'accounts.voucherType.get',
       'accounts.voucherType.list',
+      'accounts.voucherType.numberGaps',
+      'accounts.voucherType.numberingStatus',
       'accounts.voucherType.save',
+      'accounts.voucherType.setNextNumber',
     ]);
   });
 

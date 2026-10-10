@@ -3,7 +3,8 @@
   "extends": "./tsconfig.node.json",
   "compilerOptions": {
     "paths": {
-      "electron": ["./types/offline/electron.d.ts"]
+      "electron": ["./types/offline/electron.d.ts"],
+      "electron-updater": ["./types/offline/electron-updater.d.ts"]
     }
   }
 }

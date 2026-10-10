@@ -21,7 +21,7 @@
  * their longest expansion.
  */
 import type { VoucherBaseType } from './constants.ts';
-import { financialYear, MONTH_NAMES } from './dates.ts';
+import { addDays, financialYear, MONTH_NAMES } from './dates.ts';
 import { formatIndianNumber } from './format.ts';
 
 export type NumberingMethodName = 'automatic' | 'automatic_override' | 'manual' | 'none';
@@ -243,4 +243,72 @@ export function numberingRowProblems(kind: 'prefix' | 'suffix', rows: readonly N
     if ((r.text ?? '').length > NUMBERING_TEXT_MAX) out.push({ path: `${at}.text`, message: `The ${kind} can have at most ${NUMBERING_TEXT_MAX} characters.` });
   });
   return out;
+}
+
+// ───────────────────────────── 2.0: typed numbers and scheme summary ─────────────────────────────
+
+/** Longest number a user may type for a voucher that is not a GST document (VoucherInput.numberOverride). */
+export const VOUCHER_NUMBER_MAX_LENGTH = 60;
+
+const describeChars = (chars: readonly string[]): string => chars.map((c) => (c === ' ' ? 'a space' : `'${c}'`)).join(', ');
+
+/**
+ * Problems with a GST document number as typed (CGST Rule 46(b): at most 16 characters, letters, digits,
+ * '/' and '-' only) — the single source of these messages for the core and the screens. [] when valid.
+ */
+export function gstDocNumberProblems(number: string): string[] {
+  const n = number.trim();
+  if (n.length === 0) return ['Enter the invoice number.'];
+  const out: string[] = [];
+  if (n.length > GST_DOC_NUMBER_MAX_LENGTH) out.push(`GST invoice numbers can have at most ${GST_DOC_NUMBER_MAX_LENGTH} characters; this one has ${n.length}.`);
+  const bad = [...new Set(n.replace(/[A-Za-z0-9/-]/g, ''))];
+  if (bad.length > 0) out.push(`GST invoice numbers may contain only letters, digits, '/' and '-' (not ${describeChars(bad)}).`);
+  return out;
+}
+
+/**
+ * Problems with a voucher number typed by an authorised user. A GST document (`gstDoc`: sales, credit
+ * or debit note of a GST company) follows gstDocNumberProblems; any other voucher number has 1–60
+ * characters and no control characters.
+ */
+export function voucherNumberProblems(number: string, gstDoc: boolean): string[] {
+  if (gstDoc) return gstDocNumberProblems(number);
+  const n = number.trim();
+  if (n.length === 0) return ['Enter the voucher number.'];
+  const out: string[] = [];
+  if (n.length > VOUCHER_NUMBER_MAX_LENGTH) out.push(`Voucher numbers can have at most ${VOUCHER_NUMBER_MAX_LENGTH} characters; this one has ${n.length}.`);
+  if (/[\u0000-\u001f\u007f]/.test(n)) out.push('A voucher number cannot contain tabs, line breaks or other control characters.');
+  return out;
+}
+
+export type NumberingResetsOn = 'financial year' | 'month' | 'never';
+
+export interface SchemeDescription {
+  /** The number `seq` (default: the starting number) takes on `date`, e.g. 'INV/26-27/0001'. */
+  example: string;
+  /** First day of the next financial year and the number a voucher dated then gets ('INV/27-28/0001'). */
+  nextFy: { date: string; number: string };
+  /** Longest number the scheme can produce (tokens at their longest, every dated variant). */
+  longest: number;
+  resetsOn: NumberingResetsOn;
+}
+
+/**
+ * Plain-language summary of a numbering scheme for the Invoice Numbering screen: an example for
+ * `date`, the first number of the next financial year (the starting number again when the series
+ * restarts; `seq` continued when it never restarts), the longest number and when it restarts.
+ */
+export function describeScheme(n: NumberingScheme, date: string, fyStartMonth = 4, seq?: number): SchemeDescription {
+  const start = Number.isSafeInteger(n.start) && n.start > 0 ? n.start : 1;
+  const current = seq !== undefined && Number.isSafeInteger(seq) && seq > 0 ? seq : start;
+  const nextDate = addDays(financialYear(date, fyStartMonth).end, 1);
+  const prefixes = variants(n.prefix, n.prefixRows);
+  const suffixes = variants(n.suffix, n.suffixRows);
+  const digits = Math.max(n.width, String(n.restart === 'never' ? Math.max(current, start) : start).length);
+  return {
+    example: formatSchemeNumber(n, current, date, fyStartMonth),
+    nextFy: { date: nextDate, number: formatSchemeNumber(n, n.restart === 'never' ? current : start, nextDate, fyStartMonth) },
+    longest: Math.max(...prefixes.map(expandedMaxLength)) + digits + Math.max(...suffixes.map(expandedMaxLength)),
+    resetsOn: n.restart === 'yearly' ? 'financial year' : n.restart === 'monthly' ? 'month' : 'never',
+  };
 }

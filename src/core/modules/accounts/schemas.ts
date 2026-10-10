@@ -27,6 +27,7 @@ import {
   type VoucherTypeSaveInput,
 } from '../../../shared/types/accounts.ts';
 import { patchNullable } from '../../lib/schemas.ts';
+import { printLayoutSchema } from '../print/layoutSchema.ts';
 import { v, type Infer } from '../../lib/validate.ts';
 import { STOCK_JOURNAL_CLASSES } from '../../../shared/types/mfg.ts';
 
@@ -253,6 +254,13 @@ export const VoucherTypeSaveInputSchema = v.object({
       printTemplate: patchNullable(v.enum(['classic', 'modern', 'compact'] as const)),
       // print group: MRP column on this type's documents (null = as in Invoice Printing).
       showMrp: patchNullable(v.boolean()),
+      // (2.0) print layout: the four Invoice Printing flags per voucher type (null = as in Invoice Printing)
+      // and the voucher-type layout layer (replaced whole; null removes it).
+      showHsnSummary: patchNullable(v.boolean()),
+      showBankDetails: patchNullable(v.boolean()),
+      showUpiQr: patchNullable(v.boolean()),
+      itemwiseTax: patchNullable(v.boolean()),
+      printLayout: patchNullable(printLayoutSchema('voucherType')),
       // mfg module: a stock journal type used as Manufacturing Journal / Material Out / Material In.
       stockJournalClass: patchNullable(v.enum(STOCK_JOURNAL_CLASSES)),
       // pos module: a sales type used as POS invoice (counter billing with split tender).

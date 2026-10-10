@@ -15,6 +15,7 @@ import { ApiError } from './lib/apiErrors.ts';
 import { clearQueryCache, invalidate } from './queryClient.ts';
 import { nextLock } from './lib/sessionLock.ts';
 import type { LockSnapshot } from './lib/sessionLock.ts';
+import { initUiPrefs } from './lib/uiPrefs.ts';
 
 import { phaseOf } from './lib/appPhase.ts';
 import type { AppPhase } from './lib/appPhase.ts';
@@ -71,6 +72,9 @@ export function AppStateProvider({ children }: { children?: ReactNode }) {
     companyIdRef.current = companyId;
     userRef.current = user;
     stateRef.current = next;
+    // 2.0 layout preferences: decided once per profile from the first app state, before anything
+    // renders with it (lib/uiPrefs.ts, SPEC D5; later calls change nothing).
+    initUiPrefs(next);
     lockRef.current = nowLocked;
     setLock(nowLocked);
     setState(next);

@@ -33,7 +33,10 @@ const set = (...p: Permission[]) => new Set<Permission>(p);
 describe('permission tree', () => {
   it('knows prerequisites transitively and dependants', () => {
     assert.deepEqual(prerequisitesOf('vouchers.backdate'), ['vouchers.view', 'vouchers.create']);
-    assert.deepEqual(dependantsOf('vouchers.view'), ['vouchers.create', 'vouchers.alter', 'vouchers.delete', 'vouchers.backdate']);
+    // 2.0: vouchers.renumber needs vouchers.alter (so it depends on vouchers.view too).
+    assert.deepEqual(dependantsOf('vouchers.view'), ['vouchers.create', 'vouchers.alter', 'vouchers.delete', 'vouchers.backdate', 'vouchers.renumber']);
+    assert.deepEqual(prerequisitesOf('vouchers.renumber'), ['vouchers.view', 'vouchers.alter']);
+    assert.deepEqual(dependantsOf('vouchers.alter'), ['vouchers.renumber']);
     assert.deepEqual(prerequisitesOf('audit.view'), []);
   });
 

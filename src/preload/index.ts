@@ -11,7 +11,7 @@ import { DIRTY_CHANNEL } from '../main/channels.ts';
 
 type EventName = keyof BridgeEvents;
 
-const EVENT_NAMES: ReadonlySet<string> = new Set<EventName>(['command', 'before-close', 'theme-changed']);
+const EVENT_NAMES: ReadonlySet<string> = new Set<EventName>(['command', 'before-close', 'theme-changed', 'update-status']);
 
 /** One IPC listener for all bridge events; subscribers are kept per event name. */
 const subscribers = new Map<string, Set<(payload: unknown) => void>>();

@@ -303,9 +303,24 @@ export interface OnBeforeRequestListenerDetails {
   method: string;
   resourceType: string;
 }
+export interface OnBeforeRedirectListenerDetails {
+  id: number;
+  url: string;
+  method: string;
+  resourceType: string;
+  redirectURL: string;
+  statusCode: number;
+  statusLine: string;
+  fromCache: boolean;
+}
 export interface WebRequest {
   onHeadersReceived(listener: ((details: OnHeadersReceivedListenerDetails, callback: (response: HeadersReceivedResponse) => void) => void) | null): void;
   onBeforeRequest(listener: ((details: OnBeforeRequestListenerDetails, callback: (response: { cancel?: boolean; redirectURL?: string }) => void) => void) | null): void;
+  onBeforeRedirect(listener: ((details: OnBeforeRedirectListenerDetails) => void) | null): void;
+}
+export interface FromPartitionOptions {
+  /** Whether to enable cache. Default is `true` unless the `--disable-http-cache` switch is used. */
+  cache?: boolean;
 }
 export interface Session {
   readonly webRequest: WebRequest;
@@ -317,7 +332,7 @@ export interface Session {
   clearCache(): Promise<void>;
   clearStorageData(options?: Record<string, unknown>): Promise<void>;
 }
-export const session: { defaultSession: Session; fromPartition(partition: string): Session };
+export const session: { defaultSession: Session; fromPartition(partition: string, options?: FromPartitionOptions): Session };
 
 // ───────────── Protocol / net ─────────────
 export interface CustomScheme {

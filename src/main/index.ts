@@ -7,7 +7,10 @@
  *   2. on 'ready':     session hardening, app:// protocol, core worker (started, awaited), IPC, menu,
  *                      main window
  *   3. on quit:        windows close (unsaved-work prompt) → 'will-quit' → core shutdown (bounded) →
- *                      app.exit (quit.ts)
+ *                      before-exit hooks (a downloaded update's installer) → app.exit (quit.ts)
+ *
+ * In-app updates (updates/): the service is created on 'ready' but loads electron-updater (a separate
+ * bundle, out/main/updater.cjs) only when the user checks or a weekly check is due — never on start-up.
  *
  * The accounting core does not run on this thread: it runs on a worker thread (core-worker.ts) behind
  * a proxy with the same Runtime interface (core-proxy.ts), so heavy routes never freeze the windows.
@@ -30,6 +33,10 @@ import { createPrefsStore, isThemeMode } from './prefs.ts';
 import { createPrintService } from './print.ts';
 import { PRIVILEGED_SCHEMES, registerAppProtocol } from './protocol.ts';
 import { createQuitController, QUIT_DEADLINE_MS } from './quit.ts';
+import { loadUpdaterBundle } from './updates/loader.ts';
+import { policyFilePath, readPolicyFile, resolveUpdatePolicy } from './updates/policy.ts';
+import { createUpdateService, menuCheckMessage, UPDATER_PARTITION } from './updates/service.ts';
+import type { UpdateService } from './updates/service.ts';
 import { contentSecurityPolicy, hardenAppSession, hardenWebContents } from './security.ts';
 import { evaluateSmoke, SMOKE_SCRIPT, SMOKE_TIMEOUT_MS } from './smoke.ts';
 import type { SmokeVerdict } from './smoke.ts';
@@ -52,6 +59,13 @@ if (!app.isPackaged) process.setSourceMapsEnabled(true);
 /** The core proxy, from the moment the worker is spawned (so quitting during start-up stops it too). */
 let core: CoreProxy | null = null;
 let windows: WindowManager | null = null;
+let updates: UpdateService | null = null;
+/**
+ * Unsaved-work flags as the renderers last reported them (mirrors the window manager's own map, which it
+ * does not expose): read by "Restart to update" to ask before quitting. Reset on navigation / crash /
+ * destruction exactly like window.ts resets its copy.
+ */
+const unsaved = new Map<number, boolean>();
 
 const quit = createQuitController({
   shutdown: () => (core ? core.shutdown() : Promise.resolve()),
@@ -304,6 +318,10 @@ async function initialise(): Promise<void> {
   });
   windows = wm;
 
+  const updateService = createUpdates(prefs, wm);
+  updates = updateService;
+  quit.onBeforeExit(() => updateService.beforeExit());
+
   const native = createNativeHandler({
     runtime: rt,
     windows: wm,
@@ -311,8 +329,17 @@ async function initialise(): Promise<void> {
     appVersion: appVersion(),
     paths: { userData: app.getPath('userData'), logs: app.getPath('logs'), documents: documentsDir() },
     requestQuit,
+    updates: updateService,
   });
-  registerIpc({ runtime: rt, native, windows: wm, dev });
+  // The IPC layer reports unsaved work to the window manager; keep our mirror of it on the way through.
+  const ipcWindows: WindowManager = {
+    ...wm,
+    setDirty(contents, dirty) {
+      if (wm.isAppWebContents(contents)) unsaved.set(contents.id, dirty);
+      wm.setDirty(contents, dirty);
+    },
+  };
+  registerIpc({ runtime: rt, native, windows: ipcWindows, dev });
 
   const focusedContents = () => (BrowserWindow.getFocusedWindow() ?? wm.getMainWindow())?.webContents ?? null;
   Menu.setApplicationMenu(
@@ -332,6 +359,7 @@ async function initialise(): Promise<void> {
       },
       showAbout,
       openLogsFolder,
+      checkForUpdates: () => checkForUpdatesFromMenu(updateService, wm),
     }),
   );
 
@@ -341,7 +369,101 @@ async function initialise(): Promise<void> {
   });
 
   const win = wm.createMainWindow();
+  watchUpdateQuit(win);
   if (isSmoke) runSmokeTest(win);
+  // Weekly mode only arms a timer here (first check 2 minutes later); manual / off do nothing at all.
+  updateService.start();
+}
+
+// ───────────────────────────── in-app updates ─────────────────────────────
+
+/** The update service, wired to Electron (updates/service.ts holds the rules and is unit-tested). */
+function createUpdates(prefs: ReturnType<typeof createPrefsStore>, wm: WindowManager): UpdateService {
+  // Read once at start-up: the machine policy file and the environment (a change needs a restart).
+  const env = { ...process.env };
+  const policyFile = readPolicyFile(policyFilePath(env, process.platform));
+  const service = createUpdateService({
+    currentVersion: appVersion(),
+    policyFor: (userPref) => resolveUpdatePolicy({ env, policyFile, userPref, packaged: app.isPackaged }),
+    prefs: {
+      get: () => prefs.get().updates,
+      set: (next) => prefs.update({ updates: next }),
+    },
+    loadUpdater: () => loadUpdaterBundle(__dirname),
+    session: () => {
+      // electron-updater makes every request through this partition; cache off, nothing persisted.
+      const ses = session.fromPartition(UPDATER_PARTITION, { cache: false });
+      return {
+        onBeforeRequest: (allow) => ses.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !allow(details.url) })),
+        onBeforeRedirect: (listener) => ses.webRequest.onBeforeRedirect((details) => listener(details.url, details.redirectURL)),
+        denyPermissions: () => {
+          ses.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+          ses.setPermissionCheckHandler(() => false);
+        },
+      };
+    },
+    emit: (status) => wm.broadcast('update-status', status),
+    log,
+    now: () => new Date(),
+    setTimeout: (fn, ms) => {
+      const t = setTimeout(fn, ms);
+      t.unref?.();
+      return t;
+    },
+    clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    hasUnsavedWork: () => [...unsaved.values()].some(Boolean),
+    confirmDiscard: async () => {
+      if (unattended) return false;
+      const parent = wm.getMainWindow();
+      const box = {
+        type: 'warning' as const,
+        title: APP_NAME,
+        message: 'You have unsaved changes.',
+        detail: 'If you restart Pevqori now to install the update, the changes on the open screen will be lost.',
+        buttons: ['Discard changes and restart', 'Keep working'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      };
+      const { response } = await (parent ? dialog.showMessageBox(parent, box) : dialog.showMessageBox(box));
+      return response === 0;
+    },
+    // Deferred so the IPC reply reaches the renderer before the windows start closing.
+    requestQuit: ({ skipPrompt }) =>
+      setImmediate(() => {
+        if (skipPrompt) requestQuit({ relaunch: false });
+        else app.quit();
+      }),
+  });
+  const p = service.status().policy;
+  log('info', 'Updates', { mode: p.mode, source: p.source, locked: p.locked });
+  return service;
+}
+
+/**
+ * "Restart to update" quits through the normal close sequence. If a window refuses to close (the
+ * unsaved-work prompt was answered "Keep working"), that quit is over: disarm the pending install so a
+ * later, ordinary quit does not install and relaunch by surprise. Registered after window.ts's own close
+ * guard, so `defaultPrevented` already reflects its decision.
+ */
+function watchUpdateQuit(win: BrowserWindow): void {
+  win.on('close', (event) => {
+    if (event.defaultPrevented) updates?.quitCancelled();
+  });
+}
+
+/** Help › Check for Updates… — runs the check and shows its outcome in a native box. */
+function checkForUpdatesFromMenu(service: UpdateService, wm: WindowManager): void {
+  void service.check().then(
+    (status) => {
+      if (unattended) return;
+      const { message, detail } = menuCheckMessage(status);
+      const box = { type: status.state === 'error' ? ('warning' as const) : ('info' as const), title: 'Check for Updates', message, detail, buttons: ['OK'], noLink: true };
+      const parent = wm.getMainWindow();
+      void (parent ? dialog.showMessageBox(parent, box) : dialog.showMessageBox(box));
+    },
+    (err: unknown) => log('warn', 'Updates: the menu check failed', describeError(err)),
+  );
 }
 
 /** PEVQORI_SMOKE_TEST=1: once the window has loaded, call app.state through the real bridge, then quit. */
@@ -370,14 +492,20 @@ function runSmokeTest(win: BrowserWindow): void {
 
 function start(): void {
   // Guards for every WebContents ever created (main window, print windows, devtools).
-  app.on('web-contents-created', (_event, contents) => hardenWebContents(contents, dev));
+  app.on('web-contents-created', (_event, contents) => {
+    hardenWebContents(contents, dev);
+    const id = contents.id;
+    contents.on('did-navigate', () => unsaved.delete(id));
+    contents.on('render-process-gone', () => unsaved.delete(id));
+    contents.once('destroyed', () => unsaved.delete(id));
+  });
 
   app.on('second-instance', () => windows?.focusMainWindow());
 
   app.on('window-all-closed', () => app.quit());
 
   app.on('activate', () => {
-    if (windows && BrowserWindow.getAllWindows().length === 0) windows.createMainWindow();
+    if (windows && BrowserWindow.getAllWindows().length === 0) watchUpdateQuit(windows.createMainWindow());
   });
 
   app.on('child-process-gone', (_event, details: { type?: string; reason?: string; exitCode?: number }) => {

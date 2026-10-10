@@ -1,7 +1,8 @@
 # Pevqori shell (`src/renderer/app`) — API for feature modules
 
 The shell is everything around your screens: app state and routing, the company workspace (top
-bar, breadcrumbs, screen stack, action rail, status bar), navigation, global hotkeys, Go To, the
+bar, screen bar with breadcrumbs and the command bar, screen stack, optional shortcut bar, status bar),
+Home, navigation, global hotkeys, Go To, the
 working date and period, the API client and cache, confirmations, export/print and error handling.
 Feature modules plug in through a `ModuleDef` and build screens with the hooks below.
 
@@ -85,8 +86,14 @@ The company module owns `company.profile`, `company.features` (F11), `company.co
 
 **Onboarding** lives in one place: the dashboard's "Get started" card (`modules/dashboard/lib/model.ts`
 `startSteps`: company details, features, invoice printing, ledgers, items, first sale, backups — each
-done from the books via `dashboard.summary` `setup`, or ticked by the user; never by clicking it). The
-Gateway's welcome panel (shown only to users who may not open the dashboard) has quick actions only.
+done from the books via `dashboard.summary` `setup`, or ticked by the user; never by clicking it). Users
+who may not open the dashboard see a one-line greeting on Home instead (2.0 removed the welcome panel).
+
+**Home and Essentials (2.0).** Home (`app.gateway`, `Gateway.tsx`) shows *Essentials* or *All menus*
+(Ctrl+1 / Ctrl+2, remembered in `lib/uiPrefs.ts`). Essentials is one central list in `lib/essentials.ts`
+matched by **menu label** (or `vouchers.entry` base type): keep the labels it names stable, and when a new
+everyday screen should be there, add it to that list — never a flag on the menu item. An item hidden from
+All menus (F11, permission, registration, deactivated type) is hidden from Essentials too.
 
 ---
 
@@ -105,8 +112,9 @@ scope (active only while it is on top), an error boundary, and handles Esc / foc
   width="form"                      // 'full' (default) | 'form' (≈960px column) | 'narrow'
   dirty={dirty}                     // Esc / switch company / window close ask before discarding
   hint="Enter Next field · Ctrl+A Save · Alt+C Create group"   // status bar line
-  actions={[                        // right rail; keys become screen hotkeys while on top
+  actions={[                        // command bar / shortcut bar; keys become screen hotkeys while on top
     { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: save, disabled: !dirty },
+    { key: 'Alt+R', label: 'Make recurring', icon: 'refresh', onClick: recur, prominent: true }, // a button, not under More
     { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: remove, hidden: !id, group: 'danger' },
   ]}
   toolbar={<Button …/>}             // header buttons (optional)
@@ -188,12 +196,12 @@ const { forResult, returnResult, cancel } = useScreenResult<{ id: number; name: 
 |---|---|
 | `useScreenTitle(title)` | runtime title (breadcrumb, window title) — `<Screen>` does this |
 | `useDirty(isDirty)` | unsaved work → Esc/F3/Ctrl+Q/window close ask first; also `pevqori.setDirty` |
-| `useScreenActions(items)` | contribute rail actions + register their keys (several components may contribute) |
+| `useScreenActions(items)` | contribute actions (command bar, shortcut bar, F1 list) + register their keys (several components may contribute) |
 | `useStatusHint(text)` | status bar hint while on top |
 | `useScreen()` | `{ entry, index, isTop, visible, def }` |
 | `useScreenResult()` | see above |
 
-**Stack behaviour:** the Gateway is always at the bottom. Lower screens stay mounted and hidden
+**Stack behaviour:** Home (`app.gateway`) is always at the bottom. Lower screens stay mounted and hidden
 (state kept, so you return to where you were) — the 8 most recent; deeper ones unmount and remount when you return.
 Hidden screens keep their queries subscribed but do **not** refetch while hidden: an invalidation
 (e.g. after a voucher save) only marks their data stale, and they refetch once when shown again
@@ -439,6 +447,20 @@ Global keys live on the root hotkey layer: they are fenced while any dialog/popo
 may handle `F8` itself to switch the voucher type). The full list renders in the shortcuts overlay
 (`GLOBAL_SHORTCUTS`, `reservedGlobalKeys()`).
 
+### Command bar and shortcut bar (2.0)
+
+Every screen's actions show in the screen bar's **command bar** (`lib/commandBar.ts` → `ui/CommandBar.tsx`):
+the `primary` action as the filled button; up to 3 / 2 / 1 more buttons by width — first the actions you
+mark `prominent: true` (declaration order), then Alter (Alt+A), Print (Alt+P), Share (Alt+W), Export
+(Alt+E), More details (Ctrl+I), Create (Alt+C); everything else, then F11 / F12 / F1, under **More ▾**
+with its key. Hidden actions never show; disabled ones show their `hint` in More. The command bar never
+registers keys, so `prominent` changes only what is visible. Write `prominent` (and any new action field)
+**after `onClick`** — never straight after `label` — or `lib/keyConventions.test.ts` cannot see the action.
+The 1.0 right rail survives as the optional **shortcut bar** (user menu › *Show shortcut bar*).
+
+**Ctrl+S** is an alias of **Ctrl+A** in the hotkey layer (`ui/lib/hotkeyRegistry.ts`): never bind Ctrl+S
+in a screen; binding Ctrl+A is enough.
+
 ### Screen conventions
 
 One meaning per key in every module (`CONVENTION_SHORTCUTS` in `lib/shortcuts.ts`, shown by F1):
@@ -600,12 +622,14 @@ export function TrialBalance() {
 |---|---|
 | `App.tsx`, `state.tsx`, `lib/appPhase.ts` | providers, top-level routing (no bridge → first run → login → company list → forced password → workspace); `CoreRestartNotice`: on the `core.restarted` command (main restarted a crashed core worker — nothing is open any more) shows an error toast and refreshes the app state |
 | `LockScreen.tsx`, `lib/sessionLock.ts` | idle lock (phase `locked`): lock screen over the kept workspace, lock/resume rules |
-| `Workspace.tsx`, `shell.tsx`, `lib/autoBackup.ts` | layout, top bar, rail, status bar; global hotkeys, menu commands, session keep-alive + idle timer, automatic backup |
+| `Workspace.tsx`, `shell.tsx`, `lib/autoBackup.ts`, `lib/commandBar.ts`, `lib/createMenu.ts` | layout, top bar (company, Create ▾ — only what the user may create —, search, ⚙, ?, user menu), screen bar + command bar, optional shortcut bar, status bar; global hotkeys, menu commands, session keep-alive + idle timer, Lock, automatic backup |
 | `nav.tsx`, `lib/navStack.ts`, `lib/initialFocus.ts`, `screenVisibility.ts` | stack, result delivery, per-screen hooks, initial focus, error boundary, DialogScreen |
 | `api.ts`, `bridge.ts`, `queryClient.ts`, `hooks/*`, `lib/queryCache.ts`, `lib/queryVisibility.ts`, `lib/apiErrors.ts` | API client, cache (hidden screens wait), errors |
 | `confirm.tsx` | useConfirm, withConfirmation |
 | `working.tsx`, `lib/workingContext.ts` | working date & period |
-| `Gateway.tsx`, `lib/menu.ts`, `wellKnown.ts` | Gateway menu, accelerators, welcome panel |
+| `Gateway.tsx`, `lib/menu.ts`, `lib/essentials.ts`, `wellKnown.ts` | Home: Essentials / All menus, accelerators, "Try the simpler Home", greeting |
+| `lib/uiPrefs.ts`, `AppearancePanel.tsx` | per-user Home view and shortcut bar (`pevqori.ui`, upgrade detection); the Appearance panel (theme, density, Home view, shortcut bar) |
+| `lib/emptyStates.test.ts` | every module DataTable has its own `empty` state (ratchet of the 2.0 baseline; the list may only shrink) |
 | `GotoPalette.tsx`, `gotoProviders.ts`, `lib/goto.ts`, `lib/gotoItems.ts`, `lib/gotoCatalog.ts` | Go To (+ the catalogue the e2e sweep reads) |
 | `ShortcutsOverlay.tsx`, `VoucherPicker.tsx`, `lib/shortcuts.ts`, `lib/voucherTypes.ts`, `hooks/useVoucherChoices.ts` | keyboard map, F1, F10 (predefined + company voucher types) |
 | `Screen.tsx`, `export.ts`, `lib/exportFormat.ts`, `display.ts` | layout patterns, export/print, formatting |

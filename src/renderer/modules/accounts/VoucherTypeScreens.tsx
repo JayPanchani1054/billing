@@ -213,6 +213,12 @@ const EMPTY_CONFIG: VtDraft['config'] = {
   stockJournalClass: null,
   showMrp: null,
   posInvoice: null,
+  // (2.0, print layout — edited from the print preview; kept as loaded, sent only when changed)
+  showHsnSummary: null,
+  showBankDetails: null,
+  showUpiQr: null,
+  itemwiseTax: null,
+  printLayout: null,
 };
 
 function draftOf(vt: VoucherTypeDetail | null, parent: VoucherTypeRow | null): VtDraft {

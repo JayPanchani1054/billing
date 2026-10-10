@@ -2,6 +2,7 @@
  * Vouchers module routes. The route table with input/output types is documented in README.md.
  */
 import { VOUCHER_BASE_TYPES } from '../../../shared/constants.ts';
+import { VOUCHER_NUMBER_MAX_LENGTH } from '../../../shared/numbering.ts';
 import { REGISTRATION_TYPES, TAXABILITIES } from '../../../shared/gst/index.ts';
 import {
   BILL_REF_TYPES,
@@ -22,10 +23,12 @@ import { pendingBills } from './bills.ts';
 import { entryContext, getVoucher, listVouchers, MAX_LIST_LIMIT, partyContext, trackingRefs } from './queries.ts';
 import {
   cancelVoucher,
+  checkVoucherNumber,
   deleteVoucher,
   duplicateVoucher,
   nextVoucherNumber,
   previewVoucher,
+  renumberVoucher,
   saveVoucher,
   setVoucherOptional,
 } from './service.ts';
@@ -190,6 +193,14 @@ export const VoucherInputSchema = v.object({
   forex: VoucherForexSchema.optional(),
   // POS bill / return: split tender, cash tendered, bill returned (pos module's voucher hook).
   posBill: VoucherPosSchema.optional(),
+  // 2.0: an authorised user's own number (vouchers.renumber; checked in numbering.ts › decideNumber).
+  numberOverride: v
+    .object({
+      number: v.string({ min: 1, max: VOUCHER_NUMBER_MAX_LENGTH }),
+      reason: optText(200),
+      continueSeries: v.boolean().optional(),
+    })
+    .optional(),
 }) as unknown as Schema<VoucherInput>;
 
 const ListSchema = v.object({
@@ -268,6 +279,33 @@ export const vouchersRoutes = {
     access: 'vouchers.view',
     input: v.object({ voucherTypeId: v.id(), date: v.date() }),
     handler: (ctx, input) => nextVoucherNumber(ctx, input.voucherTypeId, input.date),
+  }),
+  // 2.0: is a typed number free and well-formed (Change Number dialog, live check)?
+  'vouchers.numberCheck': companyRoute({
+    access: 'vouchers.view',
+    input: v.object({
+      voucherTypeId: v.id(),
+      date: v.date(),
+      number: v.string({ max: 200 }),
+      excludeId: v.id().optional(),
+      partyLedgerId: v.id().optional(),
+      mode: v.enum(VOUCHER_MODES).optional(),
+    }),
+    transactional: false,
+    handler: (ctx, input) => checkVoucherNumber(ctx, input),
+  }),
+  // 2.0: change the number of a saved voucher (the alter path with numberOverride; + vouchers.renumber in the service).
+  'vouchers.renumber': companyRoute({
+    access: 'vouchers.alter',
+    input: v.object({
+      id: v.id(),
+      number: v.string({ min: 1, max: VOUCHER_NUMBER_MAX_LENGTH }),
+      reason: optText(200),
+      continueSeries: v.boolean().optional(),
+      expectedUpdatedAt: v.string({ min: 1, max: 40 }),
+      acknowledgeWarnings: v.boolean().optional(),
+    }),
+    handler: (ctx, input) => renumberVoucher(ctx, input),
   }),
   'vouchers.setOptional': companyRoute({
     access: 'vouchers.alter',

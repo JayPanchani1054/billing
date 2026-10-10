@@ -6,23 +6,35 @@
  * turned on (gstOnly); reads need gst.view, files and manual entries need gst.file (checked per action).
  * Menu items marked `gstRegistrations` show only for that registration type (composition vs regular).
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { EinvoiceScreen } from './EinvoiceScreen.tsx';
-import { EwaybillScreen } from './EwaybillScreen.tsx';
-import { Gstr1Screen } from './Gstr1Screen.tsx';
-import { Gstr1SectionScreen } from './Gstr1SectionScreen.tsx';
-import { Gstr3bScreen } from './Gstr3bScreen.tsx';
-import { Gstr9Screen } from './Gstr9Screen.tsx';
-import { AdvancesScreen, BoeScreen } from './AdvancesBoeScreens.tsx';
-import { Cmp08Screen, CompositionRatesScreen, Gstr4Screen } from './CompositionScreens.tsx';
-import { AmendmentsScreen, FilingsScreen } from './FilingScreens.tsx';
-import { Gstr3bChangesScreen, Rule37Screen } from './GapsScreens.tsx';
-import { CashLedgerScreen, CreditLedgerScreen } from './LedgerScreens.tsx';
-import { SetoffScreen } from './SetoffScreen.tsx';
 import { CompositionCard } from './CompositionCard.tsx';
 import { VoucherGstPanel } from './VoucherGstPanel.tsx';
-import { GstExceptionsScreen, GstRegisterScreen, HsnSummaryScreen, ItcScreen } from './RegisterScreens.tsx';
 import './gst.css';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const EinvoiceScreen = lazyScreen(() => import('./EinvoiceScreen.tsx').then((m) => m.EinvoiceScreen));
+const EwaybillScreen = lazyScreen(() => import('./EwaybillScreen.tsx').then((m) => m.EwaybillScreen));
+const Gstr1Screen = lazyScreen(() => import('./Gstr1Screen.tsx').then((m) => m.Gstr1Screen));
+const Gstr1SectionScreen = lazyScreen(() => import('./Gstr1SectionScreen.tsx').then((m) => m.Gstr1SectionScreen));
+const Gstr3bScreen = lazyScreen(() => import('./Gstr3bScreen.tsx').then((m) => m.Gstr3bScreen));
+const Gstr9Screen = lazyScreen(() => import('./Gstr9Screen.tsx').then((m) => m.Gstr9Screen));
+const AdvancesScreen = lazyScreen(() => import('./AdvancesBoeScreens.tsx').then((m) => m.AdvancesScreen));
+const BoeScreen = lazyScreen(() => import('./AdvancesBoeScreens.tsx').then((m) => m.BoeScreen));
+const Cmp08Screen = lazyScreen(() => import('./CompositionScreens.tsx').then((m) => m.Cmp08Screen));
+const CompositionRatesScreen = lazyScreen(() => import('./CompositionScreens.tsx').then((m) => m.CompositionRatesScreen));
+const Gstr4Screen = lazyScreen(() => import('./CompositionScreens.tsx').then((m) => m.Gstr4Screen));
+const AmendmentsScreen = lazyScreen(() => import('./FilingScreens.tsx').then((m) => m.AmendmentsScreen));
+const FilingsScreen = lazyScreen(() => import('./FilingScreens.tsx').then((m) => m.FilingsScreen));
+const Gstr3bChangesScreen = lazyScreen(() => import('./GapsScreens.tsx').then((m) => m.Gstr3bChangesScreen));
+const Rule37Screen = lazyScreen(() => import('./GapsScreens.tsx').then((m) => m.Rule37Screen));
+const CashLedgerScreen = lazyScreen(() => import('./LedgerScreens.tsx').then((m) => m.CashLedgerScreen));
+const CreditLedgerScreen = lazyScreen(() => import('./LedgerScreens.tsx').then((m) => m.CreditLedgerScreen));
+const SetoffScreen = lazyScreen(() => import('./SetoffScreen.tsx').then((m) => m.SetoffScreen));
+const GstExceptionsScreen = lazyScreen(() => import('./RegisterScreens.tsx').then((m) => m.GstExceptionsScreen));
+const GstRegisterScreen = lazyScreen(() => import('./RegisterScreens.tsx').then((m) => m.GstRegisterScreen));
+const HsnSummaryScreen = lazyScreen(() => import('./RegisterScreens.tsx').then((m) => m.HsnSummaryScreen));
+const ItcScreen = lazyScreen(() => import('./RegisterScreens.tsx').then((m) => m.ItcScreen));
 
 export const gstModule: ModuleDef = {
   id: 'gst',

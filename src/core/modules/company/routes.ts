@@ -3,6 +3,7 @@ import { DEFAULT_FEATURES, type CompanyFeatures } from '../../../shared/settings
 import type { CompanyConfigInput, CompanyFeaturesInput, CompanyProfileInput } from '../../../shared/types/company.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { patchNullable, requiredNullable } from '../../lib/schemas.ts';
+import { printLayoutSchema, withValidCompanyLayout } from '../print/layoutSchema.ts';
 import { v, type Schema } from '../../lib/validate.ts';
 import {
   getCompanyProfile,
@@ -63,6 +64,8 @@ export const CompanyConfigInputSchema = v.object({
       paperSize: v.enum(['A4', 'A5', 'A5-landscape', 'Letter', 'Legal'] as const).optional(),
       rollWidth: v.enum(['80mm', '58mm'] as const).optional(),
       showMrp: v.boolean().optional(),
+      // (2.0) company print layout layer — replaced whole when given (shared/printLayout.ts).
+      layout: printLayoutSchema('company').optional(),
     })
     .optional(),
   // print group: e-mail / WhatsApp share texts (placeholders {document} {number} {date} {amount} {party} {company} {period}).
@@ -129,12 +132,13 @@ export const companyRoutes = {
   'company.config.get': companyRoute({
     access: 'authenticated',
     input: v.none(),
-    handler: (ctx) => getConfig(ctx.db),
+    // (2.0) invoice.layout as print data uses it (a stored layer that is no longer valid never blocks a save).
+    handler: (ctx) => withValidCompanyLayout(getConfig(ctx.db)),
   }),
   'company.config.save': companyRoute({
     access: 'company.manage',
     input: CompanyConfigInputSchema,
-    handler: (ctx, input) => saveConfig(ctx, input),
+    handler: (ctx, input) => withValidCompanyLayout(saveConfig(ctx, input)),
   }),
   'company.periodLock.set': companyRoute({
     access: 'period.lock',

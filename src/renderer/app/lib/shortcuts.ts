@@ -91,6 +91,7 @@ export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'Alt+W', label: 'Share as PDF by e-mail or WhatsApp (invoices, vouchers, statements)', group: 'Lists & reports', global: false, description: 'Needs the Data › Export permission' },
   { keys: 'Y, Ctrl+A', label: 'Yes / confirm', group: 'Dialogs', global: false },
   { keys: 'N, Escape', label: 'No / cancel', group: 'Dialogs', global: false },
+  { keys: 'Ctrl+S', label: 'Accept / save (same as Ctrl+A)', group: 'Forms', global: false, description: 'Works wherever Ctrl+A accepts or saves' },
 ];
 
 /** Keys feature screens must NOT bind (they belong to the shell). */

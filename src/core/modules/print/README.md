@@ -116,7 +116,9 @@ printing; the preview shows them under "Before you print".
 ## Options
 
 `options` = config.invoice (edited only on Invoice Printing, `print.settings`; F12 › Invoices summarises it), then the voucher type's `config` (`printTemplate`,
-`bankLedgerId`, `declaration`, `terms`), then `overrides`. `defaultTemplate` is `options.template`.
+`bankLedgerId`, `declaration`, `terms`; (2.0) the flags `showMrp`, `showHsnSummary`, `showBankDetails`, `showUpiQr`,
+`itemwiseTax` when true / false — null or absent = as in Invoice Printing), then `overrides` (an ignored `layout`
+key is accepted). `defaultTemplate` is `options.template`; `options.layout` is the validated company layout.
 
 - Bank details: outward invoices / debit notes / sales orders when `showBankDetails` and a bank
   ledger is chosen.
@@ -127,6 +129,18 @@ printing; the preview shows them under "Before you print".
 - Declaration only on sales documents and outward debit notes; terms as above.
 - e-Invoice (`irn`, `ackNo`, `ackDate`, `signedQr`) and e-Way Bill come from the voucher (printed as "e-Invoice" / "e-Way Bill No.", GSTN's spelling).
 - `navigation.prevId / nextId`: same voucher type, ordered by date, number sequence, id.
+
+## Print layouts (2.0)
+
+Every document carries `savedLayout { company, voucherType }`: `config.invoice.layout` and the voucher type's
+`config.printLayout`, each cleaned by `validatePrintLayout` (`shared/printLayout.ts`) once per request
+(`data.ts companyLayout` / `voucherTypeLayout`; a corrupt stored value → the empty layer and one `warn` log
+line with issue paths only) and passed through `shadowedByLegacy`. `print.sample` carries the company layer
+and an empty voucher-type layer. Core never applies a layout (no `applied`); the renderer resolves the layers
+with the per-print one and applies them. Save-side schemas: `layoutSchema.ts` (used by `company.config.save`
+and `accounts.voucherType.save`; `withValidCompanyLayout` cleans `invoice.layout` in the `company.config.get` /
+`.save` results so a stale stored layer never blocks Invoice Printing). Model, rules and warnings: docs/ARCHITECTURE.md "Print layouts (2.0)";
+tests: `layout.test.ts`, `shared/printLayout.test.ts`.
 
 ## Paper sizes and thermal receipts (print group)
 

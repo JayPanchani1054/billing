@@ -1,9 +1,7 @@
-/* ==========================================================================
-   Pevqori — base layer: reset, document defaults, focus, selection,
-   scrollbars, utilities, reduced motion, forced colours, print basics.
-   ========================================================================== */
+/* Pevqori base layer: reset, document defaults, focus, selection, scrollbars, utilities,
+   keyframes, forced colours, print basics. */
 
-/* ── Reset ─────────────────────────────────────────────────────────────── */
+/* Reset */
 *,
 *::before,
 *::after {
@@ -17,8 +15,8 @@ p, blockquote, figure, dl, dd, ol, ul, fieldset, legend, pre {
   margin: 0;
 }
 
-ol[class],
-ul[class] {
+/* Zero specificity: a component's own list padding/markers always win */
+:where(ol[class], ul[class]) {
   padding: 0;
   list-style: none;
 }
@@ -84,11 +82,9 @@ a:hover {
   display: none !important;
 }
 
-/* ── Document ──────────────────────────────────────────────────────────── */
+/* Document */
 html {
   height: 100%;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
 }
 
 body {
@@ -110,6 +106,16 @@ body {
   isolation: isolate;
 }
 
+/* Before the preferences bootstrap (index.html's data-theme="system" placeholder) let the theme-matched
+   native window colour show through instead of painting the light canvas: no flash on a dark OS. */
+html[data-theme="system"] {
+  color-scheme: light dark;
+}
+
+html[data-theme="system"] body {
+  background: transparent;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-weight: var(--fw-semibold);
   line-height: var(--lh-tight);
@@ -128,7 +134,7 @@ b {
   font-weight: var(--fw-semibold);
 }
 
-/* ── Focus ─────────────────────────────────────────────────────────────── */
+/* Focus */
 :focus {
   outline: none;
 }
@@ -138,13 +144,13 @@ b {
   outline-offset: var(--focus-ring-offset);
 }
 
-/* ── Selection ─────────────────────────────────────────────────────────── */
+/* Selection */
 ::selection {
   background: var(--selection-bg);
   color: var(--selection-text);
 }
 
-/* ── Scrollbars (Chromium) ─────────────────────────────────────────────── */
+/* Scrollbars (Chromium) */
 ::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
@@ -166,9 +172,8 @@ b {
   background-color: var(--scrollbar-thumb-hover);
 }
 
-/* ── Utilities ─────────────────────────────────────────────────────────── */
-.bx-num,
-.bx-tabular {
+/* Utilities */
+.bx-num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
 }
@@ -187,26 +192,6 @@ b {
   color: var(--text-muted);
 }
 
-.bx-secondary {
-  color: var(--text-secondary);
-}
-
-.bx-dr {
-  color: var(--dr);
-}
-
-.bx-cr {
-  color: var(--cr);
-}
-
-.bx-positive {
-  color: var(--positive);
-}
-
-.bx-negative {
-  color: var(--negative);
-}
-
 .bx-sr-only,
 .bx-sr-only-focusable:not(:focus):not(:focus-within) {
   position: absolute !important;
@@ -221,7 +206,7 @@ b {
   border: 0 !important;
 }
 
-/* ── Motion keyframes (durations come from tokens → 0 under reduced motion) ── */
+/* Motion keyframes (durations come from tokens → 0 under reduced motion) */
 @keyframes bx-spin {
   to {
     transform: rotate(360deg);
@@ -280,20 +265,14 @@ b {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-}
-
-/* ── Forced colours (Windows High Contrast) ────────────────────────────── */
+/* Forced colours (Windows High Contrast) */
 @media (forced-colors: active) {
   :focus-visible {
     outline-color: Highlight;
   }
 }
 
-/* ── Print basics ──────────────────────────────────────────────────────── */
+/* Print basics */
 @media print {
   @page {
     margin: 12mm;
@@ -307,8 +286,7 @@ b {
     color: var(--slate-1000);
   }
 
-  [data-print-hide],
-  .bx-no-print {
+  [data-print-hide] {
     display: none !important;
   }
 

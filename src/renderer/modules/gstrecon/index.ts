@@ -3,9 +3,12 @@
  * One screen ('gstrecon.home'); reads and the supplier e-mail need gst.view, the export also needs
  * data.export, imports / runs / decisions need gst.file (checked per action). GST must be on (gstOnly).
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { GstReconScreen } from './GstReconScreen.tsx';
 import './gstrecon.css';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const GstReconScreen = lazyScreen(() => import('./GstReconScreen.tsx').then((m) => m.GstReconScreen));
 
 export const gstreconModule: ModuleDef = {
   id: 'gstrecon',

@@ -146,6 +146,9 @@ describe('security roles', () => {
     assert.deepEqual([...all].sort(), [...PERMISSIONS].sort(), 'every permission exactly once');
     const create = cat.groups.flatMap((g) => g.items).find((i) => i.permission === 'vouchers.create');
     assert.equal(create?.fullLabel, 'Vouchers › Create vouchers');
+    // 2.0: changing voucher numbers is its own right, in the Vouchers group.
+    const renumber = cat.groups.flatMap((g) => g.items).find((i) => i.permission === 'vouchers.renumber');
+    assert.equal(renumber?.fullLabel, 'Vouchers › Change voucher numbers and the next number');
     assert.ok(cat.groups.every((g) => g.items.length > 0 && g.label.length > 0));
     assert.ok(cat.groups.flatMap((g) => g.items).every((i) => i.description.endsWith('.')));
     t.close();

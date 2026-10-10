@@ -12,7 +12,8 @@ import { getGotoProviders, onGotoProvidersChange, pushRecent, rankGoto, resolveG
 import type { GotoItem, GotoProvider, RankedGoto } from './lib/goto.ts';
 import { answerGotoCatalogRequest, GOTO_CATALOG_EVENT, gotoCatalogSnapshot } from './lib/gotoCatalog.ts';
 import { buildStaticGotoItems, parseRecent, usableRecents } from './lib/gotoItems.ts';
-import { screenIndex } from './lib/menu.ts';
+import { buildEssentials, essentialIds, essentialsFirst } from './lib/essentials.ts';
+import { buildGateway, screenIndex } from './lib/menu.ts';
 import { customVoucherGotoItems, parseVoucherCommand } from './lib/voucherTypes.ts';
 import { useModules, useNav } from './nav.tsx';
 import { useShell, VOUCHER_ENTRY_SCREEN } from './shell.tsx';
@@ -75,11 +76,17 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
 
   const voucherTypes = useVoucherChoices();
   const inactiveBaseTypes = useInactiveBaseTypes();
+  const menuCtx = useMemo(
+    () => ({ can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null, gstRegistration: app.company?.gstRegistration ?? null, inactiveBaseTypes }),
+    [app.can, app.company, inactiveBaseTypes],
+  );
+  // Home's Essentials (lib/essentials.ts): listed first while the search box is empty.
+  const essentialMenuIds = useMemo(() => essentialIds(buildEssentials(buildGateway(modules, menuCtx))), [modules, menuCtx]);
   const staticItems = useMemo(() => {
     const available = (b: VoucherBaseType) => shell.voucherAvailability(b).ok;
     return buildStaticGotoItems(
       modules,
-      { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null, gstRegistration: app.company?.gstRegistration ?? null, inactiveBaseTypes },
+      menuCtx,
       {
         // The vouchers module's Transactions menu already lists every voucher type (filtered by
         // permission and features) — the shell's own commands would show each one twice.
@@ -88,7 +95,7 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
         extra: customVoucherGotoItems(voucherTypes.filter((t) => available(t.baseType))),
       },
     );
-  }, [modules, app.can, app.company, nav, shell, voucherTypes, inactiveBaseTypes]);
+  }, [modules, menuCtx, nav, shell, voucherTypes]);
 
   // The every-screen e2e sweep reads this palette's own list (lib/gotoCatalog.ts): a read-only answer
   // to a window CustomEvent while the palette is open — nothing is exposed on window.
@@ -139,11 +146,11 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
     if (!q) {
       const recentIds = new Set(shownRecent.map((r) => r.id));
       const recents = shownRecent.map((item) => ({ item: { ...item, group: 'Recent' }, score: 0, ranges: [] }));
-      return [...recents, ...rankGoto(staticItems.filter((i) => !recentIds.has(i.id)), '', [], 60)];
+      return [...recents, ...rankGoto(essentialsFirst(staticItems.filter((i) => !recentIds.has(i.id)), essentialMenuIds), '', [], 60)];
     }
     const all = [...staticItems, ...asyncItems.filter((a) => !staticItems.some((s) => s.id === a.id))];
     return rankGoto(all, q, shownRecent.map((r) => r.id), 40);
-  }, [query, staticItems, asyncItems, shownRecent]);
+  }, [query, staticItems, asyncItems, shownRecent, essentialMenuIds]);
 
   // Group in rank order: a group's position is that of its best item.
   const rows = useMemo<Row[]>(() => {

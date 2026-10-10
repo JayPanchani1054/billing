@@ -3,6 +3,7 @@
  * the keys 'features' and 'config'. Always read through the company module helpers, which
  * deep-merge stored values over these defaults (so new keys get sane defaults automatically).
  */
+import type { PrintLayoutSpec } from './printLayout.ts';
 
 export interface CompanyFeatures {
   // Accounting
@@ -99,6 +100,11 @@ export interface CompanyConfig {
     rollWidth: ReceiptRollWidth;
     /** (print group) MRP column for items with an MRP (+ "You saved" on receipts) on sales documents. */
     showMrp: boolean;
+    /**
+     * (2.0) Company print layout layer: parts hidden / shown and texts replaced on every document
+     * (shared/printLayout.ts). Arrays only, so mergeDefaults keeps it on read and save.
+     */
+    layout: PrintLayoutSpec;
   };
   /**
    * (print group) Texts used when sharing a document (e-mail / WhatsApp). Placeholders: {document}
@@ -148,6 +154,7 @@ export const DEFAULT_CONFIG: CompanyConfig = {
     paperSize: 'A4',
     rollWidth: '80mm',
     showMrp: false,
+    layout: { hide: [], show: [], text: [] },
   },
   share: {
     emailSubject: '{document} {number} dated {date} — {company}',

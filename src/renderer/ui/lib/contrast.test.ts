@@ -1,6 +1,7 @@
 /**
  * Guards WCAG AA for the design tokens: every semantic text/background pair ≥ 4.5:1 and every
- * control boundary / focus ring / icon / chart series ≥ 3:1, in light, dark and system-dark.
+ * control boundary / focus ring / icon / chart series ≥ 3:1, in light and dark. 2.0 has exactly one
+ * dark block: the 'system' preference is resolved in JS (ui/theme.ts), so no system block exists.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -91,17 +92,19 @@ function check(selector: string): string[] {
   return failures;
 }
 
-for (const selector of ['[data-theme="light"]', '[data-theme="dark"]', '[data-theme="system"]']) {
+for (const selector of ['[data-theme="light"]', '[data-theme="dark"]']) {
   test(`tokens meet WCAG AA in ${selector}`, () => {
     const failures = check(selector);
     assert.deepEqual(failures, [], failures.join('\n'));
   });
 }
 
-test('system-dark block mirrors explicit dark block exactly', () => {
-  const dark = parseDeclarations(extractBlock(css, '[data-theme="dark"]') ?? '');
-  const system = parseDeclarations(extractBlock(css, '[data-theme="system"]') ?? '');
-  assert.deepEqual([...system.entries()].sort(), [...dark.entries()].sort());
+test('there is one dark block and no system block (system is resolved in JS)', () => {
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.equal(extractBlock(css, '[data-theme="system"]'), null);
+  assert.ok(!clean.includes('data-theme="system"'), 'no [data-theme="system"] selector');
+  assert.ok(!clean.includes('prefers-color-scheme'), 'no prefers-color-scheme media block');
+  assert.equal(clean.split('[data-theme="dark"]').length - 1, 1, 'exactly one dark block');
 });
 
 test('dark block overrides every light semantic colour token', () => {

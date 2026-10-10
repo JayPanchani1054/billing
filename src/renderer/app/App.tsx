@@ -11,6 +11,7 @@ import { Button, EmptyState, Icon, Spinner, ToastProvider, useToast } from '../u
 import { onBridgeEvent } from './bridge.ts';
 import { ConfirmProvider } from './confirm.tsx';
 import { isApiError, userMessage } from './lib/apiErrors.ts';
+import { markPhase } from './lib/perfMarks.ts';
 import { LockScreen } from './LockScreen.tsx';
 import type { ModuleDef } from './registry.ts';
 import { shellModule } from './shellModule.ts';
@@ -34,6 +35,12 @@ export function App() {
 function Root() {
   const app = useAppState();
   const modules = useMemo<readonly ModuleDef[]>(() => [shellModule, ...featureModules], []);
+  // Start-up marks (lib/perfMarks.ts): `pevqori:first-screen` once the first start screen (normally the
+  // company list) has been committed, `pevqori:shell-ready` once the workspace has first mounted (this
+  // parent effect runs after the children's own). Each is set once; later switches and locks never move it.
+  useEffect(() => {
+    markPhase(app.phase);
+  }, [app.phase]);
   switch (app.phase) {
     case 'no-bridge':
       return <BridgeMissing />;

@@ -6,14 +6,17 @@
  * (VoucherPanel.tsx) through ModuleDef.voucherPanels; the printed foreign-currency block
  * (PrintBlock.tsx) by the print templates.
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { LedgerScreen } from './LedgerScreen.tsx';
-import { OpeningScreen } from './OpeningScreen.tsx';
-import { OutstandingScreen } from './OutstandingScreen.tsx';
-import { RevaluationScreen } from './RevaluationScreen.tsx';
-import { SettingsScreen } from './SettingsScreen.tsx';
 import { ForexVoucherPanel } from './VoucherPanel.tsx';
 import './forex.css';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const LedgerScreen = lazyScreen(() => import('./LedgerScreen.tsx').then((m) => m.LedgerScreen));
+const OpeningScreen = lazyScreen(() => import('./OpeningScreen.tsx').then((m) => m.OpeningScreen));
+const OutstandingScreen = lazyScreen(() => import('./OutstandingScreen.tsx').then((m) => m.OutstandingScreen));
+const RevaluationScreen = lazyScreen(() => import('./RevaluationScreen.tsx').then((m) => m.RevaluationScreen));
+const SettingsScreen = lazyScreen(() => import('./SettingsScreen.tsx').then((m) => m.SettingsScreen));
 
 const FX = 'multiCurrency' as const;
 

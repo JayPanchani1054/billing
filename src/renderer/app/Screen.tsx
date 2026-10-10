@@ -29,7 +29,11 @@ export interface ScreenLayoutProps {
   title: string;
   subtitle?: ReactNode;
   icon?: IconName;
-  /** Rail actions; their keys become screen hotkeys while this screen is on top. */
+  /**
+   * Screen actions, shown in the screen bar's command bar (the primary, `prominent` and convention
+   * ones as buttons, the rest under More) and in the optional shortcut bar; their keys become screen
+   * hotkeys while this screen is on top.
+   */
   actions?: readonly ScreenActionItem[];
   /** Buttons in the header (right side). */
   toolbar?: ReactNode;

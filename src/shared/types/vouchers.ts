@@ -91,7 +91,9 @@ export type VoucherWarningCode =
   /** Foreign-currency checks and realised exchange differences (forex module voucher hook). */
   | 'forex'
   /** POS bill / return: tenders, change, credit, exchange credit, returned quantities (pos module voucher hook). */
-  | 'pos';
+  | 'pos'
+  /** 2.0 numbering: a changed number's bill keeps its name; setting a series' next number (skips, gaps). */
+  | 'numbering';
 
 export interface VoucherWarning {
   code: VoucherWarningCode;
@@ -317,6 +319,27 @@ export interface VoucherInput {
   forex?: VoucherForexInput;
   /** POS module (F11 › POS invoicing): split tender / refund of a POS bill or return (see VoucherPosInput). */
   posBill?: VoucherPosInput;
+  /**
+   * 2.0 — an authorised user's own number for this voucher (needs `vouchers.renumber`), on create or
+   * alter, on any numbering method but 'none'. Never inferred from `number`; never stored in the voucher's
+   * input (vouchers.meta). See VoucherNumberOverride.
+   */
+  numberOverride?: VoucherNumberOverride;
+}
+
+/**
+ * VoucherInput.numberOverride. Checks (VALIDATION / CONFLICT on path 'number'): a GST document (sales,
+ * credit / debit note of a GST company) 1–16 characters of letters, digits, '/' and '-'; others 1–60
+ * characters without control characters. Unique within the financial year for outward GST documents,
+ * within the numbering period otherwise — whatever "Prevent duplicates" says. Recorded in the edit log
+ * (create: `numberOverride { to, next, reason }`, alter: `numberChange { from, to, reason }`).
+ */
+export interface VoucherNumberOverride {
+  number: string;
+  /** Why (≤ 200 characters), kept in the edit log. */
+  reason?: string;
+  /** Advance the type's counter to this number's sequence so the next automatic number follows it (never lowers it). */
+  continueSeries?: boolean;
 }
 
 /** One occurrence of a recurring-voucher template (documents module): `periodKey` 'YYYY-MM' or 'YYYY-MM-DD'. */
@@ -730,4 +753,100 @@ export interface TrackingDoc {
   /** Value to put into ItemLineInput.trackingRef (notes) or .orderRef (orders). */
   ref: string;
   lines: TrackingDocLine[];
+}
+
+// ───────────────────────────── 2.0: numbering routes ─────────────────────────────
+
+/** 'vouchers.numberCheck' input (vouchers.view). */
+export interface VoucherNumberCheckInput {
+  voucherTypeId: number;
+  date: string;
+  number: string;
+  /** The voucher being altered (its own number is not "taken"). */
+  excludeId?: number;
+  /**
+   * Party and mode of the voucher being entered: a debit note is an outward GST document (unique in the
+   * financial year) only in an invoice mode to a customer. Without them (and without `excludeId`) a debit
+   * note is checked under both rules.
+   */
+  partyLedgerId?: number;
+  mode?: VoucherMode;
+}
+
+/** 'vouchers.numberCheck' result: can `number` be used for a voucher of the type dated `date`? */
+export interface VoucherNumberCheckResult {
+  /** No problems and not taken. */
+  ok: boolean;
+  /** Another voucher of the type uses it within `scopeLabel`. */
+  taken: boolean;
+  /** Format problems (shared/numbering.ts › voucherNumberProblems; GST documents: gstDocNumberProblems). */
+  problems: string[];
+  /** Its sequence in the type's format on that date ('INV/26-27/0141' → 141), else null. */
+  seq: number | null;
+  /** The uniqueness scope: 'FY 2026-27' (outward GST documents and yearly series), 'Apr 2026', 'All years'. */
+  scopeLabel: string;
+}
+
+/** 'vouchers.renumber' input (vouchers.alter + vouchers.renumber): change the number of a saved voucher. */
+export interface VoucherRenumberInput {
+  id: number;
+  number: string;
+  reason?: string;
+  continueSeries?: boolean;
+  expectedUpdatedAt: string;
+  acknowledgeWarnings?: boolean;
+}
+
+/** 'accounts.voucherType.numberingStatus' row (masters.view): the series of one voucher type on a date. */
+export interface NumberingStatusRow {
+  id: number;
+  /** Counter key: FY label ('2026-27'), month ('2026-04') or 'all'. */
+  periodKey: string;
+  /** 'FY 2026-27', 'Apr 2026' or 'All years'. */
+  periodLabel: string;
+  /** Last sequence the counter gave out in the period (0 = none yet). */
+  counter: number;
+  /** Highest sequence used by a voucher of the type in the period (typed numbers included), else null. */
+  highestUsed: number | null;
+  /** Sequence of the next automatic number (taken numbers skipped). */
+  nextSeq: number;
+  /** The next automatic number ('' for manual / no numbering). */
+  next: string;
+  vouchersInPeriod: number;
+}
+
+/** 'accounts.voucherType.setNextNumber' input (vouchers.renumber). */
+export interface SetNextNumberInput {
+  id: number;
+  /** Any date in the numbering period whose counter is set (usually the working date). */
+  date: string;
+  /** The next sequence to give out (1 – 999 999 999). */
+  next: number;
+  acknowledgeWarnings?: boolean;
+}
+
+export interface SetNextNumberResult {
+  /** The next number as it will be printed, e.g. 'INV/26-27/0042'. */
+  next: string;
+  warnings: string[];
+}
+
+/** 'accounts.voucherType.numberGaps' input (vouchers.view). */
+export interface NumberGapsInput {
+  id: number;
+  from: string;
+  to: string;
+}
+
+/** Missing numbers of a series between two dates (GSTR-1 Table 13 hygiene). */
+export interface NumberGapsResult {
+  /** Lowest / highest number issued in the range (numbers in the type's format only), null when none. */
+  first: string | null;
+  last: string | null;
+  /** Vouchers of the type in the range with a number in the type's format (cancelled included). */
+  issued: number;
+  cancelled: number;
+  /** Numbers between first and last that no voucher carries (at most 200 listed). */
+  missing: string[];
+  missingCount: number;
 }

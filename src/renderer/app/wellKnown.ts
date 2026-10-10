@@ -22,4 +22,7 @@ export const WELL_KNOWN_SCREENS = {
   companyProfile: 'company.profile',
   companyFeatures: 'company.features',
   companyConfig: 'company.config',
+  /** (2.0) Settings hub — the topbar gear opens it when registered (company module). */
+  settings: 'company.settings',
+  companyAbout: 'company.about',
 } as const;

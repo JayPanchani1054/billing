@@ -4,13 +4,17 @@
  * interest on overdue bills and payment reminder letters; plus the dashboard's <DueSoonWidget>.
  * See ./README.md.
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { InterestScreen } from './InterestScreen.tsx';
-import { PayablesScreen, ReceivablesScreen } from './OutstandingReport.tsx';
-import { PartyScreen } from './PartyScreen.tsx';
-import { RemindersScreen } from './RemindersScreen.tsx';
-import { StatementScreen } from './StatementScreen.tsx';
 import './outstanding.css';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const InterestScreen = lazyScreen(() => import('./InterestScreen.tsx').then((m) => m.InterestScreen));
+const PayablesScreen = lazyScreen(() => import('./OutstandingReport.tsx').then((m) => m.PayablesScreen));
+const ReceivablesScreen = lazyScreen(() => import('./OutstandingReport.tsx').then((m) => m.ReceivablesScreen));
+const PartyScreen = lazyScreen(() => import('./PartyScreen.tsx').then((m) => m.PartyScreen));
+const RemindersScreen = lazyScreen(() => import('./RemindersScreen.tsx').then((m) => m.RemindersScreen));
+const StatementScreen = lazyScreen(() => import('./StatementScreen.tsx').then((m) => m.StatementScreen));
 
 export { DueSoonWidget } from './DueSoon.tsx';
 export type { DueSoonWidgetProps } from './DueSoon.tsx';

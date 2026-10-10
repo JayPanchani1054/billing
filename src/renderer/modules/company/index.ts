@@ -15,6 +15,7 @@ import { CompanyProfileScreen } from './CompanyProfileScreen.tsx';
 import { ConfigScreen } from './ConfigScreen.tsx';
 import { FeaturesScreen } from './FeaturesScreen.tsx';
 import { PeriodLockScreen } from './PeriodLockScreen.tsx';
+import { UpdateNotice } from './UpdateNotice.tsx';
 
 export const companyModule: ModuleDef = {
   id: 'company',
@@ -35,4 +36,6 @@ export const companyModule: ModuleDef = {
     { section: 'utilities', label: 'Keyboard Shortcuts', screen: 'company.shortcuts', order: 900, description: 'Every key in one list' },
     { section: 'utilities', label: 'About Pevqori', screen: 'company.about', order: 910, description: 'Version and data folder' },
   ],
+  // In-app updates (2.0): "Pevqori x.y.z is ready — Restart to update" on Home (UpdateNotice.tsx).
+  gatewayNotices: [UpdateNotice],
 };

@@ -61,6 +61,7 @@ import {
   VoucherTypeSaveInputSchema,
 } from './schemas.ts';
 import { deleteVoucherType, getVoucherType, listVoucherTypes, saveVoucherType } from './voucherTypes.ts';
+import { MAX_NEXT_NUMBER, numberGaps, numberingStatus, setNextNumber } from './numbering.ts';
 
 export const accountsRoutes = {
   // ── Groups ──
@@ -230,6 +231,24 @@ export const accountsRoutes = {
     access: 'masters.delete',
     input: IdInputSchema,
     handler: (ctx, { id }) => deleteVoucherType(ctx, id),
+  }),
+  // ── 2.0: invoice number series (Invoice Numbering screen; ./numbering.ts) ──
+  'accounts.voucherType.numberingStatus': companyRoute({
+    access: 'masters.view',
+    input: v.object({ ids: v.array(v.id(), { max: 500 }).optional(), date: v.date() }),
+    transactional: false,
+    handler: (ctx, input) => numberingStatus(ctx.db, input),
+  }),
+  'accounts.voucherType.setNextNumber': companyRoute({
+    access: 'vouchers.renumber', // checked again in the service
+    input: v.object({ id: v.id(), date: v.date(), next: v.int({ min: 1, max: MAX_NEXT_NUMBER }), acknowledgeWarnings: v.boolean().optional() }),
+    handler: (ctx, input) => setNextNumber(ctx, input),
+  }),
+  'accounts.voucherType.numberGaps': companyRoute({
+    access: 'vouchers.view',
+    input: v.object({ id: v.id(), from: v.date(), to: v.date() }),
+    transactional: false,
+    handler: (ctx, input) => numberGaps(ctx.db, input),
   }),
 
   // ── Chart of accounts ──

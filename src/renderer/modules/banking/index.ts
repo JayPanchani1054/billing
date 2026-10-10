@@ -14,14 +14,18 @@
 import './banking.css';
 import { api } from '../../app/api.ts';
 import { registerGotoProvider } from '../../app/lib/goto.ts';
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
 import { todayLocal } from '../../../shared/dates.ts';
-import { BrsScreen } from './BrsScreen.tsx';
-import { DepositSlipScreen } from './DepositSlipScreen.tsx';
-import { ImportScreen } from './ImportScreen.tsx';
-import { MatchScreen } from './MatchScreen.tsx';
-import { ChequeRegisterScreen, PdcScreen } from './RegisterScreens.tsx';
-import { SummaryScreen } from './SummaryScreen.tsx';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const BrsScreen = lazyScreen(() => import('./BrsScreen.tsx').then((m) => m.BrsScreen));
+const DepositSlipScreen = lazyScreen(() => import('./DepositSlipScreen.tsx').then((m) => m.DepositSlipScreen));
+const ImportScreen = lazyScreen(() => import('./ImportScreen.tsx').then((m) => m.ImportScreen));
+const MatchScreen = lazyScreen(() => import('./MatchScreen.tsx').then((m) => m.MatchScreen));
+const ChequeRegisterScreen = lazyScreen(() => import('./RegisterScreens.tsx').then((m) => m.ChequeRegisterScreen));
+const PdcScreen = lazyScreen(() => import('./RegisterScreens.tsx').then((m) => m.PdcScreen));
+const SummaryScreen = lazyScreen(() => import('./SummaryScreen.tsx').then((m) => m.SummaryScreen));
 
 export const bankingModule: ModuleDef = {
   id: 'banking',

@@ -4,16 +4,25 @@
  * Gateway section "TDS / TCS"; every screen is in Go To (Alt+G). The voucher entry panel
  * (EntryPanel.tsx) is rendered by the vouchers module.
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { ChallanScreen } from './ChallanScreen.tsx';
-import { LedgerFormScreen, LedgersScreen } from './LedgerScreens.tsx';
-import { NatureFormScreen, NaturesScreen } from './NatureScreens.tsx';
-import { ReceivableScreen } from './ReceivableScreen.tsx';
-import { ChallansScreen, ComputationScreen, ExceptionsScreen, LinesScreen, OutstandingScreen } from './ReportScreens.tsx';
-import { ReturnScreen } from './ReturnScreen.tsx';
-import { SetupScreen } from './SetupScreen.tsx';
 import { TdsVoucherPanel } from './VoucherPanel.tsx';
 import { TdsDueNotice } from './notices.tsx';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const ChallanScreen = lazyScreen(() => import('./ChallanScreen.tsx').then((m) => m.ChallanScreen));
+const LedgerFormScreen = lazyScreen(() => import('./LedgerScreens.tsx').then((m) => m.LedgerFormScreen));
+const LedgersScreen = lazyScreen(() => import('./LedgerScreens.tsx').then((m) => m.LedgersScreen));
+const NatureFormScreen = lazyScreen(() => import('./NatureScreens.tsx').then((m) => m.NatureFormScreen));
+const NaturesScreen = lazyScreen(() => import('./NatureScreens.tsx').then((m) => m.NaturesScreen));
+const ReceivableScreen = lazyScreen(() => import('./ReceivableScreen.tsx').then((m) => m.ReceivableScreen));
+const ChallansScreen = lazyScreen(() => import('./ReportScreens.tsx').then((m) => m.ChallansScreen));
+const ComputationScreen = lazyScreen(() => import('./ReportScreens.tsx').then((m) => m.ComputationScreen));
+const ExceptionsScreen = lazyScreen(() => import('./ReportScreens.tsx').then((m) => m.ExceptionsScreen));
+const LinesScreen = lazyScreen(() => import('./ReportScreens.tsx').then((m) => m.LinesScreen));
+const OutstandingScreen = lazyScreen(() => import('./ReportScreens.tsx').then((m) => m.OutstandingScreen));
+const ReturnScreen = lazyScreen(() => import('./ReturnScreen.tsx').then((m) => m.ReturnScreen));
+const SetupScreen = lazyScreen(() => import('./SetupScreen.tsx').then((m) => m.SetupScreen));
 
 const ANY = ['tds', 'tcs'] as const;
 

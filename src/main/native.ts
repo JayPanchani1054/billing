@@ -31,6 +31,7 @@ import { isThemeMode } from './prefs.ts';
 import type { PdfMargins, PrintService } from './print.ts';
 import { NATIVE_PAGE_SIZES, resolvePageSpec, validPrinterName, type PageSpec } from './printPage.ts';
 import { buildDraftEml, ensureSharedExportsDir, freeFileName, indianMobileForWhatsapp, mailtoUrl, MAX_SHARE_URL, parseRecipients, SharedFolderError, whatsappUrl } from './share.ts';
+import type { UpdateService } from './updates/service.ts';
 import type { WindowManager } from './window.ts';
 
 export const MAX_OPEN_BYTES = 100 * 1024 * 1024;
@@ -52,6 +53,8 @@ export interface NativeDeps {
   paths: { userData: string; logs: string; documents: string };
   /** Quit (optionally relaunch) without the unsaved-work prompt — the renderer asked for it. */
   requestQuit(options: { relaunch: boolean }): void;
+  /** In-app updates (2.0, updates/service.ts). The renderer never passes a URL, path or version. */
+  updates: UpdateService;
 }
 
 export type NativeHandler = (ctx: NativeCallContext, action: unknown, payload: unknown) => Promise<ApiResult<unknown>>;
@@ -150,6 +153,8 @@ function shareText(o: Record<string, unknown>, key: string, max: number, singleL
   return v;
 }
 const PDF_MARGINS: readonly PdfMargins[] = ['default', 'none', 'minimum'];
+const INSTALL_WHEN = ['now', 'on-quit'] as const;
+const USER_UPDATE_MODES = ['manual', 'weekly'] as const;
 const THEMES = ['system', 'light', 'dark'] as const;
 
 /** Copy into a standalone buffer: IPC structured clone sends a view's ENTIRE backing ArrayBuffer. */
@@ -527,6 +532,31 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
 
     async 'app.quit'() {
       setImmediate(() => deps.requestQuit({ relaunch: false }));
+    },
+
+    // ── In-app updates: only check / download reach the network (updates/service.ts) ──
+    async 'updates.status'() {
+      return deps.updates.status();
+    },
+
+    async 'updates.check'() {
+      return deps.updates.check();
+    },
+
+    async 'updates.download'() {
+      return deps.updates.download();
+    },
+
+    async 'updates.install'(payload) {
+      const when = optEnum(record(payload), 'when', INSTALL_WHEN);
+      if (!when) throw invalid('Invalid install choice.');
+      return deps.updates.install(when);
+    },
+
+    async 'updates.setMode'(payload) {
+      const mode = optEnum(record(payload), 'mode', USER_UPDATE_MODES);
+      if (!mode) throw invalid('Invalid update mode.');
+      return deps.updates.setMode(mode);
     },
   };
 

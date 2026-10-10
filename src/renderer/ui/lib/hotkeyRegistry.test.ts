@@ -163,3 +163,85 @@ test('a child registered before its parent layer is not effective until the pare
   r.dispatch(key('F3'));
   assert.deepEqual(calls, ['child']);
 });
+
+// ── Ctrl+S = Ctrl+A (accept / save) alias (SPEC D11) ──
+
+test('Ctrl+S runs Ctrl+A where the scope binds Ctrl+A only', () => {
+  const r = make();
+  const calls: string[] = [];
+  const screen = r.allocateLayerId();
+  r.upsertLayer(screen, { parent: ROOT_LAYER, blocking: false, active: true });
+  r.addBinding(screen, parseHotkeyList('Ctrl+A'), () => void calls.push('save'));
+  const e = key('s', { ctrl: true });
+  assert.equal(r.dispatch(e), true);
+  assert.deepEqual(calls, ['save']);
+  assert.equal(e.prevented, true);
+  // In a text box too (Ctrl combos are never plain typing), and by physical key on other layouts.
+  assert.equal(r.dispatch(key('s', { ctrl: true, target: 'input' })), true);
+  const other: FakeEvent = { ...key('ы', { ctrl: true }), code: 'KeyS' };
+  assert.equal(r.dispatch(other), true);
+  assert.deepEqual(calls, ['save', 'save', 'save']);
+  // Shift / Alt variants are other keys.
+  assert.equal(r.dispatch(key('s', { ctrl: true, shift: true })), false);
+  assert.equal(r.dispatch(key('s', { ctrl: true, alt: true })), false);
+});
+
+test('Ctrl+S bound by the scope keeps its own meaning (no alias)', () => {
+  const r = make();
+  const calls: string[] = [];
+  r.addBinding(ROOT_LAYER, parseHotkeyList('Ctrl+A'), () => void calls.push('accept'));
+  r.addBinding(ROOT_LAYER, parseHotkeyList('Ctrl+S'), () => void calls.push('own-ctrl-s'));
+  r.dispatch(key('s', { ctrl: true }));
+  assert.deepEqual(calls, ['own-ctrl-s']);
+  // Even a Ctrl+S binding that declines the key (returns false) is "bound": no alias then.
+  const r2 = make();
+  const calls2: string[] = [];
+  r2.addBinding(ROOT_LAYER, parseHotkeyList('Ctrl+A'), () => void calls2.push('accept'));
+  r2.addBinding(ROOT_LAYER, parseHotkeyList('Ctrl+S'), () => false);
+  assert.equal(r2.dispatch(key('s', { ctrl: true })), false);
+  assert.deepEqual(calls2, []);
+});
+
+test('Ctrl+S does nothing where neither Ctrl+A nor Ctrl+S is bound', () => {
+  const r = make();
+  r.addBinding(ROOT_LAYER, parseHotkeyList('F8'), () => undefined);
+  const e = key('s', { ctrl: true });
+  assert.equal(r.dispatch(e), false);
+  assert.equal(e.prevented, false);
+});
+
+test('Ctrl+S follows the dialog fence: the dialog accepts, the screen beneath does not save', () => {
+  const r = make();
+  const calls: string[] = [];
+  const screen = r.allocateLayerId();
+  r.upsertLayer(screen, { parent: ROOT_LAYER, blocking: false, active: true });
+  r.addBinding(screen, parseHotkeyList('Ctrl+A'), () => void calls.push('screen-save'));
+  const modal = r.allocateLayerId();
+  r.upsertLayer(modal, { parent: screen, blocking: true, active: true });
+  // A dialog without Ctrl+A: the fenced screen's Ctrl+A must not run.
+  assert.equal(r.dispatch(key('s', { ctrl: true })), false);
+  assert.equal(calls.length, 0);
+  r.addBinding(modal, parseHotkeyList('Y, Ctrl+A'), () => void calls.push('dialog-accept'));
+  assert.equal(r.dispatch(key('s', { ctrl: true })), true);
+  assert.deepEqual(calls, ['dialog-accept']);
+  r.removeLayer(modal);
+  r.dispatch(key('s', { ctrl: true }));
+  assert.deepEqual(calls, ['dialog-accept', 'screen-save']);
+});
+
+test('Ctrl+S alias respects priority (deeper layer, newest binding) and a declining Ctrl+A handler', () => {
+  const r = make();
+  const calls: string[] = [];
+  const screen = r.allocateLayerId();
+  r.upsertLayer(screen, { parent: ROOT_LAYER, blocking: false, active: true });
+  r.addBinding(ROOT_LAYER, parseHotkeyList('Ctrl+A'), () => void calls.push('root'));
+  r.addBinding(screen, parseHotkeyList('Ctrl+A'), () => {
+    calls.push('screen-declines');
+    return false;
+  });
+  r.dispatch(key('s', { ctrl: true }));
+  assert.deepEqual(calls, ['screen-declines', 'root']);
+  // Ctrl+A itself is unchanged.
+  r.dispatch(key('a', { ctrl: true }));
+  assert.deepEqual(calls, ['screen-declines', 'root', 'screen-declines', 'root']);
+});

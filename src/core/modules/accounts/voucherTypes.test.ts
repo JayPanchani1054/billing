@@ -207,3 +207,24 @@ describe('voucher types: predefined protection, config, delete', () => {
     t.close();
   });
 });
+
+describe('voucher types: print layout config (2.0)', () => {
+  it('stores the print layout layer and the four print flags as key-level patches; null clears; children inherit', () => {
+    const t = createTestCompany();
+    const id = t.ids.voucherTypes.sales;
+    const printLayout = { hide: ['col.discount' as const], show: [], text: [{ id: 'footer' as const, value: 'Thank you' }] };
+    const s = saveVoucherType(t.ctx, { id, config: { printLayout, showHsnSummary: false, showBankDetails: true, showUpiQr: false, itemwiseTax: true } });
+    assert.deepEqual(s.config.printLayout, printLayout);
+    assert.deepEqual([s.config.showHsnSummary, s.config.showBankDetails, s.config.showUpiQr, s.config.itemwiseTax], [false, true, false, true]);
+    // Re-read from the table; an unrelated save keeps them.
+    saveVoucherType(t.ctx, { id, abbreviation: 'Sl' });
+    assert.deepEqual(getVoucherType(t.db, id).config.printLayout, printLayout);
+    const child = saveVoucherType(t.ctx, { name: 'Counter Sales', parentId: id });
+    assert.deepEqual(child.config.printLayout, printLayout, 'a new type starts from its parent`s print settings');
+    const cleared = saveVoucherType(t.ctx, { id, config: { printLayout: null, showHsnSummary: null, showBankDetails: null, showUpiQr: null, itemwiseTax: null } });
+    for (const k of ['printLayout', 'showHsnSummary', 'showBankDetails', 'showUpiQr', 'itemwiseTax'] as const) assert.equal(k in cleared.config, false, k);
+    assert.equal(cleared.config.defaultLedgerId, s.config.defaultLedgerId, 'other keys untouched');
+    assert.equal(lastAudit(t, 'voucher_type')?.action, 'alter');
+    t.close();
+  });
+});

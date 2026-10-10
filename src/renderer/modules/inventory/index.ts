@@ -3,6 +3,7 @@
  * godowns and price lists, plus reusable pickers (see README.md). Every screen needs the Inventory
  * feature (F11); godowns also need Multiple godowns and price lists Price levels.
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
 import { api } from '../../app/api.ts';
 import { registerGotoProvider } from '../../app/lib/goto.ts';
@@ -10,12 +11,14 @@ import { formatQty } from '../../../shared/format.ts';
 import { CategoryFormScreen, CategoryListScreen } from './Categories.tsx';
 import { GodownFormScreen, GodownListScreen } from './Godowns.tsx';
 import { GroupFormScreen, GroupListScreen } from './Groups.tsx';
-import { ItemBulkScreen } from './ItemBulk.tsx';
 import { ItemFormScreen } from './ItemForm.tsx';
-import { ItemListScreen } from './ItemList.tsx';
 import { itemGotoResults } from './lib/goto.ts';
-import { PriceListScreen } from './PriceList.tsx';
 import { UnitFormScreen, UnitListScreen } from './Units.tsx';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const ItemBulkScreen = lazyScreen(() => import('./ItemBulk.tsx').then((m) => m.ItemBulkScreen));
+const ItemListScreen = lazyScreen(() => import('./ItemList.tsx').then((m) => m.ItemListScreen));
+const PriceListScreen = lazyScreen(() => import('./PriceList.tsx').then((m) => m.PriceListScreen));
 
 export const inventoryModule: ModuleDef = {
   id: 'inventory',

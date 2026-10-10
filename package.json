@@ -37,6 +37,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^44.5.1",
     "electron-builder": "^26.0.12",
+    "electron-updater": "6.6.2",
     "esbuild": "^0.28.2",
     "qrcode": "^1.5.4",
     "react": "^19.1.0",

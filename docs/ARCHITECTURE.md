@@ -24,6 +24,10 @@ This document is the **contract** for everyone working on the codebase. Read it 
 
 **Hard rule: `src/core/**` and `src/shared/**` import only `node:*` builtins and each other.** No npm packages.
 The renderer may import `react`, `react-dom`, `qrcode` and nothing else. Do not add dependencies.
+*2.0 amendment:* the main process may bundle **`electron-updater`** (in-app updates, `src/main/updates/`) — only
+into its own lazily loaded entry `out/main/updater.cjs` (`src/main/updates/entry.ts`, loaded by a computed-path
+require on the first update check; never part of `out/main/index.cjs`, checked by `build.mjs` and
+`build-scripts.test.ts`). The renderer dependency allowlist is unchanged.
 
 ### Dev-container constraints (important for agents)
 npm is not reachable in the development container, so `node_modules` only has `@types/node`.
@@ -241,7 +245,32 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
 
 - **Navigation stack**: every screen is pushed on a stack; `Esc` pops (confirming if the form is dirty);
   breadcrumbs show the stack. `nav.push(screenId, params)`, `nav.replace`, `nav.pop`.
-- **Gateway** (home) lists menu sections contributed by modules (`ModuleDef.menu`) + a dashboard panel.
+- **Home** (screen `app.gateway`; nav landmark still named "Gateway menu", h1 and breadcrumb root "Home")
+  lists what the user may open in two views — **Essentials** (`app/lib/essentials.ts`: one central list of
+  ≈23 everyday entries in five groups, matched against All menus by menu label or `vouchers.entry`
+  base type, never gating anything itself, letters assigned over the subset) and **All menus** (the menu
+  sections contributed by modules, `ModuleDef.menu`, exactly the 1.0 Gateway) — switched with
+  **Ctrl+1 / Ctrl+2**, plus notices and the dashboard panel (a greeting for users without it).
+- **Per-user layout preferences** (`app/lib/uiPrefs.ts`, `localStorage['pevqori.ui'] = { v: 1, homeView,
+  shortcutBar, upgraded, tryHomeDismissed }`): decided once per profile from the first `app.state` — a
+  profile that already lists companies is an upgraded 1.0 profile (All menus + shortcut bar, a one-time
+  "Try the simpler Home" card), otherwise a new user (Essentials, no shortcut bar). Storage failures fall
+  back to those defaults for the session.
+- **Screen bar and command bar**: the breadcrumb row hosts the top screen's **command bar**
+  (`ui/CommandBar.tsx`, rule in `app/lib/commandBar.ts`): the `primary` action, up to 3 / 2 / 1 buttons by
+  width (first actions with `prominent: true`, then Alter, Print, Share, Export, More details, Create), and
+  **More ▾** with every other action and its key, then the globals F11 / F12 / F1. It never registers
+  keys — `useScreenActions` does — so showing or hiding a button never changes a key. The 1.0 right rail
+  is the optional **shortcut bar** (`aria-label="Shortcut bar"`, preference `shortcutBar`).
+  `ActionRailItem.prominent` (and any later action field) is written **after `onClick`** in object
+  literals, never straight after `label` (`keyConventions.test.ts` reads `key, label, onClick…`;
+  `commandBar.test.ts` guards that scan).
+- **Top bar**: company button (Switch company F3, Company details), date / period chips, the Go To search
+  box, **Create ▾** (`app/lib/createMenu.ts`: the everyday vouchers with their keys, each shown only when
+  its F-key would open it — the same check —, Customer, Supplier, Item, Other voucher… F10; what the user
+  may not create is not listed; no new key), ⚙ Settings (`company.settings`, when registered), ?
+  (F1) and the user menu (theme, density, Home view, shortcut bar, *Appearance…* = `app/AppearancePanel.tsx`,
+  About, Lock, Log out). **Status bar**: hint · save state (data folder in its tooltip) · version.
 - **Go To** (`Ctrl+G` / `Alt+G` / `Ctrl+K`) — fuzzy palette over screens, reports, masters and voucher numbers.
 - Global hotkeys (`GLOBAL_SHORTCUTS` in `app/lib/shortcuts.ts`, the single source for the F1 overlay and
   the User Guide's keyboard reference, which `app/lib/userGuide.test.ts` checks): `F2` working date,
@@ -249,7 +278,10 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   Purchase, `Ctrl+F8` Credit Note, `Ctrl+F9` Debit Note, the other predefined voucher keys (`Alt+F5` …,
   `Ctrl+F10` Memorandum), `F10` other vouchers, `F11` features, `F12` configure, `F1`/`Ctrl+H` keyboard
   help, `Ctrl+Q` quit; `Esc` back. Conventions every screen follows (not global): `Alt+C` create master
-  from a picker, `Ctrl+A` accept/save (there is no `Ctrl+S`), `Alt+P` print, `Alt+E` export.
+  from a picker, `Ctrl+A` accept/save, `Alt+P` print, `Alt+E` export. **`Ctrl+S` is an alias of `Ctrl+A`**
+  (2.0), implemented once in the hotkey layer (`ui/lib/hotkeyRegistry.ts`): when no eligible binding
+  has Ctrl+S of its own, the key goes to the Ctrl+A bindings with the same layering (a dialog's Ctrl+A
+  while a dialog is open); where nothing binds Ctrl+A it does nothing. Screens never bind Ctrl+S.
 - Forms: `Enter` advances to the next field (the convention accountants expect), `Shift+Enter`/`Shift+Tab` goes back,
   `Ctrl+A` saves. Validation errors appear inline next to the field and focus the first invalid field.
   On push the shell focuses `[data-autofocus]` (else the first field / grid) — also after the screen
@@ -284,6 +316,43 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   Light & dark themes; WCAG AA contrast; visible focus rings; every icon button has `aria-label`.
 - Never render user data as HTML (`dangerouslySetInnerHTML` is banned).
 
+## 7a. Visual language (2.0)
+
+One calm visual language for every screen, defined once in `src/renderer/styles/tokens.css` and
+`components.css` (details and the full token table: `src/renderer/ui/README.md` §2).
+
+- **Themes.** Exactly one light block (`:root, [data-theme="light"]`) and one dark block
+  (`[data-theme="dark"]`); tokens identical in both are declared once in `:root`. The user's
+  `system` preference is resolved in JS (`ui/theme.ts` `applyTheme`, pure rule `resolveTheme(pref,
+  osDark)`): `<html data-theme>` always holds `light` or `dark`, `data-theme-pref` the choice, and a
+  `matchMedia` listener follows OS changes live. There is no `prefers-color-scheme` block in CSS.
+  `index.html` keeps `data-theme="system"` only as a pre-bootstrap placeholder (base.css then lets
+  the theme-matched native window colour show, so there is no flash).
+- **Colour.** One interactive colour, `--brand` (indigo-600 light / indigo-400 dark, with
+  `--on-brand` white / near-black): primary buttons, focus ring, selected-row bar, checked controls,
+  the selected segmented item and links (`--text-link` is the brand indigo in both themes). Saffron
+  (`--accent*`) only for the brand mark, the "not today" date flag and Get-started progress. Canvas `--surface-0`, cards and tables
+  `--surface-1`. Status tones only on badges, banners and inline validation; money is never red
+  for "negative" (Dr/Cr rule, §7).
+- **Type** (Segoe UI Variable → Segoe UI → system): caption/small 12 · base 13 (tables) · body 14
+  (forms) · subtitle 16/600 (section, panel, card titles) · title 20/600 (one h1 per screen) ·
+  heading 24 (greeting, KPI figures). `--fs-11` is for key chips (and chart axis text, laid out
+  for 11px) only; `--text-display` is retired (aliases 24). Numeric and right-aligned table cells use
+  tabular figures. Classed lists lose markers through a zero-specificity reset; prose lists set
+  their own `list-style`.
+- **Shape and depth.** Radius: controls 6, cards/panels/tables 8, dialogs/drawers/menus/popovers
+  12, chips full. Resting elevation only through roles: `--elev-card` (none; cards are flat with a
+  1px `--border-subtle`), `--elev-popover` (menus, popovers, listboxes, tooltips, toasts),
+  `--elev-dialog` (modals, drawers); interactive tiles may lift with `--shadow-1` on hover.
+- **Spacing.** 4px base; new CSS uses 4/8/12/16/24/32. Density (comfortable/compact) only changes
+  the density tokens.
+- **Weight gates** (unit tests, no extra CI step): `styles/cssUsage.test.ts` fails on any class a
+  stylesheet defines that renderer code never renders (runtime-built names need a declared prefix
+  plus the code that builds it); `styles/cssBudget.test.ts` caps renderer CSS source at 180 KB in
+  total, `components.css` at 72 KB and `tokens.css` at 19 KB (1.0: 206 / 76 / 24 KB).
+  `ui/lib/contrast.test.ts` keeps every text pair ≥ 4.5:1 and every control/focus/icon pair ≥ 3:1
+  in both themes and asserts the system block stays gone.
+
 ## 8. Security
 
 - Renderer is untrusted: it reaches main only through `window.pevqori.api(route, input)` and
@@ -305,6 +374,13 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   truncated log is detected — see docs/SECURITY.md §4.1 for what is and is not detected. Imports audit every record.
 - Backups: AES-256-GCM with scrypt-derived key when a password is given; integrity-checked on restore.
 - Logs never contain passwords, full GSTIN/PAN lists or voucher payloads.
+- **Network (2.0 updates):** the app session still cancels every non-app request. The only code that may reach
+  the network is the in-app updater, in the main process, from its own session partition whose requests
+  (redirects included) must pass `src/main/updates/policy.ts` `isAllowedUpdateUrl` (https, the project's
+  GitHub Releases hosts only), and only when the user checks / downloads or weekly checks are on and due.
+  Updates are off for test runs, unpackaged builds, a broken or `off` machine policy file
+  (`%ProgramData%\Pevqori\policy.json`) and `PEVQORI_UPDATES=off`. The renderer can never pass a URL, path or
+  version (NativeActions `updates.*`). docs/SECURITY.md §3.11.
 - **CSV / Excel formula injection** (OWASP): one rule for every export, `src/shared/csvSafe.ts` — a text
   cell starting with `= + - @ TAB CR` is prefixed with `'` unless it is exactly a plain number
   ("-1250.50", "-1,23,456.00" stay numbers). Core `lib/csv.ts` `toCsv` applies it by default (TDS return
@@ -346,6 +422,55 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   (Table 11 included); and that a backup restored as a new company reproduces the books, stock, GST, TDS /
   TCS, outstanding, forex, BRS, cheque, POS, production and dashboard figures and the attachment. A
   disagreement is fixed where it arises, never in the test.
+
+## 9a. Performance budget
+
+Weight and speed are measured on a finished build (`npm run build` → `out/`), never by building in a test.
+
+- **Marks** (`src/renderer/app/lib/perfMarks.ts`, User Timing API, each set once per renderer load):
+  `pevqori:boot` in `main.tsx` once the entry bundle has been evaluated, just before React renders;
+  `pevqori:first-screen` in `App.tsx` once the first start screen the user can act on (normally the company
+  list; never the splash) has been committed; `pevqori:shell-ready` in `App.tsx` the first time the workspace
+  mounts (later company switches and locks never move it); the measure `pevqori:startup` from boot to
+  shell-ready. `App.tsx` sets them through `markPhase(app.phase)`. Nothing in the app reads them.
+- **Size report** — `node scripts/size-report.mjs [--out file] [--json] [--dir out] [--budget]` (node:* only)
+  lists `out/renderer/assets/*` (no source maps), `out/main/*.cjs` and `out/preload/*.cjs` with raw and gzip
+  (level 9) bytes and totals: **initial JS** = the entry `<script type="module">` plus every
+  `<link rel="modulepreload">` of the built `index.html` (what must be fetched and evaluated before the first
+  screen; lazy chunks count only in the JS total), initial CSS, renderer JS / CSS totals, main, preload.
+  `--out` writes the JSON; `--budget` compares the sizes with the budget (exit 1 only when it is enforced).
+- **Timings** — `e2e/perf.spec.ts` (runs with the other Playwright specs in CI, Ubuntu and Windows): launches the
+  app twice on the same folders (`launchApp(…, { reuse, trace: false })`, `closeApp(…, { keepFolders: true })`
+  in `e2e/support.ts`; no trace — tracing slows the app). The first run creates the company; the second is timed.
+  Every number is taken inside the page (the app's marks, the key event's `timeStamp`, a `MutationObserver` for
+  the result), so the Playwright round trip is not in it:
+  - `startupMs` = (boot → first-screen) + (Enter on the company list → shell-ready): the driver's own wait at the
+    list is left out (`bootToShellReadyRawMs` keeps the raw mark difference); `launchMs` adds navigation start →
+    boot (HTML, bundle download, parse and evaluation — what lazy screens reduce);
+  - screen open = key press → visible `h1` of the screen for F8 (Sales), Day Book, Balance Sheet, Receivables
+    and GSTR-1 (the last four by Go To and Enter on the item, once its search has settled): `screenOpenMs` (first
+    open per screen), `screenOpenP95Ms` (nearest-rank p95 of those first opens) and warm re-opens
+    (`screenOpenWarm`, p50 / p95). The `h1` is drawn while the screen still loads its data, so the spec also
+    reports `screenReadyMs`: key press → the screen with no skeleton or `aria-busy` region left (first opens; a
+    screen that has not settled within 15 s is left out) — what a lazy screen's loading fallback must not hide.
+  The spec attaches `perf-report.json` to the Playwright report and prints it as one `[perf] report {…}` line
+  in the job log (the HTML report is uploaded only when a job fails), next to the size table and the budget verdict.
+- **Budget** — `build/perf-budget.json` `{ enforce, baseline, ceilings }`, checked by `budgetProblems()` in
+  `src/main/size-report.test.ts`. `ceilings`: `initialJsRatio` (initial JS ≤ ratio × baseline), `startupRatio`
+  (`startupMs` and `launchMs` ≤ ratio × baseline of the **same platform**), `screenOpenSlackMs` (each first open
+  and the p95 ≤ baseline + slack; warn-only while `screenOpenWarnOnly`, CI runners are noisy; `screenReadyMs`
+  per screen ≤ baseline + the same slack, always warn-only — it includes the API call),
+  `rendererJsMaxBytes` / `rendererCssMaxBytes` (absolute, null = off). With `enforce: false` the spec only
+  reports; with `enforce: true` a failed ceiling fails it (warn-only ones become Playwright annotations).
+  Timing ceilings are compared only against the baseline of the platform the run is on.
+- **Capturing the baseline** — from the CI run of the commit to measure (1.0: the merge commit of the baseline
+  package), save the log of each e2e job (`ubuntu-latest`, `windows-latest`) — the whole log, the copied
+  `[perf] report {…}` line, or a downloaded `perf-report.json` all work (in a log, the last report wins) — then
+  `node scripts/size-report.mjs --baseline linux.log win32.log [--from "CI run <id> @ <sha>"]` prints the
+  `baseline` block (sizes from the Linux report — the gate is a ratio and the platforms' bundles differ by a
+  few bytes at most — and timings per platform) to paste into `build/perf-budget.json` as a data-only commit. Raising a ceiling or the baseline is a
+  reviewed decision, never a fix for a slower build.
+- Core paths are budgeted separately by the SQL they run (§9, `sqlPlans.ts`, `perf-hooks.test.ts`).
 
 ## 10. Definition of done for any module
 
@@ -662,6 +787,72 @@ and `src/renderer/modules/cheques`; Electron main `src/main/printPage.ts` (paper
   Leaf register: Ctrl+1…6 views, Alt+X cancel leaf, Alt+U re-open, Alt+R BRS. E-payment File:
   Space tick, Alt+A tick all ready, Ctrl+A save file, Alt+M payee bank details.
 
+## Print layouts (2.0)
+
+What prints on a document and with which words, changeable in print preview for this print or saved as a
+default (R5). Model and functions: `src/shared/printLayout.ts` (pure, node-only — used by core and the
+renderer); DTO fields `PrintVoucherData.savedLayout` / `applied` (`shared/types/print.ts`). No migration:
+both layers live in JSON that backup, restore and the XML export already carry.
+
+- **Catalogue.** `PRINT_PARTS` (≈ 60 parts: logo, company / party blocks, title, copy label, references,
+  place of supply, each item column, totals rows, words, HSN and tax summaries, bank, UPI QR, e-invoice,
+  declaration, terms, notes, signature, footer, page numbers, ledger entries …) and `PRINT_TEXTS` (title,
+  copy labels, party labels, column headings, declaration, terms, notes, signatory, "For …" line, footer,
+  "computer-generated" line, with a maximum length each). **Ids are persisted: never rename or remove one.**
+  Each part says how it disappears (`kind`: DTO field nulled, template gate, item column, totals row, page
+  counter, or an existing option key), which layouts it belongs to, and whether it is **locked** (the
+  CANCELLED / OPTIONAL stamp, document number and date, grand total, item description, ledger entries).
+- **Layers** (`PrintLayoutSpec = { hide: id[], show: id[], text: { id, value }[] }` — arrays only, so
+  `mergeDefaults` keeps it on read and save): company `config.invoice.layout` (default empty in
+  `DEFAULT_CONFIG`; saved by `company.config.save { invoice: { layout } }`, Company › Manage) ‹ voucher type
+  `voucher_types.config.printLayout` (`accounts.voucherType.save { id, config: { printLayout } }`, Masters ›
+  Alter; key-level patch, `null` removes it) ‹ this print (renderer state, remembered for the session).
+  A layer replaces its stored value whole. `resolvePrintLayout(company, voucherType, print)`: a layer's
+  `show` undoes a lower `hide`, `hide` wins inside one layer, locked parts are never hidden; for texts the
+  highest layer that names one wins, `''` prints nothing and an absent id inherits.
+- **Option keys stay the owners (D22).** HSN summary, bank details, UPI QR, item-wise tax and the MRP column
+  keep their Invoice Printing keys, and voucher types gain the four nullable flags `showHsnSummary`,
+  `showBankDetails`, `showUpiQr`, `itemwiseTax` (same rule as `showMrp`: `null` = as in Invoice Printing;
+  `print/data.ts resolveOptions`: Invoice Printing ‹ voucher type ‹ preview overrides). Declaration and
+  terms (both levels), the signatory label (company) and the voucher-type Print title keep theirs too. A
+  layer never holds an id owned by a key at its level (`legacyKeyAt`; the per-print level is owned by the
+  preview overrides, i.e. the company keys); `shadowedByLegacy` drops a lower layer's text that a higher
+  level's key decides (company `title` text under a voucher-type Print title; voucher-type `signatoryLabel`
+  text under a preview signatory override).
+- **Validation.** `validatePrintLayout(x, level)` cleans untrusted input: unknown, locked and option-owned
+  ids dropped, ≤ 200 entries per list, texts clipped to their maximum, control characters removed (newlines
+  kept only in multi-line texts), duplicates collapsed. The save routes refuse any issue with `VALIDATION`
+  at `invoice.layout.…` / `config.printLayout.…` (`print/layoutSchema.ts`) — nothing is silently dropped on
+  save. `company.config.get` / `.save` return `invoice.layout` already cleaned (`withValidCompanyLayout`), so
+  a stored layer that is no longer valid never blocks Invoice Printing, which sends its whole draft back.
+  Tabs in texts become spaces. Texts are plain text: templates render them as text nodes, never HTML.
+- **Core pass-through (D20).** `print/data.ts buildPrintData` copies both stored layers through
+  `validatePrintLayout` into `doc.savedLayout` (cached per request: a corrupt stored value becomes the empty
+  layer plus **one** `warn` log line with issue paths only, never a crash); batch documents carry their own
+  voucher type's layer; `print.sample` carries the company layer and an empty voucher-type layer;
+  `options.layout` is the validated company layer. Core never removes data because of a layout — a
+  per-print `show` must be able to undo a saved `hide`. Preview `overrides` accept and ignore `layout`
+  (Invoice Printing sends its whole draft).
+- **Application (renderer).** `applyPrintLayout(doc, resolved)` returns a new document: DTO parts nulled /
+  emptied (hiding the company GSTIN also hides its PAN unless a layer explicitly shows `company.pan`; hiding
+  the party GSTIN clears GSTIN, PAN and registration type, also on a ship-to that is the party), DTO-backed
+  texts written into their fields, and `applied { hidden, texts }` set for the template gates
+  (`isPartShown`, `printText`). The input is never mutated and every money field (lines, totals, charges,
+  tax and HSN rows, entries, UPI, MRP summary) is passed through by reference.
+- **Statutory guard (D23).** `layoutWarnings(doc, resolved)` — hiding a particular the document needs adds a
+  plain-language line ("Hidden on this print: the buyer's GSTIN — required on a B2B tax invoice (Rule
+  46(d)).") and never blocks printing. Tax / export / SEZ / self invoices cite CGST Rule 46 by clause
+  (supplier (a), recipient (d)/(e) — B2C below ₹50,000 exempt, HSN (g) when the column and the HSN summary
+  are both off, quantity and unit of goods (i), taxable value (k), rate and amount of tax (l)/(m), place of
+  supply on inter-State supplies (n), delivery address when different (o), reverse-charge note (p),
+  signature (q)), copy marking on goods invoices Rule 48(1), an e-invoice's IRN and QR Rule 48(4); bills of
+  supply Rule 49, credit / debit notes Rule 53 (with the original invoice), delivery challans Rule 55. A
+  title text that no longer names the document ("Invoice", "Bill of Supply", "Credit Note", "Challan") is
+  warned about. On a self invoice the party is the supplier (46(a), whatever the value) and the company the
+  recipient (46(d)); no copy marking. Purchases, a debit note to a supplier and accounting vouchers get
+  none. A particular the document does not carry is never warned about. Pass the document as core built it,
+  not the result of `applyPrintLayout` (which has already removed the values the checks look at).
+
 ## Data plus (`dataplus`) — XML data export, attachments, numbering tokens, multiple aliases
 
 Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledger_aliases`,
@@ -719,6 +910,54 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   aliases within the kind (ledgers also against groups); `aliases: string[]` on ledger / item save;
   searched by every ledger / item picker, Go To and lists; Excel import / export (the "Alias" column,
   `;`-separated) and the XML data import (`NAME.LIST`) / export carry them all.
+
+## Invoice numbering and renumbering (2.0)
+
+Owner: `src/core/modules/vouchers/numbering.ts` (decision, allocation), `vouchers/service.ts` (save,
+renumber, number check), `src/core/modules/accounts/numbering.ts` (series status, next number, gaps),
+`accounts/voucherTypes.ts` (restart seeding), `src/shared/numbering.ts` (`gstDocNumberProblems`,
+`voucherNumberProblems`, `describeScheme`), DTOs in `src/shared/types/vouchers.ts`. Migration **250**
+(block 250–299). Details: `src/core/modules/vouchers/README.md` §7. Allocation order, posting, GSTR-1 export
+and counter period keys are unchanged.
+
+- **Permission** `vouchers.renumber` ("Change voucher numbers and the next number", Vouchers group; role
+  editor prerequisite `vouchers.alter`). Owner through `'all'`, Accountant from `SYSTEM_ROLES` (new
+  companies) and migration 250 (existing companies, `json_insert`, idempotent); Data Entry, Auditor and
+  custom roles do not get it automatically. The core checks it on every path — never only the screen.
+- **Override** `VoucherInput.numberOverride { number, reason?, continueSeries? }` — an explicit field, never
+  inferred from `number`, taken out of the input before posting (never stored in `vouchers.meta`). Without
+  the permission FORBIDDEN; numbering "None" VALIDATION. Format (VALIDATION, path `number`): GST documents
+  (sales, credit / debit note of a GST company) 1–16 of `[A-Za-z0-9/-]`, others 1–60 characters without
+  control characters. Uniqueness: the financial year for an outward GST document, the numbering period
+  otherwise — always, whatever "Prevent duplicates" says. Create: the counter is not consumed unless the
+  override equals the next number; `continueSeries` advances it to the typed sequence (`commitNumber`, never
+  lower). Cancelled and IRN-generated vouchers are refused by the normal alter guards; a document of a filed
+  GSTR-1 period gets the existing confirm warning and amendment record (gst hook).
+- **Behaviour change (D27, CGST Rule 46(b))**: an outward GST document (sales, credit note, debit note to a
+  customer, GST company) is unique within its financial year on every `saveVoucher` path (entry, Excel
+  import — a duplicate row fails with the CONFLICT message, recurring, POS, renumber) even with "Prevent
+  duplicates" off or a monthly / never restart; automatic allocation of such a document skips numbers
+  already used in the financial year (only matters for a monthly series without the month in its prefix,
+  which the voucher-type check refuses for new schemes); moving a document into a financial year where its
+  number is taken is a CONFLICT on `date`. Other voucher types keep the type's rule. The XML data import
+  writes vouchers through its own path and keeps its own duplicate handling.
+- **Edit log**: an alter that changes the number records `numberChange { from, to, reason }`, a create with
+  an override `numberOverride { to, next, reason }` (in the voucher's after-image), a next-number change a
+  `voucher_type` alter `{ counter: { periodKey, lastNumber, from, to }, nextNumber }`.
+- **Routes**
+
+| Route | Access | Input → output |
+|---|---|---|
+| `vouchers.numberCheck` | `vouchers.view` | `{ voucherTypeId, date, number, excludeId?, partyLedgerId?, mode? }` → `{ ok, taken, problems, seq, scopeLabel }`; the same rule as the save (`numberClash`, indexed `NUMBER_TAKEN_SQL`); a debit note's direction comes from the party / mode, else the altered voucher, else both rules apply |
+| `vouchers.renumber` | `vouchers.alter` + `vouchers.renumber` (service) | `{ id, number, reason?, continueSeries?, expectedUpdatedAt, acknowledgeWarnings? }` → `VoucherSaveResult`; re-runs the alter with the stored `meta.input` + `numberOverride` (entries, stock and GST rows unchanged); a voucher without `meta.input` → BUSINESS_RULE "Alter the voucher (Alt+A) and change the number there"; a party bill another voucher settles keeps its name (info warning `numbering`) |
+| `accounts.voucherType.numberingStatus` | `masters.view` | `{ ids?, date }` → `NumberingStatusRow[]` (`periodKey`, `periodLabel`, `counter`, `highestUsed`, `nextSeq`, `next`, `vouchersInPeriod`) |
+| `accounts.voucherType.setNextNumber` | `vouchers.renumber` | `{ id, date, next, acknowledgeWarnings? }` → `{ next, warnings }`; 1 ≤ next ≤ 999 999 999, not below the starting number, GST format of the formatted number; `last_number = next − 1` (may lower the counter — used numbers are skipped); confirm warnings for lowering to or below a used number and for raising past the number the series would give next ("report them in GSTR-1 Table 13") |
+| `accounts.voucherType.numberGaps` | `vouchers.view` | `{ id, from, to }` → `{ first, last, issued, cancelled, missing (≤ 200), missingCount }`, per numbering period, read-only |
+
+- **Restart seeding**: when a voucher-type save changes the restart, the counter of the new period key for
+  today starts at the highest sequence already used in that scope, read from the numbers in today's format
+  (never lowered; numbers of another year's `{FY}` format do not make the series jump), so a large series
+  switched to "never" allocates at once (perf test: 20 000 vouchers, < 50 ms).
 
 ## POS / counter billing (`pos`) — scan, split tender, change, hold / recall, returns, day-end
 

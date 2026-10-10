@@ -4,22 +4,26 @@
  * Exception Reports, Cost Centres and Statistics — all with keyboard drill-down down to the voucher.
  */
 import { api, registerGotoProvider } from '../../app/index.ts';
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { GotoItem, MenuItem, ModuleDef, ScreenDef } from '../../app/index.ts';
-import { BalanceSheetScreen } from './BalanceSheetScreen.tsx';
-import { CashBankScreen } from './CashBankScreen.tsx';
-import { CostCentresScreen } from './CostCentresScreen.tsx';
-import { ExceptionsScreen } from './ExceptionsScreen.tsx';
-import { CashFlowScreen, FundsFlowScreen } from './FlowScreens.tsx';
-import { GroupSummaryScreen } from './GroupSummaryScreen.tsx';
-import { LedgerScreen } from './LedgerScreen.tsx';
-import { MonthlySummaryScreen } from './MonthlySummaryScreen.tsx';
-import { ProfitLossScreen } from './ProfitLossScreen.tsx';
-import { RatiosScreen } from './RatiosScreen.tsx';
-import { RegisterScreen } from './RegisterScreen.tsx';
-import { StatisticsScreen } from './StatisticsScreen.tsx';
-import { TrialBalanceScreen } from './TrialBalanceScreen.tsx';
 import { REGISTERS } from './lib/model.ts';
 import './reports.css';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const BalanceSheetScreen = lazyScreen(() => import('./BalanceSheetScreen.tsx').then((m) => m.BalanceSheetScreen));
+const CashBankScreen = lazyScreen(() => import('./CashBankScreen.tsx').then((m) => m.CashBankScreen));
+const CostCentresScreen = lazyScreen(() => import('./CostCentresScreen.tsx').then((m) => m.CostCentresScreen));
+const ExceptionsScreen = lazyScreen(() => import('./ExceptionsScreen.tsx').then((m) => m.ExceptionsScreen));
+const CashFlowScreen = lazyScreen(() => import('./FlowScreens.tsx').then((m) => m.CashFlowScreen));
+const FundsFlowScreen = lazyScreen(() => import('./FlowScreens.tsx').then((m) => m.FundsFlowScreen));
+const GroupSummaryScreen = lazyScreen(() => import('./GroupSummaryScreen.tsx').then((m) => m.GroupSummaryScreen));
+const LedgerScreen = lazyScreen(() => import('./LedgerScreen.tsx').then((m) => m.LedgerScreen));
+const MonthlySummaryScreen = lazyScreen(() => import('./MonthlySummaryScreen.tsx').then((m) => m.MonthlySummaryScreen));
+const ProfitLossScreen = lazyScreen(() => import('./ProfitLossScreen.tsx').then((m) => m.ProfitLossScreen));
+const RatiosScreen = lazyScreen(() => import('./RatiosScreen.tsx').then((m) => m.RatiosScreen));
+const RegisterScreen = lazyScreen(() => import('./RegisterScreen.tsx').then((m) => m.RegisterScreen));
+const StatisticsScreen = lazyScreen(() => import('./StatisticsScreen.tsx').then((m) => m.StatisticsScreen));
+const TrialBalanceScreen = lazyScreen(() => import('./TrialBalanceScreen.tsx').then((m) => m.TrialBalanceScreen));
 
 const screens: ScreenDef[] = [
   { id: 'reports.balanceSheet', title: 'Balance Sheet', component: BalanceSheetScreen, access: 'reports.financial', goto: true, keywords: ['bs', 'assets', 'liabilities', 'position'] },

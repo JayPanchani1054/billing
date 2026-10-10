@@ -13,8 +13,11 @@
  * - Plain typing combos (no Ctrl/Alt/Meta, not F-keys/Escape) are ignored while focus is in an
  *   editable element unless the binding opts in with `allowInInputs`.
  * - Events already `defaultPrevented` (a component consumed the key) and IME composition are ignored.
+ * - Ctrl+S is an alias of Ctrl+A (accept / save): when no eligible binding takes Ctrl+S itself, the key
+ *   goes to the Ctrl+A bindings, with the same layering (a dialog's Ctrl+A while a dialog is open).
+ *   Where nothing binds Ctrl+A — or something binds Ctrl+S — the alias does nothing.
  */
-import { isTypingCombo, matchesHotkey } from './hotkeys.ts';
+import { isTypingCombo, matchesHotkey, parseHotkey } from './hotkeys.ts';
 import type { KeyEventLike, ParsedHotkey } from './hotkeys.ts';
 
 export interface HotkeyEventLike extends KeyEventLike {
@@ -53,6 +56,11 @@ interface Binding<E> {
 }
 
 export const ROOT_LAYER = 0;
+
+/** Ctrl+S = Ctrl+A (accept / save) wherever Ctrl+A is bound and Ctrl+S is not (SPEC D11). */
+const ALIAS_FROM = parseHotkey('Ctrl+S');
+const ALIAS_TO = parseHotkey('Ctrl+A');
+const sameCombo = (a: ParsedHotkey, b: ParsedHotkey): boolean => a.key === b.key && a.ctrl === b.ctrl && a.alt === b.alt && a.shift === b.shift && a.meta === b.meta;
 
 export class HotkeyRegistry<E extends HotkeyEventLike = HotkeyEventLike> {
   private readonly layers = new Map<number, Layer>();
@@ -181,6 +189,15 @@ export class HotkeyRegistry<E extends HotkeyEventLike = HotkeyEventLike> {
       if (list) list.push(b);
       else byLayer.set(b.layer, [b]);
     }
+    if (this.run(e, order, byLayer, editable, (combo) => matchesHotkey(e, combo))) return true;
+    // Ctrl+S alias: only when no eligible binding has Ctrl+S of its own.
+    if (!matchesHotkey(e, ALIAS_FROM)) return false;
+    for (const layerId of order) for (const b of byLayer.get(layerId) ?? []) if (b.combos.some((c) => sameCombo(c, ALIAS_FROM))) return false;
+    return this.run(e, order, byLayer, editable, (combo) => sameCombo(combo, ALIAS_TO));
+  }
+
+  /** Offer the event to the bindings of `order` whose combo `matches`; true when one consumed it. */
+  private run(e: E, order: readonly number[], byLayer: ReadonlyMap<number, Binding<E>[]>, editable: boolean, matches: (combo: ParsedHotkey) => boolean): boolean {
     for (const layerId of order) {
       const list = byLayer.get(layerId);
       if (!list) continue;
@@ -188,7 +205,7 @@ export class HotkeyRegistry<E extends HotkeyEventLike = HotkeyEventLike> {
         const b = list[i];
         if (e.repeat && !b.allowRepeat) continue;
         for (const combo of b.combos) {
-          if (!matchesHotkey(e, combo)) continue;
+          if (!matches(combo)) continue;
           if (editable && !b.allowInInputs && isTypingCombo(combo)) continue;
           const res = b.handler(e);
           if (res === false) break;

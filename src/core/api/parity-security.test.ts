@@ -116,3 +116,25 @@ describe('system roles and the parity-wave permissions', () => {
     assert.deepEqual(PERMISSIONS.filter((p) => !acc.has(p)), ['data.restore', 'security.manage'].sort((x, y) => PERMISSIONS.indexOf(x as Permission) - PERMISSIONS.indexOf(y as Permission)));
   });
 });
+
+describe('2.0 numbering routes and vouchers.renumber (WP-04)', () => {
+  const role = (n: string): ReadonlySet<Permission> => {
+    const r = SYSTEM_ROLES.find((x) => x.name === n);
+    assert.ok(r, n);
+    return new Set(r.permissions === 'all' ? PERMISSIONS : r.permissions);
+  };
+  it('declare real permissions; setting the next number needs vouchers.renumber, renumbering vouchers.alter (+ renumber in the service)', () => {
+    const access = (name: string): string => (routes as Record<string, { access: string }>)[name]?.access;
+    assert.equal(access('vouchers.numberCheck'), 'vouchers.view');
+    assert.equal(access('vouchers.renumber'), 'vouchers.alter');
+    assert.equal(access('accounts.voucherType.numberingStatus'), 'masters.view');
+    assert.equal(access('accounts.voucherType.setNextNumber'), 'vouchers.renumber');
+    assert.equal(access('accounts.voucherType.numberGaps'), 'vouchers.view');
+  });
+  it('the Accountant holds vouchers.renumber; Data Entry and the Auditor do not', () => {
+    assert.ok(role('Accountant').has('vouchers.renumber'));
+    assert.ok(role('Owner').has('vouchers.renumber'));
+    assert.equal(role('Data Entry').has('vouchers.renumber'), false);
+    assert.equal(role('Auditor').has('vouchers.renumber'), false);
+  });
+});

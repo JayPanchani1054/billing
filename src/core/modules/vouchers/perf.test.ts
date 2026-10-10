@@ -175,3 +175,30 @@ describe('save cost does not grow with the books (audit finding: number probe an
     k.t.close();
   });
 });
+
+describe('performance: restart change on a large series (2.0, WP-04)', () => {
+  it('switching yearly → never seeds the new counter: the next allocation on 20,000 vouchers takes < 50 ms', async () => {
+    const { saveVoucherType } = await import('../accounts/voucherTypes.ts');
+    const { allocateNextNumber, loadVoucherType } = await import('./numbering.ts');
+    const k = setupKit();
+    const now = k.t.clock.now().toISOString();
+    // 20,000 journals 1…20,000 in FY 2026-27 (the yearly counter at 20,000).
+    k.t.db.run(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20000)
+       INSERT INTO vouchers (guid, voucher_type_id, base_type, number, number_seq, date, created_at, updated_at)
+       SELECT lower(hex(randomblob(16))), :vt, 'journal', CAST(i AS TEXT), i, date('2026-04-01', '+' || (i % 300) || ' days'), :now, :now FROM n`,
+      { vt: k.vt.journal, now },
+    );
+    k.t.db.run(`INSERT INTO voucher_counters (voucher_type_id, period_key, last_number) VALUES (:vt, '2026-27', 20000)`, { vt: k.vt.journal });
+    saveVoucherType(k.t.ctx, { id: k.vt.journal, numbering: { restart: 'never' } });
+    assert.equal(k.t.db.value(`SELECT last_number FROM voucher_counters WHERE voucher_type_id = :vt AND period_key = 'all'`, { vt: k.vt.journal }), 20000);
+    const vt = loadVoucherType(k.t.db, k.vt.journal);
+    const t0 = performance.now();
+    const next = k.t.db.transaction(() => allocateNextNumber(k.t.db, vt, k.t.today, 4));
+    const ms = performance.now() - t0;
+    console.log(`# next number after yearly → never on 20,000 vouchers: ${ms.toFixed(2)} ms`);
+    assert.equal(next.number, '20001');
+    assert.ok(ms < 50, `allocation took ${ms.toFixed(1)} ms`);
+    k.t.close();
+  });
+});

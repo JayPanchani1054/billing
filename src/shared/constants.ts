@@ -255,6 +255,7 @@ export const PERMISSIONS = [
   'tds.file',                // export quarterly statement data (26Q/27Q/27EQ)
   'attachments.add',         // attach files to vouchers, ledgers and stock items (dataplus)
   'attachments.remove',      // remove attached files (dataplus)
+  'vouchers.renumber',       // change a voucher's number and a series' next number (2.0; migration 250)
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

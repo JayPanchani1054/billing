@@ -28,6 +28,12 @@ export interface ActionRailItem {
   hint?: string;
   /** Highlight the primary action (e.g. 'Ctrl+A: Accept'). */
   primary?: boolean;
+  /**
+   * (additive, 2.0) Show this action as a button in the screen bar's command bar ahead of the
+   * convention list (app/lib/commandBar.ts); otherwise it sits under "More". Write it AFTER `onClick`
+   * in object literals, never straight after `label` (the key-convention scan reads `key, label, onClick`).
+   */
+  prominent?: boolean;
 }
 
 export interface ActionRailProps {

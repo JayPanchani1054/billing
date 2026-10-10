@@ -1,6 +1,6 @@
 /* Security module screens. Semantic design tokens only (no raw colours). Prefix: bx-sec- */
 
-/* ── Badges row in tables ─────────────────────────────────────────── */
+/* Badges row in tables */
 .bx-sec-badges {
   display: inline-flex;
   flex-wrap: wrap;
@@ -17,19 +17,17 @@
 .bx-sec-user__name {
   font-weight: var(--fw-medium);
 }
-.bx-sec-user__login {
+.bx-sec-user__login,
+.bx-sec-perm-group__count {
   color: var(--text-muted);
   font-size: var(--fs-12);
 }
 
-/* ── Password checklist ───────────────────────────────────────────── */
+/* Password checklist */
 .bx-sec-rules {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--space-1) var(--space-4);
-  margin: 0;
-  padding: 0;
-  list-style: none;
   font-size: var(--fs-12);
 }
 .bx-sec-rules__item {
@@ -47,7 +45,7 @@
   font-size: var(--fs-12);
 }
 
-/* ── Role editor: permission groups ───────────────────────────────── */
+/* Role editor: permission groups */
 .bx-sec-perms {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -68,21 +66,18 @@
   margin-bottom: var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
 }
-.bx-sec-perm-group__count {
-  color: var(--text-muted);
-  font-size: var(--fs-12);
-}
 .bx-sec-perm-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
-.bx-sec-perm-item.is-changed {
-  box-shadow: inset 3px 0 0 var(--accent);
+.bx-sec-perm-item.is-changed,
+.bx-sec-setting.is-changed {
+  box-shadow: inset 3px 0 0 var(--brand);
   padding-left: var(--space-2);
 }
 
-/* ── Field-level diff ─────────────────────────────────────────────── */
+/* Field-level diff */
 .bx-sec-diff {
   width: 100%;
   border-collapse: collapse;
@@ -124,19 +119,25 @@
 .bx-sec-diff__value--empty {
   color: var(--text-muted);
 }
+/* Inserted / deleted values (diff cells and the legend above them) */
 .bx-sec-diff del,
-.bx-sec-diff ins {
-  text-decoration: none;
+.bx-sec-diff ins,
+.bx-sec-legend del,
+.bx-sec-legend ins {
   border-radius: var(--radius-sm);
   padding: 0 var(--space-1);
 }
-.bx-sec-diff del {
+.bx-sec-diff del,
+.bx-sec-legend del {
   background: var(--danger-bg);
   color: var(--danger-text);
-  text-decoration: line-through;
+}
+.bx-sec-diff del {
   text-decoration-thickness: 1px;
 }
-.bx-sec-diff ins {
+.bx-sec-diff ins,
+.bx-sec-legend ins {
+  text-decoration: none;
   background: var(--success-bg);
   color: var(--success-text);
 }
@@ -158,7 +159,7 @@
   width: 24px;
 }
 
-/* ── Fingerprints / hashes ────────────────────────────────────────── */
+/* Fingerprints / hashes */
 .bx-sec-hash {
   font-family: var(--font-mono);
   font-size: var(--fs-12);
@@ -167,7 +168,7 @@
   user-select: all;
 }
 
-/* ── Edit log filters ─────────────────────────────────────────────── */
+/* Edit log filters */
 .bx-sec-filters {
   display: flex;
   flex-wrap: wrap;
@@ -203,11 +204,8 @@
   flex-wrap: wrap;
 }
 
-/* ── History timeline ─────────────────────────────────────────────── */
+/* History timeline */
 .bx-sec-timeline {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -260,7 +258,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Settings & session ───────────────────────────────────────────── */
+/* Settings & session */
 .bx-sec-setting {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) minmax(220px, 1.4fr);
@@ -279,10 +277,6 @@
   color: var(--text-secondary);
   font-size: var(--fs-12);
   margin-top: var(--space-1);
-}
-.bx-sec-setting.is-changed {
-  box-shadow: inset 3px 0 0 var(--accent);
-  padding-left: var(--space-2);
 }
 @media (max-width: 720px) {
   .bx-sec-setting {
@@ -320,7 +314,6 @@
 }
 .bx-sec-state__text {
   color: var(--text-secondary);
-  margin: 0;
 }
 
 .bx-sec-countdown {
@@ -333,14 +326,14 @@
 }
 
 .bx-sec-tips {
-  margin: 0;
   padding-left: var(--space-5);
+  list-style: disc;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-/* ── Edit log: verify banner, rows, drawer ────────────────────────── */
+/* Edit log: verify banner, rows, drawer */
 .bx-sec-verify {
   border-width: 2px;
 }
@@ -356,7 +349,6 @@
   margin-bottom: var(--space-2);
 }
 .bx-sec-h3 {
-  margin: 0;
   font-size: var(--fs-14);
   font-weight: var(--fw-semibold);
 }
@@ -367,20 +359,6 @@
   margin: 0 0 var(--space-2);
   font-size: var(--fs-12);
   color: var(--text-secondary);
-}
-.bx-sec-legend del,
-.bx-sec-legend ins {
-  border-radius: var(--radius-sm);
-  padding: 0 var(--space-1);
-}
-.bx-sec-legend del {
-  background: var(--danger-bg);
-  color: var(--danger-text);
-}
-.bx-sec-legend ins {
-  text-decoration: none;
-  background: var(--success-bg);
-  color: var(--success-text);
 }
 .bx-sec-raw {
   margin: var(--space-1) 0 0;
@@ -400,7 +378,7 @@
   outline-offset: 1px;
 }
 
-/* ── History timeline cards ───────────────────────────────────────── */
+/* History timeline cards */
 .bx-sec-timeline__card {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -408,15 +386,11 @@
   padding: var(--space-3);
   cursor: default;
 }
-.bx-sec-timeline__card:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
 .bx-sec-timeline__card:hover {
   border-color: var(--border-default);
 }
 
-/* ── Session ──────────────────────────────────────────────────────── */
+/* Session */
 .bx-sec-idle {
   display: flex;
   align-items: baseline;
@@ -433,9 +407,6 @@
   color: var(--danger-text);
 }
 .bx-sec-perm-summary {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-1-5);
@@ -451,12 +422,4 @@
 }
 .bx-sec-perm-summary__item.is-held .bx-icon {
   color: var(--success-icon);
-}
-
-/* ── Read-only user form (account the editor may not change) ──────── */
-.bx-sec-fieldset {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
 }

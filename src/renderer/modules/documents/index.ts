@@ -19,12 +19,20 @@
  * recurring, Alt+L pre-close on 'vouchers.view'). The scenario picker and budget column of the Trial
  * Balance / P&L / Balance Sheet live in the reports module (reports/overlay.tsx).
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
 import { DocumentsCard, RecurringDueNotice, VoucherDocumentsPanel } from './components.tsx';
 import { BillsPendingScreen, OrderPrecloseDialog } from './PendingScreens.tsx';
-import { BudgetFormScreen, BudgetListScreen, BudgetVarianceScreen, ScenarioListScreen } from './PlanningScreens.tsx';
 import { DocumentStatusDialog, QuotationsScreen } from './QuotationsScreen.tsx';
-import { RecurringDueScreen, RecurringFormScreen, RecurringListScreen } from './RecurringScreens.tsx';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const BudgetFormScreen = lazyScreen(() => import('./PlanningScreens.tsx').then((m) => m.BudgetFormScreen));
+const BudgetListScreen = lazyScreen(() => import('./PlanningScreens.tsx').then((m) => m.BudgetListScreen));
+const BudgetVarianceScreen = lazyScreen(() => import('./PlanningScreens.tsx').then((m) => m.BudgetVarianceScreen));
+const ScenarioListScreen = lazyScreen(() => import('./PlanningScreens.tsx').then((m) => m.ScenarioListScreen));
+const RecurringDueScreen = lazyScreen(() => import('./RecurringScreens.tsx').then((m) => m.RecurringDueScreen));
+const RecurringFormScreen = lazyScreen(() => import('./RecurringScreens.tsx').then((m) => m.RecurringFormScreen));
+const RecurringListScreen = lazyScreen(() => import('./RecurringScreens.tsx').then((m) => m.RecurringListScreen));
 
 export const documentsModule: ModuleDef = {
   id: 'documents',

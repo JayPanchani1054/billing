@@ -2,15 +2,18 @@
  * Data module: backup & restore, export centre, Excel/CSV import, XML data import / export and the data check.
  * The Company Select screen's "Restore a backup…" dialog is RestoreBackupDialog (RestoreFlow.tsx).
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { BackupScreen } from './BackupScreen.tsx';
-import { ExportScreen } from './ExportScreen.tsx';
-import { ImportScreen } from './ImportScreen.tsx';
 import { RestoreScreen } from './RestoreFlow.tsx';
-import { XmlExportScreen } from './XmlExportScreen.tsx';
-import { XmlImportScreen } from './XmlImportScreen.tsx';
-import { VerifyScreen } from './VerifyScreen.tsx';
 import './data.css';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const BackupScreen = lazyScreen(() => import('./BackupScreen.tsx').then((m) => m.BackupScreen));
+const ExportScreen = lazyScreen(() => import('./ExportScreen.tsx').then((m) => m.ExportScreen));
+const ImportScreen = lazyScreen(() => import('./ImportScreen.tsx').then((m) => m.ImportScreen));
+const XmlExportScreen = lazyScreen(() => import('./XmlExportScreen.tsx').then((m) => m.XmlExportScreen));
+const XmlImportScreen = lazyScreen(() => import('./XmlImportScreen.tsx').then((m) => m.XmlImportScreen));
+const VerifyScreen = lazyScreen(() => import('./VerifyScreen.tsx').then((m) => m.VerifyScreen));
 
 export { RestoreBackupDialog } from './RestoreFlow.tsx';
 

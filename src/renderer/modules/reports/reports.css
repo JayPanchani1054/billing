@@ -1,14 +1,5 @@
 /* Reports module screens. Semantic design tokens only (no raw colours). Prefix: bx-rep- */
 
-/* Report body: fills the screen; tables scroll inside. */
-.bx-rep-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-height: 0;
-  flex: 1;
-}
-
 /* A table that takes the remaining height of the report body. */
 .bx-rep-fill {
   flex: 1;
@@ -50,7 +41,6 @@
 
 /* Section captions inside a statement (Trading Account / Profit & Loss Account). */
 .bx-rep-section-title {
-  margin: 0;
   font-size: var(--fs-13);
   font-weight: var(--fw-semibold);
   color: var(--text-secondary);
@@ -67,13 +57,10 @@
 }
 
 /* Notes under a report (opening difference, year start, …). */
-.bx-rep-note {
+.bx-rep-note,
+.bx-rep-formula {
   font-size: var(--fs-12);
   color: var(--text-muted);
 }
 
 /* Ratio formula text. */
-.bx-rep-formula {
-  font-size: var(--fs-12);
-  color: var(--text-muted);
-}

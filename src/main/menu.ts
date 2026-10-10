@@ -18,6 +18,8 @@ export interface MenuActions {
   toggleFullScreen(): void;
   showAbout(): void;
   openLogsFolder(): void;
+  /** Help › Check for Updates… (the only menu item that may reach the network; the policy can turn it off). */
+  checkForUpdates(): void;
 }
 
 function focusedWindow(): BrowserWindow | null {
@@ -68,6 +70,7 @@ export function buildApplicationMenu(actions: MenuActions): Menu {
         { label: 'Keyboard Shortcuts', click: () => actions.command('help.shortcuts') },
         { type: 'separator' },
         { label: 'Open Logs Folder', click: () => actions.openLogsFolder() },
+        { label: 'Check for Updates…', click: () => actions.checkForUpdates() },
         { type: 'separator' },
         { label: `About ${APP_NAME}`, click: () => actions.showAbout() },
       ],

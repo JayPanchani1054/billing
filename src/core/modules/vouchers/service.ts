@@ -8,12 +8,17 @@ import type { Permission } from '../../../shared/constants.ts';
 import { addDays, diffDays, formatDate } from '../../../shared/dates.ts';
 import { formatQty } from '../../../shared/format.ts';
 import type { CompanyRegistrationType } from '../../../shared/types/gst.ts';
+import { voucherNumberProblems } from '../../../shared/numbering.ts';
 import type {
+  BillAllocationInput,
   ItemLineInput,
   LedgerLineInput,
   VoucherInput,
   VoucherMode,
+  VoucherNumberCheckInput,
+  VoucherNumberCheckResult,
   VoucherPreview,
+  VoucherRenumberInput,
   VoucherRuleErrorDetails,
   VoucherSaveResult,
   VoucherWarning,
@@ -26,8 +31,17 @@ import { composeVoucherInput, voucherHooks } from './hooks.ts';
 import {
   commitNumber,
   decideNumber,
+  fyRange,
+  isGstNumberedType,
+  isGstOutwardDocument,
+  isGstSeriesOutward,
   loadVoucherType,
+  numberClash,
+  parseVoucherSeq,
+  periodKey,
+  periodKeyLabel,
   previewNextNumber,
+  type NumberDecision,
   type VoucherTypeInfo,
 } from './numbering.ts';
 import {
@@ -290,6 +304,10 @@ interface AuditSnapshot {
   entries: Array<[number, number]>;
   /** [itemId, qty, amount] */
   items: Array<[number, number, number]>;
+  /** 2.0: an alter that changed the number (edit history "Number changed A → B — reason"). */
+  numberChange?: { from: string | null; to: string | null; reason: string | null };
+  /** 2.0: a voucher created with an authorised user's own number instead of the series' next one. */
+  numberOverride?: { to: string | null; next: string | null; reason: string | null };
 }
 
 export function snapshotFromDb(db: Db, row: VoucherRow, typeName: string): AuditSnapshot {
@@ -350,18 +368,23 @@ export function previewVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherPrevi
   const existing = input.id ? loadVoucherRow(db, input.id) : undefined;
   if (input.id && !existing) throw notFound('Voucher', input.id);
   const vt = loadVoucherType(db, input.voucherTypeId);
+  // 2.0: an authorised user's own number (checked on save) is what the preview shows.
+  const override = txt(input.numberOverride?.number);
+  delete input.numberOverride;
   // Extension point (hooks.ts › compose): lines derived from a module's own block (mfg journals).
   input = composeVoucherInput(env, input, vt, existing?.id ?? null);
   let number: string | null;
   const typed = txt(input.number);
-  if (existing) {
+  if (override && vt.numberingMethod !== 'none') {
+    number = override;
+  } else if (existing) {
     number = typed && (vt.numberingMethod === 'manual' || vt.numberingMethod === 'automatic_override') ? typed : existing.number;
   } else if (vt.numberingMethod === 'manual' || (vt.numberingMethod === 'automatic_override' && typed)) {
     number = typed ?? null;
   } else if (vt.numberingMethod === 'none') {
     number = null;
   } else {
-    number = previewNextNumber(db, vt, input.date, env.company.fyStartMonth) || null;
+    number = previewNextNumber(db, vt, input.date, env.company.fyStartMonth, isGstOutwardDocument(db, vt, env.features.gst, input)) || null;
   }
   const plan = buildPosting(env, input, { voucherType: vt, number, voucherId: existing?.id ?? null });
   runValidateHooks(ctx, input, existing ?? null, vt.baseType, plan.header.partyLedgerId);
@@ -451,6 +474,10 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
   assertDateUnlocked(db, input.date);
 
   const vt = loadVoucherType(db, input.voucherTypeId);
+  // 2.0: an authorised user's own number. Taken out of the input: it is never stored in vouchers.meta
+  // (a later alter must not apply it again) and never seen by the posting engine or the hooks.
+  const numberOverride = input.numberOverride;
+  delete input.numberOverride;
   // Extension point (hooks.ts › compose): lines derived from a module's own block (mfg journals).
   input = composeVoucherInput(env, input, vt, existing?.id ?? null);
   const decision = decideNumber(db, vt, {
@@ -458,7 +485,13 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
     fyStartMonth: env.company.fyStartMonth,
     typed: input.number,
     existing: existing ? { id: existing.id, number: existing.number, seq: existing.number_seq, date: existing.date } : null,
+    override: numberOverride ? { ...numberOverride, number: typeof numberOverride.number === 'string' ? numberOverride.number : '' } : undefined,
+    canRenumber: can(ctx, 'vouchers.renumber'),
+    gstOutward: isGstOutwardDocument(db, vt, env.features.gst, input),
+    gstDoc: isGstNumberedType(vt, env.features.gst),
   });
+  const notes: VoucherWarning[] = [];
+  if (existing && decision.override && decision.number !== existing.number) input = keepSettledBillNames(db, existing, input, notes);
   // Extension point (hooks.ts › prepare): masters the posting needs, created in this transaction.
   for (const hook of voucherHooks()) hook.prepare?.(ctx, { env, input, voucherType: vt });
   const plan = buildPosting(env, input, { voucherType: vt, number: decision.number, voucherId: existing?.id ?? null });
@@ -469,6 +502,8 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
   // The number was found free by decideNumber inside this same (synchronous) transaction: nothing can
   // take it in between, so the counter is advanced to it without probing the series again.
   if (decision.consume && decision.seq !== null) commitNumber(db, vt, input.date, env.company.fyStartMonth, decision.seq);
+  // 2.0: "Continue the series from here" — the counter moves up to the typed number (never down).
+  if (decision.continueSeq !== undefined && decision.continueSeq !== null) commitNumber(db, vt, input.date, env.company.fyStartMonth, decision.continueSeq);
 
   const now = ctx.clock.now().toISOString();
   const userId = ctx.session.userId;
@@ -597,9 +632,64 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
     entityGuid: guid,
     entityLabel: voucherLabel(vt.name, decision.number, input.date),
     before: before ?? undefined,
-    after: snapshotFromPlan(plan, input),
+    after: numberAudit(snapshotFromPlan(plan, input), existing ?? null, decision),
   });
-  return { id, number: decision.number, warnings: plan.warnings, totals: plan.totals, updatedAt: now };
+  return { id, number: decision.number, warnings: notes.length > 0 ? [...plan.warnings, ...notes] : plan.warnings, totals: plan.totals, updatedAt: now };
+}
+
+/** 2.0: the edit-log image of a save records a changed number (alter) or an override (create). */
+function numberAudit(after: AuditSnapshot, existing: VoucherRow | null, decision: NumberDecision): AuditSnapshot {
+  if (existing && decision.number !== existing.number) {
+    after.numberChange = { from: existing.number, to: decision.number, reason: decision.override?.reason ?? null };
+  } else if (!existing && decision.override) {
+    after.numberOverride = { to: decision.number, next: decision.override.next, reason: decision.override.reason };
+  }
+  return after;
+}
+
+/**
+ * 2.0: an invoice's party bill is named after its number. When another voucher already settles that
+ * bill ('against'), renumbering keeps the bill's name (the receipt stays matched): the party's current
+ * bill-wise split is carried into the input, and an info note says so. Invoice modes only, and only when
+ * the input does not give the party's bill-wise split itself.
+ */
+function keepSettledBillNames(db: Db, existing: VoucherRow, input: VoucherInput, notes: VoucherWarning[]): VoucherInput {
+  if ((input.mode !== 'item_invoice' && input.mode !== 'accounting_invoice') || existing.party_ledger_id === null) return input;
+  if (input.partyBillAllocations && input.partyBillAllocations.length > 0) return input;
+  if (input.partyLedgerId !== undefined && input.partyLedgerId !== existing.party_ledger_id) return input;
+  const party = existing.party_ledger_id;
+  const settled = db.get<{ bill_name: string; number: string | null; type_name: string }>(
+    `SELECT ba.bill_name, v2.number, vt.name AS type_name
+       FROM bill_allocations ba
+       JOIN bill_allocations ba2 ON ba2.ledger_id = ba.ledger_id AND ba2.bill_name = ba.bill_name
+                                AND ba2.voucher_id <> ba.voucher_id AND ba2.ref_type = 'against'
+       JOIN vouchers v2 ON v2.id = ba2.voucher_id
+       JOIN voucher_types vt ON vt.id = v2.voucher_type_id
+      WHERE ba.voucher_id = :id AND ba.ledger_id = :party AND ba.ref_type IN ('new', 'advance') AND ba.bill_name IS NOT NULL
+      LIMIT 1`,
+    { id: existing.id, party },
+  );
+  if (!settled) return input;
+  const rows = db.all<{ ref_type: BillAllocationInput['refType']; bill_name: string | null; amount: number; credit_days: number | null; due_date: string | null; forex_amount: number | null }>(
+    'SELECT ref_type, bill_name, amount, credit_days, due_date, forex_amount FROM bill_allocations WHERE voucher_id = :id AND ledger_id = :party ORDER BY id',
+    { id: existing.id, party },
+  );
+  if (rows.length === 0) return input;
+  const partyBillAllocations = rows.map((r): BillAllocationInput => {
+    const a: BillAllocationInput = { refType: r.ref_type, amount: Math.abs(r.amount) };
+    if (r.bill_name !== null) a.billName = r.bill_name;
+    if (r.credit_days !== null) a.creditDays = r.credit_days;
+    if (r.due_date !== null) a.dueDate = r.due_date;
+    if (r.forex_amount !== null) a.forexAmount = Math.abs(r.forex_amount);
+    return a;
+  });
+  notes.push({
+    code: 'numbering',
+    level: 'info',
+    blocking: false,
+    message: `Bill ${settled.bill_name} keeps its name because ${settled.type_name} ${settled.number ?? ''} settles it.`,
+  });
+  return { ...input, partyBillAllocations };
 }
 
 const IRN_NATURES: ReadonlySet<string> = new Set(['b2b', 'export_wpay', 'export_lut', 'sez_wpay', 'sez_lut', 'deemed_export']);
@@ -1141,5 +1231,79 @@ export function duplicateVoucher(ctx: CompanyCtx, id: number): VoucherInput {
 export function nextVoucherNumber(ctx: CompanyCtx, voucherTypeId: number, date: string): string {
   const vt = loadVoucherType(ctx.db, voucherTypeId);
   const fyStartMonth = loadCompanyEssentials(ctx.db).fyStartMonth;
-  return previewNextNumber(ctx.db, vt, date, fyStartMonth);
+  return previewNextNumber(ctx.db, vt, date, fyStartMonth, isGstSeriesOutward(vt, getFeatures(ctx.db).gst));
+}
+
+// ───────────────────────────── 2.0: renumber, number check ─────────────────────────────
+
+/**
+ * 'vouchers.renumber': give a saved voucher another number from Voucher View. Re-runs the normal alter
+ * (saveVoucher) with the voucher as entered (vouchers.meta) and a numberOverride, so every guard applies
+ * (lock date, freshness, IRN, cancelled, back-dating, the GST filed-period confirm) and the postings are
+ * rebuilt from the same input — entries, stock and GST rows are unchanged; only the number (and, unless a
+ * receipt settles it, the party bill named after it) changes. Needs vouchers.alter + vouchers.renumber.
+ */
+export function renumberVoucher(ctx: CompanyCtx, input: VoucherRenumberInput): VoucherSaveResult {
+  const { row } = loadForChange(ctx, input.id);
+  if (!can(ctx, 'vouchers.renumber')) throw forbidden('Changing a voucher number needs "Change voucher numbers and the next number" (Users & Roles).');
+  const meta = parseMeta(row.meta);
+  if (!meta.input) {
+    throw rule('This voucher was saved without its entry details (an older import). Alter the voucher (Alt+A) and change the number there.');
+  }
+  return saveVoucher(ctx, {
+    ...storedInput(ctx.db, row),
+    id: row.id,
+    expectedUpdatedAt: input.expectedUpdatedAt,
+    acknowledgeWarnings: input.acknowledgeWarnings === true,
+    numberOverride: {
+      number: input.number,
+      ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      ...(input.continueSeries !== undefined ? { continueSeries: input.continueSeries } : {}),
+    },
+  });
+}
+
+/**
+ * 'vouchers.numberCheck': can `number` be used for a voucher of the type dated `date`? The format rule of
+ * a typed number (voucherNumberProblems) and the uniqueness rule the save applies to an override
+ * (numbering.ts › numberClash): the financial year for an outward GST document, else the numbering
+ * period. A debit note is outward only to a customer: its party comes from the input, else from the
+ * voucher being altered (`excludeId`); when it is unknown both rules apply (the stricter answer).
+ */
+export function checkVoucherNumber(ctx: CompanyCtx, input: VoucherNumberCheckInput): VoucherNumberCheckResult {
+  const { db } = ctx;
+  const vt = loadVoucherType(db, input.voucherTypeId);
+  const fyStartMonth = loadCompanyEssentials(db).fyStartMonth;
+  const gst = getFeatures(db).gst;
+  const gstDoc = isGstNumberedType(vt, gst);
+  const number = input.number.trim();
+  const problems = voucherNumberProblems(number, gstDoc);
+  const exclude = input.excludeId ?? null;
+  let outward: boolean[];
+  if (!gstDoc) outward = [false];
+  else if (vt.baseType !== 'debit_note') outward = [true];
+  else {
+    const own = exclude !== null ? loadVoucherRow(db, exclude) : undefined;
+    const partyLedgerId = input.partyLedgerId ?? own?.party_ledger_id ?? undefined;
+    const mode = input.mode ?? (own ? modeOfRow(own) : undefined);
+    outward = partyLedgerId !== undefined && mode !== undefined ? [isGstOutwardDocument(db, vt, gst, { mode, partyLedgerId })] : [true, false];
+  }
+  const periodLabel = periodKeyLabel(vt.numberingRestart, periodKey(vt, input.date, fyStartMonth));
+  let scopeLabel = outward[0] ? `FY ${fyRange(input.date, fyStartMonth).label}` : periodLabel;
+  let taken = false;
+  for (const gstOutward of number === '' ? [] : outward) {
+    const clash = numberClash(db, vt, number, input.date, fyStartMonth, exclude, { gstOutward, always: true });
+    if (clash) {
+      taken = true;
+      scopeLabel = clash.scope === 'fy' ? `FY ${clash.fyLabel}` : periodLabel;
+      break;
+    }
+  }
+  return {
+    ok: problems.length === 0 && !taken,
+    taken,
+    problems,
+    seq: number === '' ? null : parseVoucherSeq(vt, number, input.date, fyStartMonth),
+    scopeLabel,
+  };
 }

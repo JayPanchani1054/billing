@@ -1,12 +1,15 @@
 /**
  * Per-user display preferences (theme, density), remembered in localStorage and mirrored to the
  * native window theme (pevqori.native('theme.set')). Changes made from the native side arrive as
- * 'theme-changed' events and are adopted here.
+ * 'theme-changed' events and are adopted here. The 2.0 layout preferences (Home view, shortcut bar)
+ * live in lib/uiPrefs.ts and are read here with `useUiPrefs()`.
  */
 import { useSyncExternalStore } from 'react';
 import { applyDensity, applyTheme } from '../ui/index.ts';
 import type { Density, ThemePreference } from '../ui/index.ts';
 import { getBridge, native, onBridgeEvent } from './bridge.ts';
+import { getUiPrefs, subscribeUiPrefs } from './lib/uiPrefs.ts';
+import type { UiPrefs } from './lib/uiPrefs.ts';
 
 export interface Preferences {
   theme: ThemePreference;
@@ -94,4 +97,15 @@ function subscribe(cb: () => void): () => void {
 
 export function usePreferences(): Preferences {
   return useSyncExternalStore(subscribe, getPreferences, getPreferences);
+}
+
+// ───────────────────────────── 2.0 layout preferences ─────────────────────────────
+// Home view (Essentials / All menus) and the shortcut bar, per user profile (lib/uiPrefs.ts).
+
+export { setUiPrefs, getUiPrefs } from './lib/uiPrefs.ts';
+export type { HomeView, UiPrefs } from './lib/uiPrefs.ts';
+
+/** The layout preferences, re-rendering on change. */
+export function useUiPrefs(): UiPrefs {
+  return useSyncExternalStore(subscribeUiPrefs, getUiPrefs, getUiPrefs);
 }

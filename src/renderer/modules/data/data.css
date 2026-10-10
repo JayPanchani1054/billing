@@ -1,13 +1,11 @@
 /* Data module screens (backup, restore, export, import, XML data import / export, data check). Semantic tokens only. Prefix: bx-data- */
 
-/* ── Wizard steps ─────────────────────────────────────────────── */
+/* Wizard steps */
 .bx-data-steps {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-6);
   margin: 0 0 var(--space-4);
-  padding: 0;
-  list-style: none;
   counter-reset: none;
 }
 .bx-data-steps__item {
@@ -48,13 +46,10 @@
   color: var(--success-text);
 }
 
-/* ── Check lists (backup verification, data check) ───────────── */
+/* Check lists (backup verification, data check) */
 .bx-data-checks {
   display: grid;
   gap: var(--space-1-5);
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .bx-data-checks__item {
   display: grid;
@@ -64,7 +59,8 @@
   padding: var(--space-1) 0;
   border-bottom: 1px solid var(--border-subtle);
 }
-.bx-data-checks__name {
+.bx-data-checks__name,
+.bx-data-file__name {
   font-weight: var(--fw-medium);
   color: var(--text-primary);
 }
@@ -72,7 +68,7 @@
   color: var(--text-secondary);
 }
 
-/* ── Password strength meter ─────────────────────────────────── */
+/* Password strength meter */
 .bx-data-strength {
   display: inline-flex;
   align-items: center;
@@ -94,10 +90,10 @@
 .bx-data-strength__meter.is-3 > span:nth-child(-n + 3),
 .bx-data-strength__meter.is-4 > span:nth-child(-n + 4) { background: var(--success-solid); }
 
-/* ── Choice cards (import kinds, restore mode) ───────────────── */
+/* Choice cards (import kinds, restore mode) */
 .bx-data-howto {
-  margin: 0;
   padding-left: var(--space-5);
+  list-style: decimal;
   color: var(--text-secondary);
   line-height: var(--lh-relaxed);
 }
@@ -115,13 +111,8 @@
   min-width: 0;
   color: var(--text-secondary);
 }
-.bx-data-file__name {
-  color: var(--text-primary);
-  font-weight: var(--fw-medium);
-}
 
 .bx-data-messages {
-  margin: 0;
   padding-left: var(--space-4);
   color: var(--text-secondary);
 }
@@ -129,6 +120,7 @@
 .bx-data-details {
   margin: var(--space-2) 0 0;
   padding-left: var(--space-5);
+  list-style: disc;
   color: var(--text-secondary);
   font-size: var(--fs-12);
 }

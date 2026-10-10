@@ -2,11 +2,19 @@
  * Print routes: read-only data for invoice / voucher documents. Rendering happens in the renderer
  * (src/renderer/modules/print) and the HTML goes to pevqori.native('print.*'). DTOs: shared/types/print.ts.
  */
-import { PRINT_BATCH_MAX, PRINT_COPIES, PRINT_TEMPLATES, SHARE_CHANNELS, type InvoicePrintOverrides, type ShareSubjectInput } from '../../../shared/types/print.ts';
+import {
+  PRINT_BATCH_MAX,
+  PRINT_COPIES,
+  PRINT_TEMPLATES,
+  SHARE_CHANNELS,
+  type InvoicePrintOverrides,
+  type PrintVoucherData,
+  type ShareSubjectInput,
+} from '../../../shared/types/print.ts';
 import { validateUpiId } from '../../../shared/validators.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { v } from '../../lib/validate.ts';
-import { buildBatch, buildPrintDataFor, listBankLedgers, loadPrintEnv } from './data.ts';
+import { buildBatch, buildPrintDataFor, listBankLedgers, loadPrintEnv, savedLayoutFor, type PrintEnv } from './data.ts';
 import { buildSampleData } from './sample.ts';
 import { logShare, shareContext } from './share.ts';
 
@@ -32,14 +40,24 @@ export const OverridesSchema = v.object({
   paperSize: v.enum(['A4', 'A5', 'A5-landscape', 'Letter', 'Legal'] as const).optional(),
   rollWidth: v.enum(['80mm', '58mm'] as const).optional(),
   showMrp: v.boolean().optional(),
+  // (2.0) Accepted and ignored: the Invoice Printing preview sends its whole draft (config.invoice, which
+  // now holds the company layout layer). Layouts are applied by the renderer, never through overrides.
+  layout: v.unknown().optional(),
 });
 
-/** Drop keys the validator left undefined so they don't override saved options. */
-function cleanOverrides(o: InvoicePrintOverrides | undefined): InvoicePrintOverrides | undefined {
+/** Drop keys the validator left undefined (and the ignored `layout`) so they don't override saved options. */
+export function cleanOverrides(o: InvoicePrintOverrides | undefined): InvoicePrintOverrides | undefined {
   if (!o) return undefined;
   const out: Record<string, unknown> = {};
-  for (const [k, val] of Object.entries(o)) if (val !== undefined) out[k] = val;
+  for (const [k, val] of Object.entries(o)) if (val !== undefined && k !== 'layout') out[k] = val;
   return Object.keys(out).length > 0 ? (out as InvoicePrintOverrides) : undefined;
+}
+
+/** The Invoice Printing sample, carrying the company layout layer (no voucher type: an empty voucher-type layer). */
+function sampleWithLayout(env: PrintEnv, overrides: InvoicePrintOverrides | undefined): PrintVoucherData {
+  const doc = buildSampleData(env, overrides);
+  doc.savedLayout = savedLayoutFor(env, null, {}, overrides);
+  return doc;
 }
 
 /** A voucher, or a party statement for a period (exactly one). */
@@ -67,7 +85,7 @@ export const printRoutes = {
     access: 'company.view',
     transactional: false,
     input: v.object({ overrides: OverridesSchema.optional() }),
-    handler: (ctx, input) => buildSampleData(loadPrintEnv(ctx), cleanOverrides(input.overrides as InvoicePrintOverrides | undefined)),
+    handler: (ctx, input) => sampleWithLayout(loadPrintEnv(ctx), cleanOverrides(input.overrides as InvoicePrintOverrides | undefined)),
   }),
   // print group: sharing by e-mail / WhatsApp (the PDF is written by Electron main, see shared/bridge.ts share.*).
   'print.share.context': companyRoute({

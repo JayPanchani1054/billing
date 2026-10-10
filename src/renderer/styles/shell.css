@@ -1,28 +1,32 @@
 /* ==========================================================================
-   Pevqori — application shell: workspace frame (top bar, breadcrumbs, screen
-   stack, action rail, status bar), Gateway, Go To palette, shortcuts, gate
-   screens (data folder, company list, wizard, login) and company screens.
+   Pevqori — application shell: workspace frame (top bar, screen bar with
+   breadcrumbs + command bar, screen stack, optional shortcut bar, status bar),
+   Home, Go To palette, shortcuts, gate screens (data folder, company list,
+   wizard, login) and company screens.
    Semantic tokens only — no raw colours. Loaded after styles/index.css.
    ========================================================================== */
 
 :root {
-  --topbar-h: 52px;
-  --statusbar-h: 28px;
-  --crumbs-h: 34px;
+  --topbar-h: 48px;
+  --statusbar-h: 24px;
+  --crumbs-h: 40px;
   --gateway-menu-w: 320px;
 }
 
 [data-density='compact'] {
   --topbar-h: 44px;
-  --statusbar-h: 24px;
-  --crumbs-h: 30px;
+  --statusbar-h: 22px;
+  --crumbs-h: 36px;
   --gateway-menu-w: 288px;
 }
 
-/* Toasts clear the rail and the status bar while the workspace is shown. */
+/* Toasts clear the status bar (and the shortcut bar when it is shown). */
 body:has(.bx-shell) {
-  --toast-inset-right: calc(var(--rail-width) + var(--space-4));
+  --toast-inset-right: var(--space-4);
   --toast-inset-bottom: calc(var(--statusbar-h) + var(--space-3));
+}
+body:has(.bx-shell--shortcut-bar) {
+  --toast-inset-right: calc(var(--rail-width) + var(--space-4));
 }
 
 /* ── Splash / full-page notices ─────────────────────────────────────────── */
@@ -99,10 +103,40 @@ body:has(.bx-shell) {
   display: flex;
   flex-shrink: 0;
   align-items: center;
+  gap: var(--space-4);
   min-height: var(--crumbs-h);
-  padding: 0 var(--space-5);
+  padding: 0 var(--space-2) 0 var(--space-5);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-1);
+}
+.bx-shell__breadcrumbs {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px; /* room for the focus ring of a crumb */
+}
+.bx-shell__cmdbar {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* ── Command bar (screen bar, right side) ───────────────────────────────── */
+.bx-cmdbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.bx-cmdbar__btn.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.bx-cmdbar__btn .bx-kbd {
+  margin-left: var(--space-1);
+}
+.bx-cmdbar__menu {
+  min-width: 260px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
 }
 .bx-shell__screens {
   position: relative;
@@ -154,11 +188,17 @@ body:has(.bx-shell) {
   letter-spacing: var(--tracking-tight);
 }
 .bx-topbar__company {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
-  padding-left: var(--space-4);
-  border-left: 1px solid var(--border-subtle);
+  height: calc(var(--control-h) - 4px);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.bx-topbar__company:hover {
+  background: var(--ghost-hover);
 }
 .bx-topbar__company-name {
   overflow: hidden;
@@ -167,17 +207,10 @@ body:has(.bx-shell) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.bx-topbar__company-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+.bx-topbar__fy {
   color: var(--text-secondary);
   font-size: var(--text-small);
   white-space: nowrap;
-}
-.bx-topbar__gstin {
-  font-family: var(--font-mono);
-  letter-spacing: 0.02em;
 }
 .bx-topbar__context {
   display: flex;
@@ -213,12 +246,12 @@ body:has(.bx-shell) {
   font-size: var(--text-caption);
   font-weight: var(--fw-semibold);
 }
-.bx-topbar__goto {
+.bx-topbar__search {
   display: inline-flex;
-  flex: 0 1 260px;
+  flex: 0 1 320px;
   align-items: center;
   gap: var(--space-2);
-  min-width: 140px;
+  min-width: 200px;
   height: calc(var(--control-h) - 4px);
   padding: 0 var(--space-2-5);
   border: 1px solid var(--border-default);
@@ -226,12 +259,15 @@ body:has(.bx-shell) {
   background: var(--control-fill);
   color: var(--text-muted);
 }
-.bx-topbar__goto:hover {
+.bx-topbar__search:hover {
   border-color: var(--border-strong);
 }
-.bx-topbar__goto-text {
+.bx-topbar__search-text {
   flex: 1;
+  overflow: hidden;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .bx-topbar__end {
   display: flex;
@@ -265,12 +301,11 @@ body:has(.bx-shell) {
 
 @media (max-width: 1240px) {
   .bx-hide-narrow,
-  .bx-topbar__goto-text {
+  .bx-topbar__wordmark {
     display: none;
   }
-  .bx-topbar__goto {
-    flex: 0 0 auto;
-    min-width: 0;
+  .bx-topbar__search {
+    flex-basis: 200px;
   }
   .bx-topbar__company-name {
     max-width: 22ch;
@@ -302,9 +337,6 @@ body:has(.bx-shell) {
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-}
-.bx-statusbar__folder {
-  max-width: 32ch;
 }
 .bx-statusbar__version {
   color: var(--text-muted);
@@ -601,6 +633,9 @@ body:has(.bx-shell) {
   font-family: var(--font-display);
   font-size: var(--text-subtitle);
 }
+.bx-gateway__views {
+  margin: 0 var(--space-2) var(--space-4);
+}
 .bx-gateway__empty {
   padding: var(--space-2);
   color: var(--text-secondary);
@@ -643,10 +678,25 @@ body:has(.bx-shell) {
   background: var(--row-selected);
   box-shadow: inset 3px 0 0 var(--row-selected-indicator);
 }
-.bx-gateway__label {
+.bx-gateway__text {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.bx-gateway__label {
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bx-gateway__item--detailed {
+  padding-block: var(--space-1-5);
+}
+.bx-gateway__desc {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -663,63 +713,50 @@ body:has(.bx-shell) {
   overflow-y: auto;
 }
 
-/* Welcome panel */
-.bx-welcome {
+/* Home panel: "Try the simpler Home" card and the greeting (users without the dashboard). */
+.bx-gateway__try {
+  margin: var(--space-4) var(--space-6) 0;
+}
+.bx-gateway__greeting {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-  max-width: 920px;
+  gap: var(--space-2);
+  max-width: 720px;
   padding: var(--space-6) var(--space-8);
 }
-.bx-welcome__eyebrow {
-  color: var(--text-muted);
-  font-size: var(--text-small);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-}
-.bx-welcome__title {
-  margin-top: var(--space-1);
+.bx-gateway__greeting-title {
   font-family: var(--font-display);
   font-size: var(--text-heading);
   letter-spacing: var(--tracking-tight);
 }
-.bx-welcome__subtitle {
-  margin-top: var(--space-1);
+.bx-gateway__greeting-text {
   color: var(--text-secondary);
   font-size: var(--text-body);
 }
-.bx-welcome__section-title {
-  margin-bottom: var(--space-2);
-  font-size: var(--text-body);
-}
-.bx-welcome__quick-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: var(--space-3);
-}
-.bx-quick {
+
+/* Appearance panel (user menu › Appearance…, Settings hub) */
+.bx-appearance {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2);
-  min-height: 96px;
-  padding: var(--space-3);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-  box-shadow: var(--shadow-1);
-  text-align: left;
+  gap: var(--space-4);
 }
-.bx-quick:hover {
-  border-color: var(--brand);
+.bx-appearance__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
 }
-.bx-quick__icon {
-  color: var(--brand-text);
+.bx-appearance__label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-weight: var(--fw-medium);
 }
-.bx-quick__label {
-  flex: 1;
-  font-weight: var(--fw-semibold);
+.bx-appearance__hint {
+  max-width: 36ch;
+  color: var(--text-secondary);
+  font-size: var(--text-small);
+  font-weight: var(--fw-regular);
 }
 
 /* ── Gate screens (before a company is open) ────────────────────────────── */
@@ -1093,13 +1130,6 @@ body:has(.bx-shell) {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-.bx-inline-checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  min-height: var(--control-h);
-  align-items: center;
 }
 .bx-guard-row {
   display: flex;

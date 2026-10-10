@@ -48,6 +48,7 @@ const SHIPPED: ReadonlyArray<readonly [number, string]> = [
 [230, '24dc2eec52ed3d3a29f32844c474144a3073a94371764143dfe6cadc5125d3b9'],
 [240, '3d6d73e12915bbcd229747bb82b36555a1de3c97ad92d0ea2c4e96f8923fe74c'],
 [241, '8ada8a5b2c4cf40de6086c8f257cf95e6c4fe4990cd8e71c6ae8d8a35c6d7f90'],
+[250, '61426fcdfdc1785e4f7d5f6808651e37cc13d93e3a3a128c508ddd993cb9863d'],
 ];
 
 describe('shipped migrations', () => {

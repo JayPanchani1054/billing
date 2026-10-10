@@ -18,6 +18,7 @@ import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import { getState, isUtgstState, stateLabel, stateName } from '../../../shared/gst/index.ts';
 import { allocate, lineAmount, type Paise } from '../../../shared/money.ts';
+import { EMPTY_PRINT_LAYOUT, shadowedByLegacy, validatePrintLayout, type PrintLayoutSpec } from '../../../shared/printLayout.ts';
 import type { CompanyConfig, CompanyFeatures } from '../../../shared/settings.ts';
 import type { CompanyProfile } from '../../../shared/types/company.ts';
 import type { GstNature, Taxability, TaxMode } from '../../../shared/types/gst.ts';
@@ -208,22 +209,97 @@ export function printCompany(env: PrintEnv): PrintCompany {
   };
 }
 
+/** Voucher-type flags that override Invoice Printing when set (true / false; null or absent = as in Invoice Printing). */
+const VT_FLAGS = ['showMrp', 'showHsnSummary', 'showBankDetails', 'showUpiQr', 'itemwiseTax'] as const;
+
+/**
+ * Print options of one document: Invoice Printing (config.invoice) ‹ voucher-type keys ‹ preview overrides.
+ * `layout` is the validated company layer (the stored value may be hand-edited or restored from anywhere);
+ * overrides never change it.
+ */
 export function resolveOptions(env: PrintEnv, vtConfig: Record<string, unknown>, overrides?: InvoicePrintOverrides): InvoicePrintOptions {
-  const base: InvoicePrintOptions = { ...env.config.invoice, copies: [...env.config.invoice.copies] };
+  const base: InvoicePrintOptions = { ...env.config.invoice, copies: [...env.config.invoice.copies], layout: companyLayout(env) };
   const str = (k: string): string | undefined => (typeof vtConfig[k] === 'string' && (vtConfig[k] as string).trim() !== '' ? (vtConfig[k] as string) : undefined);
   const tpl = vtConfig.printTemplate;
   if (tpl === 'modern' || tpl === 'classic' || tpl === 'compact') base.template = tpl;
   const bank = vtConfig.bankLedgerId;
   if (typeof bank === 'number' && Number.isInteger(bank) && bank > 0) base.bankLedgerId = bank;
-  if (typeof vtConfig.showMrp === 'boolean') base.showMrp = vtConfig.showMrp;
+  for (const k of VT_FLAGS) {
+    const flag = vtConfig[k];
+    if (typeof flag === 'boolean') base[k] = flag;
+  }
   base.declaration = str('declaration') ?? base.declaration;
   base.terms = str('terms') ?? base.terms;
   if (!overrides) return base;
   const out = { ...base };
   for (const [k, val] of Object.entries(overrides) as Array<[keyof InvoicePrintOptions, unknown]>) {
-    if (val !== undefined) (out as Record<string, unknown>)[k] = val;
+    if (val !== undefined && k !== 'layout') (out as Record<string, unknown>)[k] = val;
   }
   return out;
+}
+
+// ───────────────────────────── Saved layout layers (2.0) ─────────────────────────────
+
+interface LayoutCache {
+  company?: PrintLayoutSpec;
+  voucherTypes: Map<number, PrintLayoutSpec>;
+}
+/** Validated layers per request / batch (one validation and at most one log line per stored value). */
+const layoutCache = new WeakMap<PrintEnv, LayoutCache>();
+
+function cacheOf(env: PrintEnv): LayoutCache {
+  let c = layoutCache.get(env);
+  if (!c) {
+    c = { voucherTypes: new Map() };
+    layoutCache.set(env, c);
+  }
+  return c;
+}
+
+/** A stored layer through validatePrintLayout: bad entries dropped (a corrupt value → empty) and one log line. */
+function storedLayer(env: PrintEnv, raw: unknown, level: 'company' | 'voucherType', where: string): PrintLayoutSpec {
+  const { value, issues } = validatePrintLayout(raw, level);
+  if (issues.length > 0) {
+    env.ctx.app.log('warn', `Print layout of ${where} has ${issues.length} invalid ${issues.length === 1 ? 'entry' : 'entries'}; they are ignored`, {
+      paths: issues.slice(0, 10).map((i) => i.path),
+    });
+  }
+  return value.hide.length + value.show.length + value.text.length === 0 ? EMPTY_PRINT_LAYOUT : value;
+}
+
+/** The company layer (config.invoice.layout), validated. */
+export function companyLayout(env: PrintEnv): PrintLayoutSpec {
+  const c = cacheOf(env);
+  c.company ??= storedLayer(env, (env.config.invoice as { layout?: unknown }).layout, 'company', 'Invoice Printing');
+  return c.company;
+}
+
+/** The voucher-type layer (voucher_types.config.printLayout), validated; empty for the sample (no voucher type). */
+export function voucherTypeLayout(env: PrintEnv, vtId: number | null, vtConfig: Record<string, unknown>): PrintLayoutSpec {
+  if (vtId === null) return EMPTY_PRINT_LAYOUT;
+  const c = cacheOf(env);
+  let l = c.voucherTypes.get(vtId);
+  if (!l) {
+    l = storedLayer(env, vtConfig.printLayout, 'voucherType', `voucher type ${vtId}`);
+    c.voucherTypes.set(vtId, l);
+  }
+  return l;
+}
+
+/**
+ * PrintVoucherData.savedLayout: both stored layers, validated, minus entries a higher level's option key
+ * already decides (shadowedByLegacy) — the renderer resolves them with the per-print layer.
+ */
+export function savedLayoutFor(
+  env: PrintEnv,
+  vtId: number | null,
+  vtConfig: Record<string, unknown>,
+  overrides?: InvoicePrintOverrides,
+): { company: PrintLayoutSpec; voucherType: PrintLayoutSpec } {
+  return shadowedByLegacy(
+    { company: companyLayout(env), voucherType: voucherTypeLayout(env, vtId, vtConfig) },
+    { voucherType: vtConfig, overrides: overrides as Record<string, unknown> | undefined },
+  );
 }
 
 /** Groups under Bank Accounts / Bank OD (nested groups included). */
@@ -1174,6 +1250,7 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
     mrpSummary: mrpSummaryOf(lines, options.showMrp, layout, direction === 'outward' && isMrpDocument(title.kind)),
     navigation: navigation(db, row),
     warnings,
+    savedLayout: savedLayoutFor(env, vt.id, vtConfig, overrides),
   };
   // (forex group) Foreign-currency amounts, rate and INR equivalents of an export / import document.
   const forex = forexPrintBlock(db, data);

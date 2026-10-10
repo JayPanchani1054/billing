@@ -7,13 +7,15 @@ use GST, TDS, banking, reports and the data tools.
 **How this guide writes things**
 
 - Keys are shown as they appear on screen: **Ctrl+A** means hold Ctrl and press A.
-- Menu paths start at the **Gateway** (the home screen): *Reports › **Trial Balance*** means the
-  *Trial Balance* item in the *Reports* section of the Gateway. Every Gateway item can also be found
-  with **Go To** (**Ctrl+G**, **Alt+G** or **Ctrl+K**) by typing a few letters of its name.
+- Menu paths start at **Home** in its *All menus* view (**Ctrl+2**; earlier versions called it the
+  Gateway): *Reports › **Trial Balance*** means the *Trial Balance* item in the *Reports* section of All
+  menus. Every menu item can also be found with **Go To** (**Ctrl+G**, **Alt+G** or **Ctrl+K**) by typing
+  a few letters of its name.
 - *F11 › Inventory › **Batches*** means the *Batches* switch in the *Inventory* group of the
   Features screen (**F11**); *F12 › Checks* means the *Checks* tab of Configuration (**F12**).
-- Every screen shows its keys in the action bar on the right and in the status line at the bottom.
-  **F1** lists all keys; section 15 of this guide has the full reference.
+- Every screen shows its actions with their keys in the command bar at the top right (**More ▾** lists
+  the rest) and a hint in the status line at the bottom. **F1** lists all keys; section 15 of this guide
+  has the full reference.
 - Pevqori computes from your books. Where a figure goes to a government portal (GST, TDS), compare it with
   the portal before filing — the portal is the legal record.
 
@@ -74,18 +76,50 @@ be changed later.
 
 If the company is password-protected, Pevqori asks for the username and password each time it is opened.
 
-### The Gateway
+### Home
 
-The Gateway is the home screen. On the left are the menu sections — **Masters**, **Transactions**,
-**Banking**, **Utilities**, **Reports**, **Inventory Reports**, **GST**, **TDS / TCS**, **Data**,
-**Security** and **Company**. Sections and items appear only when the features they need are on and
-you have the permission to use them. Use **↑ ↓** and **Enter**, or press the item's highlighted letter.
-Voucher items show their function key instead (F8 for Sales, …).
+**Home** is the first screen of an open company (earlier versions called it the Gateway). Its left
+column lists what you can open, in one of two views — switch with the *Essentials | All menus* control
+at the top, or with **Ctrl+1** / **Ctrl+2**:
+
+- **Essentials** — about twenty everyday tasks in five groups, each with one line saying what it is
+  for: **Create** (Sales, Receipt, Purchase, Payment, Create Ledger, Create Stock Item), **Look up**
+  (Day Book, Ledgers, Stock Items, Receivables, Payables), **Reports** (Profit & Loss A/c, Balance
+  Sheet, Trial Balance, Stock Summary, Cash/Bank Books), **GST** (GSTR-1 and GSTR-3B, or CMP-08 and
+  GSTR-4 for a composition dealer) and **Company** (settings, invoice numbering and printing, Features,
+  Backup).
+- **All menus** — every menu section: **Masters**, **Transactions**, **Banking**, **Utilities**,
+  **Reports**, **Inventory Reports**, **GST**, **TDS / TCS**, **Data**, **Security** and **Company**.
+
+Either way, items appear only when the features they need are on and you have the permission to use
+them. Use **↑ ↓** and **Enter**, or press the item's highlighted letter. Voucher items show their function
+key instead (F8 for Sales, …). A new installation starts on Essentials; if you used Pevqori before 2.0,
+Home keeps All menus and the shortcut bar you know, and offers once to *Try the simpler Home*. Your choice
+is remembered on this computer.
 
 On the right is the **dashboard**: cash and bank, receivables and payables, sales and purchases, the
 GST estimate, stock alerts and due items, plus a **Get started** card that walks you through company
 details, features, invoice printing, your first ledgers and items, your first sale and backups (Alt+S on
-the full dashboard, *Reports › **Dashboard***, brings the card back if you hid it).
+the full dashboard, *Reports › **Dashboard***, brings the card back if you hid it). A user who may not
+see the dashboard gets a short greeting instead.
+
+### The top bar, the screen bar and the status bar
+
+- **Top bar** (left to right): the company button (name and financial year; its menu has *Switch company*
+  **F3**, *Company details* and the GSTIN), the working date (**F2**) and period (**Alt+F2**), the search
+  box *Search or jump to…* (Go To, **Ctrl+G**), **Create ▾** (Sales invoice, Receipt, Purchase, Payment,
+  Credit note, Customer, Supplier, Item, Other voucher… — each with its usual key; it lists only what you
+  may create), the gear (the
+  *Settings* screen, when available), **?** (every key, **F1**) and your initials (the user menu).
+- **Screen bar**: where you are on the left (*Home › Day Book* — click a step to go back to it) and, on
+  the right, the **command bar** of the screen: its main action as a filled button, the next most useful
+  ones beside it, and **More ▾** with every other action of the screen and its key (plus Features F11,
+  Configure F12 and Help F1). The buttons only show what the keys do — every key works the same whether
+  or not a button shows it.
+- **Shortcut bar** (optional): a column at the right listing every action of the screen with its key, as
+  in earlier versions. Turn it on or off with *Show shortcut bar* in the user menu.
+- **Status bar**: a hint for the screen, whether everything is saved (point at it to see the data folder)
+  and the version.
 
 ### Moving around
 
@@ -100,7 +134,10 @@ the full dashboard, *Reports › **Dashboard***, brings the card back if you hid
 - **F3** switches company (Pevqori closes the current one, running the automatic backup first if one is
   due). **Ctrl+Q** quits.
 - **F1** (or **Ctrl+H**) shows every key. The menu behind your initials (top right) also has the
-  theme (match Windows, light, dark), density (comfortable / compact), *Change password* and *Log out*.
+  theme (match Windows, light, dark), density (comfortable / compact), the Home view, *Show shortcut
+  bar*, *Appearance…* (all four in one panel), *About Pevqori* and — for a password-protected company —
+  *Change password*, *Lock* and *Log out*.
+- **Ctrl+S** saves wherever **Ctrl+A** accepts or saves (forms, voucher entry, dialogs).
 
 ## 2. Company, features (F11) and configuration (F12)
 
@@ -1571,6 +1608,10 @@ Screens never take these keys for themselves — with two kinds of exception: in
 voucher keys and F10 switch the voucher being entered and **F2** is the voucher date, F12 the voucher type
 settings, and **Ctrl+H** switches single entry ↔ Dr / Cr.
 
+Each of these keys also has a place in the top bar for the mouse: the date and period chips, the search
+box (Go To), **Create ▾** (the everyday vouchers with their keys, and Other voucher… F10), the company
+button (Switch company F3) and **?** (F1); F11 and F12 are under **More ▾** in the command bar.
+
 ### 15.2 Keys with one meaning across screens
 
 Wherever a screen offers one of these actions, it is on this key. A screen that has nothing of the kind
@@ -1583,6 +1624,7 @@ with the screen (15.4 and the sections above).
 | **Shift+Enter** | Previous field |
 | **Ctrl+Enter** | Next field from a multi-line box |
 | **Ctrl+A** | Accept / save |
+| **Ctrl+S** | Accept / save — the same as Ctrl+A, wherever Ctrl+A accepts or saves |
 | **Alt+C** | Create a new master from a list or picker (ledger, item, …); on the Balance Sheet and P&L, a comparison column ("New Column") |
 | **Alt+A** | Alter the selected voucher or master; in a tick list with nothing to alter (Print Cheques, E-payment File, Print batch, Reminders) tick / untick everything |
 | **Alt+D** | Delete the master or voucher on screen (**Ctrl+D** also deletes in master lists) |
@@ -1594,7 +1636,7 @@ with the screen (15.4 and the sections above).
 | **Alt+Enter** | View the voucher (read-only) |
 | **Alt+M** | Open the report subject's master (ledger, item) |
 | **Alt+F1** | Detailed / condensed |
-| **Ctrl+1**, **Ctrl+2**, **Ctrl+3** … **Ctrl+9** | Switch view or tab |
+| **Ctrl+1**, **Ctrl+2**, **Ctrl+3** … **Ctrl+9** | Switch view or tab (on Home: **Ctrl+1** Essentials, **Ctrl+2** All menus) |
 | **Ctrl+F** | The screen's search box |
 | **Alt+E** | Export (Excel / CSV / PDF; needs the Export permission) |
 | **Alt+P** | Print (in voucher entry: the voucher being altered, or the one just saved) |
@@ -1729,3 +1771,26 @@ backup folder chosen on the old computer must be confirmed on the new one (secti
   still change "Under".
 - **Users and roles** — Alt+H on a role shows only that role's history, even when a deleted role once had
   the same number.
+
+### Updating Pevqori
+
+Pevqori goes online only when you ask it to (or after you turn on the weekly check below). To get a new version:
+
+1. Open *Utilities › **About Pevqori*** (or Go To, Ctrl+G, "About") and click **Check for updates**. The
+   window's hidden menu (press and release Alt) has the same thing under *Help › Check for Updates…*.
+2. If a newer version exists, Pevqori shows its number, size and what is new. Click **Download update**;
+   you can keep working while it downloads. The file is checked before it is used — if the check fails it is
+   deleted and nothing is installed.
+3. Click **Restart to update**. Pevqori first backs up the open company to its usual backup folder (untick
+   *Back up the open company first* to skip it), asks about unsaved changes, closes, installs and opens
+   again — about a minute. Or click **Install when I quit** to install the next time you close Pevqori.
+   When an update is ready, Home also shows "Pevqori x.y.z is ready — Restart to update".
+
+Your companies, data folder, backups and settings are kept. The first time you open About, Pevqori asks
+whether to **check automatically once a week** — turn it on there or later with the switch in the same panel;
+a weekly check still only downloads when you click **Download update**. No company data is ever sent: only
+the version check and the download itself reach the internet (GitHub, where Pevqori is published).
+
+If the panel says *Managed by your administrator*, updates are set for your computer by your IT team
+([SECURITY.md](SECURITY.md#311-updates--srcmainupdates) describes the policy file); if it says *Updates are turned off…*, ask them. You can
+always install a newer version by running its installer over the existing one ([INSTALL.md](INSTALL.md)).

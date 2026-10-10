@@ -14,12 +14,14 @@ audited.
 | User accounts, password hashes, roles | inside each `company.db` |
 | Edit log (audit trail) | `audit_log` table in each `company.db` (append-only, hash-chained) |
 | Backups | files the user saves via **Data → Backup** (optionally encrypted) |
-| App settings & logs | `%APPDATA%\Pevqori\` (`config.json`, `window-state.json`, `logs\pevqori.log*`) |
+| App settings & logs | `%APPDATA%\Pevqori\` (`config.json`, `window-state.json`, `shell-preferences.json` — zoom and the update choice, `logs\pevqori.log*`) |
+| Downloaded updates | electron-updater's cache folder under `%LOCALAPPDATA%` (`pevqori-updater`), only after the user chose **Download update** (§3.11) |
 | Edit-log check-points | `%APPDATA%\Pevqori\audit-anchors.json` (HMAC-signed) and `audit-anchor.key` (sealed with Windows DPAPI via Electron `safeStorage`) — never in the data folder or a backup |
 
 ## 2. Threat model
 
-Pevqori is a single-user-at-a-time desktop application with **no server and no network features**.
+Pevqori is a single-user-at-a-time desktop application with **no server and no network features** other than the
+opt-in update check (§3.11), which sends no company data.
 We consider:
 
 | # | Threat actor / scenario | In scope | Notes |
@@ -29,8 +31,8 @@ We consider:
 | T3 | **Renderer compromise** (a bug that lets crafted data inject script into the UI, a malicious dependency in the renderer bundle) | Yes | The renderer is treated as untrusted: sandboxed, no Node.js, no network, minimal IPC with origin checks and re-validation in main (§3, §4). |
 | T4 | **Tampering with the books** after the fact (backdating, silent edits/deletes) | Yes | Period lock, permissions, an append-only hash-chained edit log, and check-points of that log kept **outside** the company file (§4.1). Every change made through the app — including Excel/CSV and XML data imports — has its own edit-log entry. What is and is not detected when someone edits the file directly is listed in §4.1. |
 | T5 | Malware running as the same Windows user | No | Such malware can read the user's files, keystrokes and memory. Use endpoint protection. |
-| T6 | Network attackers | Minimal surface | The app makes no network requests; the session blocks all outbound requests (§3.4). Links open in the user's browser only after confirmation. |
-| T7 | Supply chain (npm packages, build pipeline) | Partially | Runtime dependencies are limited to React/react-dom/qrcode (bundled); core has zero dependencies. Builds run on GitHub-hosted runners; releases publish SHA-256 checksums. See §7 for remaining work. |
+| T6 | Network attackers | Minimal surface | The app makes no network requests except an update check the user starts (or turns on weekly), over https to the project's GitHub Releases only, from a separate session with a host allowlist; downloads are verified (sha512, and the publisher signature once installers are signed) before use (§3.11). The app session blocks all outbound requests (§3.4). Links open in the user's browser only after confirmation. |
+| T7 | Supply chain (npm packages, build pipeline) | Partially | Runtime dependencies are limited to React/react-dom/qrcode (bundled into the renderer) and electron-updater (bundled into its own main-process file, loaded only for an update check); core has zero dependencies. Builds run on GitHub-hosted runners; releases publish SHA-256 checksums. See §7 for remaining work. |
 
 ## 3. Electron hardening (src/main)
 
@@ -87,7 +89,8 @@ added to `connect-src` and `'unsafe-inline'` to `script-src` (React Fast Refresh
   (copy buttons). No camera, microphone, geolocation, notifications, HID/USB/serial, etc.
 - **Network kill-switch:** `webRequest.onBeforeRequest` cancels every request that is not `app://pevqori`,
   `data:`, `blob:`, `about:` or `devtools:` (plus the loopback dev server in development). Even a
-  CSP bypass could not exfiltrate data over the network.
+  CSP bypass could not exfiltrate data over the network. The in-app updater does not use this session
+  (it has its own, §3.11), so this block is unchanged by updates.
 - **Navigation:** `will-navigate` and `will-redirect` away from the app origin are blocked;
   `window.open` is always denied; `<webview>` attachment is always prevented. Links to `https:` are
   offered to the user's browser **after a confirmation dialog that shows the host**; `mailto:` opens
@@ -180,8 +183,9 @@ renderer is logged and the user is offered *Reload*; a hung renderer offers *Kee
 If the renderer reports unsaved work, closing asks for confirmation (the flag is reset whenever the
 window navigates or reloads). Quitting is a bounded state machine (`quit.ts`): once every window has
 closed, the core runs the automatic backup and closes the open company (WAL checkpoint, lock release),
-the worker is terminated, and the process exits with `app.exit` — at the latest 40 s after the last
-window closed, whatever happens.
+the worker is terminated, the before-exit hooks run once (the only one starts a downloaded update's
+installer, §3.11; a failing hook is logged and ignored, async hooks get at most 3 s), and the process
+exits with `app.exit` — at the latest 40 s after the last window closed, whatever happens.
 
 ### 3.9 The core off the UI thread — `src/main/core-proxy.ts`, `src/main/core-worker.ts`
 
@@ -228,6 +232,66 @@ IPC. Security properties:
   *Residual risk*: build tools themselves (tsc, esbuild, vite, electron-builder) still run before and
   in the packaging step; a separate signing job that receives only the unsigned output is not
   implemented (electron-builder signs the app exe inside the NSIS package).
+
+### 3.11 Updates — `src/main/updates/`
+
+Pevqori can update itself from the project's GitHub Releases (`JayPanchani1054/billing`) with
+electron-updater, in the main process only. Offline-first stays the rule:
+
+- **What contacts the network, and when.** Nothing, unless the user clicks **Check for updates** (Utilities ›
+  About Pevqori, or Help › Check for Updates…) or turns on **Check automatically once a week** (then a check
+  runs 2 minutes after start-up and every 24 hours while the app is open, but only when the last successful
+  check is at least 7 days old). A download starts only when the user clicks **Download update**. The default
+  is manual. With updates off, the updater code (`out/main/updater.cjs`) is never even loaded.
+- **What is sent.** Ordinary HTTPS requests for the release feed (`releases.atom` / `releases/latest`),
+  `latest.yml`, the installer and its `.blockmap` — no company data, no user name, no machine identifier
+  beyond what any HTTPS client sends (IP address, a User-Agent).
+- **Where.** A separate in-memory session (`electron-updater` partition, HTTP cache off, every permission
+  request denied) whose every request — redirects included — must pass `isAllowedUpdateUrl`
+  (`updates/policy.ts`): `https` only, default port, no user/password in the URL, and only
+  `github.com/JayPanchani1054/billing/releases` (and below it, plus the `releases.atom` feed),
+  `api.github.com/repos/JayPanchani1054/billing/…` (no sibling repository),
+  `objects.githubusercontent.com` and `release-assets.githubusercontent.com` (where GitHub serves release
+  files). Look-alike hosts, IDN homographs, trailing-dot hosts and encoded path separators are refused;
+  refused requests are cancelled and logged. The app's own session (§3.4) is not touched.
+- **Integrity.** electron-updater checks the downloaded installer against the **sha512** recorded in the
+  release's `latest.yml` and deletes it on a mismatch ("The download could not be verified and was
+  deleted"). `verifyUpdateCodeSignature` is left at electron-updater's default, so **once installers are
+  code-signed** the Authenticode publisher must also match the running app's. Installers are **not signed
+  yet** (§7): until then integrity rests on the sha512 in `latest.yml`, which is fetched over HTTPS from the
+  same GitHub release — it protects against corrupted or swapped downloads in transit, not against
+  someone who can publish a release in the repository. Downgrades and pre-releases are never offered.
+- **What the window can do.** The renderer only calls `updates.status | check | download | install
+  ({ when: 'now' | 'on-quit' }) | setMode ({ mode: 'manual' | 'weekly' })` (payloads re-validated in
+  `native.ts`, trusted frames only); it can never pass a URL, path or version. Release notes are reduced to
+  plain text (tags stripped, entities decoded once, control and bidi characters removed, at most 20 KB) and
+  shown as a text node.
+- **Installing.** *Restart to update* first backs up the open company (optional, on by default; a failed
+  backup stops the install), asks about unsaved work, then quits through the normal sequence (§3.8); the
+  installer is started silently from the quit controller's before-exit hook and Pevqori starts again when it
+  finishes. *Install when I quit* does the same at the next ordinary quit, without restarting. The library's
+  own install-on-quit is off. The quit waits up to 1.5 s after starting the installer so that a refused
+  start can be retried with elevation. Installing over an existing per-machine installation needs
+  administrator rights and Windows asks for them (UAC); per-user installations need none.
+- **Policy** (`updates/policy.ts`, first match wins): a test run (`PEVQORI_E2E=1`, `PEVQORI_SMOKE_TEST=1`) →
+  off; an unpackaged (developer) build → off; the machine policy file → its mode; the `PEVQORI_UPDATES`
+  environment variable → its mode; otherwise the user's choice (default manual). A policy or environment
+  setting locks the switch in About ("Managed by your administrator"). A policy file that exists but cannot
+  be read, is not JSON, or has an unknown mode **turns updates off** (fail closed); an unknown
+  `PEVQORI_UPDATES` value does too.
+
+**Turning updates off for a whole fleet.** Create `%ProgramData%\Pevqori\policy.json` (writable only by
+administrators by default) with:
+
+```json
+{ "updates": { "mode": "off" } }
+```
+
+`"manual"` keeps the button but no automatic checks; `"weekly"` forces weekly checks. Alternatively set the
+machine environment variable `PEVQORI_UPDATES=off` (or `manual` / `weekly`). The policy file wins over the
+variable; both win over the user's switch. Both are read when Pevqori starts. As with every environment
+variable (§6), they are a management convenience, not a boundary against a user who controls their own
+account (such a user can also simply not install updates).
 
 ## 4. Application controls (src/core)
 
@@ -335,8 +399,9 @@ native modules). Protect data at rest with the operating system:
 | `PEVQORI_DATA_DIR` | default data folder on first run | tests |
 | `PEVQORI_DEV_SERVER_URL` | load the UI from a Vite dev server | **ignored in packaged builds**; loopback http only |
 | `PEVQORI_DISABLE_GPU=1` | disable hardware acceleration | for machines with broken GPU drivers |
-| `PEVQORI_E2E=1` | suppress modal dialogs | automated tests only |
-| `PEVQORI_SMOKE_TEST=1` | check `app.state` through the bridge once, log the verdict, quit with exit code 0/1 | packaged-app smoke test in CI; honoured in packaged builds, reads nothing but app state |
+| `PEVQORI_E2E=1` | suppress modal dialogs; updates off | automated tests only |
+| `PEVQORI_UPDATES` | `off`, `manual` or `weekly`: in-app update mode for this machine (locks the switch in About) | an unknown value turns updates off; `%ProgramData%\Pevqori\policy.json` wins over it (§3.11) |
+| `PEVQORI_SMOKE_TEST=1` | check `app.state` through the bridge once, log the verdict, quit with exit code 0/1; updates off | packaged-app smoke test in CI; honoured in packaged builds, reads nothing but app state |
 | `PEVQORI_ALLOW_UNFUSED=1` | (build time) let `after-pack.cjs` continue without fuses | throw-away local builds only; never in CI |
 
 Environment variables are not a security boundary: anyone who can set them for your account can
@@ -352,7 +417,9 @@ already run code as you.
 - Consider enabling the `EnableEmbeddedAsarIntegrityValidation` fuse once verified with the
   electron-builder version in use, and Trusted Types (`require-trusted-types-for 'script'`) once the
   renderer is confirmed free of string-to-DOM sinks.
-- No automatic update mechanism (by design for offline use); users install new versions manually.
+- In-app updates (§3.11) rely on the sha512 in the release's `latest.yml` until installers are code-signed;
+  then electron-updater also checks the publisher. Updates are opt-in per check (or weekly), and can be
+  turned off machine-wide with the policy file.
 
 ## 8. Reporting a vulnerability
 

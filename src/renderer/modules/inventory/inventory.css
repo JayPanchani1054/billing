@@ -1,6 +1,6 @@
 /* Inventory module screens. Semantic design tokens only (no raw colours). Prefix: bx-inv- */
 
-/* ── Picker rows ─────────────────────────────────────────────────── */
+/* Picker rows */
 .bx-inv-pick {
   display: flex;
   align-items: baseline;
@@ -18,7 +18,7 @@
   font-size: var(--fs-12);
 }
 
-/* ── Editable grids (opening stock, multiple items, price list) ──── */
+/* Editable grids (opening stock, multiple items, price list) */
 .bx-inv-grid {
   width: 100%;
   overflow-x: auto;
@@ -77,7 +77,7 @@
   display: block;
   margin-top: var(--space-0-5);
   color: var(--danger-text);
-  font-size: var(--fs-11);
+  font-size: var(--text-caption);
   line-height: var(--lh-snug);
   white-space: normal;
 }
@@ -94,13 +94,12 @@
   gap: var(--space-1);
 }
 .bx-inv-override {
-  color: var(--accent-text);
-  font-size: var(--fs-11);
+  color: var(--brand-text);
+  font-size: var(--text-caption);
 }
 
-/* ── Forms ──────────────────────────────────────────────────────── */
+/* Forms */
 .bx-inv-note {
-  margin: 0;
   color: var(--text-secondary);
   font-size: var(--fs-12);
   line-height: var(--lh-normal);
@@ -128,7 +127,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Lists ──────────────────────────────────────────────────────── */
+/* Lists */
 .bx-inv-filters {
   display: grid;
   grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) minmax(160px, 1fr);
@@ -149,7 +148,7 @@
 .bx-inv-name__sub {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: var(--fs-11);
+  font-size: var(--text-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

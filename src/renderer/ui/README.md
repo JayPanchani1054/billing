@@ -39,23 +39,30 @@ Never use palette tokens (`--indigo-600`) in screens — use **semantic** tokens
 | Surfaces | `--surface-0` app canvas · `--surface-1` cards/inputs/tables · `--surface-2` subtle fill (headers, toolbars, rail) · `--surface-3` strong fill · `--surface-overlay` dialogs/popovers · `--backdrop` |
 | Text | `--text-primary` `--text-secondary` `--text-muted` `--text-placeholder` `--text-disabled` `--text-inverse` `--text-link` |
 | Borders | `--border-subtle` (dividers) `--border-default` `--border-strong` (control outlines, ≥3:1) |
-| Brand | `--brand` `--brand-hover` `--brand-active` `--on-brand` `--brand-text` `--brand-subtle` · accent `--accent` `--accent-text` `--accent-subtle` |
-| Interaction | `--focus-ring` `--selection-bg` `--row-hover` `--row-selected` `--row-selected-indicator` `--row-zebra` `--ghost-hover` `--control-fill` |
+| Brand | `--brand` (the one interactive colour: indigo-600 light / indigo-400 dark — primary buttons, focus ring, links, selected-row bar, checked controls) `--brand-hover` `--brand-active` `--on-brand` (white in light, near-black in dark) `--brand-text` `--brand-subtle` · accent (saffron: brand mark, “not today” date flag, Get-started progress only) `--accent` `--accent-text` `--accent-subtle` |
+| Interaction | `--focus-ring` (= brand) `--selection-bg` `--row-hover` `--row-selected` `--row-selected-indicator` `--row-zebra` `--ghost-hover` `--control-fill` |
 | Accounting | `--dr` `--cr` (subtle navy / umber — not red/green) · `--positive` `--negative` (KPIs only) |
 | Tones | `--{neutral,brand,accent,success,warning,danger,info}-{bg,text,solid,icon}` + `--on-{tone}-solid` (brand/accent text: `--brand-tone-text`, `--accent-tone-text`) |
 | Charts | `--chart-1…5` (fixed order: indigo, saffron, aqua, gold, magenta — validated for CVD/contrast in both themes), `--chart-other`, `--chart-grid`, `--chart-axis` |
-| Type | `--font-sans` (Segoe UI Variable Text…) `--font-mono` · `--fs-11/12/13/14/16/20/24/32` · roles `--text-base` (13) `--text-body` (14) `--text-title` (20) · `--lh-tight/snug/normal/relaxed` · `--fw-regular/medium/semibold/bold` |
-| Space | `--space-0 … --space-16` (4px base: 1=4, 2=8, 3=12, 4=16, 6=24, 8=32) plus `--space-0-5`, `--space-1-5`, `--space-2-5` |
-| Radii | `--radius-sm` 4 · `--radius-md` 6 · `--radius-lg` 8 · `--radius-xl` 12 · `--radius-full` |
-| Elevation | `--shadow-1` (resting) · `--shadow-2` (popovers, toasts) · `--shadow-3` (dialogs) |
+| Type | `--font-sans` (Segoe UI Variable Text…) `--font-display` `--font-mono` · `--fs-11/12/13/14/16/20/24/32` (`--fs-11` only for `Kbd` and chart axis text, whose layout assumes 11px; `cssUsage.test.ts` enforces it) · roles `--text-caption` 12 · `--text-small` 12 · `--text-base` 13 (tables, dense data) · `--text-body` 14 (forms, paragraphs) · `--text-subtitle` 16 / 600 (section, panel, card and field-group titles) · `--text-title` 20 / 600 (one h1 per screen) · `--text-heading` 24 (greeting, KPI figures) · `--text-display` (retired: = 24) · `--lh-tight/snug/normal/relaxed` · `--fw-regular/medium/semibold/bold` |
+| Space | `--space-0 … --space-16` (`spaceVar(step)` builds `var(--space-N)` for every `Space` step; a test keeps each one defined) (4px base: 1=4, 2=8, 3=12, 4=16, 6=24, 8=32; new CSS uses 4/8/12/16/24/32) plus `--space-0-5`, `--space-1-5`, `--space-2-5` |
+| Radii | `--radius-xs` 2 · `--radius-sm` 4 · `--radius-md` 6 (controls) · `--radius-lg` 8 (cards, panels, tables) · `--radius-xl` 12 (dialogs, drawers — leading corners — menus, popovers) · `--radius-full` (chips, tags) |
+| Elevation | roles: `--elev-card` (none — cards are flat with a 1px `--border-subtle`) · `--elev-popover` (menus, popovers, listboxes, tooltips, toasts) · `--elev-dialog` (modals, drawers); scale `--shadow-1/2/3` (per theme). Use the roles in components. |
 | Z-index | `--z-sticky` 10 · `--z-rail` 20 · `--z-header` 30 · `--z-drawer` 300 · `--z-modal` 400 · `--z-popover` 500 · `--z-tooltip` 600 · `--z-toast` 700 |
-| Motion | `--dur-fast` 100ms · `--dur-base` 160ms · `--dur-slow` 240ms · `--ease-standard/enter/exit` (all durations → 0 under `prefers-reduced-motion`) |
+| Motion | `--dur-fast` 100ms · `--dur-base` 160ms · `--dur-slow` 240ms · `--dur-tooltip-delay` · `--ease-standard/enter` (all durations → 0 under `prefers-reduced-motion`) |
 | Density | `--control-h` 36/28 · `--hit-min` 44/32 · `--row-h` 32/26 · `--option-h` · `--cell-px` · `--form-gap` · `--panel-p` |
 | Layout | `--rail-width` 188 · `--field-label-width` 168 · `--indent-step` 16 · `--modal-sm/md/lg/xl` · `--drawer-sm/md/lg` · `--toast-inset-right/bottom` |
 
-**Theme:** `<html data-theme="light|dark|system">` (system follows `prefers-color-scheme`).
+**Theme:** `<html data-theme="light|dark">` always holds the *resolved* theme; the user's choice
+(`light | dark | system`) is in `data-theme-pref`. `applyTheme('system')` resolves the OS setting in
+JS and follows OS changes live (`resolveTheme(pref, osDark)` is the pure rule), so tokens.css has
+exactly one light block (`:root, [data-theme="light"]`) and one dark block — no
+`prefers-color-scheme` copy. Tokens identical in both themes (solid tone fills, accent, chart 4/5)
+are declared once in `:root`. `index.html` carries `data-theme="system"` only until preferences
+bootstrap; until then the page lets the theme-matched native window colour show (no flash).
 **Density:** `data-density="comfortable|compact"` on `<html>` or any subtree (e.g. one table).
-Helpers: `applyTheme(t)`, `applyDensity(d)`, `resolvedTheme()`, `onSystemThemeChange(cb)`.
+Helpers: `applyTheme(t)`, `applyDensity(d)`, `resolveTheme(pref, osDark)`, `getComputedTheme()`
+(alias `resolvedTheme()`), `onSystemThemeChange(cb)`.
 
 Inline `style` is only for geometry (widths, positions). Custom properties in inline style must be
 cast: `style={{ '--level': 2 } as CSSProperties}` (the real `@types/react` rejects unknown keys).
@@ -66,8 +73,16 @@ cast: `style={{ '--level': 2 } as CSSProperties}` (the real `@types/react` rejec
 
 - Prefix `bx-`, BEM-ish: `bx-block`, `bx-block__element`, `bx-block--modifier`; state classes
   `is-active`, `is-selected`, `is-invalid`, `is-disabled`, `is-open`, `has-*`.
-- Utilities in base.css: `.bx-num` (tabular figures), `.bx-sr-only`, `.bx-truncate`, `.bx-muted`,
-  `.bx-dr` / `.bx-cr`, `.bx-positive` / `.bx-negative`, `.bx-no-print` (or `data-print-hide`).
+- Lists: the base reset (`:where(ol[class], ul[class])`, zero specificity) removes padding and markers from
+  classed lists; a component that wants bullets or numbers sets `padding-left` and `list-style` itself.
+- Utilities in base.css: `.bx-num` (tabular figures), `.bx-mono`, `.bx-sr-only`, `.bx-truncate`,
+  `.bx-muted`; hide from print with the `data-print-hide` attribute. Dr/Cr colours come from
+  `--dr` / `--cr` through the kit (`DataTable` `drcr` cells, `AmountInput`).
+- **No dead CSS** (`styles/cssUsage.test.ts`): every class a stylesheet defines must be used by
+  renderer code, literally or through a prefix declared in its `DYNAMIC_CLASSES` list (with the
+  template literal that builds it). Delete unused rules rather than allowlisting them.
+- **Weight budget** (`styles/cssBudget.test.ts`): all renderer CSS ≤ 180 KB, `components.css` ≤ 72 KB,
+  `tokens.css` ≤ 19 KB (source bytes). Reuse a token or component rule before adding a copy.
 - Overlays render in portals into `document.body` and carry `data-bx-overlay`. Outside-click and
   focus-trap logic treat *later* overlays as nested (a picker inside a dialog is "inside").
 - Mouse hit areas are expanded with an invisible `::after` to `--hit-min` (44px comfortable, 32px
@@ -454,4 +469,5 @@ conflicting global keys (see ARCHITECTURE §7 for the reserved list).
    with dirty confirmation) at screen scope so dialogs/pickers get Esc first.
 5. Offset toasts from the rail if needed: `--toast-inset-right: calc(var(--rail-width) + 16px)`.
 6. Tests: `node --test src/renderer/ui/lib/*.test.ts` (parser, hotkeys, layering, matching,
-   windowing, tree, calendar, charts, pagination, token contrast).
+   windowing, tree, calendar, charts, pagination, token contrast), `ui/theme.test.ts` (theme
+   resolution) and `styles/*.test.ts` (dead CSS, CSS budget).

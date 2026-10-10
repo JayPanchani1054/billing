@@ -11,7 +11,7 @@
  *   useScreenTitle('Ledger Alteration'); useDirty(isDirty); useScreenActions([...]);
  *   const { forResult, returnResult } = useScreenResult<{ id: number; name: string }>();
  */
-import { Component, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Component, createContext, Suspense, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { CompanyFeatures } from '../../shared/settings.ts';
 import { Breadcrumbs, Button, HotkeyScope, Icon, Modal, useHotkeys, useToast } from '../ui/index.ts';
@@ -20,13 +20,16 @@ import { getTabbables } from '../ui/lib/dom.ts';
 import { setNativeDirty } from './bridge.ts';
 import { confirmDialog } from './confirm.tsx';
 import { errorDetailsText, userMessage } from './lib/apiErrors.ts';
+import { isLazyScreen, PREFETCH_SCREENS, retryLazyScreens } from './lazyScreen.tsx';
 import { featureLabel } from './lib/featureCatalog.ts';
 import { KeyedStore } from './lib/keyedStore.ts';
+import { browserIdleScheduler, runWhenIdle } from './lib/lazyLoader.ts';
 import { FOCUS_RANK, INITIAL_FOCUS_WATCH_MS, markShellFocus, needsFocusWatch, shouldUpgradeFocus } from './lib/initialFocus.ts';
 import { isAllowed, screenIndex } from './lib/menu.ts';
 import { createRootStack, makeEntry, mountedKeys, MAX_MOUNTED, ResultBroker, ROOT_SCREEN, topFullIndex, transition } from './lib/navStack.ts';
 import type { NavAction, NavEntry, NavParams } from './lib/navStack.ts';
 import type { ModuleDef, ScreenDef } from './registry.ts';
+import { ScreenSkeleton } from './Screen.tsx';
 import { ScreenVisibilityContext } from './screenVisibility.ts';
 import { useAppState } from './state.tsx';
 
@@ -280,6 +283,17 @@ export function NavProvider({ modules, children }: { modules: readonly ModuleDef
     sync();
     return stores.dirty.subscribe(sync);
   }, [stores]);
+
+  // Lazy screens (lazyScreen.tsx): once the workspace is up, fetch the code of the Essentials screens
+  // in idle time, one chunk per idle slot, so their first open does not wait for it. Idle callbacks run
+  // after this commit's effects, i.e. after App.tsx has set `pevqori:shell-ready`.
+  useEffect(() => {
+    const tasks = PREFETCH_SCREENS.flatMap((id) => {
+      const c = registry.get(id)?.component;
+      return isLazyScreen(c) && api.canOpen(id) ? [() => c.preload()] : [];
+    });
+    return runWhenIdle(tasks, browserIdleScheduler());
+  }, [registry, api]);
 
   // Company closed / workspace unmounted: settle pending pushForResult waiters, clear the flag.
   useEffect(
@@ -656,7 +670,10 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
           {index > 0 && !isDialog ? <EscapeToBack /> : null}
           <HotkeyScope>
             {isDialog ? (
-              <ScreenErrorBoundary title={def.title}>{content}</ScreenErrorBoundary>
+              <ScreenErrorBoundary title={def.title}>
+                {/* Dialog screens are eager (lazyScreen.tsx); a fallback over a live screen would be wrong. */}
+                <Suspense fallback={null}>{content}</Suspense>
+              </ScreenErrorBoundary>
             ) : (
               <div
                 ref={containerRef}
@@ -666,7 +683,10 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
                 role="region"
                 aria-label={def.title}
               >
-                <ScreenErrorBoundary title={def.title}>{content}</ScreenErrorBoundary>
+                <ScreenErrorBoundary title={def.title}>
+                  {/* A lazy screen's code is loading (lazyScreen.tsx): the same skeleton as a first data load. */}
+                  <Suspense fallback={<ScreenSkeleton />}>{content}</Suspense>
+                </ScreenErrorBoundary>
               </div>
             )}
           </HotkeyScope>
@@ -747,7 +767,16 @@ export class ScreenErrorBoundary extends Component<{ title: string; children?: R
 
   override render(): ReactNode {
     if (this.state.error === null) return this.props.children;
-    return <ScreenCrash title={this.props.title} error={this.state.error} onRetry={() => this.setState({ error: null })} />;
+    return (
+      <ScreenCrash
+        title={this.props.title}
+        error={this.state.error}
+        onRetry={() => {
+          retryLazyScreens(); // a screen whose code failed to load is fetched again
+          this.setState({ error: null });
+        }}
+      />
+    );
   }
 }
 

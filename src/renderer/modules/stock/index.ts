@@ -19,14 +19,23 @@
  * Go To: the inventory module's 'items' provider already opens 'stock.item' for items (it checks
  * that this screen is registered), so this module does not register another one.
  */
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import type { ModuleDef } from '../../app/registry.ts';
-import { AgeingScreen, BatchesScreen, NegativeStockScreen, ReorderScreen } from './AnalysisScreens.tsx';
-import { GodownsScreen } from './GodownsScreen.tsx';
-import { StockItemScreen } from './ItemScreen.tsx';
-import { MovementScreen } from './MovementScreen.tsx';
-import { PendingOrdersScreen, PhysicalVarianceScreen, ProfitabilityScreen } from './RegisterScreens.tsx';
-import { StockCategoriesScreen, StockSummaryScreen } from './SummaryScreens.tsx';
 import './stock.css';
+
+// Screens load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a); everything else here stays eager.
+const AgeingScreen = lazyScreen(() => import('./AnalysisScreens.tsx').then((m) => m.AgeingScreen));
+const BatchesScreen = lazyScreen(() => import('./AnalysisScreens.tsx').then((m) => m.BatchesScreen));
+const NegativeStockScreen = lazyScreen(() => import('./AnalysisScreens.tsx').then((m) => m.NegativeStockScreen));
+const ReorderScreen = lazyScreen(() => import('./AnalysisScreens.tsx').then((m) => m.ReorderScreen));
+const GodownsScreen = lazyScreen(() => import('./GodownsScreen.tsx').then((m) => m.GodownsScreen));
+const StockItemScreen = lazyScreen(() => import('./ItemScreen.tsx').then((m) => m.StockItemScreen));
+const MovementScreen = lazyScreen(() => import('./MovementScreen.tsx').then((m) => m.MovementScreen));
+const PendingOrdersScreen = lazyScreen(() => import('./RegisterScreens.tsx').then((m) => m.PendingOrdersScreen));
+const PhysicalVarianceScreen = lazyScreen(() => import('./RegisterScreens.tsx').then((m) => m.PhysicalVarianceScreen));
+const ProfitabilityScreen = lazyScreen(() => import('./RegisterScreens.tsx').then((m) => m.ProfitabilityScreen));
+const StockCategoriesScreen = lazyScreen(() => import('./SummaryScreens.tsx').then((m) => m.StockCategoriesScreen));
+const StockSummaryScreen = lazyScreen(() => import('./SummaryScreens.tsx').then((m) => m.StockSummaryScreen));
 
 export const stockModule: ModuleDef = {
   id: 'stock',

@@ -1,5 +1,6 @@
 /**
- * 'company.about' — version and environment details; 'company.shortcuts' — full-page shortcuts.
+ * 'company.about' — version, in-app updates (UpdatesPanel, 2.0) and environment details;
+ * 'company.shortcuts' — full-page shortcuts.
  */
 import { useEffect, useState } from 'react';
 import type { NativeActions } from '../../../shared/bridge.ts';
@@ -10,6 +11,7 @@ import { Screen } from '../../app/Screen.tsx';
 import { ShortcutsTable, useShortcutRows } from '../../app/ShortcutsOverlay.tsx';
 import { useAppState } from '../../app/state.tsx';
 import { Banner, Button, Card, KeyValueList, Stack, TextInput } from '../../ui/index.ts';
+import { UpdatesPanel } from './UpdatesPanel.tsx';
 
 type AppInfo = NativeActions['app.info']['out'];
 
@@ -54,13 +56,16 @@ export function AboutScreen() {
             ]}
           />
         </Card>
+        <UpdatesPanel />
         <Card title="Where your data is" headingLevel={2}>
           <Stack gap={3}>
             <FolderRow label="Companies" path={dataDir} onShow={show} />
             {info ? <FolderRow label="Logs" path={info.logDir} onShow={show} /> : null}
           </Stack>
         </Card>
-        <p className="bx-muted">Your data never leaves this computer unless you export or back it up yourself.</p>
+        <p className="bx-muted">
+          Your data never leaves this computer unless you export or back it up yourself. Checking for updates sends no company data.
+        </p>
       </Stack>
     </Screen>
   );

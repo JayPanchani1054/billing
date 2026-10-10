@@ -208,14 +208,17 @@ export function acceleratorOrder(items: readonly MenuItem[], priority: readonly 
   return [...first.map((x) => x.i), ...eligible.filter((x) => !taken.has(x.i)).map((x) => x.i)];
 }
 
-/** Group sorted items into Gateway sections (empty sections omitted) with accelerators. */
-export function buildGateway(
-  modules: readonly ModuleDef[],
-  ctx: MenuContext,
-  options: { reservedLetters?: Iterable<string>; priority?: readonly string[] } = {},
-): BuiltSection[] {
-  const screens = screenIndex(modules);
-  const items = sortMenu(filterMenu(collectMenu(modules), ctx, screens));
+export interface AcceleratorOptions {
+  reservedLetters?: Iterable<string>;
+  priority?: readonly string[];
+}
+
+/**
+ * Accelerators for a list of items in display order (acceleratorOrder + assignAccelerators): the
+ * Gateway's All menus view runs it over every item, Home's Essentials view over its own subset
+ * (lib/essentials.ts), so the letters are stable within a view.
+ */
+export function withAccelerators<T extends MenuItem>(items: readonly T[], options: AcceleratorOptions = {}): Array<T & { accelerator: string | null; accelIndex: number }> {
   const order = acceleratorOrder(items, options.priority);
   const assigned = assignAccelerators(
     order.map((i) => items[i].label),
@@ -225,11 +228,18 @@ export function buildGateway(
   order.forEach((itemIndex, k) => {
     accel[itemIndex] = assigned[k];
   });
-  const built: BuiltMenuItem[] = items.map((item, i) => ({
+  return items.map((item, i) => ({
     ...item,
     accelIndex: accel[i],
     accelerator: accel[i] >= 0 ? item.label[accel[i]].toLowerCase() : null,
   }));
+}
+
+/** Group sorted items into Gateway sections (empty sections omitted) with accelerators. */
+export function buildGateway(modules: readonly ModuleDef[], ctx: MenuContext, options: AcceleratorOptions = {}): BuiltSection[] {
+  const screens = screenIndex(modules);
+  const items = sortMenu(filterMenu(collectMenu(modules), ctx, screens));
+  const built: BuiltMenuItem[] = withAccelerators(items, options);
   const sections: BuiltSection[] = [];
   for (const id of SECTION_ORDER) {
     const list = built.filter((i) => i.section === id);
