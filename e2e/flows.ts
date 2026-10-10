@@ -84,7 +84,7 @@ export async function pick(page: Page, typed: string, option: RegExp): Promise<v
  */
 export async function api<T>(page: Page, route: string, input: unknown = {}): Promise<T> {
   const result = await page.evaluate(
-    ([r, i]) => (globalThis as unknown as { bahi: { api(route: string, input: unknown): Promise<unknown> } }).bahi.api(r, i),
+    ([r, i]) => (globalThis as unknown as { pevqori: { api(route: string, input: unknown): Promise<unknown> } }).pevqori.api(r, i),
     [route, input] as const,
   );
   const res = result as ApiResult<T>;
@@ -112,14 +112,14 @@ export interface WizardCompany {
 }
 
 /**
- * First launch: keep the BAHI_DATA_DIR folder, then the Create Company wizard with its defaults
+ * First launch: keep the PEVQORI_DATA_DIR folder, then the Create Company wizard with its defaults
  * (Regular GST, current financial year, stock + bill-wise on) and no password — as first-day.spec.ts.
  */
 export async function firstLaunchCreateCompany(page: Page, dataDir: string, company: WizardCompany): Promise<void> {
-  await expect(page.getByRole('heading', { name: 'Where should Bahi keep your data?' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Where should Pevqori keep your data?' })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(dataDir, { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Use this folder' }).click();
-  await expect(page.getByRole('heading', { name: 'Welcome to Bahi ERP' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Welcome to Pevqori' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Create company' }).click();
   await expect(page.getByRole('heading', { name: 'Create Company', level: 1 })).toBeVisible();

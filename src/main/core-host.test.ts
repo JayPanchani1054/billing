@@ -156,8 +156,8 @@ describe('core host (worker side)', () => {
     assert.equal(a.authorizeDataDir(folder), false);
     host.handle({ type: 'authorize-choice', kind: 'folder', path: folder });
     assert.equal(a.authorizeDataDir(folder), true);
-    assert.equal(a.authorizePath(path.join(folder, 'x.bahibak'), 'write-dir'), true);
-    const file = path.resolve('/home/u/Downloads/a.bahibak');
+    assert.equal(a.authorizePath(path.join(folder, 'x.pvqbak'), 'write-dir'), true);
+    const file = path.resolve('/home/u/Downloads/a.pvqbak');
     host.handle({ type: 'authorize-choice', kind: 'file', path: file });
     assert.equal(a.authorizePath(file, 'read-file'), true);
     assert.equal(a.authorizePath(file, 'write-dir'), false);

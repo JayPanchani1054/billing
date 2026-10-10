@@ -249,7 +249,7 @@ export function exportReconFile(db: Db, input: { period: string; source: ReconSo
   };
 
   const bytes = writeXlsx({
-    creator: 'Bahi ERP',
+    creator: 'Pevqori',
     sheets: [
       summarySheet(summary, title, label),
       sheet('Matched', matchedCols, by((r) => r.status === 'matched'), title),

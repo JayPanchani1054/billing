@@ -203,7 +203,7 @@ describe('migration 190 on an existing company', () => {
     );
     assert.deepEqual(rows.map((r) => [r.base_type, r.name, r.is_predefined, r.numbering_method]), [
       ['proforma', 'Proforma Invoice', 1, 'automatic'],
-      ['quotation', 'Quotation (Bahi)', 1, 'automatic'],
+      ['quotation', 'Quotation (Pevqori)', 1, 'automatic'],
     ]);
     for (const r of rows) assert.match(r.guid, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     db.close();

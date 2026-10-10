@@ -260,7 +260,7 @@ export function useDocumentOutput() {
           await navigator.clipboard.writeText(text);
           toast.success(`${what} copied`, { message: 'Paste it into WhatsApp, e-mail or any document.' });
         } catch {
-          toast.error('Could not copy to the clipboard', { message: 'Allow clipboard access for Bahi ERP, or print / save the letter as PDF instead.' });
+          toast.error('Could not copy to the clipboard', { message: 'Allow clipboard access for Pevqori, or print / save the letter as PDF instead.' });
         }
       },
     }),

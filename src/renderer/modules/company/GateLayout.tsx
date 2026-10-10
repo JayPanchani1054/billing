@@ -26,7 +26,7 @@ export function GateLayout({ title, subtitle, width = 'medium', aside, footer, c
           <span className="bx-gate__mark" aria-hidden="true">
             <Icon name="book" size="md" />
           </span>
-          <span className="bx-gate__wordmark">Bahi ERP</span>
+          <span className="bx-gate__wordmark">Pevqori</span>
         </span>
         {aside ? <span className="bx-gate__aside">{aside}</span> : null}
       </header>

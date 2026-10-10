@@ -99,7 +99,7 @@ export function exists(p: string): boolean {
 export function probeWritable(dir: string): string | null {
   try {
     ensureDir(dir);
-    const probe = path.join(dir, `.bahi-write-test-${randomBytes(4).toString('hex')}`);
+    const probe = path.join(dir, `.pevqori-write-test-${randomBytes(4).toString('hex')}`);
     fs.writeFileSync(probe, 'ok');
     fs.rmSync(probe, { force: true });
     return null;

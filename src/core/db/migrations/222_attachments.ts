@@ -8,7 +8,7 @@
  *    named `<sha256>.<ext>` (content-addressed: the same scan attached twice is stored once);
  *    `sha256` / `size_bytes` let the data check prove the file is unchanged.
  *  - attachment_blobs: TRANSPORT ONLY — always empty in a live company. A backup copies each
- *    attached file into this table of the database snapshot (so the .bahibak container format, its
+ *    attached file into this table of the database snapshot (so the .pvqbak container format, its
  *    checksums and its AES-GCM encryption cover the files with no format change); a restore writes
  *    them back into the restored company's attachments folder and empties the table.
  *  - permissions attachments.add / attachments.remove for the system roles of existing companies

@@ -259,7 +259,7 @@ export function createTestCompany(opts: TestCompanyOptions = {}): TestCompany {
   // Lazily created temp folder for code that writes files (attachments, exports).
   let tmpRoot: string | null = null;
   const tmp = (sub: string): string => {
-    if (!tmpRoot) tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-test-'));
+    if (!tmpRoot) tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-test-'));
     const p = path.join(tmpRoot, sub);
     fs.mkdirSync(p, { recursive: true });
     return p;

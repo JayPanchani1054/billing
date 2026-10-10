@@ -79,7 +79,7 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
       closed.current = true;
     };
   }, []);
-  const busyText = (err: unknown) => `${userMessage(err)} Choose Wait and retry: Bahi ERP tries again every few seconds until it can start.`;
+  const busyText = (err: unknown) => `${userMessage(err)} Choose Wait and retry: Pevqori tries again every few seconds until it can start.`;
   /** Run `fn`, waiting while another task holds the company (only when the user chose "Wait and retry"). */
   const attempt = async <T,>(fn: () => Promise<T>, wait: boolean): Promise<T> => {
     if (!wait) return fn();
@@ -228,7 +228,7 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
         { key: 'Alt+T', label: 'Download template', icon: 'download', onClick: () => void downloadTemplate(), hidden: !kind || step === 'result', disabled: busy !== null },
         { key: 'Alt+O', label: 'Choose another file', icon: 'folder', onClick: () => void pickFile(), hidden: step !== 'preview', disabled: busy !== null },
         { key: 'Alt+B', label: 'Previous step', icon: 'arrow-left', onClick: back, hidden: step === 'kind' || step === 'result' },
-        { key: 'Alt+X', label: 'Tally migration', icon: 'sync', onClick: () => nav.push('data.tally'), group: 'more' },
+        { key: 'Alt+X', label: 'XML data import', icon: 'sync', onClick: () => nav.push('data.xmlImport'), group: 'more' },
       ]}
       loading={kindsQ.loading}
       error={kindsQ.error}
@@ -255,7 +255,7 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
         ) : null}
         {waiting ? (
           <Banner tone="info" title="Waiting for the other task to finish…">
-            The import starts by itself as soon as the company is free (Bahi ERP checks every 2 seconds, for up to 2 minutes).
+            The import starts by itself as soon as the company is free (Pevqori checks every 2 seconds, for up to 2 minutes).
           </Banner>
         ) : null}
 

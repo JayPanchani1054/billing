@@ -449,12 +449,12 @@ export function computeGstr4(db: Db, company: GstCompany, fy: string, today: str
 
 const r2 = (p: Paise): number => rupees(p);
 
-/** CMP-08 as JSON (Bahi format "bahi-cmp08/1", README §15) or CSV. */
+/** CMP-08 as JSON (Pevqori format "pevqori-cmp08/1", README §15) or CSV. */
 export function cmp08Export(s: Cmp08Summary, format: 'json' | 'csv'): { fileName: string; content: string } {
   const base = `CMP08_${s.gstin ?? 'NOGSTIN'}_${s.period.fp ?? s.period.key}`;
   if (format === 'json') {
     const json = {
-      format: 'bahi-cmp08/1',
+      format: 'pevqori-cmp08/1',
       gstin: s.gstin,
       ret_period: s.period.fp,
       quarter: s.period.key,
@@ -470,13 +470,13 @@ export function cmp08Export(s: Cmp08Summary, format: 'json' | 'csv'): { fileName
   return { fileName: `${base}.csv`, content: toCsv(rows) };
 }
 
-/** GSTR-4 as JSON (Bahi format "bahi-gstr4/1") or CSV (one section per block). */
+/** GSTR-4 as JSON (Pevqori format "pevqori-gstr4/1") or CSV (one section per block). */
 export function gstr4Export(s: Gstr4Summary, format: 'json' | 'csv'): { fileName: string; content: string } {
   const base = `GSTR4_${s.gstin ?? 'NOGSTIN'}_${s.fy}`;
   const tv = (t: TaxValue): Record<string, number> => ({ value: r2(t.taxable), igst: r2(t.igst), cgst: r2(t.cgst), sgst: r2(t.sgst), cess: r2(t.cess) });
   if (format === 'json') {
     const json = {
-      format: 'bahi-gstr4/1',
+      format: 'pevqori-gstr4/1',
       gstin: s.gstin,
       fy: s.fy,
       table4: s.table4.map((r) => ({ table: r.key, ctin: r.gstin, supplier: r.partyName, rate: r.rate, documents: r.documents, ...tv(r) })),

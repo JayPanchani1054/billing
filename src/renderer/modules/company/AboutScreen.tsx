@@ -35,7 +35,7 @@ export function AboutScreen() {
 
   return (
     <Screen
-      title="About Bahi ERP"
+      title="About Pevqori"
       subtitle="Offline GST accounting, invoicing and inventory for Indian businesses."
       icon="info"
       width="form"
@@ -46,7 +46,7 @@ export function AboutScreen() {
         <Card title="Version" headingLevel={2}>
           <KeyValueList
             items={[
-              { key: 'v', label: 'Bahi ERP', value: info?.version ?? app.state?.appVersion ?? '' },
+              { key: 'v', label: 'Pevqori', value: info?.version ?? app.state?.appVersion ?? '' },
               { key: 'p', label: 'Windows build', value: info ? `${info.platform} ${info.arch}` : '' },
               { key: 'e', label: 'Electron', value: info?.electron ?? '' },
               { key: 'c', label: 'Chromium', value: info?.chrome ?? '' },
@@ -84,7 +84,7 @@ export function ShortcutsScreen() {
   const [query, setQuery] = useState('');
   const rows = useShortcutRows();
   return (
-    <Screen title="Keyboard Shortcuts" subtitle="Everything in Bahi ERP works from the keyboard." icon="keyboard" width="form">
+    <Screen title="Keyboard Shortcuts" subtitle="Everything in Pevqori works from the keyboard." icon="keyboard" width="form">
       <Stack gap={4}>
         <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search shortcuts — e.g. sales, period, print" leadingIcon="search" aria-label="Search shortcuts" autoFocus />
         <ShortcutsTable rows={rows} query={query} />

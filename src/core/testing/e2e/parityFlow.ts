@@ -1,6 +1,6 @@
 /**
  * The Tally-parity business flows shared by the Playwright spec e2e/parity.spec.ts (which runs these
- * calls through `window.bahi.api` in the built app, then drives the screens) and its API-level twin
+ * calls through `window.pevqori.api` in the built app, then drives the screens) and its API-level twin
  * parity.test.ts (which runs them through runtime.dispatch in `npm test`). One copy of every master,
  * input and expected figure, so the UI flow and its twin cannot drift apart.
  *
@@ -19,7 +19,7 @@
  *   Cheque: Payment of ₹25,000.00 from HDFC Bank → leaf 001001, "Twenty Five Thousand Only".
  */
 
-/** A route call that returns the data or throws (spec: window.bahi.api; twin: runtime.dispatch). */
+/** A route call that returns the data or throws (spec: window.pevqori.api; twin: runtime.dispatch). */
 export type ApiCall = <T>(route: string, input?: unknown) => Promise<T>;
 
 /** Rupees → paise for the 2-decimal literals below. */

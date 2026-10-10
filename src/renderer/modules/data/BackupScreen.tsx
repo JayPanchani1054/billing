@@ -126,7 +126,7 @@ export function BackupScreen() {
               {b.isCurrentCompany ? null : <span className="bx-muted"> (another company)</span>}
             </span>
           ) : (
-            <span className="bx-muted">{b.problem ?? 'Not a Bahi backup'}</span>
+            <span className="bx-muted">{b.problem ?? 'Not a Pevqori backup'}</span>
           ),
       },
       {

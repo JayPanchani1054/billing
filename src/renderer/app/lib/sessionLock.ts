@@ -47,7 +47,7 @@ export function nextLock(prevLock: LockSnapshot | null, prevState: AppState | nu
   return { companyId: company.id, company, session };
 }
 
-/** "Bahi ERP locked after 30 minutes without activity." */
+/** "Pevqori locked after 30 minutes without activity." */
 export function lockReasonText(idleTimeoutMs: number | undefined): string {
   const minutes = idleTimeoutMs && idleTimeoutMs > 0 ? Math.max(1, Math.round(idleTimeoutMs / 60_000)) : 0;
   return minutes > 0 ? `Locked after ${minutes} minute${minutes === 1 ? '' : 's'} without activity.` : 'Locked because the session ended.';

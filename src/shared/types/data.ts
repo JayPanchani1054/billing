@@ -24,12 +24,12 @@
  *   'data.import.template'        ImportTemplateInput    → ExportFileResult         data.import
  *   'data.import.preview'         ImportPreviewInput     → ImportPreviewResult      data.import     (no writes; async, chunked)
  *   'data.import.commit'          ImportCommitInput      → ImportCommitResult       data.import     (async, chunked)
- *   'data.import.progress'        none                   → TallyProgress            data.import     (preview / import progress)
+ *   'data.import.progress'        none                   → XmlImportProgress            data.import     (preview / import progress)
  *
- *   'data.tally.preview'          TallyPreviewInput      → TallyPreviewResult       data.import     (no writes)
- *   'data.tally.import'           TallyImportInput       → TallyImportResult        data.import     (async, chunked)
- *   'data.tally.progress'         none                   → TallyProgress            data.import
- *   'data.tally.export'           TallyExportInput       → TallyExportResult        data.export     (Tally "Import Data" XML)
+ *   'data.xmlImport.preview'          XmlPreviewInput      → XmlPreviewResult       data.import     (no writes)
+ *   'data.xmlImport.commit'           XmlImportInput       → XmlImportResult        data.import     (async, chunked)
+ *   'data.xmlImport.progress'         none                   → XmlImportProgress            data.import
+ *   'data.xmlExport.create'           XmlExportInput       → XmlExportResult        data.export     (Tally "Import Data" XML)
  *
  *   'data.verify'                 none                   → DataVerifyResult         data.backup
  *
@@ -41,12 +41,12 @@ import type { CompanyListItem } from './app.ts';
 
 // ───────────────────────────── Backup & restore ─────────────────────────────
 
-/** File extension of a Bahi backup container. */
-export const BACKUP_EXTENSION = '.bahibak';
+/** File extension of a Pevqori backup container. */
+export const BACKUP_EXTENSION = '.pvqbak';
 
-/** JSON manifest stored (unencrypted) at the start of every .bahibak file. */
+/** JSON manifest stored (unencrypted) at the start of every .pvqbak file. */
 export interface BackupManifest {
-  format: 'bahi-backup';
+  format: 'pevqori-backup';
   formatVersion: 1;
   /** App version that wrote the backup. */
   appVersion: string;
@@ -115,7 +115,7 @@ export interface BackupFileInfo {
   sizeBytes: number;
   /** File modification time (ISO). */
   modifiedAt: string;
-  /** null when the file is not a readable Bahi backup (see problem). */
+  /** null when the file is not a readable Pevqori backup (see problem). */
   manifest: BackupManifest | null;
   /** User-facing reason the file cannot be used, or null. */
   problem: string | null;
@@ -441,7 +441,7 @@ export interface ImportCommitResult {
 
 // ───────────────────────────── Tally migration ─────────────────────────────
 
-export const TALLY_OBJECT_TYPES = [
+export const XML_OBJECT_TYPES = [
   'GROUP',
   'LEDGER',
   'COSTCATEGORY',
@@ -455,9 +455,9 @@ export const TALLY_OBJECT_TYPES = [
   'VOUCHERTYPE',
   'VOUCHER',
 ] as const;
-export type TallyObjectType = (typeof TALLY_OBJECT_TYPES)[number];
+export type XmlObjectType = (typeof XML_OBJECT_TYPES)[number];
 
-export interface TallyIssue {
+export interface XmlImportIssue {
   severity: 'error' | 'warning' | 'info';
   /** Machine-readable kind: unknown_parent, duplicate_name, unsupported, unbalanced, unknown_ledger, … */
   code: string;
@@ -466,17 +466,17 @@ export interface TallyIssue {
   object?: string;
 }
 
-export interface TallyPreviewInput {
+export interface XmlPreviewInput {
   fileName: string;
   bytes: Uint8Array;
 }
 
-export interface TallyPreviewResult {
+export interface XmlPreviewResult {
   fileName: string;
   encoding: string;
   /** SVCURRENTCOMPANY of the export, when present. */
   companyName: string | null;
-  counts: Record<TallyObjectType, number>;
+  counts: Record<XmlObjectType, number>;
   /** Objects this app does not import (e.g. BUDGET, EMPLOYEE). */
   unsupported: Array<{ type: string; count: number }>;
   vouchersByType: Array<{ voucherType: string; baseType: VoucherBaseType | null; count: number }>;
@@ -490,10 +490,10 @@ export interface TallyPreviewResult {
   };
   /** Masters of the file that already exist in this company (by name). */
   existing: { groups: number; ledgers: number; stockItems: number; units: number; godowns: number };
-  issues: TallyIssue[];
+  issues: XmlImportIssue[];
 }
 
-export interface TallyImportOptions {
+export interface XmlImportOptions {
   /** Import masters (default true). */
   masters?: boolean;
   vouchers: boolean;
@@ -504,23 +504,23 @@ export interface TallyImportOptions {
   onDuplicate: 'skip' | 'update';
 }
 
-export interface TallyImportInput {
+export interface XmlImportInput {
   fileName: string;
   bytes: Uint8Array;
-  options: TallyImportOptions;
+  options: XmlImportOptions;
 }
 
-export interface TallyCounts {
+export interface XmlImportCounts {
   created: number;
   updated: number;
   skipped: number;
   failed: number;
 }
 
-export interface TallyImportResult {
-  masters: Record<'groups' | 'ledgers' | 'costCategories' | 'costCentres' | 'units' | 'godowns' | 'stockGroups' | 'stockCategories' | 'stockItems' | 'voucherTypes', TallyCounts>;
-  vouchers: TallyCounts;
-  issues: TallyIssue[];
+export interface XmlImportResult {
+  masters: Record<'groups' | 'ledgers' | 'costCategories' | 'costCentres' | 'units' | 'godowns' | 'stockGroups' | 'stockCategories' | 'stockItems' | 'voucherTypes', XmlImportCounts>;
+  vouchers: XmlImportCounts;
+  issues: XmlImportIssue[];
   /** import_batches.id of this import (vouchers carry it in meta.importBatchId). */
   batchId: number;
   /** The import stopped early (an unexpected error); earlier chunks are kept. */
@@ -528,7 +528,7 @@ export interface TallyImportResult {
   durationMs: number;
 }
 
-export interface TallyProgress {
+export interface XmlImportProgress {
   running: boolean;
   phase: 'idle' | 'parse' | 'masters' | 'vouchers' | 'done' | 'failed';
   done: number;
@@ -536,7 +536,7 @@ export interface TallyProgress {
   message: string;
 }
 
-export interface TallyExportInput {
+export interface XmlExportInput {
   /** Write the masters (groups, ledgers, units, godowns, stock groups / categories / items, cost centres, voucher types). */
   masters: boolean;
   /** Write the vouchers dated within from..to. */
@@ -546,7 +546,7 @@ export interface TallyExportInput {
 }
 
 /** Counts of masters written to the Tally XML. */
-export interface TallyExportMasterCounts {
+export interface XmlExportMasterCounts {
   groups: number;
   ledgers: number;
   units: number;
@@ -559,14 +559,14 @@ export interface TallyExportMasterCounts {
   voucherTypes: number;
 }
 
-export interface TallyExportResult {
+export interface XmlExportResult {
   /** 'Acme-Tally-20250401-20260331.zip' (masters + vouchers) or '…-Tally-Masters.xml' / '…-Tally-Vouchers-….xml'. */
   fileName: string;
   /** UTF-16LE XML with BOM, or a ZIP of 1-Masters.xml + 2-Vouchers.xml when both were asked for. */
   bytes: Uint8Array;
   mimeType: string;
   /** null when masters were not asked for. */
-  masters: TallyExportMasterCounts | null;
+  masters: XmlExportMasterCounts | null;
   /**
    * Date of the opening balances written on the masters (null without masters): the books beginning,
    * or — with the vouchers of a later period — the period's first day (balances, pending bills and

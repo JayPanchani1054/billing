@@ -1,6 +1,6 @@
 /**
  * Self-contained printable HTML for the statement of account and payment-reminder letters
- * (sent to bahi.native('print.print' | 'print.savePdf')). Pure and deterministic: no scripts, no
+ * (sent to pevqori.native('print.print' | 'print.savePdf')). Pure and deterministic: no scripts, no
  * external resources, and EVERY value goes through escapeHtml.
  */
 import { formatDate } from '../../../../shared/dates.ts';
@@ -57,7 +57,7 @@ function css(footerLeft: string): string {
 }
 
 function doc(title: string, body: string, opts: PrintOptions): string {
-  const footerLeft = `${opts.appName ?? 'Bahi ERP'}${opts.printedOn ? ` · Printed on ${formatDate(opts.printedOn)}` : ''}`;
+  const footerLeft = `${opts.appName ?? 'Pevqori'}${opts.printedOn ? ` · Printed on ${formatDate(opts.printedOn)}` : ''}`;
   return [
     '<!doctype html>',
     '<html lang="en-IN"><head><meta charset="utf-8">',

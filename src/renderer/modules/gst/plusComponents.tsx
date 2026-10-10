@@ -1,7 +1,7 @@
 /**
  * Shared pieces of the GST plus screens: the quarter selector of composition returns, a period
  * selector that adapts to the registration (quarters for composition, return periods otherwise), the
- * "mark as filed" dialog and the text-file save helper (CMP-08 / GSTR-4 in Bahi's documented format).
+ * "mark as filed" dialog and the text-file save helper (CMP-08 / GSTR-4 in Pevqori's documented format).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';

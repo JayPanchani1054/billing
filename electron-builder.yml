@@ -1,9 +1,9 @@
 # electron-builder configuration — Windows x64 NSIS installer.
 # Build:  npm run dist:win      (runs scripts/build.mjs first; output in release/)
 # Docs:   docs/BUILD.md
-appId: com.bahi.erp
-productName: Bahi ERP
-copyright: Copyright © 2026 Bahi ERP
+appId: com.pevqori.app
+productName: Pevqori
+copyright: Copyright © 2026 Pevqori
 
 directories:
   output: release
@@ -39,7 +39,7 @@ win:
       arch:
         - x64
   icon: build/icon.ico
-  artifactName: Bahi-ERP-Setup-${version}.${ext}
+  artifactName: Pevqori-Setup-${version}.${ext}
   requestedExecutionLevel: asInvoker
   # No auto-updater: nothing to verify against.
   verifyUpdateCodeSignature: false
@@ -51,12 +51,12 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Bahi ERP
-  uninstallDisplayName: Bahi ERP ${version}
+  shortcutName: Pevqori
+  uninstallDisplayName: Pevqori ${version}
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   runAfterFinish: true
-  # Company data lives in the user-chosen data folder and settings in %APPDATA%\Bahi ERP —
+  # Company data lives in the user-chosen data folder and settings in %APPDATA%\Pevqori —
   # both must survive uninstall/reinstall.
   deleteAppDataOnUninstall: false
   include: build/installer.nsh

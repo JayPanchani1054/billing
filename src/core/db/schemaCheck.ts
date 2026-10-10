@@ -32,7 +32,7 @@ export interface SchemaObject {
   sql: string | null;
 }
 
-/** Tables every Bahi company database has had since the first schema version. */
+/** Tables every Pevqori company database has had since the first schema version. */
 export const CORE_TABLES = ['company', 'settings', 'roles', 'users', 'audit_log', 'ledgers', 'vouchers', 'stock_items'] as const;
 
 /** The append-only triggers of the edit log (001_init.ts). */
@@ -104,7 +104,7 @@ export function readSchema(db: Db | DatabaseSync): SchemaObject[] {
   return db.prepare(sql).all() as unknown as SchemaObject[];
 }
 
-export const UNEXPECTED_OBJECTS_MESSAGE = 'This file contains unexpected database objects, so it was not opened. It was not made by Bahi ERP or it has been tampered with.';
+export const UNEXPECTED_OBJECTS_MESSAGE = 'This file contains unexpected database objects, so it was not opened. It was not made by Pevqori or it has been tampered with.';
 
 /** Problems with an untrusted database's schema ([] = safe to query). Also switches trusted_schema off. */
 export function validateCompanySchema(db: Db | DatabaseSync): string[] {

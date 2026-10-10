@@ -89,11 +89,11 @@ function sqliteConstraintPayload(err: unknown): ApiErrorPayload | null {
  * loudly rather than returning unfiltered data.
  *   - Off in production builds, where a renderer that sends an extra key must keep working.
  *   - On under `node --test` (NODE_TEST_CONTEXT is set in every test process), i.e. the whole test suite,
- *     and in development (`BAHI_STRICT_INPUT=1`, set by scripts/dev.mjs).
+ *     and in development (`PEVQORI_STRICT_INPUT=1`, set by scripts/dev.mjs).
  * Schemas built with `v.strictObject` (e.g. the edit-log filters) reject unknown keys in production too.
  */
 let strictRouteInput =
-  typeof process !== 'undefined' && (process.env?.BAHI_STRICT_INPUT === '1' || process.env?.NODE_TEST_CONTEXT !== undefined);
+  typeof process !== 'undefined' && (process.env?.PEVQORI_STRICT_INPUT === '1' || process.env?.NODE_TEST_CONTEXT !== undefined);
 
 export function setStrictRouteInput(on: boolean): void {
   strictRouteInput = on;

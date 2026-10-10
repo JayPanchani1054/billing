@@ -34,7 +34,7 @@ interface Row {
   [k: string]: unknown;
 }
 
-describe('first day in Bahi ERP (API twin of the Playwright flow)', () => {
+describe('first day in Pevqori (API twin of the Playwright flow)', () => {
   let e: E2E;
   let partyId = 0;
   let itemId = 0;
@@ -53,7 +53,7 @@ describe('first day in Bahi ERP (API twin of the Playwright flow)', () => {
     assert.equal(makeGstin('27', testPan(2)), FLOW.party.gstin);
   });
 
-  it('first launch: "Use this folder" accepts the BAHI_DATA_DIR folder without a dialog', async () => {
+  it('first launch: "Use this folder" accepts the PEVQORI_DATA_DIR folder without a dialog', async () => {
     const s = await e.call<{ firstRun: boolean; dataDir: string; companies: unknown[] }>('app.state');
     assert.equal(s.firstRun, true);
     assert.equal(s.companies.length, 0);

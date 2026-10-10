@@ -7,12 +7,12 @@ import { autoBackupNotice, sameFolder, unapprovedFolderText, withTimeout } from 
 
 describe('autoBackupNotice', () => {
   test('a written backup is announced with its file name', () => {
-    const n = autoBackupNotice({ ran: true, reason: 'created', lastBackupAt: '2026-10-09T05:00:00Z', backup: { fileName: 'Sharma Traders_20261009-103000.bahibak' } });
-    assert.deepEqual(n, { tone: 'success', title: 'Backed up automatically', message: 'Saved Sharma Traders_20261009-103000.bahibak.' });
+    const n = autoBackupNotice({ ran: true, reason: 'created', lastBackupAt: '2026-10-09T05:00:00Z', backup: { fileName: 'Sharma Traders_20261009-103000.pvqbak' } });
+    assert.deepEqual(n, { tone: 'success', title: 'Backed up automatically', message: 'Saved Sharma Traders_20261009-103000.pvqbak.' });
   });
 
   test('a failure warns with the reason and offers the Backup screen', () => {
-    const n = autoBackupNotice({ ran: false, reason: 'failed', lastBackupAt: null, error: 'Bahi ERP cannot write to the backup folder E:\\Backups (drive not found).' });
+    const n = autoBackupNotice({ ran: false, reason: 'failed', lastBackupAt: null, error: 'Pevqori cannot write to the backup folder E:\\Backups (drive not found).' });
     assert.equal(n?.tone, 'warning');
     assert.match(n?.message ?? '', /drive not found/);
     assert.equal(n?.openBackup, true);
@@ -20,7 +20,7 @@ describe('autoBackupNotice', () => {
   });
 
   test('a folder not approved on this computer: warns (even after a backup to the default folder) and offers the Backup screen', () => {
-    const n = autoBackupNotice({ ran: true, reason: 'created', lastBackupAt: '2026-10-09T05:00:00Z', backup: { fileName: 'x.bahibak' }, folderNotApproved: '\\\\nas\\books' });
+    const n = autoBackupNotice({ ran: true, reason: 'created', lastBackupAt: '2026-10-09T05:00:00Z', backup: { fileName: 'x.pvqbak' }, folderNotApproved: '\\\\nas\\books' });
     assert.equal(n?.tone, 'warning');
     assert.equal(n?.title, 'Confirm the backup folder');
     assert.match(n?.message ?? '', /^Backed up to the default folder instead\. The backup folder \\\\nas\\books was set on another computer/);

@@ -395,8 +395,8 @@ describe('core proxy: shutdown', () => {
 
 describe('workerScriptPath', () => {
   it('points at the unpacked copy inside a packaged app and at out/main in development', () => {
-    const packaged = path.join('C:', 'Program Files', 'Bahi ERP', 'resources', 'app.asar', 'out', 'main');
-    assert.equal(workerScriptPath(packaged), path.join('C:', 'Program Files', 'Bahi ERP', 'resources', 'app.asar.unpacked', 'out', 'main', 'core-worker.cjs'));
+    const packaged = path.join('C:', 'Program Files', 'Pevqori', 'resources', 'app.asar', 'out', 'main');
+    assert.equal(workerScriptPath(packaged), path.join('C:', 'Program Files', 'Pevqori', 'resources', 'app.asar.unpacked', 'out', 'main', 'core-worker.cjs'));
     assert.equal(workerScriptPath('/repo/out/main'), path.join('/repo/out/main', 'core-worker.cjs'));
     assert.equal(workerScriptPath('/x/app.asar.unpacked/out/main'), path.join('/x/app.asar.unpacked/out/main', 'core-worker.cjs'));
   });

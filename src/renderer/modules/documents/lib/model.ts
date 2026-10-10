@@ -33,7 +33,7 @@ export const DOCUMENTS_INVALIDATES = ['documents', 'vouchers', 'reports', 'gst',
 
 /** localStorage key of "recurring vouchers due" dismissed for a company on a working day. */
 export function noticeStorageKey(companyId: string, date: string): string {
-  return `bahi:${companyId}:recurring-notice:${date}`;
+  return `pevqori:${companyId}:recurring-notice:${date}`;
 }
 
 // ───────────────────────────── Quotations ─────────────────────────────

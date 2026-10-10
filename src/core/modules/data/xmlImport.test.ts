@@ -1,21 +1,22 @@
 /**
  * Tally XML migration: parsing helpers, preview (no writes) and the import of the hand-written
- * "Shree Ganesh Appliances" export (tallyFixture.ts — every figure there is hand-verified).
+ * "Shree Ganesh Appliances" export (xmlFixture.ts — every figure there is hand-verified).
  */
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { TallyImportResult, TallyProgress } from '../../../shared/types/data.ts';
+import type { XmlImportResult, XmlImportProgress } from '../../../shared/types/data.ts';
 import type { TrialBalanceResult } from '../../../shared/types/reports.ts';
 import { AppError } from '../../lib/errors.ts';
 import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
 import { reportsRoutes } from '../reports/routes.ts';
 import { dataRoutes } from './routes.ts';
-import { ACME_GSTIN, DELHI_GSTIN, SUPREME_GSTIN, tallyFixtureBytes, tallyFixtureXml, utf16le } from './tallyFixture.ts';
-import { importTally, previewTally } from './tallyImport.ts';
-import { creditDays, ourAmount, parseTallyFile, tallyAmount, tallyDate, tallyQty, tallyRate } from './tallyParse.ts';
+import { ACME_GSTIN, DELHI_GSTIN, SUPREME_GSTIN, xmlFixtureBytes, xmlFixtureXml, utf16le } from './xmlFixture.ts';
+import { importXml, previewXml, XML_IMPORT_SOURCE } from './xmlImport.ts';
+import { creditDays, ourAmount, parseXmlFile, xmlAmount, xmlDate, xmlQty, xmlRate } from './xmlParse.ts';
 import { verifyData } from './verify.ts';
 import { saveVoucher } from '../vouchers/service.ts';
 import { setPeriodLock } from '../company/service.ts';
+import { MESSAGE_CLOSE, MESSAGE_OPEN, MESSAGE_TAG } from './xmlFormat.ts';
 
 let t: TestCompany;
 beforeEach(() => {
@@ -25,8 +26,8 @@ afterEach(() => t.close());
 
 const FILE = 'Master.xml';
 
-async function runImport(opts: Partial<{ masters: boolean; vouchers: boolean; from: string; to: string; onDuplicate: 'skip' | 'update' }> = {}, bytes = tallyFixtureBytes()): Promise<TallyImportResult> {
-  return importTally(t.ctx, { fileName: FILE, bytes, options: { masters: true, vouchers: true, onDuplicate: 'skip', ...opts } });
+async function runImport(opts: Partial<{ masters: boolean; vouchers: boolean; from: string; to: string; onDuplicate: 'skip' | 'update' }> = {}, bytes = xmlFixtureBytes()): Promise<XmlImportResult> {
+  return importXml(t.ctx, { fileName: FILE, bytes, options: { masters: true, vouchers: true, onDuplicate: 'skip', ...opts } });
 }
 
 const ledgerId = (name: string): number => {
@@ -67,7 +68,7 @@ const stockQty = (item: string): number =>
 
 describe('tally: value parsers', () => {
   it('amounts: Tally negative = Debit; ours is Dr +', () => {
-    assert.equal(tallyAmount('-25000.00'), -25_000_00);
+    assert.equal(xmlAmount('-25000.00'), -25_000_00);
     assert.equal(ourAmount('-25000.00'), 25_000_00); // Dr ₹25,000
     assert.equal(ourAmount('233000.00'), -2_33_000_00); // Cr ₹2,33,000
     assert.equal(ourAmount('₹ 1,250.50 Dr'), 1_250_50);
@@ -78,13 +79,13 @@ describe('tally: value parsers', () => {
   });
 
   it('quantities, rates, dates and credit periods', () => {
-    assert.deepEqual(tallyQty(' 10 Nos'), { qty: 10, unit: 'Nos' });
-    assert.deepEqual(tallyQty('2.500 Kg'), { qty: 2.5, unit: 'Kg' });
-    assert.deepEqual(tallyQty('60 Nos = 5 Box'), { qty: 60, unit: 'Nos' });
-    assert.deepEqual(tallyRate('2950.50/Nos'), { rate: 2950.5, per: 'Nos' });
-    assert.deepEqual(tallyRate('$ 1.20 = ₹ 100.00/Nos'), { rate: 100, per: 'Nos' });
-    assert.equal(tallyDate('20260405'), '2026-04-05');
-    assert.equal(tallyDate('20260231'), null);
+    assert.deepEqual(xmlQty(' 10 Nos'), { qty: 10, unit: 'Nos' });
+    assert.deepEqual(xmlQty('2.500 Kg'), { qty: 2.5, unit: 'Kg' });
+    assert.deepEqual(xmlQty('60 Nos = 5 Box'), { qty: 60, unit: 'Nos' });
+    assert.deepEqual(xmlRate('2950.50/Nos'), { rate: 2950.5, per: 'Nos' });
+    assert.deepEqual(xmlRate('$ 1.20 = ₹ 100.00/Nos'), { rate: 100, per: 'Nos' });
+    assert.equal(xmlDate('20260405'), '2026-04-05');
+    assert.equal(xmlDate('20260231'), null);
     assert.equal(creditDays('30 Days'), 30);
     assert.equal(creditDays('soon'), null);
   });
@@ -92,7 +93,7 @@ describe('tally: value parsers', () => {
 
 describe('tally: reading the file', () => {
   it('decodes UTF-16LE without a BOM (as Tally writes it) and finds every object', () => {
-    const f = parseTallyFile(tallyFixtureBytes());
+    const f = parseXmlFile(xmlFixtureBytes());
     assert.equal(f.encoding, 'utf-16le');
     assert.equal(f.companyName, 'Shree Ganesh Appliances');
     assert.equal(f.counts.LEDGER, 14);
@@ -103,25 +104,25 @@ describe('tally: reading the file', () => {
   });
 
   it('reads the same export saved as UTF-8 too', () => {
-    const f = parseTallyFile(new TextEncoder().encode(tallyFixtureXml()));
+    const f = parseXmlFile(new TextEncoder().encode(xmlFixtureXml()));
     assert.equal(f.encoding, 'utf-8');
     assert.equal(f.counts.VOUCHER, 11);
   });
 
   it('refuses a file that is not a Tally export, with directions', () => {
     assert.throws(
-      () => parseTallyFile(utf16le('<html><body>hello</body></html>')),
+      () => parseXmlFile(utf16le('<html><body>hello</body></html>')),
       (e: unknown) => e instanceof AppError && /Gateway/.test(e.message),
     );
-    assert.throws(() => parseTallyFile(new Uint8Array()), AppError);
+    assert.throws(() => parseXmlFile(new Uint8Array()), AppError);
   });
 });
 
-describe('data.tally.preview', () => {
+describe('data.xmlImport.preview', () => {
   it('counts objects, voucher types, the date range and issues — and writes nothing', () => {
     const ledgersBefore = t.db.value<number>('SELECT COUNT(*) FROM ledgers');
     const auditBefore = t.db.value<number>('SELECT COUNT(*) FROM audit_log');
-    const p = previewTally(t.ctx, { fileName: FILE, bytes: tallyFixtureBytes() });
+    const p = previewXml(t.ctx, { fileName: FILE, bytes: xmlFixtureBytes() });
     assert.equal(p.encoding, 'utf-16le');
     assert.equal(p.companyName, 'Shree Ganesh Appliances');
     assert.equal(p.counts.GROUP, 3);
@@ -145,15 +146,15 @@ describe('data.tally.preview', () => {
   });
 
   it('runs through the dispatcher and needs data.import', async () => {
-    const ok = await t.call(dataRoutes, 'data.tally.preview', { fileName: FILE, bytes: tallyFixtureBytes() });
+    const ok = await t.call(dataRoutes, 'data.xmlImport.preview', { fileName: FILE, bytes: xmlFixtureBytes() });
     assert.equal(ok.ok, true);
-    const denied = await t.call(dataRoutes, 'data.tally.preview', { fileName: FILE, bytes: tallyFixtureBytes() }, { session: t.sessionAs({ permissions: ['masters.view'] }) });
+    const denied = await t.call(dataRoutes, 'data.xmlImport.preview', { fileName: FILE, bytes: xmlFixtureBytes() }, { session: t.sessionAs({ permissions: ['masters.view'] }) });
     assert.equal(denied.ok, false);
     if (!denied.ok) assert.equal(denied.error.code, 'FORBIDDEN');
   });
 });
 
-describe('data.tally.import: masters', () => {
+describe('data.xmlImport.commit: masters', () => {
   it('creates groups, parties, banks, tax ledgers, units, godowns and items in dependency order', async () => {
     const r = await runImport({ vouchers: false });
     assert.equal(r.stopped, false);
@@ -238,7 +239,7 @@ describe('data.tally.import: masters', () => {
   });
 });
 
-describe('data.tally.import: vouchers', () => {
+describe('data.xmlImport.commit: vouchers', () => {
   it('imports every voucher as recorded; the books balance (Σ entries = 0, TB agrees)', async () => {
     const r = await runImport();
     assert.equal(r.vouchers.created, 10); // 11 − J-BAD
@@ -304,7 +305,7 @@ describe('data.tally.import: vouchers', () => {
     const p1 = t.db.get<{ reference_no: string; meta: string }>(`SELECT reference_no, meta FROM vouchers WHERE number = 'P-1'`);
     assert.equal(p1?.reference_no, 'SS/2026/501');
     const meta = JSON.parse(p1?.meta ?? '{}');
-    assert.equal(meta.source, 'tally');
+    assert.equal(meta.source, XML_IMPORT_SOURCE);
     assert.equal(typeof meta.importBatchId, 'number');
     assert.deepEqual(
       t.db.get(`SELECT instrument_type, instrument_no FROM ledger_entries le JOIN vouchers v ON v.id = le.voucher_id WHERE v.number = 'R-1' AND le.instrument_no IS NOT NULL`),
@@ -327,7 +328,7 @@ describe('data.tally.import: vouchers', () => {
     const vouchers = rows.filter((x) => x.entity_type === 'voucher');
     assert.equal(vouchers.length, r.vouchers.created);
     assert.equal(r.vouchers.created, 10);
-    assert.ok(vouchers.every((x) => x.action === 'create' && JSON.parse(x.after_json).source === 'tally' && JSON.parse(x.after_json).importBatchId === r.batchId));
+    assert.ok(vouchers.every((x) => x.action === 'create' && JSON.parse(x.after_json).source === XML_IMPORT_SOURCE && JSON.parse(x.after_json).importBatchId === r.batchId));
     assert.deepEqual(new Set(vouchers.map((x) => x.entity_id)), new Set(t.db.all<{ id: number }>('SELECT id FROM vouchers').map((x) => x.id)));
     // Masters: every ledger / item the import created has its own entry.
     const ledgersCreated = r.masters.ledgers.created;
@@ -338,12 +339,12 @@ describe('data.tally.import: vouchers', () => {
     assert.ok(rows.some((x) => x.action === 'settings' && x.entity_type === 'company_features'));
     const last = rows[rows.length - 1];
     assert.equal(last.action, 'import');
-    assert.equal(t.db.value('SELECT kind FROM import_batches WHERE id = :id', { id: r.batchId }), 'tally_xml');
+    assert.equal(t.db.value('SELECT kind FROM import_batches WHERE id = :id', { id: r.batchId }), 'xml_data');
     assert.equal(verifyData(t.ctx).checks.find((c) => c.name === 'audit_chain')?.ok, true);
   });
 
   it('altering an existing ledger or re-importing a voucher with "update" leaves before/after in their history', async () => {
-    // Cash exists in Bahi with no opening balance: the import takes over Tally's opening (even with "skip").
+    // Cash exists in Pevqori with no opening balance: the import takes over Tally's opening (even with "skip").
     const cash = t.db.value<number>(`SELECT id FROM ledgers WHERE reserved_code = 'CASH'`) as number;
     const bytes = withVouchers(payment('g-pay-40', '40', '20260410', '100.00'));
     await runImport({}, bytes);
@@ -370,7 +371,7 @@ describe('data.tally.import: vouchers', () => {
   it('F11 is changed only for a user who may manage the company (else a warning; the data is still imported)', async () => {
     const importer = t.sessionAs({ permissions: ['data.import', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'vouchers.backdate'] });
     const before = { costCentres: t.db.value<string>(`SELECT value FROM settings WHERE key = 'features'`) };
-    const r = await t.callOk<TallyImportResult>(dataRoutes, 'data.tally.import', { fileName: FILE, bytes: tallyFixtureBytes(), options: { vouchers: true, onDuplicate: 'skip' } }, { session: importer });
+    const r = await t.callOk<XmlImportResult>(dataRoutes, 'data.xmlImport.commit', { fileName: FILE, bytes: xmlFixtureBytes(), options: { vouchers: true, onDuplicate: 'skip' } }, { session: importer });
     assert.equal(r.vouchers.created, 10);
     assert.ok(r.issues.some((i) => i.code === 'features_not_enabled'));
     assert.equal(t.db.value<string>(`SELECT value FROM settings WHERE key = 'features'`), before.costCentres, 'F11 unchanged');
@@ -405,12 +406,12 @@ describe('data.tally.import: vouchers', () => {
   });
 
   it('runs through the dispatcher (async, non-transactional) and needs data.import', async () => {
-    const input = { fileName: FILE, bytes: tallyFixtureBytes(), options: { vouchers: true, onDuplicate: 'skip' } };
-    const denied = await t.call(dataRoutes, 'data.tally.import', input, { session: t.sessionAs({ permissions: ['masters.view'] }) });
+    const input = { fileName: FILE, bytes: xmlFixtureBytes(), options: { vouchers: true, onDuplicate: 'skip' } };
+    const denied = await t.call(dataRoutes, 'data.xmlImport.commit', input, { session: t.sessionAs({ permissions: ['masters.view'] }) });
     assert.equal(denied.ok, false);
-    const r = await t.callOk<TallyImportResult>(dataRoutes, 'data.tally.import', input);
+    const r = await t.callOk<XmlImportResult>(dataRoutes, 'data.xmlImport.commit', input);
     assert.equal(r.vouchers.created, 10);
-    const prog = await t.callOk<TallyProgress>(dataRoutes, 'data.tally.progress');
+    const prog = await t.callOk<XmlImportProgress>(dataRoutes, 'data.xmlImport.progress');
     assert.equal(prog.running, false);
     assert.equal(prog.phase, 'done');
   });
@@ -418,12 +419,12 @@ describe('data.tally.import: vouchers', () => {
 
 /** The fixture's masters plus hand-written vouchers (Accounting Voucher View, amounts negative = Dr). */
 function withVouchers(vouchersXml: string): Uint8Array {
-  const xml = tallyFixtureXml({ vouchers: false }).replace('</REQUESTDATA>', `${vouchersXml.replace(/\n/g, '\r\n')}\r\n   </REQUESTDATA>`);
+  const xml = xmlFixtureXml({ vouchers: false }).replace('</REQUESTDATA>', `${vouchersXml.replace(/\n/g, '\r\n')}\r\n   </REQUESTDATA>`);
   return utf16le(xml);
 }
 
 const payment = (guid: string, num: string, date: string, rupees: string): string => `
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_OPEN}
      <VOUCHER REMOTEID="${guid}" VCHTYPE="Payment" ACTION="Create">
       <DATE>${date}</DATE>
       <GUID>${guid}</GUID>
@@ -440,9 +441,9 @@ const payment = (guid: string, num: string, date: string, rupees: string): strin
        <AMOUNT>${rupees}</AMOUNT>
       </ALLLEDGERENTRIES.LIST>
      </VOUCHER>
-    </TALLYMESSAGE>`;
+    ${MESSAGE_CLOSE}`;
 
-describe('data.tally.import: repeated numbers and existing vouchers', () => {
+describe('data.xmlImport.commit: repeated numbers and existing vouchers', () => {
   it('Tally vouchers sharing a number (different GUIDs) are all imported; a re-import skips them all', async () => {
     // Tally lets Payment vouchers repeat numbers (manual numbering). Three payments, two numbered 7.
     const bytes = withVouchers(payment('g-pay-1', '7', '20260410', '1000.00') + payment('g-pay-2', '7', '20260411', '250.00') + payment('g-pay-3', '8', '20260412', '50.00'));
@@ -456,12 +457,12 @@ describe('data.tally.import: repeated numbers and existing vouchers', () => {
     assert.equal(t.db.value(`SELECT COUNT(*) FROM vouchers WHERE base_type = 'payment'`), 3);
   });
 
-  it('"update existing" refreshes Tally vouchers but never overwrites a voucher entered in Bahi ERP', async () => {
+  it('"update existing" refreshes Tally vouchers but never overwrites a voucher entered in Pevqori', async () => {
     await runImport({ vouchers: false });
     const rent = ledgerId('Office Rent');
     const cash = t.db.value<number>(`SELECT id FROM ledgers WHERE reserved_code = 'CASH'`) as number;
     const paymentType = t.db.value<number>(`SELECT id FROM voucher_types WHERE name = 'Payment'`) as number;
-    // Entered by hand in Bahi: a Payment on 10-Apr for ₹ 400.
+    // Entered by hand in Pevqori: a Payment on 10-Apr for ₹ 400.
     const own = saveVoucher(t.ctx, {
       voucherTypeId: paymentType,
       mode: 'ledger',
@@ -493,16 +494,16 @@ describe('data.tally.import: repeated numbers and existing vouchers', () => {
 
   it('needs the same rights as entering by hand: back-dated vouchers, and alter rights for "update"', async () => {
     const clerk = t.sessionAs({ permissions: ['data.import', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create'] });
-    const input = { fileName: FILE, bytes: tallyFixtureBytes(), options: { vouchers: true, onDuplicate: 'skip' } };
-    const r1 = await t.call(dataRoutes, 'data.tally.import', input, { session: clerk });
+    const input = { fileName: FILE, bytes: xmlFixtureBytes(), options: { vouchers: true, onDuplicate: 'skip' } };
+    const r1 = await t.call(dataRoutes, 'data.xmlImport.commit', input, { session: clerk });
     assert.equal(r1.ok, false);
     if (!r1.ok) assert.match(r1.error.message, /back-dated/);
     const senior = t.sessionAs({ permissions: ['data.import', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'vouchers.backdate'] });
-    const r2 = await t.call(dataRoutes, 'data.tally.import', { ...input, options: { vouchers: true, onDuplicate: 'update' } }, { session: senior });
+    const r2 = await t.call(dataRoutes, 'data.xmlImport.commit', { ...input, options: { vouchers: true, onDuplicate: 'update' } }, { session: senior });
     assert.equal(r2.ok, false);
     if (!r2.ok) assert.match(r2.error.message, /alter masters/);
     assert.equal(t.db.value('SELECT COUNT(*) FROM vouchers'), 0, 'nothing was written');
-    const r3 = await t.call(dataRoutes, 'data.tally.import', input, { session: senior });
+    const r3 = await t.call(dataRoutes, 'data.xmlImport.commit', input, { session: senior });
     assert.equal(r3.ok, true, JSON.stringify(r3));
   });
 
@@ -522,7 +523,7 @@ describe('data.tally.import: repeated numbers and existing vouchers', () => {
   });
 });
 
-describe('data.tally.import: debit notes', () => {
+describe('data.xmlImport.commit: debit notes', () => {
   const invItem = (name: string, qty: number, rate: string, amount: string, ledger: string): string => `
       <ALLINVENTORYENTRIES.LIST>
        <STOCKITEMNAME>${name}</STOCKITEMNAME>
@@ -544,7 +545,7 @@ describe('data.tally.import: debit notes', () => {
        <AMOUNT>${amount}</AMOUNT>
       </LEDGERENTRIES.LIST>`;
   const note = (guid: string, num: string, party: string, body: string): string => `
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_OPEN}
      <VOUCHER REMOTEID="${guid}" VCHTYPE="Debit Note" ACTION="Create" OBJVIEW="Invoice Voucher View">
       <DATE>20260415</DATE>
       <GUID>${guid}</GUID>
@@ -553,7 +554,7 @@ describe('data.tally.import: debit notes', () => {
       <PARTYLEDGERNAME>${party}</PARTYLEDGERNAME>
       <ISINVOICE>Yes</ISINVOICE>${body}
      </VOUCHER>
-    </TALLYMESSAGE>`;
+    ${MESSAGE_CLOSE}`;
 
   it('a Debit Note to a customer is value-only (no stock movement), as when entered here; one to a supplier moves stock out', async () => {
     // To Acme Traders (customer, Maharashtra): price revision on 1 mixer, ₹ 100 + CGST 9 + SGST 9 = ₹ 118 Dr.
@@ -579,20 +580,20 @@ describe('data.tally.import: debit notes', () => {
   });
 });
 
-describe('data.tally: tricky XML', () => {
+describe('data.xmlImport: tricky XML', () => {
   it('BOM + entities + a parent defined later + a missing parent: imports what it can and reports the rest', async () => {
     const xml = `<ENVELOPE><BODY><IMPORTDATA><REQUESTDATA>
-<TALLYMESSAGE><GROUP NAME="Mumbai R&amp;D" RESERVEDNAME=""><PARENT>R&amp;D &amp; Projects</PARENT></GROUP></TALLYMESSAGE>
-<TALLYMESSAGE><GROUP NAME="R&amp;D &amp; Projects" RESERVEDNAME=""><PARENT>&#4; Indirect Expenses</PARENT></GROUP></TALLYMESSAGE>
-<TALLYMESSAGE><LEDGER NAME="Lab Rent &lt;Andheri&gt;" RESERVEDNAME=""><PARENT>Mumbai R&amp;D</PARENT><OPENINGBALANCE>-1500.50</OPENINGBALANCE></LEDGER></TALLYMESSAGE>
-<TALLYMESSAGE><LEDGER NAME="Orphan Ledger" RESERVEDNAME=""><PARENT>No Such Group</PARENT><OPENINGBALANCE>200.00</OPENINGBALANCE></LEDGER></TALLYMESSAGE>
+<${MESSAGE_TAG}><GROUP NAME="Mumbai R&amp;D" RESERVEDNAME=""><PARENT>R&amp;D &amp; Projects</PARENT></GROUP>${MESSAGE_CLOSE}
+<${MESSAGE_TAG}><GROUP NAME="R&amp;D &amp; Projects" RESERVEDNAME=""><PARENT>&#4; Indirect Expenses</PARENT></GROUP>${MESSAGE_CLOSE}
+<${MESSAGE_TAG}><LEDGER NAME="Lab Rent &lt;Andheri&gt;" RESERVEDNAME=""><PARENT>Mumbai R&amp;D</PARENT><OPENINGBALANCE>-1500.50</OPENINGBALANCE></LEDGER>${MESSAGE_CLOSE}
+<${MESSAGE_TAG}><LEDGER NAME="Orphan Ledger" RESERVEDNAME=""><PARENT>No Such Group</PARENT><OPENINGBALANCE>200.00</OPENINGBALANCE></LEDGER>${MESSAGE_CLOSE}
 </REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>`;
     // UTF-16LE with a BOM this time (FF FE).
     const body = utf16le(xml);
     const bytes = new Uint8Array(body.length + 2);
     bytes.set([0xff, 0xfe], 0);
     bytes.set(body, 2);
-    const preview = previewTally(t.ctx, { fileName: 'm.xml', bytes });
+    const preview = previewXml(t.ctx, { fileName: 'm.xml', bytes });
     assert.ok(preview.issues.some((i) => i.object === 'LEDGER Orphan Ledger' && i.severity === 'error'));
     assert.ok(!preview.issues.some((i) => i.object === 'GROUP Mumbai R&D'), 'a parent later in the file is not an issue');
     const r = await runImport({ vouchers: false }, bytes);

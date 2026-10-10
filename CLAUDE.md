@@ -1,4 +1,4 @@
-# Bahi ERP — agent guide
+# Pevqori — agent guide
 
 Offline-first GST accounting/invoicing/inventory desktop app for India (Electron + React + node:sqlite).
 **Read `docs/ARCHITECTURE.md` before writing code** — it is the contract (data conventions, API routes,

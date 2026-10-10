@@ -47,8 +47,8 @@ export function assertSupportedVersion(current: number, supported: number = SCHE
   if (current > supported) {
     throw new AppError(
       'CONFLICT',
-      `This company was created by a newer version of Bahi ERP (data version ${current}; this app supports up to ${supported}). ` +
-        'Please update Bahi ERP to open it.',
+      `This company was created by a newer version of Pevqori (data version ${current}; this app supports up to ${supported}). ` +
+        'Please update Pevqori to open it.',
       { schemaVersion: current, supportedVersion: supported },
     );
   }

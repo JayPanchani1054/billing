@@ -367,7 +367,7 @@ export class CompanyStore {
    * app version). Returns its name and schema version; throws VALIDATION/CONFLICT otherwise.
    */
   inspectDatabaseFile(file: string): { name: string; schemaVersion: number } {
-    const notCompany = (): AppError => new AppError('VALIDATION', 'This file is not a valid Bahi ERP company data file.');
+    const notCompany = (): AppError => new AppError('VALIDATION', 'This file is not a valid Pevqori company data file.');
     if (!exists(file)) throw notFound('File');
     let db: Db | null = null;
     let found: { name: string; schemaVersion: number };

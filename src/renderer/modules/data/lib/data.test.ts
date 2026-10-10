@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CompanyListItem } from '../../../../shared/types/app.ts';
-import type { BackupFileInfo, BackupManifest, BackupVerifyResult, DataVerifyResult, ImportPreviewResult, ImportRowResult, TallyImportResult, TallyPreviewResult } from '../../../../shared/types/data.ts';
+import type { BackupFileInfo, BackupManifest, BackupVerifyResult, DataVerifyResult, ImportPreviewResult, ImportRowResult, XmlImportResult, XmlPreviewResult } from '../../../../shared/types/data.ts';
 import {
   backupFileNamePreview,
   backupFreshness,
@@ -23,14 +23,14 @@ import {
   progressPercent,
   spreadsheetFileProblem,
   statusBadge,
-  tallyCountRows,
-  tallyFileProblem,
-  tallyOptionsProblem,
-  tallyResultSummary,
+  xmlCountRows,
+  xmlFileProblem,
+  xmlOptionsProblem,
+  xmlResultSummary,
 } from './importView.ts';
 
 const manifest = (over: Partial<BackupManifest> = {}): BackupManifest => ({
-  format: 'bahi-backup',
+  format: 'pevqori-backup',
   formatVersion: 1,
   appVersion: '1.0.0',
   schemaVersion: 140,
@@ -83,7 +83,7 @@ describe('backup list and freshness', () => {
   });
 
   it('labels files: unreadable, password, automatic or manual', () => {
-    const base: BackupFileInfo = { path: '/b/x.bahibak', fileName: 'x.bahibak', sizeBytes: 10, modifiedAt: '', manifest: manifest(), problem: null, isCurrentCompany: true };
+    const base: BackupFileInfo = { path: '/b/x.pvqbak', fileName: 'x.pvqbak', sizeBytes: 10, modifiedAt: '', manifest: manifest(), problem: null, isCurrentCompany: true };
     assert.deepEqual(backupRowStatus(base), { label: 'Manual', tone: 'neutral' });
     assert.equal(backupRowStatus({ ...base, manifest: manifest({ kind: 'auto' }) }).label, 'Automatic');
     assert.equal(backupRowStatus({ ...base, manifest: manifest({ encrypted: true }) }).label, 'Password');
@@ -92,8 +92,8 @@ describe('backup list and freshness', () => {
 
   it('previews the file name like the server (unsafe characters, trailing dots)', () => {
     const d = new Date(2026, 9, 5, 14, 3, 9);
-    assert.equal(backupFileNamePreview('Shree: Ganesh/Traders.', d), 'Shree Ganesh Traders_20261005-140309.bahibak');
-    assert.equal(backupFileNamePreview('CON', d), 'Company_20261005-140309.bahibak');
+    assert.equal(backupFileNamePreview('Shree: Ganesh/Traders.', d), 'Shree Ganesh Traders_20261005-140309.pvqbak');
+    assert.equal(backupFileNamePreview('CON', d), 'Company_20261005-140309.pvqbak');
   });
 });
 
@@ -115,7 +115,7 @@ describe('verify and restore', () => {
     assert.equal(verifyOutcome(result({ ok: true, counts: { ledgers: 12, vouchers: 340, stockItems: 3 } })).message, 'Shree Traders can be restored from this file (12 ledgers, 340 vouchers).');
     assert.equal(verifyOutcome(result({ needsPassword: true })).title, 'This backup has a password');
     assert.equal(verifyOutcome(result({ checks: [{ name: 'password', ok: false, message: 'Wrong password.' }] })).message, 'Wrong password.');
-    assert.equal(verifyOutcome(result({ supported: false })).title, 'Made by a newer version of Bahi ERP');
+    assert.equal(verifyOutcome(result({ supported: false })).title, 'Made by a newer version of Pevqori');
   });
 
   it('never offers the open company as a restore target; the backup’s company comes first', () => {
@@ -184,8 +184,8 @@ describe('import wizard', () => {
     assert.equal(spreadsheetFileProblem('Ledgers.XLSX'), null);
     assert.equal(spreadsheetFileProblem('a.csv'), null);
     assert.match(spreadsheetFileProblem('old.xls') ?? '', /Save As/);
-    assert.equal(tallyFileProblem('Master.xml'), null);
-    assert.match(tallyFileProblem('Company.900') ?? '', /Export/);
+    assert.equal(xmlFileProblem('Master.xml'), null);
+    assert.match(xmlFileProblem('Company.900') ?? '', /Export/);
   });
 
   it('filters rows and labels their status and action', () => {
@@ -223,7 +223,7 @@ describe('import wizard', () => {
 });
 
 describe('Tally wizard', () => {
-  const p = (over: Partial<TallyPreviewResult> = {}): TallyPreviewResult => ({
+  const p = (over: Partial<XmlPreviewResult> = {}): XmlPreviewResult => ({
     fileName: 'Master.xml',
     encoding: 'utf-16le',
     companyName: 'Shree',
@@ -241,7 +241,7 @@ describe('Tally wizard', () => {
   });
 
   it('lists what is in the file, skipping empty kinds, with existing counts', () => {
-    const rows = tallyCountRows(p());
+    const rows = xmlCountRows(p());
     assert.equal(rows.length, 10); // 12 kinds − cost categories − stock categories
     assert.deepEqual(rows[1], { key: 'LEDGER', label: 'Ledgers', count: 14, existing: 3 });
     assert.equal(rows.at(-1)?.existing, null);
@@ -249,18 +249,18 @@ describe('Tally wizard', () => {
   });
 
   it('validates the options against the file', () => {
-    assert.equal(tallyOptionsProblem(p(), { masters: true, vouchers: true, onDuplicate: 'skip' }), null);
-    assert.match(tallyOptionsProblem(p(), { masters: false, vouchers: false, onDuplicate: 'skip' }) ?? '', /masters, vouchers or both/);
+    assert.equal(xmlOptionsProblem(p(), { masters: true, vouchers: true, onDuplicate: 'skip' }), null);
+    assert.match(xmlOptionsProblem(p(), { masters: false, vouchers: false, onDuplicate: 'skip' }) ?? '', /masters, vouchers or both/);
     const noVch = p({ counts: { ...p().counts, VOUCHER: 0 } });
-    assert.match(tallyOptionsProblem(noVch, { vouchers: true, onDuplicate: 'skip' }) ?? '', /no vouchers/);
-    assert.match(tallyOptionsProblem(p(), { vouchers: true, from: '2026-05-01', to: '2026-04-01', onDuplicate: 'skip' }) ?? '', /after/);
+    assert.match(xmlOptionsProblem(noVch, { vouchers: true, onDuplicate: 'skip' }) ?? '', /no vouchers/);
+    assert.match(xmlOptionsProblem(p(), { vouchers: true, from: '2026-05-01', to: '2026-04-01', onDuplicate: 'skip' }) ?? '', /after/);
   });
 
   it('progress and result summary', () => {
     assert.equal(progressPercent(null), null);
     assert.equal(progressPercent({ running: true, phase: 'vouchers', done: 250, total: 1000, message: '' }), 25);
     const counts = { created: 0, updated: 0, skipped: 0, failed: 0 };
-    const res: TallyImportResult = {
+    const res: XmlImportResult = {
       masters: { groups: { ...counts, created: 2 }, ledgers: { ...counts, created: 11, skipped: 2 }, costCategories: counts, costCentres: counts, units: counts, godowns: counts, stockGroups: counts, stockCategories: counts, stockItems: counts, voucherTypes: counts },
       vouchers: { created: 10, updated: 0, skipped: 0, failed: 1 },
       issues: [{ severity: 'error', code: 'unbalanced', message: 'x' }],
@@ -268,10 +268,10 @@ describe('Tally wizard', () => {
       stopped: false,
       durationMs: 80,
     };
-    const s = tallyResultSummary(res);
+    const s = xmlResultSummary(res);
     assert.equal(s.tone, 'warning');
     assert.deepEqual(s.lines, ['Masters: 13 created, 0 updated, 2 already existed.', 'Vouchers: 10 created, 0 updated, 0 skipped (already here — see the notes), 1 not imported.']);
-    assert.equal(tallyResultSummary({ ...res, stopped: true }).tone, 'danger');
+    assert.equal(xmlResultSummary({ ...res, stopped: true }).tone, 'danger');
   });
 });
 
@@ -300,8 +300,8 @@ describe('busy company: Excel / Tally import offer "Wait and retry" (follow-up)'
     assert.match(src, /retryWhileBusy\(fn, \{ cancelled: \(\) => closed\.current \}\)/);
     assert.match(src, /Wait and retry/);
   });
-  it('TallyScreen: the import retries while busy', () => {
-    const src = read('TallyScreen.tsx');
+  it('XmlImportScreen: the import retries while busy', () => {
+    const src = read('XmlImportScreen.tsx');
     assert.match(src, /retry: \(\) => void startImport\(true\)/);
     assert.match(src, /retryWhileBusy\(call, \{ cancelled: \(\) => closed\.current \}\)/);
   });

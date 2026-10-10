@@ -1,11 +1,11 @@
 /**
- * 'data.tallyExport' — Export to Tally: masters and / or the vouchers of a period as a TallyPrime
+ * 'data.xmlExport' — Export to Tally: masters and / or the vouchers of a period as a TallyPrime
  * "Import Data" XML (masters only → one .xml; with vouchers → a .zip of 1-Masters.xml + 2-Vouchers.xml),
  * saved through the native Save dialog. Shows what went into the file and how to load it in Tally.
  * Keys: Enter next field · Ctrl+A Export · Alt+B Trial Balance (to compare in Tally) · Esc Back.
  */
 import { useState } from 'react';
-import type { TallyExportResult } from '../../../shared/types/data.ts';
+import type { XmlExportResult } from '../../../shared/types/data.ts';
 import { api } from '../../app/api.ts';
 import { userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
@@ -13,9 +13,9 @@ import { Screen } from '../../app/Screen.tsx';
 import { useBooks, usePeriod, useWorkingDate } from '../../app/working.tsx';
 import { Banner, Checkbox, DateInput, Field, FieldGroup, KeyValueList, Panel, Stack, useEnterAdvance } from '../../ui/index.ts';
 import { useSaveFile } from './components.tsx';
-import { openingsNote, tallyExportProblem, tallyExportSummary, tallyImportSteps } from './lib/tallyExportView.ts';
+import { openingsNote, xmlExportProblem, xmlExportSummary, xmlImportSteps } from './lib/xmlExportView.ts';
 
-export function TallyExportScreen() {
+export function XmlExportScreen() {
   const nav = useNav();
   const period = usePeriod();
   const { date: workingDate } = useWorkingDate();
@@ -27,9 +27,9 @@ export function TallyExportScreen() {
   const [to, setTo] = useState<string | null>(period.to);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ result: TallyExportResult; vouchersAsked: boolean; savedTo: string } | null>(null);
+  const [done, setDone] = useState<{ result: XmlExportResult; vouchersAsked: boolean; savedTo: string } | null>(null);
 
-  const problem = tallyExportProblem({ masters, vouchers, from, to });
+  const problem = xmlExportProblem({ masters, vouchers, from, to });
   const openings = openingsNote({ masters, vouchers, from, to }, booksFrom);
 
   const run = async (): Promise<void> => {
@@ -39,12 +39,12 @@ export function TallyExportScreen() {
     setDone(null);
     try {
       const input = { masters, vouchers, from: from ?? period.from, to: to ?? period.to };
-      const out = await api('data.tally.export', input);
+      const out = await api('data.xmlExport.create', input);
       if (vouchers && !masters && out.vouchers === 0) {
         setError('There are no vouchers in this period that Tally can take. Change the dates.');
         return;
       }
-      const savedTo = await save(out.bytes, out.fileName, 'Export to Tally');
+      const savedTo = await save(out.bytes, out.fileName, 'XML Data Export');
       if (savedTo) setDone({ result: out, vouchersAsked: vouchers, savedTo });
     } catch (err) {
       setError(userMessage(err));
@@ -54,12 +54,12 @@ export function TallyExportScreen() {
   };
 
   const formRef = useEnterAdvance<HTMLFormElement>({ onComplete: () => void run() });
-  const summary = done ? tallyExportSummary(done.result, done.vouchersAsked) : [];
-  const steps = done ? tallyImportSteps(done.result.fileName.toLowerCase().endsWith('.zip'), done.result.openingsAsOf) : [];
+  const summary = done ? xmlExportSummary(done.result, done.vouchersAsked) : [];
+  const steps = done ? xmlImportSteps(done.result.fileName.toLowerCase().endsWith('.zip'), done.result.openingsAsOf) : [];
 
   return (
     <Screen
-      title="Export to Tally"
+      title="XML Data Export"
       subtitle="Masters and vouchers as a TallyPrime import file — for your CA or auditor, or to move the books to Tally."
       icon="export"
       width="form"

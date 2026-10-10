@@ -13,7 +13,7 @@ function parseUrl(raw: string): URL | null {
   }
 }
 
-/** True when `raw` is a URL of the app itself (app://bahi/… or, in development, the Vite server). */
+/** True when `raw` is a URL of the app itself (app://pevqori/… or, in development, the Vite server). */
 export function isAppUrl(raw: string, dev: DevServer | null): boolean {
   const url = parseUrl(raw);
   if (!url) return false;
@@ -60,10 +60,10 @@ export function contentSecurityPolicy(dev: DevServer | null): string {
 /** The only permission the app uses: writing sanitised text to the clipboard (copy buttons). */
 export const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set(['clipboard-sanitized-write']);
 
-/** Schemes the app session may load besides app://bahi. Everything else (http, https, file, …) is cancelled. */
+/** Schemes the app session may load besides app://pevqori. Everything else (http, https, file, …) is cancelled. */
 const LOCAL_SCHEMES: ReadonlySet<string> = new Set(['data:', 'blob:', 'about:', 'devtools:']);
 
-/** Network policy for the app session: Bahi ERP is offline-first and never needs the internet. */
+/** Network policy for the app session: Pevqori is offline-first and never needs the internet. */
 export function isAllowedAppRequest(raw: string, dev: DevServer | null): boolean {
   const url = parseUrl(raw);
   if (!url) return false;

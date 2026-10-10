@@ -36,7 +36,7 @@ describe('attachment.openCopy (main)', () => {
   });
 
   it('writes a fresh copy under the temp folder and sweeps day-old copies', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-open-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-open-'));
     try {
       const old = path.join(root, OPEN_COPY_FOLDER, 'old');
       fs.mkdirSync(old, { recursive: true });
@@ -55,7 +55,7 @@ describe('attachment.openCopy (main)', () => {
   });
 
   it('refuses a copies folder that is a link planted by someone else, and the sweep never follows a link', { skip: process.platform === 'win32' }, () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-open-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-open-'));
     try {
       // Another account's folder the link points at: day-old files there must survive.
       const victim = path.join(root, 'victim');

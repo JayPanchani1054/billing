@@ -5,19 +5,19 @@ Renderer screens: `src/renderer/modules/data/`.
 
 | File | What |
 |---|---|
-| `container.ts` | `.bahibak` container: streaming writer/reader, checksums, AES-GCM envelope |
+| `container.ts` | `.pvqbak` container: streaming writer/reader, checksums, AES-GCM envelope |
 | `backup.ts` | create / list / verify / auto / restore |
 | `exportTable.ts` | `data.export.table` — the shell's generic table export (reports, lists) |
 | `exportData.ts` | `data.export.masters`, `data.export.vouchers` |
 | `importSpecs.ts` | column specs of every import kind (templates, header mapping, help) |
 | `importer.ts` | read xlsx/csv → header mapping → typed rows → records; preview / commit |
 | `importApply.ts` | one applier per kind, through the accounts / inventory / vouchers services |
-| `tallyParse.ts` | Tally XML → typed model (`TallyFile`) |
-| `tallyImport.ts` | `data.tally.preview` / `data.tally.import` / `data.tally.progress` |
-| `tallyExport.ts` | `data.tally.export` — masters / vouchers as TallyPrime "Import Data" XML (dataplus) |
+| `xmlParse.ts` | Tally XML → typed model (`XmlFile`) |
+| `xmlImport.ts` | `data.xmlImport.preview` / `data.xmlImport.commit` / `data.xmlImport.progress` |
+| `xmlExport.ts` | `data.xmlExport.create` — masters / vouchers as TallyPrime "Import Data" XML (dataplus) |
 | `verify.ts` | `data.verify` integrity report |
 | `common.ts` | permission helper, file-name helpers, `assertNoCompanyOpen` |
-| `tallyFixture.ts` | (tests only) hand-written UTF-16LE Tally export with hand-verified figures |
+| `xmlFixture.ts` | (tests only) hand-written UTF-16LE Tally export with hand-verified figures |
 
 Migration `120_data.ts` adds `backup_history` (one row per backup written from the company; drives
 "last backup" and the 24-hour rule). The snapshot is taken before the row is written, so a backup never
@@ -43,26 +43,26 @@ contains its own history row.
 | `data.import.template` | `{kind}` → `ExportFileResult` | `data.import` | |
 | `data.import.preview` | `ImportPreviewInput` → `ImportPreviewResult` | `data.import` | no writes |
 | `data.import.commit` | `ImportCommitInput` → `ImportCommitResult` | `data.import` | own transaction; audited `import` |
-| `data.tally.preview` | `TallyPreviewInput` → `TallyPreviewResult` | `data.import` | no writes |
-| `data.tally.import` | `TallyImportInput` → `TallyImportResult` | `data.import` | async, chunked; audited `import` |
-| `data.tally.progress` | none → `TallyProgress` | `data.import` | poll while importing |
-| `data.tally.export` | `TallyExportInput` → `TallyExportResult` | `data.export` | async, streamed from a read snapshot; audited `export` (`entityType 'tally_xml'`) |
+| `data.xmlImport.preview` | `XmlPreviewInput` → `XmlPreviewResult` | `data.import` | no writes |
+| `data.xmlImport.commit` | `XmlImportInput` → `XmlImportResult` | `data.import` | async, chunked; audited `import` |
+| `data.xmlImport.progress` | none → `XmlImportProgress` | `data.import` | poll while importing |
+| `data.xmlExport.create` | `XmlExportInput` → `XmlExportResult` | `data.export` | async, streamed from a read snapshot; audited `export` (`entityType 'xml_data'`) |
 | `data.verify` | none → `DataVerifyResult` | `data.backup` | read-only |
 
 Every route is `transactional: false`: async handlers must be, the read-only ones are heavy, and the
 writing ones (`import.commit`, `tally.import`) open their own transactions.
 
-## Backup (`.bahibak`)
+## Backup (`.pvqbak`)
 
 ```
-offset 0    'BAHIBAK1'           magic (8 bytes)
+offset 0    'PEVQBAK1'           magic (8 bytes)
 offset 8    uint32 LE M          manifest area length
 offset 12   M bytes              UTF-8 JSON BackupManifest, space padded (reserved 16 KiB)
-offset 12+M payload              gzip(SQLite db)  — or, with a password, the BAHIENC1 envelope
-                                 (scrypt → AES-256-GCM: 'BAHIENC1' | salt 16 | iv 12 | tag 16 | ciphertext)
+offset 12+M payload              gzip(SQLite db)  — or, with a password, the PEVQENC1 envelope
+                                 (scrypt → AES-256-GCM: 'PEVQENC1' | salt 16 | iv 12 | tag 16 | ciphertext)
 ```
 
-Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersion` (PRAGMA user_version),
+Manifest: `format 'pevqori-backup'`, `formatVersion 1`, `appVersion`, `schemaVersion` (PRAGMA user_version),
 `companyId`, `companyGuid`, `companyName`, `gstin`, `booksFrom`, `createdAt`, `createdBy`, `note`,
 `kind manual|auto`, `encrypted`, `compression 'gzip'`, `payloadSha256` (stored payload), `payloadBytes`,
 `dbSha256`, `dbBytes` (uncompressed database).
@@ -70,7 +70,7 @@ Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersio
 - **Create**: snapshot through SQLite's online backup API on a separate read-only connection (one read
   transaction → consistent; in-memory test databases use `VACUUM INTO`), streamed through gzip (and
   AES-GCM) in 64 KiB chunks into `<folder>/.<name>.tmp`, manifest filled in place, fsync, atomic rename.
-  File name `<Company Name>_<YYYYMMDD-HHmmss>.bahibak` (local time; name made file-system safe).
+  File name `<Company Name>_<YYYYMMDD-HHmmss>.pvqbak` (local time; name made file-system safe).
   Folder: input `folder` (must be absolute) → F12 `backup.folder` → `<dataDir>/backups/<companyId>`.
   Password: at least 8 characters. The new file is then read back (header + payload checksum); only if it
   is intact does "keep last N" (F12 `backup.keepLast`) delete this company's oldest backups (same company
@@ -199,14 +199,14 @@ example rows, plus an Instructions sheet (column, required, type, help, allowed 
 
 ## Tally migration
 
-`data.tally.preview {fileName, bytes}` → counts per object type, unsupported objects (BUDGET, …), vouchers
+`data.xmlImport.preview {fileName, bytes}` → counts per object type, unsupported objects (BUDGET, …), vouchers
 per type (with the mapped base type), date range, samples, how many masters already exist, and issues.
 Nothing is written.
 
-`data.tally.import {fileName, bytes, options:{masters?=true, vouchers, from?, to?, onDuplicate skip|update}}`:
+`data.xmlImport.commit {fileName, bytes, options:{masters?=true, vouchers, from?, to?, onDuplicate skip|update}}`:
 
 - Decoding: `decodeText` (Tally writes UTF-16LE without a BOM; UTF-8 also works), then
-  `ENVELOPE > BODY > IMPORTDATA|DATA > REQUESTDATA > TALLYMESSAGE*` (also bare `TALLYMESSAGE` lists).
+  `ENVELOPE > BODY > IMPORTDATA|DATA > REQUESTDATA > <MESSAGE_TAG>*` (also bare `<MESSAGE_TAG>` lists).
   `&#4;` markers (Tally's reserved prefix) are stripped.
 - Masters in dependency order: groups → units → godowns → stock groups → stock categories → cost
   categories → cost centres → ledgers → stock items → voucher types. Predefined groups map by name or
@@ -230,7 +230,7 @@ Nothing is written.
   Duplicates: same Tally GUID, or the same voucher type + number in its numbering period — except that a
   number match against a voucher imported from Tally with a *different* GUID is not a duplicate (Tally
   allows repeated numbers, e.g. manual numbering). `onDuplicate: 'skip'` skips (a number clash with a
-  voucher entered in Bahi ERP is reported as a `number_exists` warning); `'update'` rewrites only vouchers
+  voucher entered in Pevqori is reported as a `number_exists` warning); `'update'` rewrites only vouchers
   that came from Tally (`meta.source = 'tally'`) and not inside the locked period — a voucher entered here
   is never overwritten. Imported numbers in the voucher type's own format advance `voucher_counters`.
 - Permissions: `data.import`, plus `masters.create` (masters), `vouchers.create` and `vouchers.backdate`
@@ -238,8 +238,8 @@ Nothing is written.
 - Masters whose parent comes later in the file (Tally lists masters alphabetically) are created
   parents-first.
 - Masters: one transaction. Vouchers: chunks of 250, each its own transaction, yielding to the event
-  loop between chunks (`data.tally.progress`). ONE `import` audit entry + an `import_batches` row
-  (`kind 'tally_xml'`).
+  loop between chunks (`data.xmlImport.progress`). ONE `import` audit entry + an `import_batches` row
+  (`kind 'xml_data'`).
 
 - Aliases (dataplus): every name of a ledger / stock item's `NAME.LIST` after the first is an alias —
   the first goes to the `alias` column, the rest to `ledger_aliases` / `stock_item_aliases`; one already
@@ -286,14 +286,14 @@ Nothing is written.
   re-posts the same entries through the gst hook. Tally itself records advance tax with
   stat-adjustment journals, which still import as plain journals.
 
-## Tally export (`data.tally.export`, dataplus)
+## Tally export (`data.xmlExport.create`, dataplus)
 
 `{ masters, vouchers, from, to }` → `{ fileName, bytes, mimeType, masters: counts | null, openingsAsOf,
 vouchers, skipped: [{reason, count}] }`. For the CA / auditor who works in TallyPrime (Gateway of Tally › Import
 › Masters / Transactions), and to move books back to Tally.
 
-- **File.** `ENVELOPE › HEADER (TALLYREQUEST Import Data) › BODY › IMPORTDATA › REQUESTDESC (REPORTNAME
-  'All Masters' | 'Vouchers', STATICVARIABLES/SVCURRENTCOMPANY) › REQUESTDATA › TALLYMESSAGE*`, UTF-16LE
+- **File.** `ENVELOPE › HEADER (<REQUEST_TAG> Import Data) › BODY › IMPORTDATA › REQUESTDESC (REPORTNAME
+  'All Masters' | 'Vouchers', STATICVARIABLES/SVCURRENTCOMPANY) › REQUESTDATA › <MESSAGE_TAG>*`, UTF-16LE
   with a BOM (Tally writes UTF-16LE; it reads it with or without the BOM). Masters only → one `.xml`.
   With vouchers → a `.zip` of `1-Masters.xml` + `2-Vouchers.xml` (or `Vouchers.xml` alone): Tally XML
   runs to ~4.5 KB a voucher, so the vouchers are streamed into the ZIP (`ZipFileWriter`, 256 KiB deflate
@@ -351,7 +351,7 @@ vouchers, skipped: [{reason, count}] }`. For the CA / auditor who works in Tally
 - **Conventions.** Tally amounts are negative for Debit (ours Dr +); dates `yyyymmdd`; quantities
   `' 10 Nos'`; rates `'100.00/Nos'`; `&#4; Applicable` for Tally's logical values. Every value goes
   through `escapeXml` / `escapeAttr`; nothing typed by a user becomes markup.
-- **Round trip (tested).** `tallyExport.test.ts` exports a month of GST business (intra- and inter-state
+- **Round trip (tested).** `xmlExport.test.ts` exports a month of GST business (intra- and inter-state
   item invoices, a purchase into a second godown, a cheque receipt against bills and an opening bill, a
   cost-centre payment, contra, journal, a godown transfer, a credit note against an invoice, a services
   invoice, an optional journal, a cancelled payment, a quotation) and imports it with OUR importer into an
@@ -395,21 +395,21 @@ writes the files back into the restored company's attachments folder.
 
 ## Tests
 
-`tallyExport.test.ts` (dataplus): value formats, the round trips above, the file shape (UTF-16LE BOM,
+`xmlExport.test.ts` (dataplus): value formats, the round trips above, the file shape (UTF-16LE BOM,
 envelope, escaping, our parser reads it), vouchers-only ZIP and period, permission + audit through the
 dispatcher, validation messages; review regressions: openings at the period start (balances, P&L brought
 forward, bills incl. On Account, stock per godown / batch), balanced vouchers with assessable-value
 freight, cost centres on carried ledgers, reverse charge and export under LUT recovered by the importer.
-`tallyAdvances.test.ts` (final wave): GST on an advance and the invoice adjusting it (or a payment
+`xmlAdvances.test.ts` (final wave): GST on an advance and the invoice adjusting it (or a payment
 refunding part of it) come back as Table 11A / 11B with the invoice's own tax (GSTR-1 / GSTR-3B of both
 months), the system ledger is adopted, a second import with "update existing" does not duplicate the
-advance rows, and the imported vouchers can be altered without changing their postings. `tallyMfgCost.test.ts`
+advance rows, and the imported vouchers can be altered without changing their postings. `xmlMfgCost.test.ts`
 (final wave): a Manufacturing Journal re-valued by a back-dated purchase is exported at its re-valued cost
 and the imported company closes with the same stock. The cross-feature year
 `src/core/testing/e2e/all-features-year.test.ts` exports a full year with every feature on and re-imports
 it (trial balance, stock summary, GSTR-1 / GSTR-3B of every month incl. Table 11).
 
-`backup.test.ts`, `export.test.ts`, `import.test.ts`, `tally.test.ts`, `verify.test.ts` (105 tests):
+`backup.test.ts`, `export.test.ts`, `import.test.ts`, `xmlImport.test.ts`, `verify.test.ts` (105 tests):
 backup round trip plain / encrypted / wrong password / tampered / truncated / newer schema, retention,
 auto 24 h, restore (new, replace closed, refuse open, wrong password), table export xlsx/csv (paise →
 rupees, formula injection), masters export → import round trip, import preview per-row errors, commit

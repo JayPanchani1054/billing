@@ -529,7 +529,7 @@ export const gstRoutes = {
       const s = computeCmp08(ctx.db, gstCompany(ctx), input.period, ctx.clock.today());
       const f = cmp08Export(s, input.format);
       auditExport(ctx, `CMP-08 ${s.period.label} (${f.fileName})`);
-      return { ...f, format: input.format, warnings: ['Bahi format: the portal has no CMP-08 upload — copy the figures into CMP-08 on the GST portal.'] };
+      return { ...f, format: input.format, warnings: ['Pevqori format: the portal has no CMP-08 upload — copy the figures into CMP-08 on the GST portal.'] };
     },
   }),
   'gst.gstr4.summary': companyRoute({
@@ -546,7 +546,7 @@ export const gstRoutes = {
       const s = computeGstr4(ctx.db, gstCompany(ctx), input.fy, ctx.clock.today());
       const f = gstr4Export(s, input.format);
       auditExport(ctx, `GSTR-4 FY ${s.fy} (${f.fileName})`);
-      return { ...f, format: input.format, warnings: ["Bahi format, not the portal's GSTR-4 offline-tool JSON: use it to fill the return (or the offline tool)."] };
+      return { ...f, format: input.format, warnings: ["Pevqori format, not the portal's GSTR-4 offline-tool JSON: use it to fill the return (or the offline tool)."] };
     },
   }),
   'gst.composition.settings': companyRoute({

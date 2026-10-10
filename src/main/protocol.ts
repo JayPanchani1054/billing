@@ -1,8 +1,8 @@
 /**
- * Serves the built renderer from out/renderer over the privileged `app://bahi/` scheme.
+ * Serves the built renderer from out/renderer over the privileged `app://pevqori/` scheme.
  *
  * Why not file://? file: pages get broad local read access and share one opaque origin; a custom
- * standard + secure scheme gives the renderer a real origin (`app://bahi`), CSP/same-origin rules,
+ * standard + secure scheme gives the renderer a real origin (`app://pevqori`), CSP/same-origin rules,
  * and lets us control every response header. Requests are confined to the renderer folder.
  */
 import fsp from 'node:fs/promises';

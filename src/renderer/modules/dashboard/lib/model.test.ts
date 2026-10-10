@@ -300,7 +300,7 @@ const NOTHING_DONE = { profileComplete: false, featuresReviewed: false, invoiceP
 
 test('getting started: one list — company details, features, printing, ledgers, items, sale, backups (+ Tally while empty)', () => {
   const all = startSteps({ ...ALL, setup: NOTHING_DONE, hasVouchers: false });
-  assert.deepEqual(all.map((x) => x.id), ['profile', 'features', 'printing', 'ledgers', 'items', 'sale', 'backup', 'tally']);
+  assert.deepEqual(all.map((x) => x.id), ['profile', 'features', 'printing', 'ledgers', 'items', 'sale', 'backup', 'xmlImport']);
   const by = new Map(all.map((x) => [x.id, x]));
   assert.deepEqual(by.get('profile')?.target, { screen: 'company.profile' });
   assert.deepEqual(by.get('features')?.target, { screen: 'company.features' });
@@ -310,19 +310,19 @@ test('getting started: one list — company details, features, printing, ledgers
   assert.deepEqual(by.get('backup')?.target, { screen: 'company.config', params: { tab: 'backup' } });
   assert.equal(by.get('sale')?.target, 'sales-voucher');
   assert.equal(by.get('sale')?.shortcut, 'F8');
-  assert.deepEqual(by.get('tally')?.target, { screen: 'data.tally' });
-  assert.equal(by.get('tally')?.optional, true);
+  assert.deepEqual(by.get('xmlImport')?.target, { screen: 'data.xmlImport' });
+  assert.equal(by.get('xmlImport')?.optional, true);
   assert.ok(all.every((x) => !x.done));
   assert.deepEqual(startProgress(all), { done: 0, total: 7, complete: false }, 'Tally is optional, not counted');
   // Once there are vouchers the Tally step goes; the rest stay until done.
-  assert.ok(!startSteps({ ...ALL, setup: NOTHING_DONE, hasVouchers: true }).some((x) => x.id === 'tally'));
+  assert.ok(!startSteps({ ...ALL, setup: NOTHING_DONE, hasVouchers: true }).some((x) => x.id === 'xmlImport'));
 });
 
 test('getting started: by permission and by what the user may open', () => {
   assert.deepEqual(startSteps({ ...ALL, manageCompany: false, importData: false, inventory: false }).map((x) => x.id), ['ledgers', 'sale']);
   assert.deepEqual(startSteps({ manageCompany: false, createMasters: false, createVouchers: false, importData: false, inventory: true }), []);
   // A screen the user cannot open (no permission / feature off) is left out.
-  const blocked = new Set(['print.settings', 'data.tally']);
+  const blocked = new Set(['print.settings', 'data.xmlImport']);
   assert.deepEqual(startSteps({ ...ALL, canOpen: (id) => !blocked.has(id) }).map((x) => x.id), ['profile', 'features', 'ledgers', 'items', 'sale', 'backup']);
 });
 
@@ -348,8 +348,8 @@ test('getting started card: stays after the first voucher until all done or hidd
   assert.equal(startCardMode([], { hidden: false, hasVouchers: false }), 'empty');
   assert.equal(startCardMode([], { hidden: false, hasVouchers: true }), null);
   // Only the optional Tally step: shown while the books are empty.
-  const tallyOnly = startSteps({ manageCompany: false, createMasters: false, createVouchers: false, importData: true, inventory: false, hasVouchers: false });
-  assert.equal(startCardMode(tallyOnly, { hidden: false, hasVouchers: false }), 'steps');
+  const xmlOnly = startSteps({ manageCompany: false, createMasters: false, createVouchers: false, importData: true, inventory: false, hasVouchers: false });
+  assert.equal(startCardMode(xmlOnly, { hidden: false, hasVouchers: false }), 'steps');
 });
 
 test('getting started prefs: per company, tolerant of junk', () => {

@@ -9,7 +9,7 @@
  *    responsive); the *Sync variants exist for code that must run inside a synchronous
  *    DB transaction (e.g. a transactional company route creating a user).
  *  - File encryption: AES-256-GCM with a scrypt-derived key. Envelope layout:
- *      'BAHIENC1' (8) | salt (16) | iv (12) | tag (16) | ciphertext
+ *      'PEVQENC1' (8) | salt (16) | iv (12) | tag (16) | ciphertext
  *    The 36-byte header (magic + salt + iv) is authenticated as AAD.
  */
 import {
@@ -174,7 +174,7 @@ export function sha256Hex(data: string | Uint8Array): string {
 
 // ───────────────────────────── AES-256-GCM file envelope ─────────────────────────────
 
-const MAGIC = Buffer.from('BAHIENC1', 'ascii');
+const MAGIC = Buffer.from('PEVQENC1', 'ascii');
 const ENC_SALT_BYTES = 16;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
@@ -185,7 +185,7 @@ function deriveFileKey(password: string, salt: Uint8Array): Buffer {
   return scryptSync(password.normalize('NFKC'), salt, 32, scryptOptions(SCRYPT_N, SCRYPT_R, SCRYPT_P));
 }
 
-/** True when `data` starts with the Bahi encryption envelope magic. */
+/** True when `data` starts with the Pevqori encryption envelope magic. */
 export function isEncrypted(data: Uint8Array): boolean {
   return data.length >= MAGIC.length && Buffer.from(data.buffer, data.byteOffset, MAGIC.length).equals(MAGIC);
 }

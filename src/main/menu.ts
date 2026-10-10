@@ -1,9 +1,9 @@
 /**
- * Minimal native application menu. The window hides it (autoHideMenuBar) — Bahi ERP is keyboard-first
+ * Minimal native application menu. The window hides it (autoHideMenuBar) — Pevqori is keyboard-first
  * and the renderer owns almost all shortcuts (F-keys, Alt+…, Ctrl+A/S/G/K). Therefore:
  *  - top-level labels have no '&' mnemonics, so Alt+letter chords always reach the renderer;
  *  - Edit items show their usual shortcuts but do not register them (Chromium handles editing keys
- *    natively on Windows, and Ctrl+A means "accept" in Bahi forms);
+ *    natively on Windows, and Ctrl+A means "accept" in Pevqori forms);
  *  - full screen has no accelerator because F11 is the Features hotkey.
  */
 import { app, BrowserWindow, Menu } from 'electron';

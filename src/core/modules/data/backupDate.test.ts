@@ -15,7 +15,7 @@ const { createBackup, verifyBackup } = await import('./backup.ts');
 
 test('the container check says the IST day the backup was made', async () => {
   const t = createTestCompany({ today: '2026-10-05', name: 'Shree Ganesh Traders' });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-bkdate-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-bkdate-'));
   try {
     // Fixed clock 04:30Z on 5-Oct; +15 h = 19:30Z on 5-Oct = 01:00 IST on 6-Oct.
     t.clock.advance(15 * 3_600_000);

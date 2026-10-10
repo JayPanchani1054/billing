@@ -241,7 +241,7 @@ describe('writeXlsx package details', () => {
 
   it('is a valid OPC package: every part parses, content types and relationships resolve', () => {
     const bytes = writeXlsx({
-      creator: 'Bahi <ERP> & Co',
+      creator: 'Pevqori <ERP> & Co',
       sheets: [
         { name: 'One', columns: [{ header: 'A' }], rows: [['x']] },
         { name: 'Two', rows: [[1]] },
@@ -269,7 +269,7 @@ describe('writeXlsx package details', () => {
       assert.ok(zip.has(`xl/${r.attrs.Target}`), r.attrs.Target);
     }
     const core = parseXml(zip.readText('docProps/core.xml'));
-    assert.equal(textOf(firstChild(core, 'dc:creator')), 'Bahi <ERP> & Co');
+    assert.equal(textOf(firstChild(core, 'dc:creator')), 'Pevqori <ERP> & Co');
     assert.equal(parseXml(zip.readText('xl/workbook.xml')).attrs.xmlns, MAIN);
   });
 
@@ -468,7 +468,7 @@ describe('date and format helpers', () => {
 
 describe('XlsxStreamWriter (row by row into a ZIP file)', () => {
   const withWriter = (fn: (x: XlsxStreamWriter) => void): Uint8Array => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-xlsxs-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-xlsxs-'));
     const file = path.join(dir, 'book.xlsx');
     const zip = new ZipFileWriter(file);
     try {

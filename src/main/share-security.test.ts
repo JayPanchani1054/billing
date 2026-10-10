@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 import { buildDraftEml, ensureSharedExportsDir, freeFileName, SharedFolderError } from './share.ts';
 
 function tempDataDir(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-share-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-share-'));
   fs.mkdirSync(path.join(root, 'companies', 'acme'), { recursive: true });
   return root;
 }

@@ -45,18 +45,18 @@ export function electronBuildOptions(mode) {
     logLevel: 'info',
     define: {
       'process.env.NODE_ENV': JSON.stringify(mode),
-      __BAHI_VERSION__: JSON.stringify(appVersion),
+      __PEVQORI_VERSION__: JSON.stringify(appVersion),
     },
   };
   // Core code is ESM-first; if it ever reads import.meta.* keep it working in the CJS bundles.
   const importMeta = {
     define: {
       ...common.define,
-      'import.meta.url': '__bahi_import_meta_url',
+      'import.meta.url': '__pevqori_import_meta_url',
       'import.meta.dirname': '__dirname',
       'import.meta.filename': '__filename',
     },
-    banner: { js: "const __bahi_import_meta_url = require('node:url').pathToFileURL(__filename).href;" },
+    banner: { js: "const __pevqori_import_meta_url = require('node:url').pathToFileURL(__filename).href;" },
   };
   return {
     main: {

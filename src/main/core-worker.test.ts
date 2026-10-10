@@ -33,7 +33,7 @@ describe('core worker thread (real runtime)', () => {
   let restarted = 0;
 
   before(async () => {
-    tmp = await mkdtemp(path.join(tmpdir(), 'bahi-core-worker-'));
+    tmp = await mkdtemp(path.join(tmpdir(), 'pevqori-core-worker-'));
     const real = nodeWorkerSpawner(script, {
       userDataDir: path.join(tmp, 'user'),
       defaultDataDir: path.join(tmp, 'data'),
@@ -87,7 +87,7 @@ describe('core worker thread (real runtime)', () => {
   it('main-process log lines land in the worker-owned log file', async () => {
     proxy.app.log('info', 'hello from main');
     await proxy.dispatch('app.state', {}); // a round trip: the log message was handled before it
-    const log = fs.readFileSync(path.join(tmp, 'user', 'logs', 'bahi.log'), 'utf8');
+    const log = fs.readFileSync(path.join(tmp, 'user', 'logs', 'pevqori.log'), 'utf8');
     assert.match(log, /hello from main/);
   });
 

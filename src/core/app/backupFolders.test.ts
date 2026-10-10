@@ -12,7 +12,7 @@ describe('backup folders approved on this installation', () => {
     logs.push(m);
   };
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-bkf-'));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-bkf-'));
     logs.length = 0;
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));

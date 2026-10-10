@@ -2,7 +2,7 @@
  * Attachments in backups, restores and the data check (dataplus).
  *
  * A backup snapshot is a copy of the company database; before it is packed, every attached file is
- * copied into the snapshot's `attachment_blobs` table (embedAttachmentsInSnapshot). The .bahibak
+ * copied into the snapshot's `attachment_blobs` table (embedAttachmentsInSnapshot). The .pvqbak
  * container therefore needs no new format: its payload checksum, database checksum and (with a
  * password) AES-256-GCM encryption cover the files exactly as they cover the books. A restore takes
  * the files out of the extracted database (unpackAttachmentBlobs) into the new company's
@@ -151,7 +151,7 @@ export function checkAttachmentFiles(db: Db, companyDir: string): { problems: st
       verified.set(k, state);
     }
     if (state === 'missing') problems.push(`“${r.file_name}” attached to ${r.owner} is missing from the attachments folder.`);
-    else if (state === 'changed') problems.push(`“${r.file_name}” attached to ${r.owner} was changed outside Bahi ERP (its checksum no longer matches).`);
+    else if (state === 'changed') problems.push(`“${r.file_name}” attached to ${r.owner} was changed outside Pevqori (its checksum no longer matches).`);
   }
   const used = new Set(rows.map((r) => `${r.sha256}.${r.ext}`));
   const unused = listStored(dir).filter((f) => !used.has(f.name)).length;

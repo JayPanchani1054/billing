@@ -1,5 +1,5 @@
 /**
- * Bahi UI kit — barrel. Import from here: `import { Button, DataTable, useHotkeys } from '../../ui/index.ts'`.
+ * Pevqori UI kit — barrel. Import from here: `import { Button, DataTable, useHotkeys } from '../../ui/index.ts'`.
  * Styles: import 'src/renderer/styles/index.css' once at the app entry.
  */
 

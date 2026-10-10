@@ -18,8 +18,8 @@ import { gstRoutes } from '../gst/routes.ts';
 import { getVoucher } from '../vouchers/queries.ts';
 import { saveVoucher } from '../vouchers/service.ts';
 import { save, setupKit, type Kit } from '../vouchers/testkit.ts';
-import { exportTally } from './tallyExport.ts';
-import { importTally } from './tallyImport.ts';
+import { exportXml } from './xmlExport.ts';
+import { importXml } from './xmlImport.ts';
 
 const FROM = '2026-04-01';
 const TO = '2027-03-31';
@@ -60,11 +60,11 @@ function populate(): void {
 }
 
 async function roundTrip(): Promise<TestCompany> {
-  const file = await exportTally(k.t.ctx, { masters: true, vouchers: true, from: FROM, to: TO });
+  const file = await exportXml(k.t.ctx, { masters: true, vouchers: true, from: FROM, to: TO });
   const zip = readZip(file.bytes);
   target = createTestCompany({ name: 'Advance Traders', today: '2026-06-30', booksFrom: FROM });
-  await importTally(target.ctx, { fileName: '1-Masters.xml', bytes: zip.read('1-Masters.xml'), options: { masters: true, vouchers: false, onDuplicate: 'skip' } });
-  const r = await importTally(target.ctx, { fileName: '2-Vouchers.xml', bytes: zip.read('2-Vouchers.xml'), options: { masters: false, vouchers: true, onDuplicate: 'skip' } });
+  await importXml(target.ctx, { fileName: '1-Masters.xml', bytes: zip.read('1-Masters.xml'), options: { masters: true, vouchers: false, onDuplicate: 'skip' } });
+  const r = await importXml(target.ctx, { fileName: '2-Vouchers.xml', bytes: zip.read('2-Vouchers.xml'), options: { masters: false, vouchers: true, onDuplicate: 'skip' } });
   assert.deepEqual(r.issues.filter((i) => i.severity === 'error'), []);
   return target;
 }
@@ -158,8 +158,8 @@ describe('Tally round trip: GST on advances', () => {
     const before = rows();
     assert.equal(before.length, 2, 'one received, one adjusted');
     const g1 = pick(await tg.callOk<Gstr1Summary>(gstRoutes, 'gst.gstr1.summary', { period: '062026' }));
-    const file = await exportTally(k.t.ctx, { masters: true, vouchers: true, from: FROM, to: TO });
-    const r = await importTally(tg.ctx, { fileName: '2-Vouchers.xml', bytes: readZip(file.bytes).read('2-Vouchers.xml'), options: { masters: false, vouchers: true, onDuplicate: 'update' } });
+    const file = await exportXml(k.t.ctx, { masters: true, vouchers: true, from: FROM, to: TO });
+    const r = await importXml(tg.ctx, { fileName: '2-Vouchers.xml', bytes: readZip(file.bytes).read('2-Vouchers.xml'), options: { masters: false, vouchers: true, onDuplicate: 'update' } });
     assert.deepEqual(r.issues.filter((i) => i.severity === 'error'), []);
     assert.equal(r.vouchers.updated, 2, 'both vouchers refreshed');
     assert.deepEqual(rows(), before, 'still one received and one adjusted row (May 11A 5,000; June 11B 5,000)');

@@ -233,7 +233,7 @@ export function PendingJobWorkScreen({ params }: ScreenProps<{ direction?: 'out'
 
 // ───────────────────────────── ITC-04 ─────────────────────────────
 
-const AATO_KEY = 'bahi.mfg.itc04.aato';
+const AATO_KEY = 'pevqori.mfg.itc04.aato';
 
 function readAato(companyId: string | number): boolean {
   try {
@@ -378,7 +378,7 @@ export function Itc04Screen() {
         />
       )}
       <p className="bx-mfg-note">
-        Export gives a clean CSV / Excel of the form's columns to key into the GST portal's ITC-04 offline tool. It is not the portal's JSON upload format, which Bahi does not generate. Table 5A pairs
+        Export gives a clean CSV / Excel of the form's columns to key into the GST portal's ITC-04 offline tool. It is not the portal's JSON upload format, which Pevqori does not generate. Table 5A pairs
         each receipt with its original challan first-in-first-out; enter losses and wastes yourself where they apply.
       </p>
     </ReportScreen>

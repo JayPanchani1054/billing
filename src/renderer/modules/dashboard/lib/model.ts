@@ -231,7 +231,7 @@ export const DRILL = {
   /** Ledger Creation under a group (reserved code, e.g. 'SUNDRY_DEBTORS'); Alt+C-style "Under" stays editable. */
   newLedger: (groupCode?: 'SUNDRY_DEBTORS' | 'SUNDRY_CREDITORS' | 'BANK_ACCOUNTS'): DrillTarget => ({ screen: 'accounts.ledger.form', params: groupCode ? { groupCode } : {} }),
   newItem: (): DrillTarget => ({ screen: 'inventory.item.form', params: {} }),
-  tally: (): DrillTarget => ({ screen: 'data.tally' }),
+  xmlImport: (): DrillTarget => ({ screen: 'data.xmlImport' }),
 } as const;
 
 // ───────────────────────────── Alerts ─────────────────────────────
@@ -437,7 +437,7 @@ export function gstDueLine(g: DashboardGst, asOf: string): string {
 
 // ───────────────────────────── Getting started ─────────────────────────────
 
-export type StartStepId = 'profile' | 'features' | 'printing' | 'ledgers' | 'items' | 'sale' | 'backup' | 'tally';
+export type StartStepId = 'profile' | 'features' | 'printing' | 'ledgers' | 'items' | 'sale' | 'backup' | 'xmlImport';
 
 export interface StartStep {
   id: StartStepId;
@@ -505,7 +505,7 @@ export function startSteps(o: StartStepsInput): StartStep[] {
     add({ id: 'backup', title: 'Set up backups', body: 'Choose a backup folder — ideally on another drive or a USB disk.', action: 'Backup settings', target: DRILL.backupSettings() }, f?.backupFolderSet);
   }
   if (o.importData && !o.hasVouchers) {
-    add({ id: 'tally', title: 'Moving from Tally?', body: 'Bring your masters and vouchers across in one go.', action: 'Migrate from Tally', target: DRILL.tally(), optional: true }, false);
+    add({ id: 'xmlImport', title: 'Moving from another accounting program?', body: 'Bring your masters and vouchers across in one go from its XML export.', action: 'Import from XML', target: DRILL.xmlImport(), optional: true }, false);
   }
   return steps;
 }
@@ -550,7 +550,7 @@ export interface StartPrefs {
   ticked: string[];
 }
 
-export const startPrefsKey = (companyId: string): string => `bahi.dashboard.start.${companyId}`;
+export const startPrefsKey = (companyId: string): string => `pevqori.dashboard.start.${companyId}`;
 
 export function parseStartPrefs(raw: string | null | undefined): StartPrefs {
   try {

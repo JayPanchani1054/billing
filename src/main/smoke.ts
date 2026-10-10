@@ -1,9 +1,9 @@
 /**
- * Packaged-app smoke test (BAHI_SMOKE_TEST=1). The installed Bahi ERP.exe has the
+ * Packaged-app smoke test (PEVQORI_SMOKE_TEST=1). The installed Pevqori.exe has the
  * EnableNodeCliInspectArguments fuse off, so Playwright cannot attach to it; instead CI starts it with
  * this variable and the app checks itself, end to end through the real layers:
  *
- *   main window loads app://bahi → renderer calls window.bahi.api('app.state') → preload → IPC →
+ *   main window loads app://pevqori → renderer calls window.pevqori.api('app.state') → preload → IPC →
  *   core proxy → worker thread → node:sqlite runtime → back
  *
  * The verdict is written to the log file ("Smoke test passed" / "Smoke test failed") and becomes the
@@ -11,8 +11,8 @@
  * state and quits; it is honoured in packaged builds on purpose (scripts/smoke-installed.ps1).
  */
 
-/** Evaluated in the window's main world, where the preload exposed `window.bahi`. */
-export const SMOKE_SCRIPT = "window.bahi.api('app.state', {})";
+/** Evaluated in the window's main world, where the preload exposed `window.pevqori`. */
+export const SMOKE_SCRIPT = "window.pevqori.api('app.state', {})";
 
 /** Longest the smoke test waits for the window and the core before failing. */
 export const SMOKE_TIMEOUT_MS = 90_000;

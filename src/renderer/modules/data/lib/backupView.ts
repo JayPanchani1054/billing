@@ -106,7 +106,7 @@ export function verifyOutcome(r: BackupVerifyResult): { tone: StatusTone; title:
   if (r.needsPassword) return { tone: 'info', title: 'This backup has a password', message: 'Enter the password used when the backup was made to check its contents.' };
   const failed = r.checks.find((c) => c.ok === false);
   if (!r.supported && r.manifest) {
-    return { tone: 'danger', title: 'Made by a newer version of Bahi ERP', message: failed?.message ?? 'Update Bahi ERP on this computer, then restore the backup.' };
+    return { tone: 'danger', title: 'Made by a newer version of Pevqori', message: failed?.message ?? 'Update Pevqori on this computer, then restore the backup.' };
   }
   return { tone: 'danger', title: 'This backup cannot be used', message: failed?.message ?? 'The file could not be read.' };
 }
@@ -165,7 +165,7 @@ export function backupFileNamePreview(companyName: string, now: Date): string {
     .trim();
   const safe = !cleaned || /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i.test(cleaned) ? 'Company' : cleaned;
   const p = (n: number) => String(n).padStart(2, '0');
-  return `${safe}_${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.bahibak`;
+  return `${safe}_${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.pvqbak`;
 }
 
 export type RestoreStep = 'choose' | 'check' | 'restore' | 'done';

@@ -44,9 +44,9 @@ function killTree(child) {
 }
 
 function startElectron() {
-  // BAHI_STRICT_INPUT: route inputs with keys the schema does not declare fail with VALIDATION in
+  // PEVQORI_STRICT_INPUT: route inputs with keys the schema does not declare fail with VALIDATION in
   // development (src/core/api/dispatch.ts › setStrictRouteInput), so renderer typos surface at once.
-  const env = { ...process.env, NODE_ENV: 'development', BAHI_DEV_SERVER_URL: devUrl, BAHI_STRICT_INPUT: '1' };
+  const env = { ...process.env, NODE_ENV: 'development', PEVQORI_DEV_SERVER_URL: devUrl, PEVQORI_STRICT_INPUT: '1' };
   // Some shells/IDEs export this; it would make Electron behave like plain Node.
   delete env.ELECTRON_RUN_AS_NODE;
   log('starting Electron');
@@ -83,7 +83,7 @@ function scheduleRestart() {
 /** esbuild plugin: start/restart Electron after successful rebuilds of main, the core worker or preload. */
 function onRebuild(name) {
   return {
-    name: `bahi-dev-${name}`,
+    name: `pevqori-dev-${name}`,
     setup(build) {
       build.onEnd((result) => {
         if (result.errors.length > 0) {

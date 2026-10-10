@@ -19,7 +19,7 @@ import { attachmentTypeOf, cleanAttachmentName, MAX_ATTACHMENT_BYTES } from '../
 import { AppError } from '../core/lib/errors.ts';
 import { contentProblem } from '../core/modules/attachments/store.ts';
 
-export const OPEN_COPY_FOLDER = 'bahi-attachments';
+export const OPEN_COPY_FOLDER = 'pevqori-attachments';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Validate an attachment-open request (throws accountant-readable AppErrors). */
@@ -31,15 +31,15 @@ export function checkOpenCopy(payload: unknown): { fileName: string; bytes: Uint
   if (o.bytes.byteLength > MAX_ATTACHMENT_BYTES) throw new AppError('BUSINESS_RULE', 'This file is too large to open.');
   const fileName = cleanAttachmentName(o.fileName);
   const type = fileName ? attachmentTypeOf(fileName) : null;
-  if (!fileName || !type) throw new AppError('FORBIDDEN', 'Files of this kind are not opened from Bahi ERP.');
+  if (!fileName || !type) throw new AppError('FORBIDDEN', 'Files of this kind are not opened from Pevqori.');
   // Same content rules as when the file was attached: a renamed program or a script-carrying XML is
   // never handed to another program, whatever the window sent.
   const problem = contentProblem(type, o.bytes);
-  if (problem) throw new AppError('FORBIDDEN', `This file is not opened from Bahi ERP: ${problem}`);
+  if (problem) throw new AppError('FORBIDDEN', `This file is not opened from Pevqori: ${problem}`);
   return { fileName, bytes: o.bytes };
 }
 
-/** <tempRoot>/bahi-attachments, created private; refused when it is a link or not a private folder of ours. */
+/** <tempRoot>/pevqori-attachments, created private; refused when it is a link or not a private folder of ours. */
 function openCopyBase(tempRoot: string): string {
   const base = path.join(tempRoot, OPEN_COPY_FOLDER);
   try {
@@ -59,7 +59,7 @@ function openCopyBase(tempRoot: string): string {
   return base;
 }
 
-/** Write the copy into <tempRoot>/bahi-attachments/<random>/<name>; returns its path. */
+/** Write the copy into <tempRoot>/pevqori-attachments/<random>/<name>; returns its path. */
 export function writeOpenCopy(tempRoot: string, fileName: string, bytes: Uint8Array, now: number = Date.now()): string {
   const base = openCopyBase(tempRoot);
   // Sweep copies opened more than a day ago (a program may still hold a recent one open). Only our

@@ -2,8 +2,8 @@
  * Export & print helpers for tables and reports.
  *
  *   await exportTable(def, 'xlsx' | 'csv');   // 'data.export.table' route builds the file
- *   await printReport(def);                   // OS print dialog (bahi.native('print.print'))
- *   await savePdf(def);                       // Save as PDF (bahi.native('print.savePdf'))
+ *   await printReport(def);                   // OS print dialog (pevqori.native('print.print'))
+ *   await savePdf(def);                       // Save as PDF (pevqori.native('print.savePdf'))
  *
  * Every one of them goes through the core first, so the `data.export` permission and the
  * 'export' edit-log entry apply equally to Excel, CSV, PDF and Print: Excel/CSV bytes come from

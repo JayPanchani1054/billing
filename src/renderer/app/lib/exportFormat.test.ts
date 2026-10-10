@@ -151,8 +151,8 @@ describe('buildPrintHtml', () => {
   });
 
   test('quotes in the CSS footer are escaped', () => {
-    const html = buildPrintHtml({ title: 'T', columns: [{ header: 'A' }], rows: [] }, { appName: 'Bahi "ERP"' });
-    assert.ok(html.includes('content: "Bahi \\"ERP\\""'));
+    const html = buildPrintHtml({ title: 'T', columns: [{ header: 'A' }], rows: [] }, { appName: 'Pevqori "ERP"' });
+    assert.ok(html.includes('content: "Pevqori \\"ERP\\""'));
   });
 });
 

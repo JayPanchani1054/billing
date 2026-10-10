@@ -33,9 +33,9 @@ export interface FieldIssue {
 /** IPC channel names. The renderer only ever talks to main through these. */
 export const IPC = {
   /** invoke(route: string, input: unknown) → ApiResult */
-  api: 'bahi:api',
+  api: 'pevqori:api',
   /** invoke(kind: NativeAction, payload) → ApiResult — dialogs, print, open external, etc. */
-  native: 'bahi:native',
+  native: 'pevqori:native',
   /** main → renderer push events (menu commands, update available, company closed, …) */
-  event: 'bahi:event',
+  event: 'pevqori:event',
 } as const;

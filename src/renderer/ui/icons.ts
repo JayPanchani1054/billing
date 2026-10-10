@@ -1,5 +1,5 @@
 /**
- * Bahi icon set — original line icons on a 24×24 grid, drawn for a 1.75 stroke with round caps and
+ * Pevqori icon set — original line icons on a 24×24 grid, drawn for a 1.75 stroke with round caps and
  * joins (rendered by <Icon>). `d` paths are stroked; `fill` paths are filled with currentColor
  * (used for dots). Pure data so it can be tree-shaken and tested.
  *

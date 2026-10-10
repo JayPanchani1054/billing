@@ -63,7 +63,7 @@ test('expansion is remembered per screen (memory + storage) and storage errors a
   assert.equal(loadExpansion('x', broken), null);
   saveExpansion('x', new Set(['a']), broken);
   assert.deepEqual([...(loadExpansion('x', broken) ?? [])], ['a'], 'kept in memory for the session');
-  store.set('bahi.reports.expanded.bad', '{not json');
+  store.set('pevqori.reports.expanded.bad', '{not json');
   clearExpansionMemory();
   assert.equal(loadExpansion('bad', storage), null);
 });

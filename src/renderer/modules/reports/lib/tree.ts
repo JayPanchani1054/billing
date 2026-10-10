@@ -55,7 +55,7 @@ export interface StorageLike {
 }
 
 const memory = new Map<string, string[]>();
-const PREFIX = 'bahi.reports.expanded.';
+const PREFIX = 'pevqori.reports.expanded.';
 /** Never remember more than this many keys per screen (a huge tree should not bloat storage). */
 const MAX_KEYS = 2_000;
 

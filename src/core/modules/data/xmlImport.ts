@@ -1,5 +1,5 @@
 /**
- * Tally migration: preview and import of a Tally XML export (model: tallyParse.ts).
+ * Tally migration: preview and import of a Tally XML export (model: xmlParse.ts).
  *
  * Masters are created through the accounts / inventory services (same validation as the screens) in
  * dependency order: groups → units → godowns → stock groups → stock categories → cost categories →
@@ -15,13 +15,13 @@
  * the GST duty-ledger postings (per head) allocated over the taxable lines by HSN/rate where the
  * masters give a rate, so every line's tax sums exactly to the posted tax. Unbalanced vouchers,
  * unknown ledgers / items / voucher types, dates before the books beginning or inside the locked
- * period are reported as issues and skipped. vouchers.meta = { v: 1, source: 'tally', tally: {…},
+ * period are reported as issues and skipped. vouchers.meta = { v: 1, source: 'xml_import', xmlImport: {…},
  * importBatchId, input } (input: a best-effort VoucherInput so the voucher can be altered later).
  *
  * The whole masters phase is one transaction; vouchers follow in chunks of CHUNK vouchers, each its
- * own transaction, yielding to the event loop between chunks (progress: 'data.tally.progress').
+ * own transaction, yielding to the event loop between chunks (progress: 'data.xmlImport.progress').
  * Every master created or altered is audited by its service (run.ctx is the caller's audited context),
- * every voucher written gets its own 'create' / 'alter' entry (before/after snapshot, source 'tally',
+ * every voucher written gets its own 'create' / 'alter' entry (before/after snapshot, source 'xml_import',
  * importBatchId), F11 changes need company.manage and are audited, and a final 'import' entry records
  * the counts (and the import_batches row id). Nothing bypasses the edit log.
  */
@@ -41,13 +41,13 @@ import { allocate } from '../../../shared/money.ts';
 import { GST_PLUS_LEDGERS, type GstPlusLedgerCode } from '../../../shared/types/gst-plus.ts';
 import type { LedgerSaveInput, OpeningBillInput, VoucherTypeSaveInput } from '../../../shared/types/accounts.ts';
 import type {
-  TallyCounts,
-  TallyImportInput,
-  TallyImportResult,
-  TallyIssue,
-  TallyPreviewInput,
-  TallyPreviewResult,
-  TallyProgress,
+  XmlImportCounts,
+  XmlImportInput,
+  XmlImportResult,
+  XmlImportIssue,
+  XmlPreviewInput,
+  XmlPreviewResult,
+  XmlImportProgress,
 } from '../../../shared/types/data.ts';
 import type { RegistrationType, Taxability } from '../../../shared/types/gst.ts';
 import type { CostingMethod, StockItemSaveInput, StockOpeningInput } from '../../../shared/types/inventory.ts';
@@ -72,18 +72,19 @@ import { loadVoucherType, parseVoucherSeq, periodKey, periodRange, type VoucherT
 import { loadVoucherRow, snapshotFromDb } from '../vouchers/service.ts';
 import { dbTaxLookup, resolveItemTaxProfile, resolveLedgerTaxProfile, type TaxLookup } from '../vouchers/taxprofile.ts';
 import { hasPermission, plural, requirePermission, yieldToEventLoop } from './common.ts';
+import { LEGACY_IMPORT_META_KEY, LEGACY_IMPORT_SOURCE } from './xmlFormat.ts';
 import {
-  parseTallyFile,
+  parseXmlFile,
   voucherLabel,
-  type TallyDutyHead,
-  type TallyFile,
+  type XmlDutyHead,
+  type XmlFile,
   type TEntry,
   type TGroup,
   type TLedger,
   type TNamed,
   type TStockItem,
   type TVoucher,
-} from './tallyParse.ts';
+} from './xmlParse.ts';
 
 /** Vouchers per transaction during import. */
 export const CHUNK = 250;
@@ -94,16 +95,16 @@ const SAMPLE = 10;
 
 const key = (s: string): string => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
-const TALLY_BASE: Record<string, VoucherBaseType> = Object.fromEntries(PREDEFINED_VOUCHER_TYPES.map((t) => [key(t.name), t.baseType]));
+const XML_BASE: Record<string, VoucherBaseType> = Object.fromEntries(PREDEFINED_VOUCHER_TYPES.map((t) => [key(t.name), t.baseType]));
 // Older Tally spellings.
-TALLY_BASE['rejection in'] = 'rejection_in';
-TALLY_BASE['rejection out'] = 'rejection_out';
-TALLY_BASE['memo'] = 'memorandum';
+XML_BASE['rejection in'] = 'rejection_in';
+XML_BASE['rejection out'] = 'rejection_out';
+XML_BASE['memo'] = 'memorandum';
 
 const UNSUPPORTED_BASES: ReadonlySet<VoucherBaseType> = new Set(['physical_stock']);
 
 /** Base type of a Tally voucher type name: built-in name, the file's VOUCHERTYPE chain, or this company's types. */
-function baseTypeResolver(db: Db, file: TallyFile): (name: string) => VoucherBaseType | null {
+function baseTypeResolver(db: Db, file: XmlFile): (name: string) => VoucherBaseType | null {
   const parents = new Map(file.voucherTypes.map((t) => [key(t.name), t.parent]));
   const dbTypes = new Map(db.all<{ name: string; base_type: string }>('SELECT name, base_type FROM voucher_types').map((r) => [key(r.name), r.base_type as VoucherBaseType]));
   const cache = new Map<string, VoucherBaseType | null>();
@@ -117,8 +118,8 @@ function baseTypeResolver(db: Db, file: TallyFile): (name: string) => VoucherBas
         out = dbTypes.get(k) ?? null;
         break;
       }
-      if (TALLY_BASE[k]) {
-        out = TALLY_BASE[k];
+      if (XML_BASE[k]) {
+        out = XML_BASE[k];
         break;
       }
       const p = parents.get(k);
@@ -172,7 +173,7 @@ function unitIndex(db: Db): Map<string, number> {
 
 const PREDEFINED_GROUP_BY_NAME = new Map(PREDEFINED_GROUPS.map((g) => [key(g.name), g.code]));
 // Tally's alternative names of predefined groups.
-const TALLY_GROUP_ALIASES: Record<string, string> = {
+const XML_GROUP_ALIASES: Record<string, string> = {
   'bank occ a/c': 'BANK_OD',
   'bank od a/c': 'BANK_OD',
   'direct income': 'DIRECT_INCOMES',
@@ -186,7 +187,7 @@ const TALLY_GROUP_ALIASES: Record<string, string> = {
 };
 const RESERVED_LEDGER_BY_NAME = new Map(PREDEFINED_LEDGERS.filter((l) => l.code === 'CASH' || l.code === 'PROFIT_LOSS').map((l) => [key(l.name), l.code]));
 
-function issueSink(issues: TallyIssue[]): (i: TallyIssue) => void {
+function issueSink(issues: XmlImportIssue[]): (i: XmlImportIssue) => void {
   let dropped = 0;
   return (i) => {
     if (issues.length < MAX_ISSUES) issues.push(i);
@@ -218,17 +219,17 @@ function stateCodeOrNull(text: string | null): string | null {
 // ───────────────────────────── Preview ─────────────────────────────
 
 /** Σ ledger openings + opening stock value (0 when the Tally books balance). */
-function openingDifference(file: TallyFile): number {
+function openingDifference(file: XmlFile): number {
   const ledgers = file.ledgers.reduce((s, l) => s + l.opening, 0);
   const stock = file.stockItems.reduce((s, i) => s + i.openings.reduce((a, o) => a + (o.value ?? Math.round(o.qty * (o.rate ?? 0) * 100)), 0), 0);
   return ledgers + stock;
 }
 
-export function previewTally(ctx: CompanyCtx, input: TallyPreviewInput): TallyPreviewResult {
+export function previewXml(ctx: CompanyCtx, input: XmlPreviewInput): XmlPreviewResult {
   requirePermission(ctx, 'data.import');
-  const file = parseTallyFile(input.bytes);
+  const file = parseXmlFile(input.bytes);
   const db = ctx.db;
-  const issues: TallyIssue[] = [...file.issues];
+  const issues: XmlImportIssue[] = [...file.issues];
   const add = issueSink(issues);
   const baseOf = baseTypeResolver(db, file);
 
@@ -240,7 +241,7 @@ export function previewTally(ctx: CompanyCtx, input: TallyPreviewInput): TallyPr
   const fileLedgers = new Set(file.ledgers.map((l) => key(l.name)));
   const fileItems = new Set(file.stockItems.map((i) => key(i.name)));
   const fileUnits = new Set(file.units.map((u) => key(u.name)));
-  const groupKnown = (n: string): boolean => fileGroups.has(key(n)) || groupNames.has(key(n)) || PREDEFINED_GROUP_BY_NAME.has(key(n)) || key(n) in TALLY_GROUP_ALIASES;
+  const groupKnown = (n: string): boolean => fileGroups.has(key(n)) || groupNames.has(key(n)) || PREDEFINED_GROUP_BY_NAME.has(key(n)) || key(n) in XML_GROUP_ALIASES;
 
   for (const g of file.groups) if (g.parent && !groupKnown(g.parent)) add({ severity: 'error', code: 'unknown_parent', message: `Parent group "${g.parent}" is not in the file or this company.`, object: `GROUP ${g.name}` });
   for (const l of file.ledgers) {
@@ -339,31 +340,31 @@ export function previewTally(ctx: CompanyCtx, input: TallyPreviewInput): TallyPr
 
 // ───────────────────────────── Progress ─────────────────────────────
 
-const progressByCompany = new Map<string, TallyProgress>();
-const IDLE: TallyProgress = { running: false, phase: 'idle', done: 0, total: 0, message: '' };
+const progressByCompany = new Map<string, XmlImportProgress>();
+const IDLE: XmlImportProgress = { running: false, phase: 'idle', done: 0, total: 0, message: '' };
 
-export function tallyProgress(ctx: CompanyCtx): TallyProgress {
+export function xmlImportProgress(ctx: CompanyCtx): XmlImportProgress {
   return progressByCompany.get(ctx.company.dbPath + '|' + ctx.company.id) ?? IDLE;
 }
 
-function setProgress(ctx: CompanyCtx, p: TallyProgress): void {
+function setProgress(ctx: CompanyCtx, p: XmlImportProgress): void {
   progressByCompany.set(ctx.company.dbPath + '|' + ctx.company.id, p);
 }
 
 // ───────────────────────────── Import: masters ─────────────────────────────
 
-type MasterKind = keyof TallyImportResult['masters'];
+type MasterKind = keyof XmlImportResult['masters'];
 
-const zero = (): TallyCounts => ({ created: 0, updated: 0, skipped: 0, failed: 0 });
+const zero = (): XmlImportCounts => ({ created: 0, updated: 0, skipped: 0, failed: 0 });
 
 interface Run {
   /** Audited context: every master the import creates or alters gets its own edit-log entry. */
   ctx: CompanyCtx;
   db: Db;
-  file: TallyFile;
+  file: XmlFile;
   update: boolean;
-  add: (i: TallyIssue) => void;
-  masters: TallyImportResult['masters'];
+  add: (i: XmlImportIssue) => void;
+  masters: XmlImportResult['masters'];
   /** Tally group name → this company's group id (covers renamed predefined groups). */
   groupIds: Map<string, number>;
   ledgerIds: Map<string, number>;
@@ -442,7 +443,7 @@ function resolveGroupId(run: Run, name: string | null): number | null | undefine
   if (mapped !== undefined) return mapped;
   const idx = nameIndex(run.db, 'groups').get(k);
   if (idx !== undefined) return idx;
-  const code = PREDEFINED_GROUP_BY_NAME.get(k) ?? TALLY_GROUP_ALIASES[k];
+  const code = PREDEFINED_GROUP_BY_NAME.get(k) ?? XML_GROUP_ALIASES[k];
   if (code) return run.db.value<number>('SELECT id FROM groups WHERE reserved_code = :c', { c: code }) ?? undefined;
   return undefined;
 }
@@ -463,7 +464,7 @@ function importGroups(run: Run): void {
   for (const g of ordered) {
     const object = `GROUP ${g.name}`;
     // A predefined Tally group (possibly renamed): map to ours by its reserved name.
-    const reservedCode = g.reservedName ? (PREDEFINED_GROUP_BY_NAME.get(key(g.reservedName)) ?? TALLY_GROUP_ALIASES[key(g.reservedName)]) : undefined;
+    const reservedCode = g.reservedName ? (PREDEFINED_GROUP_BY_NAME.get(key(g.reservedName)) ?? XML_GROUP_ALIASES[key(g.reservedName)]) : undefined;
     if (reservedCode) {
       const id = run.db.value<number>('SELECT id FROM groups WHERE reserved_code = :c', { c: reservedCode });
       if (id !== undefined) {
@@ -619,7 +620,7 @@ function importTree<T extends TNamed>(
   }
 }
 
-function gstFields(gst: TallyFile['stockItems'][number]['gst']): Pick<StockItemSaveInput, 'hsnSac' | 'gstRate' | 'taxability' | 'gstApplicable' | 'cessRate'> {
+function gstFields(gst: XmlFile['stockItems'][number]['gst']): Pick<StockItemSaveInput, 'hsnSac' | 'gstRate' | 'taxability' | 'gstApplicable' | 'cessRate'> {
   const out: Pick<StockItemSaveInput, 'hsnSac' | 'gstRate' | 'taxability' | 'gstApplicable' | 'cessRate'> = {};
   if (gst.hsn) out.hsnSac = gst.hsn;
   if (gst.taxability) out.taxability = gst.taxability;
@@ -929,7 +930,7 @@ function importVoucherTypes(run: Run, baseOf: (name: string) => VoucherBaseType 
   const existing = new Set(run.db.all<{ name: string }>('SELECT name FROM voucher_types').map((r) => key(r.name)));
   for (const t of run.file.voucherTypes) {
     if (!t.name) continue;
-    if (existing.has(key(t.name)) || TALLY_BASE[key(t.name)]) {
+    if (existing.has(key(t.name)) || XML_BASE[key(t.name)]) {
       c.skipped++;
       continue;
     }
@@ -1058,7 +1059,7 @@ interface LedgerInfo {
   name: string;
   cls: ReturnType<typeof ledgerClass>;
   reservedCode: string | null;
-  dutyHead: TallyDutyHead | null;
+  dutyHead: XmlDutyHead | null;
   /** GST duty ledgers: 'output' | 'input' | 'rcm_liability' (null when not set). */
   taxDirection: string | null;
   /** A charge absorbed into the goods lines' assessable value (include_in_assessable 'goods'). */
@@ -1101,7 +1102,7 @@ interface VoucherEnv {
   batchId: number;
   now: string;
   userName: string | null;
-  counts: TallyCounts;
+  counts: XmlImportCounts;
   /** Tally GUID → voucher id of vouchers already imported from Tally (loaded once; kept up to date). */
   guids: Map<string, number>;
   /** Set by writeVoucher: the id written for the voucher being processed (committed into `guids` by the caller). */
@@ -1130,18 +1131,40 @@ function adoptGstPlusLedgers(run: Run, ts: string): void {
 /** GST on an advance as the gst module's hook posts it (receipt: 'received'; sales / debit note: 'adjusted'; payment: 'refunded'). */
 interface AdvanceRecovery {
   kind: 'received' | 'adjusted' | 'refunded';
-  heads: Record<TallyDutyHead, number>;
+  heads: Record<XmlDutyHead, number>;
   /** The customer the advance is from (PARTYLEDGERNAME, else the party line of the voucher). */
   partyLedgerId: number | null;
   /** received: the advance incl. tax; adjusted: one row per advance receipt it settles; refunded: the one receipt refunded. */
-  rows: Array<{ receiptVoucherId: number | null; gross: number; pos: string; rate: number; cessRate: number; heads: Record<TallyDutyHead, number> }>;
+  rows: Array<{ receiptVoucherId: number | null; gross: number; pos: string; rate: number; cessRate: number; heads: Record<XmlDutyHead, number> }>;
 }
 
-/** GUIDs of vouchers imported from Tally earlier (one scan instead of one per voucher). */
-function loadTallyGuids(db: Db): Map<string, number> {
+/** vouchers.meta.source of a voucher written by the XML data import. */
+export const XML_IMPORT_SOURCE = 'xml_import';
+/** Key of the interchange details (guid, remoteId, voucherType, isInvoice) inside vouchers.meta. */
+export const XML_IMPORT_META_KEY = 'xmlImport';
+/** import_batches.kind of an XML data import (audit_log.entity_type of an XML data export, too). */
+export const XML_IMPORT_KIND = 'xml_data';
+
+/** Bound parameters: new and legacy (written before the rename) meta source / guid path. */
+const SOURCE_PARAMS = {
+  source: XML_IMPORT_SOURCE,
+  legacySource: LEGACY_IMPORT_SOURCE,
+  guidPath: `$.${XML_IMPORT_META_KEY}.guid`,
+  legacyGuidPath: `$.${LEGACY_IMPORT_META_KEY}.guid`,
+} as const;
+
+/** True for a voucher written by the XML data import (by this build or one before the rename). */
+export function isXmlImportSource(source: unknown): boolean {
+  return source === XML_IMPORT_SOURCE || source === LEGACY_IMPORT_SOURCE;
+}
+
+/** GUIDs of vouchers imported by the XML data import earlier (one scan instead of one per voucher). */
+function loadXmlGuids(db: Db): Map<string, number> {
   const map = new Map<string, number>();
   for (const r of db.all<{ id: number; guid: unknown }>(
-    `SELECT id, json_extract(meta, '$.tally.guid') AS guid FROM vouchers WHERE json_valid(meta) AND json_extract(meta, '$.source') = 'tally'`,
+    `SELECT id, COALESCE(json_extract(meta, :guidPath), json_extract(meta, :legacyGuidPath)) AS guid
+       FROM vouchers WHERE json_valid(meta) AND json_extract(meta, '$.source') IN (:source, :legacySource)`,
+    SOURCE_PARAMS,
   )) {
     if (typeof r.guid === 'string' && r.guid !== '' && !map.has(r.guid)) map.set(r.guid, r.id);
   }
@@ -1249,7 +1272,7 @@ interface EntryRow {
   ledger: LedgerInfo;
   amount: number;
   role: string;
-  head: TallyDutyHead | null;
+  head: XmlDutyHead | null;
   bills: Array<{ refType: 'new' | 'against' | 'advance' | 'on_account'; name: string | null; amount: number; creditDays: number | null; dueDate: string | null }>;
   costs: Array<{ centreId: number; amount: number }>;
   bank: TEntry['bank'];
@@ -1375,12 +1398,12 @@ function recoverAdvance(env: VoucherEnv, base: VoucherBaseType, outward: boolean
   const advAmount = entries.filter((e) => e.ledger.id === env.advanceLedgerId).reduce((t, e) => t + e.amount, 0);
   if (advAmount === 0) return null;
   const output = entries.filter((e) => e.head !== null && e.ledger.taxDirection === 'output');
-  const headsOf = (pick: (amount: number) => number): Record<TallyDutyHead, number> => {
+  const headsOf = (pick: (amount: number) => number): Record<XmlDutyHead, number> => {
     const h = { IGST: 0, CGST: 0, SGST: 0, CESS: 0 };
-    for (const e of output) h[e.head as TallyDutyHead] += pick(e.amount);
+    for (const e of output) h[e.head as XmlDutyHead] += pick(e.amount);
     return h;
   };
-  const total = (h: Record<TallyDutyHead, number>): number => h.IGST + h.CGST + h.SGST + h.CESS;
+  const total = (h: Record<XmlDutyHead, number>): number => h.IGST + h.CGST + h.SGST + h.CESS;
   /** The advance receipts (with GST) of `party` named by its bill-wise "Agst Ref" lines on this voucher. */
   const receiptsSettled = (party: number, bills: EntryRow['bills']): Array<{ gross: number; receipt: { id: number; pos: string; rate: number; cess_rate: number } }> => {
     const found: Array<{ gross: number; receipt: { id: number; pos: string; rate: number; cess_rate: number } }> = [];
@@ -1468,11 +1491,11 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     const { from, to } = periodRange(vt, v.date, env.company.fyStartMonth);
     const rows = db.all<{ id: number; source: unknown; tguid: unknown }>(
       `SELECT id, CASE WHEN json_valid(meta) THEN json_extract(meta, '$.source') END AS source,
-              CASE WHEN json_valid(meta) THEN json_extract(meta, '$.tally.guid') END AS tguid
+              CASE WHEN json_valid(meta) THEN COALESCE(json_extract(meta, :guidPath), json_extract(meta, :legacyGuidPath)) END AS tguid
          FROM vouchers INDEXED BY idx_vouchers_number WHERE voucher_type_id = :t AND number = :n AND date BETWEEN :from AND :to ORDER BY id`,
-      { t: typeId, n: v.number, from, to },
+      { t: typeId, n: v.number, from, to, guidPath: SOURCE_PARAMS.guidPath, legacyGuidPath: SOURCE_PARAMS.legacyGuidPath },
     );
-    const same = rows.find((r) => !(v.guid && r.source === 'tally' && typeof r.tguid === 'string' && r.tguid !== '' && r.tguid !== v.guid));
+    const same = rows.find((r) => !(v.guid && isXmlImportSource(r.source) && typeof r.tguid === 'string' && r.tguid !== '' && r.tguid !== v.guid));
     if (same) {
       existingId = same.id;
       matchedByNumber = true;
@@ -1484,13 +1507,13 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
       `SELECT CASE WHEN json_valid(meta) THEN json_extract(meta, '$.source') END AS source, date, is_cancelled FROM vouchers WHERE id = :id`,
       { id: existingId },
     );
-    const fromTally = ex?.source === 'tally';
+    const fromXml = isXmlImportSource(ex?.source);
     if (!run.update) {
-      if (matchedByNumber && !fromTally) {
+      if (matchedByNumber && !fromXml) {
         run.add({
           severity: 'warning',
           code: 'number_exists',
-          message: `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Bahi ERP; the Tally voucher was not imported. Check that it is the same transaction.`,
+          message: `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Pevqori; the Tally voucher was not imported. Check that it is the same transaction.`,
           object: `VOUCHER ${voucherLabel(v)}`,
         });
       }
@@ -1498,10 +1521,10 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     }
     // "Update existing" only refreshes vouchers that came from Tally: a voucher entered (or altered
     // into shape) in this app is never overwritten by an import.
-    if (!fromTally) {
+    if (!fromXml) {
       throw new SkipVoucher(
         'number_exists',
-        `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Bahi ERP; it was not overwritten. Alter or delete it yourself if the Tally voucher should replace it.`,
+        `${vt.name} number ${v.number ?? ''} is already used in this period by a voucher entered in Pevqori; it was not overwritten. Alter or delete it yourself if the Tally voucher should replace it.`,
         'warning',
       );
     }
@@ -1675,7 +1698,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     if (advance?.kind === 'adjusted' && e.ledger.taxDirection === 'output' && e.amount > 0) continue;
     heads[e.head] += e.amount;
   }
-  for (const h of Object.keys(heads) as TallyDutyHead[]) heads[h] = Math.abs(heads[h]);
+  for (const h of Object.keys(heads) as XmlDutyHead[]) heads[h] = Math.abs(heads[h]);
   const totalTax = heads.IGST + heads.CGST + heads.SGST + heads.CESS;
   let notes: string[] = [];
   if (isGstDoc && isAccounting && !cancelled && env.company.registration !== 'unregistered' && env.features.gst) {
@@ -1796,9 +1819,9 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
   const input = buildInput(env, v, { typeId, base, partyId, entries, inv, partySign, posCode, reverseCharge, advance });
   const meta = {
     v: 1,
-    source: 'tally',
+    source: XML_IMPORT_SOURCE,
     importBatchId: env.batchId,
-    tally: { guid: v.guid, remoteId: v.remoteId, voucherType: v.vchType, isInvoice: v.isInvoice },
+    [XML_IMPORT_META_KEY]: { guid: v.guid, remoteId: v.remoteId, voucherType: v.vchType, isInvoice: v.isInvoice },
     input,
     createdByName: env.userName,
     updatedByName: env.userName,
@@ -1996,7 +2019,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
       entityGuid: saved.guid,
       entityLabel: `${vt.name} ${v.number ?? '(no number)'} dated ${formatDate(v.date)}`,
       before,
-      after: { ...snapshotFromDb(db, saved, vt.name), source: 'tally', importBatchId: env.batchId, tallyGuid: v.guid ?? null },
+      after: { ...snapshotFromDb(db, saved, vt.name), source: XML_IMPORT_SOURCE, importBatchId: env.batchId, xmlGuid: v.guid ?? null },
     });
   }
   return existingId !== undefined ? 'updated' : 'created';
@@ -2094,7 +2117,7 @@ function buildInput(
 
 const RUNNING = new Set<string>();
 
-export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Promise<TallyImportResult> {
+export async function importXml(ctx: CompanyCtx, input: XmlImportInput): Promise<XmlImportResult> {
   requirePermission(ctx, 'data.import');
   const opts = input.options;
   const doMasters = opts.masters !== false;
@@ -2114,13 +2137,13 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
   if (RUNNING.has(lockKey)) throw new AppError('CONFLICT', 'A Tally import is already running for this company. Wait for it to finish.', BUSY_DETAILS);
   RUNNING.add(lockKey);
   const started = Date.now();
-  const issues: TallyIssue[] = [];
+  const issues: XmlImportIssue[] = [];
   const add = issueSink(issues);
   let openBatch: number | null = null;
   try {
     setProgress(ctx, { running: true, phase: 'parse', done: 0, total: 0, message: 'Reading the Tally file…' });
     await yieldToEventLoop();
-    const file = parseTallyFile(input.bytes);
+    const file = parseXmlFile(input.bytes);
     for (const i of file.issues) add(i);
     const db = ctx.db;
     const booksFrom = db.value<string>('SELECT books_from FROM company WHERE id = 1') as string;
@@ -2149,7 +2172,7 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
     const now = ctx.clock.now().toISOString();
     const batchId = db.transaction(() =>
       db.run('INSERT INTO import_batches (kind, file_name, imported_at, user_id, meta) VALUES (:kind, :file, :ts, :user, :meta)', {
-        kind: 'tally_xml',
+        kind: XML_IMPORT_KIND,
         file: input.fileName.slice(0, 255),
         ts: now,
         user: ctx.session.userId,
@@ -2195,7 +2218,7 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
         now,
         userName: ctx.session.displayName || ctx.session.username || null,
         counts,
-        guids: loadTallyGuids(db),
+        guids: loadXmlGuids(db),
         lastWritten: null,
         advanceLedgerId: statLedgerId(db, 'GST_ADVANCE') ?? null,
       };
@@ -2235,10 +2258,10 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
       }
     }
 
-    const result: TallyImportResult = { masters: run.masters, vouchers: counts, issues, batchId, stopped, durationMs: Date.now() - started };
+    const result: XmlImportResult = { masters: run.masters, vouchers: counts, issues, batchId, stopped, durationMs: Date.now() - started };
     const summary = {
       file: input.fileName,
-      tallyCompany: file.companyName,
+      xmlCompany: file.companyName,
       masters: Object.fromEntries(Object.entries(run.masters).map(([k, c]) => [k, c.created + c.updated])),
       vouchers: counts,
       errors: issues.filter((i) => i.severity === 'error').length,

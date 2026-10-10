@@ -39,7 +39,7 @@ beforeEach(() => {
   hadWindow = 'window' in g;
   previousWindow = g.window;
   g.window = {
-    bahi: {
+    pevqori: {
       api: async (name: string, input: Record<string, unknown>) => {
         calls.push({ kind: 'api', name, input });
         if (forbidden) return { ok: false, error: { code: 'FORBIDDEN', message: 'You do not have permission to perform this action.' } };

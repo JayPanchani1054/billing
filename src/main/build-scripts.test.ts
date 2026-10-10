@@ -70,7 +70,7 @@ describe('Electron fuses (scripts/fuses.cjs)', () => {
   it('the afterPack hook fails closed (no warn-and-continue path without the explicit opt-out)', () => {
     const hook = fs.readFileSync(path.join(root, 'scripts/after-pack.cjs'), 'utf8');
     assert.match(hook, /throw new Error\(message\)/);
-    assert.doesNotMatch(hook, /BAHI_REQUIRE_FUSES/);
+    assert.doesNotMatch(hook, /PEVQORI_REQUIRE_FUSES/);
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { devDependencies: Record<string, string> };
     assert.ok(pkg.devDependencies['@electron/fuses'], '@electron/fuses must be a declared devDependency');
   });

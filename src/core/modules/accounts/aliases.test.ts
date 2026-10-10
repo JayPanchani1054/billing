@@ -13,12 +13,13 @@ import { idByNameOrAlias, normalizeAliases, splitAliasCell, joinAliasCell } from
 import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
 import { exportMasters } from '../data/exportData.ts';
 import { commitImport } from '../data/importer.ts';
-import { importTally } from '../data/tallyImport.ts';
-import { utf16le } from '../data/tallyFixture.ts';
+import { importXml } from '../data/xmlImport.ts';
+import { utf16le } from '../data/xmlFixture.ts';
 import { inventoryRoutes } from '../inventory/routes.ts';
 import { deleteLedger, getLedger, ledgerPicker, listLedgers, saveLedger } from './ledgers.ts';
 import { accountsRoutes } from './routes.ts';
 import { saveGroup } from './groups.ts';
+import { MESSAGE_CLOSE, MESSAGE_TAG, REQUEST_TAG } from '../data/xmlFormat.ts';
 
 let t: TestCompany;
 beforeEach(() => {
@@ -198,12 +199,12 @@ describe('aliases in import / export and Tally import', () => {
   });
 
   it('a Tally ledger / stock item keeps all its NAME.LIST aliases', async () => {
-    const xml = `<ENVELOPE><HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER><BODY><IMPORTDATA><REQUESTDESC><REPORTNAME>All Masters</REPORTNAME></REQUESTDESC><REQUESTDATA>
-<TALLYMESSAGE><UNIT NAME="Nos"><NAME>Nos</NAME><ISSIMPLEUNIT>Yes</ISSIMPLEUNIT></UNIT></TALLYMESSAGE>
-<TALLYMESSAGE><LEDGER NAME="Acme Traders"><PARENT>Sundry Debtors</PARENT><LANGUAGENAME.LIST><NAME.LIST TYPE="String"><NAME>Acme Traders</NAME><NAME>ACME</NAME><NAME>C-0042</NAME><NAME>Acme Old</NAME></NAME.LIST></LANGUAGENAME.LIST></LEDGER></TALLYMESSAGE>
-<TALLYMESSAGE><STOCKITEM NAME="Kettle"><BASEUNITS>Nos</BASEUNITS><LANGUAGENAME.LIST><NAME.LIST TYPE="String"><NAME>Kettle</NAME><NAME>KT1</NAME><NAME>KT-OLD</NAME></NAME.LIST></LANGUAGENAME.LIST></STOCKITEM></TALLYMESSAGE>
+    const xml = `<ENVELOPE><HEADER><${REQUEST_TAG}>Import Data</${REQUEST_TAG}></HEADER><BODY><IMPORTDATA><REQUESTDESC><REPORTNAME>All Masters</REPORTNAME></REQUESTDESC><REQUESTDATA>
+<${MESSAGE_TAG}><UNIT NAME="Nos"><NAME>Nos</NAME><ISSIMPLEUNIT>Yes</ISSIMPLEUNIT></UNIT>${MESSAGE_CLOSE}
+<${MESSAGE_TAG}><LEDGER NAME="Acme Traders"><PARENT>Sundry Debtors</PARENT><LANGUAGENAME.LIST><NAME.LIST TYPE="String"><NAME>Acme Traders</NAME><NAME>ACME</NAME><NAME>C-0042</NAME><NAME>Acme Old</NAME></NAME.LIST></LANGUAGENAME.LIST></LEDGER>${MESSAGE_CLOSE}
+<${MESSAGE_TAG}><STOCKITEM NAME="Kettle"><BASEUNITS>Nos</BASEUNITS><LANGUAGENAME.LIST><NAME.LIST TYPE="String"><NAME>Kettle</NAME><NAME>KT1</NAME><NAME>KT-OLD</NAME></NAME.LIST></LANGUAGENAME.LIST></STOCKITEM>${MESSAGE_CLOSE}
 </REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>`;
-    const res = await importTally(t.ctx, { fileName: 'm.xml', bytes: utf16le(xml), options: { masters: true, vouchers: false, onDuplicate: 'skip' } });
+    const res = await importXml(t.ctx, { fileName: 'm.xml', bytes: utf16le(xml), options: { masters: true, vouchers: false, onDuplicate: 'skip' } });
     assert.ok(res.issues.every((i) => i.severity !== 'error'), JSON.stringify(res.issues));
     const l = idByNameOrAlias(t.db, 'ledger', 'Acme Traders');
     assert.ok(l);

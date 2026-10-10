@@ -28,7 +28,7 @@ import type {
   ImportPreviewInput,
   ImportPreviewResult,
   ImportRowResult,
-  TallyProgress,
+  XmlImportProgress,
 } from '../../../shared/types/data.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import { parseCsv } from '../../lib/csv.ts';
@@ -102,12 +102,12 @@ export function importTemplate(kind: ImportKind): ExportFileResult {
           { header: 'Description', width: 90 },
         ],
         rows: instructions,
-        title: [`Bahi ERP import template — ${spec.label}`, spec.description],
+        title: [`Pevqori import template — ${spec.label}`, spec.description],
       },
     ],
-    creator: 'Bahi ERP',
+    creator: 'Pevqori',
   });
-  return { bytes, fileName: `Bahi-Import-${spec.sheetName.replace(/\s+/g, '-')}.xlsx`, mimeType: XLSX_MIME, rowCount: rows.length };
+  return { bytes, fileName: `Pevqori-Import-${spec.sheetName.replace(/\s+/g, '-')}.xlsx`, mimeType: XLSX_MIME, rowCount: rows.length };
 }
 
 // ───────────────────────────── Reading the file ─────────────────────────────
@@ -423,21 +423,21 @@ async function run(ctx: CompanyCtx, kind: ImportKind, parsed: ParsedFile, opts: 
 
 // ───────────────────────────── Job plumbing: own connection, progress, one at a time ─────────────────────────────
 
-const progressByCompany = new Map<string, TallyProgress>();
+const progressByCompany = new Map<string, XmlImportProgress>();
 const RUNNING = new Set<string>();
 const jobKey = (ctx: CompanyCtx): string => `${ctx.company.dbPath}|${ctx.company.id}`;
 
-function setProgress(ctx: CompanyCtx, p: TallyProgress): void {
+function setProgress(ctx: CompanyCtx, p: XmlImportProgress): void {
   progressByCompany.set(jobKey(ctx), p);
 }
 
 /** 'data.import.progress': where the running (or last) preview / import of this company is. */
-export function importProgress(ctx: CompanyCtx): TallyProgress {
+export function importProgress(ctx: CompanyCtx): XmlImportProgress {
   return progressByCompany.get(jobKey(ctx)) ?? { running: false, phase: 'idle', done: 0, total: 0, message: '' };
 }
 
 /** Routes still answered while an import job holds the company (they never touch the database). */
-const ALLOWED_DURING_IMPORT: ReadonlySet<string> = new Set(['data.import.progress', 'data.tally.progress']);
+const ALLOWED_DURING_IMPORT: ReadonlySet<string> = new Set(['data.import.progress', 'data.xmlImport.progress']);
 
 /**
  * Run an import job (preview or commit) in ONE transaction that stays open across its chunks, so it

@@ -168,10 +168,10 @@ export function ShellProvider({ children }: { children?: ReactNode }) {
   const quit = useCallback(async () => {
     const dirty = nav.hasUnsavedChanges();
     const ok = await confirmDialog({
-      title: 'Quit Bahi ERP?',
+      title: 'Quit Pevqori?',
       message: dirty
         ? 'Some open screens have changes that are not saved. They will be lost if you quit now.'
-        : 'Everything you saved is kept. You can open Bahi ERP again any time.',
+        : 'Everything you saved is kept. You can open Pevqori again any time.',
       confirmLabel: dirty ? 'Discard and quit' : 'Quit',
       cancelLabel: 'Stay',
       tone: dirty ? 'danger' : 'default',

@@ -589,7 +589,7 @@ export type { GstJsonFile };
 
 // ───────────────────────────── Return files (our own documented formats) ─────────────────────────────
 
-/** A return file in Bahi's own documented format (CMP-08 / GSTR-4: the portal schema is not reproduced). */
+/** A return file in Pevqori's own documented format (CMP-08 / GSTR-4: the portal schema is not reproduced). */
 export interface GstTextFile {
   fileName: string;
   format: 'json' | 'csv';

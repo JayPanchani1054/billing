@@ -1,4 +1,4 @@
-# Bahi shell (`src/renderer/app`) — API for feature modules
+# Pevqori shell (`src/renderer/app`) — API for feature modules
 
 The shell is everything around your screens: app state and routing, the company workspace (top
 bar, breadcrumbs, screen stack, action rail, status bar), navigation, global hotkeys, Go To, the
@@ -187,7 +187,7 @@ const { forResult, returnResult, cancel } = useScreenResult<{ id: number; name: 
 | Hook | Purpose |
 |---|---|
 | `useScreenTitle(title)` | runtime title (breadcrumb, window title) — `<Screen>` does this |
-| `useDirty(isDirty)` | unsaved work → Esc/F3/Ctrl+Q/window close ask first; also `bahi.setDirty` |
+| `useDirty(isDirty)` | unsaved work → Esc/F3/Ctrl+Q/window close ask first; also `pevqori.setDirty` |
 | `useScreenActions(items)` | contribute rail actions + register their keys (several components may contribute) |
 | `useStatusHint(text)` | status bar hint while on top |
 | `useScreen()` | `{ entry, index, isTop, visible, def }` |
@@ -371,7 +371,7 @@ are replaced by the accounts, inventory and vouchers modules' own providers.
 ### Go To catalogue for the end-to-end sweep
 
 `e2e/screens.spec.ts` opens every item Go To offers instead of keeping its own list of screens. While
-the palette is open it answers a `bahi:goto-catalog` CustomEvent dispatched on `window`
+the palette is open it answers a `pevqori:goto-catalog` CustomEvent dispatched on `window`
 (`lib/gotoCatalog.ts`): the listener writes `detail.catalog = { items, screens }` — the palette's own
 static items (menu items, `goto: true` screens, voucher types, shell commands — already filtered by
 permission, F11 features and GST registration) and every registered screen id / title / presentation.

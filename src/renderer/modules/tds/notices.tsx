@@ -33,7 +33,7 @@ export function TdsDueNotice() {
   const company = useCompany();
   const { date } = useWorkingDate();
   const nav = useNav();
-  const key = `bahi.tds.due.${company.id}.${date}`;
+  const key = `pevqori.tds.due.${company.id}.${date}`;
   const [dismissed, setDismissed] = useState(() => readFlag(key));
   const tds = useApiQuery('tds.outstanding', { asOf: date, kind: 'tds' }, { enabled: features.tds && can && !dismissed, staleTime: 60_000 });
   const tcs = useApiQuery('tds.outstanding', { asOf: date, kind: 'tcs' }, { enabled: features.tcs && can && !dismissed, staleTime: 60_000 });

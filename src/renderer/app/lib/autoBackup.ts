@@ -32,7 +32,7 @@ const isObj = (x: unknown): x is Obj => typeof x === 'object' && x !== null && !
  * or a copied company, so it must be confirmed on this computer first.
  */
 export function unapprovedFolderText(folder: string): string {
-  return `The backup folder ${folder} was set on another computer or came with a restored backup, so Bahi ERP does not write to it until you confirm it here. Backups go to the default folder in the data folder meanwhile.`;
+  return `The backup folder ${folder} was set on another computer or came with a restored backup, so Pevqori does not write to it until you confirm it here. Backups go to the default folder in the data folder meanwhile.`;
 }
 
 /** Same folder, ignoring trailing separators (and letter case for Windows paths). */

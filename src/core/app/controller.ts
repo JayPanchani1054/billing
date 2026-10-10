@@ -108,7 +108,7 @@ const controllers = new WeakMap<AppRuntime, AppController>();
 /** Resolve the controller behind an AppCtx.app (app routes only). */
 export function controllerFor(app: AppRuntime): AppController {
   const c = controllers.get(app);
-  if (!c) throw new AppError('INTERNAL', 'App routes require the Bahi runtime');
+  if (!c) throw new AppError('INTERNAL', 'App routes require the Pevqori runtime');
   return c;
 }
 
@@ -373,7 +373,7 @@ export class AppController {
         const still = db.value<string>('SELECT hash FROM audit_log WHERE id = :id', { id: o.anchored.lastId });
         if (still !== o.anchored.lastHash || head.lastId < o.anchored.lastId) {
           o.anchorFrozen = true;
-          this.logger.log('warn', 'The edit log changed outside Bahi ERP while the company was open', { id: o.opened.id });
+          this.logger.log('warn', 'The edit log changed outside Pevqori while the company was open', { id: o.opened.id });
           return;
         }
       }
@@ -654,7 +654,7 @@ export class AppController {
   setDataDir(input: DataDirChangeInput): Promise<AppState> {
     return this.exclusive(() => {
       if (this.open) throw new AppError('CONFLICT', 'Close the company before changing the data folder.');
-      if (!path.isAbsolute(input.path)) throw validation([{ path: 'path', message: 'Choose a full folder path (for example D:\\BahiData)' }]);
+      if (!path.isAbsolute(input.path)) throw validation([{ path: 'path', message: 'Choose a full folder path (for example D:\\PevqoriData)' }]);
       const target = path.resolve(input.path);
       if (samePath(target, this.store.dataDir)) {
         this.markFirstRunComplete();
@@ -665,7 +665,7 @@ export class AppController {
       if (input.mode !== 'use' && isInside(target, this.store.dataDir))
         throw validation([{ path: 'path', message: 'The new folder cannot be inside the current data folder' }]);
       const problem = probeWritable(target);
-      if (problem) throw validation([{ path: 'path', message: `Bahi ERP cannot write to this folder (${problem})` }]);
+      if (problem) throw validation([{ path: 'path', message: `Pevqori cannot write to this folder (${problem})` }]);
 
       if (input.mode === 'copy' || input.mode === 'move') {
         transferDataDir({ from: this.store, to: target, mode: input.mode, clock: this.clock, log: this.app.log });

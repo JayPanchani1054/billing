@@ -65,7 +65,7 @@ export const ADJUSTMENT_FIELDS: readonly AdjustmentField[] = [
     key: 'creditLedgerBalance',
     row: '6.1',
     label: 'Credit not in the books (credit ledger)',
-    help: 'Unused ITC of earlier months is brought forward from the books automatically. Enter only credit the books do not hold — e.g. your electronic credit ledger balance when you started using Bahi ERP.',
+    help: 'Unused ITC of earlier months is brought forward from the books automatically. Enter only credit the books do not hold — e.g. your electronic credit ledger balance when you started using Pevqori.',
     heads: TAX_HEADS,
     group: 'payment',
   },

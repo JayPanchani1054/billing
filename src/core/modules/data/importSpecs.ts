@@ -284,7 +284,7 @@ export const KIND_SPECS: Record<ImportKind, KindSpec> = {
     kind: 'sales_invoices',
     label: 'Sales invoices',
     sheetName: 'Sales Invoices',
-    description: 'Sales invoices, one row per item or ledger line; GST is computed by Bahi ERP.',
+    description: 'Sales invoices, one row per item or ledger line; GST is computed by Pevqori.',
     groupBy: 'invoiceNo',
     columns: [
       c('invoiceNo', 'Invoice No', 'text', 'Invoice number; rows with the same number form one invoice.', ['INV-101', 'INV-101'], {
@@ -321,7 +321,7 @@ export const KIND_SPECS: Record<ImportKind, KindSpec> = {
     kind: 'purchase_invoices',
     label: 'Purchase invoices',
     sheetName: 'Purchase Invoices',
-    description: 'Purchase bills, one row per item or ledger line; GST is computed by Bahi ERP.',
+    description: 'Purchase bills, one row per item or ledger line; GST is computed by Pevqori.',
     groupBy: 'supplierInvoiceNo',
     columns: [
       c('supplierInvoiceNo', 'Supplier Invoice No', 'text', 'The supplier’s bill number; rows with the same supplier and number form one bill.', ['SS/2026/451', 'SS/2026/451'], {

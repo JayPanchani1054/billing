@@ -2,7 +2,7 @@
  * HTML → PDF / printer, rendered in a hidden, sandboxed, JavaScript-disabled window that lives in an
  * in-memory session with no network access.
  *
- * The HTML is served from memory over `bahi-print://<job-id>/document.html` (one random origin per job)
+ * The HTML is served from memory over `pevqori-print://<job-id>/document.html` (one random origin per job)
  * instead of a data: URL, so large multi-page reports are not limited by Chromium's 2 MB URL cap.
  * The document gets a CSP that forbids scripts and every non-inline resource except data:/blob: images
  * and fonts, and the session cancels any request that is not part of the job.

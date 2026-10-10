@@ -7,7 +7,7 @@ import { isPathInside, PathSet, readJsonFile, sanitizeFileName, writeFileAtomic,
 
 let dir: string;
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-main-files-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-main-files-'));
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -83,7 +83,7 @@ describe('isPathInside / PathSet', () => {
     set.add(folder);
     set.add(file);
     assert.equal(set.has(file), true);
-    assert.equal(set.covers(path.join(folder, 'b.bahibak')), true);
+    assert.equal(set.covers(path.join(folder, 'b.pvqbak')), true);
     assert.equal(set.covers(path.join(dir, 'other.csv')), false);
     assert.equal(set.covers(path.join(file, '..', 'other.csv')), false);
   });

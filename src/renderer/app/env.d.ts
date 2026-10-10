@@ -1,13 +1,13 @@
 /**
- * Renderer globals. `window.bahi` is installed by the preload script (src/preload/index.ts) and is
+ * Renderer globals. `window.pevqori` is installed by the preload script (src/preload/index.ts) and is
  * the ONLY channel to the main process. It is absent when the page is opened in a plain browser —
- * always go through app/bridge.ts (getBridge) instead of touching window.bahi directly.
+ * always go through app/bridge.ts (getBridge) instead of touching window.pevqori directly.
  */
-import type { BahiBridge } from '../../shared/bridge.ts';
+import type { PevqoriBridge } from '../../shared/bridge.ts';
 
 declare global {
   interface Window {
-    bahi: BahiBridge;
+    pevqori: PevqoriBridge;
   }
 }
 

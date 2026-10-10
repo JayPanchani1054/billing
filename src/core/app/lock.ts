@@ -148,7 +148,7 @@ export function removeStaleLock(file: string, staleText: string): boolean {
 function lockedError(companyName: string, holder: LockInfo): AppError {
   const where =
     holder.hostname === os.hostname()
-      ? 'in another Bahi ERP window'
+      ? 'in another Pevqori window'
       : holder.hostname
         ? `on computer "${holder.hostname}"`
         : 'elsewhere (it is being opened right now)';

@@ -2,7 +2,7 @@
  * Go To catalogue snapshot — what the palette offers right now, as plain JSON, for the every-screen
  * end-to-end sweep (e2e/screens.spec.ts). Pure (tested in gotoCatalog.test.ts).
  *
- * The open palette (GotoPalette.tsx) answers a `bahi:goto-catalog` CustomEvent dispatched on `window`
+ * The open palette (GotoPalette.tsx) answers a `pevqori:goto-catalog` CustomEvent dispatched on `window`
  * by writing the snapshot into the event's `detail.catalog`. Nothing is added to `window`, no state
  * changes and nothing crosses the IPC bridge: the answer is exactly the palette's own static list
  * (menu items, Go To screens, voucher types, shell commands — already filtered by the user's
@@ -12,7 +12,7 @@
 import type { GotoItem } from './goto.ts';
 
 /** Name of the request event (window.dispatchEvent(new CustomEvent(GOTO_CATALOG_EVENT, { detail }))). */
-export const GOTO_CATALOG_EVENT = 'bahi:goto-catalog';
+export const GOTO_CATALOG_EVENT = 'pevqori:goto-catalog';
 
 export interface GotoCatalogEntry {
   /** The palette item id (also the option's `data-goto-id`). */

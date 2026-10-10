@@ -1,6 +1,6 @@
-# Bahi UI kit (`src/renderer/ui`)
+# Pevqori UI kit (`src/renderer/ui`)
 
-The design system for Bahi ERP: tokens, base styles and ~60 React 19 components/hooks for a
+The design system for Pevqori: tokens, base styles and ~60 React 19 components/hooks for a
 **calm, dense-but-readable, keyboard-complete** accounting app. Everything a screen needs is here —
 screens should not write their own CSS for controls, colours or spacing.
 

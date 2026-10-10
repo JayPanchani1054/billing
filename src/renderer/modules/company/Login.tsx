@@ -9,7 +9,7 @@ import { Banner, Button, Field, PasswordInput, Stack, TextInput, useEnterAdvance
 import { GateLayout } from './GateLayout.tsx';
 
 function lastUserKey(companyId: string): string {
-  return `bahi.login.${companyId}`;
+  return `pevqori.login.${companyId}`;
 }
 
 function readLastUser(companyId: string): string {

@@ -1,5 +1,5 @@
 /**
- * Backup, verification and restore of company data (.bahibak containers, see container.ts).
+ * Backup, verification and restore of company data (.pvqbak containers, see container.ts).
  *
  *  - createBackup: consistent snapshot of the live database → container in the backup folder →
  *    "keep last N" retention for this company's files only → backup_history row + 'backup' audit entry.
@@ -222,7 +222,7 @@ export async function createBackup(ctx: CompanyCtx, input: BackupCreateInput, ki
   const note = input.note?.trim() ? input.note.trim().slice(0, 1000) : null;
   const folder = resolveFolder(ctx, input.folder, 'write-dir');
   const problem = probeWritable(folder);
-  if (problem) throw new AppError('BUSINESS_RULE', `Bahi ERP cannot write to the backup folder ${folder} (${problem}). Choose another folder or reconnect the drive.`);
+  if (problem) throw new AppError('BUSINESS_RULE', `Pevqori cannot write to the backup folder ${folder} (${problem}). Choose another folder or reconnect the drive.`);
 
   const facts = companyFacts(ctx.db);
   const now = ctx.clock.now();
@@ -432,7 +432,7 @@ export function backupFolderStatus(ctx: CompanyCtx): BackupFolderStatus {
 export function approveBackupFolder(ctx: CompanyCtx, input: { folder: string }): BackupFolderStatus {
   const folder = authorizeUserPath(ctx.app, input.folder, 'write-dir', { field: 'folder', what: 'backup folder' });
   const problem = probeWritable(folder);
-  if (problem) throw validation([{ path: 'folder', message: `Bahi ERP cannot write to ${folder} (${problem}). Choose another folder or reconnect the drive.` }]);
+  if (problem) throw validation([{ path: 'folder', message: `Pevqori cannot write to ${folder} (${problem}). Choose another folder or reconnect the drive.` }]);
   const stored = readSetting(ctx.db, 'config');
   const current = configuredBackupFolder(ctx.db);
   const guid = companyFacts(ctx.db).guid;
@@ -465,14 +465,14 @@ export interface BackupFileAccess {
 export function inspectBackupFile(access: BackupFileAccess, rawPath: string): BackupFileInfo {
   const file = backupPath(access, rawPath);
   const info = describeBackupFile(file);
-  if (!info.manifest) throw new AppError('VALIDATION', info.problem ?? 'This is not a Bahi ERP backup file.');
+  if (!info.manifest) throw new AppError('VALIDATION', info.problem ?? 'This is not a Pevqori backup file.');
   return info;
 }
 
 function backupPath(access: BackupFileAccess, raw: string): string {
   const file = authorizeUserPath(access.app, raw, 'read-file', { field: 'path', what: 'backup file', trusted: access.trusted });
   if (!file.toLowerCase().endsWith(BACKUP_EXTENSION)) {
-    throw validation([{ path: 'path', message: `Choose a Bahi ERP backup file (*${BACKUP_EXTENSION})` }]);
+    throw validation([{ path: 'path', message: `Choose a Pevqori backup file (*${BACKUP_EXTENSION})` }]);
   }
   if (!exists(file)) throw new AppError('NOT_FOUND', 'The backup file no longer exists. Choose it again.');
   return file;
@@ -541,7 +541,7 @@ async function withWorkDir<T>(dataDir: string, fn: (dir: string) => Promise<T>):
 
 function describeManifest(m: BackupManifest): string {
   const when = formatDate(localDateOf(m.createdAt)); // local day, not the UTC one
-  return `Backup of "${m.companyName}" made on ${when}${m.createdBy ? ` by ${m.createdBy}` : ''} (Bahi ERP ${m.appVersion})${m.encrypted ? ', password-protected' : ''}.`;
+  return `Backup of "${m.companyName}" made on ${when}${m.createdBy ? ` by ${m.createdBy}` : ''} (Pevqori ${m.appVersion})${m.encrypted ? ', password-protected' : ''}.`;
 }
 
 /** Full verification of a backup file. Never throws for problems with the file — they come back as checks. */
@@ -617,8 +617,8 @@ export async function verifyBackup(access: BackupFileAccess, rawPath: string, pa
           ? `Data version ${facts.schemaVersion} — it will be upgraded to version ${SCHEMA_VERSION} when the company is opened.`
           : `Data version ${facts.schemaVersion} (current).`
         : facts.schemaVersion > SCHEMA_VERSION
-          ? `This backup was made by a newer version of Bahi ERP (data version ${facts.schemaVersion}; this app supports up to ${SCHEMA_VERSION}). Update Bahi ERP to restore it.`
-          : 'The backup does not contain Bahi ERP company data.',
+          ? `This backup was made by a newer version of Pevqori (data version ${facts.schemaVersion}; this app supports up to ${SCHEMA_VERSION}). Update Pevqori to restore it.`
+          : 'The backup does not contain Pevqori company data.',
     });
     checks.push({
       name: 'company',
@@ -830,7 +830,7 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
       env.app.log('warn', 'Refused a backup with unexpected database objects', { objects: facts.schemaProblems.slice(0, 20) });
       throw new AppError('VALIDATION', `${UNEXPECTED_OBJECTS_MESSAGE} Use another backup.`);
     }
-    if (facts.name === null) throw new AppError('VALIDATION', 'This backup does not contain Bahi ERP company data.');
+    if (facts.name === null) throw new AppError('VALIDATION', 'This backup does not contain Pevqori company data.');
     {
       const check = new Db(extracted, { readOnly: true });
       try {

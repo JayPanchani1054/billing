@@ -29,7 +29,7 @@ let dir: string;
 beforeEach(() => {
   t = createTestCompany({ today: '2026-10-05', name: 'Shree Ganesh Traders' });
   t.addLedger({ name: 'Acme Traders', group: 'SUNDRY_DEBTORS', openingBalance: 1_234_50 });
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-bk-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-bk-'));
 });
 afterEach(() => {
   t.close();
@@ -39,9 +39,9 @@ afterEach(() => {
 const PASSWORD = 'Backup@2026';
 
 describe('backup: create and verify', () => {
-  it('writes <Company Name>_<YYYYMMDD-HHmmss>.bahibak with the BAHIBAK1 magic and a manifest', async () => {
+  it('writes <Company Name>_<YYYYMMDD-HHmmss>.pvqbak with the PEVQBAK1 magic and a manifest', async () => {
     const r = await createBackup(t.ctx, { folder: dir, note: 'Before GST filing' });
-    assert.match(r.fileName, /^Shree Ganesh Traders_\d{8}-\d{6}\.bahibak$/);
+    assert.match(r.fileName, /^Shree Ganesh Traders_\d{8}-\d{6}\.pvqbak$/);
     assert.equal(path.dirname(r.path), dir);
     const head = fs.readFileSync(r.path).subarray(0, 8).toString('ascii');
     assert.equal(head, BACKUP_MAGIC);
@@ -156,11 +156,11 @@ describe('backup: damaged and foreign files', () => {
   });
 
   it('a file that is not a backup is refused clearly', async () => {
-    const p = path.join(dir, 'notes.bahibak');
+    const p = path.join(dir, 'notes.pvqbak');
     fs.writeFileSync(p, 'hello world, not a backup');
     const v = await verifyBackup(t.ctx, p, undefined);
     assert.equal(v.ok, false);
-    assert.match(v.checks[0].message, /not a Bahi ERP backup/);
+    assert.match(v.checks[0].message, /not a Pevqori backup/);
   });
 
   it('a backup from a newer app (schema) is reported unsupported', async () => {
@@ -170,7 +170,7 @@ describe('backup: damaged and foreign files', () => {
     const raw = new DatabaseSync(snap);
     raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 10}`);
     raw.close();
-    const target = path.join(dir, 'Newer_20261005-100000.bahibak');
+    const target = path.join(dir, 'Newer_20261005-100000.pvqbak');
     await writeContainer({
       dbPath: snap,
       target,
@@ -193,7 +193,7 @@ describe('backup: damaged and foreign files', () => {
     assert.equal(v.supported, false);
     const schema = v.checks.find((c) => c.name === 'schema');
     assert.equal(schema?.ok, false);
-    assert.match(schema?.message ?? '', /newer version of Bahi ERP/);
+    assert.match(schema?.message ?? '', /newer version of Pevqori/);
   });
 
   it('a backup container format from the future is refused (CONFLICT)', async () => {
@@ -213,7 +213,7 @@ describe('backup: list, retention and automatic backups', () => {
     const a = await createBackup(t.ctx, { folder: dir });
     t.clock.advance(60_000);
     const b = await createBackup(t.ctx, { folder: dir });
-    fs.writeFileSync(path.join(dir, 'broken.bahibak'), 'junk');
+    fs.writeFileSync(path.join(dir, 'broken.pvqbak'), 'junk');
     fs.writeFileSync(path.join(dir, 'readme.txt'), 'ignored');
     const list: BackupListResult = listBackups(t.ctx, dir);
     assert.equal(list.folder, dir);
@@ -223,7 +223,7 @@ describe('backup: list, retention and automatic backups', () => {
       [b.fileName, a.fileName],
     );
     assert.ok(good.every((x) => x.isCurrentCompany));
-    const broken = list.backups.find((x) => x.fileName === 'broken.bahibak');
+    const broken = list.backups.find((x) => x.fileName === 'broken.pvqbak');
     assert.ok(broken?.problem);
     assert.equal(list.backups.some((x) => x.fileName === 'readme.txt'), false);
     assert.equal(list.lastBackupAt, b.createdAt);
@@ -285,10 +285,10 @@ describe('backup: list, retention and automatic backups', () => {
     t.db.transaction(() => saveConfig(t.ctx, { backup: { folder: dir, auto: true } }));
     const onOpen = await autoBackup(t.ctx, { trigger: 'open' });
     assert.deepEqual([onOpen.ran, onOpen.reason], [false, 'new']);
-    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.bahibak')).length, 0);
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.pvqbak')).length, 0);
     const onClose = await autoBackup(t.ctx, { trigger: 'close' });
     assert.deepEqual([onClose.ran, onClose.reason], [true, 'created']);
-    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.bahibak')).length, 1);
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.pvqbak')).length, 1);
   });
 
   it('auto backup on open catches up on a company over a day old that was never backed up', async () => {
@@ -318,7 +318,7 @@ describe('backup: list, retention and automatic backups', () => {
     assert.deepEqual([a.ran, b.ran, c.ran], [true, true, true]);
     assert.equal(a.backup?.path, b.backup?.path);
     assert.equal(a.backup?.path, c.backup?.path);
-    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.bahibak')).length, 1);
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.pvqbak')).length, 1);
     // Once finished, the next call decides afresh (backed up just now → 'recent').
     const later = await autoBackup(t.ctx, { trigger: 'close' });
     assert.deepEqual([later.ran, later.reason], [false, 'recent']);
@@ -380,7 +380,7 @@ describe('restore (app runtime)', () => {
   const company = (name: string): CreateCompanyInput => ({ name, stateCode: '27', gstRegistrationType: 'regular', gstin: makeGstin('27'), booksFrom: '2026-04-01' });
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-restore-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-restore-'));
     clock = fixedClock('2026-10-05');
     rt = createRuntimeWithRoutes(
       { userDataDir: path.join(root, 'userData'), defaultDataDir: path.join(root, 'data'), appVersion: '1.2.3', clock, consoleLog: false },
@@ -515,7 +515,7 @@ describe('backup paths: only what the user picked in a dialog (main’s authoriz
   };
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-paths-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-paths-'));
     chosenFolders.clear();
     chosenFiles.clear();
     rt = createRuntimeWithRoutes(
@@ -562,7 +562,7 @@ describe('backup paths: only what the user picked in a dialog (main’s authoriz
 
     // No company open (public routes): only dialog-chosen files or files in the data folder.
     await call('app.company.close');
-    const copy = path.join(attacker, 'copy.bahibak');
+    const copy = path.join(attacker, 'copy.pvqbak');
     fs.copyFileSync(made.path, copy);
     assert.equal(await code('data.backup.inspectFile', { path: copy }), 'FORBIDDEN');
     assert.equal(await code('data.backup.verifyFile', { path: copy }), 'FORBIDDEN');
@@ -731,7 +731,7 @@ describe('backup: crafted databases are refused before they are queried', () => 
     raw.exec('PRAGMA foreign_keys = OFF');
     tamper(raw);
     raw.close();
-    const target = path.join(dir, `${name}.bahibak`);
+    const target = path.join(dir, `${name}.pvqbak`);
     await writeContainer({
       dbPath: snap,
       target,
@@ -784,7 +784,7 @@ describe('backup: decompression bombs', () => {
     // 8 MiB of zeros gzips to a few KiB; the manifest then claims a tiny (or huge) database.
     const zeros = path.join(dir, 'zeros.db');
     fs.writeFileSync(zeros, Buffer.alloc(8 * 1024 * 1024));
-    const target = path.join(dir, `bomb-${declaredDbBytes}.bahibak`);
+    const target = path.join(dir, `bomb-${declaredDbBytes}.pvqbak`);
     await writeContainer({
       dbPath: zeros,
       target,

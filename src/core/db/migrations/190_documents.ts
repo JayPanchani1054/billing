@@ -15,7 +15,7 @@
  *  - Predefined voucher types 'Quotation' and 'Proforma Invoice' for companies created before this
  *    version (new companies get them from seed.ts / PREDEFINED_VOUCHER_TYPES). Skipped on a fresh,
  *    not yet seeded database (no company row) so the seed does not collide; a company that already has
- *    a type of that name (e.g. a custom "Quotation" under Sales Order) gets "<name> (Bahi)" instead.
+ *    a type of that name (e.g. a custom "Quotation" under Sales Order) gets "<name> (Pevqori)" instead.
  *    Own numbering series (automatic, yearly) — never the GST invoice series.
  */
 const UUID = `lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' ||
@@ -26,7 +26,7 @@ function predefinedType(name: string, abbreviation: string, base: string): strin
   return `
 INSERT INTO voucher_types (guid, name, abbreviation, base_type, is_predefined, numbering_method, numbering_restart, config, created_at, updated_at)
 SELECT ${UUID},
-       CASE WHEN EXISTS (SELECT 1 FROM voucher_types WHERE name = '${name}') THEN '${name} (Bahi)' ELSE '${name}' END,
+       CASE WHEN EXISTS (SELECT 1 FROM voucher_types WHERE name = '${name}') THEN '${name} (Pevqori)' ELSE '${name}' END,
        '${abbreviation}', '${base}', 1, 'automatic', 'yearly', '{}', ${NOW}, ${NOW}
  WHERE EXISTS (SELECT 1 FROM company)
    AND NOT EXISTS (SELECT 1 FROM voucher_types WHERE base_type = '${base}' AND is_predefined = 1);`;

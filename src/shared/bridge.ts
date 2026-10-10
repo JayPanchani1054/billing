@@ -1,5 +1,5 @@
 /**
- * The preload bridge exposed to the renderer as `window.bahi`. This is the ONLY way the renderer
+ * The preload bridge exposed to the renderer as `window.pevqori`. This is the ONLY way the renderer
  * talks to the main process. Implemented in src/preload/index.ts and src/main/native.ts.
  */
 import type { ApiResult } from './api.ts';
@@ -145,7 +145,7 @@ export interface BridgeEvents {
   'theme-changed': { dark: boolean };
 }
 
-export interface BahiBridge {
+export interface PevqoriBridge {
   api(route: string, input: unknown): Promise<ApiResult<unknown>>;
   native<A extends NativeAction>(action: A, payload: NativeActions[A]['in']): Promise<ApiResult<NativeActions[A]['out']>>;
   on<E extends keyof BridgeEvents>(event: E, listener: (payload: BridgeEvents[E]) => void): () => void;

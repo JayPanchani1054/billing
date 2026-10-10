@@ -1,4 +1,4 @@
-# Bahi ERP — Build, package and release
+# Pevqori — Build, package and release
 
 ## 1. Toolchain
 
@@ -21,16 +21,16 @@ so the installer ships no `node_modules`. There are **no native modules** (SQLit
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | `scripts/dev.mjs`: Vite dev server on `http://127.0.0.1:5173` (HMR), esbuild watch for main, the core worker and preload, launches Electron with `BAHI_DEV_SERVER_URL`; restarts Electron when main/core-worker/preload code (incl. `src/core`) changes; `Ctrl+C` stops everything |
+| `npm run dev` | `scripts/dev.mjs`: Vite dev server on `http://127.0.0.1:5173` (HMR), esbuild watch for main, the core worker and preload, launches Electron with `PEVQORI_DEV_SERVER_URL`; restarts Electron when main/core-worker/preload code (incl. `src/core`) changes; `Ctrl+C` stops everything |
 | `npm run build` | `scripts/build.mjs`: cleans `out/`, bundles main, the core worker and preload (minified, no source maps), checks the preload only requires `electron` and the core worker only `node:*`, builds the renderer with Vite |
 | `node scripts/build.mjs --dev` | same, but unminified main/preload with linked source maps |
 | `npm start` | runs `electron .` against the existing `out/` |
 | `npm run typecheck` | `tsc` for core, node (main/preload/core worker), web (renderer) and e2e (`tsconfig.e2e.json`: Playwright specs + `playwright.config.ts`) projects |
 | `npm test` | `node --test "src/**/*.test.ts"` (core, shared and main-process unit tests) |
 | `npm run e2e` | Playwright end-to-end suite against `out/` — **run `npm run build` first** (see §5.1) |
-| `npm run dist:win` | build + `electron-builder --win --x64` → `release/Bahi-ERP-Setup-<version>.exe` |
+| `npm run dist:win` | build + `electron-builder --win --x64` → `release/Pevqori-Setup-<version>.exe` |
 | `npm run dist:dir` | build + unpacked app in `release/win-unpacked/` (fast packaging check) |
-| `npm run check:fuses` | reads the fuses back from `release/win-unpacked/Bahi ERP.exe`; fails if any is not hardened |
+| `npm run check:fuses` | reads the fuses back from `release/win-unpacked/Pevqori.exe`; fails if any is not hardened |
 | `pwsh scripts/smoke-installed.ps1 -Installer <setup.exe>` | Windows: silent install, launch the installed app in smoke mode, check exit code + log, uninstall |
 | `node scripts/make-icon.mjs` | regenerates `build/icon.png` (512 px) and `build/icon.ico` (16–256 px) |
 
@@ -46,7 +46,7 @@ src/renderer/index.html ──vite build (chrome130, base './')─────�
 **The core runs on a worker thread.** `out/main/index.cjs` (the Electron main thread) owns windows,
 menus, dialogs and IPC only. At start-up it spawns `out/main/core-worker.cjs` on a `node:worker_threads`
 thread, where the whole accounting core runs (node:sqlite works there). `src/main/core-proxy.ts`
-implements the core's `Runtime` interface for main: every `bahi:api` call becomes a
+implements the core's `Runtime` interface for main: every `pevqori:api` call becomes a
 `{ type: 'call', id, route, input }` message, answered by exactly one reply with the same id
 (protocol: `src/main/core-protocol.ts`). So a 5-second integrity check or a 2-minute import never
 freezes the window ("Not Responding"), and an out-of-memory export kills only the worker, which is
@@ -64,16 +64,16 @@ inside `app.asar`.
 
 - `package.json` → `"main": "out/main/index.cjs"`. The `.cjs` extension matters because the package is
   `"type": "module"`.
-- esbuild defines `process.env.NODE_ENV`, `__BAHI_VERSION__` (from package.json) and maps
+- esbuild defines `process.env.NODE_ENV`, `__PEVQORI_VERSION__` (from package.json) and maps
   `import.meta.url/dirname/filename` for CommonJS. Shared options live in `scripts/build-config.mjs`.
 - The preload is bundled self-contained: sandboxed preloads may only `require('electron')`. The build
   fails if anything else appears in `out/preload/index.cjs`.
-- The renderer is served at runtime from `app://bahi/` (not `file://`), which is why Vite uses a
-  relative `base: './'`. Production builds contain no source maps (set `BAHI_SOURCEMAP=1` for a local
+- The renderer is served at runtime from `app://pevqori/` (not `file://`), which is why Vite uses a
+  relative `base: './'`. Production builds contain no source maps (set `PEVQORI_SOURCEMAP=1` for a local
   debugging build).
 - `npm run dev` watches all three bundles and restarts Electron when any of them changes.
-- Unpackaged runs (`npm run dev`, `npm start`, E2E) use a separate profile `%APPDATA%\Bahi ERP Dev` and
-  default data folder `Documents\Bahi ERP Dev`, so development never touches an installed copy's data.
+- Unpackaged runs (`npm run dev`, `npm start`, E2E) use a separate profile `%APPDATA%\Pevqori Dev` and
+  default data folder `Documents\Pevqori Dev`, so development never touches an installed copy's data.
 
 ## 4. Building the Windows installer locally
 
@@ -82,22 +82,22 @@ On Windows 10/11 x64 with Node 22.18+:
 ```powershell
 npm install
 npm run dist:win
-# → release\Bahi-ERP-Setup-0.1.0.exe
+# → release\Pevqori-Setup-0.1.0.exe
 ```
 
 What `electron-builder.yml` produces:
 
 - **NSIS assisted installer** (not one-click): per-user by default (no admin), option to install for all
-  users (elevates), choice of install directory, desktop + Start-menu shortcuts named *Bahi ERP*.
+  users (elevates), choice of install directory, desktop + Start-menu shortcuts named *Pevqori*.
 - `requestedExecutionLevel: asInvoker`; `deleteAppDataOnUninstall: false` — uninstall keeps settings
-  (`%APPDATA%\Bahi ERP`) and of course the data folder.
+  (`%APPDATA%\Pevqori`) and of course the data folder.
 - `asar: true`, only `out/**` and `package.json` packed, `.map` files excluded, `npmRebuild: false`,
   only `en-US`/`en-GB` Chromium locales kept.
 - `asarUnpack: out/main/core-worker.cjs` — the core worker ships next to the archive (see §3).
 - `scripts/after-pack.cjs` flips the Electron fuses listed in `scripts/fuses.cjs` and reads them back
   (see [SECURITY.md §3.7](SECURITY.md#37-packaged-binary--scriptsafter-packcjs-scriptsfusescjs)). It
   **fails the build** if `@electron/fuses` (a declared devDependency) cannot be loaded, a fuse is
-  unknown, flipping fails or the read-back differs. `BAHI_ALLOW_UNFUSED=1` turns that into a warning
+  unknown, flipping fails or the read-back differs. `PEVQORI_ALLOW_UNFUSED=1` turns that into a warning
   for a throw-away local build only — such a build must never be distributed.
 - `build/installer.nsh` adds an uninstall log note that data was kept.
 
@@ -115,9 +115,9 @@ and otherwise with `npm install` plus a warning annotation (see §5.2).
 2. **windows-installer** (windows-latest, needs verify): `npm test` on Windows (paths, file locking,
    CRLF and case-insensitivity are exercised on every push, not first at release time),
    `npm run dist:win` (fails if the fuses cannot be applied), `npm run check:fuses`, `SHA256SUMS.txt`,
-   uploads the **Bahi-ERP-Windows-Installer** artifact (kept 30 days).
+   uploads the **Pevqori-Windows-Installer** artifact (kept 30 days).
 3. **windows-smoke** (windows-latest, needs windows-installer): `scripts/smoke-installed.ps1` installs
-   the uploaded installer silently, starts the *installed* `Bahi ERP.exe` with `BAHI_SMOKE_TEST=1`
+   the uploaded installer silently, starts the *installed* `Pevqori.exe` with `PEVQORI_SMOKE_TEST=1`
    (window opens → `app.state` through preload/IPC/core worker/node:sqlite → verdict in the log → quit
    with exit code 0/1, see `src/main/smoke.ts`), checks exit code and log, uninstalls. This is the
    only check of the real packaged binary: Playwright cannot drive it because the
@@ -142,13 +142,13 @@ npm, Electron and electron-builder downloads are cached (keys include the lockfi
 
 | Spec | Covers |
 |---|---|
-| `e2e/smoke.spec.ts` | bridge and security invariants: product title, `app://bahi` origin, exact `window.bahi` shape, `app.state` over IPC, no Node in the renderer, malformed IPC rejected, no network |
+| `e2e/smoke.spec.ts` | bridge and security invariants: product title, `app://pevqori` origin, exact `window.pevqori` shape, `app.state` over IPC, no Node in the renderer, malformed IPC rejected, no network |
 | `e2e/first-day.spec.ts` | a new user's first day, keyboard first: first-run data folder → Create Company wizard → party ledger → stock item → F8 sales invoice → Day Book → voucher view → Print Preview → Balance Sheet → GSTR-1 → backup |
-| `e2e/screens.spec.ts` | every screen renders: wizard company → **every** F11 feature on (Features screen) → masters and one voucher of each kind (API) → **every item of the Go To catalogue** opened through the palette and checked (visible `[data-screen]` with an h1, or a dialog with a heading; no error boundary — also one that replaced a dialog screen —, no "Something went wrong", no "This could not be loaded" / "You don't have access to this", no uncaught page error, no `[bahi]` / React console error), Enter on the first row of each list (the id screens: alterations, drill-downs) checked the same way, Esc back to the Gateway; then Day Book → voucher view → Print Preview. Failures are collected and reported together |
+| `e2e/screens.spec.ts` | every screen renders: wizard company → **every** F11 feature on (Features screen) → masters and one voucher of each kind (API) → **every item of the Go To catalogue** opened through the palette and checked (visible `[data-screen]` with an h1, or a dialog with a heading; no error boundary — also one that replaced a dialog screen —, no "Something went wrong", no "This could not be loaded" / "You don't have access to this", no uncaught page error, no `[pevqori]` / React console error), Enter on the first row of each list (the id screens: alterations, drill-downs) checked the same way, Esc back to the Gateway; then Day Book → voucher view → Print Preview. Failures are collected and reported together |
 | `e2e/parity.spec.ts` | the Tally-parity flows: quotation → Quotation Register › Alt+V → Sales 1; print preview on A5 (sheet 148 mm wide) and on the 80 mm roll (Compact receipt); POS counter: scan a barcode, UPI ₹50 + cash ₹68, ₹100 handed over → change ₹32; purchase (F9, accounting invoice) with the TDS 194C auto-line ₹800; export invoice in US$ shown in both currencies; Manufacturing Journal from the default BOM; cheque print preview of a payment (voucher view › Alt+K) with the leaf number and the amount in words |
 
 - `npm run build` **must** run before `npm run e2e`: the specs launch `out/main/index.cjs`.
-- `e2e/support.ts` launches the app with a throw-away `BAHI_USER_DATA`/`BAHI_DATA_DIR`, records a trace
+- `e2e/support.ts` launches the app with a throw-away `PEVQORI_USER_DATA`/`PEVQORI_DATA_DIR`, records a trace
   (kept only when a test fails), attaches a screenshot to each failing test and fails loudly if the
   app does not quit within 45 s of `app.close()`.
 - The figures typed in `first-day.spec.ts` are pinned by its API-level twin
@@ -156,11 +156,11 @@ npm, Electron and electron-builder downloads are cached (keys include the lockfi
   `npm test`. **Edit the two together.**
 - `parity.spec.ts` and its twin `src/core/testing/e2e/parity.test.ts` share one file,
   `src/core/testing/e2e/parityFlow.ts` (masters, inputs, expected figures with the arithmetic): the spec
-  runs its calls through `window.bahi.api` (real preload → IPC → core worker), the twin through
+  runs its calls through `window.pevqori.api` (real preload → IPC → core worker), the twin through
   `runtime.dispatch`. `screens.spec.ts` uses the same seed; its twin `src/core/testing/e2e/screens.test.ts`
   proves the seed and vouchers are accepted with every F11 feature on (e.g. opening stock then needs its
   godown).
-- The sweep does not keep a list of screens: the open Go To palette answers a `bahi:goto-catalog` event
+- The sweep does not keep a list of screens: the open Go To palette answers a `pevqori:goto-catalog` event
   with its own items and the registered screens (`src/renderer/app/lib/gotoCatalog.ts`), and each option
   carries `data-goto-id`. Shell commands (working date, period, switch company, F1, F10) are skipped
   with a logged reason, as are registered screens nothing reached (`[screens] skip …` lines: they need an
@@ -221,13 +221,13 @@ tagged commit has a matching lockfile, so the same tag always installs the same 
      fuses and writes `SHA256SUMS.txt`;
    - **smoke** (windows-latest): installs and launches the installer exactly like CI's windows-smoke;
    - **publish** (ubuntu-latest, the only job with `contents: write`; no checkout, no npm): verifies
-     the checksums and publishes a GitHub Release with `Bahi-ERP-Setup-<version>.exe` and
+     the checksums and publishes a GitHub Release with `Pevqori-Setup-<version>.exe` and
      `SHA256SUMS.txt` (tags containing `-` are marked pre-release).
 
 Verifying a download on Windows:
 
 ```powershell
-Get-FileHash .\Bahi-ERP-Setup-0.2.0.exe -Algorithm SHA256   # compare with SHA256SUMS.txt
+Get-FileHash .\Pevqori-Setup-0.2.0.exe -Algorithm SHA256   # compare with SHA256SUMS.txt
 ```
 
 ## 7. Code signing
@@ -243,7 +243,7 @@ file builds reputation, and some corporate policies block unsigned software. To 
 2. **With a `.pfx` file** (legacy/OV exported keys): add repository secrets
    `WIN_CSC_LINK` (base64 of the `.pfx`, or an https URL) and `WIN_CSC_KEY_PASSWORD`. The release
    workflow passes them **only to the packaging step** (never to `npm install`, typecheck or tests),
-   and electron-builder signs `Bahi ERP.exe`, the uninstaller and the installer automatically.
+   and electron-builder signs `Pevqori.exe`, the uninstaller and the installer automatically.
 3. **With a cloud HSM/Trusted Signing:** configure electron-builder's `win.azureSignOptions` (Azure
    Trusted Signing) or a custom `win.signtoolOptions.sign` script that calls the vendor's signing tool,
    and provide credentials as repository secrets.
@@ -259,9 +259,9 @@ Fuses are flipped in `afterPack`, i.e. **before** signing, so signatures stay va
 | Electron starts but the window is blank in dev | check the terminal for Vite errors; the window loads `http://127.0.0.1:5173/` |
 | Electron behaves like plain Node | an `ELECTRON_RUN_AS_NODE` variable is set in your shell; `dev.mjs` removes it, `npm start` does not |
 | E2E fails on Linux with a sandbox error | run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` (Ubuntu 23.10+) |
-| Rendering glitches on a specific PC | start with `BAHI_DISABLE_GPU=1` |
+| Rendering glitches on a specific PC | start with `PEVQORI_DISABLE_GPU=1` |
 | electron-builder cannot download NSIS/winCodeSign | proxy/firewall; set `ELECTRON_BUILDER_BINARIES_MIRROR` or run in CI |
-| `Electron fuses could not be applied` | run `npm install` (installs `@electron/fuses`); for a throw-away local build only, `BAHI_ALLOW_UNFUSED=1` |
+| `Electron fuses could not be applied` | run `npm install` (installs `@electron/fuses`); for a throw-away local build only, `PEVQORI_ALLOW_UNFUSED=1` |
 | "The accounting engine failed to start" / `Cannot find module …core-worker.cjs` | `out/main/core-worker.cjs` missing (rebuild), or in a packaged app `asarUnpack` was removed from `electron-builder.yml` |
-| windows-smoke fails | download the `windows-smoke-evidence` artifact (the app's `bahi.log`); look for `Smoke test failed:` and `Quit:` lines |
+| windows-smoke fails | download the `windows-smoke-evidence` artifact (the app's `pevqori.log`); look for `Smoke test failed:` and `Quit:` lines |
 | E2E `afterAll` reports the app did not quit | the `[electron]` output shows the `Quit:` steps (`src/main/quit.ts`); the app exits at the latest 40 s after its last window closed |

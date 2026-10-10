@@ -1,7 +1,7 @@
 /**
  * Safe, non-validating XML parser (tree + streaming SAX) and a small escaping writer.
  *
- * Used for Tally XML migration (ENVELOPE/TALLYMESSAGE files, often 10–100 MB), OOXML parts inside .xlsx files
+ * Used for the XML data import (ENVELOPE files, often 10–100 MB), OOXML parts inside .xlsx files
  * and GST portal XML. Design points:
  *  - SECURITY: no DTD processing at all. A DOCTYPE (with or without an internal subset) is skipped; entity
  *    declarations are never read, so custom/external entities are never expanded (no billion laughs, no XXE).
@@ -469,7 +469,7 @@ export function textOf(node: XmlNode | undefined, opts: { trim?: boolean } = {})
 /**
  * Find elements below `el` (never `el` itself), in document order.
  *  - path string: child names separated by '/', relative to `el`; '*' matches any name
- *    (e.g. 'BODY/IMPORTDATA/REQUESTDATA/TALLYMESSAGE/*').
+ *    (e.g. 'BODY/IMPORTDATA/REQUESTDATA/<message>/*').
  *  - predicate: every descendant element for which it returns true.
  */
 export function findAll(el: XmlElement, pathOrPredicate: string | ((e: XmlElement) => boolean)): XmlElement[] {

@@ -38,7 +38,7 @@ Renderer: `src/renderer/modules/documents` (screens, keys) and `src/renderer/mod
 
 | Migration | Adds |
 |---|---|
-| `190_documents` | `vouchers.valid_until`, `vouchers.applicable_upto` (ADD COLUMN); `document_status` (accepted / rejected decision; no row = open); `document_links` (source → target, target UNIQUE, both CASCADE); predefined voucher types *Quotation* and *Proforma Invoice* for existing companies (renamed "… (Bahi)" when the name is taken; skipped on an unseeded database). |
+| `190_documents` | `vouchers.valid_until`, `vouchers.applicable_upto` (ADD COLUMN); `document_status` (accepted / rejected decision; no row = open); `document_links` (source → target, target UNIQUE, both CASCADE); predefined voucher types *Quotation* and *Proforma Invoice* for existing companies (renamed "… (Pevqori)" when the name is taken; skipped on an unseeded database). |
 | `191_recurring` | `recurring_templates` (VoucherInput JSON without id / number / date + schedule), `recurring_runs` (UNIQUE `(template_id, period_key)`; status posted / skipped; posted run CASCADEs with its voucher). |
 | `192_order_closures` | `order_closures` (order + item, closed qty, date, reason, user; UNIQUE per order + item). |
 | `193_budgets` | `scenarios`, `scenario_voucher_types` (include / exclude), `budgets`, `budget_lines` (exactly one of group / ledger / cost centre; basis; signed amount). |

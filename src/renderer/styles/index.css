@@ -1,4 +1,4 @@
-/* Bahi ERP styles entry — import once from the renderer entry (main.tsx). Order matters. */
+/* Pevqori styles entry — import once from the renderer entry (main.tsx). Order matters. */
 @import "./tokens.css";
 @import "./base.css";
 @import "./components.css";

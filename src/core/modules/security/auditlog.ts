@@ -378,7 +378,7 @@ export function verifyAuditLog(db: Db, now: Date, anchor: (AnchorCheck & { canRe
       message: 'The edit log has been tampered with: it no longer matches the check-point saved on this computer.',
       detail:
         anchorText +
-        'The entries are consistent with each other, so the log was rewritten as a whole outside Bahi ERP. Compare with a backup taken before that date. ' +
+        'The entries are consistent with each other, so the log was rewritten as a whole outside Pevqori. Compare with a backup taken before that date. ' +
         'If you copied this company’s files back yourself (not with Restore), an Owner can accept the current log as the new check-point.',
       ...base,
     };
@@ -418,7 +418,7 @@ export function verifyAuditLog(db: Db, now: Date, anchor: (AnchorCheck & { canRe
     detail:
       `${result.count.toLocaleString('en-IN')} earlier ${result.count === 1 ? 'entry is' : 'entries are'} intact. ` +
       anchorText +
-      'Someone changed the company file outside Bahi ERP. Compare with a backup taken before this date, and review who has access to the company files.',
+      'Someone changed the company file outside Pevqori. Compare with a backup taken before this date, and review who has access to the company files.',
     ...base,
   };
 }
@@ -536,7 +536,7 @@ export function exportAuditLog(ctx: CompanyCtx, input: AuditExportInput): AuditE
   let mimeType: string;
   if (input.format === 'xlsx') {
     bytes = writeXlsx({
-      creator: 'Bahi ERP',
+      creator: 'Pevqori',
       created: now,
       sheets: [
         {

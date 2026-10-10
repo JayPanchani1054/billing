@@ -37,7 +37,7 @@ the system roles of existing companies.
   (`attachment.openCopy`), which checks the kind **and the content** again (the renderer is untrusted:
   `main/attachments.ts` runs the same `contentProblem` check as the core), writes a copy into a fresh
   temporary folder and opens it with the program Windows uses for that kind. The copies' parent folder
-  (`<temp>/bahi-attachments`) is created private and refused when it is a link / junction or (POSIX) not
+  (`<temp>/pevqori-attachments`) is created private and refused when it is a link / junction or (POSIX) not
   a private folder of this account; the day-old sweep never follows a link.
 - **Allowed kinds:** PDF; JPG / PNG / GIF / WebP / TIFF / BMP; XLSX / DOCX / ODT / ODS; XLS / DOC; CSV,
   TXT, JSON, XML (UTF-8). The extension must be allowed AND the first bytes must match it: a renamed
@@ -70,7 +70,7 @@ the system roles of existing companies.
 ## Backups, restore, data check
 
 A backup snapshot is a copy of the database; before it is packed every attached file is copied into the
-snapshot's `attachment_blobs` table, so the `.bahibak` format, its checksums and its password encryption
+snapshot's `attachment_blobs` table, so the `.pvqbak` format, its checksums and its password encryption
 cover the files with no format change. A file that is missing or changed is left out, logged and counted
 in the backup result (`attachments.missing`). Backup verification reports an `attachments` check. A
 restore writes the files into the restored company's `attachments/` folder, empties the table and

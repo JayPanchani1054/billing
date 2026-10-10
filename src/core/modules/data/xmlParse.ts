@@ -1,9 +1,9 @@
 /**
  * Tally XML reader: bytes → a typed, database-independent model of the masters and vouchers in a
  * Tally "Export → XML" file (Gateway of Tally › Export › Masters / Transactions, Tally.ERP 9 and
- * TallyPrime). Nothing here touches the database; tallyImport.ts maps the model onto the company.
+ * TallyPrime). Nothing here touches the database; xmlImport.ts maps the model onto the company.
  *
- * File shape: ENVELOPE › BODY › IMPORTDATA (or DATA) › REQUESTDATA › TALLYMESSAGE* › <object>.
+ * File shape: ENVELOPE › BODY › IMPORTDATA (or DATA) › REQUESTDATA › MESSAGE_TAG* › <object>.
  * Tally writes UTF-16LE (often without a BOM); decodeText() detects it. The document is read with the
  * streaming parser and only one object's subtree is built at a time, so a 100 MB export does not turn
  * into a 100 MB element tree.
@@ -19,9 +19,10 @@
  */
 import { parseAmount, parseDecimal } from '../../../shared/money.ts';
 import { isValidDate } from '../../../shared/dates.ts';
-import type { TallyIssue, TallyObjectType } from '../../../shared/types/data.ts';
+import type { XmlImportIssue, XmlObjectType } from '../../../shared/types/data.ts';
 import { saxParse } from '../../lib/xml.ts';
 import { decodeText, FileFormatError } from '../../lib/text.ts';
+import { MESSAGE_TAG } from './xmlFormat.ts';
 
 // ───────────────────────────── Light element tree ─────────────────────────────
 
@@ -103,7 +104,7 @@ function listValues(n: TNode, listName: string, itemName: string): string[] {
 // ───────────────────────────── Value parsers ─────────────────────────────
 
 /** Tally amount text → paise in Tally's sign (negative = Dr). Forex '… = -₹ 800.00' uses the rupee part. */
-export function tallyAmount(raw: string): number | null {
+export function xmlAmount(raw: string): number | null {
   let s = clean(raw);
   if (s === '') return null;
   const eq = s.lastIndexOf('=');
@@ -126,12 +127,12 @@ export function tallyAmount(raw: string): number | null {
 
 /** Tally amount → this app's signed paise (Dr +, Cr −). */
 export function ourAmount(raw: string): number | null {
-  const t = tallyAmount(raw);
+  const t = xmlAmount(raw);
   return t === null ? null : t === 0 ? 0 : -t;
 }
 
 /** '10 Nos', ' 2.500 Kg', '60 Nos = 5 Box' → { qty, unit } in the first (base) unit. */
-export function tallyQty(raw: string): { qty: number; unit: string | null } | null {
+export function xmlQty(raw: string): { qty: number; unit: string | null } | null {
   let s = clean(raw);
   if (s === '') return null;
   const eq = s.indexOf('=');
@@ -145,7 +146,7 @@ export function tallyQty(raw: string): { qty: number; unit: string | null } | nu
 }
 
 /** '100.00/Nos' (or '$ 1.20 = ₹ 100.00/Nos') → rupees per unit. */
-export function tallyRate(raw: string): { rate: number; per: string | null } | null {
+export function xmlRate(raw: string): { rate: number; per: string | null } | null {
   let s = clean(raw);
   if (s === '') return null;
   const slash = s.lastIndexOf('/');
@@ -160,7 +161,7 @@ export function tallyRate(raw: string): { rate: number; per: string | null } | n
 }
 
 /** 'yyyymmdd' → 'YYYY-MM-DD' (also accepts an ISO date); null when missing or invalid. */
-export function tallyDate(raw: string): string | null {
+export function xmlDate(raw: string): string | null {
   const s = clean(raw);
   let iso: string | null = null;
   if (/^\d{8}$/.test(s)) iso = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
@@ -183,7 +184,7 @@ function percent(raw: string): number | null {
 
 // ───────────────────────────── Model ─────────────────────────────
 
-export type TallyDutyHead = 'IGST' | 'CGST' | 'SGST' | 'CESS';
+export type XmlDutyHead = 'IGST' | 'CGST' | 'SGST' | 'CESS';
 
 export interface TGstInfo {
   /** null when the master does not say. */
@@ -241,7 +242,7 @@ export interface TLedger {
   mailingName: string | null;
   bank: { accountNo: string | null; ifsc: string | null; bankName: string | null; branch: string | null; holder: string | null };
   taxType: string | null;
-  dutyHead: TallyDutyHead | null;
+  dutyHead: XmlDutyHead | null;
   gst: TGstInfo;
   openingBills: TOpeningBill[];
   /** A charge included in the assessable value (APPROPRIATEFOR GST › GSTAPPROPRIATETO / EXCISEALLOCTYPE), else null. */
@@ -389,7 +390,7 @@ export interface TVoucher {
   inventory: TInventoryLine[];
 }
 
-export interface TallyFile {
+export interface XmlFile {
   encoding: string;
   companyName: string | null;
   groups: TGroup[];
@@ -404,9 +405,9 @@ export interface TallyFile {
   stockItems: TStockItem[];
   voucherTypes: TVoucherType[];
   vouchers: TVoucher[];
-  counts: Record<TallyObjectType, number>;
+  counts: Record<XmlObjectType, number>;
   unsupported: Array<{ type: string; count: number }>;
-  issues: TallyIssue[];
+  issues: XmlImportIssue[];
 }
 
 // ───────────────────────────── Reading the document ─────────────────────────────
@@ -426,8 +427,8 @@ const SUPPORTED = new Set<string>([
   'VOUCHER',
 ]);
 
-/** Objects below TALLYMESSAGE as light trees, plus SVCURRENTCOMPANY. */
-export function readTallyObjects(text: string): { company: string | null; objects: TNode[]; root: string | null } {
+/** Objects below the message elements (MESSAGE_TAG) as light trees, plus SVCURRENTCOMPANY. */
+export function readXmlObjects(text: string): { company: string | null; objects: TNode[]; root: string | null } {
   const objects: TNode[] = [];
   const stack: TNode[] = [];
   const names: string[] = [];
@@ -442,7 +443,7 @@ export function readTallyObjects(text: string): { company: string | null; object
         if (root === null) root = name;
         const depth = names.length;
         names.push(name);
-        if (name === 'TALLYMESSAGE' && msgDepth < 0) {
+        if (name === MESSAGE_TAG && msgDepth < 0) {
           msgDepth = depth;
           return;
         }
@@ -474,7 +475,7 @@ export function readTallyObjects(text: string): { company: string | null; object
 
 // ───────────────────────────── Object parsers ─────────────────────────────
 
-const DUTY_HEADS: Record<string, TallyDutyHead> = {
+const DUTY_HEADS: Record<string, XmlDutyHead> = {
   'integrated tax': 'IGST',
   igst: 'IGST',
   'central tax': 'CGST',
@@ -487,7 +488,7 @@ const DUTY_HEADS: Record<string, TallyDutyHead> = {
   cess: 'CESS',
 };
 
-export function dutyHeadOf(raw: string): TallyDutyHead | null {
+export function dutyHeadOf(raw: string): XmlDutyHead | null {
   return DUTY_HEADS[clean(raw).toLowerCase()] ?? null;
 }
 
@@ -580,7 +581,7 @@ function parseLedger(n: TNode): TLedger {
     const amt = ourAmount(valAny(b, 'OPENINGBALANCE', 'AMOUNT'));
     const billName = val(b, 'NAME');
     if (!billName || amt === null || amt === 0) continue;
-    bills.push({ name: billName, date: tallyDate(val(b, 'BILLDATE')), amount: amt, creditDays: creditDays(val(b, 'BILLCREDITPERIOD')) });
+    bills.push({ name: billName, date: xmlDate(val(b, 'BILLDATE')), amount: amt, creditDays: creditDays(val(b, 'BILLCREDITPERIOD')) });
   }
   const taxTypeRaw = clean(val(n, 'TAXTYPE'));
   const limit = ourAmount(val(n, 'CREDITLIMIT'));
@@ -657,10 +658,10 @@ function parseStockItem(n: TNode): TStockItem {
   const unit = orNull(val(n, 'BASEUNITS'));
   const openings: TItemOpening[] = [];
   for (const b of kidsOf(n, 'BATCHALLOCATIONS.LIST')) {
-    const q = tallyQty(val(b, 'OPENINGBALANCE'));
+    const q = xmlQty(val(b, 'OPENINGBALANCE'));
     if (!q || q.qty === 0) continue;
     const v = ourAmount(val(b, 'OPENINGVALUE'));
-    const r = tallyRate(val(b, 'OPENINGRATE'));
+    const r = xmlRate(val(b, 'OPENINGRATE'));
     const batch = val(b, 'BATCHNAME');
     openings.push({
       godown: orNull(val(b, 'GODOWNNAME')),
@@ -671,10 +672,10 @@ function parseStockItem(n: TNode): TStockItem {
     });
   }
   if (openings.length === 0) {
-    const q = tallyQty(val(n, 'OPENINGBALANCE'));
+    const q = xmlQty(val(n, 'OPENINGBALANCE'));
     if (q && q.qty !== 0) {
       const v = ourAmount(val(n, 'OPENINGVALUE'));
-      const r = tallyRate(val(n, 'OPENINGRATE'));
+      const r = xmlRate(val(n, 'OPENINGRATE'));
       openings.push({ godown: null, batch: null, qty: q.qty, rate: r?.rate ?? null, value: v === null ? null : Math.abs(v) });
     }
   }
@@ -731,10 +732,10 @@ function parseEntry(n: TNode, fromInventory: boolean): TEntry | null {
     ? {
         type: orNull(val(bankNode, 'TRANSACTIONTYPE')),
         number: orNull(val(bankNode, 'INSTRUMENTNUMBER')),
-        date: tallyDate(val(bankNode, 'INSTRUMENTDATE')),
+        date: xmlDate(val(bankNode, 'INSTRUMENTDATE')),
         bankName: orNull(val(bankNode, 'BANKNAME')),
         favouring: orNull(val(bankNode, 'PAYMENTFAVOURING')),
-        bankDate: tallyDate(val(bankNode, 'BANKERSDATE')),
+        bankDate: xmlDate(val(bankNode, 'BANKERSDATE')),
       }
     : null;
   return { ledger, amount, bills, costs: parseCosts(n), bank, fromInventory };
@@ -743,14 +744,14 @@ function parseEntry(n: TNode, fromInventory: boolean): TEntry | null {
 function parseInventory(n: TNode, direction: 'in' | 'out' | null, enclosingLedger: string | null, entries: TEntry[]): TInventoryLine | null {
   const item = val(n, 'STOCKITEMNAME');
   if (!item) return null;
-  const actual = tallyQty(val(n, 'ACTUALQTY'));
-  const billed = tallyQty(val(n, 'BILLEDQTY'));
+  const actual = xmlQty(val(n, 'ACTUALQTY'));
+  const billed = xmlQty(val(n, 'BILLEDQTY'));
   const amt = ourAmount(val(n, 'AMOUNT'));
-  const rate = tallyRate(val(n, 'RATE'));
+  const rate = xmlRate(val(n, 'RATE'));
   const allocations: TInvAlloc[] = [];
   for (const b of kidsOf(n, 'BATCHALLOCATIONS.LIST')) {
-    const q = tallyQty(val(b, 'ACTUALQTY'));
-    const bq = tallyQty(val(b, 'BILLEDQTY'));
+    const q = xmlQty(val(b, 'ACTUALQTY'));
+    const bq = xmlQty(val(b, 'BILLEDQTY'));
     const a = ourAmount(val(b, 'AMOUNT'));
     const batch = val(b, 'BATCHNAME');
     const track = val(b, 'TRACKINGNUMBER');
@@ -816,11 +817,11 @@ function parseVoucher(n: TNode): TVoucher {
   const rawDate = val(n, 'DATE');
   return {
     vchType: clean(n.attrs.VCHTYPE) || val(n, 'VOUCHERTYPENAME'),
-    date: tallyDate(rawDate),
+    date: xmlDate(rawDate),
     rawDate,
     number: orNull(val(n, 'VOUCHERNUMBER')),
     reference: orNull(val(n, 'REFERENCE')),
-    referenceDate: tallyDate(val(n, 'REFERENCEDATE')),
+    referenceDate: xmlDate(val(n, 'REFERENCEDATE')),
     narration: orNull(val(n, 'NARRATION')),
     party: orNull(valAny(n, 'PARTYLEDGERNAME', 'PARTYNAME')),
     partyGstin: orNull(val(n, 'PARTYGSTIN').toUpperCase()),
@@ -842,7 +843,7 @@ export function voucherLabel(v: Pick<TVoucher, 'vchType' | 'number' | 'date' | '
   return `${v.vchType || 'Voucher'}${v.number ? ` ${v.number}` : ''} (${d})`;
 }
 
-const emptyCounts = (): Record<TallyObjectType, number> => ({
+const emptyCounts = (): Record<XmlObjectType, number> => ({
   GROUP: 0,
   LEDGER: 0,
   COSTCATEGORY: 0,
@@ -858,14 +859,14 @@ const emptyCounts = (): Record<TallyObjectType, number> => ({
 });
 
 /** Decode and parse a Tally XML export. Throws FileFormatError when it is not one. */
-export function parseTallyFile(bytes: Uint8Array): TallyFile {
+export function parseXmlFile(bytes: Uint8Array): XmlFile {
   if (bytes.length === 0) throw new FileFormatError('xml', 'The file is empty.');
   const { text, encoding } = decodeText(bytes);
-  const { company, objects, root } = readTallyObjects(text);
+  const { company, objects, root } = readXmlObjects(text);
   if (root !== 'ENVELOPE' && objects.length === 0) {
     throw new FileFormatError('xml', 'This is not a Tally XML export (it has no ENVELOPE). In Tally use Gateway › Export › Masters or Transactions with the XML format.');
   }
-  const file: TallyFile = {
+  const file: XmlFile = {
     encoding,
     companyName: company,
     groups: [],
@@ -895,7 +896,7 @@ export function parseTallyFile(bytes: Uint8Array): TallyFile {
       unsupported.set(`${o.name} (delete)`, (unsupported.get(`${o.name} (delete)`) ?? 0) + 1);
       continue;
     }
-    const type = o.name as TallyObjectType;
+    const type = o.name as XmlObjectType;
     file.counts[type]++;
     switch (type) {
       case 'GROUP':

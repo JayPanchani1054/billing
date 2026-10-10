@@ -151,7 +151,7 @@ describe('createTestCompany', () => {
   it('lazily provides temp folders for code that writes files', () => {
     const t = createTestCompany();
     const dir = t.ctx.company.dir;
-    assert.ok(dir.includes('bahi-test-'));
+    assert.ok(dir.includes('pevqori-test-'));
     t.close();
   });
 });

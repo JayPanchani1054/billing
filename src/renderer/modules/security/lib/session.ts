@@ -41,7 +41,7 @@ export function idleLevel(deadline: number | null, timeoutMinutes: number, now: 
 export function idleExplanation(s: Pick<MySession, 'idleTimeoutMinutes' | 'implicit' | 'securityEnabled'>): string {
   if (!s.securityEnabled || s.implicit) return 'Security is off, so there is no login and no automatic logout.';
   if (s.idleTimeoutMinutes <= 0) return 'Automatic logout is off for this company. Lock the computer (Windows+L) when you step away.';
-  return `You are logged out after ${formatMinutes(s.idleTimeoutMinutes)} without any key press or click. Any activity in Bahi starts the countdown again.`;
+  return `You are logged out after ${formatMinutes(s.idleTimeoutMinutes)} without any key press or click. Any activity in Pevqori starts the countdown again.`;
 }
 
 export type Tone = 'neutral' | 'success' | 'warning' | 'danger' | 'info';

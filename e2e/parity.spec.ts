@@ -1,7 +1,7 @@
 // The Tally-parity features through the real UI of the built app, keyboard first:
 //
 //   wizard company → F11: TDS, multiple currencies, cheque printing, manufacturing, POS → masters
-//   (through window.bahi.api) → quotation → Quotation Register › Alt+V → Sales 1 (Ctrl+A) →
+//   (through window.pevqori.api) → quotation → Quotation Register › Alt+V → Sales 1 (Ctrl+A) →
 //   print preview of Sales 1 on A5 and on the 80 mm roll → POS counter: scan, UPI + cash, change →
 //   purchase (F9) with the TDS auto-line → export invoice in US$ (voucher view) → Manufacturing
 //   Journal from the BOM → cheque print preview of a payment (voucher view › Alt+K).
@@ -80,11 +80,11 @@ async function sheetWidthMm(preview: Locator): Promise<number> {
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
-  launched = await launchApp('bahi-e2e-parity-');
+  launched = await launchApp('pevqori-e2e-parity-');
   ({ app, page, dataDir } = launched);
   page.on('pageerror', (err) => pageErrors.push(`${err.name}: ${err.message}`));
   page.on('console', (msg) => {
-    if (msg.type() === 'error' && msg.text().includes('[bahi]')) appErrors.push(msg.text());
+    if (msg.type() === 'error' && msg.text().includes('[pevqori]')) appErrors.push(msg.text());
   });
   await stubNativeDialogs(app);
 });

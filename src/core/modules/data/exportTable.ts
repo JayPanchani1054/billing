@@ -138,7 +138,7 @@ function buildXlsx(input: ExportTableInput, companyName: string): Uint8Array {
   const title = [companyName, input.title, input.subtitle ?? '', periodText(input.period)].filter((t) => t.trim() !== '');
   return writeXlsx({
     sheets: [{ name: input.title.slice(0, 31) || 'Report', columns, rows, title, freezeHeader: true, autoFilter: input.rows.length > 0 }],
-    creator: 'Bahi ERP',
+    creator: 'Pevqori',
   });
 }
 

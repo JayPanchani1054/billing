@@ -3,7 +3,7 @@
 //
 // Fails closed: if @electron/fuses (a declared devDependency) cannot be loaded, a wanted fuse is
 // unknown to it, flipping fails, or the read-back differs, the build FAILS — a release can never ship
-// an unhardened binary with a green log. For a throw-away local experiment only, BAHI_ALLOW_UNFUSED=1
+// an unhardened binary with a green log. For a throw-away local experiment only, PEVQORI_ALLOW_UNFUSED=1
 // downgrades this to a warning; CI never sets it.
 'use strict';
 
@@ -38,8 +38,8 @@ async function afterPack(context) {
     await applyFuses(context);
   } catch (err) {
     const message = `Electron fuses could not be applied: ${err && err.message ? err.message : String(err)}`;
-    if (process.env.BAHI_ALLOW_UNFUSED === '1') {
-      console.warn(`  • WARNING (BAHI_ALLOW_UNFUSED=1): ${message} — this build must not be distributed`);
+    if (process.env.PEVQORI_ALLOW_UNFUSED === '1') {
+      console.warn(`  • WARNING (PEVQORI_ALLOW_UNFUSED=1): ${message} — this build must not be distributed`);
       return;
     }
     throw new Error(message);

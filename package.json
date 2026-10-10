@@ -1,10 +1,10 @@
 {
-  "name": "bahi-erp",
-  "productName": "Bahi ERP",
+  "name": "pevqori",
+  "productName": "Pevqori",
   "version": "0.1.0",
   "private": true,
   "description": "Offline-first GST accounting, invoicing and inventory for Indian businesses",
-  "author": "Bahi ERP",
+  "author": "Pevqori",
   "license": "UNLICENSED",
   "type": "module",
   "main": "out/main/index.cjs",
@@ -25,7 +25,7 @@
     "dist:win": "npm run build && electron-builder --win --x64 --publish never",
     "dist:dir": "npm run build && electron-builder --dir --publish never",
     "typecheck:offline": "tsc -p tsconfig.core.json && tsc -p tsconfig.node.offline.json && tsc -p tsconfig.web.offline.json",
-    "check:fuses": "node scripts/check-fuses.cjs \"release/win-unpacked/Bahi ERP.exe\""
+    "check:fuses": "node scripts/check-fuses.cjs \"release/win-unpacked/Pevqori.exe\""
   },
   "devDependencies": {
     "@electron/fuses": "^1.8.0",

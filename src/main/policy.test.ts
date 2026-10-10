@@ -32,11 +32,11 @@ describe('absoluteEnvPath', () => {
 
 describe('isAppUrl', () => {
   it('recognises the app origin only', () => {
-    assert.equal(isAppUrl('app://bahi/index.html', null), true);
-    assert.equal(isAppUrl('app://bahi/assets/x.js', null), true);
+    assert.equal(isAppUrl('app://pevqori/index.html', null), true);
+    assert.equal(isAppUrl('app://pevqori/assets/x.js', null), true);
     assert.equal(isAppUrl('app://other/index.html', null), false);
     assert.equal(isAppUrl('file:///C:/index.html', null), false);
-    assert.equal(isAppUrl('https://bahi/index.html', null), false);
+    assert.equal(isAppUrl('https://pevqori/index.html', null), false);
     assert.equal(isAppUrl('garbage', null), false);
   });
 
@@ -50,8 +50,8 @@ describe('isAppUrl', () => {
 
 describe('isTrustedFrame', () => {
   it('requires a top-level frame on the app origin', () => {
-    assert.equal(isTrustedFrame({ url: 'app://bahi/index.html', parent: null }, null), true);
-    assert.equal(isTrustedFrame({ url: 'app://bahi/index.html', parent: {} }, null), false, 'sub-frames are refused');
+    assert.equal(isTrustedFrame({ url: 'app://pevqori/index.html', parent: null }, null), true);
+    assert.equal(isTrustedFrame({ url: 'app://pevqori/index.html', parent: {} }, null), false, 'sub-frames are refused');
     assert.equal(isTrustedFrame({ url: 'https://example.com/', parent: null }, null), false);
     assert.equal(isTrustedFrame(null, null), false);
   });
@@ -79,9 +79,9 @@ describe('contentSecurityPolicy', () => {
 
 describe('isAllowedAppRequest', () => {
   it('blocks the network and file system, allows local schemes', () => {
-    assert.equal(isAllowedAppRequest('app://bahi/assets/index.js', null), true);
+    assert.equal(isAllowedAppRequest('app://pevqori/assets/index.js', null), true);
     assert.equal(isAllowedAppRequest('data:image/png;base64,AAAA', null), true);
-    assert.equal(isAllowedAppRequest('blob:app://bahi/123', null), true);
+    assert.equal(isAllowedAppRequest('blob:app://pevqori/123', null), true);
     assert.equal(isAllowedAppRequest('https://example.com/', null), false);
     assert.equal(isAllowedAppRequest('http://127.0.0.1:5173/', null), false);
     assert.equal(isAllowedAppRequest('file:///etc/passwd', null), false);

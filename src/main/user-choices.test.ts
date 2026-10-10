@@ -9,7 +9,7 @@ describe('isUserChosenPath (main’s AppRuntime.authorizePath)', () => {
     const files = new PathSet();
     const folders = new PathSet();
     const sets = { files, folders };
-    const file = path.resolve('/home/u/Downloads/a.bahibak');
+    const file = path.resolve('/home/u/Downloads/a.pvqbak');
     const folder = path.resolve('/media/usb/Backups');
     files.add(file);
     folders.add(folder);
@@ -17,8 +17,8 @@ describe('isUserChosenPath (main’s AppRuntime.authorizePath)', () => {
     assert.equal(isUserChosenPath(file, 'write-dir', sets), false, 'an opened file does not authorise writing');
     assert.equal(isUserChosenPath(path.dirname(file), 'read-dir', sets), false, 'nor its folder');
     assert.equal(isUserChosenPath(folder, 'write-dir', sets), true);
-    assert.equal(isUserChosenPath(path.join(folder, 'x.bahibak'), 'read-file', sets), true);
-    assert.equal(isUserChosenPath(path.resolve('/media/usb/Backups-other/x.bahibak'), 'read-file', sets), false);
+    assert.equal(isUserChosenPath(path.join(folder, 'x.pvqbak'), 'read-file', sets), true);
+    assert.equal(isUserChosenPath(path.resolve('/media/usb/Backups-other/x.pvqbak'), 'read-file', sets), false);
     assert.equal(isUserChosenPath(path.resolve('/etc/passwd'), 'read-file', sets), false);
   });
 });

@@ -2,7 +2,7 @@
  * Bulk e-payment file: one row per selected Payment voucher paid by bank transfer, for the bank's bulk
  * upload (NEFT / RTGS / IMPS).
  *
- * The file is Bahi's documented generic CSV (README › E-payments), not any one bank's proprietary
+ * The file is Pevqori's documented generic CSV (README › E-payments), not any one bank's proprietary
  * upload template: each bank's corporate portal has its own column order and maps a CSV on upload, or
  * the columns are rearranged once in a spreadsheet. Rules applied:
  *   - RTGS is for ₹2,00,000 and above (RBI); IMPS up to ₹5,00,000 per transaction (RBI, from Oct 2021);

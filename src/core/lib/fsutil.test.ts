@@ -7,7 +7,7 @@ import { exists, isInside, isPidAlive, probeWritable, readJsonFile, samePath, si
 
 let dir: string;
 before(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-fsutil-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-fsutil-'));
 });
 after(() => fs.rmSync(dir, { recursive: true, force: true }));
 

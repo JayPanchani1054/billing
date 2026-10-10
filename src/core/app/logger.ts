@@ -1,6 +1,6 @@
 /**
- * Application log: append-only JSON lines at <logDir>/bahi.log with size-based rotation
- * (bahi.log → bahi.log.1 → … → bahi.log.<keep>). Never throws; never records secrets —
+ * Application log: append-only JSON lines at <logDir>/pevqori.log with size-based rotation
+ * (pevqori.log → pevqori.log.1 → … → pevqori.log.<keep>). Never throws; never records secrets —
  * any key matching /password|secret|token/i is redacted recursively.
  *
  * Callers must not pass voucher payloads, GSTIN/PAN lists or other bulk business data as meta.
@@ -17,7 +17,7 @@ export interface Logger {
 }
 
 export interface LoggerOptions {
-  /** Folder for bahi.log; omit for console-only logging. */
+  /** Folder for pevqori.log; omit for console-only logging. */
   dir?: string;
   /** Also write to the console (development). */
   console?: boolean;
@@ -65,7 +65,7 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
   if (opts.dir) {
     try {
       fs.mkdirSync(opts.dir, { recursive: true });
-      file = path.join(opts.dir, 'bahi.log');
+      file = path.join(opts.dir, 'pevqori.log');
       try {
         size = fs.statSync(file).size;
       } catch {
@@ -73,7 +73,7 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
       }
     } catch (err) {
       file = null;
-      if (opts.console) console.error('[bahi] cannot create log folder', err);
+      if (opts.console) console.error('[pevqori] cannot create log folder', err);
     }
   }
 
@@ -107,7 +107,7 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
       }
       if (opts.console) {
         const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
-        fn(`[bahi] ${level} ${message}`, meta === undefined ? '' : entry.meta);
+        fn(`[pevqori] ${level} ${message}`, meta === undefined ? '' : entry.meta);
       }
       if (!file) return;
       try {

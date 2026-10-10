@@ -5,7 +5,7 @@ import { answerGotoCatalogRequest, GOTO_CATALOG_EVENT, gotoCatalogSnapshot } fro
 
 const items: GotoItem[] = [
   { id: 'menu:reports:reports.register:Sales Register', label: 'Sales Register', group: 'Reports', description: 'Month-wise sales vouchers', screen: 'reports.register', params: { baseType: 'sales' } },
-  { id: 'screen:company.about', label: 'About Bahi ERP', group: 'Screens', screen: 'company.about' },
+  { id: 'screen:company.about', label: 'About Pevqori', group: 'Screens', screen: 'company.about' },
   { id: 'cmd:date', label: 'Change working date', group: 'Commands', screen: '', command: 'date', hotkey: 'F2', keywords: ['date'] },
 ];
 const screens = [
@@ -18,7 +18,7 @@ describe('gotoCatalogSnapshot', () => {
     const snap = gotoCatalogSnapshot(items, screens);
     assert.deepEqual(snap.items, [
       { id: 'menu:reports:reports.register:Sales Register', label: 'Sales Register', group: 'Reports', description: 'Month-wise sales vouchers', screen: 'reports.register', params: { baseType: 'sales' }, command: null },
-      { id: 'screen:company.about', label: 'About Bahi ERP', group: 'Screens', description: null, screen: 'company.about', params: null, command: null },
+      { id: 'screen:company.about', label: 'About Pevqori', group: 'Screens', description: null, screen: 'company.about', params: null, command: null },
       { id: 'cmd:date', label: 'Change working date', group: 'Commands', description: null, screen: '', params: null, command: 'date' },
     ]);
     assert.deepEqual(snap.screens, [

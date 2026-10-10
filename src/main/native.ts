@@ -482,7 +482,7 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
       // An empty data folder (core not started) must not resolve to the working directory.
       if (!(dataDir !== '' && isPathInside(dataDir, target)) && !chosen.covers(target)) {
         log('warn', 'Refused to reveal a path outside the data folder');
-        throw new AppError('FORBIDDEN', 'Only files in the Bahi ERP data folder, or files you chose in this session, can be shown.');
+        throw new AppError('FORBIDDEN', 'Only files in the Pevqori data folder, or files you chose in this session, can be shown.');
       }
       try {
         await fsp.access(target);

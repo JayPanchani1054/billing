@@ -21,7 +21,7 @@
  *     and onRestarted() lets main tell the window. Log lines written meanwhile are buffered and flushed
  *     into the new worker, so the crash itself ends up in the log file.
  *   - A restart that cannot start, or too many crashes, leave the proxy 'failed': calls answer with an
- *     error asking the user to restart Bahi ERP.
+ *     error asking the user to restart Pevqori.
  *
  * Pure (no Electron, no worker_threads): the worker and the timers are injected, so the whole
  * protocol is unit-tested with a fake worker (core-proxy.test.ts). nodeWorkerSpawner() is the real one.
@@ -129,9 +129,9 @@ export const CORE_ERRORS = {
   restarted: internal(
     'The accounting engine stopped unexpectedly and has been restarted. Your last action may not have been saved — check it, then try again. Saved data is safe.',
   ),
-  failed: internal('The accounting engine stopped and could not be restarted. Close Bahi ERP and open it again. Saved data is safe.'),
-  closing: internal('Bahi ERP is closing. Open it again to continue.'),
-  notStarted: internal('Bahi ERP is still starting. Try again in a moment.'),
+  failed: internal('The accounting engine stopped and could not be restarted. Close Pevqori and open it again. Saved data is safe.'),
+  closing: internal('Pevqori is closing. Open it again to continue.'),
+  notStarted: internal('Pevqori is still starting. Try again in a moment.'),
   timeout: internal(
     'This is taking much longer than expected. It may still finish in the background — check the result before trying again.',
   ),
@@ -159,8 +159,8 @@ export const SLOW_CALL_MS = 500;
 
 function defaultConsoleLog(level: LogLevel, message: string, meta?: unknown): void {
   const out = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
-  if (meta === undefined) out(`[bahi:${level}] ${message}`);
-  else out(`[bahi:${level}] ${message}`, meta);
+  if (meta === undefined) out(`[pevqori:${level}] ${message}`);
+  else out(`[pevqori:${level}] ${message}`, meta);
 }
 
 export function createCoreProxy(options: CoreProxyOptions): CoreProxy {
@@ -296,7 +296,7 @@ export function createCoreProxy(options: CoreProxyOptions): CoreProxy {
       return;
     }
     if (!restart) {
-      options.log('error', 'The core worker could not be restarted; Bahi ERP must be restarted');
+      options.log('error', 'The core worker could not be restarted; Pevqori must be restarted');
       return;
     }
     restarts.push(timers.now());
@@ -443,7 +443,7 @@ export function createCoreProxy(options: CoreProxyOptions): CoreProxy {
     settleAll(CORE_ERRORS.closing);
     const waiter = startWaiter;
     startWaiter = null;
-    waiter?.reject(new Error('Bahi ERP was closed while the core was starting'));
+    waiter?.reject(new Error('Pevqori was closed while the core was starting'));
     state = 'stopped';
     flushLogs(null);
   }
@@ -522,7 +522,7 @@ export function workerScriptPath(mainDir: string): string {
 export function nodeWorkerSpawner(scriptPath: string, base: Omit<CoreWorkerInit, 'choices'>): SpawnCoreWorker {
   return (init, events) => {
     const workerData: CoreWorkerInit = { ...base, choices: init.choices };
-    const worker = new Worker(scriptPath, { workerData, name: 'bahi-core' });
+    const worker = new Worker(scriptPath, { workerData, name: 'pevqori-core' });
     worker.on('message', (m: unknown) => events.message(m));
     worker.on('messageerror', (err: unknown) => events.messageError(err));
     worker.on('error', (err: unknown) => events.error(err));

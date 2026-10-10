@@ -10,7 +10,7 @@ import { AppError } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
 import { routes } from './routes.ts';
 
-const PARITY_PREFIXES = ['tds.', 'documents.', 'mfg.', 'forex.', 'cheques.', 'attachments.', 'print.share.', 'pos.', 'data.tally.export'];
+const PARITY_PREFIXES = ['tds.', 'documents.', 'mfg.', 'forex.', 'cheques.', 'attachments.', 'print.share.', 'pos.', 'data.xmlExport.create'];
 const parity = Object.entries(routes).filter(([name]) => PARITY_PREFIXES.some((p) => name.startsWith(p)));
 
 /** Routes whose access is 'authenticated' because the service checks the OWNER's view permission. */

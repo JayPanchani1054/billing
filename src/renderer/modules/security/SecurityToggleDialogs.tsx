@@ -132,7 +132,7 @@ export function EnableSecurityDialog({ owners, onClose }: { owners: readonly Sec
                 </Field>
               </Stack>
               <Banner tone="warning" inline title="Keep this password safe">
-                Bahi ERP cannot recover a forgotten Owner password. Write it down and keep it somewhere safe, or add a second Owner later.
+                Pevqori cannot recover a forgotten Owner password. Write it down and keep it somewhere safe, or add a second Owner later.
               </Banner>
             </>
           )}

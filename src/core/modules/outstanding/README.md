@@ -1,6 +1,6 @@
 # outstanding — bills receivable / payable, ageing, interest, statements, reminders
 
-Tally's **Statements of Accounts › Outstandings** for Bahi ERP: bills receivable and payable, group
+Tally's **Statements of Accounts › Outstandings** for Pevqori: bills receivable and payable, group
 (party) outstandings, ledger outstandings with each bill's history, ageing analysis, interest on overdue
 bills, statement of account, payment reminder letters, and the dashboard's "due soon" list.
 

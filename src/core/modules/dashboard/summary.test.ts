@@ -420,7 +420,7 @@ test('backup age; never backed up → null', () => {
   // The fixed clock is 8-Oct-2026 10:00 IST (04:30Z): a backup at 28-Sep 04:30Z is exactly 10 days old.
   b.t.db.run(
     `INSERT INTO backup_history (created_at, file_name, folder, size_bytes, encrypted, kind, payload_sha256)
-     VALUES ('2026-09-28T04:30:00.000Z', 'x.bahibak', '/tmp', 1, 0, 'manual', 'abc')`,
+     VALUES ('2026-09-28T04:30:00.000Z', 'x.pvqbak', '/tmp', 1, 0, 'manual', 'abc')`,
   );
   assert.deepEqual(summaryForCtx(b.t.ctx, INPUT).backup, { lastBackupAt: '2026-09-28T04:30:00.000Z', daysSince: 10 });
   b.t.close();

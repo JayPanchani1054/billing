@@ -1,6 +1,6 @@
-# Bahi ERP 1.0 — scope: what is deliberately left out or partial
+# Pevqori 1.0 — scope: what is deliberately left out or partial
 
-Bahi ERP covers the day-to-day books, GST, TDS / TCS, inventory, manufacturing, banking and reporting of
+Pevqori covers the day-to-day books, GST, TDS / TCS, inventory, manufacturing, banking and reporting of
 an Indian small or medium business, offline, on one Windows computer. This page lists, honestly, what it
 does **not** do, what it does only in part, and the legal assumptions to check — so you can decide what
 to keep doing elsewhere (on the government portals, in your CA's software, by hand).
@@ -11,36 +11,36 @@ detail. How to use what *is* built is in the [User Guide](USER_GUIDE.md).
 
 Three principles explain most of the list:
 
-- **Offline first.** Bahi makes no network calls. Anything that needs a government or bank API (with
+- **Offline first.** Pevqori makes no network calls. Anything that needs a government or bank API (with
   credentials, a whitelisted IP and a live connection) is done by a file round trip instead, or not at all.
 - **One company, one place, one user at a time.** A company is a folder with one database, opened by one
-  copy of Bahi at a time. There is no server.
+  copy of Pevqori at a time. There is no server.
 - **Never guess a legal format.** Where an official file layout (FVU, portal offline-tool JSON, a bank's
-  upload format) could not be reproduced with certainty, Bahi writes a documented CSV / JSON of the same
+  upload format) could not be reproduced with certainty, Pevqori writes a documented CSV / JSON of the same
   fields rather than a file that might be rejected or, worse, accepted wrongly.
 
 ## 1. Deliberately out of scope
 
 | Not in 1.0 | Why | What to do instead |
 |---|---|---|
-| **Payroll** (salary, PF / ESI, payslips) and **salary TDS** — section 192, Form 24Q, Form 16 | A payroll module is a product of its own (attendance, structures, statutory slabs) | Use payroll software; post the salary journal and the TDS payable in Bahi |
-| **Direct e-invoice (IRP), e-way bill and GSP APIs**; uploading returns to the GST portal | Needs GSP / API credentials and a live connection; Bahi is offline | JSON round trip: save the JSON in Bahi, upload it on the portal, import the IRP response / record the EWB number (User Guide §6.3); upload GSTR-1 / 3B JSON in the portal's offline utility |
-| **Invoice Management System (IMS)** accept / reject / pending actions | Portal-side workflow; no offline file to exchange | Act on the portal; reconcile GSTR-2B in Bahi (User Guide §6.6) |
+| **Payroll** (salary, PF / ESI, payslips) and **salary TDS** — section 192, Form 24Q, Form 16 | A payroll module is a product of its own (attendance, structures, statutory slabs) | Use payroll software; post the salary journal and the TDS payable in Pevqori |
+| **Direct e-invoice (IRP), e-way bill and GSP APIs**; uploading returns to the GST portal | Needs GSP / API credentials and a live connection; Pevqori is offline | JSON round trip: save the JSON in Pevqori, upload it on the portal, import the IRP response / record the EWB number (User Guide §6.3); upload GSTR-1 / 3B JSON in the portal's offline utility |
+| **Invoice Management System (IMS)** accept / reject / pending actions | Portal-side workflow; no offline file to exchange | Act on the portal; reconcile GSTR-2B in Pevqori (User Guide §6.6) |
 | **Multi-company consolidation**, group accounts, inter-company eliminations | Each company is a separate folder and database, opened one at a time | Export each company's Trial Balance (Alt+E) and consolidate in a spreadsheet |
 | **Several users working at the same time** / client–server use | Single-writer design (one lock per company) keeps the books consistent without a server | Take turns; keep one Owner per company; use users and roles for who may do what |
-| **TDS FVU file**, **Form 16A / 27D** certificates, TRACES integration, correction statements | The RPU / FVU formats change between versions and could not be reproduced with certainty; certificates must come from TRACES | Bahi saves two CSV files with every RPU field (User Guide §7, step 7); validate with the current FVU; download certificates from TRACES |
-| **Portal offline-tool files** for ITC-04 and GSTR-4 (and CMP-08, which has no upload at all) | Schemas not reproduced with certainty | Bahi's documented CSV / Excel / JSON of the same tables to key into the offline tool or portal |
+| **TDS FVU file**, **Form 16A / 27D** certificates, TRACES integration, correction statements | The RPU / FVU formats change between versions and could not be reproduced with certainty; certificates must come from TRACES | Pevqori saves two CSV files with every RPU field (User Guide §7, step 7); validate with the current FVU; download certificates from TRACES |
+| **Portal offline-tool files** for ITC-04 and GSTR-4 (and CMP-08, which has no upload at all) | Schemas not reproduced with certainty | Pevqori's documented CSV / Excel / JSON of the same tables to key into the offline tool or portal |
 | **Downloading exchange rates**; FCMITDA (AS 11 para 46A), hedge accounting; automatic reversal of a revaluation | Offline; these are judgements for your CA | Type the rates (bank's or CBIC's); pass journals; duplicate and reverse the revaluation journal yourself |
 | **Bank integrations** — host-to-host payments, bank-specific bulk-upload formats, automatic statement download; bank-specific cheque layouts | Each bank's format differs and changes; no network access | Generic documented e-payment CSV (map its columns once in net banking); import downloaded statements (CSV / Excel); calibrate a cheque layout once per bank |
-| **Tally job work vouchers** (Material In / Out) and **budgets** in the Tally XML import | Not mapped; budgets are skipped as unsupported objects | Re-enter them in Bahi after migrating |
+| **Tally job work vouchers** (Material In / Out) and **budgets** in the Tally XML import | Not mapped; budgets are skipped as unsupported objects | Re-enter them in Pevqori after migrating |
 | **Multi-level BOM explosion** | One level per BOM keeps costing traceable | Make sub-assemblies with their own Manufacturing Journal first |
 | **Other GST returns and forms**: GSTR-9C (reconciliation statement), GSTR-6 (ISD), GSTR-7 / GSTR-8 (GST TDS deductors, e-commerce operators), ITC-03, GSTR-10 | Outside a regular or composition supplier's monthly cycle; GSTR-9 is a summary from the books only | Prepare them on the portal or with your CA; the GSTR-9 summary, registers and Trial Balance give the figures |
-| **Fixed-asset register and automatic depreciation** (Companies Act Schedule II, Income-tax block of assets) | Not built | Keep the asset register outside Bahi and pass the depreciation journal (F7) |
+| **Fixed-asset register and automatic depreciation** (Companies Act Schedule II, Income-tax block of assets) | Not built | Keep the asset register outside Pevqori and pass the depreciation journal (F7) |
 | **B2C dynamic QR code** (Notification 14/2020-CT, aggregate turnover above ₹500 crore) | Out of the target market | The printed UPI "Scan to pay" QR is a payment QR only |
 | **Automatic updates**, cloud sync, uploading backups | Offline by design; nothing to verify an update against | Install new versions yourself (INSTALL.md); point the backup folder at a cloud-synchronised folder if you want |
 | **macOS, Linux, 32-bit or ARM Windows** installers | One supported platform is tested end to end | Windows 10 / 11, 64-bit |
-| **Unattended recurring postings** | Bahi has no background process; posting without review would bypass warnings | Review the due list and post with one key (User Guide §4.6) |
-| **Sending e-mail or WhatsApp messages itself** | No network access | Bahi prepares the PDF and the draft; your mail program or WhatsApp sends it |
+| **Unattended recurring postings** | Pevqori has no background process; posting without review would bypass warnings | Review the due list and post with one key (User Guide §4.6) |
+| **Sending e-mail or WhatsApp messages itself** | No network access | Pevqori prepares the PDF and the draft; your mail program or WhatsApp sends it |
 | Interface and letters in languages other than English | Not built | Ledgers and items can carry local-language aliases |
 
 ## 2. Built, but partial
@@ -50,7 +50,7 @@ Three principles explain most of the list:
   amendments of advances (11A(2) / 11B(2)); amendments of small B2C sales (table 10) are listed but must
   be entered on the portal by place of supply and rate.
 - GST must be entered in **invoice mode** (item or accounting invoice); tax typed on a plain journal is not
-  in the returns (Bahi warns). A ledger's "GST nature override" is stored but not applied.
+  in the returns (Pevqori warns). A ledger's "GST nature override" is stored but not applied.
 - The **electronic credit and cash ledgers** are rebuilt from your books, not read from the portal; a
   **set-off already posted** is not recomputed when the period's vouchers change (alter or repost it).
 - **Rule 37**: interest u/s 50 is not worked out; suppliers kept without bill-wise details cannot be
@@ -115,7 +115,7 @@ Three principles explain most of the list:
 - Import: foreign-currency amounts come in as rupees; Tally's stat-adjustment journals arrive as plain
   journals; a debit note to a customer is imported for value only (Tally moves stock for it — listed in
   the import log); the original invoice of a note is read from Tally's *Reference* fields only.
-- Export: tested by re-importing into Bahi, **not** against a live TallyPrime — import into a copy of the
+- Export: tested by re-importing into Pevqori, **not** against a live TallyPrime — import into a copy of the
   Tally company first. Not exported: foreign-currency amounts, e-invoice / e-way bill details, shipping
   bill details, per-line GST overrides, price lists, BOMs, budgets, scenarios, attachments, quotations,
   proforma invoices, physical stock vouchers. SEZ / deemed export / UIN parties go as Regular and overseas
@@ -161,7 +161,7 @@ Three principles explain most of the list:
 
 ## 3. Legal assumptions to check
 
-Bahi follows the law as understood on 10 October 2026. These points are assumptions or depend on
+Pevqori follows the law as understood on 10 October 2026. These points are assumptions or depend on
 notifications — confirm them with your adviser:
 
 - **TDS / TCS rates and thresholds** are seeded for FY 2025-26 and assumed unchanged under the Income-tax

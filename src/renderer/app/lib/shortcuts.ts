@@ -52,7 +52,7 @@ export const GLOBAL_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'F11', label: 'Features', group: 'Company', global: true },
   { keys: 'F12', label: 'Configuration', group: 'Company', global: true },
   { keys: 'F1, Ctrl+H', label: 'Keyboard shortcuts and help', group: 'Help', global: true },
-  { keys: 'Ctrl+Q', label: 'Quit Bahi ERP', group: 'Help', global: true },
+  { keys: 'Ctrl+Q', label: 'Quit Pevqori', group: 'Help', global: true },
 ];
 
 /**

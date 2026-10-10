@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Bahi ERP are recorded here. Versions follow [Semantic Versioning](https://semver.org/);
+All notable changes to Pevqori are recorded here. Versions follow [Semantic Versioning](https://semver.org/);
 a release is published by tagging `v<version>` (see [docs/BUILD.md](docs/BUILD.md#6-releasing)).
 
 ## 1.0.0 — 2026-10-10
@@ -65,7 +65,7 @@ how to install it is in [docs/INSTALL.md](docs/INSTALL.md) and how to use it in
   reverse-charge liability; GST set-off in the Rule 88A order posted as one journal; electronic cash and
   credit ledgers; filing status with GSTR-1 amendments (9A / 9C / 10) and protection of periods whose
   GSTR-1 or GSTR-3B is filed; Rule 37 180-day report.
-- Composition dealers: rate master, CMP-08 and GSTR-4 from the books (Bahi's CSV / JSON).
+- Composition dealers: rate master, CMP-08 and GSTR-4 from the books (Pevqori's CSV / JSON).
 
 ### TDS / TCS
 - Natures of payment / goods with dated rates and thresholds (seeded for 194C/H/I/J/A/Q/R/T, 195,

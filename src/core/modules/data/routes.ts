@@ -37,13 +37,13 @@ import {
   type ImportPreviewInput,
   type ImportPreviewResult,
   type ImportTemplateInput,
-  type TallyExportInput,
-  type TallyExportResult,
-  type TallyImportInput,
-  type TallyImportResult,
-  type TallyPreviewInput,
-  type TallyPreviewResult,
-  type TallyProgress,
+  type XmlExportInput,
+  type XmlExportResult,
+  type XmlImportInput,
+  type XmlImportResult,
+  type XmlPreviewInput,
+  type XmlPreviewResult,
+  type XmlImportProgress,
 } from '../../../shared/types/data.ts';
 import { VOUCHER_BASE_TYPES } from '../../../shared/constants.ts';
 import { appRoute, companyRoute, type RouteMap } from '../../api/route.ts';
@@ -55,8 +55,8 @@ import { exportMasters, exportVouchers } from './exportData.ts';
 import { auditReportOutput, exportTable } from './exportTable.ts';
 import { commitImport, importProgress, importTemplate, previewImport } from './importer.ts';
 import { KIND_SPECS, kindInfo } from './importSpecs.ts';
-import { exportTally } from './tallyExport.ts';
-import { importTally, previewTally, tallyProgress } from './tallyImport.ts';
+import { exportXml } from './xmlExport.ts';
+import { importXml, previewXml, xmlImportProgress } from './xmlImport.ts';
 import { verifyData } from './verify.ts';
 
 /** Largest file accepted for import / Tally migration (Tally exports of a few years run to ~100 MB). */
@@ -197,9 +197,9 @@ export const ImportCommitInputSchema = v.object({
   options: v.object({ ...ImportOptionsShape, skipInvalid: v.boolean(), updateExisting: v.boolean() }),
 }) as Schema<ImportCommitInput>;
 
-export const TallyPreviewInputSchema = v.object({ fileName, bytes: fileBytes }) as Schema<TallyPreviewInput>;
+export const XmlPreviewInputSchema = v.object({ fileName, bytes: fileBytes }) as Schema<XmlPreviewInput>;
 
-export const TallyImportInputSchema = v.object({
+export const XmlImportInputSchema = v.object({
   fileName,
   bytes: fileBytes,
   options: v.object({
@@ -209,14 +209,14 @@ export const TallyImportInputSchema = v.object({
     to: isoDate.optional(),
     onDuplicate: v.enum(['skip', 'update'] as const),
   }),
-}) as Schema<TallyImportInput>;
+}) as Schema<XmlImportInput>;
 
-export const TallyExportInputSchema = v.object({
+export const XmlExportInputSchema = v.object({
   masters: v.boolean(),
   vouchers: v.boolean(),
   from: isoDate,
   to: isoDate,
-}) as Schema<TallyExportInput>;
+}) as Schema<XmlExportInput>;
 
 export const dataRoutes = {
   // ── Backup & restore ──
@@ -349,33 +349,33 @@ export const dataRoutes = {
     access: 'data.import',
     transactional: false,
     input: v.none(),
-    handler: (ctx): TallyProgress => importProgress(ctx),
+    handler: (ctx): XmlImportProgress => importProgress(ctx),
   }),
 
   // ── Tally migration ──
-  'data.tally.preview': companyRoute({
+  'data.xmlImport.preview': companyRoute({
     access: 'data.import',
     transactional: false,
-    input: TallyPreviewInputSchema,
-    handler: (ctx, input): TallyPreviewResult => previewTally(ctx, input),
+    input: XmlPreviewInputSchema,
+    handler: (ctx, input): XmlPreviewResult => previewXml(ctx, input),
   }),
-  'data.tally.import': companyRoute({
+  'data.xmlImport.commit': companyRoute({
     access: 'data.import',
     transactional: false,
-    input: TallyImportInputSchema,
-    handler: (ctx, input): Promise<TallyImportResult> => importTally(ctx, input),
+    input: XmlImportInputSchema,
+    handler: (ctx, input): Promise<XmlImportResult> => importXml(ctx, input),
   }),
-  'data.tally.progress': companyRoute({
+  'data.xmlImport.progress': companyRoute({
     access: 'data.import',
     transactional: false,
     input: v.none(),
-    handler: (ctx): TallyProgress => tallyProgress(ctx),
+    handler: (ctx): XmlImportProgress => xmlImportProgress(ctx),
   }),
-  'data.tally.export': companyRoute({
+  'data.xmlExport.create': companyRoute({
     access: 'data.export',
-    transactional: false, // streamed from a read snapshot, yields; audited in its own transaction (tallyExport.ts)
-    input: TallyExportInputSchema,
-    handler: (ctx, input): Promise<TallyExportResult> => exportTally(ctx, input),
+    transactional: false, // streamed from a read snapshot, yields; audited in its own transaction (xmlExport.ts)
+    input: XmlExportInputSchema,
+    handler: (ctx, input): Promise<XmlExportResult> => exportXml(ctx, input),
   }),
 
   // ── Verification ──

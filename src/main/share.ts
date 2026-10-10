@@ -51,7 +51,7 @@ export async function ensureSharedExportsDir(dataDir: string, companyId: string)
       continue;
     }
     if (st.isSymbolicLink() || !st.isDirectory()) {
-      throw new SharedFolderError(`${current} is a link or a file, not a folder of the company. Remove it; Bahi ERP will create the folder again.`);
+      throw new SharedFolderError(`${current} is a link or a file, not a folder of the company. Remove it; Pevqori will create the folder again.`);
     }
   }
   return dir;
@@ -170,7 +170,7 @@ export function rfc5322Date(d: Date): string {
 /** The complete .eml file (CRLF line ends, 7-bit clean: text and attachment are base64). */
 export function buildDraftEml(m: DraftEmail): string {
   for (const t of m.to) if (!validEmailAddress(t)) throw new Error('Invalid e-mail address.');
-  const boundary = m.boundary ?? `----=_Bahi_${randomBytes(12).toString('hex')}`;
+  const boundary = m.boundary ?? `----=_Pevqori_${randomBytes(12).toString('hex')}`;
   const body = m.body.replace(/\r?\n/g, '\r\n');
   const headers = [
     'X-Unsent: 1',
@@ -180,7 +180,7 @@ export function buildDraftEml(m: DraftEmail): string {
     `Date: ${rfc5322Date(m.date)}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
-    'X-Mailer: Bahi ERP',
+    'X-Mailer: Pevqori',
   ];
   return [
     ...headers,

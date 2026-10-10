@@ -2,7 +2,7 @@
 // Read the Electron fuses back from a packaged binary and fail unless every one is as wanted
 // (scripts/fuses.cjs). Run by CI after packaging:
 //
-//   node scripts/check-fuses.cjs "release/win-unpacked/Bahi ERP.exe"
+//   node scripts/check-fuses.cjs "release/win-unpacked/Pevqori.exe"
 'use strict';
 
 const path = require('node:path');

@@ -60,7 +60,7 @@ function tags(files: ReadonlyArray<{ file: string; text: string }>, name: string
 }
 
 /** Modules (and files) added by the Tally-parity wave. */
-const PARITY = /^(tds|documents|mfg|attachments|forex|pos|cheques)\/|^gst\/(AdvancesBoeScreens|CompositionScreens|FilingScreens|GapsScreens|LedgerScreens|SetoffScreen|GstDetailsDialog|VoucherGstPanel|plusComponents)\.tsx$|^data\/TallyExportScreen\.tsx$|^print\/(ShareDialog|VoucherSharePanel)\.tsx$/;
+const PARITY = /^(tds|documents|mfg|attachments|forex|pos|cheques)\/|^gst\/(AdvancesBoeScreens|CompositionScreens|FilingScreens|GapsScreens|LedgerScreens|SetoffScreen|GstDetailsDialog|VoucherGstPanel|plusComponents)\.tsx$|^data\/XmlExportScreen\.tsx$|^print\/(ShareDialog|VoucherSharePanel)\.tsx$/;
 
 describe('screen accessibility and entry conventions (real modules)', () => {
   const files = sources(modulesDir);

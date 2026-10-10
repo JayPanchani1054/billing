@@ -28,19 +28,20 @@
  *   Stock: Mixer 10 − 3 + 1 = 8 · Rice 40 + 20 − 10 = 50
  */
 import { makeGstin } from '../../testing/fixtures.ts';
+import { MESSAGE_CLOSE, MESSAGE_OPEN, REQUEST_TAG } from './xmlFormat.ts';
 
 export const ACME_GSTIN = makeGstin('27', 'AAFCA4321B');
 export const SUPREME_GSTIN = makeGstin('27', 'AAECS5678K');
 export const DELHI_GSTIN = makeGstin('07', 'AABCD1234E');
 
 const masters = (): string => `
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_OPEN}
      <CURRENCY NAME="₹" RESERVEDNAME="">
       <MAILINGNAME>INR</MAILINGNAME>
       <ORIGINALNAME>₹</ORIGINALNAME>
      </CURRENCY>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <GROUP NAME="Sundry Debtors" RESERVEDNAME="Sundry Debtors">
       <PARENT>&#4; Current Assets</PARENT>
       <ISBILLWISEON>Yes</ISBILLWISEON>
@@ -52,8 +53,8 @@ const masters = (): string => `
        </NAME.LIST>
       </LANGUAGENAME.LIST>
      </GROUP>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <GROUP NAME="Mumbai Debtors" RESERVEDNAME="">
       <PARENT>Sundry Debtors</PARENT>
       <ISBILLWISEON>Yes</ISBILLWISEON>
@@ -66,53 +67,53 @@ const masters = (): string => `
        </NAME.LIST>
       </LANGUAGENAME.LIST>
      </GROUP>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <GROUP NAME="Branch Expenses" RESERVEDNAME="">
       <PARENT>&#4; Primary</PARENT>
       <ISREVENUE>Yes</ISREVENUE>
       <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
       <AFFECTSGROSSPROFIT>No</AFFECTSGROSSPROFIT>
      </GROUP>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <UNIT NAME="Nos" RESERVEDNAME="">
       <ORIGINALNAME>Numbers</ORIGINALNAME>
       <GSTREPUOM>NOS-NUMBERS</GSTREPUOM>
       <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
       <DECIMALPLACES> 0</DECIMALPLACES>
      </UNIT>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <UNIT NAME="Pkt" RESERVEDNAME="">
       <ORIGINALNAME>Packets</ORIGINALNAME>
       <GSTREPUOM>PAC-PACKS</GSTREPUOM>
       <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
       <DECIMALPLACES> 0</DECIMALPLACES>
      </UNIT>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <UNIT NAME="Ctn" RESERVEDNAME="">
       <ORIGINALNAME>Cartons</ORIGINALNAME>
       <GSTREPUOM>CTN-CARTONS</GSTREPUOM>
       <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
       <DECIMALPLACES> 0</DECIMALPLACES>
      </UNIT>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <UNIT NAME="Ctn of 12 Pkt" RESERVEDNAME="">
       <ISSIMPLEUNIT>No</ISSIMPLEUNIT>
       <BASEUNITS>Ctn</BASEUNITS>
       <ADDITIONALUNITS>Pkt</ADDITIONALUNITS>
       <CONVERSION> 12</CONVERSION>
      </UNIT>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <GODOWN NAME="Main Location" RESERVEDNAME="">
       <PARENT/>
      </GODOWN>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <GODOWN NAME="Bhiwandi Warehouse" RESERVEDNAME="">
       <ADDRESS.LIST TYPE="String">
        <ADDRESS>Plot 5, MIDC</ADDRESS>
@@ -120,8 +121,8 @@ const masters = (): string => `
       </ADDRESS.LIST>
       <PARENT/>
      </GODOWN>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <STOCKGROUP NAME="Kitchen Appliances" RESERVEDNAME="">
       <PARENT/>
       <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>
@@ -146,8 +147,8 @@ const masters = (): string => `
        </STATEWISEDETAILS.LIST>
       </GSTDETAILS.LIST>
      </STOCKGROUP>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <STOCKITEM NAME="Mixer Grinder 750W" RESERVEDNAME="">
       <PARENT>Kitchen Appliances</PARENT>
       <CATEGORY>&#4; Not Applicable</CATEGORY>
@@ -170,8 +171,8 @@ const masters = (): string => `
        </STATEWISEDETAILS.LIST>
       </GSTDETAILS.LIST>
      </STOCKITEM>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <STOCKITEM NAME="Rice Bag 25kg" RESERVEDNAME="">
       <PARENT/>
       <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>
@@ -199,38 +200,38 @@ const masters = (): string => `
        <OPENINGRATE>1100.00/Nos</OPENINGRATE>
       </BATCHALLOCATIONS.LIST>
      </STOCKITEM>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <COSTCATEGORY NAME="Primary Cost Category" RESERVEDNAME="">
       <ALLOCATEREVENUE>Yes</ALLOCATEREVENUE>
      </COSTCATEGORY>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <COSTCENTRE NAME="Mumbai Branch" RESERVEDNAME="">
       <PARENT/>
       <CATEGORY>Primary Cost Category</CATEGORY>
      </COSTCENTRE>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <VOUCHERTYPE NAME="GST Sales" RESERVEDNAME="">
       <PARENT>Sales</PARENT>
       <NUMBERINGMETHOD>Automatic (Manual Override)</NUMBERINGMETHOD>
       <ISACTIVE>Yes</ISACTIVE>
      </VOUCHERTYPE>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Cash" RESERVEDNAME="Cash">
       <PARENT>Cash-in-Hand</PARENT>
       <OPENINGBALANCE>-20000.00</OPENINGBALANCE>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Profit &amp; Loss A/c" RESERVEDNAME="Profit &amp; Loss A/c">
       <PARENT/>
       <OPENINGBALANCE>0</OPENINGBALANCE>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="HDFC Bank" RESERVEDNAME="">
       <PARENT>Bank Accounts</PARENT>
       <BANKDETAILS>50100012345678</BANKDETAILS>
@@ -239,14 +240,14 @@ const masters = (): string => `
       <BRANCHNAME>MG Road</BRANCHNAME>
       <OPENINGBALANCE>-150000.00</OPENINGBALANCE>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Capital - Ramesh Patil" RESERVEDNAME="">
       <PARENT>Capital Account</PARENT>
       <OPENINGBALANCE>233000.00</OPENINGBALANCE>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Acme Traders" RESERVEDNAME="">
       <ADDRESS.LIST TYPE="String">
        <ADDRESS>12 MG Road</ADDRESS>
@@ -277,8 +278,8 @@ const masters = (): string => `
        <OPENINGBALANCE>-15000.00</OPENINGBALANCE>
       </BILLALLOCATIONS.LIST>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Supreme Suppliers" RESERVEDNAME="">
       <PARENT>Sundry Creditors</PARENT>
       <LEDGSTREGDETAILS.LIST>
@@ -295,8 +296,8 @@ const masters = (): string => `
        <OPENINGBALANCE>30000.00</OPENINGBALANCE>
       </BILLALLOCATIONS.LIST>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Delhi Distributors" RESERVEDNAME="">
       <PARENT>Sundry Debtors</PARENT>
       <LEDSTATENAME>Delhi</LEDSTATENAME>
@@ -304,8 +305,8 @@ const masters = (): string => `
       <PARTYGSTIN>${DELHI_GSTIN}</PARTYGSTIN>
       <ISBILLWISEON>Yes</ISBILLWISEON>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Sales GST 18%" RESERVEDNAME="">
       <PARENT>Sales Accounts</PARENT>
       <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>
@@ -321,51 +322,51 @@ const masters = (): string => `
        </STATEWISEDETAILS.LIST>
       </GSTDETAILS.LIST>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Purchase GST 5%" RESERVEDNAME="">
       <PARENT>Purchase Accounts</PARENT>
       <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>
       <GSTTYPEOFSUPPLY>Goods</GSTTYPEOFSUPPLY>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="CGST" RESERVEDNAME="">
       <PARENT>Duties &amp; Taxes</PARENT>
       <TAXTYPE>GST</TAXTYPE>
       <GSTDUTYHEAD>Central Tax</GSTDUTYHEAD>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="SGST" RESERVEDNAME="">
       <PARENT>Duties &amp; Taxes</PARENT>
       <TAXTYPE>GST</TAXTYPE>
       <GSTDUTYHEAD>State Tax</GSTDUTYHEAD>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="IGST" RESERVEDNAME="">
       <PARENT>Duties &amp; Taxes</PARENT>
       <TAXTYPE>GST</TAXTYPE>
       <GSTDUTYHEAD>Integrated Tax</GSTDUTYHEAD>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Round Off" RESERVEDNAME="">
       <PARENT>Indirect Expenses</PARENT>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <LEDGER NAME="Office Rent" RESERVEDNAME="">
       <PARENT>Branch Expenses</PARENT>
       <ISCOSTCENTRESON>Yes</ISCOSTCENTRESON>
      </LEDGER>
-    </TALLYMESSAGE>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_CLOSE}
+    ${MESSAGE_OPEN}
      <BUDGET NAME="FY 2026-27 Budget" RESERVEDNAME="">
       <PARENT/>
      </BUDGET>
-    </TALLYMESSAGE>`;
+    ${MESSAGE_CLOSE}`;
 
 interface Line {
   ledger: string;
@@ -411,7 +412,7 @@ const item = (o: { name: string; qty: number; rate: string; amount: string; ledg
       </ALLINVENTORYENTRIES.LIST>`;
 
 const voucher = (o: { type: string; date: string; number: string; guid: string; party?: string; ref?: string; narration?: string; flags?: string; body: string; invoice?: boolean }): string => `
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+    ${MESSAGE_OPEN}
      <VOUCHER REMOTEID="${o.guid}" VCHKEY="${o.guid}:00000008" VCHTYPE="${o.type}" ACTION="Create" OBJVIEW="${o.invoice ? 'Invoice Voucher View' : 'Accounting Voucher View'}">
       <DATE>${o.date}</DATE>
       <GUID>${o.guid}</GUID>
@@ -419,7 +420,7 @@ const voucher = (o: { type: string; date: string; number: string; guid: string; 
       <VOUCHERNUMBER>${o.number}</VOUCHERNUMBER>${o.party ? `\n      <PARTYLEDGERNAME>${o.party}</PARTYLEDGERNAME>` : ''}${o.ref ? `\n      <REFERENCE>${o.ref}</REFERENCE>` : ''}${o.narration ? `\n      <NARRATION>${o.narration}</NARRATION>` : ''}
       <ISINVOICE>${o.invoice ? 'Yes' : 'No'}</ISINVOICE>${o.flags ?? ''}${o.body}
      </VOUCHER>
-    </TALLYMESSAGE>`;
+    ${MESSAGE_CLOSE}`;
 
 const transactions = (): string =>
   [
@@ -593,11 +594,11 @@ const transactions = (): string =>
   ].join('');
 
 /** The whole export as text (masters + transactions in one ENVELOPE, as "Export › All Masters + Day Book"). */
-export function tallyFixtureXml(opts: { masters?: boolean; vouchers?: boolean } = {}): string {
+export function xmlFixtureXml(opts: { masters?: boolean; vouchers?: boolean } = {}): string {
   const body = `${opts.masters === false ? '' : masters()}${opts.vouchers === false ? '' : transactions()}`;
   return `<ENVELOPE>
  <HEADER>
-  <TALLYREQUEST>Import Data</TALLYREQUEST>
+  <${REQUEST_TAG}>Import Data</${REQUEST_TAG}>
  </HEADER>
  <BODY>
   <IMPORTDATA>
@@ -626,6 +627,6 @@ export function utf16le(text: string): Uint8Array {
   return out;
 }
 
-export function tallyFixtureBytes(opts: { masters?: boolean; vouchers?: boolean } = {}): Uint8Array {
-  return utf16le(tallyFixtureXml(opts));
+export function xmlFixtureBytes(opts: { masters?: boolean; vouchers?: boolean } = {}): Uint8Array {
+  return utf16le(xmlFixtureXml(opts));
 }

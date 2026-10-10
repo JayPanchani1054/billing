@@ -9,12 +9,12 @@ import type {
   ImportPreviewResult,
   ImportRowResult,
   ImportRowStatus,
-  TallyImportOptions,
-  TallyImportResult,
-  TallyIssue,
-  TallyObjectType,
-  TallyPreviewResult,
-  TallyProgress,
+  XmlImportOptions,
+  XmlImportResult,
+  XmlImportIssue,
+  XmlObjectType,
+  XmlPreviewResult,
+  XmlImportProgress,
 } from '../../../../shared/types/data.ts';
 
 export type BadgeTone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
@@ -25,12 +25,12 @@ export const SPREADSHEET_FILTERS = [
   { name: 'Excel or CSV', extensions: ['xlsx', 'csv', 'txt'] },
   { name: 'All files', extensions: ['*'] },
 ];
-export const TALLY_FILTERS = [
+export const XML_FILTERS = [
   { name: 'Tally XML export', extensions: ['xml'] },
   { name: 'All files', extensions: ['*'] },
 ];
 export const BACKUP_FILTERS = [
-  { name: 'Bahi backup', extensions: ['bahibak'] },
+  { name: 'Pevqori backup', extensions: ['pvqbak'] },
   { name: 'All files', extensions: ['*'] },
 ];
 
@@ -43,7 +43,7 @@ export function spreadsheetFileProblem(fileName: string): string | null {
   return 'Choose an Excel (.xlsx) or CSV file.';
 }
 
-export function tallyFileProblem(fileName: string): string | null {
+export function xmlFileProblem(fileName: string): string | null {
   const ext = /\.([a-z0-9]+)$/i.exec(fileName)?.[1]?.toLowerCase() ?? '';
   if (ext === 'xml') return null;
   if (ext === 'json') return 'Tally JSON exports are not supported. In Tally choose the XML (Data Interchange) format when exporting.';
@@ -147,7 +147,7 @@ export function commitResultText(r: ImportCommitResult): { tone: 'success' | 'wa
 
 // ───────────────────────────── Tally ─────────────────────────────
 
-const TALLY_LABELS: Readonly<Record<TallyObjectType, string>> = {
+const XML_LABELS: Readonly<Record<XmlObjectType, string>> = {
   GROUP: 'Groups',
   LEDGER: 'Ledgers',
   COSTCATEGORY: 'Cost categories',
@@ -162,8 +162,8 @@ const TALLY_LABELS: Readonly<Record<TallyObjectType, string>> = {
   VOUCHER: 'Vouchers',
 };
 
-export interface TallyCountRow {
-  key: TallyObjectType;
+export interface XmlImportCountRow {
+  key: XmlObjectType;
   label: string;
   count: number;
   /** Already in this company (masters only), or null when not reported. */
@@ -171,46 +171,46 @@ export interface TallyCountRow {
 }
 
 /** Rows of the "what is in the file" table, non-zero only, in import order. */
-export function tallyCountRows(p: TallyPreviewResult): TallyCountRow[] {
-  const existing: Partial<Record<TallyObjectType, number>> = {
+export function xmlCountRows(p: XmlPreviewResult): XmlImportCountRow[] {
+  const existing: Partial<Record<XmlObjectType, number>> = {
     GROUP: p.existing.groups,
     LEDGER: p.existing.ledgers,
     STOCKITEM: p.existing.stockItems,
     UNIT: p.existing.units,
     GODOWN: p.existing.godowns,
   };
-  const order: TallyObjectType[] = ['GROUP', 'LEDGER', 'COSTCATEGORY', 'COSTCENTRE', 'CURRENCY', 'UNIT', 'GODOWN', 'STOCKGROUP', 'STOCKCATEGORY', 'STOCKITEM', 'VOUCHERTYPE', 'VOUCHER'];
-  return order.filter((k) => (p.counts[k] ?? 0) > 0).map((k) => ({ key: k, label: TALLY_LABELS[k], count: p.counts[k], existing: existing[k] ?? null }));
+  const order: XmlObjectType[] = ['GROUP', 'LEDGER', 'COSTCATEGORY', 'COSTCENTRE', 'CURRENCY', 'UNIT', 'GODOWN', 'STOCKGROUP', 'STOCKCATEGORY', 'STOCKITEM', 'VOUCHERTYPE', 'VOUCHER'];
+  return order.filter((k) => (p.counts[k] ?? 0) > 0).map((k) => ({ key: k, label: XML_LABELS[k], count: p.counts[k], existing: existing[k] ?? null }));
 }
 
-export function issueCounts(issues: readonly TallyIssue[]): { error: number; warning: number; info: number } {
+export function issueCounts(issues: readonly XmlImportIssue[]): { error: number; warning: number; info: number } {
   const out = { error: 0, warning: 0, info: 0 };
   for (const i of issues) out[i.severity]++;
   return out;
 }
 
-export function issueTone(severity: TallyIssue['severity']): BadgeTone {
+export function issueTone(severity: XmlImportIssue['severity']): BadgeTone {
   return severity === 'error' ? 'danger' : severity === 'warning' ? 'warning' : 'info';
 }
 
 /** Problem with the chosen Tally import options, or null. */
-export function tallyOptionsProblem(p: TallyPreviewResult, o: TallyImportOptions): string | null {
+export function xmlOptionsProblem(p: XmlPreviewResult, o: XmlImportOptions): string | null {
   const masters = o.masters !== false;
   if (!masters && !o.vouchers) return 'Choose masters, vouchers or both.';
   if (o.vouchers && p.counts.VOUCHER === 0) return 'The file has no vouchers. Untick “Vouchers” or choose a Day Book export.';
-  const mastersInFile = (Object.keys(p.counts) as TallyObjectType[]).some((k) => k !== 'VOUCHER' && p.counts[k] > 0);
+  const mastersInFile = (Object.keys(p.counts) as XmlObjectType[]).some((k) => k !== 'VOUCHER' && p.counts[k] > 0);
   if (masters && !o.vouchers && !mastersInFile) return 'The file has no masters. Export “All Masters” from Tally, or import the vouchers.';
   if (o.from && o.to && o.from > o.to) return 'The “from” date is after the “to” date.';
   return null;
 }
 
 /** Progress as a percentage (null while the total is unknown). */
-export function progressPercent(p: TallyProgress | null | undefined): number | null {
+export function progressPercent(p: XmlImportProgress | null | undefined): number | null {
   if (!p || p.total <= 0) return null;
   return Math.max(0, Math.min(100, Math.round((p.done / p.total) * 100)));
 }
 
-export function tallyResultSummary(r: TallyImportResult): { tone: 'success' | 'warning' | 'danger'; title: string; lines: string[] } {
+export function xmlResultSummary(r: XmlImportResult): { tone: 'success' | 'warning' | 'danger'; title: string; lines: string[] } {
   const m = Object.values(r.masters).reduce(
     (s, c) => ({ created: s.created + c.created, updated: s.updated + c.updated, skipped: s.skipped + c.skipped, failed: s.failed + c.failed }),
     { created: 0, updated: 0, skipped: 0, failed: 0 },
@@ -222,5 +222,5 @@ export function tallyResultSummary(r: TallyImportResult): { tone: 'success' | 'w
   const errors = r.issues.filter((i) => i.severity === 'error').length;
   if (r.stopped) return { tone: 'danger', title: 'The import stopped part-way', lines: [...lines, 'Everything up to the problem was saved. Fix the cause and import the same file again — existing records are skipped.'] };
   if (errors > 0 || m.failed > 0 || r.vouchers.failed > 0) return { tone: 'warning', title: 'Imported, with some records left out', lines };
-  return { tone: 'success', title: 'Your Tally data is in Bahi ERP', lines };
+  return { tone: 'success', title: 'Your Tally data is in Pevqori', lines };
 }

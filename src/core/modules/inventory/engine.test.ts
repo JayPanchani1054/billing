@@ -188,7 +188,7 @@ describe('valuation memo', () => {
 
   it('a commit by another connection to the company file invalidates (PRAGMA data_version)', () => {
     const { t, items } = business();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-memo-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-memo-'));
     const file = path.join(dir, 'company.db');
     t.db.run('VACUUM INTO :file', { file });
     t.close();

@@ -258,7 +258,7 @@ describe('attachments: data check', () => {
     const c = verifyData(k.t.ctx).checks.find((x) => x.name === 'attachments');
     assert.equal(c?.ok, false);
     assert.equal(c?.count, 2);
-    assert.match(c?.details.join(' | ') ?? '', /missing from the attachments folder.*\|.*changed outside Bahi ERP/);
+    assert.match(c?.details.join(' | ') ?? '', /missing from the attachments folder.*\|.*changed outside Pevqori/);
     await fails('attachments.read', { id: b.id }, 'BUSINESS_RULE', /changed outside/);
   });
 });
@@ -274,7 +274,7 @@ describe('attachments in backup and restore (app runtime, end to end)', () => {
   const company = (name: string): CreateCompanyInput => ({ name, stateCode: '27', gstRegistrationType: 'regular', gstin: makeGstin('27'), booksFrom: '2026-04-01' });
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-att-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-att-'));
     rt = createRuntimeWithRoutes(
       { userDataDir: path.join(root, 'userData'), defaultDataDir: path.join(root, 'data'), appVersion: '1.2.3', clock: fixedClock('2026-10-05'), consoleLog: false },
       { ...appRoutes, ...companyRoutes, ...dataRoutes, ...accountsRoutes, ...attachmentsRoutes },

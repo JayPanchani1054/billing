@@ -1,5 +1,5 @@
 // Renderer build (React 19). Main/preload are bundled separately by scripts/build.mjs (esbuild).
-// The renderer is served from app://bahi/ in production, hence the relative base.
+// The renderer is served from app://pevqori/ in production, hence the relative base.
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -13,8 +13,8 @@ export default defineConfig({
     outDir: '../../out/renderer',
     emptyOutDir: true,
     target: 'chrome130',
-    // No source maps in shipped builds (BAHI_SOURCEMAP=1 for a local debugging build).
-    sourcemap: process.env.BAHI_SOURCEMAP === '1',
+    // No source maps in shipped builds (PEVQORI_SOURCEMAP=1 for a local debugging build).
+    sourcemap: process.env.PEVQORI_SOURCEMAP === '1',
     // Electron's Chromium supports <link rel="modulepreload"> natively.
     modulePreload: { polyfill: false },
     reportCompressedSize: false,

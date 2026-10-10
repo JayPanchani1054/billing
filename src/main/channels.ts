@@ -4,4 +4,4 @@
  */
 
 /** Renderer → main, fire-and-forget: the window has (or no longer has) unsaved work. */
-export const DIRTY_CHANNEL = 'bahi:dirty';
+export const DIRTY_CHANNEL = 'pevqori:dirty';

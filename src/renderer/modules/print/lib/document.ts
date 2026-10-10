@@ -1,5 +1,5 @@
 /**
- * The self-contained printable HTML document sent to bahi.native('print.print' | 'print.savePdf').
+ * The self-contained printable HTML document sent to pevqori.native('print.print' | 'print.savePdf').
  *
  * The body is the serialised markup of the rendered templates (`element.outerHTML` of the preview:
  * React escapes every value when rendering and the browser serialiser escapes text and attributes

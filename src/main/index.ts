@@ -35,14 +35,14 @@ import type { SmokeVerdict } from './smoke.ts';
 import { createWindowManager } from './window.ts';
 import type { WindowManager } from './window.ts';
 
-const isE2E = process.env.BAHI_E2E === '1';
+const isE2E = process.env.PEVQORI_E2E === '1';
 /** Packaged-app smoke test (CI): check the bridge → core path once, then quit with 0/1 (smoke.ts). */
-const isSmoke = process.env.BAHI_SMOKE_TEST === '1';
+const isSmoke = process.env.PEVQORI_SMOKE_TEST === '1';
 /** No modal dialogs: automated runs must never block on a prompt nobody can answer. */
 const unattended = isE2E || isSmoke;
-const dev = resolveDevServer(process.env.BAHI_DEV_SERVER_URL, app.isPackaged);
-if (process.env.BAHI_DEV_SERVER_URL && !dev) {
-  log('warn', 'Ignoring BAHI_DEV_SERVER_URL (only loopback http URLs are accepted, and never in packaged builds)');
+const dev = resolveDevServer(process.env.PEVQORI_DEV_SERVER_URL, app.isPackaged);
+if (process.env.PEVQORI_DEV_SERVER_URL && !dev) {
+  log('warn', 'Ignoring PEVQORI_DEV_SERVER_URL (only loopback http URLs are accepted, and never in packaged builds)');
 }
 if (!app.isPackaged) process.setSourceMapsEnabled(true);
 
@@ -67,7 +67,7 @@ let errorBoxes = 0;
 function reportFatal(kind: string, err: unknown): void {
   log('error', kind, describeError(err));
   if (unattended || !app.isReady()) {
-    if (!app.isReady()) console.error(`[bahi] ${kind}:`, err);
+    if (!app.isReady()) console.error(`[pevqori] ${kind}:`, err);
     return;
   }
   const now = Date.now();
@@ -76,7 +76,7 @@ function reportFatal(kind: string, err: unknown): void {
   errorBoxes++;
   dialog.showErrorBox(
     `${APP_NAME} — unexpected error`,
-    'Something went wrong inside Bahi ERP. Your saved data is safe.\n\n' +
+    'Something went wrong inside Pevqori. Your saved data is safe.\n\n' +
       'If the problem continues, restart the app. Technical details were written to the log file ' +
       '(Help › Open Logs Folder).',
   );
@@ -96,7 +96,7 @@ const PROFILE_NAME = app.isPackaged ? APP_NAME : `${APP_NAME} Dev`;
 function applyPathOverrides(): void {
   // `electron out/main/index.cjs` (used by E2E) has no package.json next to it → name would be "Electron".
   if (app.getName() !== APP_NAME) app.setName(APP_NAME);
-  const userData = absoluteEnvPath(process.env.BAHI_USER_DATA);
+  const userData = absoluteEnvPath(process.env.PEVQORI_USER_DATA);
   if (userData) {
     fs.mkdirSync(userData, { recursive: true });
     app.setPath('userData', userData);
@@ -109,10 +109,10 @@ function applyPathOverrides(): void {
 applyPathOverrides();
 app.setAppUserModelId(APP_ID);
 app.enableSandbox();
-if (process.env.BAHI_DISABLE_GPU === '1') app.disableHardwareAcceleration();
+if (process.env.PEVQORI_DISABLE_GPU === '1') app.disableHardwareAcceleration();
 protocol.registerSchemesAsPrivileged(PRIVILEGED_SCHEMES);
 
-// The lock is keyed on the userData directory, so E2E runs with their own BAHI_USER_DATA never collide.
+// The lock is keyed on the userData directory, so E2E runs with their own PEVQORI_USER_DATA never collide.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -141,7 +141,7 @@ function showAbout(): void {
       `Version ${appVersion()}\n` +
       'Offline-first GST accounting, invoicing and inventory.\n\n' +
       `Electron ${process.versions.electron ?? '?'} · Chromium ${process.versions.chrome ?? '?'} · Node ${process.versions.node}\n` +
-      `© ${new Date().getFullYear()} Bahi ERP`,
+      `© ${new Date().getFullYear()} Pevqori`,
     buttons: ['OK'],
     noLink: true,
   };
@@ -180,7 +180,7 @@ function faultError(error: { name: string; message: string; stack?: string }): E
  * trip to this thread.
  */
 async function bootRuntime(): Promise<CoreProxy | null> {
-  const dataDirOverride = absoluteEnvPath(process.env.BAHI_DATA_DIR);
+  const dataDirOverride = absoluteEnvPath(process.env.PEVQORI_DATA_DIR);
   // The edit-log anchor key is sealed with the OS here (safeStorage exists only on this thread) and
   // handed to the worker; see anchor-key.ts and docs/SECURITY.md T4.
   const auditAnchorKey = loadAnchorKeyForWorker(app.getPath('userData'), safeStorage, log);
@@ -296,7 +296,7 @@ async function initialise(): Promise<void> {
   if (isSmoke) runSmokeTest(win);
 }
 
-/** BAHI_SMOKE_TEST=1: once the window has loaded, call app.state through the real bridge, then quit. */
+/** PEVQORI_SMOKE_TEST=1: once the window has loaded, call app.state through the real bridge, then quit. */
 function runSmokeTest(win: BrowserWindow): void {
   let done = false;
   const finish = (verdict: SmokeVerdict): void => {

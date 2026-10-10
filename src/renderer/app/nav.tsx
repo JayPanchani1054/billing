@@ -375,7 +375,7 @@ export function useStatusHint(hint: string | null | undefined): void {
 
 /**
  * Mark this screen as having unsaved work: Esc / breadcrumbs / switching company ask before
- * discarding it, and closing the window asks too (bahi.setDirty).
+ * discarding it, and closing the window asks too (pevqori.setDirty).
  */
 export function useDirty(isDirty: boolean): void {
   const { dirty } = useNavInternal();
@@ -742,7 +742,7 @@ export class ScreenErrorBoundary extends Component<{ title: string; children?: R
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error(`[bahi] screen "${this.props.title}" crashed`, error, info.componentStack ?? '');
+    console.error(`[pevqori] screen "${this.props.title}" crashed`, error, info.componentStack ?? '');
   }
 
   override render(): ReactNode {

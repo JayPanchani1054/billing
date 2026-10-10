@@ -366,7 +366,7 @@ describe('review regressions', () => {
   it('requires an absolute backup folder', async () => {
     const t = createTestCompany();
     assert.equal(errCode(await t.call(companyRoutes, 'company.config.save', { backup: { folder: 'relative/backups' } })), 'VALIDATION');
-    const abs = process.platform === 'win32' ? 'D:\\Backups' : '/var/backups/bahi';
+    const abs = process.platform === 'win32' ? 'D:\\Backups' : '/var/backups/pevqori';
     assert.equal((await t.callOk<CompanyConfig>(companyRoutes, 'company.config.save', { backup: { folder: abs } })).backup.folder, abs);
     t.close();
   });

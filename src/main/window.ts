@@ -155,7 +155,7 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
         .showMessageBox(win, {
           type: 'error',
           title: APP_NAME,
-          message: 'The Bahi ERP window stopped unexpectedly.',
+          message: 'The Pevqori window stopped unexpectedly.',
           detail: 'Saved data is safe. Changes on the screen that was open may not have been saved. Reload the window to continue.',
           buttons: ['Reload', 'Quit'],
           defaultId: 0,
@@ -178,7 +178,7 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
         .showMessageBox(win, {
           type: 'warning',
           title: APP_NAME,
-          message: 'Bahi ERP is not responding.',
+          message: 'Pevqori is not responding.',
           detail: 'You can keep waiting for it to finish, or reload the window (unsaved changes on the open screen will be lost).',
           buttons: ['Keep waiting', 'Reload window'],
           defaultId: 0,
@@ -207,7 +207,7 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
           type: 'warning',
           title: APP_NAME,
           message: 'You have unsaved changes.',
-          detail: 'If you close Bahi ERP now, the changes on the open screen will be lost.',
+          detail: 'If you close Pevqori now, the changes on the open screen will be lost.',
           buttons: ['Discard changes and close', 'Keep working'],
           defaultId: 1,
           cancelId: 1,

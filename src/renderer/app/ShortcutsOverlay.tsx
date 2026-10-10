@@ -77,7 +77,7 @@ export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   const rows = useShortcutRows();
   const inputRef = useRef<HTMLInputElement | null>(null);
   return (
-    <Modal open onClose={onClose} title="Keyboard Shortcuts" description="Everything in Bahi ERP works from the keyboard." size="lg" initialFocusRef={inputRef}>
+    <Modal open onClose={onClose} title="Keyboard Shortcuts" description="Everything in Pevqori works from the keyboard." size="lg" initialFocusRef={inputRef}>
       <div className="bx-shortcuts-overlay">
         <TextInput
           ref={inputRef}

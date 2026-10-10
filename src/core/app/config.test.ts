@@ -12,7 +12,7 @@ const log = (level: string, message: string, meta?: unknown) => {
   logs.push({ level, message, meta });
 };
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-config-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-config-'));
   logs.length = 0;
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -90,7 +90,7 @@ describe('logger', () => {
     const logger = createLogger({ dir, now: () => new Date('2026-04-15T00:00:00Z') });
     logger.log('info', 'Login', { username: 'meera', password: 'hunter2', nested: { apiToken: 't', ok: 1 } });
     logger.log('debug', 'hidden at info level');
-    const lines = fs.readFileSync(path.join(dir, 'bahi.log'), 'utf8').trim().split('\n');
+    const lines = fs.readFileSync(path.join(dir, 'pevqori.log'), 'utf8').trim().split('\n');
     assert.equal(lines.length, 1);
     const entry = JSON.parse(lines[0]);
     assert.deepEqual(entry, {
@@ -105,9 +105,9 @@ describe('logger', () => {
     const logger = createLogger({ dir, maxBytes: 200, keep: 3 });
     for (let i = 0; i < 40; i++) logger.log('info', `line ${i} ${'x'.repeat(40)}`);
     const files = fs.readdirSync(dir).sort();
-    assert.deepEqual(files, ['bahi.log', 'bahi.log.1', 'bahi.log.2', 'bahi.log.3']);
+    assert.deepEqual(files, ['pevqori.log', 'pevqori.log.1', 'pevqori.log.2', 'pevqori.log.3']);
     for (const f of files) assert.ok(fs.statSync(path.join(dir, f)).size <= 200);
-    assert.match(fs.readFileSync(path.join(dir, 'bahi.log'), 'utf8'), /line 39/);
+    assert.match(fs.readFileSync(path.join(dir, 'pevqori.log'), 'utf8'), /line 39/);
   });
 
   it('serialises errors and never throws', () => {

@@ -1,6 +1,6 @@
 /**
  * Per-user display preferences (theme, density), remembered in localStorage and mirrored to the
- * native window theme (bahi.native('theme.set')). Changes made from the native side arrive as
+ * native window theme (pevqori.native('theme.set')). Changes made from the native side arrive as
  * 'theme-changed' events and are adopted here.
  */
 import { useSyncExternalStore } from 'react';
@@ -13,7 +13,7 @@ export interface Preferences {
   density: Density;
 }
 
-const KEY = 'bahi.prefs';
+const KEY = 'pevqori.prefs';
 const DEFAULTS: Preferences = { theme: 'system', density: 'comfortable' };
 
 let current: Preferences = DEFAULTS;

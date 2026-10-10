@@ -2,7 +2,7 @@
  * The counter's own name ("Till 1"), remembered on this computer (per-computer convenience only:
  * printed on the receipt and summarised at day end; the books never depend on it).
  */
-const KEY = 'bahi.pos.counter.v1';
+const KEY = 'pevqori.pos.counter.v1';
 
 export function counterName(): string {
   try {

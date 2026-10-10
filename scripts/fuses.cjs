@@ -1,11 +1,11 @@
-// The Electron fuses Bahi ERP ships with — one list shared by scripts/after-pack.cjs (flips them on the
+// The Electron fuses Pevqori ships with — one list shared by scripts/after-pack.cjs (flips them on the
 // packaged binary) and scripts/check-fuses.cjs (reads them back in CI). Rationale: docs/SECURITY.md §3.7.
 // https://www.electronjs.org/docs/latest/tutorial/fuses
 'use strict';
 
 /** Fuse name (FuseV1Options key in @electron/fuses) → wanted state (true = enabled). */
 const WANTED_FUSES = Object.freeze({
-  RunAsNode: false, //                            ELECTRON_RUN_AS_NODE cannot turn Bahi ERP.exe into a Node runtime
+  RunAsNode: false, //                            ELECTRON_RUN_AS_NODE cannot turn Pevqori.exe into a Node runtime
   EnableCookieEncryption: true, //                Chromium cookie store encrypted with the OS key store
   EnableNodeOptionsEnvironmentVariable: false, // NODE_OPTIONS is ignored (no --require injection)
   EnableNodeCliInspectArguments: false, //        --inspect / --inspect-brk are ignored (no debugger attach)

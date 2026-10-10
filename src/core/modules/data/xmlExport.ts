@@ -1,9 +1,9 @@
 /**
- * 'data.tally.export' — the books as a Tally "Import Data" XML file, for the CA / auditor who works in
+ * 'data.xmlExport.create' — the books as a Tally "Import Data" XML file, for the CA / auditor who works in
  * TallyPrime (Gateway of Tally › Import › Masters / Transactions), and for moving back.
  *
- * Shape: ENVELOPE › HEADER (TALLYREQUEST Import Data) › BODY › IMPORTDATA › REQUESTDESC (REPORTNAME
- * "All Masters" or "Vouchers", SVCURRENTCOMPANY) › REQUESTDATA › TALLYMESSAGE* — the shape TallyPrime
+ * Shape: ENVELOPE › HEADER (REQUEST_TAG Import Data) › BODY › IMPORTDATA › REQUESTDESC (REPORTNAME
+ * "All Masters" or "Vouchers", SVCURRENTCOMPANY) › REQUESTDATA › MESSAGE_TAG* — the shape TallyPrime
  * writes on export and reads on import. Written as UTF-16LE with a BOM (what Tally itself writes, BOM
  * aside; Tally reads both). With masters AND vouchers the result is a ZIP of Masters.xml + Vouchers.xml:
  * Tally imports masters first, then transactions.
@@ -37,7 +37,7 @@ import path from 'node:path';
 import { PREDEFINED_VOUCHER_TYPES, type VoucherBaseType } from '../../../shared/constants.ts';
 import { addDays, formatDate } from '../../../shared/dates.ts';
 import { stateName, uqcDescription } from '../../../shared/gst/index.ts';
-import type { TallyExportInput, TallyExportMasterCounts, TallyExportResult } from '../../../shared/types/data.ts';
+import type { XmlExportInput, XmlExportMasterCounts, XmlExportResult } from '../../../shared/types/data.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { allocate } from '../../../shared/money.ts';
@@ -53,8 +53,9 @@ import { buildSnapshot, loadReportEnv } from '../reports/engine.ts';
 import { fileSlug, requirePermission, yieldToEventLoop } from './common.ts';
 import { EXPORT_YIELD_ROWS, openSnapshot } from './exportData.ts';
 import { ZIP_MIME } from './exportTable.ts';
+import { MESSAGE_TAG, REQUEST_TAG, UDF_NAMESPACE } from './xmlFormat.ts';
 
-export const TALLY_XML_MIME = 'application/xml';
+export const XML_DATA_MIME = 'application/xml';
 
 // ───────────────────────────── XML writer ─────────────────────────────
 
@@ -111,7 +112,7 @@ class Out {
 // ───────────────────────────── Value formats ─────────────────────────────
 
 /** Paise (ours, Dr +) → Tally amount text (Dr −): 1044500 → '-10445.00'. */
-export function tallyAmountText(ourPaise: number): string {
+export function xmlAmountText(ourPaise: number): string {
   const t = -ourPaise;
   const neg = t < 0;
   const abs = Math.abs(t);
@@ -120,33 +121,33 @@ export function tallyAmountText(ourPaise: number): string {
 }
 
 /** Paise (positive value) → '24000.00'. */
-const rupees = (paise: number): string => tallyAmountText(-Math.abs(paise));
+const rupees = (paise: number): string => xmlAmountText(-Math.abs(paise));
 
 /** 'YYYY-MM-DD' → 'yyyymmdd'. */
-export const tallyDateText = (iso: string): string => iso.replace(/-/g, '');
+export const xmlDateText = (iso: string): string => iso.replace(/-/g, '');
 
 /** Quantity ' 10 Nos' (Tally pads a space); up to 4 decimals, trailing zeros dropped. */
-export function tallyQtyText(qty: number, unit: string): string {
+export function xmlQtyText(qty: number, unit: string): string {
   const q = Math.abs(qty);
   const s = Number.isInteger(q) ? String(q) : String(Math.round(q * 10_000) / 10_000);
   return ` ${s} ${unit}`;
 }
 
-/** Opening quantity: signed (a negative opening stays negative), else as tallyQtyText. */
+/** Opening quantity: signed (a negative opening stays negative), else as xmlQtyText. */
 function openingQtyText(qty: number, unit: string): string {
-  return qty < 0 ? ` -${tallyQtyText(qty, unit).slice(1)}` : tallyQtyText(qty, unit);
+  return qty < 0 ? ` -${xmlQtyText(qty, unit).slice(1)}` : xmlQtyText(qty, unit);
 }
 
 /** Rate '2950.50/Nos'. */
-export function tallyRateText(rate: number, unit: string): string {
+export function xmlRateText(rate: number, unit: string): string {
   const r = Math.round(rate * 10_000) / 10_000;
   const [i, f = ''] = String(r).split('.');
   return `${i}.${(f + '00').slice(0, Math.max(2, f.length))}/${unit}`;
 }
 
-const DUTY_HEAD_TALLY: Readonly<Record<string, string>> = { IGST: 'Integrated Tax', CGST: 'Central Tax', SGST: 'State Tax', CESS: 'Cess' };
-const TAXABILITY_TALLY: Readonly<Record<string, string>> = { taxable: 'Taxable', exempt: 'Exempt', nil_rated: 'Nil Rated', non_gst: 'Non-GST' };
-const REGISTRATION_TALLY: Readonly<Record<string, string>> = {
+const DUTY_HEAD_XML: Readonly<Record<string, string>> = { IGST: 'Integrated Tax', CGST: 'Central Tax', SGST: 'State Tax', CESS: 'Cess' };
+const TAXABILITY_XML: Readonly<Record<string, string>> = { taxable: 'Taxable', exempt: 'Exempt', nil_rated: 'Nil Rated', non_gst: 'Non-GST' };
+const REGISTRATION_XML: Readonly<Record<string, string>> = {
   regular: 'Regular',
   composition: 'Composition',
   consumer: 'Consumer',
@@ -157,12 +158,12 @@ const REGISTRATION_TALLY: Readonly<Record<string, string>> = {
   uin: 'Regular',
   overseas: 'Unregistered',
 };
-const COSTING_TALLY: Readonly<Record<string, string>> = { avg_cost: 'Avg. Cost', fifo: 'FIFO', lifo: 'LIFO', last_purchase: 'Last Purchase Cost', std_cost: 'Std. Cost' };
-const NUMBERING_TALLY: Readonly<Record<string, string>> = { automatic: 'Automatic', automatic_override: 'Automatic (Manual Override)', manual: 'Manual', none: 'None' };
-const INSTRUMENT_TALLY: Readonly<Record<string, string>> = { cheque: 'Cheque', dd: 'DD', neft: 'e-Fund Transfer', rtgs: 'e-Fund Transfer', imps: 'e-Fund Transfer', upi: 'e-Fund Transfer', card: 'Others', cash: 'Others', other: 'Others' };
-const BILL_TYPE_TALLY: Readonly<Record<string, string>> = { new: 'New Ref', against: 'Agst Ref', advance: 'Advance', on_account: 'On Account' };
+const COSTING_XML: Readonly<Record<string, string>> = { avg_cost: 'Avg. Cost', fifo: 'FIFO', lifo: 'LIFO', last_purchase: 'Last Purchase Cost', std_cost: 'Std. Cost' };
+const NUMBERING_XML: Readonly<Record<string, string>> = { automatic: 'Automatic', automatic_override: 'Automatic (Manual Override)', manual: 'Manual', none: 'None' };
+const INSTRUMENT_XML: Readonly<Record<string, string>> = { cheque: 'Cheque', dd: 'DD', neft: 'e-Fund Transfer', rtgs: 'e-Fund Transfer', imps: 'e-Fund Transfer', upi: 'e-Fund Transfer', card: 'Others', cash: 'Others', other: 'Others' };
+const BILL_TYPE_XML: Readonly<Record<string, string>> = { new: 'New Ref', against: 'Agst Ref', advance: 'Advance', on_account: 'On Account' };
 /** Our base types with a Tally voucher type (quotation / proforma have none; physical stock is not written). */
-const TALLY_TYPE_OF: Partial<Record<VoucherBaseType, string>> = Object.fromEntries(
+const XML_TYPE_OF: Partial<Record<VoucherBaseType, string>> = Object.fromEntries(
   PREDEFINED_VOUCHER_TYPES.filter((t) => t.baseType !== 'quotation' && t.baseType !== 'proforma' && t.baseType !== 'physical_stock').map((t) => [t.baseType, t.name]),
 );
 
@@ -187,9 +188,9 @@ function gstHistory(db: Db, entityType: 'ledger' | 'stock_item', id: number): Gs
 function writeGstDetails(o: Out, rows: readonly GstHistoryRow[]): void {
   for (const r of rows) {
     o.open('GSTDETAILS.LIST');
-    o.el('APPLICABLEFROM', tallyDateText(r.applicable_from));
+    o.el('APPLICABLEFROM', xmlDateText(r.applicable_from));
     o.el('HSNCODE', r.hsn_sac);
-    o.el('TAXABILITY', TAXABILITY_TALLY[r.taxability] ?? 'Taxable');
+    o.el('TAXABILITY', TAXABILITY_XML[r.taxability] ?? 'Taxable');
     if (r.taxability === 'taxable') {
       o.open('STATEWISEDETAILS.LIST');
       o.logical('STATENAME', 'Any');
@@ -210,12 +211,12 @@ function writeGstDetails(o: Out, rows: readonly GstHistoryRow[]): void {
 }
 
 function message(o: Out, write: () => void): void {
-  o.open('TALLYMESSAGE', { 'xmlns:UDF': 'TallyUDF' });
+  o.open(MESSAGE_TAG, { 'xmlns:UDF': UDF_NAMESPACE });
   write();
-  o.close('TALLYMESSAGE');
+  o.close(MESSAGE_TAG);
 }
 
-type MasterCounts = TallyExportMasterCounts;
+type MasterCounts = XmlExportMasterCounts;
 
 // ───────────────────────────── Openings at the period start ─────────────────────────────
 
@@ -456,11 +457,11 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
       // Tally's own Profit & Loss A/c sits at the top of the chart (Primary), not under a group.
       if (l.reserved_code === 'PROFIT_LOSS') o.logical('PARENT', 'Primary');
       else o.el('PARENT', l.group_name);
-      o.el('OPENINGBALANCE', tallyAmountText(opening));
+      o.el('OPENINGBALANCE', xmlAmountText(opening));
       const billWise = num('maintain_bill_wise') === 1;
       o.yesNo('ISBILLWISEON', billWise);
       if (num('default_credit_days') !== null) o.el('BILLCREDITPERIOD', `${num('default_credit_days')} Days`);
-      if (num('credit_limit')) o.el('CREDITLIMIT', tallyAmountText(num('credit_limit') as number));
+      if (num('credit_limit')) o.el('CREDITLIMIT', xmlAmountText(num('credit_limit') as number));
       o.yesNo('ISCOSTCENTRESON', num('cost_centres_applicable') === 1);
       o.yesNo('AFFECTSSTOCK', num('inventory_values_affected') === 1);
       // Mailing and party details (classic tags, read by every Tally version).
@@ -477,13 +478,13 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
       o.el('EMAIL', str('email'));
       o.el('INCOMETAXNUMBER', str('pan'));
       const reg = str('gst_registration_type');
-      if (reg) o.el('GSTREGISTRATIONTYPE', REGISTRATION_TALLY[reg] ?? 'Unknown');
+      if (reg) o.el('GSTREGISTRATIONTYPE', REGISTRATION_XML[reg] ?? 'Unknown');
       o.el('PARTYGSTIN', str('gstin'));
       // TallyPrime keeps registration and mailing details effective-dated as well.
       if (reg || str('gstin')) {
         o.open('LEDGSTREGDETAILS.LIST');
-        o.el('APPLICABLEFROM', tallyDateText(booksFrom));
-        if (reg) o.el('GSTREGISTRATIONTYPE', REGISTRATION_TALLY[reg] ?? 'Unknown');
+        o.el('APPLICABLEFROM', xmlDateText(booksFrom));
+        if (reg) o.el('GSTREGISTRATIONTYPE', REGISTRATION_XML[reg] ?? 'Unknown');
         o.el('STATE', state);
         o.el('GSTIN', str('gstin'));
         o.close('LEDGSTREGDETAILS.LIST');
@@ -498,7 +499,7 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
       const taxType = str('tax_type');
       if (taxType) o.el('TAXTYPE', taxType === 'OTHER' ? 'Others' : taxType);
       const head = str('gst_duty_head');
-      if (head) o.el('GSTDUTYHEAD', DUTY_HEAD_TALLY[head] ?? head);
+      if (head) o.el('GSTDUTYHEAD', DUTY_HEAD_XML[head] ?? head);
       // A charge included in the goods' / services' assessable value (freight, packing): Tally's
       // "Include in assessable value calculation — Appropriate to — Method of appropriation"
       // (tag names as in Tally exports we have seen; not verified against a live TallyPrime).
@@ -539,10 +540,10 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
         for (const b of bills) {
           o.open('BILLALLOCATIONS.LIST');
           o.el('NAME', b.name);
-          o.el('BILLDATE', tallyDateText(b.date));
+          o.el('BILLDATE', xmlDateText(b.date));
           if (b.dueDate) o.el('BILLCREDITPERIOD', `${Math.max(0, daysBetween(b.date, b.dueDate))} Days`);
           o.yesNo('ISADVANCE', b.advance);
-          o.el('OPENINGBALANCE', tallyAmountText(b.amount));
+          o.el('OPENINGBALANCE', xmlAmountText(b.amount));
           o.close('BILLALLOCATIONS.LIST');
         }
       }
@@ -602,7 +603,7 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
         o.el('DENOMINATOR', ' 1');
         o.el('CONVERSION', ` ${it.alt_conversion}`);
       }
-      o.el('COSTINGMETHOD', COSTING_TALLY[it.costing_method] ?? 'Avg. Cost');
+      o.el('COSTINGMETHOD', COSTING_XML[it.costing_method] ?? 'Avg. Cost');
       o.yesNo('ISBATCHWISEON', it.maintain_batches === 1);
       const itemHist = it.gst_applicable === 'applicable' ? gstHistory(db, 'stock_item', it.id) : [];
       const itemRows: GstHistoryRow[] =
@@ -624,15 +625,15 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
       const value = stockOpenings.reduce((s, x) => s + x.value, 0);
       if (stockOpenings.length > 0 && qty !== 0) {
         o.el('OPENINGBALANCE', openingQtyText(qty, it.unit));
-        o.el('OPENINGVALUE', tallyAmountText(value));
-        o.el('OPENINGRATE', tallyRateText(value / 100 / qty, it.unit));
+        o.el('OPENINGVALUE', xmlAmountText(value));
+        o.el('OPENINGRATE', xmlRateText(value / 100 / qty, it.unit));
         for (const op of stockOpenings) {
           o.open('BATCHALLOCATIONS.LIST');
           o.el('GODOWNNAME', op.isPredefined ? 'Main Location' : op.godown);
           o.el('BATCHNAME', op.batch ?? 'Primary Batch');
           o.el('OPENINGBALANCE', openingQtyText(op.qty, it.unit));
-          o.el('OPENINGVALUE', tallyAmountText(op.value));
-          o.el('OPENINGRATE', tallyRateText(op.qty !== 0 ? op.value / 100 / op.qty : 0, it.unit));
+          o.el('OPENINGVALUE', xmlAmountText(op.value));
+          o.el('OPENINGRATE', xmlRateText(op.qty !== 0 ? op.value / 100 / op.qty : 0, it.unit));
           o.close('BATCHALLOCATIONS.LIST');
         }
       }
@@ -648,11 +649,11 @@ function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): Ma
        FROM voucher_types t LEFT JOIN voucher_types p ON p.id = t.parent_id WHERE t.is_predefined = 0 ORDER BY t.id`,
   );
   for (const t of parentsFirst(vts)) {
-    if (!TALLY_TYPE_OF[t.base_type]) continue;
+    if (!XML_TYPE_OF[t.base_type]) continue;
     message(o, () => {
       o.open('VOUCHERTYPE', { NAME: t.name, ACTION: 'Create' });
-      o.el('PARENT', t.parent_name ?? TALLY_TYPE_OF[t.base_type]);
-      o.el('NUMBERINGMETHOD', NUMBERING_TALLY[t.numbering_method] ?? 'Automatic');
+      o.el('PARENT', t.parent_name ?? XML_TYPE_OF[t.base_type]);
+      o.el('NUMBERINGMETHOD', NUMBERING_XML[t.numbering_method] ?? 'Automatic');
       o.yesNo('ISACTIVE', t.is_active === 1);
       o.el('ABBR', t.abbreviation);
       o.names(t.name, t.alias ? [t.alias] : []);
@@ -810,7 +811,7 @@ function writeCostAllocations(o: Out, costs: readonly CostSlice[], deemedPositiv
     for (const c of list) {
       o.open('COSTCENTREALLOCATIONS.LIST');
       o.el('NAME', c.centre);
-      o.el('AMOUNT', tallyAmountText(c.amount));
+      o.el('AMOUNT', xmlAmountText(c.amount));
       o.close('COSTCENTREALLOCATIONS.LIST');
     }
     o.close('CATEGORYALLOCATIONS.LIST');
@@ -855,7 +856,7 @@ function withCost(r: IeRow, costs: ReadonlyMap<number, number>): IeRow {
 }
 
 /**
- * Writes the period's vouchers one TALLYMESSAGE at a time through `emit` (constant memory), in
+ * Writes the period's vouchers one message element (MESSAGE_TAG) at a time through `emit` (constant memory), in
  * batches of VOUCHER_BATCH vouchers whose entries, stock lines, bills and cost allocations are read
  * with one query each (no per-voucher queries), calling `pause` every EXPORT_YIELD_ROWS vouchers so a
  * long export does not block the worker.
@@ -916,8 +917,8 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
       (r) => r.ledger_entry_id,
     );
     for (const v of vouchers) {
-      const tallyBase = TALLY_TYPE_OF[v.base_type];
-      if (!tallyBase) {
+      const xmlBase = XML_TYPE_OF[v.base_type];
+      if (!xmlBase) {
         skip(v.base_type === 'physical_stock' ? 'Physical stock vouchers (enter the counted stock in Tally)' : 'Quotations and proforma invoices (Tally has no such voucher type)');
         continue;
       }
@@ -928,8 +929,8 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
       const view = v.base_type === 'stock_journal' ? 'Consumption Voucher View' : inventory.length > 0 ? 'Invoice Voucher View' : 'Accounting Voucher View';
       message(o, () => {
         o.open('VOUCHER', { REMOTEID: v.guid, VCHTYPE: v.type_name, ACTION: 'Create', OBJVIEW: view });
-        o.el('DATE', tallyDateText(v.date));
-        if (v.effective_date && v.effective_date !== v.date) o.el('EFFECTIVEDATE', tallyDateText(v.effective_date));
+        o.el('DATE', xmlDateText(v.date));
+        if (v.effective_date && v.effective_date !== v.date) o.el('EFFECTIVEDATE', xmlDateText(v.effective_date));
         o.el('GUID', v.guid);
         o.el('VOUCHERTYPENAME', v.type_name);
         o.el('VOUCHERNUMBER', v.number);
@@ -938,11 +939,11 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
         const ref = isNote ? (v.original_invoice_no ?? v.reference_no) : v.reference_no;
         const refDate = isNote ? (v.original_invoice_date ?? v.reference_date) : v.reference_date;
         o.el('REFERENCE', ref);
-        if (refDate) o.el('REFERENCEDATE', tallyDateText(refDate));
+        if (refDate) o.el('REFERENCEDATE', xmlDateText(refDate));
         o.el('PARTYLEDGERNAME', v.party_ledger);
         o.el('PARTYNAME', v.party_name ?? v.party_ledger);
         o.el('PARTYGSTIN', v.party_gstin);
-        if (v.party_registration_type) o.el('GSTREGISTRATIONTYPE', REGISTRATION_TALLY[v.party_registration_type] ?? 'Unknown');
+        if (v.party_registration_type) o.el('GSTREGISTRATIONTYPE', REGISTRATION_XML[v.party_registration_type] ?? 'Unknown');
         if (v.place_of_supply && v.place_of_supply !== '96') o.el('PLACEOFSUPPLY', stateName(v.place_of_supply));
         o.el('NARRATION', v.narration);
         o.el('PERSISTEDVIEW', view);
@@ -996,21 +997,21 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
           o.open(tag);
           o.el('STOCKITEMNAME', first.item);
           o.yesNo('ISDEEMEDPOSITIVE', inward);
-          if (first.rate) o.el('RATE', tallyRateText(first.rate, first.unit));
+          if (first.rate) o.el('RATE', xmlRateText(first.rate, first.unit));
           if (first.discount_pct) o.el('DISCOUNT', ` ${first.discount_pct}`);
-          o.el('AMOUNT', tallyAmountText(signed));
-          o.el('ACTUALQTY', tallyQtyText(qty, first.unit));
+          o.el('AMOUNT', xmlAmountText(signed));
+          o.el('ACTUALQTY', xmlQtyText(qty, first.unit));
           const billed = rows.reduce((s, r) => s + Math.abs(r.billed_qty ?? r.qty), 0);
-          o.el('BILLEDQTY', tallyQtyText(billed, first.unit));
+          o.el('BILLEDQTY', xmlQtyText(billed, first.unit));
           rows.forEach((r, i) => {
             o.open('BATCHALLOCATIONS.LIST');
             o.el('GODOWNNAME', r.godown_predefined === 1 || !r.godown ? 'Main Location' : r.godown);
             o.el('BATCHNAME', r.batch_name ?? 'Primary Batch');
             o.el('TRACKINGNUMBER', r.tracking_ref);
             o.el('ORDERNO', r.order_ref);
-            o.el('AMOUNT', tallyAmountText(sign * rowValues[i]));
-            o.el('ACTUALQTY', tallyQtyText(r.qty, first.unit));
-            o.el('BILLEDQTY', tallyQtyText(r.billed_qty ?? r.qty, first.unit));
+            o.el('AMOUNT', xmlAmountText(sign * rowValues[i]));
+            o.el('ACTUALQTY', xmlQtyText(r.qty, first.unit));
+            o.el('BILLEDQTY', xmlQtyText(r.billed_qty ?? r.qty, first.unit));
             o.close('BATCHALLOCATIONS.LIST');
           });
           if (carries(rows)) {
@@ -1018,7 +1019,7 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
             o.open('ACCOUNTINGALLOCATIONS.LIST');
             o.el('LEDGERNAME', first.ledger);
             o.yesNo('ISDEEMEDPOSITIVE', signed > 0);
-            o.el('AMOUNT', tallyAmountText(signed));
+            o.el('AMOUNT', xmlAmountText(signed));
             writeCostAllocations(o, takeCosts(costQueue.get(ledgerId) ?? [], signed), signed > 0);
             o.close('ACCOUNTINGALLOCATIONS.LIST');
             allocated.set(ledgerId, (allocated.get(ledgerId) ?? 0) + signed);
@@ -1044,27 +1045,27 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
           o.el('LEDGERNAME', e.ledger);
           o.yesNo('ISDEEMEDPOSITIVE', amount > 0);
           o.yesNo('ISPARTYLEDGER', v.party_ledger !== null && e.ledger === v.party_ledger);
-          o.el('AMOUNT', tallyAmountText(amount));
+          o.el('AMOUNT', xmlAmountText(amount));
           for (const b of bills) {
             o.open('BILLALLOCATIONS.LIST');
             if (b.ref_type !== 'on_account') o.el('NAME', b.bill_name);
-            o.el('BILLTYPE', BILL_TYPE_TALLY[b.ref_type] ?? 'On Account');
+            o.el('BILLTYPE', BILL_TYPE_XML[b.ref_type] ?? 'On Account');
             if (b.credit_days !== null && b.ref_type === 'new') o.el('BILLCREDITPERIOD', `${b.credit_days} Days`);
-            o.el('AMOUNT', tallyAmountText(b.amount));
+            o.el('AMOUNT', xmlAmountText(b.amount));
             o.close('BILLALLOCATIONS.LIST');
           }
           const costs = carried.has(e.ledger_id) ? takeCosts(costQueue.get(e.ledger_id) ?? [], amount) : (costsOf.get(e.id) ?? []);
           writeCostAllocations(o, costs, amount > 0);
           if (e.instrument_type || e.instrument_no) {
             o.open('BANKALLOCATIONS.LIST');
-            o.el('DATE', tallyDateText(v.date));
-            if (e.instrument_date) o.el('INSTRUMENTDATE', tallyDateText(e.instrument_date));
-            o.el('TRANSACTIONTYPE', INSTRUMENT_TALLY[e.instrument_type ?? 'other'] ?? 'Others');
+            o.el('DATE', xmlDateText(v.date));
+            if (e.instrument_date) o.el('INSTRUMENTDATE', xmlDateText(e.instrument_date));
+            o.el('TRANSACTIONTYPE', INSTRUMENT_XML[e.instrument_type ?? 'other'] ?? 'Others');
             o.el('INSTRUMENTNUMBER', e.instrument_no);
             o.el('BANKNAME', e.bank_name);
             o.el('PAYMENTFAVOURING', e.favouring);
-            if (e.bank_date) o.el('BANKERSDATE', tallyDateText(e.bank_date));
-            o.el('AMOUNT', tallyAmountText(amount));
+            if (e.bank_date) o.el('BANKERSDATE', xmlDateText(e.bank_date));
+            o.el('AMOUNT', xmlAmountText(amount));
             o.close('BANKALLOCATIONS.LIST');
           }
           o.close(entryTag);
@@ -1088,12 +1089,12 @@ const VOUCHER_BATCH = 2000;
 
 // ───────────────────────────── Envelope ─────────────────────────────
 
-/** The ENVELOPE around the TALLYMESSAGEs: [text before them, text after them]. */
+/** The ENVELOPE around the message elements (MESSAGE_TAG): [text before them, text after them]. */
 function envelopeParts(company: string, report: 'All Masters' | 'Vouchers'): [string, string] {
   const head = new Out();
   head.open('ENVELOPE');
   head.open('HEADER');
-  head.el('TALLYREQUEST', 'Import Data');
+  head.el(REQUEST_TAG, 'Import Data');
   head.close('HEADER');
   head.open('BODY');
   head.open('IMPORTDATA');
@@ -1122,7 +1123,7 @@ function utf16le(text: string): Uint8Array {
  * the exported period) after the books beginning writes the opening balances, bills and stock as on
  * that date (see openingsAt); otherwise the books-beginning openings as entered.
  */
-export function buildTallyMasters(
+export function buildXmlMasters(
   db: Db,
   opts: { openingsAsOf?: string; today?: string } = {},
 ): { xml: string; counts: MasterCounts; companyName: string; openingsAsOf: string } {
@@ -1137,12 +1138,12 @@ export function buildTallyMasters(
 }
 
 /**
- * 'data.tally.export'. Masters only → one XML file. With vouchers → a ZIP (1-Masters.xml +
+ * 'data.xmlExport.create'. Masters only → one XML file. With vouchers → a ZIP (1-Masters.xml +
  * 2-Vouchers.xml, or Vouchers.xml alone): Tally XML runs to ~4.5 KB a voucher, so the vouchers are
  * streamed into the ZIP in the company folder (constant memory, one read snapshot, yielding between
  * batches) and the finished file — about a twentieth of the XML — is read back and deleted.
  */
-export async function exportTally(ctx: CompanyCtx, input: TallyExportInput): Promise<TallyExportResult> {
+export async function exportXml(ctx: CompanyCtx, input: XmlExportInput): Promise<XmlExportResult> {
   requirePermission(ctx, 'data.export');
   if (!input.masters && !input.vouchers) throw validation([{ path: 'masters', message: 'Choose masters, vouchers or both.' }]);
   if (input.vouchers && input.from > input.to) throw validation([{ path: 'from', message: 'The period starts after it ends. Check the From and To dates.' }]);
@@ -1152,20 +1153,20 @@ export async function exportTally(ctx: CompanyCtx, input: TallyExportInput): Pro
   let bytes: Uint8Array;
   let mimeType: string;
   let masterCounts: MasterCounts | null = null;
-  let masters: ReturnType<typeof buildTallyMasters> | null = null;
+  let masters: ReturnType<typeof buildXmlMasters> | null = null;
   let voucherCounts: VoucherCounts | null = null;
   let companyName: string;
   try {
     const db = snap.db;
     // With the vouchers of a later period, the masters carry the balances on the period's first day.
-    masters = input.masters ? buildTallyMasters(db, { ...(input.vouchers ? { openingsAsOf: input.from } : {}), today: ctx.clock.today() }) : null;
+    masters = input.masters ? buildXmlMasters(db, { ...(input.vouchers ? { openingsAsOf: input.from } : {}), today: ctx.clock.today() }) : null;
     masterCounts = masters?.counts ?? null;
     companyName = masters?.companyName ?? db.value<string>('SELECT name FROM company WHERE id = 1') ?? 'Company';
     const slug = fileSlug(companyName);
     if (!input.vouchers) {
       fileName = `${slug}-Tally-Masters.xml`;
       bytes = utf16leWithBom(masters?.xml ?? '');
-      mimeType = TALLY_XML_MIME;
+      mimeType = XML_DATA_MIME;
     } else {
       fs.mkdirSync(ctx.company.dir, { recursive: true });
       const tmp = path.join(ctx.company.dir, `.export-${randomToken(6)}.tmp`);
@@ -1213,7 +1214,7 @@ export async function exportTally(ctx: CompanyCtx, input: TallyExportInput): Pro
     snap.close();
     zip?.abort(); // closes if still open, and deletes the temporary file in every case
   }
-  const result: TallyExportResult = {
+  const result: XmlExportResult = {
     fileName,
     bytes,
     mimeType,
@@ -1225,7 +1226,7 @@ export async function exportTally(ctx: CompanyCtx, input: TallyExportInput): Pro
   ctx.db.transaction(() =>
     ctx.audit({
       action: 'export',
-      entityType: 'tally_xml',
+      entityType: 'xml_data',
       entityLabel: input.vouchers ? `Tally XML ${formatDate(input.from)} to ${formatDate(input.to)}` : 'Tally XML (masters)',
       after: { masters: masterCounts, openingsAsOf: result.openingsAsOf, vouchers: result.vouchers, skipped: result.skipped, bytes: bytes.byteLength },
     }),

@@ -32,7 +32,7 @@ function reportBlocked(raw: string): void {
 
 /**
  * Lock down the app session: deny permissions, enforce CSP on app documents, and cancel every
- * request that is not served locally. Bahi ERP is offline-first — it never needs the network.
+ * request that is not served locally. Pevqori is offline-first — it never needs the network.
  */
 export function hardenAppSession(ses: Session, dev: DevServer | null): void {
   const csp = contentSecurityPolicy(dev);

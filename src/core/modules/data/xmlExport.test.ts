@@ -1,5 +1,5 @@
 /**
- * Tally XML export ('data.tally.export'): value formats, the file shape, permissions / audit, and the
+ * Tally XML export ('data.xmlExport.create'): value formats, the file shape, permissions / audit, and the
  * ROUND TRIP — a company with GST invoices (intra- and inter-state), purchases, bill-wise receipts,
  * bank instruments, cost centres, a godown transfer, opening balances / bills / stock and aliases is
  * exported, the two XML files are imported by our own Tally importer into an EMPTY company, and the
@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { TallyExportResult, TallyImportResult } from '../../../shared/types/data.ts';
+import type { XmlExportResult, XmlImportResult } from '../../../shared/types/data.ts';
 import type { TrialBalanceResult } from '../../../shared/types/reports.ts';
 import type { VoucherInput } from '../../../shared/types/vouchers.ts';
 import type { StockSummaryResult } from '../../../shared/types/stock.ts';
@@ -25,9 +25,10 @@ import { stockRoutes } from '../stock/routes.ts';
 import { cancelVoucher } from '../vouchers/service.ts';
 import { save, setupKit, type Kit } from '../vouchers/testkit.ts';
 import { dataRoutes } from './routes.ts';
-import { exportTally, tallyAmountText, tallyQtyText, tallyRateText } from './tallyExport.ts';
-import { importTally } from './tallyImport.ts';
-import { parseTallyFile } from './tallyParse.ts';
+import { exportXml, xmlAmountText, xmlQtyText, xmlRateText } from './xmlExport.ts';
+import { importXml } from './xmlImport.ts';
+import { parseXmlFile } from './xmlParse.ts';
+import { REQUEST_TAG } from './xmlFormat.ts';
 
 const FROM = '2026-04-01';
 const TO = '2027-03-31';
@@ -154,13 +155,13 @@ function populate(): Record<string, number> {
 }
 
 /** Export through the service (ZIP of UTF-16LE files), then import 1-Masters.xml and 2-Vouchers.xml into an empty company. */
-async function roundTrip(): Promise<{ result: TallyImportResult[]; target: TestCompany; file: TallyExportResult }> {
-  const file = await exportTally(k.t.ctx, { masters: true, vouchers: true, from: FROM, to: TO });
+async function roundTrip(): Promise<{ result: XmlImportResult[]; target: TestCompany; file: XmlExportResult }> {
+  const file = await exportXml(k.t.ctx, { masters: true, vouchers: true, from: FROM, to: TO });
   const zip = readZip(file.bytes);
   assert.deepEqual(zip.list(), ['1-Masters.xml', '2-Vouchers.xml']);
   target = createTestCompany({ name: 'Round Trip Traders', today: '2026-04-30', booksFrom: FROM });
-  const m = await importTally(target.ctx, { fileName: '1-Masters.xml', bytes: zip.read('1-Masters.xml'), options: { masters: true, vouchers: false, onDuplicate: 'skip' } });
-  const vch = await importTally(target.ctx, { fileName: '2-Vouchers.xml', bytes: zip.read('2-Vouchers.xml'), options: { masters: false, vouchers: true, onDuplicate: 'skip' } });
+  const m = await importXml(target.ctx, { fileName: '1-Masters.xml', bytes: zip.read('1-Masters.xml'), options: { masters: true, vouchers: false, onDuplicate: 'skip' } });
+  const vch = await importXml(target.ctx, { fileName: '2-Vouchers.xml', bytes: zip.read('2-Vouchers.xml'), options: { masters: false, vouchers: true, onDuplicate: 'skip' } });
   return { result: [m, vch], target, file };
 }
 
@@ -235,15 +236,15 @@ function stripVolatile(x: unknown): unknown {
 
 describe('tally export: value formats', () => {
   it('amounts flip sign (Tally Dr is negative), dates, quantities and rates', () => {
-    assert.equal(tallyAmountText(1_044_500), '-10445.00'); // ours Dr ₹10,445
-    assert.equal(tallyAmountText(-2_33_000_00), '233000.00'); // ours Cr
-    assert.equal(tallyAmountText(5), '-0.05');
-    assert.equal(tallyAmountText(0), '0.00');
-    assert.equal(tallyQtyText(-10, 'Nos'), ' 10 Nos');
-    assert.equal(tallyQtyText(2.5, 'Kg'), ' 2.5 Kg');
-    assert.equal(tallyRateText(2950.5, 'Nos'), '2950.50/Nos');
-    assert.equal(tallyRateText(45, 'Nos'), '45.00/Nos');
-    assert.equal(tallyRateText(1.2345, 'Kg'), '1.2345/Kg');
+    assert.equal(xmlAmountText(1_044_500), '-10445.00'); // ours Dr ₹10,445
+    assert.equal(xmlAmountText(-2_33_000_00), '233000.00'); // ours Cr
+    assert.equal(xmlAmountText(5), '-0.05');
+    assert.equal(xmlAmountText(0), '0.00');
+    assert.equal(xmlQtyText(-10, 'Nos'), ' 10 Nos');
+    assert.equal(xmlQtyText(2.5, 'Kg'), ' 2.5 Kg');
+    assert.equal(xmlRateText(2950.5, 'Nos'), '2950.50/Nos');
+    assert.equal(xmlRateText(45, 'Nos'), '45.00/Nos');
+    assert.equal(xmlRateText(1.2345, 'Kg'), '1.2345/Kg');
   });
 });
 
@@ -299,14 +300,14 @@ describe('tally export: round trip through our own importer', () => {
 describe('tally export: the file, permissions and audit', () => {
   it('masters only: one UTF-16LE XML with a BOM in the ENVELOPE / IMPORTDATA shape, values escaped', async () => {
     writeExtraAliases(k.t.db, 'ledger', k.L.acme, ['A&B <Co>']);
-    const r = await exportTally(k.t.ctx, { masters: true, vouchers: false, from: FROM, to: TO });
+    const r = await exportXml(k.t.ctx, { masters: true, vouchers: false, from: FROM, to: TO });
     assert.equal(r.fileName, 'Round-Trip-Traders-Tally-Masters.xml');
     assert.equal(r.mimeType, 'application/xml');
     assert.deepEqual([r.bytes[0], r.bytes[1]], [0xff, 0xfe]); // UTF-16LE BOM
     assert.equal(r.vouchers, 0);
     assert.ok(r.masters && r.masters.ledgers > 10 && r.masters.stockItems === 3);
     const xml = new TextDecoder('utf-16le').decode(r.bytes.subarray(2));
-    assert.match(xml, /^<ENVELOPE>\r\n <HEADER>\r\n  <TALLYREQUEST>Import Data<\/TALLYREQUEST>/);
+    assert.ok(xml.startsWith(`<ENVELOPE>\r\n <HEADER>\r\n  <${REQUEST_TAG}>Import Data</${REQUEST_TAG}>`));
     assert.match(xml, /<REPORTNAME>All Masters<\/REPORTNAME>/);
     assert.match(xml, /<SVCURRENTCOMPANY>Round Trip Traders<\/SVCURRENTCOMPANY>/);
     assert.match(xml, /<NAME>A&amp;B &lt;Co&gt;<\/NAME>/);
@@ -315,7 +316,7 @@ describe('tally export: the file, permissions and audit', () => {
     assert.match(xml, /<GSTREGISTRATIONTYPE>Regular<\/GSTREGISTRATIONTYPE>/);
     assert.match(xml, /<STOCKITEM NAME="Rice Bag" ACTION="Create">[\s\S]*?<HSNCODE>1006<\/HSNCODE>[\s\S]*?<GSTRATEDUTYHEAD>Integrated Tax<\/GSTRATEDUTYHEAD>\r\n\s*<GSTRATE> 5<\/GSTRATE>/);
     // Our own reader accepts it (what Tally reads, we read).
-    const parsed = parseTallyFile(r.bytes);
+    const parsed = parseXmlFile(r.bytes);
     assert.equal(parsed.encoding, 'utf-16le');
     assert.equal(parsed.companyName, 'Round Trip Traders');
     assert.equal(parsed.counts.VOUCHER, 0);
@@ -324,7 +325,7 @@ describe('tally export: the file, permissions and audit', () => {
 
   it('vouchers only: a ZIP of Vouchers.xml; the period is honoured and amounts are signed as Tally expects', async () => {
     populate();
-    const r = await exportTally(k.t.ctx, { masters: false, vouchers: true, from: '2026-04-05', to: '2026-04-08' });
+    const r = await exportXml(k.t.ctx, { masters: false, vouchers: true, from: '2026-04-05', to: '2026-04-08' });
     assert.equal(r.fileName, 'Round-Trip-Traders-Tally-Vouchers-20260405-20260408.zip');
     assert.equal(r.mimeType, 'application/zip');
     assert.equal(r.masters, null);
@@ -340,26 +341,26 @@ describe('tally export: the file, permissions and audit', () => {
     assert.match(xml, /<STOCKITEMNAME>Rice Bag<\/STOCKITEMNAME>[\s\S]*?<AMOUNT>600.00<\/AMOUNT>/);
     assert.match(xml, /<BILLTYPE>New Ref<\/BILLTYPE>/);
     assert.match(xml, /<PLACEOFSUPPLY>Karnataka<\/PLACEOFSUPPLY>/);
-    assert.equal(parseTallyFile(raw).counts.VOUCHER, 2);
+    assert.equal(parseXmlFile(raw).counts.VOUCHER, 2);
     assert.equal(fs.readdirSync(k.t.ctx.company.dir).filter((f) => f.startsWith('.export-')).length, 0, 'temporary file removed');
   });
 
   it('runs through the dispatcher, needs data.export and writes one audit entry', async () => {
-    const before = k.t.db.value<number>(`SELECT COUNT(*) FROM audit_log WHERE entity_type = 'tally_xml'`) ?? 0;
-    const ok = await k.t.callOk<TallyExportResult>(dataRoutes, 'data.tally.export', { masters: true, vouchers: true, from: FROM, to: TO });
+    const before = k.t.db.value<number>(`SELECT COUNT(*) FROM audit_log WHERE entity_type = 'xml_data'`) ?? 0;
+    const ok = await k.t.callOk<XmlExportResult>(dataRoutes, 'data.xmlExport.create', { masters: true, vouchers: true, from: FROM, to: TO });
     assert.equal(ok.fileName, 'Round-Trip-Traders-Tally-20260401-20270331.zip');
-    assert.equal(k.t.db.value(`SELECT COUNT(*) FROM audit_log WHERE entity_type = 'tally_xml' AND action = 'export'`), before + 1);
-    const denied = await k.t.call(dataRoutes, 'data.tally.export', { masters: true, vouchers: false, from: FROM, to: TO }, { session: k.t.sessionAs({ permissions: ['masters.view', 'reports.view'] }) });
+    assert.equal(k.t.db.value(`SELECT COUNT(*) FROM audit_log WHERE entity_type = 'xml_data' AND action = 'export'`), before + 1);
+    const denied = await k.t.call(dataRoutes, 'data.xmlExport.create', { masters: true, vouchers: false, from: FROM, to: TO }, { session: k.t.sessionAs({ permissions: ['masters.view', 'reports.view'] }) });
     assert.equal(denied.ok, false);
     if (!denied.ok) assert.equal(denied.error.code, 'FORBIDDEN');
   });
 
   it('refuses an empty choice and a reversed period, saying how to fix it', async () => {
     await assert.rejects(
-      () => exportTally(k.t.ctx, { masters: false, vouchers: false, from: FROM, to: TO }),
+      () => exportXml(k.t.ctx, { masters: false, vouchers: false, from: FROM, to: TO }),
       (e: unknown) => e instanceof AppError && e.code === 'VALIDATION' && /masters, vouchers or both/.test(JSON.stringify(e.details ?? e.message)),
     );
-    await assert.rejects(() => exportTally(k.t.ctx, { masters: false, vouchers: true, from: TO, to: FROM }), (e: unknown) => e instanceof AppError && e.code === 'VALIDATION');
+    await assert.rejects(() => exportXml(k.t.ctx, { masters: false, vouchers: true, from: TO, to: FROM }), (e: unknown) => e instanceof AppError && e.code === 'VALIDATION');
   });
 });
 
@@ -371,15 +372,15 @@ async function exportImport(
   from: string,
   to: string,
   target: { booksFrom: string; today: string; features?: NonNullable<Parameters<typeof createTestCompany>[0]>['features']; lut?: boolean },
-): Promise<{ file: TallyExportResult; tg: TestCompany; vouchersXml: string }> {
-  const file = await exportTally(source.ctx, { masters: true, vouchers: true, from, to });
+): Promise<{ file: XmlExportResult; tg: TestCompany; vouchersXml: string }> {
+  const file = await exportXml(source.ctx, { masters: true, vouchers: true, from, to });
   const zip = readZip(file.bytes);
   const tg = createTestCompany({ name: 'Imported', today: target.today, booksFrom: target.booksFrom, ...(target.features ? { features: target.features } : {}) });
   if (target.lut) {
     tg.db.run(`UPDATE settings SET value = json_set(value, '$.gst.lutNumber', 'AD2704260012345', '$.gst.lutValidFrom', '2026-04-01', '$.gst.lutValidTo', '2027-03-31') WHERE key = 'config'`);
   }
   for (const [name, masters] of [['1-Masters.xml', true], ['2-Vouchers.xml', false]] as const) {
-    const r = await importTally(tg.ctx, { fileName: name, bytes: zip.read(name), options: { masters, vouchers: !masters, onDuplicate: 'skip' } });
+    const r = await importXml(tg.ctx, { fileName: name, bytes: zip.read(name), options: { masters, vouchers: !masters, onDuplicate: 'skip' } });
     assert.deepEqual(r.issues.filter((i) => i.severity !== 'info'), [], `${name} imports without warnings`);
   }
   return { file, tg, vouchersXml: new TextDecoder('utf-16le').decode(zip.read('2-Vouchers.xml').subarray(2)) };
@@ -387,7 +388,7 @@ async function exportImport(
 
 /** Every (non-cancelled) voucher of the file balances: ledger entries + accounting allocations sum to 0. */
 function assertFileBalanced(xmlUtf16: Uint8Array): void {
-  for (const v of parseTallyFile(xmlUtf16).vouchers) {
+  for (const v of parseXmlFile(xmlUtf16).vouchers) {
     if (v.isCancelled) continue;
     const sum = v.entries.reduce((s, e) => s + e.amount, 0);
     assert.equal(sum, 0, `voucher ${v.vchType} ${v.number} balances in the file`);
@@ -473,7 +474,7 @@ describe('tally export: openings when the period starts after the books beginnin
         // The unallocated 500 becomes an opening bill "On Account" (opening bills must add up to the balance).
         assert.deepEqual(bills(tg), [...bills(s.t), { name: 'Acme Traders', bill: 'On Account', amount: -500_00 }].sort((a, b) => `${a.name}|${a.bill}`.localeCompare(`${b.name}|${b.bill}`)));
         // Masters alone keep the books-beginning openings.
-        const mastersOnly = await exportTally(s.t.ctx, { masters: true, vouchers: false, from: F, to: T });
+        const mastersOnly = await exportXml(s.t.ctx, { masters: true, vouchers: false, from: F, to: T });
         assert.equal(mastersOnly.openingsAsOf, '2025-04-01');
       } finally {
         tg.close();
@@ -517,7 +518,7 @@ describe('tally export: invoices whose lines carry more than their sales ledger'
       save(s, { voucherTypeId: vt.memorandum, date: '2026-04-16', mode: 'ledger', ledgers: [{ ledgerId: L.rent, amount: 100_00 }, { ledgerId: L.cash, amount: -100_00 }] });
       save(s, { voucherTypeId: vt.receipt, date: '2026-04-17', mode: 'ledger', ledgers: [{ ledgerId: L.bank, amount: 2_000_00, instrument: { type: 'upi', number: 'UPI-1' } }, { ledgerId: L.blr, amount: -2_000_00, billAllocations: [{ refType: 'advance', billName: 'ADV-1', amount: 2_000_00 }] }] });
 
-      const file = await exportTally(s.t.ctx, { masters: true, vouchers: true, from: FROM, to: TO });
+      const file = await exportXml(s.t.ctx, { masters: true, vouchers: true, from: FROM, to: TO });
       assertFileBalanced(readZip(file.bytes).read('2-Vouchers.xml'));
       const { tg, vouchersXml } = await exportImport(s.t, FROM, TO, { booksFrom: FROM, today: '2026-04-30', features: { costCentres: true } });
       try {

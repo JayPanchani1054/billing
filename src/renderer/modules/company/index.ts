@@ -24,7 +24,7 @@ export const companyModule: ModuleDef = {
     { id: 'company.config', title: 'Configuration', component: ConfigScreen, keywords: ['f12', 'settings', 'invoice', 'printing', 'backup', 'round off'] },
     { id: 'company.periodLock', title: 'Lock Books', component: PeriodLockScreen, access: 'period.lock', presentation: 'dialog', keywords: ['period lock', 'freeze', 'close books'] },
     { id: 'company.changePassword', title: 'Change Password', component: ChangePasswordScreen, presentation: 'dialog' },
-    { id: 'company.about', title: 'About Bahi ERP', component: AboutScreen, goto: true, keywords: ['version', 'help'] },
+    { id: 'company.about', title: 'About Pevqori', component: AboutScreen, goto: true, keywords: ['version', 'help'] },
     { id: 'company.shortcuts', title: 'Keyboard Shortcuts', component: ShortcutsScreen, keywords: ['keys', 'hotkeys', 'help'] },
   ],
   menu: [
@@ -33,6 +33,6 @@ export const companyModule: ModuleDef = {
     { section: 'company', label: 'Configuration', screen: 'company.config', hotkey: 'F12', order: 30, description: 'Round-off, GST settings, checks, display and backups' },
     { section: 'company', label: 'Lock Books', screen: 'company.periodLock', order: 40, access: 'period.lock', description: 'Stop changes to entries up to a date' },
     { section: 'utilities', label: 'Keyboard Shortcuts', screen: 'company.shortcuts', order: 900, description: 'Every key in one list' },
-    { section: 'utilities', label: 'About Bahi ERP', screen: 'company.about', order: 910, description: 'Version and data folder' },
+    { section: 'utilities', label: 'About Pevqori', screen: 'company.about', order: 910, description: 'Version and data folder' },
   ],
 };

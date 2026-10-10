@@ -607,7 +607,7 @@ CREATE INDEX idx_gst_date ON gst_lines(date);
 -- ───────────────────────────── Banking ─────────────────────────────
 CREATE TABLE import_batches (
   id          INTEGER PRIMARY KEY,
-  kind        TEXT NOT NULL,      -- bank_statement|gstr2a|gstr2b|gstr1|masters|vouchers|tally_xml
+  kind        TEXT NOT NULL,      -- bank_statement|gstr2a|gstr2b|gstr1|masters|vouchers|xml_data
   file_name   TEXT,
   imported_at TEXT NOT NULL,
   user_id     INTEGER,

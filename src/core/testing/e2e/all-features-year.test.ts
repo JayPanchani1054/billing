@@ -537,7 +537,7 @@ describe('every feature on: a business year tied out across all modules', () => 
   });
 
   it('Tally XML export → import into an empty company reproduces the trial balance, stock summary and GST totals', async () => {
-    const file = await e.call<{ bytes: Uint8Array; vouchers: number; skipped: Array<{ reason: string; count: number }> }>('data.tally.export', { masters: true, vouchers: true, ...FY });
+    const file = await e.call<{ bytes: Uint8Array; vouchers: number; skipped: Array<{ reason: string; count: number }> }>('data.xmlExport.create', { masters: true, vouchers: true, ...FY });
     const zip = readZip(file.bytes);
     const srcTb = await tbByName(e);
     const srcStock = await stockByName(e);
@@ -563,7 +563,7 @@ describe('every feature on: a business year tied out across all modules', () => 
         gstRegistrationType: 'regular',
         gstin: makeGstin('27', 'AAACG1001A'),
         booksFrom: AF_BOOKS_FROM,
-        owner: { username: 'owner', displayName: 'Copy Owner', password: 'TallyCopy#2026' },
+        owner: { username: 'owner', displayName: 'Copy Owner', password: 'CopyOwner#2026' },
       });
       assert.ok(st.companies.some((c) => c.name === 'Godavari Tally Copy'));
       await e.call('company.features.save', { inventory: true, integrateInventory: true, billWise: true, multipleGodowns: true });
@@ -571,7 +571,7 @@ describe('every feature on: a business year tied out across all modules', () => 
         ['1-Masters.xml', { masters: true, vouchers: false, onDuplicate: 'skip' }],
         ['2-Vouchers.xml', { masters: false, vouchers: true, onDuplicate: 'skip' }],
       ] as const) {
-        const r = await e.call<{ issues: Array<{ severity: string; message: string }>; stopped: boolean }>('data.tally.import', { fileName, bytes: zip.read(fileName), options });
+        const r = await e.call<{ issues: Array<{ severity: string; message: string }>; stopped: boolean }>('data.xmlImport.commit', { fileName, bytes: zip.read(fileName), options });
         assert.deepEqual(r.issues.filter((i) => i.severity === 'error'), [], `${fileName}: no import errors`);
         assert.equal(r.stopped, false);
       }

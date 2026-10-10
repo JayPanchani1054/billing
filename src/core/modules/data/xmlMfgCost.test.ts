@@ -19,8 +19,8 @@ import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
 import { closingStockValue } from '../inventory/valuation.ts';
 import { mfgKit, post, purchase, type MfgKit } from '../mfg/testkit.ts';
 import { stockRoutes } from '../stock/routes.ts';
-import { exportTally } from './tallyExport.ts';
-import { importTally } from './tallyImport.ts';
+import { exportXml } from './xmlExport.ts';
+import { importXml } from './xmlImport.ts';
 
 let k: MfgKit | null = null;
 let target: TestCompany | null = null;
@@ -60,7 +60,7 @@ describe('Tally export: manufacturing journals at the engine’s current cost', 
     const src = await byItem(t);
     assert.deepEqual(src.Chair, [10, 3_250_00], 'the engine re-values the chairs: 50 kg × ₹65');
 
-    const file = await exportTally(t.ctx, { masters: true, vouchers: true, from: '2025-04-01', to: '2026-06-30' });
+    const file = await exportXml(t.ctx, { masters: true, vouchers: true, from: '2025-04-01', to: '2026-06-30' });
     const zip = readZip(file.bytes);
     const xml = new TextDecoder('utf-16le').decode(zip.read('2-Vouchers.xml').subarray(2));
     assert.match(xml, /<STOCKITEMNAME>Chair<\/STOCKITEMNAME>[\s\S]*?<RATE>325\.00\/Nos<\/RATE>[\s\S]*?<AMOUNT>-3250\.00<\/AMOUNT>/, 'production at ₹325 each');
@@ -70,7 +70,7 @@ describe('Tally export: manufacturing journals at the engine’s current cost', 
       ['1-Masters.xml', { masters: true, vouchers: false, onDuplicate: 'skip' }],
       ['2-Vouchers.xml', { masters: false, vouchers: true, onDuplicate: 'skip' }],
     ] as const) {
-      const r = await importTally(target.ctx, { fileName, bytes: zip.read(fileName), options });
+      const r = await importXml(target.ctx, { fileName, bytes: zip.read(fileName), options });
       assert.deepEqual(r.issues.filter((i) => i.severity === 'error'), [], fileName);
     }
     const dst = await byItem(target);

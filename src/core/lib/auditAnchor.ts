@@ -35,7 +35,7 @@ export function auditHead(db: Db): AuditHead | null {
 
 /** Canonical byte string the MAC covers (field order fixed; '|' cannot occur in ids, guids, hex or ISO dates). */
 export function anchorMacInput(a: Omit<AuditAnchor, 'mac'>): string {
-  return ['bahi-audit-anchor-v1', a.companyId, a.companyGuid, String(a.lastId), a.lastHash, a.at].join('|');
+  return ['pevqori-audit-anchor-v1', a.companyId, a.companyGuid, String(a.lastId), a.lastHash, a.at].join('|');
 }
 
 export type AnchorStatus = 'match' | 'mismatch' | 'invalid' | 'missing';

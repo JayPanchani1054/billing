@@ -33,7 +33,7 @@ const input = (name: string, over: Partial<CreateCompanyInput> = {}): CreateComp
 const isCode = (code: string, re?: RegExp) => (e: unknown) => e instanceof AppError && e.code === code && (!re || re.test(e.message));
 
 beforeEach(() => {
-  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-store-'));
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-store-'));
   logs.length = 0;
 });
 afterEach(() => fs.rmSync(dataDir, { recursive: true, force: true }));
@@ -92,7 +92,7 @@ describe('CompanyStore', () => {
     assert.equal(lock.appVersion, '1.0.0');
     assert.equal(opened.db.value('SELECT name FROM company'), 'Gamma');
     // A second open in the same process is refused.
-    assert.throws(() => newStore().open(c.id), isCode('LOCKED', /open in another Bahi ERP window/));
+    assert.throws(() => newStore().open(c.id), isCode('LOCKED', /open in another Pevqori window/));
     // Listing still works while open (read-only connection).
     assert.equal(store.list().length, 1);
     store.close(opened);
@@ -106,7 +106,7 @@ describe('CompanyStore', () => {
     const beat = new Date(clock.now().getTime() - 60_000).toISOString();
     const live = { pid: process.ppid, hostname: os.hostname(), startedAt: beat, heartbeatAt: beat };
     fs.writeFileSync(path.join(c.dir, LOCK_FILE), JSON.stringify(live));
-    assert.throws(() => store.open(c.id), isCode('LOCKED', /another Bahi ERP window/));
+    assert.throws(() => store.open(c.id), isCode('LOCKED', /another Pevqori window/));
   });
 
   it('takes over a lock whose pid was recycled by another program after a crash (regression)', () => {
@@ -317,8 +317,8 @@ describe('CompanyStore', () => {
     const oldSnap = aged(make(path.join(c.dir, '.backup-xyz789.db')));
     const oldTmp = aged(make(path.join(c.dir, 'registry.json.tmp-123-abcd')));
     fs.mkdirSync(path.join(dataDir, 'backups', c.id), { recursive: true });
-    const oldPartial = aged(make(path.join(dataDir, 'backups', c.id, '.Mu_20261005-100000.bahibak.ab12cd.tmp')));
-    const keepBackup = aged(make(path.join(dataDir, 'backups', c.id, 'Mu_20261005-100000.bahibak')));
+    const oldPartial = aged(make(path.join(dataDir, 'backups', c.id, '.Mu_20261005-100000.pvqbak.ab12cd.tmp')));
+    const keepBackup = aged(make(path.join(dataDir, 'backups', c.id, 'Mu_20261005-100000.pvqbak')));
     assert.equal(store.sweepTemporaryFiles(), 5);
     for (const p of [oldRestore, oldStaging, oldSnap, oldTmp, oldPartial]) assert.equal(fs.existsSync(p), false, p);
     for (const p of [freshRestore, keepBackup, c.dbPath]) assert.equal(fs.existsSync(p), true, p);

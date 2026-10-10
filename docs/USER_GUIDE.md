@@ -1,4 +1,4 @@
-# Bahi ERP — User Guide
+# Pevqori — User Guide
 
 A practical guide for business owners, accountants and data-entry staff. It follows the order in which
 you will meet things: install and open a company, set it up, create masters, enter vouchers, and then
@@ -14,10 +14,10 @@ use GST, TDS, banking, reports and the data tools.
   Features screen (**F11**); *F12 › Checks* means the *Checks* tab of Configuration (**F12**).
 - Every screen shows its keys in the action bar on the right and in the status line at the bottom.
   **F1** lists all keys; section 15 of this guide has the full reference.
-- Bahi computes from your books. Where a figure goes to a government portal (GST, TDS), compare it with
+- Pevqori computes from your books. Where a figure goes to a government portal (GST, TDS), compare it with
   the portal before filing — the portal is the legal record.
 
-Things Bahi deliberately does not do (payroll, direct GST portal APIs, the TDS FVU file, and more) are
+Things Pevqori deliberately does not do (payroll, direct GST portal APIs, the TDS FVU file, and more) are
 listed in [SCOPE.md](SCOPE.md). Installing, upgrading and uninstalling are in [INSTALL.md](INSTALL.md).
 
 ## Contents
@@ -43,15 +43,15 @@ listed in [SCOPE.md](SCOPE.md). Installing, upgrading and uninstalling are in [I
 
 ### First launch: the data folder
 
-Install Bahi ERP as described in [INSTALL.md](INSTALL.md). The first time it starts it asks **where to
-keep your data** and suggests `Documents\Bahi ERP`. Every company you create is a folder inside it.
+Install Pevqori as described in [INSTALL.md](INSTALL.md). The first time it starts it asks **where to
+keep your data** and suggests `Documents\Pevqori`. Every company you create is a folder inside it.
 Choose a folder on a drive you trust (a BitLocker-encrypted drive is ideal) and press **Ctrl+A** (or
-*Use this folder*). If you already have Bahi data (for example copied from another computer), choose
+*Use this folder*). If you already have Pevqori data (for example copied from another computer), choose
 that folder instead.
 
 ### Select a Company
 
-With no company open you see **Select a Company** (or *Welcome to Bahi ERP* when the folder is empty):
+With no company open you see **Select a Company** (or *Welcome to Pevqori* when the folder is empty):
 
 | Key | Action |
 |---|---|
@@ -72,7 +72,7 @@ password — recommended) → **Review**. **Enter** moves through the fields, **
 step and **Ctrl+A** creates the company (jumping to any step that still needs attention). Everything can
 be changed later.
 
-If the company is password-protected, Bahi asks for the username and password each time it is opened.
+If the company is password-protected, Pevqori asks for the username and password each time it is opened.
 
 ### The Gateway
 
@@ -97,7 +97,7 @@ the full dashboard, *Reports › **Dashboard***, brings the card back if you hid
   **Alt+F2** changes the *period* used by reports.
 - In any date box: **t** is today, **5** the 5th of this month, **5-10** 5 October, **+** / **−** move
   a day; **Alt+↓** opens the calendar.
-- **F3** switches company (Bahi closes the current one, running the automatic backup first if one is
+- **F3** switches company (Pevqori closes the current one, running the automatic backup first if one is
   due). **Ctrl+Q** quits.
 - **F1** (or **Ctrl+H**) shows every key. The menu behind your initials (top right) also has the
   theme (match Windows, light, dark), density (comfortable / compact), *Change password* and *Log out*.
@@ -113,7 +113,7 @@ sees CMP-08 and GSTR-4 instead of GSTR-1 and GSTR-3B (section 6.8).
 
 ### Features (F11)
 
-**F11** (*Company › **Features***) switches parts of Bahi on and off. A switch that needs another one
+**F11** (*Company › **Features***) switches parts of Pevqori on and off. A switch that needs another one
 says so ("Turn on Batches first").
 
 | Group | Features |
@@ -165,7 +165,7 @@ the spot; it is then selected for you.
 - *Masters › **Ledgers*** — every account: parties, banks, sales and purchase ledgers, expenses, taxes.
   Chips filter parties, cash and bank, sales, purchase, duties and taxes, income and expense. **Alt+C**
   creates, **Alt+B** creates several at once (*Masters › **Multiple Ledgers***), **Alt+D** deletes (a
-  ledger with vouchers cannot be deleted — Bahi explains and offers to deactivate it), **Alt+H** shows its
+  ledger with vouchers cannot be deleted — Pevqori explains and offers to deactivate it), **Alt+H** shows its
   edit history, **Alt+T** opens the *Masters › **Chart of Accounts***.
 - *Masters › **Create Ledger*** opens the form directly. The form shows only the sections that fit the
   group: opening balance (Dr / Cr); bill-wise details with opening bills (they must add up to the
@@ -228,7 +228,7 @@ In **Numbering** (the preview under the fields shows the next number):
 - **Starts again**: every year, every month or never. For GST invoices, credit and debit notes a monthly
   restart needs `{MM}` or `{MMM}` in the prefix or suffix, otherwise numbers would repeat within the year.
 - **GST rule** (CGST Rule 46(b)): a tax invoice number may have at most **16 characters**, only letters,
-  digits, `/` and `-`, and must be unique in the financial year. Bahi checks this when you save the
+  digits, `/` and `-`, and must be unique in the financial year. Pevqori checks this when you save the
   voucher type, counting each code at its longest (`{FYYYYY}` as 7 characters). A number typed by hand on
   an invoice is checked when the invoice is saved: a warning you confirm (for numbers carried over from an
   older system), listed again by the GSTR-1 and e-invoice checks.
@@ -301,7 +301,7 @@ another voucher key (or F10) to switch type; the date is kept.
 - **F12** shows the settings of this voucher type.
 
 Totals, GST and round-off are worked out as you type with the same rules the books use. When you pause
-and the voucher looks complete, Bahi checks it on the server: warnings appear in the **Checks** panel
+and the voucher looks complete, Pevqori checks it on the server: warnings appear in the **Checks** panel
 and on the rows (negative stock, credit limit, duplicate supplier bill, GST questions, TDS thresholds …).
 Warnings marked *confirm* are asked about when you save; *block* ones must be fixed. The F12 › Checks
 tab decides which checks warn and which block.
@@ -322,7 +322,7 @@ price reduction on goods the customer keeps, use the accounting invoice mode. A 
 with items returns the goods; a debit note to a customer (an upward price revision) is for value and GST
 only and never moves stock. Enter the original invoice number and date (Ctrl+I) — GSTR-1 needs them.
 
-**Physical Stock** records what you counted; Bahi posts the difference from the books on that date. If
+**Physical Stock** records what you counted; Pevqori posts the difference from the books on that date. If
 you later enter a voucher dated before the count, save the physical stock voucher again so that it
 re-reads the book quantity.
 
@@ -371,7 +371,7 @@ line, and the total by age (0–7, 8–30, 31–90, over 90 days).
 - Why it matters: for a taxable sale of goods the invoice is due before or at the time the goods leave
   (CGST Act s.31). A delivery challan is meant for job work, goods on approval and similar movements
   (CGST Rule 55). The dashboard warns about delivery notes unbilled for more than 7 days (7 days is
-  Bahi's reminder, not a legal limit; rejections waiting for a credit note are not counted).
+  Pevqori's reminder, not a legal limit; rejections waiting for a credit note are not counted).
 
 **Pre-closing an order.** When a customer cancels the rest of an order (or a supplier will not deliver
 it), don't alter the order — **pre-close** it: Alt+L on the pending orders report or on the opened order.
@@ -412,7 +412,7 @@ your GST invoice numbers stay consecutive (CGST Rule 46).
 3. Write `{period}` in the narration to get "Rent for May 2026" in each posting (`{date}` and `{fy}` work
    too).
 
-Bahi never posts behind your back. When you open the company, a notice says **"N recurring vouchers are
+Pevqori never posts behind your back. When you open the company, a notice says **"N recurring vouchers are
 due"** (it is also on the dashboard). Press *Review & post*, or *Transactions › **Due Recurring
 Vouchers***:
 
@@ -424,7 +424,7 @@ Vouchers***:
   becomes due again.
 - Pause a template (Alt+S on the list) when the arrangement stops for a while.
 - Changing a template's day of the month or end date is always safe. If you change *how often* it runs
-  (say quarterly to monthly, or every 7 days from another date), Bahi asks you to start the new schedule
+  (say quarterly to monthly, or every 7 days from another date), Pevqori asks you to start the new schedule
   on or after the date the old one would have posted next — so a month, quarter or week already posted
   is never billed again.
 
@@ -441,7 +441,7 @@ For shops that bill walk-in customers: scan, take payment in any mix of cash, ca
 print a receipt — and still have proper GST invoices in your books.
 
 **Turning it on.** Turn on *F11 › Inventory › **POS invoicing (counter billing)*** (it needs *Maintain
-stock*). Bahi creates a **POS Sales** voucher type with its own bill numbers (POS/1, POS/2 …), a **POS
+stock*). Pevqori creates a **POS Sales** voucher type with its own bill numbers (POS/1, POS/2 …), a **POS
 Return** type for goods coming back (PR/1 …), a **Cash** payment mode and an **Exchange credit** mode.
 Then open *Masters › **POS Settings***:
 
@@ -475,10 +475,10 @@ the **mobile number** and Enter: an existing customer is picked; otherwise type 
 outstanding bill. A walk-in bill must be paid in full.
 
 For a bill of **₹50,000 or more** (taxable value) to a buyer who has no GSTIN, the law asks for the
-buyer's name, address of delivery and state on the invoice (CGST Rule 46(e)) — Bahi reminds you to pick
+buyer's name, address of delivery and state on the invoice (CGST Rule 46(e)) — Pevqori reminds you to pick
 the customer, and to add the address to a customer created at the counter (only name, mobile and state
 are taken there). Taking **₹2,00,000 or more in cash** on one bill is not allowed under the Income-tax
-Act; Bahi warns before saving.
+Act; Pevqori warns before saving.
 
 If a customer from another state takes the goods at your counter, GST is still your state's (CGST +
 SGST). If you **deliver** the goods to them in their state, tick "Goods delivered to the customer" on the
@@ -499,7 +499,7 @@ refund (**Alt+R** returns everything) — or press **Ctrl+A**:
 - for a customer, leave it on their **account**.
 
 The return is a credit note against the original bill: the goods come back into stock and the GST is
-reversed. Bahi will not let more come back than was sold, nor refund more than the bill charged for those
+reversed. Pevqori will not let more come back than was sold, nor refund more than the bill charged for those
 goods (the return uses the bill's rate and discount). A bill with returns cannot be cancelled until its
 returns are cancelled; it can still be altered, but not to sell less than came back, to another customer
 or to a date after the return. A return whose exchange credit was already used on a bill keeps at least
@@ -655,7 +655,7 @@ aggregate turnover was above ₹5 crore (Ctrl+3 switches *AATO above ₹5 crore*
 this computer only), otherwise **annual** — and review **Table 4** (goods sent, Ctrl+1) and **Tables
 5A–5C** (received back with the original challan, sent on to another job worker, sold from the job
 worker's premises, Ctrl+2). Alt+E exports each table to CSV or Excel in the form's column order, to key
-into the GST portal's ITC-04 offline tool; Bahi does not create the portal's upload file. Check the due
+into the GST portal's ITC-04 offline tool; Pevqori does not create the portal's upload file. Check the due
 date on the portal — it is often extended — and fill in losses and wastes yourself where they apply.
 Moulds, dies, jigs, fixtures and tools are listed as *Inputs* in table 4 (the form has only inputs and
 capital goods) — check with your adviser.
@@ -668,7 +668,7 @@ on), and goods sent back with **Material Out**. None of this changes your stock 
 your job charges are billed with an ordinary sales invoice.
 
 When the components of a Manufacturing Journal come from the principal's godown, the finished goods,
-by-products and scrap go into that godown too (leave their godown blank). Bahi refuses to put them in one
+by-products and scrap go into that godown too (leave their godown blank). Pevqori refuses to put them in one
 of your own godowns — they belong to the principal, and in your godown they would appear in your stock at
 a value out of nothing. A purchase, sale or ordinary stock journal that moves stock into or out of a
 principal's godown asks you to confirm first, because that stock is never valued.
@@ -693,7 +693,7 @@ before you file, because the portal is the legal record.
 - **Tax ledgers**: turning GST on creates the Output and Input CGST / SGST / IGST / cess ledgers and the
   reverse-charge payable ledgers.
 - Enter GST in **invoice** mode (item or accounting invoice). Tax typed by hand on a plain journal is not
-  part of the returns — Bahi warns when you do that.
+  part of the returns — Pevqori warns when you do that.
 
 ### 6.2 Returns and reports
 
@@ -714,7 +714,7 @@ quarter in one GSTR-1 file — invoices already uploaded through IFF must not be
 
 ### 6.3 e-Invoice and e-way bills: the JSON round trip
 
-Turn on *F11 › Taxation › **e-Invoicing*** and / or *F11 › Taxation › **e-Way Bill***. Bahi works offline
+Turn on *F11 › Taxation › **e-Invoicing*** and / or *F11 › Taxation › **e-Way Bill***. Pevqori works offline
 and does not hold the API credentials of a GST Suvidha Provider, so it does not talk to the IRP or the
 e-way bill system directly. Instead:
 
@@ -724,11 +724,11 @@ e-way bill system directly. Instead:
 2. Upload it on the IRP (e-invoice portal › bulk upload, or its offline tool) or the e-way bill portal
    (bulk generation).
 3. Download the response file the portal gives you (IRN, acknowledgement, signed QR code / EWB numbers).
-4. Back in Bahi: e-Invoice › **Alt+I** imports the IRP response (JSON or Excel; the IRN and QR code then
+4. Back in Pevqori: e-Invoice › **Alt+I** imports the IRP response (JSON or Excel; the IRN and QR code then
    print on the invoice); e-Way Bills › **Alt+N** records the e-way bill number, date and validity.
    **Alt+H** shows the history of each document.
 
-Cancel an IRN on the portal within 24 hours and then mark it cancelled in Bahi (Ctrl+2 *IRN generated* ›
+Cancel an IRN on the portal within 24 hours and then mark it cancelled in Pevqori (Ctrl+2 *IRN generated* ›
 **Alt+K**, with the IRP reason code).
 
 ### 6.4 GST details on a voucher (Alt+J)
@@ -816,20 +816,20 @@ your books or missing in GSTR-2B. Claim credit only for bills of entry that appe
 3. The *Supplier-wise* tab lists suppliers with the most to fix; **Alt+M** prepares an e-mail asking a
    supplier to correct their GSTR-1. **Alt+E** exports the result to Excel, **Alt+P** prints the rows
    shown.
-4. The *GSTR-1* tab compares a GSTR-1 file (the portal's download or Bahi's own) with your sales.
+4. The *GSTR-1* tab compares a GSTR-1 file (the portal's download or Pevqori's own) with your sales.
 
 Only vouchers in the books count (not optional, cancelled or future post-dated ones). The portal's IMS
 (accept / reject / pending) actions are not imported or exported.
 
 ### 6.7 Filing status, amendments and protected periods
 
-After filing a return on the portal, open it in Bahi and press **Alt+F** (Mark filed) — enter the filing
+After filing a return on the portal, open it in Pevqori and press **Alt+F** (Mark filed) — enter the filing
 date and the ARN. *GST › **Return Filing Status*** lists every return marked filed (Alt+U unmarks one
 entered by mistake).
 
 Once **GSTR-1** of a month is marked filed, its invoices are protected:
 
-- if you alter one, Bahi asks you to confirm and records the change as an **amendment** reported in your
+- if you alter one, Pevqori asks you to confirm and records the change as an **amendment** reported in your
   next GSTR-1 (table 9A for invoices, 9C for credit / debit notes, 10 for small B2C sales) — the filed
   month keeps the figures you filed;
 - an invoice entered later but dated in that month is reported in the next GSTR-1 as well;
@@ -874,7 +874,7 @@ the year); the government sometimes extends these dates, so check the portal.
   (Alt+F).
 - *GST › **GSTR-4*** (annual): purchases (4A registered, 4B registered under reverse charge, 4C
   unregistered, 4D import of services), your four CMP-08s (table 5; Enter opens a quarter), rate-wise
-  supplies (table 6) and the tax paid (table 8). The file it saves is Bahi's own CSV / JSON to help you
+  supplies (table 6) and the tax paid (table 8). The file it saves is Pevqori's own CSV / JSON to help you
   fill the return; it is not the portal's offline-tool file. TDS / TCS credit (table 7) is not kept —
   take it from the portal.
 
@@ -886,7 +886,7 @@ the quarter's CMP-08 turnover yourself where it applies.
 *For businesses that deduct TDS on payments (contractors, professionals, rent, commission, interest,
 purchases above ₹50 lakh for buyers with turnover above ₹10 crore) or collect TCS on sales (scrap,
 minerals, forest produce, motor vehicles above ₹10 lakh).* Salary TDS (section 192, Form 24Q) is not
-covered — Bahi has no payroll.
+covered — Pevqori has no payroll.
 
 **1. Turn it on.** Press **F11** and turn on *F11 › Taxation › **TDS*** and / or *F11 › Taxation ›
 **TCS***. A **TDS / TCS** section appears on the Gateway. Nothing about TDS / TCS is shown while both are
@@ -930,7 +930,7 @@ A **debit note** to a supplier against a bill with TDS (bill-wise *Against* the 
 number in *Original invoice*) reverses the TDS in proportion — a note for 10% of the bill reverses 10% of
 its TDS, never more than is left — and a **credit note** to a customer reverses TCS the same way (in the
 invoice modes only). If you booked a bill **without** TDS and deduct it later by a journal (Dr the
-supplier against the bill, Cr *TDS Payable – 194C*), Bahi records it as the TDS on that bill: it shows in
+supplier against the bill, Cr *TDS Payable – 194C*), Pevqori records it as the TDS on that bill: it shows in
 Outstanding, the statement and every report. 194T (payments by a firm to its partners) is deducted only
 when the deductor category in TDS / TCS Setup is *Firm*. On a bill from a foreign supplier kept in
 dollars, TDS u/s 195 is worked out on the rupee value at the voucher's rate (type the SBI TT buying rate
@@ -969,7 +969,7 @@ your books against 26AS; differences are the ones to follow up.
 
 Reports open with Enter down to the voucher, and export (Alt+E) or print (Alt+P) like every other report.
 The Gateway reminds you when a deposit is overdue or due within a week. Form 16A / 27D certificates come
-from TRACES; Bahi does not produce them.
+from TRACES; Pevqori does not produce them.
 
 ## 8. Banking and cheques
 
@@ -993,7 +993,7 @@ from TRACES; Bahi does not produce them.
 - *Banking › **Match Statement*** — **Alt+M** auto-matches statement lines with your vouchers (same
   amount, close date, cheque / UTR number, party name); doubtful ones become *Suggestions* (Ctrl+2) to
   confirm (**Alt+L** looks for a match for one line). For lines with no voucher (bank charges, interest, a customer's direct transfer) **Alt+V**
-  creates the receipt, payment or contra (**Alt+B** for many at once) — Bahi first checks that no
+  creates the receipt, payment or contra (**Alt+B** for many at once) — Pevqori first checks that no
   existing voucher could be the same transaction. **Alt+I** ignores a line, **Alt+U** unmatches, **Alt+D**
   deletes an imported statement (to import it again into the right bank or with other columns). Matching
   sets the bank date.
@@ -1033,7 +1033,7 @@ Turn on *F11 › Accounting › **Cheque printing***, then:
    a light and move the boxes (millimetres from the leaf's top-left corner) until the date boxes, payee
    line and amount boxes fall in place — or use *Shift right / down* when everything is off by the same
    amount. **Alt+T** prints a sample cheque on plain paper to check. Nothing may be printed in the bottom
-   16 mm (the MICR code line); Bahi refuses positions whose text would reach it — including the
+   16 mm (the MICR code line); Pevqori refuses positions whose text would reach it — including the
    "Authorised Signatory" line, which prints 10 mm below "For <your company>".
 3. *Masters › **Cheque Printing Settings***: give each bank its layout, whether cheques are crossed **A/c
    Payee** by default, and the signatory text (Authorised Signatory, Partner, Director…).
@@ -1047,7 +1047,7 @@ Turn on *F11 › Accounting › **Cheque printing***, then:
 Feed the leaf as your printer needs: a cheque printer or a printer that takes custom paper prints the
 leaf on its own; an ordinary A4 printer can use the *On an A4 sheet* placements. Some printer drivers
 ignore a custom paper size — then use the A4 placements or set the size in the printer's own dialog.
-Bahi ships generic CTS-2010 positions, not bank-specific presets: calibrate once per bank.
+Pevqori ships generic CTS-2010 positions, not bank-specific presets: calibrate once per bank.
 
 ### 8.4 Cheque leaf register
 
@@ -1069,20 +1069,20 @@ IMPS, or no instrument). Tick the ones to pay (Space; Alt+A ticks all that are r
 value date, and press **Ctrl+A** to save a CSV to upload in your bank's net banking (bulk / file upload).
 A payment that cannot go in the file says why: no bank details for the payee (Alt+M opens them), several
 payees in one voucher, RTGS under ₹2,00,000, IMPS over ₹5,00,000. Payments already in an earlier file are
-marked, and Bahi asks before you put them in another (paying twice). If you cancel the Save dialog,
+marked, and Pevqori asks before you put them in another (paying twice). If you cancel the Save dialog,
 nothing is marked. Optional (memorandum) payments are never listed.
 
-The file is Bahi's own documented layout (beneficiary name, account, IFSC, amount, mode, value date,
+The file is Pevqori's own documented layout (beneficiary name, account, IFSC, amount, mode, value date,
 remarks and more). Banks' upload formats differ: most let you map the columns of a CSV once; if yours
 needs a fixed template, rearrange the columns in Excel the first time and save it as your template.
 Careful: Excel drops the leading zeros of account numbers such as 001122334455 when it opens a CSV —
-import the account column as *Text*, or upload the file exactly as Bahi saved it.
+import the account column as *Text*, or upload the file exactly as Pevqori saved it.
 
 ## 9. Outstanding: receivables and payables
 
 With *Bill-wise details* on (the default), every invoice is a **bill** with a due date (from the party's
 credit period); receipts and payments settle bills (Alt+B in voucher entry), and anything not set against
-a bill stays *On Account*. For a party not kept bill-wise, Bahi settles the oldest balance first (FIFO).
+a bill stays *On Account*. For a party not kept bill-wise, Pevqori settles the oldest balance first (FIFO).
 
 - *Reports › **Receivables*** and *Reports › **Payables*** — as on the period end (Alt+F2). **Ctrl+1**
   parties (total, overdue, not yet due, advances and on-account amounts, credit-limit use), **Ctrl+2**
@@ -1176,7 +1176,7 @@ bank accounts that you deal with in a foreign currency are *also* kept in that c
 2. *Masters › **Currencies*** — create the currency (for example `$`, US Dollar, ISO code `USD`, 2
    decimals). **Alt+R** enters a rate of exchange for a date: *standard*, *selling* and *buying* rates in
    rupees for one unit. Enter the rates you actually use (your bank's rate, or for exports of goods the
-   rate notified by CBIC for customs). Bahi does not download rates.
+   rate notified by CBIC for customs). Pevqori does not download rates.
 3. Open the customer / supplier / bank ledger and set its **Currency**. From then on it is entered in that
    currency. (Once vouchers record a ledger in a currency, its currency cannot be changed — create a new
    ledger instead.)
@@ -1191,7 +1191,7 @@ bank accounts that you deal with in a foreign currency are *also* kept in that c
 ### 11.2 Export invoices
 
 Create the sales invoice (F8) for the overseas customer as usual. Because the customer is kept in
-dollars, Bahi fills in the **rate of exchange** from your rates (the buying rate of the invoice date) or
+dollars, Pevqori fills in the **rate of exchange** from your rates (the buying rate of the invoice date) or
 asks for it when there is none; **Alt+Y** shows or changes it. Type rates and amounts **in dollars**; the
 rupee value is what posts, and GST is worked out in rupees. In **Ctrl+I › More details › Export** choose
 *under LUT* (no IGST) or *with payment of IGST*, and fill the shipping bill number, date and port code when
@@ -1210,9 +1210,9 @@ currency has four. Stock bought in a currency is valued in rupees at the convert
 ### 11.3 Receipts and payments — exchange gain or loss
 
 When the customer pays, enter the receipt (F6) with the customer's line **in dollars** and the rate the
-bank gave you (Bahi asks for both when you leave the customer's line; **Alt+Y** reopens it). Choose the
+bank gave you (Pevqori asks for both when you leave the customer's line; **Alt+Y** reopens it). Choose the
 bills it settles in the same dialog, in dollars. If the rate differs from the rate the invoice was booked
-at, Bahi works out the **realised exchange gain or loss** and posts it to Forex Gain/Loss *in the same
+at, Pevqori works out the **realised exchange gain or loss** and posts it to Forex Gain/Loss *in the same
 receipt* — the bill is cleared in both currencies. Example: an invoice of $1,000 at ₹83 (₹83,000); $600
 received at ₹84 = ₹50,400; the bill carried ₹49,800 for that $600, so ₹600 is an exchange gain.
 
@@ -1240,11 +1240,11 @@ at, what it is worth at the closing rate and the adjustment. **Ctrl+A** posts th
 journal (you can change its date and narration first — not earlier than the revaluation date). Every
 currency with a balance needs its closing rate before you can post. Only money items are restated:
 parties, bank accounts, loans and deposits; sales, purchase, expense ledgers and fixed assets,
-investments or stock kept in a currency stay at the rate they were booked at. Bahi warns you before
+investments or stock kept in a currency stay at the rate they were booked at. Pevqori warns you before
 posting a second revaluation for the same date. If you reverse revaluations on the first day of the next
 year, duplicate the journal (Alt+2 on the voucher) and swap the sides.
 
-Things Bahi does not do: download exchange rates, treat long-term foreign-currency loans under AS 11 para
+Things Pevqori does not do: download exchange rates, treat long-term foreign-currency loans under AS 11 para
 46A, or hedge accounting — record those with a journal and ask your CA.
 
 ## 12. Printing and sharing
@@ -1291,23 +1291,23 @@ e-mail and mobile come from its ledger (fill in *E-mail* and *Mobile* there once
 come from the texts in Invoice Printing, which you can change (placeholders such as {document}, {number},
 {date}, {amount}, {party}, {company}).
 
-- **E-mail**: Bahi saves the PDF in the company's *exports\shared* folder and opens a ready e-mail in your
+- **E-mail**: Pevqori saves the PDF in the company's *exports\shared* folder and opens a ready e-mail in your
   mail program (Outlook, Windows Mail) with the PDF attached — check it and press Send. If no mail program
   is set up, your default mail link opens instead and the PDF is shown in its folder to attach. (If
-  *exports* or *shared* in the company folder is a shortcut / link to another place, Bahi refuses to use
-  it — delete it and Bahi creates the folder again.)
+  *exports* or *shared* in the company folder is a shortcut / link to another place, Pevqori refuses to use
+  it — delete it and Pevqori creates the folder again.)
 - **WhatsApp**: WhatsApp (app or web) opens a chat with the party's number and your message, and the PDF
   is shown in its folder — drag it into the chat. (WhatsApp does not let any program attach a file for
   you.)
 
-Sharing needs the *Export* permission, and every share is recorded in the edit log. Bahi itself sends
+Sharing needs the *Export* permission, and every share is recorded in the edit log. Pevqori itself sends
 nothing over the internet: your mail program or WhatsApp does.
 
 ## 13. Data: backup, restore, import, Tally, attachments
 
 ### 13.1 Backups
 
-*Data › **Backup*** makes a complete copy of the company in one `.bahibak` file named after the company,
+*Data › **Backup*** makes a complete copy of the company in one `.pvqbak` file named after the company,
 date and time. Type an optional note ("Before filing GSTR-3B") and, if the file will leave your control,
 a **password** of at least 8 characters — the backup is then encrypted (AES-256-GCM) and cannot be
 restored without it. **Ctrl+A** backs up now; you can keep working meanwhile. The list below shows the
@@ -1316,19 +1316,19 @@ restores, **Alt+K** checks the books, **Alt+F** changes the folder and **Alt+S**
 settings.
 
 **Automatic backups** (*F12 › Backup*, on by default): when the last backup is more than 24 hours old,
-Bahi backs up a few seconds after you open the company (or log in) and again when you close it (F3,
+Pevqori backs up a few seconds after you open the company (or log in) and again when you close it (F3,
 Ctrl+Q or closing the window). It keeps the last 10 backups of the company in the folder (change *Keep
 last* in F12); older ones are removed only after the new file has been read back intact. Automatic
 backups are not password-protected — make a backup with a password by hand when a copy leaves your
 control.
 
 The default folder is `backups\<company>` inside the data folder. Choose a folder on another disk, a USB
-drive or a folder your cloud drive synchronises (*F12 › Backup › Choose…*); Bahi itself never uploads
+drive or a folder your cloud drive synchronises (*F12 › Backup › Choose…*); Pevqori itself never uploads
 anything.
 
 **A backup folder from another computer must be confirmed here.** The backup folder chosen in F12 is
 stored in the company. When the company arrives on this computer some other way — restored from a backup
-made elsewhere, a company folder copied over, or a data folder shared with another PC — Bahi does **not**
+made elsewhere, a company folder copied over, or a data folder shared with another PC — Pevqori does **not**
 write to that folder until you confirm it on this computer (it could be a network share you never chose
 here). Meanwhile backups, automatic or not, go to the default folder inside the data folder. With
 automatic backups on, a warning says so each time you open the company; in any case:
@@ -1347,10 +1347,10 @@ way, once.
   another company that is closed. The open company itself cannot be replaced (close it first, F3).
 - With no company open: **Alt+R** on *Select a Company*.
 
-Bahi verifies the whole file before anything is replaced; the replaced company's folder is moved to the
+Pevqori verifies the whole file before anything is replaced; the replaced company's folder is moved to the
 `trash` folder, not erased. Replacing a password-protected company asks for an Owner's username and
 password. A backup of one company can never replace a different company, and a backup made by a newer
-version of Bahi is refused until you upgrade. Attached files come back with the restore.
+version of Pevqori is refused until you upgrade. Attached files come back with the restore.
 
 ### 13.3 Check Books
 
@@ -1373,7 +1373,7 @@ unchanged. Each problem is explained in plain words; **Alt+R** checks again.
   all or nothing; tick *Skip rows with errors* to import the good rows, *Update existing records* to alter
   masters that already exist, and *Save vouchers with warnings* to accept non-blocking warnings. Amounts
   are in rupees, dates `DD-MM-YYYY`. Invoices are posted exactly as if typed (GST, round-off and stock
-  worked out by Bahi). Example rows left in a template are refused.
+  worked out by Pevqori). Example rows left in a template are refused.
 
 Every export is recorded in the edit log and needs the *Export* permission; importing needs *Import* plus
 the right to create the masters or vouchers concerned.
@@ -1388,14 +1388,14 @@ the right to create the masters or vouchers concerned.
 2. Choose the file (**Alt+O**). The preview shows what is in it — masters by kind, vouchers by type and
    date range, how many already exist here, and issues — without writing anything.
 3. Choose masters and / or vouchers, the period and what to do with vouchers already imported (skip, or
-   update those that came from Tally — a voucher entered in Bahi is never overwritten). **Alt+B** backs up
+   update those that came from Tally — a voucher entered in Pevqori is never overwritten). **Alt+B** backs up
    first. **Ctrl+A** imports; a progress bar shows the vouchers.
-4. Compare: **Alt+T** opens Bahi's Trial Balance for the same period as Tally's.
+4. Compare: **Alt+T** opens Pevqori's Trial Balance for the same period as Tally's.
 
 Vouchers are imported **as recorded** — amounts, tax, round-off and numbers are never recalculated.
 Unbalanced vouchers, unknown ledgers or items, dates before the books begin or inside a locked period are
 listed as issues and skipped. Points to know: a **debit note to a customer** is imported for value and GST
-only (Tally reduces stock for it; Bahi does not, the import log lists each one); Tally's **job work**
+only (Tally reduces stock for it; Pevqori does not, the import log lists each one); Tally's **job work**
 (Material In / Out) vouchers and **budgets** are not imported; foreign-currency amounts come in as rupees;
 GST on advances recorded with the GST system ledgers is recognised, but Tally's stat-adjustment journals
 arrive as plain journals. Features the data uses (cost centres, godowns, …) are switched on for you.
@@ -1411,8 +1411,8 @@ arrive as plain journals. Features the data uses (cost centres, godowns, …) ar
 3. In TallyPrime, open (or create) the company with the books-beginning date the screen shows under
    **Opening balances as on** and the same GST details, then **Gateway of Tally › Import › Masters** with
    `1-Masters.xml`, then **Import › Transactions** with `2-Vouchers.xml`.
-4. Compare the Trial Balance and Stock Summary in Tally with Bahi for the same period (**Alt+B** on the
-   export screen opens Bahi's Trial Balance).
+4. Compare the Trial Balance and Stock Summary in Tally with Pevqori for the same period (**Alt+B** on the
+   export screen opens Pevqori's Trial Balance).
 
 **Opening balances.** If you export the vouchers of, say, 2026-27 while your books here began earlier, the
 masters carry the balances as on 1-Apr-2026 — every ledger's balance on that day (last year's profit in
@@ -1423,10 +1423,10 @@ day, carry the opening balances you entered.
 
 Vouchers go exactly as recorded — the same tax, round-off, numbers, bill references, cost centres, cheque
 details and stock lines; nothing is recalculated. The one exception is a Manufacturing Journal or Material
-In / Out: its stock lines go at the cost Bahi's stock reports show today, so if a purchase entered later
+In / Out: its stock lines go at the cost Pevqori's stock reports show today, so if a purchase entered later
 (back-dated) changed the cost of what was produced, Tally gets the corrected value and the closing stock
 agrees. GST on advances received (Alt+J on a receipt), its adjustment on the invoice and a refund of it
-come back as advances when the file is imported into Bahi again. Freight or packing that you include in
+come back as advances when the file is imported into Pevqori again. Freight or packing that you include in
 the goods' taxable value stays on its own ledger, and the freight ledger is marked so that Tally includes
 it in the assessable value too. Not exported: quotations, proforma invoices and physical stock vouchers
 (the screen tells you how many were left out), e-invoice / e-way bill details, an export's shipping bill
@@ -1436,7 +1436,7 @@ their payment entries. SEZ, deemed-export and UIN parties arrive in Tally as Reg
 type there. For a credit or debit note the original invoice number and date go in Tally's Reference No.
 and Date.
 
-The export has been tested by importing it back into an empty Bahi company (same trial balance, stock
+The export has been tested by importing it back into an empty Pevqori company (same trial balance, stock
 summary, GST returns and pending bills); it has not been tried against TallyPrime itself, so the first
 time import it into a **copy** of the Tally company and check.
 
@@ -1452,7 +1452,7 @@ with the payment, the agreement with the party's ledger:
 - Allowed: PDF, pictures (JPG, PNG, GIF, WebP, TIFF, BMP), Excel / Word / OpenDocument files without
   macros or ActiveX controls, CSV, TXT, JSON and XML — up to 25 MB each and 50 per voucher or master.
   Programs, scripts, web pages and archives are refused, as is a program renamed to look like a PDF or an
-  XML file that is really a web page. There is no preview inside Bahi.
+  XML file that is really a web page. There is no preview inside Pevqori.
 - The files are kept in the company's own folder (under `attachments`), go into every backup (and are
   encrypted with it when the backup has a password), and come back with a restore. **Check Books**
   confirms that every attached file is still there and unchanged. They are not part of the Excel or Tally
@@ -1474,7 +1474,7 @@ with the payment, the agreement with the party's ledger:
 
 Protect a company when you create it (wizard step *Security*) or later in *Security › **Security
 Settings*** › **Alt+O** (*Turn security on*): you create the first **Owner** with a username and password.
-From then on Bahi asks for a username and password to open the company. Turning security off again needs
+From then on Pevqori asks for a username and password to open the company. Turning security off again needs
 an Owner to type their password.
 
 *Security › **Security Settings*** also sets the password rules (minimum length 8–64, mixed case, a
@@ -1484,7 +1484,7 @@ symbol, expiry after 0–365 days; a password may not be the username or one of 
 behind a login screen; logging in again as the same user resumes exactly where you were, unsaved work
 included.
 
-Protect the data folder itself with your Windows account and, ideally, BitLocker: a password inside Bahi
+Protect the data folder itself with your Windows account and, ideally, BitLocker: a password inside Pevqori
 does not stop someone who can copy the files. See [SECURITY.md](SECURITY.md) for the full picture.
 
 ### 14.2 Users and roles
@@ -1523,7 +1523,7 @@ Log*** lists it with filters (date, user, action, record type) and search (**Ctr
 what changed, field by field; **Alt+H** shows the whole history of one record (also **Alt+H** on any
 voucher or master); **Alt+E** exports and **Alt+P** prints. The log cannot be edited: each entry carries
 a fingerprint of the one before (a hash chain). **Alt+V** (*Verify edit log*) recomputes the chain and
-says in plain words whether any entry was altered, inserted or removed. Bahi also keeps the latest
+says in plain words whether any entry was altered, inserted or removed. Pevqori also keeps the latest
 fingerprint outside the company file, so a rewritten or cut-short log is detected — see
 [SECURITY.md](SECURITY.md) for exactly what is and is not detected.
 
@@ -1561,7 +1561,7 @@ The **F1** overlay in the app is generated from the same table as the global key
 | **F11** | Features |
 | **F12** | Configuration |
 | **F1**, **Ctrl+H** | Keyboard shortcuts and help |
-| **Ctrl+Q** | Quit Bahi ERP |
+| **Ctrl+Q** | Quit Pevqori |
 
 Screens never take these keys for themselves — with two kinds of exception: inside voucher entry the
 voucher keys and F10 switch the voucher being entered and **F2** is the voucher date, F12 the voucher type
@@ -1663,33 +1663,33 @@ migration on *Import from Excel* and clears the filters on the *Edit Log*.
 **Windows says "Windows protected your PC" when I run the installer.** The installer is not yet
 code-signed. Click *More info › Run anyway* — see [INSTALL.md](INSTALL.md#windows-smartscreen).
 
-**"… is open in another window. Close it there first."** Only one copy of Bahi can have a company open at
+**"… is open in another window. Close it there first."** Only one copy of Pevqori can have a company open at
 a time; a lock file in the company folder enforces it (also when two computers share a network folder).
 Close it in the other window or on the other computer. After a crash or power cut the stale lock is taken
 over automatically — on another computer once it has not been refreshed for 15 minutes.
 
-**Can two people work in the same company at once?** No. Bahi is a single-user desktop program: one
+**Can two people work in the same company at once?** No. Pevqori is a single-user desktop program: one
 company is open in one place at a time. Several people can use the same computer with their own logins.
 
-**"This company was created by a newer version of Bahi ERP."** Install the newer version (or newer) on
+**"This company was created by a newer version of Pevqori."** Install the newer version (or newer) on
 this computer; an older version never writes into a newer company.
 
 **"Another task is running in this company."** An Excel or Tally import cannot start while the company is
 busy with another long task — for example the automatic backup that runs a few seconds after you open the
-company or log in, an export, or another import. The message offers **Wait and retry**: Bahi tries again
+company or log in, an export, or another import. The message offers **Wait and retry**: Pevqori tries again
 every 2 seconds (for up to 2 minutes) and starts the import as soon as the company is free.
 
-**Closing Bahi during a very long operation.** Bahi finishes the automatic backup and closes the company
+**Closing Pevqori during a very long operation.** Pevqori finishes the automatic backup and closes the company
 before it exits. If one very long database step is still running (a huge report or backup), closing waits
-for it, but never longer than about 40 seconds; after that Bahi exits anyway. Nothing saved is lost: an
+for it, but never longer than about 40 seconds; after that Pevqori exits anyway. Nothing saved is lost: an
 unfinished step is undone the next time the company opens.
 
-**"The accounting engine stopped unexpectedly and was restarted."** The calculating part of Bahi runs
+**"The accounting engine stopped unexpectedly and was restarted."** The calculating part of Pevqori runs
 separately from the window; if it fails (for example out of memory on a huge export) it is restarted and
 you are back at the company list. Open the company again and check your last entry — saved data is safe.
 
 **I forgot my password.** Another Owner can reset it in *Security › **Users & Roles*** (it must then be
-changed at the next login). Bahi has no master password or back door: if the only Owner's password is
+changed at the next login). Pevqori has no master password or back door: if the only Owner's password is
 lost, the company cannot be opened. Keep a second Owner, or the password in a safe place.
 
 **A key or menu item does nothing / is missing.** The feature may be off (F11 — the key tells you which
@@ -1697,22 +1697,22 @@ switch), you may lack the permission (ask an Owner), or a dialog is open. A pred
 deactivated in *Masters › **Voucher Types*** is hidden from the Transactions menu and Go To (for users who
 may view masters; others still see every type, as F10 does).
 
-**Where are the logs?** *Utilities › **About Bahi ERP*** shows the logs folder (`%APPDATA%\Bahi ERP\logs`)
+**Where are the logs?** *Utilities › **About Pevqori*** shows the logs folder (`%APPDATA%\Pevqori\logs`)
 with a button to open it; the window's hidden menu (press and release Alt) also has *Help › Open Logs
 Folder*. Logs never contain passwords or voucher data; send them when reporting a problem.
 
-**My Tally figures and Bahi's differ after migrating.** Compare the Trial Balance (Alt+T on the migration
+**My Tally figures and Pevqori's differ after migrating.** Compare the Trial Balance (Alt+T on the migration
 screen) and read the import log: skipped vouchers (unbalanced, unknown masters, dates before the books
-begin) and debit notes to customers (Bahi does not move stock for them; Tally does) are listed there.
+begin) and debit notes to customers (Pevqori does not move stock for them; Tally does) are listed there.
 
 **Excel shows my account numbers / GSTINs wrongly.** Excel drops leading zeros when it opens a CSV. Use
 the `.xlsx` export, or import the column as *Text*.
 
 **The thermal receipt is cut in the wrong place.** Set the roll's paper size in the printer's own
-settings; some drivers ignore the page length Bahi asks for.
+settings; some drivers ignore the page length Pevqori asks for.
 
 **How do I move to a new computer?** Either make a backup and restore it there, or copy the whole data
-folder (with Bahi closed) and choose it at first launch (*Use the companies already in that folder*). A
+folder (with Pevqori closed) and choose it at first launch (*Use the companies already in that folder*). A
 backup folder chosen on the old computer must be confirmed on the new one (section 13.1).
 
 **Other small things worth knowing.**

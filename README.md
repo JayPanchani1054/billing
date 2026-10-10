@@ -1,4 +1,4 @@
-# Bahi ERP
+# Pevqori
 
 **Offline-first GST accounting, invoicing and inventory for Indian businesses** — a fast,
 keyboard-first Windows desktop app in the spirit of Tally, with a calmer, modern interface.
@@ -14,7 +14,7 @@ server, no internet connection required.
 | Document | For |
 |---|---|
 | [docs/INSTALL.md](docs/INSTALL.md) | Downloading and installing, SmartScreen, the data folder, upgrading, uninstalling |
-| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Using Bahi: company setup, masters, vouchers, GST, TDS, banking, reports, data, security, the keyboard reference |
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Using Pevqori: company setup, masters, vouchers, GST, TDS, banking, reports, data, security, the keyboard reference |
 | [docs/SCOPE.md](docs/SCOPE.md) | What is deliberately out of scope or partial, and the legal assumptions to check |
 | [CHANGELOG.md](CHANGELOG.md) | What each release contains |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model and security controls |
@@ -26,7 +26,7 @@ server, no internet connection required.
 **Built** = available and covered by tests. **Partial** = available with the limits noted (details in
 [docs/SCOPE.md](docs/SCOPE.md)). **Out of scope** = not in 1.0, deliberately.
 
-| Area | Capability | Bahi ERP 1.0 | Notes |
+| Area | Capability | Pevqori 1.0 | Notes |
 |---|---|---|---|
 | Accounting | Groups, ledgers (several aliases), multiple ledger creation, opening balances, chart of accounts | Built | |
 | | Contra, payment, receipt, journal, sales, purchase, credit / debit note; item and accounting invoices | Built | Tally keys F4–F9, Ctrl+F8 / F9 |
@@ -55,7 +55,7 @@ server, no internet connection required.
 | | GSTR-2A / 2B and GSTR-1 reconciliation | Built | IMS actions out of scope |
 | | e-Invoice and e-way bill | Partial | JSON out / response in; no direct IRP / EWB API |
 | | Advances (Table 11), amendments (9A / 9C), set-off (Rule 88A), challans, electronic ledgers, ITC reversals, Rule 37, bills of entry, protection of filed periods | Built | |
-| | CMP-08 and GSTR-4 | Partial | Bahi's CSV / JSON, not the portal tool files; GSTR-4 table 7 not kept |
+| | CMP-08 and GSTR-4 | Partial | Pevqori's CSV / JSON, not the portal tool files; GSTR-4 table 7 not kept |
 | | E-commerce operator supplies (3.1.1, tables 14 / 15), ISD | Out of scope | |
 | | GSTR-9C, GSTR-6 / 7 / 8, ITC-03, GSTR-10 | Out of scope | Prepare on the portal or with your CA |
 | TDS / TCS | Natures with dated rates, automatic deduction / collection, challans, interest, late fee, exceptions, 26AS check | Built | Rates assumed unchanged for 2026-27 — check |
@@ -63,11 +63,11 @@ server, no internet connection required.
 | | Form 16A / 27D; salary TDS (192, 24Q) and payroll | Out of scope | |
 | Reports | Balance Sheet, P&L (Schedule III view), Trial Balance, ledgers, group summaries, registers, Day Book, cash / funds flow, ratios, exceptions, dashboard; drill-down to the voucher; Excel / CSV / PDF export | Built | Cash flow is month-wise, not by activity |
 | Printing | GST invoice templates, A4 / A5 / Letter / Legal, 80 / 58 mm thermal receipts, MRP, UPI QR, IRN QR, batch printing | Built | |
-| | Share by e-mail / WhatsApp | Built | Via your mail program / WhatsApp; Bahi sends nothing itself |
+| | Share by e-mail / WhatsApp | Built | Via your mail program / WhatsApp; Pevqori sends nothing itself |
 | Data | Backup and restore (optionally encrypted), automatic backups, integrity check | Built | |
 | | Excel / CSV import and export of masters and vouchers | Built | |
 | | Migration from Tally XML | Built | Job work vouchers and budgets not imported |
-| | Export to Tally XML | Partial | Verified by re-import into Bahi, not yet against TallyPrime |
+| | Export to Tally XML | Partial | Verified by re-import into Pevqori, not yet against TallyPrime |
 | | Attachments on vouchers and masters | Built | No in-app preview |
 | Company | Several companies, users, roles and passwords | Built | One company open at a time |
 | | Several users at once, remote access, consolidation | Out of scope | Single-user desktop design |
@@ -168,8 +168,8 @@ No screenshots are included in the repository yet.
 
 ## Install on Windows
 
-Windows 10 or 11, 64-bit. Download `Bahi-ERP-Setup-<version>.exe` from the repository's **Releases**
-page (or the **Bahi-ERP-Windows-Installer** artifact of a green **Actions › CI** run), run it and choose
+Windows 10 or 11, 64-bit. Download `Pevqori-Setup-<version>.exe` from the repository's **Releases**
+page (or the **Pevqori-Windows-Installer** artifact of a green **Actions › CI** run), run it and choose
 *Only for me* (no administrator rights needed). The installer is not yet code-signed, so Windows
 SmartScreen may ask you to confirm (*More info › Run anyway*). Uninstalling removes the program only —
 **company data and settings are never deleted by the uninstaller.** Step by step, with checksums,
@@ -177,7 +177,7 @@ upgrading and moving to a new computer: [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Where your data lives
 
-On first launch Bahi ERP asks for a **data folder** (default: `Documents\Bahi ERP`). Pick any folder
+On first launch Pevqori asks for a **data folder** (default: `Documents\Pevqori`). Pick any folder
 you control — a local drive, a BitLocker-encrypted drive, or a folder that your backup software
 already protects. You can change it later from the company list (**Select a Company › Change…** next
 to the folder name), where you can *use* an existing folder as-is, *copy* your data there, or *move* it
@@ -194,13 +194,13 @@ to the folder name), where you can *use* an existing folder as-is, *copy* your d
 ```
 
 - **A company is just a folder.** Copy it to another PC's data folder and it appears in the company list.
-  Only one copy of Bahi ERP can have a company open at a time (a lock file prevents two writers).
+  Only one copy of Pevqori can have a company open at a time (a lock file prevents two writers).
 - **Backups.** Use **Data › Backup** to create a single backup file, optionally encrypted with a
   password (AES-256-GCM); automatic backups run daily on opening / closing the company. Restore
   verifies integrity before replacing anything. Keep backups on a different disk or in your cloud
   drive — the app itself never uploads anything.
-- **App settings** (data folder, theme, confirmed backup folders) live in `%APPDATA%\Bahi ERP`; logs in
-  `%APPDATA%\Bahi ERP\logs` (Utilities › About Bahi ERP shows the folder). Logs never contain passwords
+- **App settings** (data folder, theme, confirmed backup folders) live in `%APPDATA%\Pevqori`; logs in
+  `%APPDATA%\Pevqori\logs` (Utilities › About Pevqori shows the folder). Logs never contain passwords
   or voucher data.
 
 ---
@@ -214,11 +214,11 @@ needed — there are no native modules.
 git clone <this repository>
 cd billing
 npm install            # installs Electron, Vite, TypeScript, electron-builder, Playwright
-npm run dev            # Vite + Electron with hot reload (uses a separate "Bahi ERP Dev" profile)
+npm run dev            # Vite + Electron with hot reload (uses a separate "Pevqori Dev" profile)
 npm test               # unit tests (node:test)
 npm run typecheck      # TypeScript: core, main/preload, renderer, e2e specs
 npm run build          # production bundles in out/
-npm run dist:win       # Windows installer in release\Bahi-ERP-Setup-<version>.exe
+npm run dist:win       # Windows installer in release\Pevqori-Setup-<version>.exe
 npm run e2e            # Playwright end-to-end suite against out/ (run npm run build first)
 ```
 
@@ -236,7 +236,7 @@ src/
     modules/   One folder per feature (accounts, vouchers, gst, tds, inventory, mfg, pos, forex, reports, …)
   main/        Electron main process: hardened window, app:// protocol, IPC, dialogs, print/PDF, sharing,
                menu; the core runs on a worker thread behind it (core-worker.ts ↔ core-proxy.ts)
-  preload/     contextBridge exposing window.bahi (the only renderer → main channel)
+  preload/     contextBridge exposing window.pevqori (the only renderer → main channel)
   renderer/    React 19 UI: shell, design system, feature screens
 scripts/       build.mjs, dev.mjs, make-icon.mjs, after-pack.cjs + fuses.cjs + check-fuses.cjs (Electron
                fuses), smoke-installed.ps1 (packaged-app smoke test)
@@ -253,7 +253,7 @@ has a README next to its code with its rules, tests and known gaps.
 
 - The UI runs in a **sandboxed, context-isolated renderer** with no Node.js access, a strict
   Content-Security-Policy, no remote content and **no network access at all**.
-- The renderer can only call `window.bahi.api(route, input)` and a short list of native actions;
+- The renderer can only call `window.pevqori.api(route, input)` and a short list of native actions;
   the main process checks the caller's origin and validates every input again.
 - The renderer cannot point the app at an arbitrary file: a path it passes must lie inside the data
   folder or the confirmed backup folder, or be one the user picked in a native dialog.

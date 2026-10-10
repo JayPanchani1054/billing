@@ -60,7 +60,7 @@ describe('crc32', () => {
 
 describe('createZip / readZip round trip', () => {
   it('round-trips deflated, stored, empty, unicode-named and directory entries', () => {
-    const text = 'Bahi khata '.repeat(500);
+    const text = 'Hisaab kitaab '.repeat(500);
     const random = new Uint8Array(randomBytes(4096));
     const date = new Date(2024, 3, 1, 10, 30, 14);
     const zip = createZip([
@@ -110,7 +110,7 @@ describe('createZip / readZip round trip', () => {
   it('reads archives written by other tools (data descriptors, UTF-8 names)', () => {
     const archive = readZip(new Uint8Array(Buffer.from(PYTHON_ZIP_BASE64, 'base64')));
     assert.deepEqual(archive.list(), ['docs/हिसाब.txt', 'stored.bin']);
-    assert.equal(archive.readText('docs/हिसाब.txt'), 'Bahi khata '.repeat(20));
+    assert.equal(archive.readText('docs/हिसाब.txt'), 'Hisaab kitaab '.repeat(20));
     assert.deepEqual([...archive.read('stored.bin')], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     assert.equal(archive.entries[1].date.getTime(), new Date(2025, 2, 31, 23, 59, 58).getTime());
   });
@@ -207,7 +207,7 @@ describe('readZip security', () => {
 });
 
 describe('ZipFileWriter (streamed to a file, constant memory)', () => {
-  const tmp = (): string => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-zipw-')), 'out.zip');
+  const tmp = (): string => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-zipw-')), 'out.zip');
 
   it('entries larger than one chunk (strings and bytes mixed) read back intact with matching CRC', () => {
     const file = tmp();

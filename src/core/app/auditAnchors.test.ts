@@ -71,7 +71,7 @@ BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;`);
 }
 
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-anchor-'));
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-anchor-'));
   clock = fixedClock('2026-10-05');
 });
 afterEach(async () => {
@@ -185,7 +185,7 @@ describe('edit-log anchor outside the company file', () => {
     live.close();
     rewriteLog(snap, (db) => db.run(`UPDATE audit_log SET username = 'nobody' WHERE id = 1`));
     const m = readContainerInfo(bk.path).manifest;
-    const forged = path.join(path.dirname(bk.path), 'forged.bahibak');
+    const forged = path.join(path.dirname(bk.path), 'forged.pvqbak');
     await writeContainer({
       dbPath: snap,
       target: forged,

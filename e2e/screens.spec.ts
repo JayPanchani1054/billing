@@ -6,12 +6,12 @@
 //     dialog with its heading);
 //   - it is not the error boundary ("… ran into a problem" — also where it replaced a dialog screen),
 //     has no "Something went wrong" and did not fail its first load ("This could not be loaded");
-//   - no uncaught page error, no console error from React or the app ("[bahi] …") while it was open;
+//   - no uncaught page error, no console error from React or the app ("[pevqori] …") while it was open;
 //
 // then Esc goes back to the Gateway. When the screen lists rows, Enter on the first row opens the next
 // level once per screen (the alteration / drill-down screens that take an id), checked the same way.
 //
-// The catalogue is not a hand-kept list: the open palette answers a `bahi:goto-catalog` event with its
+// The catalogue is not a hand-kept list: the open palette answers a `pevqori:goto-catalog` event with its
 // own items and the registered screens (src/renderer/app/lib/gotoCatalog.ts). Shell commands (working
 // date, period, switch company, shortcuts, voucher-type picker) open shell dialogs, not screens, and are
 // skipped with a logged reason; so are registered screens no Go To item or first-row Enter reaches
@@ -67,14 +67,14 @@ const pageErrors: string[] = [];
 const consoleErrors: string[] = [];
 
 /** Console errors that mean a broken screen: the app's own (error boundary, unhandled rejection) and React's. */
-const BROKEN = /\[bahi\]|React|Minified|Uncaught|Warning:/;
+const BROKEN = /\[pevqori\]|React|Minified|Uncaught|Warning:/;
 
 // No retry: the sweep reports every broken screen in one pass, a second pass would find the same ones
 // and double the time of a job that has a hard limit (.github/workflows/ci.yml, e2e: 25 minutes).
 test.describe.configure({ mode: 'serial', retries: 0 });
 
 test.beforeAll(async () => {
-  launched = await launchApp('bahi-e2e-screens-');
+  launched = await launchApp('pevqori-e2e-screens-');
   ({ app, page, dataDir } = launched);
   page.on('pageerror', (err) => pageErrors.push(`${err.name}: ${err.message}`));
   page.on('console', (msg) => {
@@ -173,7 +173,7 @@ async function brief(where: Locator, max = 300): Promise<string> {
  * Check what is on top now: a dialog (a dialog screen, or a dialog the screen opened — with a heading)
  * or else the full screen (visible [data-screen] other than the Gateway, with an h1). Returns the
  * screen id ('dialog:<title>' for a dialog) and pushes problems. Errors that arrived while it was open
- * (uncaught page errors, [bahi] / React console errors) are reported whatever was shown — also when
+ * (uncaught page errors, [pevqori] / React console errors) are reported whatever was shown — also when
  * nothing opened, e.g. a dialog screen whose error boundary replaced the dialog itself.
  */
 async function checkTop(label: string, problems: ScreenProblem[], since: { page: number; console: number }): Promise<string | null> {

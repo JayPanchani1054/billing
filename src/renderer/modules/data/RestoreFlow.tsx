@@ -86,7 +86,7 @@ function useRestoreFlow(env: FlowEnv) {
     setBusy('choose');
     setError(null);
     try {
-      const picked = await chooseFile('Choose a Bahi backup (.bahibak)', BACKUP_FILTERS, true);
+      const picked = await chooseFile('Choose a Pevqori backup (.pvqbak)', BACKUP_FILTERS, true);
       if (!picked) return;
       if (!picked.path) {
         setError('The location of the file could not be read. Copy the backup to this computer and try again.');
@@ -219,7 +219,7 @@ function RestoreBody({ flow }: { flow: Flow }) {
           </Field>
         ) : (
           <Banner tone="info" title="Choose the backup to restore">
-            Backups end in <strong>.bahibak</strong>. They are in the backup folder (F12 › Backup), or on the disk or USB drive you copied them to.
+            Backups end in <strong>.pvqbak</strong>. They are in the backup folder (F12 › Backup), or on the disk or USB drive you copied them to.
           </Banner>
         )}
 
@@ -390,7 +390,7 @@ export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
       onClose={() => (busy ? undefined : done ? finish() : onClose())}
       dismissible={!busy}
       title="Restore a backup"
-      description="Bring back a company from a .bahibak backup file."
+      description="Bring back a company from a .pvqbak backup file."
       size="lg"
       footer={
         <>

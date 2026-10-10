@@ -28,7 +28,7 @@ function makeRuntime(opts: { idleTimeoutMs?: number; routes?: RouteMap; authoriz
   const rt = createRuntimeWithRoutes(
     {
       userDataDir: path.join(root, 'userData'),
-      defaultDataDir: path.join(root, 'Documents', 'Bahi ERP'),
+      defaultDataDir: path.join(root, 'Documents', 'Pevqori'),
       appVersion: '1.2.3',
       clock,
       consoleLog: false,
@@ -67,7 +67,7 @@ const company = (name: string, over: Partial<CreateCompanyInput> = {}): CreateCo
 });
 
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-rt-'));
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-rt-'));
   clock = fixedClock('2026-10-05');
 });
 afterEach(async () => {
@@ -81,7 +81,7 @@ describe('runtime: first run and company lifecycle', () => {
     const s = await ok<AppState>(rt, 'app.state');
     assert.deepEqual(s, {
       appVersion: '1.2.3',
-      dataDir: path.join(root, 'Documents', 'Bahi ERP'),
+      dataDir: path.join(root, 'Documents', 'Pevqori'),
       firstRun: true,
       companies: [],
       company: null,
@@ -151,7 +151,7 @@ describe('runtime: first run and company lifecycle', () => {
     await ok(rt, 'app.company.open', { id: alphaId });
 
     const other = makeRuntime();
-    await fail(other, 'app.company.open', { id: alphaId }, 'LOCKED', /another Bahi ERP window/);
+    await fail(other, 'app.company.open', { id: alphaId }, 'LOCKED', /another Pevqori window/);
     await fail(other, 'app.company.open', { id: 'does-not-exist-123456' }, 'NOT_FOUND');
     await ok(rt, 'app.company.close');
     await ok(other, 'app.company.open', { id: alphaId });
@@ -242,7 +242,7 @@ describe('runtime: security', () => {
 describe('runtime: data folder', () => {
   it("'use' switches folders and completes first run", async () => {
     const rt = makeRuntime();
-    const target = path.join(root, 'D-drive', 'BahiData');
+    const target = path.join(root, 'D-drive', 'PevqoriData');
     const s = await ok<AppState>(rt, 'app.dataDir.set', { path: target, mode: 'use' });
     assert.equal(s.dataDir, target);
     assert.equal(s.firstRun, false);
@@ -333,7 +333,7 @@ describe('createRuntime (production entry point)', () => {
     await ok(rt, 'app.company.create', company('Production Path Co'));
     assert.equal((await ok<CompanyProfile>(rt, 'company.profile.get')).name, 'Production Path Co');
     await rt.shutdown();
-    const log = fs.readFileSync(path.join(root, 'userData', 'logs', 'bahi.log'), 'utf8');
+    const log = fs.readFileSync(path.join(root, 'userData', 'logs', 'pevqori.log'), 'utf8');
     assert.match(log, /"msg":"Company created"/);
     assert.doesNotMatch(log, /Production Path Co/, 'business data stays out of the app log');
   });
@@ -344,7 +344,7 @@ describe('review regressions', () => {
     const blocker = path.join(root, 'not-a-folder');
     fs.writeFileSync(blocker, 'x');
     fs.mkdirSync(path.join(root, 'userData'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'userData', 'config.json'), JSON.stringify({ dataDir: path.join(blocker, 'Bahi'), firstRunComplete: true }));
+    fs.writeFileSync(path.join(root, 'userData', 'config.json'), JSON.stringify({ dataDir: path.join(blocker, 'Pevqori'), firstRunComplete: true }));
     const rt = makeRuntime();
     const s = await ok<AppState>(rt, 'app.state');
     assert.deepEqual(s.companies, []);
@@ -488,7 +488,7 @@ describe('review regressions', () => {
 
     const junk = path.join(root, 'junk.db');
     fs.writeFileSync(junk, 'not a database at all'.repeat(20));
-    await assert.rejects(ctl.installCompanyDatabase(junk), /not a valid Bahi ERP company data file/);
+    await assert.rejects(ctl.installCompanyDatabase(junk), /not a valid Pevqori company data file/);
     assert.deepEqual(fs.readdirSync(rt.app.dataDir).filter((f) => f.startsWith('.staging')), [], 'staging cleaned up');
     const db = new Db(path.join(rt.app.dataDir, 'companies', id, 'company.db'), { readOnly: true });
     assert.equal(verifyChain(db).ok, true);

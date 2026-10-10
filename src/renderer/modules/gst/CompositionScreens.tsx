@@ -3,7 +3,7 @@
  *   'gst.cmp08'       {period?} — CMP-08 quarterly statement from the books: Table 3 (outward supplies
  *                     incl. exempt, inward reverse-charge supplies incl. import of services, tax payable,
  *                     interest) and Table 4 (paid through the set-off). Alt+I interest, Alt+S set-off,
- *                     Alt+F mark filed, Alt+J / Alt+K save the statement (JSON / CSV, Bahi's own format).
+ *                     Alt+F mark filed, Alt+J / Alt+K save the statement (JSON / CSV, Pevqori's own format).
  *   'gst.gstr4'       {fy?}     — GSTR-4 annual return data: tables 4A–4D, 5, 6 and 8.
  *   'gst.composition' —         — the company's composition category and the effective-dated rate
  *                     master (Alt+C create, Enter / Alt+A alter, Alt+D delete).

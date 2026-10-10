@@ -24,7 +24,7 @@ export function log(level: LogLevel, message: string, meta?: unknown): void {
     }
   }
   if (!sink || mirrorToConsole) {
-    const line = `[bahi:${level}] ${message}`;
+    const line = `[pevqori:${level}] ${message}`;
     const out = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
     if (meta === undefined) out(line);
     else out(line, meta);

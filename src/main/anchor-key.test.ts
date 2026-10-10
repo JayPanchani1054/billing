@@ -26,7 +26,7 @@ const head = { companyId: 'c1', companyGuid: 'g', lastId: 7, lastHash: 'a'.repea
 describe('edit-log anchor key sealed by main (safeStorage) and handed to the core worker', () => {
   let dir: string;
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-anchorkey-'));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-anchorkey-'));
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

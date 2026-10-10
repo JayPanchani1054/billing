@@ -33,7 +33,7 @@ truncated files are refused with a `FileFormatError` that says what to do.
 | GSTR-2B JSON | `{ data: { gstin, rtnprd, gendt, docdata } }` or `docdata` at the root; multi-part ZIP of JSONs | `b2b`, `b2ba`, `cdnr`, `cdnra` (`inum`/`ntnum`, `dt` dd-mm-yyyy, `val`, `pos`, `rev`, `itcavl`, `rsn`, `diffprcnt`, `srctyp`, `irn`, `irngendate`, `items[{rt, txval, igst, cgst, sgst, cess}]`; supplier `ctin`, `trdnm`, `supprd`, `supfildt`) | `isd`, `impg`, `impgsez`, … |
 | GSTR-2A JSON | `{ gstin, fp, b2b:[{ ctin, cfs, inv:[{ inum, idt, val, pos, rchrg, inv_typ, itms:[{ itm_det:{ rt, txval, iamt, camt, samt, csamt } }] }] }], cdn \| cdnr, b2ba, cdna }` | `b2b`, `b2ba`, `cdn`/`cdnr`, `cdna`/`cdnra` | `tds`, `tcs`, `isd`, `impg`, … |
 | GSTR-2B / 2A Excel | sheets `B2B`, `B2BA`, `B2B-CDNR`, `B2B-CDNRA`; title rows + two-row header with merged groups ("Invoice Details" › "Invoice number"…, "Tax Amount" › "Integrated Tax(₹)"…); one row per rate | rows of one document (type + GSTIN + number + date) are summed, value taken once; period/GSTIN from the "Read me" sheet (`Financial Year` + `Tax Period`) | `ISD`, `IMPG`, … sheets |
-| GSTR-1 JSON | portal download or Bahi's own export | `b2b`, `b2ba`, `b2cl`, `b2cla`, `cdnr`, `cdnra`, `cdnur`, `cdnura`, `exp`, `expa` | `b2cs`, `hsn`, `nil`, `doc_issue`, … |
+| GSTR-1 JSON | portal download or Pevqori's own export | `b2b`, `b2ba`, `b2cl`, `b2cla`, `cdnr`, `cdnra`, `cdnur`, `cdnura`, `exp`, `expa` | `b2cs`, `hsn`, `nil`, `doc_issue`, … |
 
 The file kind is detected (2B has `docdata`/`rtnprd`; 2A has `cfs`/`cdn`/`tds`…; GSTR-1 has
 `b2cs`/`hsn`/`exp`…); choosing the wrong source is a VALIDATION error on `source`. A file of another

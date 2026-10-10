@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AppError } from './errors.ts';
 import { FileFormatError, decodeText, encodeUtf8WithBom, positionAt, stripBom } from './text.ts';
+import { REQUEST_TAG } from '../modules/data/xmlFormat.ts';
 
 const utf16le = (s: string): Uint8Array => new Uint8Array(Buffer.from(s, 'utf16le'));
 const utf16be = (s: string): Uint8Array => {
@@ -32,7 +33,7 @@ describe('decodeText', () => {
   });
 
   it('detects BOM-less UTF-16LE (Tally export) and UTF-16BE from NUL byte positions', () => {
-    const xml = '<ENVELOPE><HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER></ENVELOPE>';
+    const xml = `<ENVELOPE><HEADER><${REQUEST_TAG}>Import Data</${REQUEST_TAG}></HEADER></ENVELOPE>`;
     assert.deepEqual(decodeText(utf16le(xml)), { text: xml, encoding: 'utf-16le', bom: false });
     assert.deepEqual(decodeText(utf16be(xml)), { text: xml, encoding: 'utf-16be', bom: false });
     // Mostly non-Latin UTF-16LE with ASCII markup is still detected.

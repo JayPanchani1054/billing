@@ -1,15 +1,15 @@
 /**
- * The .bahibak backup container — streaming writer and reader.
+ * The .pvqbak backup container — streaming writer and reader.
  *
  * Layout (all integers little-endian):
  *
- *   offset 0   'BAHIBAK1'                     8 bytes magic
+ *   offset 0   'PEVQBAK1'                     8 bytes magic
  *   offset 8   uint32 M                       length of the manifest area
  *   offset 12  manifest area (M bytes)        UTF-8 JSON (BackupManifest), right-padded with spaces
  *   offset 12+M payload                       gzip(SQLite database)
- *                                             or, with a password, the BAHIENC1 envelope of
+ *                                             or, with a password, the PEVQENC1 envelope of
  *                                             src/core/lib/crypto.ts around gzip(db):
- *                                             'BAHIENC1' | salt(16) | iv(12) | GCM tag(16) | ciphertext
+ *                                             'PEVQENC1' | salt(16) | iv(12) | GCM tag(16) | ciphertext
  *
  * The writer reserves MANIFEST_RESERVED bytes for the manifest, streams the payload after it and then
  * fills in the manifest (and the GCM tag) in place, so the database is read once and memory use stays
@@ -34,14 +34,14 @@ import { SCRYPT_N, SCRYPT_P, SCRYPT_R, randomToken } from '../../lib/crypto.ts';
 import { AppError } from '../../lib/errors.ts';
 import { renameWithRetry } from '../../lib/fsutil.ts';
 
-export const BACKUP_MAGIC = 'BAHIBAK1';
+export const BACKUP_MAGIC = 'PEVQBAK1';
 export const FORMAT_VERSION = 1;
 /** Space reserved for the manifest JSON by the writer (readers accept any length up to MAX_MANIFEST). */
 export const MANIFEST_RESERVED = 16 * 1024;
 const MAX_MANIFEST = 1024 * 1024;
 const FIXED_HEADER = 12;
 
-const ENC_MAGIC = Buffer.from('BAHIENC1', 'ascii');
+const ENC_MAGIC = Buffer.from('PEVQENC1', 'ascii');
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
@@ -185,7 +185,7 @@ export async function writeContainer(opts: {
     }
 
     const manifest: BackupManifest = {
-      format: 'bahi-backup',
+      format: 'pevqori-backup',
       formatVersion: FORMAT_VERSION,
       ...opts.manifest,
       encrypted: Boolean(opts.password),
@@ -225,10 +225,10 @@ function checkManifest(raw: unknown): BackupManifest {
   };
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) bad('no manifest');
   const m = raw as Record<string, unknown>;
-  if (m.format !== 'bahi-backup') bad('unknown format');
+  if (m.format !== 'pevqori-backup') bad('unknown format');
   if (typeof m.formatVersion !== 'number' || !Number.isInteger(m.formatVersion)) bad('no format version');
   if ((m.formatVersion as number) > FORMAT_VERSION) {
-    throw new AppError('CONFLICT', `This backup was made by a newer version of Bahi ERP (backup format ${String(m.formatVersion)}). Update Bahi ERP to use it.`);
+    throw new AppError('CONFLICT', `This backup was made by a newer version of Pevqori (backup format ${String(m.formatVersion)}). Update Pevqori to use it.`);
   }
   const str = (k: string): void => {
     if (typeof m[k] !== 'string' || (m[k] as string).length > 1000) bad(`field ${k}`);
@@ -240,7 +240,7 @@ function checkManifest(raw: unknown): BackupManifest {
   if (typeof m.payloadSha256 !== 'string' || !HEX64.test(m.payloadSha256)) bad('field payloadSha256');
   if (typeof m.dbSha256 !== 'string' || !HEX64.test(m.dbSha256)) bad('field dbSha256');
   return {
-    format: 'bahi-backup',
+    format: 'pevqori-backup',
     formatVersion: 1,
     appVersion: m.appVersion as string,
     schemaVersion: m.schemaVersion as number,
@@ -286,7 +286,7 @@ export function readContainerInfo(file: string): ContainerInfo {
     const fileSize = fs.fstatSync(fd).size;
     const head = Buffer.alloc(FIXED_HEADER);
     if (fs.readSync(fd, head, 0, FIXED_HEADER, 0) < FIXED_HEADER || head.toString('ascii', 0, 8) !== BACKUP_MAGIC) {
-      throw new BackupFileError('container', 'This is not a Bahi ERP backup file (.bahibak).');
+      throw new BackupFileError('container', 'This is not a Pevqori backup file (.pvqbak).');
     }
     const len = head.readUInt32LE(8);
     if (len === 0 || len > MAX_MANIFEST || FIXED_HEADER + len > fileSize) throw new BackupFileError('container', 'This backup file is damaged (bad header).');

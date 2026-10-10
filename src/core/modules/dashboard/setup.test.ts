@@ -43,7 +43,7 @@ test('each step turns done from the data, and the memoised summary picks it up',
   t.addStockItem({ name: 'Mixer Grinder' });
   assert.equal(summaryForCtx(t.ctx, INPUT).setup.hasItems, true);
 
-  const folder = process.platform === 'win32' ? 'D:\\Backups' : '/var/backups/bahi';
+  const folder = process.platform === 'win32' ? 'D:\\Backups' : '/var/backups/pevqori';
   await t.callOk(companyRoutes, 'company.config.save', { backup: { folder } });
   assert.equal(summaryForCtx(t.ctx, INPUT).setup.backupFolderSet, true);
 

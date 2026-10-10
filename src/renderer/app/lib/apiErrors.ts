@@ -119,8 +119,8 @@ export async function retryWhileBusy<T>(fn: () => Promise<T>, opts: RetryWhileBu
 /** A sentence safe to show to a user for any thrown value. */
 export function userMessage(err: unknown): string {
   if (isApiError(err)) {
-    if (err.code === 'BRIDGE_UNAVAILABLE') return 'Bahi ERP must be opened from the desktop app.';
-    if (err.code === 'IPC_FAILED') return 'The app could not complete the request. Please try again; if it keeps happening, restart Bahi ERP.';
+    if (err.code === 'BRIDGE_UNAVAILABLE') return 'Pevqori must be opened from the desktop app.';
+    if (err.code === 'IPC_FAILED') return 'The app could not complete the request. Please try again; if it keeps happening, restart Pevqori.';
     if (err.code === 'INTERNAL') return err.message || 'Something went wrong. Details have been written to the application log.';
     if (err.code === 'VALIDATION') {
       const fields = Object.values(fieldErrorsOf(err));

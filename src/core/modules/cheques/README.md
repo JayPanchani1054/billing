@@ -112,7 +112,7 @@ the payee's preferred mode, else RTGS from ₹2,00,000 and NEFT below. Each row 
 any: no payee, several payees (one row = one beneficiary), no A/c no. or IFSC, RTGS below ₹2 lakh
 (RBI minimum), IMPS above ₹5 lakh (RBI per-transaction limit since October 2021), zero amount.
 
-`cheques.epayment.export` builds Bahi's **generic CSV** — not any bank's proprietary template:
+`cheques.epayment.export` builds Pevqori's **generic CSV** — not any bank's proprietary template:
 
 ```
 Sl No, Payment Mode, Amount, Value Date, Beneficiary Name, Beneficiary Account No, Beneficiary IFSC,
@@ -130,7 +130,7 @@ when the file is built; if the save dialog is cancelled or the write fails, the 
 `cheques.epayment.discard { batchId }` (same user, same day only) so the payments are not flagged as
 "already in a file" — the export and its discard both stay in the edit log. Payee details are read
 once per payee ledger. Account numbers with leading zeros are kept as text in the CSV; opening and
-re-saving the file in Excel can drop them — upload the file as Bahi wrote it.
+re-saving the file in Excel can drop them — upload the file as Pevqori wrote it.
 
 ## Routes
 

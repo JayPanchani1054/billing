@@ -28,7 +28,7 @@ export interface E2E {
 }
 
 export function startRuntime(today: string): E2E {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-e2e-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-e2e-'));
   const userDataDir = fs.mkdtempSync(path.join(root, 'userData-'));
   const dataDir = fs.mkdtempSync(path.join(root, 'data-'));
   const clock = fixedClock(today);

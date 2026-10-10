@@ -83,7 +83,7 @@ function toCsvText(s: Sheet): string {
 function render(sheets: Sheet[], format: 'xlsx' | 'csv', baseName: string): ExportFileResult {
   const rowCount = sheets.reduce((n, s) => n + s.rows.length, 0);
   if (format === 'xlsx') {
-    return { bytes: writeXlsx({ sheets: sheets.map(toXlsxSheet), creator: 'Bahi ERP' }), fileName: `${baseName}.xlsx`, mimeType: XLSX_MIME, rowCount };
+    return { bytes: writeXlsx({ sheets: sheets.map(toXlsxSheet), creator: 'Pevqori' }), fileName: `${baseName}.xlsx`, mimeType: XLSX_MIME, rowCount };
   }
   if (sheets.length === 1) return { bytes: encodeUtf8WithBom(toCsvText(sheets[0])), fileName: `${baseName}.csv`, mimeType: CSV_MIME, rowCount };
   const entries = sheets.map((s) => ({ name: `${fileSlug(s.name)}.csv`, data: encodeUtf8WithBom(toCsvText(s)) }));
@@ -588,7 +588,7 @@ interface SheetSink {
 }
 
 function xlsxSink(zip: ZipFileWriter): SheetSink {
-  const book = new XlsxStreamWriter(zip, { creator: 'Bahi ERP' });
+  const book = new XlsxStreamWriter(zip, { creator: 'Pevqori' });
   let cols: SheetCol[] = [];
   return {
     begin(name, columns) {

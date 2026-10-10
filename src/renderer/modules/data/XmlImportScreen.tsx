@@ -1,10 +1,10 @@
 /**
- * 'data.tally' — Tally migration wizard: 1 how to export from Tally + choose the XML → 2 what is in
+ * 'data.xmlImport' — Tally migration wizard: 1 how to export from Tally + choose the XML → 2 what is in
  * the file, issues and options (nothing saved yet) → 3 importing (progress) → 4 result with
  * "Check books". Vouchers are imported exactly as recorded in Tally.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { TallyImportResult, TallyIssue, TallyPreviewResult, TallyProgress } from '../../../shared/types/data.ts';
+import type { XmlImportResult, XmlImportIssue, XmlPreviewResult, XmlImportProgress } from '../../../shared/types/data.ts';
 import { api } from '../../app/api.ts';
 import { useConfirm } from '../../app/confirm.tsx';
 import { formatBytes, formatDate, formatMoney } from '../../app/display.ts';
@@ -17,7 +17,7 @@ import { useWorkingDate } from '../../app/working.tsx';
 import { Badge, Banner, Button, Checkbox, DataTable, DateInput, Field, FieldGroup, Grid, Icon, Inline, KeyValueList, Panel, ProgressBar, RadioGroup, Stack } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { chooseFile, Steps, type ChosenFile } from './components.tsx';
-import { issueCounts, issueTone, progressPercent, TALLY_FILTERS, tallyCountRows, tallyFileProblem, tallyOptionsProblem, tallyResultSummary, type TallyCountRow } from './lib/importView.ts';
+import { issueCounts, issueTone, progressPercent, XML_FILTERS, xmlCountRows, xmlFileProblem, xmlOptionsProblem, xmlResultSummary, type XmlImportCountRow } from './lib/importView.ts';
 
 type Step = 'file' | 'preview' | 'import' | 'done';
 
@@ -28,21 +28,21 @@ const STEPS = [
   { id: 'done', label: 'Done' },
 ] as const;
 
-export function TallyScreen() {
+export function XmlImportScreen() {
   const nav = useNav();
   const company = useCompany();
   const confirm = useConfirm();
   const { date: workingDate } = useWorkingDate();
   const [file, setFile] = useState<ChosenFile | null>(null);
-  const [preview, setPreview] = useState<TallyPreviewResult | null>(null);
+  const [preview, setPreview] = useState<XmlPreviewResult | null>(null);
   const [masters, setMasters] = useState(true);
   const [vouchers, setVouchers] = useState(true);
   const [from, setFrom] = useState<string | null>(null);
   const [to, setTo] = useState<string | null>(null);
   const [onDuplicate, setOnDuplicate] = useState<'skip' | 'update'>('skip');
   const [busy, setBusy] = useState<null | 'file' | 'import'>(null);
-  const [progress, setProgress] = useState<TallyProgress | null>(null);
-  const [result, setResult] = useState<TallyImportResult | null>(null);
+  const [progress, setProgress] = useState<XmlImportProgress | null>(null);
+  const [result, setResult] = useState<XmlImportResult | null>(null);
   // `retry`: refused only because another task holds the company (an Excel import job, …): "Wait and retry".
   const [error, setError] = useState<{ title: string; message: string; retry?: () => void } | null>(null);
   const closed = useRef(false);
@@ -55,21 +55,21 @@ export function TallyScreen() {
 
   const step: Step = result ? 'done' : busy === 'import' ? 'import' : preview ? 'preview' : 'file';
   const options = { masters, vouchers, from: vouchers ? from ?? undefined : undefined, to: vouchers ? to ?? undefined : undefined, onDuplicate };
-  const optionsProblem = preview ? tallyOptionsProblem(preview, options) : null;
+  const optionsProblem = preview ? xmlOptionsProblem(preview, options) : null;
 
   const pick = async () => {
     if (busy) return;
     setBusy('file');
     setError(null);
     try {
-      const f = await chooseFile('Choose the Tally XML export', TALLY_FILTERS);
+      const f = await chooseFile('Choose the Tally XML export', XML_FILTERS);
       if (!f) return;
-      const problem = tallyFileProblem(f.name);
+      const problem = xmlFileProblem(f.name);
       if (problem) {
         setError({ title: `“${f.name}” cannot be used`, message: problem });
         return;
       }
-      const p = await api('data.tally.preview', { fileName: f.name, bytes: f.bytes });
+      const p = await api('data.xmlImport.preview', { fileName: f.name, bytes: f.bytes });
       setFile(f);
       setPreview(p);
       setResult(null);
@@ -89,7 +89,7 @@ export function TallyScreen() {
   useEffect(() => {
     if (busy !== 'import') return;
     polling.current = setInterval(() => {
-      void api('data.tally.progress')
+      void api('data.xmlImport.progress')
         .then((p) => setProgress(p))
         .catch(() => undefined);
     }, 500);
@@ -120,7 +120,7 @@ export function TallyScreen() {
     setError(null);
     const input = { fileName: file.name, bytes: file.bytes, options };
     try {
-      const call = () => api('data.tally.import', input);
+      const call = () => api('data.xmlImport.commit', input);
       const r = wait ? await retryWhileBusy(call, { cancelled: () => closed.current }) : await call();
       invalidate();
       setResult(r);
@@ -128,7 +128,7 @@ export function TallyScreen() {
       if (isBusyConflict(err)) {
         setError({
           title: 'Another task is running in this company',
-          message: `${userMessage(err)} Choose Wait and retry: Bahi ERP tries again every few seconds until it can start.`,
+          message: `${userMessage(err)} Choose Wait and retry: Pevqori tries again every few seconds until it can start.`,
           retry: () => void startImport(true),
         });
       } else {
@@ -159,7 +159,7 @@ export function TallyScreen() {
 
   return (
     <Screen
-      title="Migrate from Tally"
+      title="XML Data Import"
       subtitle="Bring your masters and vouchers over from Tally ERP 9 or TallyPrime."
       icon="sync"
       width="form"
@@ -174,7 +174,7 @@ export function TallyScreen() {
       ]}
     >
       <Stack gap={4}>
-        <Steps steps={STEPS} current={step} label="Tally migration steps" />
+        <Steps steps={STEPS} current={step} label="XML data import steps" />
         {error ? (
           <Banner
             tone={error.retry ? 'warning' : 'danger'}
@@ -264,10 +264,10 @@ function HowTo({ busy, onChoose }: { busy: boolean; onChoose: () => void }) {
   );
 }
 
-function PreviewPanel({ preview, file }: { preview: TallyPreviewResult; file: ChosenFile }) {
-  const rows = useMemo(() => tallyCountRows(preview), [preview]);
+function PreviewPanel({ preview, file }: { preview: XmlPreviewResult; file: ChosenFile }) {
+  const rows = useMemo(() => xmlCountRows(preview), [preview]);
   const counts = issueCounts(preview.issues);
-  const countCols = useMemo<Column<TallyCountRow>[]>(
+  const countCols = useMemo<Column<XmlImportCountRow>[]>(
     () => [
       { key: 'label', header: 'In the file' },
       { key: 'count', header: 'Count', kind: 'number', width: 100 },
@@ -275,7 +275,7 @@ function PreviewPanel({ preview, file }: { preview: TallyPreviewResult; file: Ch
     ],
     [],
   );
-  const typeCols = useMemo<Column<TallyPreviewResult['vouchersByType'][number]>[]>(
+  const typeCols = useMemo<Column<XmlPreviewResult['vouchersByType'][number]>[]>(
     () => [
       { key: 'voucherType', header: 'Voucher type in Tally' },
       { key: 'baseType', header: 'Imported as', width: 160, value: (r) => r.baseType ?? '', render: (r) => (r.baseType ? r.baseType.replace(/_/g, ' ') : <Badge size="sm" tone="danger">Not supported</Badge>) },
@@ -283,7 +283,7 @@ function PreviewPanel({ preview, file }: { preview: TallyPreviewResult; file: Ch
     ],
     [],
   );
-  const issueCols = useMemo<Column<TallyIssue & { i: number }>[]>(
+  const issueCols = useMemo<Column<XmlImportIssue & { i: number }>[]>(
     () => [
       { key: 'severity', header: 'Type', width: 110, render: (r) => <Badge size="sm" tone={issueTone(r.severity)}>{r.severity === 'error' ? 'Left out' : r.severity === 'warning' ? 'Warning' : 'Note'}</Badge> },
       { key: 'object', header: 'Record', width: 260, value: (r) => r.object ?? '' },
@@ -347,10 +347,10 @@ function PreviewPanel({ preview, file }: { preview: TallyPreviewResult; file: Ch
   );
 }
 
-function ImportProgress({ progress }: { progress: TallyProgress | null }) {
+function ImportProgress({ progress }: { progress: XmlImportProgress | null }) {
   const pct = progressPercent(progress);
   return (
-    <Panel title="Importing your Tally data" description="Keep Bahi ERP open. Large files take a few minutes; each batch is saved as it completes.">
+    <Panel title="Importing your Tally data" description="Keep Pevqori open. Large files take a few minutes; each batch is saved as it completes.">
       <Stack gap={2}>
         <ProgressBar value={pct ?? undefined} indeterminate={pct === null} label={progress?.message || 'Working…'} showValue={pct !== null} aria-label="Import progress" />
         {progress && progress.total > 0 ? (
@@ -363,10 +363,10 @@ function ImportProgress({ progress }: { progress: TallyProgress | null }) {
   );
 }
 
-function ResultPanel({ result, onVerify, onTb }: { result: TallyImportResult; onVerify: () => void; onTb: () => void }) {
-  const s = tallyResultSummary(result);
+function ResultPanel({ result, onVerify, onTb }: { result: XmlImportResult; onVerify: () => void; onTb: () => void }) {
+  const s = xmlResultSummary(result);
   const issues = useMemo(() => result.issues.map((x, i) => ({ ...x, i })), [result.issues]);
-  const cols = useMemo<Column<TallyIssue & { i: number }>[]>(
+  const cols = useMemo<Column<XmlImportIssue & { i: number }>[]>(
     () => [
       { key: 'severity', header: 'Type', width: 110, render: (r) => <Badge size="sm" tone={issueTone(r.severity)}>{r.severity === 'error' ? 'Left out' : r.severity === 'warning' ? 'Warning' : 'Note'}</Badge> },
       { key: 'object', header: 'Record', width: 260, value: (r) => r.object ?? '' },

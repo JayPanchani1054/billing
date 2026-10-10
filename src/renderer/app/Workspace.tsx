@@ -42,9 +42,9 @@ function WorkspaceLayout() {
   }, [nav]);
 
   useEffect(() => {
-    document.title = `${title} · ${company.name} · Bahi ERP`;
+    document.title = `${title} · ${company.name} · Pevqori`;
     return () => {
-      document.title = 'Bahi ERP';
+      document.title = 'Pevqori';
     };
   }, [title, company.name]);
 
@@ -109,7 +109,7 @@ function TopBar() {
     items.push({ key: 'density-compact', label: 'Compact', icon: 'columns', checked: prefs.density === 'compact', onSelect: () => setPreferences({ density: 'compact' }) });
     items.push({ type: 'separator', key: 's3' });
     items.push({ key: 'shortcuts', label: 'Keyboard shortcuts', icon: 'keyboard', shortcut: 'F1', onSelect: () => shell.openShortcuts() });
-    items.push({ key: 'about', label: 'About Bahi ERP', icon: 'info', onSelect: () => nav.push('company.about') });
+    items.push({ key: 'about', label: 'About Pevqori', icon: 'info', onSelect: () => nav.push('company.about') });
     return items;
   }, [session, prefs, nav, shell]);
 
@@ -122,11 +122,11 @@ function TopBar() {
 
   return (
     <header className="bx-topbar" role="banner">
-      <div className="bx-topbar__brand" aria-label="Bahi ERP">
+      <div className="bx-topbar__brand" aria-label="Pevqori">
         <span className="bx-topbar__mark" aria-hidden="true">
           <Icon name="book" size="md" />
         </span>
-        <span className="bx-topbar__wordmark">Bahi</span>
+        <span className="bx-topbar__wordmark">Pevqori</span>
       </div>
 
       <div className="bx-topbar__company">

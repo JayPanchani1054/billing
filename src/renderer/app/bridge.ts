@@ -1,14 +1,14 @@
 /**
- * Access to the preload bridge (`window.bahi`). Every native call goes through `native()` which
- * unwraps the ApiResult and throws ApiError — never call window.bahi directly from screens.
+ * Access to the preload bridge (`window.pevqori`). Every native call goes through `native()` which
+ * unwraps the ApiResult and throws ApiError — never call window.pevqori directly from screens.
  */
-import type { BahiBridge, BridgeEvents, NativeAction, NativeActions } from '../../shared/bridge.ts';
+import type { PevqoriBridge, BridgeEvents, NativeAction, NativeActions } from '../../shared/bridge.ts';
 import { ApiError } from './lib/apiErrors.ts';
 
 /** The bridge, or null when the page runs outside Electron (plain browser, tests). */
-export function getBridge(): BahiBridge | null {
+export function getBridge(): PevqoriBridge | null {
   if (typeof window === 'undefined') return null;
-  const b = (window as Partial<Window>).bahi;
+  const b = (window as Partial<Window>).pevqori;
   return b && typeof b.api === 'function' && typeof b.native === 'function' ? b : null;
 }
 
@@ -16,16 +16,16 @@ export function hasBridge(): boolean {
   return getBridge() !== null;
 }
 
-function requireBridge(what: string): BahiBridge {
+function requireBridge(what: string): PevqoriBridge {
   const b = getBridge();
-  if (!b) throw new ApiError('BRIDGE_UNAVAILABLE', 'Bahi ERP must be opened from the desktop app.', undefined, what);
+  if (!b) throw new ApiError('BRIDGE_UNAVAILABLE', 'Pevqori must be opened from the desktop app.', undefined, what);
   return b;
 }
 
 /** Call a native (Electron-only) action: dialogs, printing, theme, quit… */
 export async function native<A extends NativeAction>(action: A, payload: NativeActions[A]['in']): Promise<NativeActions[A]['out']> {
   const bridge = requireBridge(action);
-  let res: Awaited<ReturnType<BahiBridge['native']>>;
+  let res: Awaited<ReturnType<PevqoriBridge['native']>>;
   try {
     res = await bridge.native(action, payload);
   } catch {

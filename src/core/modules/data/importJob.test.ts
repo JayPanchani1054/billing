@@ -10,7 +10,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ApiResult } from '../../../shared/api.ts';
 import type { AppState } from '../../../shared/types/app.ts';
-import type { ImportCommitResult, ImportPreviewResult, TallyProgress } from '../../../shared/types/data.ts';
+import type { ImportCommitResult, ImportPreviewResult, XmlImportProgress } from '../../../shared/types/data.ts';
 import { appRoutes } from '../../app/routes.ts';
 import { fixedClock } from '../../app/clock.ts';
 import { createRuntimeWithRoutes } from '../../app/runtime-core.ts';
@@ -28,7 +28,7 @@ let dbPath: string;
 const call = async <T>(route: string, input: unknown = {}): Promise<T> => {
   const r: ApiResult<unknown> = await rt.dispatch(route, input);
   if (!r.ok) {
-    const log = path.join(root, 'u', 'logs', 'bahi.log');
+    const log = path.join(root, 'u', 'logs', 'pevqori.log');
     assert.fail(`${route}: ${r.error.code} ${r.error.message} ${fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter((l) => l.includes('error')).slice(-3).join('\n') : ''}`);
   }
   return r.data as T;
@@ -53,7 +53,7 @@ const count = (sql: string): number => {
 };
 
 beforeEach(async () => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-impjob-'));
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-impjob-'));
   rt = createRuntimeWithRoutes(
     { userDataDir: path.join(root, 'u'), defaultDataDir: path.join(root, 'data'), appVersion: '1.0.0', clock: fixedClock('2026-10-05'), consoleLog: false },
     { ...appRoutes, ...companyRoutes, ...dataRoutes },
@@ -78,7 +78,7 @@ describe('import job (chunked, own connection)', () => {
     let settled = false;
     void job.then(() => (settled = true));
     for (let i = 0; i < 200 && !settled; i++) {
-      const p = await call<TallyProgress>('data.import.progress');
+      const p = await call<XmlImportProgress>('data.import.progress');
       if (p.running && p.phase === 'vouchers' && p.done > 0 && p.done < n) {
         sawRunning = true;
         // Another company request is refused at once (it never joins the import's open transaction) …
@@ -98,7 +98,7 @@ describe('import job (chunked, own connection)', () => {
     assert.equal(count('SELECT COUNT(*) FROM vouchers'), n);
     assert.equal(count('SELECT SUM(amount) FROM ledger_entries'), 0);
     assert.equal(count(`SELECT COUNT(*) FROM audit_log WHERE entity_type = 'voucher' AND action = 'create'`), n, 'every voucher audited');
-    const done = await call<TallyProgress>('data.import.progress');
+    const done = await call<XmlImportProgress>('data.import.progress');
     assert.deepEqual([done.running, done.phase, done.done], [false, 'done', n]);
     await call('company.summary'); // the company is free again
   });
@@ -145,7 +145,7 @@ describe('import job (chunked, own connection)', () => {
     const preview = rt.dispatch('data.import.preview', { kind: 'vouchers_ledger', fileName: 'v.csv', bytes: journals(IMPORT_CHUNK * 3) });
     let tried = false;
     for (let i = 0; i < 200 && !tried; i++) {
-      const p = await call<TallyProgress>('data.import.progress');
+      const p = await call<XmlImportProgress>('data.import.progress');
       if (p.running && p.phase === 'vouchers' && p.done > 0) {
         tried = true;
         // A wrong password would bump failed_attempts inside the job's transaction (rolled back = a

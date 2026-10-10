@@ -2,7 +2,7 @@
 
 Everything needed to put a voucher on paper. The core builds a **print DTO** (`PrintVoucherData`,
 `src/shared/types/print.ts`); the renderer (`src/renderer/modules/print`) renders it with React
-templates and sends the serialised HTML to `bahi.native('print.print' | 'print.savePdf')`.
+templates and sends the serialised HTML to `pevqori.native('print.print' | 'print.savePdf')`.
 Templates never call the API and never compute money.
 
 ## Routes

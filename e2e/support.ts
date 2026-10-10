@@ -28,7 +28,7 @@ export interface LaunchedApp {
 function childEnv(extra: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE' && key !== 'BAHI_DEV_SERVER_URL') env[key] = value;
+    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE' && key !== 'PEVQORI_DEV_SERVER_URL') env[key] = value;
   }
   return { ...env, ...extra };
 }
@@ -41,7 +41,7 @@ export async function launchApp(prefix: string): Promise<LaunchedApp> {
   const app = await electron.launch({
     args: ['out/main/index.cjs'],
     cwd: repoRoot,
-    env: childEnv({ BAHI_USER_DATA: userDataDir, BAHI_DATA_DIR: dataDir, BAHI_E2E: '1' }),
+    env: childEnv({ PEVQORI_USER_DATA: userDataDir, PEVQORI_DATA_DIR: dataDir, PEVQORI_E2E: '1' }),
   });
   app.process().stdout?.on('data', (d: Buffer) => process.stdout.write(`[electron] ${d.toString()}`));
   app.process().stderr?.on('data', (d: Buffer) => process.stderr.write(`[electron] ${d.toString()}`));

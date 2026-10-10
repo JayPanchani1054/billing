@@ -13,7 +13,7 @@ type Mode = 'move' | 'copy' | 'use';
 const MODES: ReadonlyArray<{ value: Mode; label: string; description: string }> = [
   { value: 'move', label: 'Move my companies there', description: 'Your companies move to the new folder; the old folder is left empty.' },
   { value: 'copy', label: 'Copy my companies there', description: 'The new folder gets a copy; the old folder keeps its companies (you will work on the copy).' },
-  { value: 'use', label: 'Use the companies already in that folder', description: 'Nothing is moved. Choose this when the folder already has Bahi data.' },
+  { value: 'use', label: 'Use the companies already in that folder', description: 'Nothing is moved. Choose this when the folder already has Pevqori data.' },
 ];
 
 export function DataFolderDialog({ onClose }: { onClose: () => void }) {
@@ -60,7 +60,7 @@ export function DataFolderDialog({ onClose }: { onClose: () => void }) {
       }}
       dismissible={!busy}
       title="Change Data Folder"
-      description="Where Bahi keeps all companies on this computer."
+      description="Where Pevqori keeps all companies on this computer."
       size="md"
       footer={
         <>
@@ -94,7 +94,7 @@ export function DataFolderDialog({ onClose }: { onClose: () => void }) {
         <RadioGroup<Mode> label="What should happen to your companies?" options={hasCompanies ? MODES : MODES.filter((m) => m.value === 'use')} value={mode} onChange={setMode} />
         {mode !== 'use' ? (
           <Banner tone="info" inline>
-            Close Bahi on other computers that use this folder before continuing. Large data can take a minute.
+            Close Pevqori on other computers that use this folder before continuing. Large data can take a minute.
           </Banner>
         ) : null}
         {error ? (

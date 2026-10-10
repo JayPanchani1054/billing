@@ -56,7 +56,7 @@ export function noteMutation(): void {
 
 async function call(route: string, input: unknown): Promise<unknown> {
   const bridge = getBridge();
-  if (!bridge) throw new ApiError('BRIDGE_UNAVAILABLE', 'Bahi ERP must be opened from the desktop app.', undefined, route);
+  if (!bridge) throw new ApiError('BRIDGE_UNAVAILABLE', 'Pevqori must be opened from the desktop app.', undefined, route);
   inFlight++;
   emitActivity();
   let res: ApiResult<unknown>;

@@ -1,6 +1,6 @@
-# Bahi ERP — Security
+# Pevqori — Security
 
-This document describes what Bahi ERP protects, against whom, and how. It complements
+This document describes what Pevqori protects, against whom, and how. It complements
 [ARCHITECTURE.md §8](ARCHITECTURE.md#8-security). Code references are given so every control can be
 audited.
 
@@ -9,17 +9,17 @@ audited.
 | Asset | Where it lives |
 |---|---|
 | Company books (vouchers, ledgers, inventory, GST data) | `<data folder>\companies\<id>\company.db` (SQLite, WAL) |
-| Attachments | `<data folder>\companies\<id>\attachments\` (content-addressed); copies opened in other programs under `%TEMP%\bahi-attachments\` |
+| Attachments | `<data folder>\companies\<id>\attachments\` (content-addressed); copies opened in other programs under `%TEMP%\pevqori-attachments\` |
 | Shared documents | `<data folder>\companies\<id>\exports\shared\` (PDF + draft `.eml` written by main for e-mail / WhatsApp sharing) |
 | User accounts, password hashes, roles | inside each `company.db` |
 | Edit log (audit trail) | `audit_log` table in each `company.db` (append-only, hash-chained) |
 | Backups | files the user saves via **Data → Backup** (optionally encrypted) |
-| App settings & logs | `%APPDATA%\Bahi ERP\` (`config.json`, `window-state.json`, `logs\bahi.log*`) |
-| Edit-log check-points | `%APPDATA%\Bahi ERP\audit-anchors.json` (HMAC-signed) and `audit-anchor.key` (sealed with Windows DPAPI via Electron `safeStorage`) — never in the data folder or a backup |
+| App settings & logs | `%APPDATA%\Pevqori\` (`config.json`, `window-state.json`, `logs\pevqori.log*`) |
+| Edit-log check-points | `%APPDATA%\Pevqori\audit-anchors.json` (HMAC-signed) and `audit-anchor.key` (sealed with Windows DPAPI via Electron `safeStorage`) — never in the data folder or a backup |
 
 ## 2. Threat model
 
-Bahi ERP is a single-user-at-a-time desktop application with **no server and no network features**.
+Pevqori is a single-user-at-a-time desktop application with **no server and no network features**.
 We consider:
 
 | # | Threat actor / scenario | In scope | Notes |
@@ -58,7 +58,7 @@ webPreferences: {
 Additionally `app.enableSandbox()` forces the sandbox for *every* renderer, including print windows.
 The `remote` module no longer exists in Electron and `@electron/remote` is not used.
 
-### 3.2 No file:// — a private `app://bahi` origin — `src/main/protocol.ts`
+### 3.2 No file:// — a private `app://pevqori` origin — `src/main/protocol.ts`
 
 The UI is served from `out/renderer` over a privileged custom scheme (`standard`, `secure`,
 `supportFetchAPI`) instead of `file://`. Requests are confined to the renderer folder: percent-decoding,
@@ -79,13 +79,13 @@ object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'
 
 No `unsafe-eval`, no inline scripts. In **development only** (`npm run dev`) the Vite server origin is
 added to `connect-src` and `'unsafe-inline'` to `script-src` (React Fast Refresh preamble).
-`BAHI_DEV_SERVER_URL` is ignored in packaged builds and must be a loopback `http://` URL.
+`PEVQORI_DEV_SERVER_URL` is ignored in packaged builds and must be a loopback `http://` URL.
 
 ### 3.4 Session policy — `src/main/security.ts`
 
 - **Permissions:** every permission request and check is denied except `clipboard-sanitized-write`
   (copy buttons). No camera, microphone, geolocation, notifications, HID/USB/serial, etc.
-- **Network kill-switch:** `webRequest.onBeforeRequest` cancels every request that is not `app://bahi`,
+- **Network kill-switch:** `webRequest.onBeforeRequest` cancels every request that is not `app://pevqori`,
   `data:`, `blob:`, `about:` or `devtools:` (plus the loopback dev server in development). Even a
   CSP bypass could not exfiltrate data over the network.
 - **Navigation:** `will-navigate` and `will-redirect` away from the app origin are blocked;
@@ -96,9 +96,9 @@ added to `connect-src` and `'unsafe-inline'` to `script-src` (React Fast Refresh
 
 ### 3.5 IPC — `src/main/ipc.ts`, `src/preload/index.ts`
 
-- The preload exposes exactly `window.bahi = { api, native, on, setDirty, platform }` — never
+- The preload exposes exactly `window.pevqori = { api, native, on, setDirty, platform }` — never
   `ipcRenderer` itself. Event listeners receive only the payload (never the `IpcRendererEvent`).
-- Three channels only: `bahi:api` and `bahi:native` (invoke) and `bahi:dirty` (send).
+- Three channels only: `pevqori:api` and `pevqori:native` (invoke) and `pevqori:dirty` (send).
 - Every message must come from a WebContents created by the window manager, from its **top-level
   frame**, whose URL is on the app origin. Anything else gets `FORBIDDEN`.
 - Route names must match `<module>.<entity>.<action>` (≤ 127 chars, at least one dot — which also
@@ -140,7 +140,7 @@ added to `connect-src` and `'unsafe-inline'` to `script-src` (React Fast Refresh
   line (RFC 2047-encoded), the body and PDF are base64 — CR/LF header injection is impossible. The
   WhatsApp link is built by main as `https://wa.me/91<validated mobile>?text=<encoded>` and opened only
   after the user confirms the host.
-- **Attachment copies** (`src/main/attachments.ts`): the copies' parent `<temp>\bahi-attachments` is
+- **Attachment copies** (`src/main/attachments.ts`): the copies' parent `<temp>\pevqori-attachments` is
   refused when it is a link / junction or (POSIX) not a private folder of this account; the day-old
   sweep removes links as links and never follows them; device names (`CON.pdf`) are renamed.
 
@@ -155,16 +155,16 @@ a timeout; the window is always destroyed afterwards.
 
 ### 3.7 Packaged binary — `scripts/after-pack.cjs`, `scripts/fuses.cjs`
 
-electron-builder flips Electron **fuses** on `Bahi ERP.exe`: `RunAsNode` off (`ELECTRON_RUN_AS_NODE`
+electron-builder flips Electron **fuses** on `Pevqori.exe`: `RunAsNode` off (`ELECTRON_RUN_AS_NODE`
 cannot turn the signed exe into a Node runtime), `NODE_OPTIONS` ignored, `--inspect` ignored, app code
 only from `app.asar`, cookie encryption on, no extra `file://` privileges. The installer runs
 `asInvoker` (no elevation unless the user chooses a per-machine install).
 
 The hook **fails closed**: `@electron/fuses` is a declared devDependency, and the build fails if it
 cannot be loaded, if a wanted fuse is unknown to it, if flipping fails, or if the fuses read back
-differently (`BAHI_ALLOW_UNFUSED=1` downgrades this to a warning for a throw-away local build only;
+differently (`PEVQORI_ALLOW_UNFUSED=1` downgrades this to a warning for a throw-away local build only;
 CI never sets it). CI and the release workflow then read the fuses back from the packaged
-`release/win-unpacked/Bahi ERP.exe` with `scripts/check-fuses.cjs` and fail on any difference, and
+`release/win-unpacked/Pevqori.exe` with `scripts/check-fuses.cjs` and fail on any difference, and
 install + launch the installer (`scripts/smoke-installed.ps1`) to prove the hardened binary boots.
 
 The core worker script (`resources/app.asar.unpacked/out/main/core-worker.cjs`, §3.9) lives outside
@@ -256,7 +256,7 @@ IPC. Security properties:
 
 | # | Surface | Threat | Control (code / test) |
 |---|---|---|---|
-| P1 | New routes (`tds`, `documents`, `mfg`, `forex`, `cheques`, `attachments`, `print.share`, `pos`, `data.tally.export`, GST plus) | missing or too-weak access | every route declares a real permission; `authenticated` only on the attachment reads, whose service checks the owner's `vouchers.view` / `masters.view`; save routes declared `*.view` check `create` / `alter` in the service; roles: Auditor `tds.view` only, Data Entry `attachments.add` only (`core/api/parity-security.test.ts`) |
+| P1 | New routes (`tds`, `documents`, `mfg`, `forex`, `cheques`, `attachments`, `print.share`, `pos`, `data.xmlExport.create`, GST plus) | missing or too-weak access | every route declares a real permission; `authenticated` only on the attachment reads, whose service checks the owner's `vouchers.view` / `masters.view`; save routes declared `*.view` check `create` / `alter` in the service; roles: Auditor `tds.view` only, Data Entry `attachments.add` only (`core/api/parity-security.test.ts`) |
 | P2 | Report / list filters | a misspelt optional filter (party, book, status, period, kind) silently widening what is shown or exported | `v.strictObject` on the filters of the cheque register / e-payment list / payees / books, attachment register, production register, pending job work, job work orders, BOMs, job work alerts, due recurring vouchers, GST amendments / 3B changes / Rule 37 / pending advances / filings, TDS lines / return, POS register / summary (same test) |
 | P3 | Mutations | change without an edit-log entry | every save / delete / post / import of the new modules audits; voucher types created by F11 Manufacturing / Job work now have their own `create` entries (`mfg/security.test.ts`); ledgers created on demand (TDS, GST plus, forex, POS) are audited |
 | P4 | Period lock | back-dated change of locked figures through a non-voucher path | forex opening in the currency refused when the lock covers the books beginning (`forex/security.test.ts`); cheque-leaf cancel / re-open dated in the locked period (`cheques/lock.test.ts`); composition rate rows / category that would change a locked quarter's CMP-08 / GSTR-4 tax (`gst/composition-lock.test.ts`); new voucher kinds go through `saveVoucher` |
@@ -265,7 +265,7 @@ IPC. Security properties:
 | P7 | Sharing | header injection in the `.eml`; arbitrary URL / path opened | addresses validated, single-line subject, base64 body; wa.me URL and mobile validated in main; folder chosen by main, links refused; file names never a Windows device (`CON .pdf`, `COM¹`, `CONIN$` — `main/files.ts` sanitizeFileName) (`main/share-security.test.ts`, `main/share.test.ts`, `main/files.test.ts`) |
 | P8 | CSV / bank / return files | formula injection; wrong rows exported | `toCsv` neutralises formulas (e-payment, TDS return, CMP-08 / GSTR-4, ITC-04 via the export path); e-payment files take regular Payments only and are recorded (batches, edit log) |
 | P9 | SQL | injection through filters / search | parameterised; dynamic SQL only joins constant fragments or table names from fixed maps |
-| P10 | Logs | PII in `bahi.log` | new modules log only error objects and reasons — no PAN, GSTIN, mobile, e-mail, account numbers or document payloads |
+| P10 | Logs | PII in `pevqori.log` | new modules log only error objects and reasons — no PAN, GSTIN, mobile, e-mail, account numbers or document payloads |
 | P11 | Security off (implicit Owner session) | user-keyed checks | the e-payment "discard" check compares the creating user with the current one (`null` = no login), so a batch made with security off cannot be discarded by a logged-in user and vice versa; `security.disable` still needs an Owner login + password |
 
 **Residual risks (not mitigated by the app):** a PDF may carry JavaScript / launch actions, an Office
@@ -280,7 +280,7 @@ PAN or name in the ledger master is not tied to a voucher and is not flagged.
 The edit log is a SHA-256 hash chain (`core/lib/audit.ts`): each entry's hash covers its content and
 the previous entry's hash. On its own a chain only proves internal consistency — anyone who can write
 `company.db` can drop the append-only triggers, edit or delete entries, recompute every hash from the
-start and re-create the triggers. Bahi ERP therefore keeps a **check-point** (the id and hash of the
+start and re-create the triggers. Pevqori therefore keeps a **check-point** (the id and hash of the
 newest entry) outside the company file (`core/lib/auditAnchor.ts`, `core/app/auditAnchors.ts`):
 
 - in `audit-anchors.json` under the app's user-data folder, refreshed after every request that
@@ -312,7 +312,7 @@ restore when it was made on this installation).
 
 ## 5. Data at rest — guidance for administrators
 
-Bahi ERP does **not** encrypt `company.db` itself (SQLite has no built-in encryption and the app has no
+Pevqori does **not** encrypt `company.db` itself (SQLite has no built-in encryption and the app has no
 native modules). Protect data at rest with the operating system:
 
 1. **Enable BitLocker** (Windows 10/11 Pro/Enterprise) or *Device encryption* (Home) on the drive that
@@ -325,19 +325,19 @@ native modules). Protect data at rest with the operating system:
 4. Use **encrypted backups** (set a backup password) for anything that leaves the machine, and store
    backups on a separate disk or cloud drive. Test restores periodically.
 5. Lock the screen when away (`Win+L`); set the idle timeout for secured companies.
-6. Keep Windows and Bahi ERP updated.
+6. Keep Windows and Pevqori updated.
 
 ## 6. Configuration switches
 
 | Variable | Effect | Notes |
 |---|---|---|
-| `BAHI_USER_DATA` | absolute path used instead of `%APPDATA%\Bahi ERP` | tests, portable setups |
-| `BAHI_DATA_DIR` | default data folder on first run | tests |
-| `BAHI_DEV_SERVER_URL` | load the UI from a Vite dev server | **ignored in packaged builds**; loopback http only |
-| `BAHI_DISABLE_GPU=1` | disable hardware acceleration | for machines with broken GPU drivers |
-| `BAHI_E2E=1` | suppress modal dialogs | automated tests only |
-| `BAHI_SMOKE_TEST=1` | check `app.state` through the bridge once, log the verdict, quit with exit code 0/1 | packaged-app smoke test in CI; honoured in packaged builds, reads nothing but app state |
-| `BAHI_ALLOW_UNFUSED=1` | (build time) let `after-pack.cjs` continue without fuses | throw-away local builds only; never in CI |
+| `PEVQORI_USER_DATA` | absolute path used instead of `%APPDATA%\Pevqori` | tests, portable setups |
+| `PEVQORI_DATA_DIR` | default data folder on first run | tests |
+| `PEVQORI_DEV_SERVER_URL` | load the UI from a Vite dev server | **ignored in packaged builds**; loopback http only |
+| `PEVQORI_DISABLE_GPU=1` | disable hardware acceleration | for machines with broken GPU drivers |
+| `PEVQORI_E2E=1` | suppress modal dialogs | automated tests only |
+| `PEVQORI_SMOKE_TEST=1` | check `app.state` through the bridge once, log the verdict, quit with exit code 0/1 | packaged-app smoke test in CI; honoured in packaged builds, reads nothing but app state |
+| `PEVQORI_ALLOW_UNFUSED=1` | (build time) let `after-pack.cjs` continue without fuses | throw-away local builds only; never in CI |
 
 Environment variables are not a security boundary: anyone who can set them for your account can
 already run code as you.

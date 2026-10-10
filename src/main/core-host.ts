@@ -41,7 +41,7 @@ export interface CoreHost {
 
 const CLOSING: ApiResult<never> = {
   ok: false,
-  error: { code: 'INTERNAL', message: 'Bahi ERP is closing. Open it again to continue.' },
+  error: { code: 'INTERNAL', message: 'Pevqori is closing. Open it again to continue.' },
 };
 
 const NOT_RETURNABLE: ApiResult<never> = {

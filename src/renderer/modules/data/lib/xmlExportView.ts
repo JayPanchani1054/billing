@@ -1,10 +1,10 @@
 /**
- * Pure logic of the "Export to Tally" screen (data.tallyExport): what is wrong with the choices, and
- * the result summary rows. Tested in tallyExportView.test.ts.
+ * Pure logic of the "Export to Tally" screen (data.xmlExport): what is wrong with the choices, and
+ * the result summary rows. Tested in xmlExportView.test.ts.
  */
-import type { TallyExportMasterCounts, TallyExportResult } from '../../../../shared/types/data.ts';
+import type { XmlExportMasterCounts, XmlExportResult } from '../../../../shared/types/data.ts';
 
-export interface TallyExportChoices {
+export interface XmlExportChoices {
   masters: boolean;
   vouchers: boolean;
   from: string | null;
@@ -12,7 +12,7 @@ export interface TallyExportChoices {
 }
 
 /** Why the export cannot run yet (null = ready), written for the user. */
-export function tallyExportProblem(c: TallyExportChoices): string | null {
+export function xmlExportProblem(c: XmlExportChoices): string | null {
   if (!c.masters && !c.vouchers) return 'Tick masters, vouchers or both.';
   if (c.vouchers) {
     if (!c.from || !c.to) return 'Enter both dates of the period.';
@@ -21,7 +21,7 @@ export function tallyExportProblem(c: TallyExportChoices): string | null {
   return null;
 }
 
-const MASTER_ROWS: ReadonlyArray<[keyof TallyExportMasterCounts, string]> = [
+const MASTER_ROWS: ReadonlyArray<[keyof XmlExportMasterCounts, string]> = [
   ['groups', 'Groups (your own)'],
   ['ledgers', 'Ledgers'],
   ['costCategories', 'Cost categories'],
@@ -34,7 +34,7 @@ const MASTER_ROWS: ReadonlyArray<[keyof TallyExportMasterCounts, string]> = [
   ['voucherTypes', 'Voucher types (your own)'],
 ];
 
-export interface TallyExportSummaryRow {
+export interface XmlExportSummaryRow {
   key: string;
   label: string;
   value: string;
@@ -53,13 +53,13 @@ function dayText(iso: string): string {
  * The date the masters' opening balances will be written at (null without masters): the period's
  * first day when vouchers of a period after the books beginning go with them, else the books beginning.
  */
-export function openingsDate(c: TallyExportChoices, booksFrom: string): string | null {
+export function openingsDate(c: XmlExportChoices, booksFrom: string): string | null {
   if (!c.masters) return null;
   return c.vouchers && c.from && c.from > booksFrom ? c.from : booksFrom;
 }
 
 /** One line under the choices: what the opening balances in the file will be. */
-export function openingsNote(c: TallyExportChoices, booksFrom: string): string | null {
+export function openingsNote(c: XmlExportChoices, booksFrom: string): string | null {
   const at = openingsDate(c, booksFrom);
   if (at === null) return null;
   return at === booksFrom
@@ -68,8 +68,8 @@ export function openingsNote(c: TallyExportChoices, booksFrom: string): string |
 }
 
 /** What went into the file: masters by kind (non-zero ones), vouchers, and what was left out and why. */
-export function tallyExportSummary(r: Pick<TallyExportResult, 'masters' | 'vouchers' | 'skipped'> & { openingsAsOf?: string | null }, vouchersAsked: boolean): TallyExportSummaryRow[] {
-  const rows: TallyExportSummaryRow[] = [];
+export function xmlExportSummary(r: Pick<XmlExportResult, 'masters' | 'vouchers' | 'skipped'> & { openingsAsOf?: string | null }, vouchersAsked: boolean): XmlExportSummaryRow[] {
+  const rows: XmlExportSummaryRow[] = [];
   if (r.openingsAsOf) rows.push({ key: 'openings', label: 'Opening balances as on', value: dayText(r.openingsAsOf) });
   if (r.masters) {
     for (const [k, label] of MASTER_ROWS) if (r.masters[k] > 0) rows.push({ key: `m:${k}`, label, value: n(r.masters[k]) });
@@ -80,7 +80,7 @@ export function tallyExportSummary(r: Pick<TallyExportResult, 'masters' | 'vouch
 }
 
 /** The steps to load the file in TallyPrime (shown after saving). */
-export function tallyImportSteps(isZip: boolean, openingsAsOf: string | null = null): string[] {
+export function xmlImportSteps(isZip: boolean, openingsAsOf: string | null = null): string[] {
   return [
     ...(isZip ? ['Extract the .zip file (right-click › Extract All).'] : []),
     openingsAsOf

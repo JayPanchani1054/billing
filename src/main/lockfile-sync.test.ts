@@ -61,7 +61,7 @@ describe('lockfile sync check (scripts/lockfile-sync.mjs)', () => {
   });
 
   it('classifies a project folder as in-sync, stale or missing', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'bahi-lock-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'pevqori-lock-'));
     try {
       writeFileSync(path.join(dir, 'package.json'), JSON.stringify(PKG));
       assert.equal(sync.lockfileStatus(dir).status, 'missing');

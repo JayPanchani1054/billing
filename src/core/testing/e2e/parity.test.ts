@@ -3,7 +3,7 @@
  * the screens use them, through runtime.dispatch exactly as the Electron main process does.
  *
  *   company (wizard defaults) → F11: TDS, multiple currencies, cheque printing, manufacturing, POS →
- *   masters (parityFlow.ts, the same calls the spec makes through window.bahi.api) →
+ *   masters (parityFlow.ts, the same calls the spec makes through window.pevqori.api) →
  *   quotation → converted into Sales 1 → POS bill, split tender UPI + cash with change →
  *   purchase with the TDS auto-line → export invoice in US$ → Manufacturing Journal from the BOM →
  *   print data (Modern on A4/A5, Compact on the 80 mm roll) → cheque of a payment → books balance.

@@ -138,7 +138,7 @@ describe('Db read rows (array rows → plain objects)', () => {
 
 describe('Db.dataRevision (cache key of the read-model memos)', () => {
   it('changes on any write here or any commit elsewhere, and is null while a transaction is open', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-rev-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-rev-'));
     const file = path.join(dir, 'rev.db');
     const a = new Db(file);
     const b = new Db(file);

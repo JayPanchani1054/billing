@@ -92,7 +92,7 @@ Legal note (GST valuation): for exports of goods, the value is converted at the 
 under s.14 of the Customs Act for the date of the shipping bill; Rule 34 of the CGST Rules says the rate
 for the taxable value is the one "as applicable" on the date of supply (customs notified rate for
 goods). The app does not download or seed those rates — enter the notified rate in the master or on the
-voucher. Bahi does not decide which rate is legally right for your case; it records the one you use.
+voucher. Pevqori does not decide which rate is legally right for your case; it records the one you use.
 
 ## 5. GST and export invoices
 

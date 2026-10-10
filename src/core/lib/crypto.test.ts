@@ -90,12 +90,12 @@ describe('random helpers and digests', () => {
 });
 
 describe('AES-256-GCM envelope', () => {
-  const data = new TextEncoder().encode('Bahi backup payload ₹ 1,23,456.00');
+  const data = new TextEncoder().encode('Pevqori backup payload ₹ 1,23,456.00');
 
   it('round-trips with the right password', () => {
     const enc = encryptBytes(data, 'Backup#2026');
     assert.ok(isEncrypted(enc));
-    assert.equal(Buffer.from(enc.subarray(0, 8)).toString('ascii'), 'BAHIENC1');
+    assert.equal(Buffer.from(enc.subarray(0, 8)).toString('ascii'), 'PEVQENC1');
     assert.equal(enc.length, 8 + 16 + 12 + 16 + data.length);
     assert.deepEqual(decryptBytes(enc, 'Backup#2026'), data);
     assert.notDeepEqual(encryptBytes(data, 'Backup#2026'), enc, 'fresh salt/iv each time');

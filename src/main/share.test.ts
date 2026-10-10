@@ -20,7 +20,7 @@ import { parseExternalUrl } from './policy.ts';
 
 let dir: string;
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-share-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-share-'));
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

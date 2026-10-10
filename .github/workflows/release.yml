@@ -101,14 +101,14 @@ jobs:
         shell: bash
         run: |
           cd release
-          sha256sum Bahi-ERP-Setup-*.exe | tee SHA256SUMS.txt
+          sha256sum Pevqori-Setup-*.exe | tee SHA256SUMS.txt
 
       - name: Upload installer
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: release-installer
           path: |
-            release/Bahi-ERP-Setup-*.exe
+            release/Pevqori-Setup-*.exe
             release/SHA256SUMS.txt
           retention-days: 7
           if-no-files-found: error
@@ -133,7 +133,7 @@ jobs:
 
       - name: Smoke-test the installed app
         shell: pwsh
-        run: ./scripts/smoke-installed.ps1 -Installer (Get-ChildItem release/Bahi-ERP-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence
+        run: ./scripts/smoke-installed.ps1 -Installer (Get-ChildItem release/Pevqori-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence
 
       - name: Upload smoke evidence
         if: failure()
@@ -165,10 +165,10 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          name: Bahi ERP ${{ github.ref_name }}
+          name: Pevqori ${{ github.ref_name }}
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
           files: |
-            release/Bahi-ERP-Setup-*.exe
+            release/Pevqori-Setup-*.exe
             release/SHA256SUMS.txt

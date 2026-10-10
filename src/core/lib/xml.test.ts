@@ -18,6 +18,7 @@ import {
   xmlElement,
 } from './xml.ts';
 import type { XmlElement } from './xml.ts';
+import { MESSAGE_CLOSE, MESSAGE_OPEN, MESSAGE_TAG, REQUEST_TAG } from '../modules/data/xmlFormat.ts';
 
 /** Assert that `fn` throws FileFormatError('xml') at line/column with a message matching `re`. */
 function throwsAt(fn: () => unknown, re: RegExp, line: number, column: number): void {
@@ -30,14 +31,14 @@ function throwsAt(fn: () => unknown, re: RegExp, line: number, column: number): 
   });
 }
 
-const TALLY_ENVELOPE = `<?xml version="1.0" encoding="UTF-16"?>
-<!-- exported by Tally -->
+const SAMPLE_ENVELOPE = `<?xml version="1.0" encoding="UTF-16"?>
+<!-- exported by another accounting program -->
 <ENVELOPE>
-  <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
+  <HEADER><${REQUEST_TAG}>Import Data</${REQUEST_TAG}></HEADER>
   <BODY>
     <IMPORTDATA>
       <REQUESTDATA>
-        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        ${MESSAGE_OPEN}
           <LEDGER NAME="Ram &amp; Sons" ACTION='Create'>
             <PARENT>Sundry Debtors</PARENT>
             <OPENINGBALANCE>-1250.00</OPENINGBALANCE>
@@ -45,10 +46,10 @@ const TALLY_ENVELOPE = `<?xml version="1.0" encoding="UTF-16"?>
               <UDF:GSTREGTYPE DESC="\`GST Reg Type\`">Regular</UDF:GSTREGTYPE>
             </UDF:GSTREGTYPE.LIST>
           </LEDGER>
-        </TALLYMESSAGE>
-        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        ${MESSAGE_CLOSE}
+        ${MESSAGE_OPEN}
           <LEDGER NAME="Cash" ACTION="Create"><PARENT>Cash-in-Hand</PARENT><EMPTY/></LEDGER>
-        </TALLYMESSAGE>
+        ${MESSAGE_CLOSE}
       </REQUESTDATA>
     </IMPORTDATA>
   </BODY>
@@ -57,10 +58,10 @@ const TALLY_ENVELOPE = `<?xml version="1.0" encoding="UTF-16"?>
 
 describe('parseXml', () => {
   it('parses a Tally envelope: declaration, comments, attributes with both quotes, self-closing, namespaces', () => {
-    const root = parseXml(TALLY_ENVELOPE);
+    const root = parseXml(SAMPLE_ENVELOPE);
     assert.equal(root.name, 'ENVELOPE');
-    assert.equal(textOf(firstChild(firstChild(root, 'HEADER'), 'TALLYREQUEST')), 'Import Data');
-    const ledgers = findAll(root, 'BODY/IMPORTDATA/REQUESTDATA/TALLYMESSAGE/LEDGER');
+    assert.equal(textOf(firstChild(firstChild(root, 'HEADER'), REQUEST_TAG)), 'Import Data');
+    const ledgers = findAll(root, `BODY/IMPORTDATA/REQUESTDATA/${MESSAGE_TAG}/LEDGER`);
     assert.equal(ledgers.length, 2);
     assert.deepEqual(ledgers[0].attrs, { NAME: 'Ram & Sons', ACTION: 'Create' });
     assert.equal(textOf(firstChild(ledgers[0], 'OPENINGBALANCE')), '-1250.00');
@@ -177,7 +178,7 @@ describe('parseXml', () => {
   });
 
   it('decodes a BOM-less UTF-16LE Tally export with decodeText before parsing', () => {
-    const bytes = new Uint8Array(Buffer.from(TALLY_ENVELOPE, 'utf16le'));
+    const bytes = new Uint8Array(Buffer.from(SAMPLE_ENVELOPE, 'utf16le'));
     const decoded = decodeText(bytes);
     assert.equal(decoded.encoding, 'utf-16le');
     const root = parseXml(decoded.text);

@@ -22,7 +22,7 @@ import { usePeriod, useWorkingDate } from './working.tsx';
 const RECENT_MAX = 8;
 
 function recentKey(companyId: string): string {
-  return `bahi.goto.${companyId}`;
+  return `pevqori.goto.${companyId}`;
 }
 
 function loadRecent(companyId: string): GotoItem[] {

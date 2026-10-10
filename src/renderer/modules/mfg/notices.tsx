@@ -37,7 +37,7 @@ export function JobWorkAlertNotice() {
   const company = useCompany();
   const { date } = useWorkingDate();
   const nav = useNav();
-  const key = `bahi.mfg.s143.${company.id}.${date}`;
+  const key = `pevqori.mfg.s143.${company.id}.${date}`;
   const [dismissed, setDismissed] = useState(() => readFlag(key));
   const q = useApiQuery('mfg.jobWork.alerts', { asOf: date }, { enabled: features.jobWork && can && !dismissed, staleTime: 60_000 });
   const a = q.data;

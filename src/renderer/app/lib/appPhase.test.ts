@@ -7,7 +7,7 @@ import { KeyedStore } from './keyedStore.ts';
 
 const base: AppState = {
   appVersion: '0.1.0',
-  dataDir: 'D:\\BahiData',
+  dataDir: 'D:\\PevqoriData',
   firstRun: false,
   companies: [],
   company: null,

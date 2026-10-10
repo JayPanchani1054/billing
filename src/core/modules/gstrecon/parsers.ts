@@ -5,7 +5,7 @@
  *   parsePortalFile(bytes, 'gstr2b') → ParsedPortalFile   (throws FileFormatError / VALIDATION)
  *
  * Supported: GSTR-2B JSON (portal, incl. the multi-part ZIP the portal gives for large returns),
- * GSTR-2B / GSTR-2A Excel, GSTR-2A JSON, GSTR-1 JSON (portal download or Bahi's own export).
+ * GSTR-2B / GSTR-2A Excel, GSTR-2A JSON, GSTR-1 JSON (portal download or Pevqori's own export).
  */
 import { normalizeGstin } from '../../../shared/gst/index.ts';
 import type { ReconSource } from '../../../shared/types/gstrecon.ts';
@@ -107,7 +107,7 @@ export function parsePortalFile(bytes: Uint8Array, source: ReconSource): ParsedP
     const zip = readZip(bytes);
     if (zip.has('xl/workbook.xml') || zip.has('[Content_Types].xml')) {
       if (source === 'gstr1') {
-        throw validation([{ path: 'file', message: 'GSTR-1 is reconciled from its JSON file. Download the GSTR-1 JSON from the GST portal (or export it from Bahi) and import that.' }]);
+        throw validation([{ path: 'file', message: 'GSTR-1 is reconciled from its JSON file. Download the GSTR-1 JSON from the GST portal (or export it from Pevqori) and import that.' }]);
       }
       return parsePortalXlsx(bytes, source);
     }

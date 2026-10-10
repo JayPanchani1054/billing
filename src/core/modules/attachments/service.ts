@@ -251,7 +251,7 @@ export function readAttachment(ctx: CompanyCtx, id: number): AttachmentFile {
   const bytes = readStored(attachmentsDir(ctx.company.dir), r.sha256, r.ext);
   if (!bytes) throw rule(`The file “${r.file_name}” is missing from the company's attachments folder. Restore it from a backup (Data › Check data lists every missing file).`);
   if (sha256Hex(bytes) !== r.sha256) {
-    throw rule(`The stored copy of “${r.file_name}” has been changed outside Bahi ERP, so it is not opened. Restore it from a backup.`);
+    throw rule(`The stored copy of “${r.file_name}” has been changed outside Pevqori, so it is not opened. Restore it from a backup.`);
   }
   return { id: r.id, fileName: r.file_name, mime: r.mime, bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) };
 }

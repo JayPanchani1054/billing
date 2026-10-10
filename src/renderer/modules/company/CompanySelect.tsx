@@ -59,7 +59,7 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
     if (!c || opening) return;
     if (c.needsUpgrade) {
       // The server upgrades on open when it can; tell the user what is happening.
-      toast.info('Updating the company data', { message: 'This company was made with an older version of Bahi. It will be updated as it opens.' });
+      toast.info('Updating the company data', { message: 'This company was made with an older version of Pevqori. It will be updated as it opens.' });
     }
     setOpening(c.id);
     setError(null);
@@ -142,7 +142,7 @@ function CompanyList({ onCreate }: { onCreate: () => void }) {
 
   return (
     <GateLayout
-      title={empty ? 'Welcome to Bahi ERP' : 'Select a Company'}
+      title={empty ? 'Welcome to Pevqori' : 'Select a Company'}
       subtitle={empty ? undefined : 'Open a company to start working. Press Enter to open the highlighted one.'}
       width="wide"
       aside={folder}

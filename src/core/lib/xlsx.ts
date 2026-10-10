@@ -625,7 +625,7 @@ function packageParts(
     XML_DECLARATION +
     `<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" ` +
     `xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">` +
-    `<Application>Bahi ERP</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop>` +
+    `<Application>Pevqori</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop>` +
     `<HeadingPairs><vt:vector size="2" baseType="variant">` +
     `<vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant><vt:variant><vt:i4>${n}</vt:i4></vt:variant>` +
     `</vt:vector></HeadingPairs>` +
@@ -655,7 +655,7 @@ export function writeXlsx(workbook: XlsxWorkbook): Uint8Array {
   const sst = createSharedStrings();
   const written = sheets.map((s, i) => buildSheet(s, names[i], i, styles, sst));
   const created = workbook.created ?? new Date();
-  const creator = workbook.creator ?? 'Bahi ERP';
+  const creator = workbook.creator ?? 'Pevqori';
   const entries: ZipInputEntry[] = [
     ...packageParts(written, styles.xml(), sst.xml(), created, creator),
     ...written.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: s.xml, date: created })),
@@ -699,7 +699,7 @@ export class XlsxStreamWriter {
   constructor(zip: ZipFileWriter, opts: { creator?: string; created?: Date } = {}) {
     this.zip = zip;
     this.created = opts.created ?? new Date();
-    this.creator = opts.creator ?? 'Bahi ERP';
+    this.creator = opts.creator ?? 'Pevqori';
   }
 
   beginSheet(sheet: XlsxStreamSheet): void {

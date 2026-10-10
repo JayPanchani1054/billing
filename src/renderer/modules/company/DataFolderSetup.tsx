@@ -31,7 +31,7 @@ export function DataFolderSetup() {
     setError(null);
     try {
       const picked = await native('dialog.chooseFolder', {
-        title: which === 'existing' ? 'Choose the folder that has your Bahi data' : 'Choose a folder for Bahi data',
+        title: which === 'existing' ? 'Choose the folder that has your Pevqori data' : 'Choose a folder for Pevqori data',
         defaultPath: current || undefined,
       });
       if (picked) await applyFolder(picked.path, which);
@@ -44,7 +44,7 @@ export function DataFolderSetup() {
 
   return (
     <GateLayout
-      title="Where should Bahi keep your data?"
+      title="Where should Pevqori keep your data?"
       subtitle="All your companies are saved in one folder on this computer. You can change it later."
       footer={<span>Version {app.state?.appVersion}</span>}
     >
@@ -59,7 +59,7 @@ export function DataFolderSetup() {
         <ul className="bx-tips">
           <li>Pick a folder that is included in your backups.</li>
           <li>If you can, avoid the C: drive where Windows is installed — a Windows reinstall can wipe it.</li>
-          <li>Bahi also makes its own encrypted backups; you can choose where in Configuration (F12) › Backup.</li>
+          <li>Pevqori also makes its own encrypted backups; you can choose where in Configuration (F12) › Backup.</li>
         </ul>
         {error ? (
           <Banner tone="danger" title="That folder can't be used">
@@ -76,7 +76,7 @@ export function DataFolderSetup() {
         </div>
         <div className="bx-gate__secondary">
           <Button variant="link" disabled={busy !== null} onClick={() => void choose('existing')}>
-            I already have Bahi data elsewhere
+            I already have Pevqori data elsewhere
           </Button>
           <span className="bx-muted">
             {' '}

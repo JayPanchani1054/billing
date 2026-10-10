@@ -2,8 +2,8 @@
  * Domain constants shared by main and renderer. Pure data — no imports from node or DOM.
  */
 
-export const APP_NAME = 'Bahi ERP';
-export const APP_ID = 'com.bahi.erp';
+export const APP_NAME = 'Pevqori';
+export const APP_ID = 'com.pevqori.app';
 
 // ───────────────────────────── Voucher base types ─────────────────────────────
 export const VOUCHER_BASE_TYPES = [

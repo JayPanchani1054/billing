@@ -1,6 +1,6 @@
-# Bahi ERP — Architecture & Engineering Contract
+# Pevqori — Architecture & Engineering Contract
 
-Bahi ERP is an offline-first, keyboard-first accounting, GST invoicing and inventory system for Indian
+Pevqori is an offline-first, keyboard-first accounting, GST invoicing and inventory system for Indian
 businesses, delivered as a Windows desktop app (Electron). Functionally it follows the Tally model
 (Gateway → masters → vouchers → reports with drill-down) with a modern, calmer UI.
 
@@ -70,7 +70,7 @@ src/
   main/                Electron main: windows, IPC bridge → core dispatch, dialogs, print/PDF, menu.
                        The core itself runs on a worker thread (core-worker.ts ↔ core-proxy.ts), never
                        on the main thread; it may import node:* only (no 'electron').
-  preload/             contextBridge exposing window.bahi (typed, minimal)
+  preload/             contextBridge exposing window.pevqori (typed, minimal)
   renderer/            React app
     app/               Shell, navigation stack, keyboard, registry.ts (ModuleDef contract), API client
     ui/                Design-system components
@@ -143,7 +143,7 @@ export const accountsRoutes = {
 - The dispatcher validates input, enforces access, opens a **transaction for company-scope routes** (unless
   `transactional: false` for heavy read-only reports), maps thrown `AppError`s to `{ ok: false, error }`.
 - **Unknown input keys**: in production a key the schema does not declare is dropped; under `node --test`
-  (the whole suite) and in development (`BAHI_STRICT_INPUT=1`, scripts/dev.mjs) it is a `VALIDATION`
+  (the whole suite) and in development (`PEVQORI_STRICT_INPUT=1`, scripts/dev.mjs) it is a `VALIDATION`
   error ("Unknown field …", with a did-you-mean hint), so a misspelt key fails in tests instead of being
   silently ignored. Filter inputs whose typo would widen the result (e.g. the edit-log list/export) use
   `v.strictObject` and reject unknown keys in production too. Send only declared keys from the renderer.
@@ -272,8 +272,8 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
 
 ## 8. Security
 
-- Renderer is untrusted: it reaches main only through `window.bahi.api(route, input)` and
-  `window.bahi.native(action, payload)`; main validates everything again.
+- Renderer is untrusted: it reaches main only through `window.pevqori.api(route, input)` and
+  `window.pevqori.native(action, payload)`; main validates everything again.
 - Electron: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, `webSecurity: true`,
   CSP `default-src 'self'`, deny `window.open`/navigation to external origins (open https links in the OS
   browser after confirmation), no `remote`, no `webview`.
@@ -534,7 +534,7 @@ eledgers.ts, boeRecon.ts, composition.ts, statLedgers.ts, schemas.ts), `src/rend
   ledgers only with what they hold (`bookInputCredit`); the rest of the credit utilised goes to the
   system ledger `GST_CREDIT_OUTSIDE` "GST Credit Not in Books".
 - **Composition**: effective-dated, editable rate master `gst_composition_rates` (seeded Rule 7 rates);
-  CMP-08 (quarter) and GSTR-4 (FY) from the books; their files are Bahi's documented JSON / CSV (the
+  CMP-08 (quarter) and GSTR-4 (FY) from the books; their files are Pevqori's documented JSON / CSV (the
   portal offers no CMP-08 upload; the GSTR-4 offline-tool schema is not reproduced).
 - **Renderer**: screens `gst.setoff`, `gst.ledger.cash`, `gst.ledger.credit`, `gst.cmp08`, `gst.gstr4`,
   `gst.composition`, `gst.advances`, `gst.boe`, `gst.amendments`, `gst.filings` (menu + Go To); voucher
@@ -654,15 +654,15 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
 `stock_item_aliases`), `221_numbering_rows` (`voucher_type_numbering_rows`), `222_attachments`
 (`attachments`, transport-only `attachment_blobs`, grants for the system roles).
 
-- **Tally XML export** — `data.tally.export` (`data.export`, async, `transactional:false`) in
-  `src/core/modules/data/tallyExport.ts`; screen `data.tallyExport` "Export to Tally" (Gateway › Data,
+- **Tally XML export** — `data.xmlExport.create` (`data.export`, async, `transactional:false`) in
+  `src/core/modules/data/xmlExport.ts`; screen `data.xmlExport` "Export to Tally" (Gateway › Data,
   Go To; Ctrl+A export, Alt+B Trial Balance). TallyPrime "Import Data" envelope, UTF-16LE + BOM;
   masters only → `.xml`, with vouchers → `.zip` (`1-Masters.xml`, `2-Vouchers.xml`) streamed through
   `ZipFileWriter` from one read snapshot (`openSnapshot`, yields every 5 000 vouchers). Vouchers are
   written as recorded (no recomputation): entries, bill-wise, cost centres, bank instruments,
   inventory with godown / batch and accounting allocations, GST header facts. Contract test: export →
   OUR importer into an empty company reproduces the trial balance, stock summary, GST lines, GSTR-3B /
-  GSTR-1, pending bills, every voucher's postings and aliases (`tallyExport.test.ts`). A credit / debit
+  GSTR-1, pending bills, every voucher's postings and aliases (`xmlExport.test.ts`). A credit / debit
   note's original invoice travels as `REFERENCE` / `REFERENCEDATE` both ways (documented assumption).
   With the vouchers of a period after the books beginning, the masters carry the openings ON the
   period's first day (`openingsAsOf`: Trial Balance openings with that day as carry-forward date, pending
@@ -688,7 +688,7 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   owner; removal is refused for vouchers in the locked period; a file is deleted only after commit and
   when unused. A voucher with attached files cannot be deleted (voucher hook `beforeRemove` in
   `attachments/hook.ts`, appended to `STATIC_HOOKS`) — remove the files first; cancelling keeps them.
-  XML that is really a web page / Office document is refused. Backups embed the files in the snapshot (`attachment_blobs`) so the `.bahibak` checksums
+  XML that is really a web page / Office document is refused. Backups embed the files in the snapshot (`attachment_blobs`) so the `.pvqbak` checksums
   and encryption cover them; restore unpacks them; `data.verify` › `attachments` checks presence + hash.
   UI: `attachments.manage`, `attachments.register` (Reports menu, Go To), Alt+F from the voucher view
   (voucher panel) and the ledger / stock item forms. `attachments.unused` / `attachments.sweep`

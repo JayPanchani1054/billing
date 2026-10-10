@@ -134,7 +134,7 @@ describe('security on/off with the real runtime (controller compatibility)', () 
   }
 
   it('enable drops the implicit session; settings drive the idle timeout; disable brings the implicit session back', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bahi-sec-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pevqori-sec-'));
     const clock = fixedClock('2026-10-05');
     const rt = createRuntimeWithRoutes(
       { userDataDir: path.join(root, 'u'), defaultDataDir: path.join(root, 'd'), appVersion: '1.0.0', clock, consoleLog: false },

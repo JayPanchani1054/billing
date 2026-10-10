@@ -132,7 +132,7 @@ export function usePrintActions(
 
 // ───────────────────────────── Direct printing (receipt printers) ─────────────────────────────
 
-const PRINTER_KEY = 'bahi.print.printer.v1';
+const PRINTER_KEY = 'pevqori.print.printer.v1';
 
 function readPrinterPrefs(): Record<string, string> {
   try {

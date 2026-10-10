@@ -540,7 +540,7 @@ function ReconPanel(p: ReconPanelProps) {
         ? 'GST portal › Returns › GSTR-2B › View/Download (JSON or Excel)'
         : source === 'gstr2a'
           ? 'GST portal › Returns › GSTR-2A › Download (JSON or Excel)'
-          : 'GST portal › Returns › GSTR-1 › Download the filed return (JSON), or the JSON exported from Bahi';
+          : 'GST portal › Returns › GSTR-1 › Download the filed return (JSON), or the JSON exported from Pevqori';
     return (
       <EmptyState
         icon="upload"

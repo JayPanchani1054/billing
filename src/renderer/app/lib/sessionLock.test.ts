@@ -7,7 +7,7 @@ import { lockReasonText, nextLock, sameUser, shouldLock } from './sessionLock.ts
 
 const company = { id: 'c1', name: 'Sharma Traders', mailingName: null, gstin: null, stateCode: '27', booksFrom: '2026-04-01', fyStartMonth: 4, gstEnabled: false, features: DEFAULT_FEATURES };
 const accountant: SessionInfo = { userId: 2, username: 'meena', displayName: 'Meena', role: 'Accountant', permissions: [], isOwner: false, implicit: false, mustChangePassword: false, idleTimeoutMs: 30 * 60_000 };
-const base: AppState = { appVersion: '1', dataDir: 'D:\\Bahi', firstRun: false, companies: [], company: null, session: null, pendingLogin: null };
+const base: AppState = { appVersion: '1', dataDir: 'D:\\Pevqori', firstRun: false, companies: [], company: null, session: null, pendingLogin: null };
 const working: AppState = { ...base, company, session: accountant };
 const pending: AppState = { ...base, pendingLogin: { companyId: 'c1', companyName: 'Sharma Traders' } };
 

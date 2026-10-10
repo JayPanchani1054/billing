@@ -1,9 +1,9 @@
 /**
  * The core runtime used by Electron main. Main creates exactly one runtime at startup and forwards
- * every `bahi:api` IPC call to runtime.dispatch(route, input).
+ * every `pevqori:api` IPC call to runtime.dispatch(route, input).
  *
  *   const runtime = createRuntime({ userDataDir: app.getPath('userData'),
- *                                   defaultDataDir: path.join(app.getPath('documents'), 'Bahi ERP'),
+ *                                   defaultDataDir: path.join(app.getPath('documents'), 'Pevqori'),
  *                                   appVersion: app.getVersion(), logDir: app.getPath('logs') });
  *   ipcMain.handle(IPC.api, (_e, route, input) => runtime.dispatch(route, input));
  *   app.on('will-quit', () => runtime.shutdown());   // F12 automatic backup (bounded), then close the company
@@ -20,7 +20,7 @@ export interface RuntimeOptions {
   userDataDir: string;
   defaultDataDir: string;
   appVersion: string;
-  /** Folder for bahi.log (default <userDataDir>/logs). */
+  /** Folder for pevqori.log (default <userDataDir>/logs). */
   logDir?: string;
   clock?: Clock;
   /** Mirror log lines to the console (development). Default: NODE_ENV === 'development'. */

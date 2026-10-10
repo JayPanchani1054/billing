@@ -141,7 +141,7 @@ vouchers module's permissions, period lock and audit apply unchanged).
   settled law; they are data rows (`RETURN_LIMIT_RULES`) a later amendment can supersede.
 - ITC-04 frequency and the 25th due date follow rule 45(3) as amended w.e.f. 01-Oct-2021. Due dates are
   often extended by notification — **UNCERTAIN for any given period; check the portal**.
-- ITC-04 output is a clean CSV / Excel of the form's columns for keying into the GST offline tool. Bahi
+- ITC-04 output is a clean CSV / Excel of the form's columns for keying into the GST offline tool. Pevqori
   does **not** generate the portal's JSON upload schema (not reproduced here without certainty).
 - Moulds / dies / jigs / fixtures / tools are listed as "Inputs" in table 4's goods-type column (the form
   has only Inputs / Capital Goods); check with your adviser if your tool is a capital good.
@@ -166,7 +166,7 @@ details is refused).
 
 ## Known gaps
 
-- Tally XML import still skips Tally's Job Work / Material In / Out vouchers (`data/tallyImport.ts`); they
+- Tally XML import still skips Tally's Job Work / Material In / Out vouchers (`data/xmlImport.ts`); they
   can be re-entered here.
 - Additional costs never post to their ledgers (Tally behaviour); the expense is booked separately.
 - The "AATO above ₹5 crore" switch of the ITC-04 screen is remembered per computer (browser storage), not

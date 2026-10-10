@@ -35,7 +35,7 @@ rupees. Dates are `YYYY-MM-DD`.
 | `setoffPost.ts` | Set-off for a period (GSTR-3B 6.1 or CMP-08) posted as a journal; GST challans (PMT-06) |
 | `eledgers.ts` | Electronic cash ledger (major × minor head) and electronic credit ledger from the books |
 | `boeRecon.ts` | Bills of entry register and reconciliation with GSTR-2B IMPG / IMPGSEZ |
-| `composition.ts` | Composition rate master, CMP-08, GSTR-4, their CSV / JSON (Bahi format) |
+| `composition.ts` | Composition rate master, CMP-08, GSTR-4, their CSV / JSON (Pevqori format) |
 | `statLedgers.ts` | GST plus system ledgers (created on demand, `reserved_code`) and the duty ledger map |
 | `schemas.ts` | Input schema of `VoucherInput.gstDetails` |
 | `testkit.ts` | Test helpers: direct SQL inserts + the April-2026 dataset (tests only) |
@@ -106,7 +106,7 @@ JSON exports need a month or a quarter (not a range).
 | `gst.boe.reconcile` | view | `{ from, to, fileName, bytes }` (GSTR-2B JSON / ZIP) | `BoeReconResult` (read-only; nothing stored) |
 | `gst.cmp08.summary` | view | `{ period: '2026-27-Q1' }` | `Cmp08Summary` |
 | `gst.cmp08.saveInterest` | **file** | `{ period, interest }` | `Cmp08Summary` — audited, period-lock aware |
-| `gst.cmp08.export` / `gst.gstr4.export` | **file** | `{ period \| fy, format: 'json' \| 'csv' }` | `GstTextFile` (Bahi's documented format) — audited as an export |
+| `gst.cmp08.export` / `gst.gstr4.export` | **file** | `{ period \| fy, format: 'json' \| 'csv' }` | `GstTextFile` (Pevqori's documented format) — audited as an export |
 | `gst.gstr4.summary` | view | `{ fy }` | `Gstr4Summary` |
 | `gst.composition.settings` | view | – | `CompositionSettings` (category + rate master) |
 | `gst.composition.saveCategory` / `saveRate` / `deleteRate` | **file** | category / rate row / `{ id }` | `CompositionSettings` — audited |
@@ -464,7 +464,7 @@ outward taxable value and tax, net ITC and cash. Labelled "Prepared from books �
   pass a reversal journal (§13) rather than a negative manual entry.
 - e-Invoice signing / IRP API calls and e-way bill API calls are not made (offline JSON only — §17);
   the PIN ↔ state consistency the IRP checks is not validated locally.
-- Composition: Table 7 of GSTR-4 (TDS / TCS credit) is not kept; GSTR-4 / CMP-08 files are Bahi's own
+- Composition: Table 7 of GSTR-4 (TDS / TCS credit) is not kept; GSTR-4 / CMP-08 files are Pevqori's own
   documented JSON / CSV, not the portal's offline-tool schema (§15).
 - Purchases: e-way bills for inward supplies from unregistered suppliers and purchase returns are not
   listed as pending.
@@ -621,7 +621,7 @@ RCM (by supplier), 4C unregistered (by rate), 4D import of services (by rate); 5
 rate-wise outward at the composition rate and inward RCM; 8 tax payable and paid. Table 7 (TDS / TCS
 credit) is not kept. **Files:** the portal has no CMP-08 upload and its GSTR-4 offline-tool schema is
 not reproduced (we do not guess it): `gst.cmp08.export` / `gst.gstr4.export` save our own documented
-format — JSON `{ format: 'bahi-cmp08/1' | 'bahi-gstr4/1', gstin, ret_period / fy, table… }` with rupee
+format — JSON `{ format: 'pevqori-cmp08/1' | 'pevqori-gstr4/1', gstin, ret_period / fy, table… }` with rupee
 amounts, or CSV with the same rows — to copy into the portal.
 
 ## 16. Filing status and GSTR-1 amendments (`filings.ts`)
@@ -646,7 +646,7 @@ ARN optional) with a snapshot of its summary. A **filed GSTR-1** period is prote
 
 Generating an IRN or an e-way bill through the NIC / IRP APIs needs API credentials issued to a GSP or
 ASP (or the taxpayer's own API access with a whitelisted IP and client secret) and a live internet
-connection; Bahi is offline-first and does not hold GSP credentials, so it makes no network calls. The
+connection; Pevqori is offline-first and does not hold GSP credentials, so it makes no network calls. The
 supported round trip is:
 
 1. **Generate JSON** — e-Invoice (Alt+J) / e-Way Bills (Alt+J): the IRP schema 1.1 bulk file or the

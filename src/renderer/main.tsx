@@ -1,6 +1,6 @@
 /**
  * Renderer entry. Styles load once here (tokens → base → components, then the shell layer).
- * No CSP <meta>: the main process sends CSP headers for app://bahi.
+ * No CSP <meta>: the main process sends CSP headers for app://pevqori.
  */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -15,7 +15,7 @@ const container = document.getElementById('root');
 if (container) {
   createRoot(container, {
     onUncaughtError: (error) => {
-      console.error('[bahi] uncaught render error', error);
+      console.error('[pevqori] uncaught render error', error);
     },
   }).render(
     <StrictMode>

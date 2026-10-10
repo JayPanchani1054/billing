@@ -75,8 +75,8 @@ function Splash() {
       <span className="bx-splash__mark" aria-hidden="true">
         <Icon name="book" size="xl" />
       </span>
-      <span className="bx-splash__name">Bahi ERP</span>
-      <Spinner size="md" label="Opening Bahi ERP" />
+      <span className="bx-splash__name">Pevqori</span>
+      <Spinner size="md" label="Opening Pevqori" />
     </div>
   );
 }
@@ -87,8 +87,8 @@ function BridgeMissing() {
       <EmptyState
         size="lg"
         icon="alert"
-        title="Open Bahi ERP from the desktop app"
-        body="This page is part of the Bahi ERP desktop application and works only inside it. Close this browser tab and start Bahi ERP from the Start menu or the desktop shortcut."
+        title="Open Pevqori from the desktop app"
+        body="This page is part of the Pevqori desktop application and works only inside it. Close this browser tab and start Pevqori from the Start menu or the desktop shortcut."
       />
     </div>
   );
@@ -101,7 +101,7 @@ function StartupError() {
       <EmptyState
         size="lg"
         icon="alert"
-        title="Bahi ERP could not start"
+        title="Pevqori could not start"
         body={`${userMessage(app.error)} If this keeps happening, restart the app; your data is not affected.`}
         action={
           <Button variant="primary" icon="refresh" onClick={() => void app.refresh()} autoFocus>
@@ -126,7 +126,7 @@ function CoreRestartNotice() {
     () =>
       onBridgeEvent('command', ({ id }) => {
         if (id !== CORE_RESTARTED_COMMAND) return;
-        toast.error('Bahi ERP recovered from a problem', {
+        toast.error('Pevqori recovered from a problem', {
           message: 'The accounting engine stopped unexpectedly and was restarted. Open the company again and check your last entry. Saved data is safe.',
           id: 'core-restarted',
         });
@@ -144,14 +144,14 @@ function GlobalErrorToasts() {
     const onRejection = (e: PromiseRejectionEvent) => {
       const reason: unknown = e.reason;
       if (reason instanceof DOMException && reason.name === 'AbortError') return;
-      console.error('[bahi] unhandled rejection', reason);
+      console.error('[pevqori] unhandled rejection', reason);
       e.preventDefault();
       toast.error(isApiError(reason) ? 'That did not work' : 'Something went wrong', { message: userMessage(reason), id: 'unhandled' });
     };
     const onError = (e: ErrorEvent) => {
       // ResizeObserver loop notices are benign.
       if (typeof e.message === 'string' && e.message.includes('ResizeObserver')) return;
-      console.error('[bahi] uncaught error', e.error ?? e.message);
+      console.error('[pevqori] uncaught error', e.error ?? e.message);
       toast.error('Something went wrong', { message: 'The last action may not have finished. Your saved data is safe.', id: 'uncaught' });
     };
     window.addEventListener('unhandledrejection', onRejection);

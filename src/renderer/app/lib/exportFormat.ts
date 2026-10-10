@@ -191,7 +191,7 @@ td { border-bottom: 0.5px solid color-mix(in srgb, currentColor 18%, transparent
  */
 export function buildPrintHtml(def: TableExportDef, opts: { company?: string; printedOn?: string; appName?: string } = {}): string {
   const company = def.company ?? opts.company ?? '';
-  const footerLeft = `${opts.appName ?? 'Bahi ERP'}${opts.printedOn ? ` · Printed on ${formatDate(opts.printedOn)}` : ''}`;
+  const footerLeft = `${opts.appName ?? 'Pevqori'}${opts.printedOn ? ` · Printed on ${formatDate(opts.printedOn)}` : ''}`;
   const css = PRINT_CSS.replace('PORTRAIT_OR_LANDSCAPE', def.landscape ? 'landscape' : 'portrait').replace(
     'FOOTER_LEFT',
     // CSS string content: escape backslashes and quotes.

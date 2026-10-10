@@ -1,7 +1,7 @@
 /**
  * API-level twin of the setup of e2e/screens.spec.ts (the every-screen sweep): EVERY F11 feature the
  * Features screen changes switched on in one save, then the same seed (parityFlow.ts) and the same
- * vouchers the spec creates through window.bahi.api — so the sweep never starts from a setup the core
+ * vouchers the spec creates through window.pevqori.api — so the sweep never starts from a setup the core
  * refuses (e.g. a master that needs a godown or a batch once Multiple godowns / Batches are on).
  * Also pins that the company's reports agree with everything on.
  */

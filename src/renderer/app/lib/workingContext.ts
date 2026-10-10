@@ -47,7 +47,7 @@ export function defaultPeriod(today: string, booksFrom: string, fyStartMonth = 4
   return clampPeriod({ from: fy.start, to: ref }, booksFrom);
 }
 
-export const STORAGE_PREFIX = 'bahi.ctx';
+export const STORAGE_PREFIX = 'pevqori.ctx';
 
 export function storageKey(companyId: string, kind: 'date' | 'period'): string {
   return `${STORAGE_PREFIX}.${companyId}.${kind}`;

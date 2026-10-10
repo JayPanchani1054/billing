@@ -1,6 +1,6 @@
 /**
  * Print routes: read-only data for invoice / voucher documents. Rendering happens in the renderer
- * (src/renderer/modules/print) and the HTML goes to bahi.native('print.*'). DTOs: shared/types/print.ts.
+ * (src/renderer/modules/print) and the HTML goes to pevqori.native('print.*'). DTOs: shared/types/print.ts.
  */
 import { PRINT_BATCH_MAX, PRINT_COPIES, PRINT_TEMPLATES, SHARE_CHANNELS, type InvoicePrintOverrides, type ShareSubjectInput } from '../../../shared/types/print.ts';
 import { validateUpiId } from '../../../shared/validators.ts';

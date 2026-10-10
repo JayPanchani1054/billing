@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Procedurally draws the Bahi ERP app icon and writes:
+// Procedurally draws the Pevqori app icon and writes:
 //   build/icon.png  512×512 RGBA PNG (electron-builder / Linux / docs)
 //   build/icon.ico  Windows icon: 16–128 px as 32-bit BMP entries + 256 px as an embedded PNG
 // Design: rounded square with an indigo → deep-blue diagonal gradient, a faint ledger page with a

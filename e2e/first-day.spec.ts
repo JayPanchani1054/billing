@@ -83,7 +83,7 @@ function currentReturnPeriod(): string {
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
-  launched = await launchApp('bahi-e2e-flow-');
+  launched = await launchApp('pevqori-e2e-flow-');
   ({ app, page, dataDir } = launched);
 });
 
@@ -95,11 +95,11 @@ test.afterAll(async ({}, testInfo) => {
   await closeApp(launched, testInfo);
 });
 
-test('first launch: keep the data folder given by BAHI_DATA_DIR', async () => {
-  await expect(page.getByRole('heading', { name: 'Where should Bahi keep your data?' })).toBeVisible({ timeout: 30_000 });
+test('first launch: keep the data folder given by PEVQORI_DATA_DIR', async () => {
+  await expect(page.getByRole('heading', { name: 'Where should Pevqori keep your data?' })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(dataDir, { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Use this folder' }).click();
-  await expect(page.getByRole('heading', { name: 'Welcome to Bahi ERP' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Welcome to Pevqori' })).toBeVisible();
 });
 
 test('create a GST company with the wizard', async () => {
@@ -277,5 +277,5 @@ test('back up the company', async () => {
   await expect(page.getByText(/^Backed up to /)).toBeVisible({ timeout: 30_000 });
   await expect(backup.getByRole('grid', { name: 'Backups', exact: true }).getByRole('row', { name: new RegExp(lit(FLOW.company.name)) })).toHaveCount(1);
   expect(existsSync(folder)).toBe(true);
-  expect(readdirSync(folder).filter((f) => f.endsWith('.bahibak'))).toHaveLength(1);
+  expect(readdirSync(folder).filter((f) => f.endsWith('.pvqbak'))).toHaveLength(1);
 });

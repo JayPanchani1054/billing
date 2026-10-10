@@ -1,12 +1,12 @@
 /**
- * Preload (sandboxed, context-isolated). Exposes exactly the BahiBridge contract as `window.bahi` and
+ * Preload (sandboxed, context-isolated). Exposes exactly the PevqoriBridge contract as `window.pevqori` and
  * nothing else — never ipcRenderer itself, never Node APIs. Bundled to CommonJS (out/preload/index.cjs)
  * because sandboxed preloads can only `require('electron')`; esbuild inlines the shared constants.
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '../shared/api.ts';
 import type { ApiResult } from '../shared/api.ts';
-import type { BahiBridge, BridgeEvents, NativeAction, NativeActions } from '../shared/bridge.ts';
+import type { PevqoriBridge, BridgeEvents, NativeAction, NativeActions } from '../shared/bridge.ts';
 import { DIRTY_CHANNEL } from '../main/channels.ts';
 
 type EventName = keyof BridgeEvents;
@@ -24,7 +24,7 @@ ipcRenderer.on(IPC.event, (_event, name: unknown, payload: unknown) => {
     try {
       listener(payload);
     } catch (err) {
-      console.error(`[bahi] listener for "${name}" threw`, err);
+      console.error(`[pevqori] listener for "${name}" threw`, err);
     }
   }
 });
@@ -39,7 +39,7 @@ function native<A extends NativeAction>(action: A, payload: NativeActions[A]['in
 
 function on<E extends EventName>(event: E, listener: (payload: BridgeEvents[E]) => void): () => void {
   if (!EVENT_NAMES.has(event) || typeof listener !== 'function') {
-    throw new TypeError(`bahi.on: unknown event "${String(event)}" or invalid listener`);
+    throw new TypeError(`pevqori.on: unknown event "${String(event)}" or invalid listener`);
   }
   // A fresh wrapper per subscription: unsubscribing removes only this subscription, even when the
   // same listener function was registered more than once. The IpcRendererEvent never leaks out.
@@ -62,7 +62,7 @@ function setDirty(dirty: boolean): void {
   ipcRenderer.send(DIRTY_CHANNEL, dirty === true);
 }
 
-const bridge: BahiBridge = Object.freeze({
+const bridge: PevqoriBridge = Object.freeze({
   api,
   native,
   on,
@@ -70,4 +70,4 @@ const bridge: BahiBridge = Object.freeze({
   platform: process.platform,
 });
 
-contextBridge.exposeInMainWorld('bahi', bridge);
+contextBridge.exposeInMainWorld('pevqori', bridge);
