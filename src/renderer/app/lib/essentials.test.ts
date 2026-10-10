@@ -20,12 +20,6 @@ import { buildGateway } from './menu.ts';
 import type { MenuContext } from './menu.ts';
 import { VOUCHER_FEATURE } from './shortcuts.ts';
 
-/**
- * Entries whose screens land in later 2.0 packages ("Settings" — the Settings hub; "Invoice
- * Numbering" — the numbering screen). The integration step empties this set, making the test strict.
- */
-const PENDING_ESSENTIALS: ReadonlySet<string> = new Set(['Settings', 'Invoice Numbering']);
-
 const modulesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../modules');
 
 /** Static menu items of one module's index.ts, with their gating fields. */
@@ -134,13 +128,13 @@ describe('Essentials (Home)', () => {
     assert.equal(screens.find((s) => s.id === 'stock.summary')?.feature, 'inventory');
   });
 
-  test('every entry resolves on a fully-featured company (composition-only returns on a composition one), pending screens aside', () => {
+  test('every entry resolves on a fully-featured company (composition-only returns on a composition one)', () => {
     const regular = buildGateway(mods, contexts['fully featured, regular GST']).flatMap((s) => s.items);
     const composition = buildGateway(mods, contexts['fully featured, composition']).flatMap((s) => s.items);
+    // Strict since the 2.0 integration step: no entry may wait for a screen that is not registered.
     const missing: string[] = [];
     for (const g of ESSENTIALS) {
       for (const ref of g.entries) {
-        if (ref.label !== undefined && PENDING_ESSENTIALS.has(ref.label)) continue;
         if (!regular.some((i) => matchesEssential(i, ref)) && !composition.some((i) => matchesEssential(i, ref))) missing.push(essentialName(ref));
       }
     }

@@ -36,3 +36,17 @@ test('Customize what prints: a locked part has a lock with an accessible name', 
   assert.ok(locked, 'the locked-row branch');
   assert.match(locked[1], /<Icon name="lock"[^>]*\blabel="[^"]+"/);
 });
+
+test('Invoice Printing: closing "Customize layout…" (Alt+L or Done) puts the focus on the settings form, not <body>', () => {
+  const src = code('PrintSettingsScreen.tsx');
+  // The editor and the form are two branches: closing the editor removes the focused element, so the
+  // screen must hand the focus to the form's first field once the form is back.
+  assert.match(src, /const closeCustomizing = \(\): void => \{\s*focusFormOnMount\.current = true;\s*setCustomizing\(false\);/);
+  assert.doesNotMatch(src, /setCustomizing\(\(c\) => !c\)/, 'Alt+L closes through closeCustomizing');
+  assert.match(src, /customizing \? closeCustomizing\(\) : setCustomizing\(true\)/, 'Alt+L');
+  assert.match(src, /onClick=\{closeCustomizing\}>\s*Done/, 'Done');
+  assert.doesNotMatch(src, /setCustomizing\(false\)(?!;\s*\};)/, 'every other close goes through closeCustomizing');
+  // The form's ref focuses its first field (or the first focusable element, or the form itself) when asked.
+  assert.match(src, /<form ref=\{formRef\}[^>]*tabIndex=\{-1\}/);
+  assert.match(src, /if \(el && focusFormOnMount\.current\) \{\s*focusFormOnMount\.current = false;\s*focusElement\(getEnterTargets\(el\)\[0\] \?\? getTabbables\(el\)\[0\] \?\? el\);/);
+});

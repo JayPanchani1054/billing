@@ -35,7 +35,7 @@ const PENDING_SCREENS: ReadonlySet<string> = new Set(['accounts.numbering']);
 const everything: SettingsViewer = { canOpen: () => true, gstEnabled: true, secured: true };
 
 describe('Settings hub index', () => {
-  test('topics and their screens follow the 2.0 build spec (§3.5), in order', () => {
+  test('topics and their screens follow docs/USER_GUIDE.md §2 (Settings), in order', () => {
     assert.deepEqual(
       SETTINGS_INDEX.map((c) => c.title),
       ['Business', 'Invoices & printing', 'GST & TDS', 'Banking & cheques', 'Users & security', 'Data & backup', 'Modules', 'Appearance', 'About & updates'],

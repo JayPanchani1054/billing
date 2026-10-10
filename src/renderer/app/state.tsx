@@ -73,7 +73,7 @@ export function AppStateProvider({ children }: { children?: ReactNode }) {
     userRef.current = user;
     stateRef.current = next;
     // 2.0 layout preferences: decided once per profile from the first app state, before anything
-    // renders with it (lib/uiPrefs.ts, SPEC D5; later calls change nothing).
+    // renders with it (lib/uiPrefs.ts; later calls change nothing).
     initUiPrefs(next);
     lockRef.current = nowLocked;
     setLock(nowLocked);

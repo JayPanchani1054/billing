@@ -1,5 +1,5 @@
 /**
- * One empty-state rule (SPEC §5.2): every `<DataTable` in a module screen says what an empty list
+ * One empty-state rule: every `<DataTable` in a module screen says what an empty list
  * means and, where it helps, offers the next step — through its `empty` prop (an `EmptyState` with
  * an action: "No customers yet. Create customer (Alt+C)"). The kit's fallback ("Nothing to show") is
  * only a safety net. Read from source (the screens import React).

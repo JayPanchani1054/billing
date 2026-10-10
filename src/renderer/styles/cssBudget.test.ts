@@ -2,7 +2,9 @@
  * CSS weight budget (2.0, R2 "lightweight"). Source bytes of every stylesheet under src/renderer
  * (UTF-8, as committed). 1.0 shipped 205,916 bytes in total, components.css 76,457 and tokens.css
  * 24,114; 2.0 removed the duplicated system-dark block, unused tokens, dead classes and repeated
- * declarations. The integration step re-tightens these ceilings to the measured size + 2 %.
+ * declarations. The 2.0 integration step re-tightened the ceilings to the measured size + 2 %
+ * (rounded up to the next 500 bytes): components.css 65,785 → 67,500, tokens.css 15,604 → 16,000.
+ * The total measured 179,750, so + 2 % would loosen the 2.0 gate of 180,000 — it stays at 180,000.
  * Over budget? Delete before you add: shared look belongs in tokens/components, not in copies.
  */
 import { test } from 'node:test';
@@ -13,11 +15,11 @@ import { fileURLToPath } from 'node:url';
 
 const RENDERER = fileURLToPath(new URL('..', import.meta.url));
 
-/** Ceilings in bytes (decimal kilobytes, as in the 2.0 build spec §10). */
+/** Ceilings in bytes (decimal kilobytes; docs/ARCHITECTURE.md §7a "Weight gates"). */
 export const CSS_BUDGET = {
   total: 180_000,
-  'styles/components.css': 72_000,
-  'styles/tokens.css': 19_000,
+  'styles/components.css': 67_500,
+  'styles/tokens.css': 16_000,
 } as const;
 
 function cssFiles(dir: string, out: string[] = []): string[] {

@@ -1,4 +1,4 @@
-// Pevqori 2.0 Invoice Numbering through the real UI of the built app (WP-07, SPEC §8.3):
+// Pevqori 2.0 Invoice Numbering through the real UI of the built app (docs/USER_GUIDE.md §3.4):
 //
 //   wizard company → party + item (window.pevqori.api) → Home › Essentials › Invoice Numbering →
 //   Sales: prefix INV/ + the {FY} chip + '/', 4 digits → the next sale is INV/<fy>/0001 →

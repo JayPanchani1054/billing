@@ -1,5 +1,5 @@
 /**
- * The command bar's selection rule (SPEC §3.3) — pure, tested in commandBar.test.ts; rendered by
+ * The command bar's selection rule (docs/ARCHITECTURE.md §7) — pure, tested in commandBar.test.ts; rendered by
  * ui/CommandBar.tsx in the screen bar (Workspace). It only DISPLAYS the top screen's actions: their
  * keys are registered by `useScreenActions` (nav.tsx) whether or not a button shows them, so a key
  * works the same with the command bar, the shortcut bar, both or neither.

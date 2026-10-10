@@ -11,7 +11,7 @@
  * preview: what it changes is part of the draft (`invoice.layout` and the Invoice Printing options that
  * own a part or text) and is saved with Ctrl+A like the rest of the form.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { emptyPrintLayout, layoutWarnings, resolvePrintLayout, type PrintPartId } from '../../../shared/printLayout.ts';
 import type { CompanyConfig, InvoicePaperSize, InvoiceTemplate, ReceiptRollWidth } from '../../../shared/settings.ts';
 import { fillShareTemplate, shareTemplateErrors } from '../../../shared/shareText.ts';
@@ -37,6 +37,9 @@ import {
   Inline,
   SegmentedControl,
   Select,
+  focusElement,
+  getEnterTargets,
+  getTabbables,
   Stack,
   Switch,
   TextArea,
@@ -156,6 +159,12 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
 
   // ── (2.0) Customize layout (company level): edits the draft; Ctrl+A saves it with the form ──
   const [customizing, setCustomizing] = useState(false);
+  // Closing the editor removes the element that has the focus; the form takes it once it is back.
+  const focusFormOnMount = useRef(false);
+  const closeCustomizing = (): void => {
+    focusFormOnMount.current = true;
+    setCustomizing(false);
+  };
   const [pick, setPick] = useState<{ id: PrintPartId; seq: number } | null>(null);
   const model = useMemo(() => {
     if (!doc || !customizing) return null;
@@ -187,7 +196,17 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
   };
   const layoutError = Object.entries(serverErrors).find(([k]) => k.startsWith('invoice.layout'));
 
-  const formRef = useEnterAdvance<HTMLFormElement>({ onComplete: () => void submit() });
+  const enterRef = useEnterAdvance<HTMLFormElement>({ onComplete: () => void submit() });
+  const formRef = useCallback(
+    (el: HTMLFormElement | null) => {
+      enterRef(el);
+      if (el && focusFormOnMount.current) {
+        focusFormOnMount.current = false;
+        focusElement(getEnterTargets(el)[0] ?? getTabbables(el)[0] ?? el);
+      }
+    },
+    [enterRef],
+  );
 
   return (
     <Screen
@@ -204,7 +223,7 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
           key: 'Alt+L',
           label: customizing ? 'Back to the settings' : 'Customize layout…',
           icon: 'sliders',
-          onClick: () => setCustomizing((c) => !c),
+          onClick: () => (customizing ? closeCustomizing() : setCustomizing(true)),
           disabled: !doc,
           group: 'layout',
           hint: 'Show or hide any part and change any text on every document',
@@ -247,7 +266,7 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
                 <Button size="sm" disabled={readOnly || (layout.hide.length + layout.show.length + layout.text.length === 0)} onClick={() => patch({ layout: emptyPrintLayout() })}>
                   Reset layout
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setCustomizing(false)}>
+                <Button size="sm" variant="ghost" onClick={closeCustomizing}>
                   Done
                 </Button>
               </Inline>
@@ -256,7 +275,7 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
         </Grid>
       ) : (
       <Grid columns="minmax(320px, 440px) minmax(0, 1fr)" gap={5} align="start">
-        <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Invoice print settings">
+        <form ref={formRef} tabIndex={-1} onSubmit={(e) => e.preventDefault()} aria-label="Invoice print settings">
           <Stack gap={5}>
             {readOnly ? <ReadOnlyNotice /> : null}
             {saveError ? <Banner tone="danger" title="Could not save">{saveError}</Banner> : null}

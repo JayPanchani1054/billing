@@ -156,6 +156,9 @@ jobs:
     needs: windows-installer
     runs-on: windows-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read # download the 1.x installer artifact of an earlier run (upgrade step below)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -185,6 +188,30 @@ jobs:
       - name: Installer refuses a downgrade (exit code 4)
         shell: pwsh
         run: ./scripts/smoke-installed.ps1 -Scenario Downgrade -Installer (Get-ChildItem release/Pevqori-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence/downgrade
+
+      # The in-place upgrade over the 1.x build people have installed (the installer CI built from
+      # 0ddf9b6, before any GitHub Release existed — release.yml upgrades over the previous Release
+      # instead): same uninstall entry and folder, the new version, data and settings byte-for-byte
+      # kept, and the upgraded app starts. Skipped with a notice once that artifact has expired.
+      - name: Download the 1.x installer (CI run 38056735590, commit 0ddf9b6)
+        id: previous
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: Pevqori-Windows-Installer
+          path: previous
+          run-id: 38056735590
+          github-token: ${{ github.token }}
+
+      - name: Upgrade the 1.x installation in place (data and settings kept)
+        shell: pwsh
+        run: |
+          $previous = Get-ChildItem previous/Pevqori-Setup-*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $previous) {
+            Write-Host '::notice::The 1.x installer artifact is no longer available; the 1.x upgrade smoke test is skipped.'
+            exit 0
+          }
+          ./scripts/smoke-installed.ps1 -Installer (Get-ChildItem release/Pevqori-Setup-*.exe | Select-Object -First 1).FullName -Previous $previous.FullName -Evidence smoke-evidence/upgrade-1x
 
       - name: Upload smoke evidence
         if: failure()

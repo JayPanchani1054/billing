@@ -219,15 +219,11 @@ test('tokens.css declares no unused semantic token (palette primitives excepted)
   assert.deepEqual(unused, []);
 });
 
-// Type scale (2.0 build spec §4): captions are 12px (`--text-caption`); 11px (`--fs-11`) is for key
-// chips only. Chart axis text stays 11px because ui/chartParts.tsx lays labels out with
-// `textWidth(s, 11)`. Files owned by other packages may only lose uses (ratchet).
+// Type scale (docs/ARCHITECTURE.md §7a): captions are 12px (`--text-caption`); 11px (`--fs-11`) is
+// for key chips only. Chart axis text stays 11px because ui/chartParts.tsx lays labels out with
+// `textWidth(s, 11)`. No stylesheet is exempt (the 2.0 ratchet reached zero).
 
 const FS11_SELECTORS = /^\.bx-kbd|^\.bx-chart__(tick|category|direct-label)$/;
-export const FS11_PENDING_OTHER_OWNER: Readonly<Record<string, number>> = {
-  'modules/accounts/accounts.css': 1, // WP-07
-  'modules/vouchers/vouchers.css': 5, // WP-08
-};
 
 /** Selectors of the rules that declare `font-size: var(--fs-11)`. */
 export function fs11Selectors(css: string): string[] {
@@ -248,10 +244,6 @@ test('11px text is only for key chips (and chart axis labels)', () => {
   for (const f of cssFiles) {
     const rel = relative(RENDERER, f).split('\\').join('/');
     const selectors = fs11Selectors(readFileSync(f, 'utf8'));
-    if (rel in FS11_PENDING_OTHER_OWNER) {
-      assert.ok(selectors.length <= FS11_PENDING_OTHER_OWNER[rel], `${rel}: more 11px rules than the ratchet allows — use var(--text-caption)`);
-      continue;
-    }
     for (const s of selectors) if (!FS11_SELECTORS.test(s)) offenders.push(`${s}  (${rel})`);
   }
   assert.deepEqual(offenders, [], 'use var(--text-caption) (12px) for captions');

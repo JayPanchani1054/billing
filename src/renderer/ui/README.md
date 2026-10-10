@@ -81,8 +81,8 @@ cast: `style={{ '--level': 2 } as CSSProperties}` (the real `@types/react` rejec
 - **No dead CSS** (`styles/cssUsage.test.ts`): every class a stylesheet defines must be used by
   renderer code, literally or through a prefix declared in its `DYNAMIC_CLASSES` list (with the
   template literal that builds it). Delete unused rules rather than allowlisting them.
-- **Weight budget** (`styles/cssBudget.test.ts`): all renderer CSS ≤ 180 KB, `components.css` ≤ 72 KB,
-  `tokens.css` ≤ 19 KB (source bytes). Reuse a token or component rule before adding a copy.
+- **Weight budget** (`styles/cssBudget.test.ts`): all renderer CSS ≤ 180 KB, `components.css` ≤ 67.5 KB,
+  `tokens.css` ≤ 16 KB (source bytes). Reuse a token or component rule before adding a copy.
 - Overlays render in portals into `document.body` and carry `data-bx-overlay`. Outside-click and
   focus-trap logic treat *later* overlays as nested (a picker inside a dialog is "inside").
 - Mouse hit areas are expanded with an invisible `::after` to `--hit-min` (44px comfortable, 32px

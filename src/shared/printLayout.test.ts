@@ -1,5 +1,5 @@
 /**
- * (2.0) Print layout model: catalogue (SPEC §7.2 / §7.3), resolution, application, validation and the
+ * (2.0) Print layout model: catalogue (docs/ARCHITECTURE.md › Print layouts (2.0)), resolution, application, validation and the
  * statutory guard. Fixtures: the renderer's hand-made print DTO (src/renderer/modules/print/lib/fixtures.ts,
  * node-importable data) plus variants built from it here (voucher, inventory, credit note, a document with
  * every optional block filled in).
@@ -154,7 +154,7 @@ const MONEY_FIELDS = ['lines', 'totals', 'charges', 'taxByRate', 'taxByHsn', 'en
 
 // ───────────────────────────── Catalogue ─────────────────────────────
 
-describe('print layout catalogue (SPEC §7.2 / §7.3 — ids are persisted)', () => {
+describe('print layout catalogue (ids are persisted)', () => {
   it('parts: ids, groups, layouts, kinds, locks, legacy keys and statutory particulars', () => {
     const L = (p: PrintPartDef): string => (p.layouts.length === 3 ? 'all' : p.layouts.join('+'));
     const rows = (PRINT_PARTS as readonly PrintPartDef[]).map((p) =>

@@ -1,5 +1,5 @@
 /**
- * Lazy feature screens (SPEC D15, docs/ARCHITECTURE.md §9a). A module's index.ts registers a screen
+ * Lazy feature screens (docs/ARCHITECTURE.md §9a). A module's index.ts registers a screen
  * whose code is fetched the first time the screen opens:
  *
  *   import { lazyScreen } from '../../app/lazyScreen.tsx';

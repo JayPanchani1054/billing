@@ -29,7 +29,7 @@ describe('V7 — R1 walk-through', () => {
     for (const entry of ['sales', 'receipt', 'Create Ledger', 'Create Stock Item', 'Receivables', 'Settings']) assert.ok(essentials.includes(entry), `Essentials › ${entry}`);
   });
 
-  test('voucher entry: the primary button reads "Save" (SPEC §6.7 — "primary Save (Ctrl+A)"), not the jargon "Accept"', () => {
+  test('voucher entry: the primary button reads "Save", not the jargon "Accept"', () => {
     const src = read('modules/vouchers/entry/VoucherEntryScreen.tsx');
     assert.match(src, /\{ key: 'Ctrl\+A', label: isAlter \? 'Save changes' : 'Save', icon: 'save', primary: true,/);
     assert.match(src, /\{isAlter \? 'Save changes' : 'Save'\}/, 'the footer button says the same');

@@ -1,4 +1,4 @@
-// In-app updates under test (src/main/updates/, SPEC §9.3): every e2e launch sets PEVQORI_E2E=1, which turns
+// In-app updates under test (src/main/updates/, docs/SECURITY.md §3.11): every e2e launch sets PEVQORI_E2E=1, which turns
 // updates off before anything else — so this spec checks the offline-first promise end to end:
 //
 //   - the bridge answers every updates.* action with "unavailable" (no check, no download, mode locked) and

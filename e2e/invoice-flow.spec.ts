@@ -1,4 +1,4 @@
-// Pevqori 2.0 invoice flow through the real UI of the built app (WP-08, SPEC §6 and §8.4):
+// Pevqori 2.0 invoice flow through the real UI of the built app (docs/USER_GUIDE.md §4.2):
 //
 //   wizard company → item (window.pevqori.api) → F8 → Alt+C in the party field: "Create customer"
 //   (quick dialog, GSTIN fills state and PAN) → item, qty, rate → Ctrl+A → "Sales 1 saved" + the Saved bar

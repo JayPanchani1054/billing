@@ -1,6 +1,6 @@
 /**
  * A confirmation is a question ("Discard unsaved changes?", "Delete voucher Sales/42?", "Quit Pevqori?"),
- * not a form: Ctrl+S — the 2.0 "save" alias of Ctrl+A (SPEC D11) — must never answer it. A user who
+ * not a form: Ctrl+S — the 2.0 "save" alias of Ctrl+A (docs/ARCHITECTURE.md §7) — must never answer it. A user who
  * reaches for Ctrl+S to save after an accidental Esc would otherwise confirm "Discard changes".
  */
 import { test } from 'node:test';

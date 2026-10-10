@@ -153,19 +153,19 @@
 }
 .bx-vch-cell-note {
   color: var(--text-muted);
-  font-size: var(--fs-11);
+  font-size: var(--text-caption);
   text-align: right;
 }
 .bx-vch-cell-error {
   display: block;
   color: var(--danger-text);
-  font-size: var(--fs-11);
+  font-size: var(--text-caption);
   line-height: var(--lh-snug);
   padding: var(--space-0-5) var(--space-1) 0;
 }
 .bx-vch-unit {
   color: var(--text-muted);
-  font-size: var(--fs-11);
+  font-size: var(--text-caption);
 }
 .bx-vch-flag {
   display: inline-flex;
@@ -342,7 +342,7 @@
 }
 .bx-vch-keys {
   margin: 0;
-  font-size: var(--fs-11);
+  font-size: var(--text-caption);
   color: var(--text-muted);
 }
 .bx-vch-foot {
@@ -476,7 +476,7 @@
   min-width: 0;
 }
 .bx-vch-view__detail {
-  font-size: var(--fs-11);
+  font-size: var(--text-caption);
   white-space: normal;
 }
 .bx-vch-view__foot {

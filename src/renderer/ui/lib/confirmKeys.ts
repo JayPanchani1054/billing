@@ -3,7 +3,7 @@
  * hotkey registry (confirmKeys.test.ts):
  *
  *   - Ctrl+A and Y answer yes, N answers no (Esc cancels through the Modal);
- *   - Ctrl+S is taken and does nothing. Ctrl+S is the "save" alias of Ctrl+A (SPEC D11, hotkeyRegistry.ts),
+ *   - Ctrl+S is taken and does nothing. Ctrl+S is the "save" alias of Ctrl+A (docs/ARCHITECTURE.md §7, hotkeyRegistry.ts),
  *     and a confirmation is a question — "Discard unsaved changes?", "Delete voucher Sales/42?", "Quit
  *     Pevqori?" — that a save reflex must never answer. Binding it here keeps the alias away (the registry
  *     only aliases where nothing binds Ctrl+S).

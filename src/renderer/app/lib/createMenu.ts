@@ -1,5 +1,5 @@
 /**
- * The top bar's "Create ▾" menu (SPEC §3.1) — pure, tested in createMenu.test.ts; rendered by
+ * The top bar's "Create ▾" menu (docs/ARCHITECTURE.md §7) — pure, tested in createMenu.test.ts; rendered by
  * Workspace.tsx. No new keys: each voucher item shows the key it already has.
  *
  *   Sales invoice F8 · Receipt F6 · Purchase F9 · Payment F5 · Credit note Ctrl+F8

@@ -63,7 +63,7 @@ export interface SettingsCategory {
   narrow?: readonly SettingsTopicName[];
 }
 
-/** The index (§3.5 of the 2.0 build spec). Order is the order on screen. */
+/** The index (the topic table of docs/USER_GUIDE.md §2, Settings). Order is the order on screen. */
 export const SETTINGS_INDEX: readonly SettingsCategory[] = [
   {
     id: 'business',

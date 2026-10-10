@@ -100,7 +100,7 @@ function sourceFiles(dir: string): string[] {
  */
 const SCREEN_FILES: Record<string, string[]> = {
   'Select a Company': ['company/CompanySelect.tsx'],
-  Gateway: [],
+  Home: ['../app/Gateway.tsx'],
   'Day Book': ['vouchers/DayBookScreen.tsx', 'vouchers/VoucherTable.tsx'],
   'Voucher view': [
     'vouchers/VoucherViewScreen.tsx',

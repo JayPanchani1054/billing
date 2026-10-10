@@ -76,8 +76,8 @@ export interface PlaceOfSupplyChip {
 /**
  * True when the place of supply of an outward document would only be ASSUMED: a party is chosen but
  * neither it nor the consignee has a state, so the engine falls back to the company's state
- * (shared/gst/pos.ts). The select shows then, so the user sees and confirms it (SPEC 6.3 "no party
- * state"). Before a party is chosen the chip stays (no layout jump under the Enter chain).
+ * (shared/gst/pos.ts). The select shows then, so the user sees and confirms it (no party
+ * state). Before a party is chosen the chip stays (no layout jump under the Enter chain).
  */
 export function placeOfSupplyAssumed(a: { direction: 'outward' | 'inward'; partyChosen: boolean; partyStateCode: string | null | undefined; consigneeStateCode: string | null | undefined }): boolean {
   return a.direction === 'outward' && a.partyChosen && !(a.partyStateCode ?? '').trim() && !(a.consigneeStateCode ?? '').trim();

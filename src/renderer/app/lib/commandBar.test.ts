@@ -75,7 +75,7 @@ describe('command bar selection', () => {
 
 /**
  * keyConventions.test.ts finds screen actions with `key: …, label: …, <icon|onClick|primary|…>` — a new
- * field written straight after `label` (e.g. `prominent`) would hide an action from it. SPEC §12.4: new
+ * field written straight after `label` (e.g. `prominent`) would hide an action from it. docs/ARCHITECTURE.md §7: new
  * fields go after `onClick`. This guard fails if that scan suddenly finds far fewer actions.
  */
 describe('convention scan guard', () => {

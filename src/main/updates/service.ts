@@ -1,5 +1,5 @@
 /**
- * The in-app update service (main process only; docs/SECURITY.md "Updates", SPEC §9.3).
+ * The in-app update service (main process only; docs/SECURITY.md §3.11 "Updates").
  *
  * No Electron import here: the updater library and its network session are reached through two small
  * ports (UpdaterPort, UpdaterSessionPort) that src/main/index.ts wires to electron-updater (loaded lazily

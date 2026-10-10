@@ -131,6 +131,11 @@ desktop shortcuts, one entry in *Installed apps*; your data folder, backups and 
      was installed: keep "Only for me" for a per-user installation, "Anyone who uses this computer" for
      one under Program Files (Windows asks for administrator rights for that one).
 
+**Coming from 1.0.** Pevqori 1.0 has no *Check for updates* (its About shows the version as 0.1.0), so
+install 2.0 once by hand as above; it upgrades the 1.0 installation in place. From 2.0 on, later versions
+can also come from inside Pevqori. On the first start after the upgrade Home keeps the *All menus* view
+and the shortcut bar you know, and offers once to *Try the simpler Home*.
+
 Then open each company. If the new version needs to update a company's database, it first saves a safety
 copy as `backups\<company-id>\pre-upgrade-v<N>-<date-time>.db` in the data folder and then updates it.
 

@@ -351,8 +351,10 @@ One calm visual language for every screen, defined once in `src/renderer/styles/
   the density tokens.
 - **Weight gates** (unit tests, no extra CI step): `styles/cssUsage.test.ts` fails on any class a
   stylesheet defines that renderer code never renders (runtime-built names need a declared prefix
-  plus the code that builds it); `styles/cssBudget.test.ts` caps renderer CSS source at 180 KB in
-  total, `components.css` at 72 KB and `tokens.css` at 19 KB (1.0: 206 / 76 / 24 KB).
+  plus the code that builds it); `styles/cssBudget.test.ts` caps renderer CSS source (bytes as
+  committed) at 180 KB in total, `components.css` at 67.5 KB and `tokens.css` at 16 KB (1.0: 206 /
+  76 / 24 KB; 2.0 measured 179.75 / 65.8 / 15.6 KB — the file ceilings are that + 2 %, the total stays
+  at the 180 KB gate). Raising a ceiling is a reviewed decision, never a fix for a heavier stylesheet.
   `ui/lib/contrast.test.ts` keeps every text pair ≥ 4.5:1 and every control/focus/icon pair ≥ 3:1
   in both themes and asserts the system block stays gone.
 
@@ -477,6 +479,15 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
   `src/main/size-report.test.ts`, the `markBoot()` call in `main.tsx` and the `markPhase(app.phase)` effect in
   `App.tsx`, `e2e/perf.spec.ts` and the additive `e2e/support.ts` options (1.0's own `e2e/flows.ts`) — and capture
   from that run's e2e logs.
+- **Status at 2.0.0 — TODO (needs CI numbers).** The 1.0 baseline **has not been captured yet**:
+  `build/perf-budget.json` ships with `"baseline": null` and `"enforce": false`, so the size report and
+  `e2e/perf.spec.ts` only report and no ceiling is checked. Consequently the 2.0 targets are **unverified**:
+  initial JS ≤ 0.55 × 1.0 has not been measured (a source-level estimate of what the lazy screens take out of
+  the entry put it nearer 0.65–0.70 × 1.0, i.e. likely above the target), and start-up / screen-open against
+  1.0 are not compared. To close it: capture the 1.0 baseline as described above, paste it into
+  `build/perf-budget.json` as a data-only commit, read the 2.0 numbers from a CI run against it, and only
+  then set `enforce: true` (and, if wanted, `rendererJsMaxBytes` / `rendererCssMaxBytes` from measured
+  sizes). Never fill the baseline with estimated or invented numbers.
 - **Lazy screens** (2.0) — the screens of `attachments`¹, `banking`, `cheques`, `data`, `documents`, `forex`, `gst`,
   `gstrecon`, `inventory`, `mfg`, `outstanding`, `pos`, `reports`, `security`, `stock` and `tds` are fetched the first
   time they open, so their code is not in the initial JS. A module's `index.ts` declares them with

@@ -164,7 +164,7 @@ test('a child registered before its parent layer is not effective until the pare
   assert.deepEqual(calls, ['child']);
 });
 
-// ── Ctrl+S = Ctrl+A (accept / save) alias (SPEC D11) ──
+// ── Ctrl+S = Ctrl+A (accept / save) alias (docs/ARCHITECTURE.md §7) ──
 
 test('Ctrl+S runs Ctrl+A where the scope binds Ctrl+A only', () => {
   const r = make();

@@ -1,4 +1,4 @@
-# Pevqori 1.0 — scope: what is deliberately left out or partial
+# Pevqori — scope: what is deliberately left out or partial
 
 Pevqori covers the day-to-day books, GST, TDS / TCS, inventory, manufacturing, banking and reporting of
 an Indian small or medium business, offline, on one Windows computer. This page lists, honestly, what it
@@ -23,7 +23,7 @@ Three principles explain most of the list:
 
 ## 1. Deliberately out of scope
 
-| Not in 1.0 | Why | What to do instead |
+| Not in Pevqori | Why | What to do instead |
 |---|---|---|
 | **Payroll** (salary, PF / ESI, payslips) and **salary TDS** — section 192, Form 24Q, Form 16 | A payroll module is a product of its own (attendance, structures, statutory slabs) | Use payroll software; post the salary journal and the TDS payable in Pevqori |
 | **Direct e-invoice (IRP), e-way bill and GSP APIs**; uploading returns to the GST portal | Needs GSP / API credentials and a live connection; Pevqori is offline | JSON round trip: save the JSON in Pevqori, upload it on the portal, import the IRP response / record the EWB number (User Guide §6.3); upload GSTR-1 / 3B JSON in the portal's offline utility |

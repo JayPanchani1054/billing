@@ -3,6 +3,95 @@
 All notable changes to Pevqori are recorded here. Versions follow [Semantic Versioning](https://semver.org/);
 a release is published by tagging `v<version>` (see [docs/BUILD.md](docs/BUILD.md#6-releasing)).
 
+## [2.0.0]
+
+Pevqori 2.0 is about making the everyday work simple and the screens calmer, without taking anything away:
+every 1.0 feature, report and key is still there. It adds a print-preview editor, invoice number series you
+set up your own way, and updates that install over the existing installation. Your companies, data folder,
+backups and settings are kept when you upgrade — see [docs/INSTALL.md](docs/INSTALL.md#4-upgrading).
+
+### Simpler by default
+- **Home** (formerly the Gateway) opens on **Essentials**: about twenty everyday tasks in five groups —
+  Create, Look up, Reports, GST, Company — each with one line saying what it is for. **All menus** still
+  lists everything with the same letter keys (**Ctrl+1** / **Ctrl+2** switch). If you used 1.0, Home keeps
+  All menus and the shortcut bar you know and offers once to *Try the simpler Home*.
+- A **Create ▾** button in the top bar (Sales invoice, Receipt, Purchase, Payment, notes, Customer,
+  Supplier, Item …), and a short **command bar** on every screen: the main action, the next most useful
+  ones and **More ▾** for the rest. The right-hand shortcut bar is now optional (*Show shortcut bar*).
+- **Settings**: one screen (the gear in the top bar) with every setting in topics — business, invoices &
+  printing, GST & TDS, banking, users & security, data & backup, modules, appearance, about & updates —
+  with search, each row saying how it is set now. Only what you may open is listed.
+- New companies: **Create with recommended settings** skips three steps of *Create Company*; the **Get
+  started** card on Home now includes setting the invoice number series, choosing what prints and
+  recording a payment.
+- Voucher entry: the main button reads **Save** instead of *Accept*; **Alt+C** in the party field opens a
+  small *Create customer / supplier* dialog (a valid GSTIN fills state and PAN); after saving, a **Saved
+  bar** offers Print, Share and — after a sales invoice — **Record payment** (a Receipt with the customer
+  already filled in).
+- One calm visual language across every screen (type, spacing, colour, light and dark themes,
+  comfortable and compact density), with plainer wording and hints.
+- Lighter and quicker to start: the screens of less-used modules (reports, GST, inventory, banking, TDS,
+  POS and others) now load the first time you open them instead of at start-up, and the stylesheets are
+  smaller. How much faster this is than 1.0 has not been measured yet.
+
+### Print exactly what you want
+- In the print preview of **any** invoice, note, challan, order or voucher, **Alt+L** (*Customize layout*)
+  shows a switch for every printed part — logo, company and party blocks, GSTIN / PAN / CIN, each item
+  column and tax column, totals rows, amount in words, HSN and tax summaries, bank details, UPI QR, IRN
+  and QR, declaration, terms, notes, signature, footer, page numbers … — and a box for every text (title,
+  copy labels, column headings, declaration, terms, signatory, footer). Click a part in the preview to
+  jump to its switch. Delivery challans get a switch for every part their template prints.
+- Changes apply to this print only, or are saved for the voucher type or for every document (*Company ›
+  Invoice Printing* has the same panel, **Alt+L**). Print, PDF, share and batch printing use exactly what
+  the preview shows, on every template and paper size.
+- Hiding a particular the GST rules require (for example the buyer's GSTIN on a B2B invoice or the HSN
+  codes) is allowed, with a warning that names the rule.
+
+### Invoice numbering your way
+- **Company › Invoice Numbering**: every number series with an example number, its prefix and suffix (with
+  `{FY}`, `{YY}`, `{MM}` … codes to click in), digits, starting number, *Start again every financial year*
+  on / off (and monthly, under Advanced), the **next number** (for example to continue a paper bill
+  book), a live preview with the GST check, and the **gaps** in this year's numbers. **Create series**
+  (Alt+C) adds a series of its own.
+- **Change a voucher's number** — while entering it or afterwards from its view — with **Ctrl+R**: checked
+  as you type, with an optional reason, *Continue the series from here*, and an edit-log entry showing the
+  old and new number. A number other vouchers refer to (an invoice named by a credit or debit note, an
+  order its invoices fulfil, a delivery note that invoices bill) is refused while they refer to it; the
+  message names them.
+
+### Updates
+- A newer installer **upgrades the installed Pevqori in place** (same folder, shortcuts and *Installed
+  apps* entry; data, backups and settings kept). It waits for you to close a running Pevqori instead of
+  closing it, warns before installing an older version over a newer one (silent installs refuse it unless
+  `/ALLOWDOWNGRADE` is given), and has a refreshed look.
+- **Check for updates** (*Utilities › About Pevqori*, or *Help › Check for Updates…*) finds a newer
+  release on the project's GitHub Releases, shows what is new, downloads it, checks it against the
+  release's sha512 and installs it on **Restart to update** (backing up the open company first) or when you
+  quit. **Off until you use it:** Pevqori goes online only when you click the button or turn on the
+  optional weekly check, and sends no company data. Administrators can turn updates off or fix the mode
+  with `%ProgramData%\Pevqori\policy.json` or `PEVQORI_UPDATES` — see
+  [docs/SECURITY.md](docs/SECURITY.md#311-updates--srcmainupdates).
+
+### Behaviour changes
+- **GST invoice numbers are unique within the financial year.** A sales invoice, credit note or debit note
+  to a customer of a GST company can no longer reuse a number in the same financial year — on every path
+  (entry, Excel import, recurring, POS, renumbering), even with *Prevent duplicates* off or a monthly /
+  never restart (CGST Rule 46(b)). An Excel import row with such a duplicate fails with a message. Other
+  voucher types keep their own rule.
+- **New permission** *Change voucher numbers and the next number*: needed to change a voucher's number
+  and to set a series' next number. The Owner and the Accountant role have it (existing companies get it
+  for Accountant when first opened by 2.0); Data Entry, Auditor and your own roles do not — add it to a
+  custom role if its users need it.
+- **Keys.** **Ctrl+S** saves wherever **Ctrl+A** accepts or saves — but never answers a Yes / No question
+  such as *Discard unsaved changes?* (use Y / N). **Ctrl+R** changes the voucher number (voucher entry,
+  voucher view). **Alt+L** customizes what prints (print preview, Invoice Printing). **Alt+W** shares the
+  voucher being altered, or the one just saved, from voucher entry. **Ctrl+1 / Ctrl+2** switch Home
+  between Essentials and All menus. Every 1.0 key works as before.
+- The Gateway is now called **Home**; the menu items, sections and their letter keys in All menus are
+  unchanged.
+- Once a company has been opened by 2.0 it cannot be opened by 1.0 (1.0 refuses it rather than damaging
+  it); 2.0 saves a safety copy of the database before updating it.
+
 ## 1.0.0 — 2026-10-10
 
 The first complete release: offline-first GST accounting, invoicing and inventory for Indian businesses,
@@ -10,8 +99,8 @@ as a Windows desktop app. What it deliberately does not do is listed in [docs/SC
 how to install it is in [docs/INSTALL.md](docs/INSTALL.md) and how to use it in
 [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
-> Release note for maintainers: `package.json` still says `0.1.0`. Bump `"version"` to `1.0.0` and tag
-> `v1.0.0` to publish this release (the release workflow refuses a tag that does not match).
+> Note: the 1.0 builds report their version as `0.1.0` (`package.json` was not bumped for that release);
+> 2.0.0 is the first release whose version comes from `package.json` and its `v2.0.0` tag.
 
 ### Renamed
 - The product is now called **Pevqori** (program, installer `Pevqori-Setup-<version>.exe`, settings folder

@@ -19,7 +19,7 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 |---|---|
 | Enter / Shift+Enter | Next / previous field or cell; Enter on an empty grid row moves to the next section (items → additional ledgers → narration); Enter in the narration asks "Accept?" |
 | ↑ / ↓ | Same column, previous / next row (not inside an open picker) |
-| Ctrl+A | Accept (save) |
+| Ctrl+A (Ctrl+S) | Save — the button reads "Save" ("Save changes" when altering) |
 | Esc | Back (asks when something was entered) |
 | F2 | Voucher date |
 | F10 / F4–F9, Ctrl+F8 … | Change voucher type (new vouchers; the date is kept) |

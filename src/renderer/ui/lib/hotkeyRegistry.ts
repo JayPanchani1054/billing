@@ -57,7 +57,7 @@ interface Binding<E> {
 
 export const ROOT_LAYER = 0;
 
-/** Ctrl+S = Ctrl+A (accept / save) wherever Ctrl+A is bound and Ctrl+S is not (SPEC D11). */
+/** Ctrl+S = Ctrl+A (accept / save) wherever Ctrl+A is bound and Ctrl+S is not (docs/ARCHITECTURE.md §7). */
 const ALIAS_FROM = parseHotkey('Ctrl+S');
 const ALIAS_TO = parseHotkey('Ctrl+A');
 const sameCombo = (a: ParsedHotkey, b: ParsedHotkey): boolean => a.key === b.key && a.ctrl === b.ctrl && a.alt === b.alt && a.shift === b.shift && a.meta === b.meta;

@@ -89,7 +89,7 @@ describe('place of supply chip', () => {
     assert.equal(placeOfSupplyChip({ chosen: '', computed: '00', interState: false, hasError: false }), null, 'unknown state code');
   });
 
-  it('a party without a state (no consignee state) only ASSUMES the company state: the select shows (SPEC 6.3)', () => {
+  it('a party without a state (no consignee state) only ASSUMES the company state: the select shows', () => {
     const assumed = placeOfSupplyAssumed({ direction: 'outward', partyChosen: true, partyStateCode: null, consigneeStateCode: undefined });
     assert.equal(assumed, true);
     assert.equal(placeOfSupplyChip({ chosen: '', computed: '27', interState: false, hasError: false, assumed }), null);

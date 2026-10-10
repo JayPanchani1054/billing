@@ -48,7 +48,7 @@
   display: block;
   margin-top: var(--space-0-5);
   color: var(--danger-text);
-  font-size: var(--fs-11);
+  font-size: var(--text-caption);
   line-height: var(--lh-snug);
 }
 .bx-acc-grid tfoot td {

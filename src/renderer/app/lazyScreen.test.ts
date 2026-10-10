@@ -1,5 +1,5 @@
 /**
- * Lazy feature screens (SPEC WP-03, docs/ARCHITECTURE.md §9a).
+ * Lazy feature screens (docs/ARCHITECTURE.md §9a).
  *
  * 1. The load-once helpers behind `lazyScreen()` (lib/lazyLoader.ts): one import per screen however
  *    often it renders or is prefetched, a failed load remembered until "Try again", idle prefetch one
@@ -205,7 +205,7 @@ describe('runWhenIdle (idle prefetch)', () => {
 
 // ───────────────────────────── 2. Wiring (source) ─────────────────────────────
 
-/** WP-03's lazy modules (SPEC §13 WP-03): only their index files may use lazyScreen. */
+/** The 2.0 lazy modules (docs/ARCHITECTURE.md §9a): only their index files may use lazyScreen. */
 const LAZY_MODULES = ['attachments', 'banking', 'cheques', 'data', 'documents', 'forex', 'gst', 'gstrecon', 'inventory', 'mfg', 'outstanding', 'pos', 'reports', 'security', 'stock', 'tds'];
 /** Modules whose screens stay eager (start-up and the invoice flow). */
 const EAGER_MODULES = ['accounts', 'company', 'dashboard', 'print', 'vouchers'];
@@ -346,7 +346,7 @@ describe('lazy screen wiring', () => {
       for (const s of screensOf(m)) {
         const lazy = lazyNames.has(`${m}:${s.component}`);
         if (s.dialog) assert.ok(!lazy, `${s.id}: a dialog screen opens over a live screen — keep it eager`);
-        if (s.id === 'inventory.item.form') assert.ok(!lazy, 'inventory.item.form stays eager (SPEC WP-03)');
+        if (s.id === 'inventory.item.form') assert.ok(!lazy, 'inventory.item.form stays eager (docs/ARCHITECTURE.md §9a)');
       }
       const index = indexSource(m);
       for (const ext of ['voucherPanels', 'dashboardCards', 'gatewayNotices']) {
@@ -365,7 +365,7 @@ describe('lazy screen wiring', () => {
     assert.deepEqual(stuck, [], 'a file loaded with lazyScreen is also imported statically — the bundler keeps it in the entry');
   });
 
-  test('no stylesheet moves into a lazy chunk (SPEC D15): every CSS file a lazy screen needs is already eager', () => {
+  test('no stylesheet moves into a lazy chunk (module CSS stays eager, docs/ARCHITECTURE.md §9a): every CSS file a lazy screen needs is already eager', () => {
     const graph = eagerGraph();
     const cssOf = (file: string): string[] =>
       [...read(file).matchAll(/^\s*import\s*'(\.[^']+\.css)'/gm)].map((m) => path.resolve(path.dirname(file), m[1]));

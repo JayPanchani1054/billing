@@ -7,8 +7,8 @@ interface.
 Your books live on your own computer, in a folder you choose. No cloud account, no subscription
 server, no internet connection required.
 
-> **Status: 1.0.0 release candidate** — see [CHANGELOG.md](CHANGELOG.md). Builds report the version in
-> `package.json` until it is bumped and tagged for the release. Always keep backups.
+> **Version 2.0.0** — simpler by default, with a print-preview editor, invoice number series your way and
+> in-place upgrades; see [CHANGELOG.md](CHANGELOG.md). Always keep backups.
 
 ## Documentation
 
@@ -25,14 +25,15 @@ server, no internet connection required.
 ## Feature coverage
 
 **Built** = available and covered by tests. **Partial** = available with the limits noted (details in
-[docs/SCOPE.md](docs/SCOPE.md)). **Out of scope** = not in 1.0, deliberately.
+[docs/SCOPE.md](docs/SCOPE.md)). **Out of scope** = not in Pevqori, deliberately.
 
-| Area | Capability | Pevqori 1.0 | Notes |
+| Area | Capability | Status | Notes |
 |---|---|---|---|
 | Accounting | Groups, ledgers (several aliases), multiple ledger creation, opening balances, chart of accounts | Built | |
 | | Contra, payment, receipt, journal, sales, purchase, credit / debit note; item and accounting invoices | Built | Keys F4–F9, Ctrl+F8 / F9 |
 | | Optional, post-dated, memorandum vouchers; reversing journals; scenarios | Built | |
 | | Voucher numbering: prefix / suffix with date codes, dated rows, yearly / monthly restart | Built | GST 16-character rule checked |
+| | Invoice Numbering screen (prefix, suffix, digits, start, restart every year on / off, next number, gaps); change an invoice's number while entering it or afterwards (Ctrl+R) | Built | Needs the *Change voucher numbers* permission; checked, recorded in the edit log |
 | | Bill-wise details, credit periods, ageing, overdue, statements, reminder letters | Built | |
 | | Interest calculation | Partial | Simple interest, 365-day year |
 | | Cost centres and categories | Built | Not on the sales / purchase ledger of item lines |
@@ -64,6 +65,7 @@ server, no internet connection required.
 | | Form 16A / 27D; salary TDS (192, 24Q) and payroll | Out of scope | |
 | Reports | Balance Sheet, P&L (Schedule III view), Trial Balance, ledgers, group summaries, registers, Day Book, cash / funds flow, ratios, exceptions, dashboard; drill-down to the voucher; Excel / CSV / PDF export | Built | Cash flow is month-wise, not by activity |
 | Printing | GST invoice templates, A4 / A5 / Letter / Legal, 80 / 58 mm thermal receipts, MRP, UPI QR, IRN QR, batch printing | Built | |
+| | Customize what prints in print preview: show / hide every part, change every text; for this print, a voucher type or every document | Built | Hiding a particular GST requires is warned about, never blocked |
 | | Share by e-mail / WhatsApp | Built | Via your mail program / WhatsApp; Pevqori sends nothing itself |
 | Data | Backup and restore (optionally encrypted), automatic backups, integrity check | Built | |
 | | Excel / CSV import and export of masters and vouchers | Built | |
@@ -72,14 +74,26 @@ server, no internet connection required.
 | | Attachments on vouchers and masters | Built | No in-app preview |
 | Company | Several companies, users, roles and passwords | Built | One company open at a time |
 | | Several users at once, remote access, consolidation | Out of scope | Single-user desktop design |
+| App | Settings in one place, Home with Essentials, light / dark, comfortable / compact | Built | |
+| | Upgrade in place with a newer installer; in-app *Check for updates* (GitHub Releases) | Built | Off until you check or turn on the weekly check; administrators can turn it off |
 
 ## Highlights
 
-- **Keyboard-first workflow** — Gateway → masters → vouchers → reports, with drill-down from any report
+- **Simple by default** (2.0) — **Home** opens on *Essentials*: about twenty everyday tasks in five
+  groups (Create, Look up, Reports, GST, Company), with *All menus* one key away (`Ctrl+1` / `Ctrl+2`); a
+  **Create** menu, a short command bar on every screen with *More* for the rest, and one **Settings**
+  screen with every setting, searchable. Advanced features stay one switch away (`F11`).
+- **Keyboard-first workflow** — Home → masters → vouchers → reports, with drill-down from any report
   to the voucher, a navigation stack (`Esc` goes back) and a Go To palette (`Ctrl+G` / `Ctrl+K`).
 - **Keyboard-complete** — `F4`–`F9` vouchers (Contra, Payment, Receipt, Journal, Sales, Purchase),
-  `Ctrl+F8`/`Ctrl+F9` credit/debit notes, `Alt+C` create a master from any picker, `Ctrl+A` accept,
-  `Alt+P` print, `Alt+E` export, `F11` features, `F12` configuration.
+  `Ctrl+F8`/`Ctrl+F9` credit/debit notes, `Alt+C` create a master from any picker, `Ctrl+A` (or
+  `Ctrl+S`) save, `Ctrl+R` change the voucher number, `Alt+P` print, `Alt+L` customize what prints,
+  `Alt+W` share, `Alt+E` export, `F11` features, `F12` configuration.
+- **Print exactly what you want** (2.0) — in the print preview of any invoice, note, challan or voucher
+  (`Alt+L`), show or hide every printed part (logo, GSTIN, each item column, tax columns, summaries,
+  bank details, UPI QR, IRN, terms, signature, page numbers …) and change every text, for this print only
+  or saved for the voucher type or for every document; print, PDF and share use exactly the preview, and
+  a warning says when a particular the GST rules require is hidden.
 - **GST built in** — CGST/SGST/UTGST/IGST and cess, place-of-supply rules, reverse charge,
   composition dealers, B2B/B2CL/B2CS/exports/SEZ classification, GSTR-1 and GSTR-3B reports,
   GSTR-2B reconciliation.
@@ -157,12 +171,19 @@ server, no internet connection required.
   company folder, travel in backups (encrypted with the backup) and are checked by Check Books.
 - **Flexible voucher numbering** — prefix / suffix tokens `{FY}` (26-27), `{FYYYYY}` (2026-27), `{YY}`,
   `{MM}`, `{MMM}`, prefix / suffix rows with an "applicable from" date, restart yearly / monthly / never,
-  width and zero-fill; GST invoice numbers are checked for 16 characters and the allowed characters.
+  width and zero-fill; GST invoice numbers are checked for 16 characters and the allowed characters and
+  are unique in each financial year. The **Invoice Numbering** screen (2.0) sets a series' prefix, suffix,
+  digits, next number and yearly restart with a live preview and lists the gaps; an authorised user can
+  change an invoice's number (`Ctrl+R`), checked as typed and recorded in the edit log.
 - **Several aliases per ledger and item** — local-language names, supplier codes, old codes: every alias
   is searched in pickers and Go To, and kept by Excel and XML import / export.
 - **Security** — optional per-company users and roles, scrypt-hashed passwords with lockout,
   tamper-evident (hash-chained) edit log, encrypted backups. See [docs/SECURITY.md](docs/SECURITY.md).
 - **Multi-company** — each company is a self-contained folder; open one at a time, switch with `F3`.
+- **Updates** (2.0) — a newer installer upgrades the installed app in place, keeping data and settings;
+  *Check for updates* (Utilities › About Pevqori) downloads, verifies and installs a new version from the
+  project's GitHub Releases. Off until you use it (an optional weekly check), and administrators can turn
+  it off for a computer.
 
 ## Screenshots
 
@@ -261,6 +282,12 @@ has a README next to its code with its rules, tests and known gaps.
   folder or the confirmed backup folder, or be one the user picked in a native dialog.
 - Passwords use scrypt with lockout; the edit log is append-only and hash-chained; backups can be
   encrypted. Protect the data folder itself with Windows account security and BitLocker.
+- **The update check is opt-in and off by default.** Pevqori goes online only when you click *Check for
+  updates* or turn on the weekly check, and then only from the main process to the project's GitHub
+  Releases (an allowlist of hosts, `https` only); no company data is sent. A downloaded installer is
+  checked against the sha512 in the release's `latest.yml` before it is used (installers are not
+  code-signed yet). Administrators can turn the check off with `%ProgramData%\Pevqori\policy.json` or
+  `PEVQORI_UPDATES=off`.
 
 Full threat model and controls: [docs/SECURITY.md](docs/SECURITY.md). Please report vulnerabilities
 privately to the maintainers rather than in public issues.

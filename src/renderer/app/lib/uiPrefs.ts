@@ -1,5 +1,5 @@
 /**
- * Per-user layout preferences of 2.0 (SPEC D4/D5) — pure store, tested in uiPrefs.test.ts; the React
+ * Per-user layout preferences of 2.0 (docs/ARCHITECTURE.md §7) — pure store, tested in uiPrefs.test.ts; the React
  * hook is `useUiPrefs()` in app/preferences.ts.
  *
  *   localStorage['pevqori.ui'] = { v: 1, homeView, shortcutBar, upgraded, tryHomeDismissed }

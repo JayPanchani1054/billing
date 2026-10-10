@@ -513,7 +513,11 @@ pre-close an order).
   number without opening it for alteration: the same checks as in voucher entry, an optional reason,
   and — when the GSTR-1 of its period is already filed — the usual *Please check before saving* question
   (the change is then reported as an amendment). The amounts, GST and stock of the voucher do not
-  change. A cancelled voucher or one with an e-invoice (IRN) keeps its number.
+  change. A cancelled voucher or one with an e-invoice (IRN) keeps its number. A number other vouchers
+  refer to — an invoice named as the original invoice of a credit or debit note, an order that invoices
+  or notes fulfil, a delivery or receipt note that invoices bill — is not changed (here or by altering the
+  voucher) while they refer to it: the message names them (*Credit Note 3 and Sales 7 refer to this
+  number — change those references first*), and the Change number dialog says so as you type.
 - Every create, alter, cancel and delete is recorded in the edit log (Alt+H shows the voucher's history;
   a changed number shows as *Number change* with the old and new number and the reason).
 - Vouchers dated on or before the locked date cannot be created, altered or deleted (section 2).
@@ -1833,7 +1837,7 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 |---|---|
 | **Enter** / **Shift+Enter** | Next / previous field or cell; Enter on an empty row moves to the next part; Enter in the narration asks *Accept?* |
 | **↑** / **↓** | Same column, previous / next row |
-| **Ctrl+A** | Accept (save) |
+| **Ctrl+A** | Save (*Save changes* when altering); **Ctrl+S** does the same |
 | **F2** | Voucher date |
 | **F4–F9**, **Ctrl+F8**, **F10** … | Change the voucher type (new vouchers; the date is kept) |
 | **Alt+I** | Item invoice ↔ accounting invoice |
@@ -1860,7 +1864,7 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 | Screen | Keys |
 |---|---|
 | Select a Company | **Enter** open · **Alt+C** create · **Alt+R** restore · **Alt+D** delete |
-| Gateway | **↑ ↓** move · **Enter** open · the highlighted letter opens its item |
+| Home | **↑ ↓** move · **Enter** open · the highlighted letter opens its item · **Ctrl+1** Essentials · **Ctrl+2** All menus |
 | Day Book | **Enter** / **Alt+A** alter · **Alt+Enter** view · **Ctrl+P** print voucher · **Alt+2** duplicate · **Alt+D** delete · **Alt+T** today · **Alt+F2** period |
 | Voucher view | **Alt+A** alter · **Alt+P** print · **Alt+W** share · **Ctrl+R** change number · **Alt+X** cancel · **Alt+D** delete · **Alt+2** duplicate · **Alt+H** history · **Alt+F** attachments · **Alt+K** print cheque · **Alt+T** POS return · **Alt+U** TDS / TCS · **Alt+Y** currency · **Alt+V** / **Alt+O** convert quotation · **Alt+S** quotation status · **Alt+R** make recurring · **Alt+L** pre-close order |
 | Print preview | **Alt+P** print · **Alt+E** PDF · **Alt+W** share · **Alt+L** customize what prints · **PgUp / PgDn** previous / next · **Alt+T** template · **Alt+S** paper · **Ctrl+1/2/3** copies · **Alt+V** open voucher |

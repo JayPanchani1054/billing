@@ -1,5 +1,5 @@
 /**
- * 'accounts.numbering' — Invoice Numbering (2.0, SPEC §8.3): every number series (one per voucher type)
+ * 'accounts.numbering' — Invoice Numbering (2.0, docs/ARCHITECTURE.md › Invoice numbering and renumbering): every number series (one per voucher type)
  * on one screen, with a simple editor. A focused facade over the voucher types: the Voucher Type form
  * keeps every option for experts (dated prefix / suffix rows, behaviour, defaults, printing).
  *

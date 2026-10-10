@@ -1,5 +1,5 @@
 /**
- * Home's Essentials view (SPEC D2/D3) — pure, tested in essentials.test.ts.
+ * Home's Essentials view (docs/ARCHITECTURE.md §7) — pure, tested in essentials.test.ts.
  *
  * Essentials is ONE central list of about 23 everyday entries in five groups, matched against the
  * Gateway's All-menus output by menu label (labels are unique — gatewayLabels.test.ts) or, for voucher
@@ -24,7 +24,7 @@ export interface EssentialGroup {
   entries: readonly EssentialRef[];
 }
 
-/** The Essentials list, exact and in order (SPEC §3.2). */
+/** The Essentials list, exact and in order (docs/USER_GUIDE.md §1, Home). */
 export const ESSENTIALS: readonly EssentialGroup[] = [
   {
     id: 'create',
