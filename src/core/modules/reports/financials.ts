@@ -11,16 +11,21 @@ import type {
   ProfitFigures,
   ProfitLossInput,
   ProfitLossResult,
+  ProfitTrendInput,
+  ProfitTrendMonth,
+  ProfitTrendResult,
   StatementBlock,
   StatementLine,
   VerticalLine,
 } from '../../../shared/types/reports.ts';
 import { validation } from '../../lib/errors.ts';
+import { BOOKS_FILTER } from '../accounts/books.ts';
 import {
   assertPeriod,
   buildSnapshot,
   daysIn,
   ledgersByGroup,
+  monthSlices,
   nominalMovement,
   prepareStock,
   stockAt,
@@ -342,6 +347,124 @@ export function profitLoss(env: ReportEnv, input: ProfitLossInput): ProfitLossRe
     compareFigures: cf,
     vertical,
   };
+}
+
+// ───────────────────────────── Profit trend (month by month) ─────────────────────────────
+
+/** Movement of the given ledgers per calendar month of [from, to] (books filter; a range of idx_le_books per ledger). */
+const MONTHLY_MOVEMENT_SQL = `SELECT ledger_id, substr(date, 1, 7) AS m, SUM(amount) AS amt
+     FROM ledger_entries INDEXED BY idx_le_books
+    WHERE ledger_id IN (SELECT value FROM json_each(:ids)) AND date >= :from AND date <= :to AND ${BOOKS_FILTER()}
+    GROUP BY ledger_id, m`;
+
+const SCENARIO_MONTH_COLUMNS = `SELECT le.ledger_id, substr(le.date, 1, 7) AS m, SUM(le.amount) AS amt`;
+/** Scenario, per ledger and month of [from, to]: regular vouchers of the excluded types (scenario.ts EXCLUDED_SQL). */
+const SCENARIO_EXCLUDED_MONTHLY_SQL = `${SCENARIO_MONTH_COLUMNS}, NULL AS upto
+     FROM ledger_entries le JOIN vouchers v ON v.id = le.voucher_id
+    WHERE v.voucher_type_id IN (SELECT value FROM json_each(:types)) AND le.date >= :from AND le.date <= :to AND ${BOOKS_FILTER('le')}
+    GROUP BY le.ledger_id, m`;
+/**
+ * Scenario, per ledger, month and lapse date: provisional vouchers of the included types (scenario.ts
+ * PROVISIONAL_SQL without its `applicable_upto >= :to` cut, which depends on the cut date and is applied
+ * per month in monthlyNominal). `upto` is NULL when the voucher counts whatever the cut: a memorandum,
+ * an optional voucher, a reversing journal without an "applicable up to" date.
+ */
+const SCENARIO_PROVISIONAL_MONTHLY_SQL = `${SCENARIO_MONTH_COLUMNS},
+          CASE WHEN v.base_type = 'memorandum' OR v.is_optional = 1 THEN NULL ELSE v.applicable_upto END AS upto
+     FROM ledger_entries le JOIN vouchers v ON v.id = le.voucher_id
+    WHERE v.voucher_type_id IN (SELECT value FROM json_each(:types)) AND v.is_cancelled = 0 AND le.affects_books = 0
+      AND le.date >= :from AND le.date <= :to AND (le.is_post_dated = 0 OR le.date <= :today)
+      AND (v.base_type IN ('memorandum', 'reversing_journal') OR v.is_optional = 1)
+    GROUP BY le.ledger_id, m, upto`;
+
+/**
+ * P&L value (Dr-signed) of every nominal ledger for each month slice of [from, to], from a fixed number
+ * of aggregate queries (one, plus at most two with a scenario — never one per month). Σ over the slices
+ * = nominalMovement(env, from, to) exactly:
+ *  - books movement: each entry falls in exactly one slice;
+ *  - nominal opening balances: in the slice that contains the books beginning (only when the period does);
+ *  - a scenario: month k is the scenario adjustment for [from, end of k] − the one for [from, end of k−1]
+ *    (cumulative), because a reversing journal counts only while the report's `to` is on or before its
+ *    "applicable up to" date: it shows in its own month (if it has not lapsed by that month's end) and
+ *    reverses in the first month whose end is past that date. The last cumulative figure is exactly the
+ *    P&L's (`profitTrend.test.ts` checks every month against the cumulative scenario P&L).
+ */
+function monthlyNominal(env: ReportEnv, from: string, to: string, slices: ReadonlyArray<{ month: string; from: string; to: string }>): Map<number, Paise>[] {
+  const out = slices.map(() => new Map<number, Paise>());
+  const at = new Map(slices.map((s, i) => [s.month, i]));
+  const nominal = env.ledgers.filter((l) => l.isNominal);
+  const isNominal = new Set(nominal.map((l) => l.id));
+  const add = (i: number, ledgerId: number, v: Paise): void => {
+    if (v !== 0) out[i].set(ledgerId, (out[i].get(ledgerId) ?? 0) + v);
+  };
+  const scenario = env.scenario ?? null;
+  if (!scenario || scenario.includeActuals) {
+    for (const r of env.db.all<{ ledger_id: number; m: string; amt: number | null }>(MONTHLY_MOVEMENT_SQL, {
+      ids: JSON.stringify(nominal.map((l) => l.id)),
+      from,
+      to,
+      today: env.today,
+    })) {
+      const i = at.get(r.m);
+      if (i !== undefined) add(i, r.ledger_id, r.amt ?? 0);
+    }
+  }
+  if (from <= env.booksFrom && env.booksFrom <= to) {
+    const i = slices.findIndex((s) => s.from <= env.booksFrom && env.booksFrom <= s.to);
+    for (const l of nominal) add(i, l.id, l.openingBalance);
+  }
+  if (scenario) {
+    type Row = { ledger_id: number; m: string; amt: number | null; upto: string | null };
+    const apply = (sign: 1 | -1, rows: Row[]): void => {
+      for (const r of rows) {
+        const i = at.get(r.m);
+        if (i === undefined || !isNominal.has(r.ledger_id)) continue;
+        const v = sign * (r.amt ?? 0);
+        const upto = r.upto;
+        if (upto === null) {
+          add(i, r.ledger_id, v);
+          continue;
+        }
+        // Counted in every cumulative cut from its month's end up to (not past) `upto`.
+        if (upto < slices[i].to) continue;
+        add(i, r.ledger_id, v);
+        const lapse = slices.findIndex((s, k) => k > i && s.to > upto);
+        if (lapse !== -1) add(lapse, r.ledger_id, -v);
+      }
+    };
+    const params = { from, to, today: env.today };
+    if (scenario.includeActuals && scenario.excludeTypeIds.length > 0) {
+      apply(-1, env.db.all<Row>(SCENARIO_EXCLUDED_MONTHLY_SQL, { ...params, types: JSON.stringify(scenario.excludeTypeIds) }));
+    }
+    if (scenario.includeTypeIds.length > 0) {
+      apply(1, env.db.all<Row>(SCENARIO_PROVISIONAL_MONTHLY_SQL, { ...params, types: JSON.stringify(scenario.includeTypeIds) }));
+    }
+  }
+  return out;
+}
+
+/**
+ * `reports.profitTrend`: the P&L figures of each calendar month of [from, to] (README §5a). One stock
+ * valuation pass gives every month end; a month's opening stock is the previous month's closing (the
+ * same as stockAt(month start) — except a standard-cost item at the books beginning, README §5a), so
+ * the stock changes telescope and Σ months (net profit, purchases, sales, gross profit) equals the P&L
+ * of the whole period exactly.
+ */
+export function profitTrend(env: ReportEnv, input: ProfitTrendInput): ProfitTrendResult {
+  assertPeriod(input.from, input.to);
+  const slices = monthSlices(input.from, input.to);
+  prepareStock(env, { opening: [input.from], closing: slices.map((s) => s.to) });
+  const values = monthlyNominal(env, input.from, input.to, slices);
+  let openingStock = stockAt(env, input.from);
+  let netProfit = 0;
+  const months = slices.map((s, i): ProfitTrendMonth => {
+    const closingStock = stockAtEnd(env, s.to);
+    const f = profitFigures(env, { values: values[i], openingStock, closingStock });
+    openingStock = closingStock;
+    netProfit += f.netProfit;
+    return { month: s.month, from: s.from, to: s.to, sales: f.sales, purchases: f.purchases, grossProfit: f.grossProfit, netProfit: f.netProfit };
+  });
+  return { from: input.from, to: input.to, inventoryIntegrated: env.integrated, months, netProfit };
 }
 
 // ───────────────────────────── Balance Sheet ─────────────────────────────

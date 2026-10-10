@@ -1,6 +1,7 @@
 /**
  * Reports routes ("Display" reports). All are read-only: transactional: false. Access is
- * reports.view, or reports.financial for the Balance Sheet, P&L, ratios, cash flow and funds flow.
+ * reports.view, or reports.financial for the Balance Sheet, P&L (and its monthly trend), ratios, cash flow
+ * and funds flow.
  * DTOs: src/shared/types/reports.ts · semantics and formulas: README.md in this folder.
  */
 import { VOUCHER_BASE_TYPES } from '../../../shared/constants.ts';
@@ -10,7 +11,7 @@ import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { v } from '../../lib/validate.ts';
 import { costCentreReport } from './costCentres.ts';
 import { assertPeriod, loadReportEnv, type ReportEnv } from './engine.ts';
-import { balanceSheet, profitLoss } from './financials.ts';
+import { balanceSheet, profitLoss, profitTrend } from './financials.ts';
 import { cashFlow, fundsFlow } from './flows.ts';
 import { groupVouchers, ledgerReport, monthlySummary } from './ledger.ts';
 import { ratiosReport } from './ratios.ts';
@@ -31,6 +32,8 @@ export const TrialBalanceSchema = v.object({
   scenarioId,
 });
 export const ProfitLossSchema = v.object({ ...period, mode: v.enum(STATEMENT_MODES).optional(), compareWith: v.enum(COMPARE_WITH).optional(), scenarioId });
+/** Monthly P&L figures for the P&L graph (2.1): the P&L's period and scenario. */
+export const ProfitTrendSchema = v.object({ ...period, scenarioId });
 export const BalanceSheetSchema = v.object({ asOf: v.date(), mode: v.enum(STATEMENT_MODES).optional(), compareAsOf: v.date().optional(), scenarioId });
 export const GroupSummarySchema = v.object({ ...period, groupId: v.id(), showZero: v.boolean().optional(), basis: v.enum(GROUP_SUMMARY_BASES).optional(), scenarioId });
 export const GroupVouchersSchema = v.object({ ...period, groupId: v.id(), limit });
@@ -64,6 +67,12 @@ export const reportsRoutes = {
     transactional: false,
     input: ProfitLossSchema,
     handler: (ctx, input) => profitLoss(env(ctx, input, input.scenarioId), input),
+  }),
+  'reports.profitTrend': companyRoute({
+    access: 'reports.financial',
+    transactional: false,
+    input: ProfitTrendSchema,
+    handler: (ctx, input) => profitTrend(env(ctx, input, input.scenarioId), input),
   }),
   'reports.balanceSheet': companyRoute({
     access: 'reports.financial',

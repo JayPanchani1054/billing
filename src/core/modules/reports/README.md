@@ -158,6 +158,38 @@ P&L:       Gross Loss b/f (if any)                  | Gross Profit b/f (if any)
   = opening − closing, Direct expenses, Other expenses = Indirect expenses), V Profit before tax = III −
   IV = NP.
 
+## 5a. Profit trend — `reports.profitTrend` (reports.financial, 2.1)
+
+`{ from, to, scenarioId? }` (the P&L's period and scenario; no `mode` / `compareWith`) → the P&L
+figures of each calendar month of the period: `months[]` = `{ month: 'YYYY-MM', from, to, sales,
+purchases, grossProfit, netProfit }` (the first and last month clipped to the period, contiguous),
+`inventoryIntegrated`, and `netProfit` = Σ months. It is the data of the P&L screen's "Net profit by
+month" graph, fetched after the table; the graph's total must be the table's, so:
+
+- **Σ months = the P&L of the period, exactly** — `netProfit`, `purchases`, `sales` and
+  `grossProfit` (`profitTrend.test.ts`, for every costing method, integrated or not, with and without
+  a scenario, across 31-Mar, with partial first/last months and books that begin mid-year).
+- **Nominal values** come from ONE aggregate (`ledger_entries` per ledger and month over `[from, to]`,
+  nominal ledgers only, a range of `idx_le_books` per ledger); the nominal opening balances go to the
+  month that contains the books beginning (only when the period does), as `nominalMovement`.
+- **Stock**: one `prepareStock` with every month end; a month's opening stock is the previous month's
+  closing (`stockAt(d)` = the closing of `d − 1`), the first month's is `stockAt(from)`. So each month
+  equals the P&L of that month, and the stock changes telescope to the period's.
+  Exception (standard cost only): at the books beginning the opening stock is the value as entered while
+  every closing is quantity × standard cost; a period that starts *before* the books shows that
+  revaluation once, in the month before the books begin — as the period's own P&L does.
+- **Scenario**: month k = the scenario P&L for `[from, end of k]` − the one for `[from, end of k − 1]`
+  (cumulative), because a reversing journal counts only while the report's `to` is on or before its
+  "applicable up to" date: it shows in its own month (unless it lapses before that month ends) and
+  reverses in the first month that ends after the date, and the months add up to the scenario P&L.
+  Excluded types, memoranda and optional vouchers simply fall in their month. The adjustment is two
+  aggregate queries grouped by ledger and month (excluded types; provisional vouchers with their lapse date)
+  for the whole period — the same rules as `scenario.ts`, checked month by month against the
+  cumulative scenario P&L in `profitTrend.test.ts`.
+- Without integrated inventory every stock value is 0, so a month's gross profit is sales − purchases
+  (+ direct incomes − direct expenses): not a profit while the period has purchases, so the graph's
+  gate (`app/lib/chartCatalogue.ts`, `reports.profitLoss`) leaves it out then.
+
 ## 6. Balance Sheet — `reports.balanceSheet` (reports.financial)
 
 `{ asOf, mode?, compareAsOf? }`. `Y` = year start of `asOf`. Real ledgers: closing at `asOf`.
@@ -201,6 +233,13 @@ the group ledgers touched (more than 3 → `(as per details)`), running balance 
 
 `{ ledgerId | groupId (exactly one), from, to }` → opening, one row per calendar month clipped to the
 period (`month`, `from`, `to`, debit, credit, closing, voucher `count`), totals, closing.
+`subject.isNominal` (2.1) is true for an income / expense ledger or group (sub-groups included): its
+months are movements that restart every year, so the screen's graph shows the month's net movement;
+otherwise it shows the month-end closing balance. Optional in the type (absent on older data).
+
+Tie-out (`tieouts.test.ts`): the Home graph's `dashboard.summary` `trend[i].sales` equals credit − debit
+of the same month of the Sales Accounts monthly summary, except the books-beginning month, which also
+carries the Sales Accounts nominal opening (credit-natural) — the Home drill opens this summary.
 
 ## 10. Registers — `reports.register`
 
@@ -288,6 +327,7 @@ credit and net from `cost_allocations` (signed like the ledger entry, books filt
 |---|---|---|---|
 | `reports.trialBalance` | reports.view | `TrialBalanceInput` | `TrialBalanceResult` |
 | `reports.profitLoss` | reports.financial | `ProfitLossInput` | `ProfitLossResult` |
+| `reports.profitTrend` | reports.financial | `ProfitTrendInput` | `ProfitTrendResult` |
 | `reports.balanceSheet` | reports.financial | `BalanceSheetInput` | `BalanceSheetResult` |
 | `reports.groupSummary` | reports.view | `GroupSummaryInput` | `GroupSummaryResult` |
 | `reports.groupVouchers` | reports.view | `GroupVouchersInput` | `GroupVouchersResult` |
@@ -327,6 +367,11 @@ How the stock part stays cheap (`engine.ts`):
   `idx_le_books` covering index) — a ledger of 40 vouchers on a 60,000-voucher company takes ≈ 5 ms
   (was 0.8–1.0 s). The P&L A/c itself always gets the full snapshot (its brought-forward profit needs
   every nominal ledger).
+P&L by month (`reports.profitTrend`): a fixed number of statements however many months, with or without
+a scenario (no query per month; `profitTrend.test.ts` counts them and checks their plans). `perf.test.ts`
+gates it at ≤ 2× the P&L: on the 20,000-voucher probe ≈ 8 ms against ≈ 11 ms, and ≈ 34 ms against
+≈ 36 ms under a scenario that drops every journal; on 8,000 items / 60,000 invoices ≈ 0.2 s including its
+one stock replay for the twelve month ends, then ≈ 13 ms against ≈ 30 ms once memoised.
 On the auditors' 60,000-voucher file company: Balance Sheet 0.45–0.55 s cold (was 2.1 s), ≈ 80 ms when
 the stock values are memoised; with comparison 0.4 s (was 3.1 s); P&L ≈ 80 ms after either (1.5 s
 cold before); Trial Balance ≈ 75 ms; Ratios ≈ 0.16 s (was 1.8 s).
@@ -341,3 +386,6 @@ cold before); Trial Balance ≈ 75 ms; Ratios ≈ 0.16 s (was 1.8 s).
   `forex.ledger` (Ledger Vouchers screen: Alt+R) — see src/core/modules/forex/README.md.
 - Group "net Dr/Cr balances" flags are not applied: groups always show the net of their ledgers.
 - Cash flow does not split operating / investing / financing activities (monthly view only).
+- Standard-cost items: the opening stock at the books beginning is the value as entered, every later
+  closing is quantity × standard cost, so the first P&L shows the difference as gross profit (and a P&L
+  by month whose period starts before the books shows it in the month before the books begin, once).

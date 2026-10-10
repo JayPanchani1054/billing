@@ -6,6 +6,7 @@
  *
  *   'reports.trialBalance'    TrialBalanceInput     → TrialBalanceResult
  *   'reports.profitLoss'      ProfitLossInput       → ProfitLossResult          reports.financial
+ *   'reports.profitTrend'     ProfitTrendInput      → ProfitTrendResult         reports.financial
  *   'reports.balanceSheet'    BalanceSheetInput     → BalanceSheetResult        reports.financial
  *   'reports.groupSummary'    GroupSummaryInput     → GroupSummaryResult
  *   'reports.groupVouchers'   GroupVouchersInput    → GroupVouchersResult
@@ -189,6 +190,40 @@ export interface ProfitLossResult {
   vertical: VerticalLine[];
 }
 
+// ───────────────────────────── Profit trend (2.1 graphs) ─────────────────────────────
+
+/** `reports.profitTrend`: the P&L of a period month by month (read-only; the P&L graph's data). */
+export interface ProfitTrendInput extends PeriodInput {
+  /** Same overlay as `reports.profitLoss` (documents module scenarios). */
+  scenarioId?: number;
+}
+
+export interface ProfitTrendMonth {
+  /** 'YYYY-MM'. */
+  month: string;
+  /** First / last day of the month inside the period (clipped to the input). */
+  from: string;
+  to: string;
+  /** ProfitFigures of the month; opening stock = the previous month's closing (core reports README §5a). */
+  sales: Paise;
+  purchases: Paise;
+  /** Positive = gross profit, negative = gross loss. */
+  grossProfit: Paise;
+  /** Positive = net profit, negative = net loss. */
+  netProfit: Paise;
+}
+
+export interface ProfitTrendResult {
+  from: string;
+  to: string;
+  /** False: no stock values (stock is 0 every month) — the graph is only meaningful without purchases. */
+  inventoryIntegrated: boolean;
+  /** Calendar months of [from, to], contiguous, the first and last clipped to the period. */
+  months: ProfitTrendMonth[];
+  /** Σ months.netProfit — equal to reports.profitLoss(from, to).figures.netProfit. */
+  netProfit: Paise;
+}
+
 // ───────────────────────────── Balance Sheet ─────────────────────────────
 
 export interface BalanceSheetInput {
@@ -352,7 +387,11 @@ export interface MonthRow {
 export interface MonthlySummaryResult {
   from: string;
   to: string;
-  subject: { kind: 'ledger' | 'group'; id: number; name: string };
+  /**
+   * `isNominal` (2.1): true for an income / expense ledger or group (its months are movements that
+   * restart every year), false for an asset / liability. Optional: older data may lack it.
+   */
+  subject: { kind: 'ledger' | 'group'; id: number; name: string; isNominal?: boolean };
   opening: Paise;
   rows: MonthRow[];
   totals: DrCrTotals;

@@ -4,7 +4,7 @@ import type { BalanceSheetResult, TrialBalanceResult } from '../../../shared/typ
 import { reportsRoutes } from './routes.ts';
 import { APRIL, EXPECTED, makeBooks } from './testkit.ts';
 
-const FINANCIAL = ['reports.profitLoss', 'reports.balanceSheet', 'reports.ratios', 'reports.cashFlow', 'reports.fundsFlow'];
+const FINANCIAL = ['reports.profitLoss', 'reports.profitTrend', 'reports.balanceSheet', 'reports.ratios', 'reports.cashFlow', 'reports.fundsFlow'];
 
 test('every reports route is read-only (transactional: false) and permission-guarded', () => {
   for (const [name, r] of Object.entries(reportsRoutes)) {
@@ -12,7 +12,7 @@ test('every reports route is read-only (transactional: false) and permission-gua
     assert.equal(r.access, FINANCIAL.includes(name) ? 'reports.financial' : 'reports.view', name);
     assert.ok(name.startsWith('reports.'), name);
   }
-  assert.equal(Object.keys(reportsRoutes).length, 15);
+  assert.equal(Object.keys(reportsRoutes).length, 16);
 });
 
 test('routes through the dispatcher: Trial Balance and Balance Sheet', async () => {
@@ -77,6 +77,7 @@ test('every route answers on an empty company', async () => {
   const inputs: Record<string, unknown> = {
     'reports.trialBalance': APRIL,
     'reports.profitLoss': { ...APRIL, compareWith: 'previous_year' },
+    'reports.profitTrend': APRIL,
     'reports.balanceSheet': { asOf: APRIL.to, compareAsOf: '2026-03-31' },
     'reports.groupSummary': { ...APRIL, groupId: b.t.ids.groups.CURRENT_ASSETS },
     'reports.groupVouchers': { ...APRIL, groupId: b.t.ids.groups.CURRENT_ASSETS },

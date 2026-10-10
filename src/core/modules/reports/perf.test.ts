@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { saveScenario } from '../documents/scenarios.ts';
 import { computeStockValuation, stockReplayCount } from '../inventory/index.ts';
-import { balanceSheet, profitLoss } from './financials.ts';
+import { loadReportEnv } from './engine.ts';
+import { balanceSheet, profitLoss, profitTrend } from './financials.ts';
 import { cashFlow, fundsFlow } from './flows.ts';
 import { groupVouchers, ledgerReport, monthlySummary } from './ledger.ts';
 import { ratiosReport } from './ratios.ts';
@@ -9,6 +11,17 @@ import { bulkTrade, bulkVouchers, makeBooks } from './testkit.ts';
 import { cashBank, groupSummary, trialBalance } from './trialBalance.ts';
 
 const YEAR = { from: '2026-04-01', to: '2027-03-31' };
+
+/** Fastest of `n` runs of `f` (ms): a ratio of two timings on a loaded machine needs the noise taken out. */
+function fastest(f: () => unknown, n = 5): number {
+  let best = Infinity;
+  for (let i = 0; i < n; i++) {
+    const t0 = performance.now();
+    f();
+    best = Math.min(best, performance.now() - t0);
+  }
+  return best;
+}
 
 /** Run `f` and return [result, milliseconds]. */
 function timed<T>(f: () => T): [T, number] {
@@ -42,6 +55,24 @@ test('performance: 20,000 vouchers — Trial Balance < 1 s, ledger and P&L/BS st
   });
   assert.equal(bs.balanced, true);
   assert.ok(finMs < 2000, `P&L + BS took ${finMs.toFixed(0)} ms`);
+
+  // 2.1: the P&L graph's monthly figures cost at most twice the P&L itself (fresh environment each
+  // run, as a route call builds its own), and tie to it.
+  const trend = profitTrend(b.env(), YEAR);
+  assert.equal(trend.months.length, 12);
+  assert.equal(trend.netProfit, profitLoss(b.env(), YEAR).figures.netProfit);
+  const plMs = fastest(() => profitLoss(b.env(), YEAR));
+  const trendMs = fastest(() => profitTrend(b.env(), YEAR));
+  assert.ok(trendMs <= 2 * plMs, `P&L by month ${trendMs.toFixed(1)} ms vs P&L ${plMs.toFixed(1)} ms`);
+  // The same under a scenario that drops all 20,000 journals and adds memoranda / reversing journals:
+  // its adjustment is two aggregate queries for the whole period, never one per month.
+  const vt = b.t.ids.voucherTypes;
+  const scenarioId = saveScenario(b.t.ctx, { name: 'Perf', includeActuals: true, includeTypeIds: [vt.memorandum, vt.reversing_journal], excludeTypeIds: [vt.journal] }).id;
+  const senv = () => loadReportEnv(b.t.db, b.t.today, { scenarioId });
+  assert.equal(profitTrend(senv(), YEAR).netProfit, profitLoss(senv(), YEAR).figures.netProfit);
+  const splMs = fastest(() => profitLoss(senv(), YEAR));
+  const strendMs = fastest(() => profitTrend(senv(), YEAR));
+  assert.ok(strendMs <= 2 * splMs, `P&L by month with a scenario ${strendMs.toFixed(1)} ms vs P&L ${splMs.toFixed(1)} ms`);
 });
 
 test('performance: 2,000 ledgers, 20,000 item invoices, integrated inventory — every report well under budget', () => {
@@ -67,6 +98,7 @@ test('performance: 2,000 ledgers, 20,000 item invoices, integrated inventory —
   const budgets: Array<[string, () => unknown]> = [
     ['Balance Sheet with comparison', () => assert.equal(balanceSheet(env(), { asOf: YEAR.to, compareAsOf: '2026-09-30' }).balanced, true)],
     ['P&L with comparison', () => profitLoss(env(), { ...YEAR, compareWith: 'previous_period' })],
+    ['P&L by month (12 months)', () => assert.equal(profitTrend(env(), YEAR).months.length, 12)],
     ['Group Summary (Current Assets)', () => groupSummary(env(), { ...YEAR, groupId: t.ids.groups.CURRENT_ASSETS })],
     ['Ledger (10,000 sales)', () => assert.equal(ledgerReport(env(), { ...YEAR, ledgerId: b.L.sales }).count, 10_000)],
     ['Group Vouchers (Sundry Debtors, 500 ledgers)', () => groupVouchers(env(), { ...YEAR, groupId: t.ids.groups.SUNDRY_DEBTORS })],
@@ -135,6 +167,16 @@ test('performance: 8,000 items, 60,000 item invoices over two years — one stoc
   assert.equal(pl.replays, 0);
   assert.equal(pl.out.figures.closingStock, closing);
   assert.ok(pl.ms < 1000, `P&L took ${pl.ms.toFixed(0)} ms`);
+  // The P&L graph's months need one more replay for the month ends (then memoised), tie to the P&L,
+  // and cost at most twice the P&L once the stock values are known.
+  const trend = run(() => profitTrend(env(), FY));
+  note('P&L by month', trend);
+  assert.ok(trend.replays <= 1);
+  assert.equal(trend.out.netProfit, pl.out.figures.netProfit);
+  assert.equal(trend.out.months.reduce((s, m) => s + m.purchases, 0), pl.out.figures.purchases);
+  const plMs = fastest(() => profitLoss(env(), FY), 3);
+  const trendMs = fastest(() => profitTrend(env(), FY), 3);
+  assert.ok(trendMs <= 2 * plMs, `P&L by month ${trendMs.toFixed(1)} ms vs P&L ${plMs.toFixed(1)} ms`);
   const tb = run(() => trialBalance(env(), { ...FY, mode: 'detailed' }));
   note('trial balance', tb);
   assert.equal(tb.out.balanced, true);

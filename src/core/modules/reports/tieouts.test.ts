@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { saveGroup } from '../accounts/groups.ts';
+import { summaryForCtx } from '../dashboard/summary.ts';
 import { cancelVoucher } from '../vouchers/service.ts';
 import { balanceSheet, profitLoss } from './financials.ts';
 import { cashFlow, fundsFlow } from './flows.ts';
@@ -168,4 +169,87 @@ test('invariants on a mixed year posted through the vouchers service (returns, o
   assert.equal(pl.figures.sales, 12_000_000 - 750_000);
   // Post-dated receipt (30-Jun, working date 15-Jun) is not yet in Cash.
   assert.equal(tb.rows.find((r) => r.key === `l:${b.L.cash}`)?.closing, EXPECTED.cash);
+});
+
+// ───────────────────────────── 2.1 graph data ─────────────────────────────
+
+test('Home graph tie-out: dashboard trend sales = the Sales Accounts monthly summary (credit − debit), the books-beginning month carrying the nominal opening', () => {
+  // Books from 1-Feb-2026 (year-to-date sales entered as openings), working date 30-Jun-2026.
+  const b = makeBooks({ booksFrom: '2026-02-01', today: '2026-06-30', skipVouchers: true });
+  const t = b.t;
+  const vt = t.ids.voucherTypes;
+  const salesGroup = t.ids.groups.SALES_ACCOUNTS;
+  // A sub-group of Sales Accounts with its own ledger and opening: the group roll-up counts it too.
+  const exportGroup = saveGroup(t.ctx, { name: 'Export Sales', parentId: salesGroup }).id;
+  const exportSales = t.addLedger({ name: 'Export Sales A/c', group: 'SALES_ACCOUNTS', openingBalance: -800_000 });
+  t.db.run('UPDATE ledgers SET group_id = :g WHERE id = :id', { g: exportGroup, id: exportSales });
+  t.db.run('UPDATE ledgers SET opening_balance = :ob WHERE id = :id', { ob: -5_000_000, id: b.L.sales });
+  t.db.run('UPDATE ledgers SET opening_balance = :ob WHERE id = :id', { ob: 10_800_000 + 5_000_000 + 800_000, id: b.L.cash });
+  const sell = (date: string, qty: number, extra: Record<string, unknown> = {}) =>
+    b.post({ voucherTypeId: vt.sales, date, mode: 'item_invoice', partyLedgerId: b.L.acme, items: [{ itemId: b.widget, qty, rate: 1500 }], ...extra });
+  sell('2026-02-12', 10);
+  sell('2026-03-30', 20);
+  sell('2026-04-02', 5);
+  // A sales return in May (credit note: Dr Sales), a journal straight to the export ledger in June.
+  b.post({ voucherTypeId: vt.credit_note, date: '2026-05-05', mode: 'item_invoice', partyLedgerId: b.L.acme, items: [{ itemId: b.widget, qty: 3, rate: 1500 }] });
+  b.post({ voucherTypeId: vt.journal, date: '2026-06-10', mode: 'ledger', ledgers: [{ ledgerId: b.L.acme, amount: 400_000 }, { ledgerId: exportSales, amount: -400_000 }] });
+  // Neither counts anywhere: an optional sale and a post-dated one after the working date.
+  sell('2026-06-12', 4, { isOptional: true });
+  sell('2026-07-02', 4, { isPostDated: true });
+
+  const dash = summaryForCtx(t.ctx, { asOf: '2026-06-30', from: '2026-04-01', to: '2026-06-30' });
+  assert.equal(dash.trend.length, 12);
+  assert.equal(dash.trend[0].month, '2025-07');
+  const ms = monthlySummary(b.env(), { groupId: salesGroup, from: dash.trend[0].from, to: dash.trend[11].to });
+  assert.equal(ms.subject.isNominal, true);
+  // The monthly summary starts at the books beginning; the trend's earlier months are empty.
+  assert.equal(ms.rows[0].month, '2026-02');
+  const byMonth = new Map(ms.rows.map((r) => [r.month, r]));
+  // Nominal opening of Sales Accounts (credit-natural): 50,000 + 8,000.
+  const nominalOpening = 5_800_000;
+  for (const m of dash.trend) {
+    const row = byMonth.get(m.month);
+    if (!row) {
+      assert.ok(m.month < '2026-02', m.month);
+      assert.equal(m.sales, 0, m.month);
+      continue;
+    }
+    const movement = row.credit - row.debit;
+    assert.equal(m.sales - movement, m.month === '2026-02' ? nominalOpening : 0, m.month);
+  }
+  // By hand: Feb 15,000 + opening 58,000; Mar 30,000; Apr 7,500; May −4,500 (return); Jun 4,000 (journal).
+  assert.deepEqual(
+    dash.trend.slice(7).map((m) => [m.month, m.sales]),
+    [
+      ['2026-02', 1_500_000 + nominalOpening],
+      ['2026-03', 3_000_000],
+      ['2026-04', 750_000],
+      ['2026-05', -450_000],
+      ['2026-06', 400_000],
+    ],
+  );
+});
+
+test('Monthly Summary subject.isNominal: income / expense ledgers and groups (sub-groups too) are nominal, the rest are not', () => {
+  const b = makeBooks();
+  const env = b.env();
+  const g = b.t.ids.groups;
+  const sub = saveGroup(b.t.ctx, { name: 'Office Costs', parentId: g.INDIRECT_EXPENSES }).id;
+  const APR = { from: '2026-04-01', to: '2026-04-30' };
+  const nominal = (q: { ledgerId?: number; groupId?: number }) => monthlySummary(b.env(), { ...APR, ...q }).subject.isNominal;
+  assert.equal(nominal({ ledgerId: b.L.sales }), true);
+  assert.equal(nominal({ ledgerId: b.L.rent }), true);
+  assert.equal(nominal({ ledgerId: b.L.interest }), true);
+  assert.equal(nominal({ ledgerId: b.L.cash }), false);
+  assert.equal(nominal({ ledgerId: b.L.capital }), false);
+  assert.equal(nominal({ ledgerId: b.L.pl }), false, 'the Profit & Loss A/c is a real (capital) ledger');
+  assert.equal(nominal({ groupId: g.SALES_ACCOUNTS }), true);
+  assert.equal(nominal({ groupId: g.PURCHASE_ACCOUNTS }), true);
+  assert.equal(nominal({ groupId: g.INDIRECT_INCOMES }), true);
+  assert.equal(nominal({ groupId: sub }), true);
+  assert.equal(nominal({ groupId: g.CURRENT_ASSETS }), false);
+  assert.equal(nominal({ groupId: g.SUNDRY_CREDITORS }), false);
+  // Additive: every other field is what it was (subject name/kind/id unchanged).
+  const r = monthlySummary(env, { ...APR, ledgerId: b.L.cash });
+  assert.deepEqual(r.subject, { kind: 'ledger', id: b.L.cash, name: 'Cash', isNominal: false });
 });

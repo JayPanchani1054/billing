@@ -207,13 +207,13 @@ export function monthlySummary(env: ReportEnv, input: MonthlySummaryInput): Mont
   let snap: ReturnType<typeof buildSnapshot>;
   if (input.ledgerId !== undefined) {
     const l = ledgerMeta(env, input.ledgerId);
-    subject = { kind: 'ledger', id: l.id, name: l.name };
+    subject = { kind: 'ledger', id: l.id, name: l.name, isNominal: l.isNominal };
     ids = [l.id];
     snap = buildSnapshot(env, { from: input.from, to: input.to, ledgerIds: ids });
     opening = snap.ledgers.get(l.id)?.opening ?? 0;
   } else {
     const g = groupNode(env, input.groupId as number);
-    subject = { kind: 'group', id: g.id, name: g.name };
+    subject = { kind: 'group', id: g.id, name: g.name, isNominal: g.cls.isIncome || g.cls.isExpense };
     ids = ledgerIdsUnder(env, g.id);
     snap = buildSnapshot(env, { from: input.from, to: input.to, ledgerIds: ids });
     opening = snap.groups.get(g.id)?.opening ?? 0;
