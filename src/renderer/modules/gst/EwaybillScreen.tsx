@@ -116,7 +116,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
       primary: true,
       onClick: () => void generate(),
       disabled: !canFile || makeJson.pending,
-      hint: canFile ? 'Bulk file for the e-way bill portal' : 'You need the "File GST returns" permission',
+      hint: canFile ? 'Bulk file for the e-way bill portal' : 'You need the "Prepare GST filings" permission',
       group: 'file',
     },
     { key: 'Alt+N', label: 'Record e-Way Bill no.', icon: 'edit', onClick: () => current && setRecording(current), hidden: !canFile, disabled: !current || !canFile, group: 'row' },

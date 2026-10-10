@@ -279,7 +279,7 @@ function BomFormView({ saved, startItem, title }: { saved: BomDetail | null; sta
   };
   const formRef = useEnterAdvance<HTMLDivElement>({ enabled: !readOnly, onComplete: () => void submit() });
   const actions: ScreenActionItem[] = [
-    { key: 'Ctrl+A', label: forResult ? 'Save & return' : 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || save.pending },
+    { key: 'Ctrl+A', label: forResult ? 'Save & return' : 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || save.pending, hint: readOnly ? `Needs the “${saved ? 'Alter' : 'Create'} masters” permission` : undefined },
     { key: 'Ctrl+D', label: 'Remove line', icon: 'minus', onClick: removeLine, hidden: readOnly, group: 'lines' },
     { key: 'Alt+N, Ctrl+N', label: 'Insert line', icon: 'plus', onClick: insertLine, hidden: readOnly, group: 'lines' },
     { key: 'Alt+H', label: 'Revision history', icon: 'clock', onClick: () => setHistoryOpen(true), hidden: !saved, group: 'view' },
@@ -337,6 +337,7 @@ function BomFormView({ saved, startItem, title }: { saved: BomDetail | null; sta
     >
       <div ref={formRef}>
         <Stack gap={4}>
+          {readOnly ? <Banner tone="info" inline>{`View only: ${saved ? 'changing' : 'creating'} bills of materials needs the “${saved ? 'Alter' : 'Create'} masters” permission.`}</Banner> : null}
           {errors.general.length > 0 ? (
             <Banner tone="danger" title="Not saved" onDismiss={() => setErrors((e) => ({ ...e, general: [] }))}>
               {errors.general.join(' ')}

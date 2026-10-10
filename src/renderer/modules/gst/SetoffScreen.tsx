@@ -48,7 +48,7 @@ export function SetoffScreen({ params }: ScreenProps<{ period?: string }>) {
       primary: true,
       onClick: () => setDialog('post'),
       disabled: !s || !canFile || posted !== null || (s.cashTotal === 0 && s.credit.length === 0),
-      hint: posted ? 'Already posted for this period' : canFile ? 'Post the set-off journal for this period' : 'You need the "File GST returns" permission',
+      hint: posted ? 'Already posted for this period' : canFile ? 'Post the set-off journal for this period' : 'You need the "Prepare GST filings" permission',
       group: 'edit',
     },
     { key: 'Alt+C', label: 'Create challan', icon: 'plus', onClick: () => setDialog('challan'), hidden: !canFile, disabled: !s || !canFile, group: 'edit' },

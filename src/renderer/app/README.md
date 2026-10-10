@@ -485,14 +485,20 @@ also checks that within one screen component a key has one meaning. A new panel 
 `hidden` (the core refuses anyway) — as in the voucher view. A form or settings screen the user may
 only view keeps **Save** disabled with a `hint` naming the permission and shows `ReadOnlyNotice` (or a
 "view only" banner); Export / Print stay visible, disabled with `EXPORT_DENIED_HINT`. Never leave a
-permission-disabled action without either (`keyConventions.test.ts` checks the parity-wave modules).
+permission-disabled action without either — a form's `readOnly` derived from `can…` flags counts
+(`keyConventions.test.ts` checks the parity-wave modules). Name the permission exactly as Users & Roles
+shows it (`core/modules/security/catalog.ts` labels: "Change company settings", "Prepare GST filings",
+"Manage TDS/TCS setup" …; `lib/parityWiring.test.ts` checks every quoted name). Status-bar hints are
+static and still name such actions — a known gap.
 
 **F11 off ⇒ no trace.** A screen behind a feature declares `feature` / `anyFeature`; menu items inherit
 it, Go To drops it, voucher panels render nothing and register no rail key while the feature is off
-(even with cached data), and Gateway notices / dashboard cards check the feature before asking the core.
+(even with cached data: derive the data as `on ? q.data : undefined`), a panel action that opens a
+feature screen (e.g. Pre-close order → Order processing) is hidden while that feature is off, and Gateway
+notices / dashboard cards check the feature before asking the core.
 `lib/featureGating.test.ts` builds the real Gateway and Go To with every feature off (nothing of TDS /
 TCS, forex, POS, manufacturing / job work; of cheques only Payee Bank Details and E-payment File) and
-with each turned on.
+with each turned on, and checks both voucher-panel rules on the panels' source.
 
 **Grids, tables and dates.** Every `DataTable` has an `aria-label`; hand-made `<table>`s in screens
 too; every `DateInput` gets a `referenceDate` (the working date, or the date the field is about) so
@@ -604,6 +610,6 @@ export function TrialBalance() {
 | `ShortcutsOverlay.tsx`, `VoucherPicker.tsx`, `lib/shortcuts.ts`, `lib/voucherTypes.ts`, `hooks/useVoucherChoices.ts` | keyboard map, F1, F10 (predefined + company voucher types) |
 | `Screen.tsx`, `export.ts`, `lib/exportFormat.ts`, `display.ts` | layout patterns, export/print, formatting |
 | `lib/featureCatalog.ts`, `preferences.ts` | F11 feature texts & rules, theme/density |
-| `lib/keyConventions.test.ts`, `lib/screenConventions.test.ts`, `lib/menuPositions.test.ts`, `lib/gatewayLabels.test.ts`, `lib/featureGating.test.ts`, `lib/screenA11y.test.ts` | conventions checked on the real module sources: keys, hints, menu positions and labels, F11 gating, grid / table names, date shorthand, report export and focus |
+| `lib/keyConventions.test.ts`, `lib/screenConventions.test.ts`, `lib/menuPositions.test.ts`, `lib/gatewayLabels.test.ts`, `lib/featureGating.test.ts`, `lib/screenA11y.test.ts`, `lib/parityWiring.test.ts` | conventions checked on the real module sources: keys, hints, menu positions and labels, F11 gating (menus, Go To, voucher panels), grid / table names, date shorthand, report export and focus, permission names, wiring of the parity-wave UX fixes |
 
 Pure logic lives in `lib/*.ts` with `node:test` tests: `node --test "src/renderer/app/**/*.test.ts"`.

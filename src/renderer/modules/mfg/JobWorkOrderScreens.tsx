@@ -281,7 +281,7 @@ function OrderFormView({ saved, direction, godowns, title, partyId }: { saved: J
 
   const formRef = useEnterAdvance<HTMLDivElement>({ enabled: !readOnly, onComplete: () => void submit() });
   const actions: ScreenActionItem[] = [
-    { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || save.pending },
+    { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || save.pending, hint: readOnly ? `Needs the “${saved ? 'Alter' : 'Create'} vouchers” permission` : undefined },
     { key: 'Alt+B', label: 'Fill from BOM', icon: 'layers', onClick: fillFromBom, hidden: readOnly || !features.manufacturing, group: 'lines' },
     { key: 'Ctrl+D', label: 'Remove line', icon: 'minus', onClick: removeLine, hidden: readOnly, group: 'lines' },
     { key: 'Alt+N, Ctrl+N', label: 'Insert line', icon: 'plus', onClick: insertLine, hidden: readOnly, group: 'lines' },
@@ -334,6 +334,7 @@ function OrderFormView({ saved, direction, godowns, title, partyId }: { saved: J
     >
       <div ref={formRef}>
         <Stack gap={4}>
+          {readOnly ? <Banner tone="info" inline>{`View only: ${saved ? 'changing' : 'creating'} job work orders needs the “${saved ? 'Alter' : 'Create'} vouchers” permission.`}</Banner> : null}
           {errors.general.length > 0 ? (
             <Banner tone="danger" title="Not saved" onDismiss={() => setErrors((e) => ({ ...e, general: [] }))}>
               {errors.general.join(' ')}

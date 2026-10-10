@@ -10,7 +10,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { PayeeAccountType, PayeeBankDetails, PayeeListRow, PayeePaymentMode } from '../../../shared/types/cheques.ts';
 import { PAYEE_ACCOUNT_TYPES, PAYEE_PAYMENT_MODES } from '../../../shared/types/cheques.ts';
-import { fieldErrorsOf, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useNav, userMessage, type ScreenProps } from '../../app/index.ts';
+import { fieldErrorsOf, ReadOnlyNotice, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useNav, userMessage, type ScreenProps } from '../../app/index.ts';
 import { Banner, Button, DataTable, EmptyState, Field, FieldGroup, SegmentedControl, Select, Stack, TextInput, useDebouncedValue, useEnterAdvance, useToast, type Column } from '../../ui/index.ts';
 import { LedgerPicker } from '../accounts/pickers.tsx';
 import { ACCOUNT_TYPE_LABELS, CHEQUE_INVALIDATES, ifscBank, PAYMENT_MODE_LABELS, payeeDraft, payeeErrors, payeeInput, type PayeeDraft } from './lib/model.ts';
@@ -173,6 +173,7 @@ function PayeeForm({ saved }: { saved: PayeeBankDetails }) {
     >
       <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Payee bank details">
         <Stack gap={5}>
+          {readOnly ? <ReadOnlyNotice what="these bank details" /> : null}
           <Banner tone="info">
             Check a new or changed account with the payee before paying (a call, or a cancelled cheque). Every change is in the edit log.
           </Banner>

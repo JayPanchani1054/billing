@@ -166,4 +166,6 @@ inventory memo (≈ 20 ms).
   repeat across years for the same party share fulfilment (same limitation as `vouchers.trackingRefs`).
 - Movement Analysis values notes at their own rate, not at the invoice that later bills them.
 - Ageing treats LIFO items like the others (FIFO ages, value split by quantity).
-- Third-party godowns are valued like own stock (as the engine does).
+- Godowns holding our goods with a job worker ("our stock with third party") are valued like own stock;
+  a principal's goods with us ("third-party stock with us", mfg module) are never valued and stay out of
+  closing stock — the valuation engine leaves them out (inventory/valuation.ts).

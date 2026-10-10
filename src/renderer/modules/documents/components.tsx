@@ -147,7 +147,7 @@ export function VoucherDocumentsPanel({ voucherId, baseType, isCancelled, isOpti
     },
     { key: 'Alt+S', label: 'Accept / reject', icon: 'check-circle', onClick: () => nav.push('documents.quotation.status', { id: voucherId }), hidden: !isDoc || isCancelled || !canAlter, group: 'documents' },
     { key: 'Alt+R', label: 'Make recurring', icon: 'refresh', onClick: () => nav.push('documents.recurring.form', { sourceVoucherId: voucherId }), hidden: isCancelled || !canCreate || baseType === 'physical_stock', group: 'documents' },
-    { key: 'Alt+L', label: 'Pre-close order', icon: 'x-circle', onClick: () => nav.push('documents.order.preclose', { orderId: voucherId, kind: baseType === 'purchase_order' ? 'purchase' : 'sales' }), hidden: !isOrder || isCancelled || isOptional || !canAlter, group: 'documents' },
+    { key: 'Alt+L', label: 'Pre-close order', icon: 'x-circle', onClick: () => nav.push('documents.order.preclose', { orderId: voucherId, kind: baseType === 'purchase_order' ? 'purchase' : 'sales' }), hidden: !isOrder || isCancelled || isOptional || !canAlter || !features.orderProcessing, group: 'documents' },
   ];
   useScreenActions(actions);
 

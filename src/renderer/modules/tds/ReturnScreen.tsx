@@ -3,7 +3,7 @@
  * 27Q (TDS, non-residents) or 27EQ (TCS). Deductee / collectee rows linked to the challans that paid
  * them, and the challan rows, with warnings (undeposited tax, missing PAN, no TAN).
  * Ctrl+1 deductees, Ctrl+2 challans, Alt+S save the two CSV files for the return preparation utility
- * (needs "File TDS/TCS statements"), Alt+R record the filing (date + token; the s.234E fee stops),
+ * (needs "Prepare TDS/TCS statements"), Alt+R record the filing (date + token; the s.234E fee stops),
  * Alt+E / Alt+P export / print the table on screen. Enter on a row opens its voucher.
  */
 import { useMemo, useState } from 'react';
@@ -140,7 +140,7 @@ export function ReturnScreen({ params }: ScreenProps<ReturnParams>) {
       actions={[
         { key: 'Ctrl+1', label: isTcs ? 'Collectees' : 'Deductees', group: 'view', disabled: view === 'deductees', onClick: () => setView('deductees') },
         { key: 'Ctrl+2', label: 'Challans', group: 'view', disabled: view === 'challans', onClick: () => setView('challans') },
-        { key: 'Alt+S', label: 'Save CSV files', icon: 'download', primary: true, disabled: !canFile || !d || saving, hint: canFile ? undefined : 'Needs the "File TDS/TCS statements" permission', onClick: () => void saveFiles() },
+        { key: 'Alt+S', label: 'Save CSV files', icon: 'download', primary: true, disabled: !canFile || !d || saving, hint: canFile ? undefined : 'Needs the "Prepare TDS/TCS statements" permission', onClick: () => void saveFiles() },
         { key: 'Alt+R', label: 'Record filing', icon: 'check', hidden: !canFile, disabled: !canFile || !d, onClick: () => setFiling(true) },
       ]}
       hint="Ctrl+1 Deductees · Ctrl+2 Challans · Alt+S Save CSV files · Alt+R Record filing · Enter Open voucher · Esc Back"

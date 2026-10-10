@@ -152,7 +152,7 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
       primary: true,
       onClick: () => void doSave(),
       disabled: !dirty || save.pending || !canFile,
-      hint: canFile ? (dirty ? `Save ${changes} changed ${changes === 1 ? 'figure' : 'figures'}` : 'Nothing to save') : 'You need the "File GST returns" permission',
+      hint: canFile ? (dirty ? `Save ${changes} changed ${changes === 1 ? 'figure' : 'figures'}` : 'Nothing to save') : 'You need the "Prepare GST filings" permission',
       group: 'edit',
     },
     { key: 'Alt+F2', label: 'Return period', icon: 'calendar', onClick: () => selectRef.current?.focus(), group: 'period' },
@@ -622,7 +622,7 @@ function EntriesPanel({
         ) : null}
         {!canEdit ? (
           <Banner tone="info" inline>
-            You can view these entries; changing them needs the “File GST returns” permission.
+            You can view these entries; changing them needs the “Prepare GST filings” permission.
           </Banner>
         ) : null}
         <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Your GSTR-3B entries">

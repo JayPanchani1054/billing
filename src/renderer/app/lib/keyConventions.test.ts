@@ -347,13 +347,19 @@ describe('parity-wave screens: an action the role forbids is hidden, or disabled
     const bad: string[] = [];
     let checked = 0;
     for (const f of files) {
+      // A form's `readOnly` derived from its permission flags (`const readOnly = saved ? !canAlter : !canCreate`) gates like them.
+      const readOnlyDecl = /const readOnly = ([^\n;]*\bcan[A-Z][^\n;]*)/.exec(f.text)?.[1] ?? null;
+      const permReadOnly = readOnlyDecl !== null;
+      const readOnlyFlags = [...(readOnlyDecl ?? '').matchAll(/!(can[A-Z]\w*)\b/g)].map((m) => m[1]);
       for (const obj of actionObjects(f.text)) {
         const disabled = /disabled:\s*([^\n]*?)(?:,\s*(?:hint|hidden|onClick|group|icon|label)\b|\s*\}$)/.exec(obj)?.[1] ?? '';
         const perms = [...disabled.matchAll(/!(can[A-Z]\w*)\b/g)].map((m) => m[1]);
+        if (permReadOnly && /\breadOnly\b/.test(disabled)) perms.push('readOnly');
         if (perms.length === 0) continue;
         checked++;
         const hidden = /hidden:\s*([^\n]*?)(?:,|\s*\}$)/.exec(obj)?.[1] ?? '';
-        if (!perms.every((p) => hidden.includes(p)) && !/\bhint:/.test(obj)) bad.push(`${f.file}: ${obj.replace(/\s+/g, ' ').slice(0, 90)}`);
+        const hiddenFor = (p: string) => hidden.includes(p) || (p === 'readOnly' && readOnlyFlags.some((c) => hidden.includes(`!${c}`)));
+        if (!perms.every(hiddenFor) && !/\bhint:/.test(obj)) bad.push(`${f.file}: ${obj.replace(/\s+/g, ' ').slice(0, 90)}`);
       }
     }
     assert.ok(checked >= 20, `only ${checked} permission-gated actions found`);

@@ -230,7 +230,8 @@ In **Numbering** (the preview under the fields shows the next number):
 - **GST rule** (CGST Rule 46(b)): a tax invoice number may have at most **16 characters**, only letters,
   digits, `/` and `-`, and must be unique in the financial year. Bahi checks this when you save the
   voucher type, counting each code at its longest (`{FYYYYY}` as 7 characters). A number typed by hand on
-  an invoice is checked when the invoice is saved.
+  an invoice is checked when the invoice is saved: a warning you confirm (for numbers carried over from an
+  older system), listed again by the GSTR-1 and e-invoice checks.
 - Changing the numbering never renumbers vouchers already saved; a voucher keeps its number when its
   date is altered (as in Tally).
 
@@ -336,8 +337,9 @@ The read-only view (Alt+Enter, or Enter on any report row that is a voucher) sho
 items, Dr / Cr entries with bills, cost centres and bank details, GST by rate, e-invoice / e-way bill
 details and who created and changed it. Its keys: **Alt+A** alter, **Alt+P** print, **Alt+W** share
 (section 12.4), **Alt+2** duplicate, **Alt+X** cancel, **Alt+D** delete, **Alt+H** edit history, plus the
-panels other features add (Alt+F attachments, Alt+K print cheque, Alt+T POS return, Alt+Y currency,
-Alt+V / Alt+O convert a quotation, Alt+R make recurring, Alt+L pre-close an order).
+panels other features add (Alt+F attachments, Alt+K print cheque, Alt+T POS return, Alt+U TDS / TCS,
+Alt+Y currency, Alt+V / Alt+O convert a quotation, Alt+S quotation status, Alt+R make recurring, Alt+L
+pre-close an order).
 
 - **Cancel** (Alt+X, with a reason) keeps the voucher and its number but takes it out of the books — the
   right choice for an invoice number that must stay in the series.
@@ -358,9 +360,9 @@ what is still to be delivered or received, with due dates and overdue marks (**A
 order).
 
 **Sales Bills Pending and Purchase Bills Pending.** *Inventory Reports › **Sales Bills Pending*** lists
-delivery notes (and rejections in) whose goods have gone out but are not fully invoiced; *Inventory
-Reports › **Purchase Bills Pending*** lists receipt notes (and rejections out) whose supplier bills you
-have not entered. You see the quantity, what is billed, what is pending, the value and the age of each
+delivery notes (and rejections in) whose goods have gone out but are not fully invoiced;
+*Inventory Reports › **Purchase Bills Pending*** lists receipt notes (and rejections out) whose supplier
+bills you have not entered. You see the quantity, what is billed, what is pending, the value and the age of each
 line, and the total by age (0–7, 8–30, 31–90, over 90 days).
 
 - Ctrl+4 / Ctrl+5 group the list by party or by item; Enter on a group shows its lines.
@@ -488,7 +490,8 @@ counter so the bill charges IGST.
 
 **Returns and exchanges.** Press **Alt+T** on the counter (or on a POS bill's view), or open
 *Transactions › **POS Return / Exchange***, and enter the bill number. Type the quantity coming back on
-each line (**Alt+R** returns everything), then **Ctrl+A**:
+each line — **Enter** moves to the next line and on to the reason, and Enter on the reason opens the
+refund (**Alt+R** returns everything) — or press **Ctrl+A**:
 
 - **Refund** in cash, to the card or by UPI;
 - **Exchange credit**: the customer takes other goods instead — the counter opens with the credit ready
@@ -673,8 +676,8 @@ principal's godown asks you to confirm first, because that stock is never valued
 ## 6. GST
 
 Everything here needs *F11 › Taxation › **GST*** and lives under **GST** on the Gateway. Reading needs
-the *View GST* permission; marking returns filed, posting the set-off or a challan and saving return
-files need *File GST returns*. The figures come from your books — always compare them with the GST portal
+the *View GST reports* permission; marking returns filed, posting the set-off or a challan and saving return
+files need *Prepare GST filings*. The figures come from your books — always compare them with the GST portal
 before you file, because the portal is the legal record.
 
 ### 6.1 Setting up GST
@@ -1503,6 +1506,12 @@ Owner; nobody can change their own role; there is always at least one active Own
 permissions you hold yourself. Users are never deleted (the edit log refers to them) — **deactivate**
 them instead. Role and permission changes apply from the user's next login.
 
+What a role does not allow is simply not offered: such actions are left out of the action bar (for
+example *Create challan* or *Mark filed* for a user who may view but not file GST or TDS). On a form or
+settings screen the user may only view, **Save** is greyed out with the permission it needs (or not
+offered at all) and a "view only" note shows at the top; **Export** and **Print** stay visible and say
+which permission they need.
+
 *Security › **My Session*** shows who you are and your previous login; **Alt+W** changes your password,
 **Alt+Q** logs out. The same is in the menu behind your initials (top right).
 
@@ -1558,7 +1567,11 @@ Screens never take these keys for themselves — with two kinds of exception: in
 voucher keys and F10 switch the voucher being entered and **F2** is the voucher date, F12 the voucher type
 settings, and **Ctrl+H** switches single entry ↔ Dr / Cr.
 
-### 15.2 The same key means the same thing everywhere
+### 15.2 Keys with one meaning across screens
+
+Wherever a screen offers one of these actions, it is on this key. A screen that has nothing of the kind
+(no voucher to cancel, nothing to share) may use the key for something of its own; such keys are listed
+with the screen (15.4 and the sections above).
 
 | Key | Meaning |
 |---|---|
@@ -1567,7 +1580,7 @@ settings, and **Ctrl+H** switches single entry ↔ Dr / Cr.
 | **Ctrl+Enter** | Next field from a multi-line box |
 | **Ctrl+A** | Accept / save |
 | **Alt+C** | Create a new master from a list or picker (ledger, item, …); on the Balance Sheet and P&L, a comparison column (Tally's "New Column") |
-| **Alt+A** | Alter the selected voucher or master |
+| **Alt+A** | Alter the selected voucher or master; in a tick list with nothing to alter (Print Cheques, E-payment File, Print batch, Reminders) tick / untick everything |
 | **Alt+D** | Delete the master or voucher on screen (**Ctrl+D** also deletes in master lists) |
 | **Ctrl+D** | Remove the line (voucher and grid rows) |
 | **Alt+N**, **Ctrl+N** | Insert a line above |
@@ -1589,8 +1602,12 @@ settings, and **Ctrl+H** switches single entry ↔ Dr / Cr.
 | **Y**, **Ctrl+A** | Yes / confirm in a dialog |
 | **N**, **Esc** | No / cancel in a dialog |
 
-One screen differs: on *Receivables* and *Payables*, **Alt+W** switches to the other side (receivables ↔
-payables) instead of sharing; share a party's statement from *Statement of Account*.
+Screens where one of these keys does something else: **Alt+W** switches to the other side on
+*Receivables* / *Payables* (share a party's statement from *Statement of Account*), shows all customers
+on *Payment Reminders*, cycles the expiry filter on *Batch Summary* and changes your password on *My
+Session*; **Alt+X** discards typed dates on *Bank Reconciliation*, switches A/c Payee on *Print Cheques*,
+cancels a leaf on the *Cheque Leaf Register*, opens GST exceptions on GSTR-1 / GSTR-3B, opens Tally
+migration on *Import from Excel* and clears the filters on the *Edit Log*.
 
 ### 15.3 Voucher entry
 
@@ -1625,7 +1642,7 @@ payables) instead of sharing; share a party's statement from *Statement of Accou
 | Select a Company | **Enter** open · **Alt+C** create · **Alt+R** restore · **Alt+D** delete |
 | Gateway | **↑ ↓** move · **Enter** open · the highlighted letter opens its item |
 | Day Book | **Enter** / **Alt+A** alter · **Alt+Enter** view · **Ctrl+P** print voucher · **Alt+2** duplicate · **Alt+D** delete · **Alt+T** today · **Alt+F2** period |
-| Voucher view | **Alt+A** alter · **Alt+P** print · **Alt+W** share · **Alt+X** cancel · **Alt+D** delete · **Alt+2** duplicate · **Alt+H** history · **Alt+F** attachments · **Alt+K** print cheque · **Alt+T** POS return · **Alt+Y** currency · **Alt+V** / **Alt+O** convert quotation · **Alt+S** quotation status · **Alt+R** make recurring · **Alt+L** pre-close order |
+| Voucher view | **Alt+A** alter · **Alt+P** print · **Alt+W** share · **Alt+X** cancel · **Alt+D** delete · **Alt+2** duplicate · **Alt+H** history · **Alt+F** attachments · **Alt+K** print cheque · **Alt+T** POS return · **Alt+U** TDS / TCS · **Alt+Y** currency · **Alt+V** / **Alt+O** convert quotation · **Alt+S** quotation status · **Alt+R** make recurring · **Alt+L** pre-close order |
 | Print preview | **Alt+P** print · **Alt+E** PDF · **Alt+W** share · **PgUp / PgDn** previous / next · **Alt+T** template · **Alt+S** paper · **Ctrl+1/2/3** copies · **Alt+V** open voucher |
 | Trial Balance | **Alt+F1** · **Alt+L** ledger-wise · **Alt+O** opening · **Alt+T** transactions · **Alt+Z** zero balances · **Alt+X** expand · **Alt+S** scenario · **Alt+B** budget |
 | Balance Sheet / P&L | **Alt+F1** · **Alt+C** compare last year (Balance Sheet) · **Alt+V** vertical / horizontal (P&L) · **Alt+S** scenario · **Alt+B** budget |

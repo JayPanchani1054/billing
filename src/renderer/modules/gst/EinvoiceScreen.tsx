@@ -230,7 +230,7 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
       onClick: () => void generate(),
       disabled: !canFile || makeJson.pending,
       hidden: !pending,
-      hint: canFile ? 'Bulk file for the IRP offline tool' : 'You need the "File GST returns" permission',
+      hint: canFile ? 'Bulk file for the IRP offline tool' : 'You need the "Prepare GST filings" permission',
       group: 'file',
     },
     {
@@ -239,7 +239,7 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
       icon: 'upload',
       onClick: () => void importResponse(),
       disabled: !canFile || importer.pending,
-      hint: canFile ? 'Record IRNs from the IRP response file (JSON or Excel)' : 'You need the "File GST returns" permission',
+      hint: canFile ? 'Record IRNs from the IRP response file (JSON or Excel)' : 'You need the "Prepare GST filings" permission',
       group: 'file',
     },
     {
@@ -249,7 +249,7 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
       onClick: () => markTarget && setCancelTarget(markTarget),
       disabled: !markTarget || !canFile,
       hidden: pending,
-      hint: canFile ? 'After cancelling the IRN on the e-invoice portal' : 'You need the "File GST returns" permission',
+      hint: canFile ? 'After cancelling the IRN on the e-invoice portal' : 'You need the "Prepare GST filings" permission',
       group: 'row',
     },
     {

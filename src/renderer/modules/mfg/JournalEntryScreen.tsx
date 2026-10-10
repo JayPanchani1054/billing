@@ -445,7 +445,7 @@ function JournalEntry({
 
   const formRef = useEnterAdvance<HTMLDivElement>({ enabled: !readOnly, onComplete: () => void submit() });
   const actions: ScreenActionItem[] = [
-    { key: 'Ctrl+A', label: isAlter ? 'Save' : 'Accept', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || save.pending },
+    { key: 'Ctrl+A', label: isAlter ? 'Save' : 'Accept', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || save.pending, hint: readOnly ? `Needs the “${isAlter ? 'Alter' : 'Create'} vouchers” permission` : undefined },
     { key: 'Alt+B', label: 'Fill from BOM', icon: 'layers', onClick: fillFromBom, hidden: !sections.products || !features.manufacturing, group: 'lines' },
     { key: 'Ctrl+D', label: 'Remove line', icon: 'minus', onClick: removeLine, hidden: readOnly, group: 'lines' },
     { key: 'Alt+N, Ctrl+N', label: 'Insert line', icon: 'plus', onClick: insertLine, hidden: readOnly, group: 'lines' },

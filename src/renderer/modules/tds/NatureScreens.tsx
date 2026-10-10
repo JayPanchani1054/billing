@@ -239,8 +239,8 @@ export function NatureFormScreen({ params }: ScreenProps<{ id?: number; kind?: T
       onRetry={() => void existing.refetch()}
       hint="Enter Next field · Alt+R Add rate row · Ctrl+A Save · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: readOnly || save.pending, onClick: accept },
-        { key: 'Alt+R', label: 'Add rate row', icon: 'plus', disabled: readOnly, onClick: addRate },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: readOnly || save.pending, hint: canManage ? undefined : 'Needs the “Manage TDS/TCS setup” permission', onClick: accept },
+        { key: 'Alt+R', label: 'Add rate row', icon: 'plus', hidden: !canManage, disabled: readOnly, onClick: addRate },
       ]}
     >
       <div ref={setRoot}>

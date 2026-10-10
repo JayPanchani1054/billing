@@ -308,7 +308,7 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
       onClick: () => void importFile(),
       disabled: !canFile || busy !== null,
       hidden: !reconTab,
-      hint: canFile ? 'JSON, ZIP or Excel file downloaded from the GST portal' : 'You need the "File GST returns" permission',
+      hint: canFile ? 'JSON, ZIP or Excel file downloaded from the GST portal' : 'You need the "Prepare GST filings" permission',
       group: 'file',
     },
     {
@@ -552,7 +552,7 @@ function ReconPanel(p: ReconPanelProps) {
               Import {label}
             </Button>
           ) : (
-            <span className="bx-gr-meta">Importing needs the “File GST returns” permission.</span>
+            <span className="bx-gr-meta">Importing needs the “Prepare GST filings” permission.</span>
           )
         }
       />

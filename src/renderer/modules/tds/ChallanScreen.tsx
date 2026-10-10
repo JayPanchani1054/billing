@@ -185,8 +185,8 @@ function ChallanForm({ params: p, existing, kinds }: { params: ChallanParams; ex
       dirty={touched}
       hint="Enter Next field · Alt+S Fill suggested amounts · Ctrl+A Save · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: readOnly || save.pending, onClick: accept },
-        { key: 'Alt+S', label: 'Fill suggested amounts', icon: 'calculator', disabled: readOnly || !s, onClick: fillSuggested },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: readOnly || save.pending, hint: !readOnly ? undefined : existing?.cancelled ? 'This challan voucher is cancelled' : `Needs the “${existing ? 'Alter' : 'Create'} vouchers” permission`, onClick: accept },
+        { key: 'Alt+S', label: 'Fill suggested amounts', icon: 'calculator', hidden: readOnly, disabled: readOnly || !s, onClick: fillSuggested },
         { key: 'Alt+Enter', label: 'View voucher', icon: 'eye', hidden: !existing, onClick: () => existing && nav.push('vouchers.view', { id: existing.voucherId }) },
       ]}
       footer={

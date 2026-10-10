@@ -166,3 +166,68 @@ describe('F11 feature gating of the parity-wave modules (real menus and screens)
     }
   });
 });
+
+// ─────────────── Voucher-view panels (ModuleDef.voucherPanels) ───────────────
+
+/** Every module's `voucherPanels: [A, B]` with the panel component's source (top-level function body). */
+function realPanels(): Array<{ where: string; body: string }> {
+  const out: Array<{ where: string; body: string }> = [];
+  for (const dir of fs.readdirSync(modulesDir, { withFileTypes: true })) {
+    const index = path.join(modulesDir, dir.name, 'index.ts');
+    if (!dir.isDirectory() || !fs.existsSync(index)) continue;
+    const text = fs.readFileSync(index, 'utf8');
+    const listed = /voucherPanels:\s*\[([^\]]*)\]/.exec(text);
+    if (!listed) continue;
+    for (const name of listed[1].split(',').map((n) => n.trim()).filter(Boolean)) {
+      const imp = [...text.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/([^']+)'/g)].find((m) => m[1].split(',').some((n) => n.trim() === name));
+      assert.ok(imp, `${dir.name}/index.ts: cannot find the import of ${name}`);
+      const src = fs.readFileSync(path.join(modulesDir, dir.name, imp[2]), 'utf8');
+      const body = src.split(/\n(?=(?:export )?function [A-Z])/).find((p) => new RegExp(`^(?:export )?function ${name}\\b`).test(p.trimStart()));
+      assert.ok(body, `${dir.name}/${imp[2]}: no function ${name}`);
+      out.push({ where: `${dir.name}/${imp[2]}#${name}`, body });
+    }
+  }
+  return out;
+}
+
+describe('F11 feature gating of voucher-view panels (real sources)', () => {
+  const panels = realPanels();
+  const screens = new Map(realModules().flatMap((m) => m.screens.map((s) => [s.id, s] as const)));
+
+  test('the scan finds the panels', () => {
+    assert.ok(panels.length >= 9, `only ${panels.length} panels`);
+    for (const p of ['tds/', 'forex/', 'pos/', 'cheques/', 'documents/']) assert.ok(panels.some((x) => x.where.startsWith(p)), p);
+  });
+
+  test('a rail action that opens a feature screen is gated on that feature (no Alt+key left behind when F11 turns it off)', () => {
+    const bad: string[] = [];
+    let checked = 0;
+    for (const p of panels) {
+      // The panel's own gate: `const on = useFeatures().pos …` / `const applies = on && …`.
+      const gate = [...p.body.matchAll(/const (?:on|applies) = [^\n]*/g)].map((m) => m[0]).join('\n');
+      for (const obj of objects(p.body, /\{\s*key:\s*['A-Z`]/g)) {
+        const target = /nav\.push\('([^']+)'/.exec(obj)?.[1];
+        const s = target ? screens.get(target) : undefined;
+        const needs = s?.feature ? [s.feature] : (s?.anyFeature ?? []);
+        if (needs.length === 0) continue;
+        checked++;
+        const text = `${obj}\n${gate}`;
+        const missing = needs.filter((f) => !new RegExp(`(?:features|useFeatures\\(\\))\\.${f}\\b`).test(text));
+        if (missing.length > 0) bad.push(`${p.where}: ${target} needs ${missing.join(', ')}`);
+      }
+    }
+    assert.ok(checked >= 5, `only ${checked} feature-screen actions found`);
+    assert.deepEqual(bad, []);
+  });
+
+  test('a panel whose keys come from fetched data drops that data while its feature is off (the query cache outlives F11)', () => {
+    const bad: string[] = [];
+    for (const p of panels) {
+      if (!/useScreenActions\(/.test(p.body) || !/enabled:\s*on\b/.test(p.body)) continue;
+      const reads = (p.body.match(/\bq\.data\b/g) ?? []).length;
+      const gated = (p.body.match(/\bon \? q\.data\b/g) ?? []).length;
+      if (reads !== gated) bad.push(p.where);
+    }
+    assert.deepEqual(bad, []);
+  });
+});

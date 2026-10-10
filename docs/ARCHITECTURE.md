@@ -82,7 +82,9 @@ e2e/                   Playwright Electron specs (smoke, first day, every-screen
 ```
 
 Feature modules (same name on both sides): `company security accounts inventory vouchers reports stock
-outstanding gst gstrecon banking data dashboard print documents`.
+outstanding gst gstrecon banking data dashboard print documents tds mfg forex cheques pos attachments`
+(the parity-wave modules have their own sections below; the cheques module's renderer lives in
+`src/renderer/modules/cheques`, its core in `src/core/modules/cheques`).
 
 **Ownership rule:** a module's agent edits only its own `src/core/modules/<m>/`, `src/renderer/modules/<m>/`,
 `src/shared/types/<m>.ts`, and its pre-assigned migration file `src/core/db/migrations/<NNN>_<m>.ts`.
@@ -146,7 +148,7 @@ export const accountsRoutes = {
   silently ignored. Filter inputs whose typo would widen the result (e.g. the edit-log list/export) use
   `v.strictObject` and reject unknown keys in production too. Send only declared keys from the renderer.
 - Route names: `'<module>.<entity>.<action>'`; actions: `list`, `get`, `save` (create/alter by presence of `id`),
-  `delete`, plus domain verbs (`vouchers.cancel`, `gst.gstr1.export`).
+  `delete`, plus domain verbs (`vouchers.cancel`, `gst.gstr1.json`).
 - Handlers return plain JSON-safe data (objects, arrays, strings, numbers, booleans, null, `Uint8Array`).
 - Services take `(ctx: CompanyCtx, …)` or `(db: Db, …)` and are directly unit-testable.
 - Throw `AppError` (`errors.ts`) with a user-readable message: `rule('Voucher is not balanced: Dr ≠ Cr')`.
@@ -227,9 +229,13 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   breadcrumbs show the stack. `nav.push(screenId, params)`, `nav.replace`, `nav.pop`.
 - **Gateway** (home) lists menu sections contributed by modules (`ModuleDef.menu`) + a dashboard panel.
 - **Go To** (`Ctrl+G` / `Alt+G` / `Ctrl+K`) — fuzzy palette over screens, reports, masters and voucher numbers.
-- Global hotkeys: `F2` working date, `Alt+F2` period, `F3` company, `F4` Contra, `F5` Payment, `F6` Receipt,
-  `F7` Journal, `F8` Sales, `F9` Purchase, `Ctrl+F8` Credit Note, `Ctrl+F9` Debit Note, `Alt+C` create master
-  from a picker, `Ctrl+A`/`Ctrl+S` accept/save, `Esc` back, `Alt+P` print, `Alt+E` export, `F11` features, `F12` configure.
+- Global hotkeys (`GLOBAL_SHORTCUTS` in `app/lib/shortcuts.ts`, the single source for the F1 overlay and
+  the User Guide's keyboard reference, which `app/lib/userGuide.test.ts` checks): `F2` working date,
+  `Alt+F2` period, `F3` company, `F4` Contra, `F5` Payment, `F6` Receipt, `F7` Journal, `F8` Sales, `F9`
+  Purchase, `Ctrl+F8` Credit Note, `Ctrl+F9` Debit Note, the other predefined voucher keys (`Alt+F5` …,
+  `Ctrl+F10` Memorandum), `F10` other vouchers, `F11` features, `F12` configure, `F1`/`Ctrl+H` keyboard
+  help, `Ctrl+Q` quit; `Esc` back. Conventions every screen follows (not global): `Alt+C` create master
+  from a picker, `Ctrl+A` accept/save (there is no `Ctrl+S`), `Alt+P` print, `Alt+E` export.
 - Forms: `Enter` advances to the next field (Tally behaviour), `Shift+Enter`/`Shift+Tab` goes back,
   `Ctrl+A` saves. Validation errors appear inline next to the field and focus the first invalid field.
   On push the shell focuses `[data-autofocus]` (else the first field / grid) — also after the screen
@@ -240,10 +246,13 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   detailed/condensed, `Ctrl+1…9` switch view/tab, `Ctrl+F` search box, `Alt+E` export, `Alt+P` print (`Ctrl+P` the highlighted voucher in the Day Book).
   Screens never bind the global keys (`reservedGlobalKeys()`), e.g. `Alt+F5` = Sales Order. Labels use
   Tally verbs ("Create …", "Alter", "Delete").
+  A screen with nothing of a convention's kind (no voucher to cancel, nothing to share) may give that
+  key a meaning of its own; every such use of `Alt+W` / `Alt+X` is named in USER_GUIDE §15.2, and
+  `app/lib/userGuide.test.ts` fails on an undocumented one.
   A screen that other modules extend (voucher view + `voucherPanels`, voucher entry + its TDS / forex
   panels, ledger / item forms + attachments Alt+F) is one key space: no key twice (checked from source).
 - Permissions in the UI: an action the role forbids is hidden; a view-only form keeps Save disabled with
-  the reason and a "view only" notice; Export / Print stay visible, disabled with the permission they
+  the reason (the permission's Users & Roles label) or leaves it out, and shows a "view only" notice; Export / Print stay visible, disabled with the permission they
   need. The core refuses regardless. F11 off ⇒ no menu item, Go To entry, voucher-panel key or Gateway
   notice of that feature.
 - Pickers (ledger/item/group selection) are type-ahead lists that show balances/stock and offer "+ Create"
@@ -481,7 +490,8 @@ BOM explosion, s.143 / rule 45 as effective-dated data). Migration **210** (bloc
 
 Owner: `src/core/modules/gst` (hook.ts, advances.ts, bookAdjustments.ts, filings.ts, setoffPost.ts,
 eledgers.ts, boeRecon.ts, composition.ts, statLedgers.ts, schemas.ts), `src/renderer/modules/gst`,
-`src/shared/types/gst-plus.ts`, migration **200** (block 200–209). Details:
+`src/shared/types/gst-plus.ts`, migration **200** (block 200–209; the final wave's `gst_3b_changes` and
+`gst_rule37_links` are in migration **240**). Details:
 `src/core/modules/gst/README.md` §11–§17.
 
 - **Voucher field** `VoucherInput.gstDetails` (extend-only; `VoucherGstDetailsInput`): `advance`
@@ -516,7 +526,7 @@ eledgers.ts, boeRecon.ts, composition.ts, statLedgers.ts, schemas.ts), `src/rend
   the filed period keeps its figures (`gstr3bChangeCorrections` in `computeGstr3b`); outward documents of
   a filed GSTR-1 period stay with the GSTR-1 amendments. Route `gst.gstr3b.changes`, screen
   `gst.gstr3b.changes`.
-- **Rule 37** (final wave, `rule37.ts`, `gst_rule37_links`): `gst.rule37.report` (purchases unpaid after
+- **Rule 37** (final wave, `rule37.ts`, migration 240 `gst_rule37_links`): `gst.rule37.report` (purchases unpaid after
   180 days, from their own bill's bill-wise balance; credit due / reversed / to reverse / to reclaim)
   and `gst.rule37.post` (gst.file: one stat-adjustment Journal `itc_reversal_r37` / `itc_reclaim` with
   `adjustment.rule37[]`); screen `gst.rule37`.
@@ -601,7 +611,8 @@ and `src/renderer/modules/cheques`; Electron main `src/main/printPage.ts` (paper
 - **MRP**: `stock_items.mrp` → `PrintLine.mrp`; `PrintVoucherData.mrpSummary` (Σ MRP × qty, savings
   vs value charged incl. GST); outward sales documents only; price above MRP is a non-blocking
   print warning (Legal Metrology (Packaged Commodities) Rules, 2011).
-- **Sharing** (Alt+W: voucher view, print preview, Statement of Account, outstanding): core
+- **Sharing** (Alt+W: voucher view, print preview, Statement of Account — on Receivables / Payables
+  Alt+W switches side instead): core
   `print.share.context` (recipient from party ledger e-mail / mobile, texts from `config.share`
   templates) and `print.share.log` (data.export, edit log `export`) **before** the native action.
   `share.email`: main renders the PDF, saves it under `<data>/companies/<id>/exports/shared` (path

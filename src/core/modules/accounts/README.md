@@ -203,8 +203,9 @@ The list returns each currency's latest rate from one query.
 
 - Dates before a ledger's first GST history row use the master (latest) values, the same precedence as the
   posting engine; keep the first row at the books beginning (the default) to avoid surprises.
-- Party ledgers cannot hold bank details (spec: bank fields only under Bank Accounts / Bank OD A/c), so supplier
-  e-payment details need a later addition.
+- Party ledgers hold no bank fields themselves (bank fields only under Bank Accounts / Bank OD A/c); a payee's
+  bank account for cheques and e-payments is kept by the cheques module (Masters › Payee Bank Details,
+  `payee_bank_details`, src/core/modules/cheques/README.md).
 - GST registration rules (GSTIN ↔ type ↔ state) also apply when the company's GST feature is off.
 - Ledger delete finds other modules' references only through foreign keys; ids kept inside JSON settings of
   other modules (other than voucher-type config and the F12 invoice bank) are not seen.

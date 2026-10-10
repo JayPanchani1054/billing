@@ -83,7 +83,7 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
       primary: true,
       onClick: () => void exportJson(),
       disabled: !summary || busy || !canFile,
-      hint: canFile ? 'Save the file to upload on the GST portal' : 'You need the "File GST returns" permission',
+      hint: canFile ? 'Save the file to upload on the GST portal' : 'You need the "Prepare GST filings" permission',
       group: 'file',
     },
     { key: 'Alt+X', label: 'GST exceptions', icon: 'alert', onClick: () => summary && nav.push('gst.exceptions', { from: summary.period.from, to: summary.period.to }), disabled: !summary, group: 'go' },

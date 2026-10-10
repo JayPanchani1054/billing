@@ -15,7 +15,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { ChequeLayout, ChequeLayoutSpec, ChequePreset } from '../../../shared/types/cheques.ts';
-import { fieldErrorsOf, native, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useCompany, useConfirm, useNav, userMessage, type ScreenProps } from '../../app/index.ts';
+import { fieldErrorsOf, native, ReadOnlyNotice, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useCompany, useConfirm, useNav, userMessage, type ScreenProps } from '../../app/index.ts';
 import { Badge, Banner, Button, DataTable, EmptyState, Field, FieldGroup, Inline, NumberInput, SegmentedControl, Select, Stack, Switch, TextInput, useEnterAdvance, useToast, type Column } from '../../ui/index.ts';
 import { ChequeSheets, ChequesOff, useChequesOn } from './components.tsx';
 import { buildChequeHtml, calibrationMarks, chequeMarks, chequePage, chequePagesMarkup } from './lib/cheque.ts';
@@ -202,6 +202,7 @@ function LayoutForm({ saved, presets, preset }: { saved: ChequeLayout | null; pr
       <Stack gap={5}>
         <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Cheque layout">
           <Stack gap={5}>
+            {readOnly ? <ReadOnlyNotice what="these layout settings" /> : null}
             <FieldGroup legend="Layout" columns={3}>
               <Field label="Name" required error={errors.name}>
                 <TextInput data-autofocus="" value={name} maxLength={80} readOnly={readOnly} onChange={(e) => setName(e.target.value)} />

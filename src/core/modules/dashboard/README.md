@@ -119,8 +119,8 @@ node --test "src/core/modules/dashboard/**/*.test.ts" "src/renderer/modules/dash
   month since the books beginning — ≈ 0.8 s cold on a 60,000-voucher company) and the stock valuation
   replay for the gross profit (now shared with the P&L through the inventory memo). Getting under
   200 ms needs an aggregate-only outstanding entry point (buckets in SQL) and a memoised GST chain. The core
-  runs on Electron's main process, so a cold call blocks other API calls for that long (the renderer
-  keeps the previous figures on screen meanwhile).
+  runs on a worker thread (docs/BUILD.md §3), so the window stays responsive, but a cold call holds the
+  company's other API calls for that long (the renderer keeps the previous figures on screen meanwhile).
 - The Receivables / Payables screens take no `asOf` parameter (they use the period end): when the
   period runs past the working date (e.g. the whole year), the dashboard shows balances as on the
   working date while the drill-down shows them as on the period end.

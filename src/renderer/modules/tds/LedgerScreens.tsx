@@ -214,7 +214,7 @@ export function LedgerFormScreen({ params }: ScreenProps<{ ledgerId: number }>) 
       onRetry={() => void q.refetch()}
       hint="Enter Next field · Ctrl+A Save · Alt+M Ledger master · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: readOnly || save.pending || !d, onClick: accept },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: readOnly || save.pending || !d, hint: readOnly ? 'Needs the “Manage TDS/TCS setup” permission' : undefined, onClick: accept },
         { key: 'Alt+M', label: 'Ledger master', icon: 'ledger', onClick: () => nav.push('accounts.ledger.form', { id: params.ledgerId }) },
       ]}
     >

@@ -95,7 +95,7 @@ function Settings() {
       onRetry={() => void ctxQ.refetch()}
       hint="Enter Next field · Ctrl+A Save · Alt+C Create tender mode · Alt+D Delete mode · Alt+B POS counter · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canManage || !dirty || save.pending, hint: canManage ? undefined : 'Needs the “Manage company” permission', onClick: () => void submit() },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canManage || !dirty || save.pending, hint: canManage ? undefined : 'Needs the “Change company settings” permission', onClick: () => void submit() },
         { key: 'Alt+C', label: 'Create tender mode', icon: 'plus', hidden: !canManage, disabled: !canManage, onClick: () => setEditing('new'), group: 'modes' },
         { key: 'Alt+D', label: 'Delete mode', icon: 'trash', hidden: !canManage, disabled: !canManage || !current, onClick: () => void remove(), group: 'modes' },
         { key: 'Alt+B', label: 'POS counter', icon: 'cart', onClick: () => nav.push('pos.counter'), group: 'go' },
@@ -103,7 +103,7 @@ function Settings() {
     >
       {s && ctx ? (
         <Stack gap={4}>
-          {!canManage ? <Banner tone="info">You can view these settings; changing them needs the “Manage company” permission.</Banner> : null}
+          {!canManage ? <Banner tone="info">You can view these settings; changing them needs the “Change company settings” permission.</Banner> : null}
           <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
             <Stack gap={3}>
               <Field label="POS voucher type" error={save.fieldErrors.saleVoucherTypeId} hint="Bills of the counter use this Sales type (its own number series, e.g. POS/1). More types: Masters › Voucher Types › Use as POS invoice.">

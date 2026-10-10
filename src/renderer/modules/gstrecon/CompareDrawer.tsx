@@ -149,7 +149,7 @@ function CompareDrawerBody({ row, period, source, onClose, onRowChange, onFollow
             {row.manual ? <Badge tone="brand">Linked manually</Badge> : null}
           </Inline>
           <p className="bx-gr-help">{rowExplanation(row, source)}</p>
-          {!canFile ? <Banner tone="info">You can view this reconciliation. Linking, accepting and ignoring need the “File GST returns” permission.</Banner> : null}
+          {!canFile ? <Banner tone="info">You can view this reconciliation. Linking, accepting and ignoring need the “Prepare GST filings” permission.</Banner> : null}
         </Stack>
 
         <table className="bx-gr-compare" aria-label="Portal and books side by side">

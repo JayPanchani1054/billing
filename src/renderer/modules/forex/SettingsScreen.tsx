@@ -76,13 +76,13 @@ export function SettingsScreen() {
       onRetry={() => void q.refetch()}
       hint="Enter Next field · Ctrl+A Save · Alt+R Rates of exchange · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canSave || save.pending, hint: canSave ? undefined : 'Needs the “Manage company” permission', onClick: () => void submit() },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, disabled: !canSave || save.pending, hint: canSave ? undefined : 'Needs the “Change company settings” permission', onClick: () => void submit() },
         { key: 'Alt+R', label: 'Rates of exchange', icon: 'rupee', onClick: () => nav.push('accounts.currencies'), group: 'details' },
       ]}
     >
       <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
         <Stack gap={3}>
-          {!canSave ? <Banner tone="info">You can view these settings; changing them needs the “Manage company” permission.</Banner> : null}
+          {!canSave ? <Banner tone="info">You can view these settings; changing them needs the “Change company settings” permission.</Banner> : null}
           <Field
             label="Realised exchange gain / loss ledger"
             htmlFor="fx-realised"
