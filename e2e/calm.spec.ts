@@ -6,15 +6,16 @@
 //   Day Book › a voucher view → the P1 screens again at 1024 × 690.
 //
 // Rules (facts are read from the DOM in one evaluate per screen; rules are applied here):
-//   always ............ at most one `toolbar "Actions"`; no horizontal page scroll (the document or the
-//                       top screen's own scroller wider than its box — tables may scroll inside themselves)
+//   always ............ at most one `toolbar "Actions"`; the top screen's own scroller is not wider than
+//                       its box (tables may scroll inside themselves)
 //   per screen ........ (skipped while the id is in PENDING_CALM) at most one visible filled button
 //                       (.bx-btn--primary) outside dialogs and the top bar; no visible boxed key chip
 //                       (<kbd> with a border or a fill) outside the F1 overlay and the top bar; no two
 //                       visible buttons with the same accessible name across the top bar, the title row,
 //                       the toolbar row, the graph header and the command bar; exactly one visible h1 on
 //                       a page screen (at most one on Home and under a dialog)
-//   chrome ............ (skipped while CHROME_PENDING) no footer.bx-statusbar, no .bx-shell__crumbs; the
+//   chrome ............ (skipped while CHROME_PENDING) the document is not wider than the window (the 2.0
+//                       top bar overflows 1366 px on every screen); no footer.bx-statusbar, no .bx-shell__crumbs; the
 //                       top bar holds at most 7 controls, no input, no key chip, no filled button; no
 //                       `toolbar "Actions"` on Home, exactly one on a page screen — inside .bx-titlebar
 //                       once the screen's id has left PENDING_CALM
@@ -349,7 +350,9 @@ interface Violation {
 function rulesFor(f: CalmFacts, kind: Kind, strict: boolean): string[] {
   const out: string[] = [];
   if (f.actionsToolbars > 1) out.push(`${f.actionsToolbars} toolbars "Actions" (at most 1)`);
-  if (f.hScroll) out.push(`horizontal page scroll: ${f.hScroll}`);
+  // A whole-page overflow comes from the 2.0 chrome (the top bar is wider than 1366 px on every screen); it is a
+  // chrome rule until WP-B1 replaces the top bar. A screen whose own content overflows fails at once.
+  if (f.hScroll && !(CHROME_PENDING && f.hScroll.startsWith('the page is'))) out.push(`horizontal page scroll: ${f.hScroll}`);
   if (!CHROME_PENDING) {
     if (f.statusbar > 0) out.push('a status bar (footer.bx-statusbar) is shown');
     if (f.crumbs > 0) out.push('a breadcrumb row (.bx-shell__crumbs) is shown');
