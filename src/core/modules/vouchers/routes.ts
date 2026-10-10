@@ -17,6 +17,7 @@ import { VoucherTdsInputSchema } from '../tds/schemas.ts';
 import { VoucherGstDetailsSchema } from '../gst/schemas.ts';
 import { StockJournalExtSchema } from '../mfg/schemas.ts';
 import { VoucherForexSchema, forexAmountSchema, forexMagnitudeSchema, rateSchema } from '../forex/schemas.ts';
+import { VoucherPosSchema } from '../pos/schemas.ts';
 import { pendingBills } from './bills.ts';
 import { entryContext, getVoucher, listVouchers, MAX_LIST_LIMIT, partyContext, trackingRefs } from './queries.ts';
 import {
@@ -187,6 +188,8 @@ export const VoucherInputSchema = v.object({
   stockJournal: StockJournalExtSchema.optional(),
   // Document currency + rate of exchange (forex module's voucher hook, F11 › Multiple currencies).
   forex: VoucherForexSchema.optional(),
+  // POS bill / return: split tender, cash tendered, bill returned (pos module's voucher hook).
+  posBill: VoucherPosSchema.optional(),
 }) as unknown as Schema<VoucherInput>;
 
 const ListSchema = v.object({

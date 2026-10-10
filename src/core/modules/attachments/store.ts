@@ -110,6 +110,9 @@ function contains(b: Uint8Array, needle: readonly number[]): boolean {
   return Buffer.from(b.buffer, b.byteOffset, b.byteLength).indexOf(Buffer.from(needle)) >= 0;
 }
 
+/** Markers of XML that a browser or Office would run or render as a document rather than show as data. */
+const ACTIVE_XML = /<\?xml-stylesheet|<\?mso-application|<script[\s>/]|<!ENTITY|xmlns(?::[\w.-]+)?\s*=\s*["']https?:\/\/www\.w3\.org\/1999\/xhtml["']|xmlns(?::[\w.-]+)?\s*=\s*["']https?:\/\/www\.w3\.org\/2000\/svg["']|urn:schemas-microsoft-com:office/i;
+
 /**
  * Does the content match its declared kind? Returns a reason when it does not (shown to the user),
  * else null. Programs are refused whatever their name ('MZ' / ELF / Mach-O / '#!'); Office files with
@@ -146,10 +149,17 @@ export function contentProblem(type: AttachmentType, b: Uint8Array): string | nu
       return contains(b, utf16('_VBA_PROJECT')) ? 'This document contains macros. Save it without macros (e.g. as .xlsx / .docx, or as PDF) and attach that.' : null;
     case 'text': {
       if (b.includes(0)) return bad;
+      let text: string;
       try {
-        new TextDecoder('utf-8', { fatal: true }).decode(b);
+        text = new TextDecoder('utf-8', { fatal: true }).decode(b);
       } catch {
         return `The file is not UTF-8 text. Save it as UTF-8 (or as PDF) and attach it.`;
+      }
+      // An XML file opens in a browser or Office on most computers: one that is really a web page
+      // (XHTML, scripts, a style sheet that turns it into one) or an Office document that may carry
+      // macros could run code when opened from the books.
+      if (type.ext === 'xml' && ACTIVE_XML.test(text)) {
+        return 'This XML file contains web-page or Office content (scripts, style sheets or an Office document) that could run when opened. Attach it as PDF, or save the plain data again.';
       }
       return null;
     }

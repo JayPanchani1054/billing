@@ -62,6 +62,7 @@ import { loadCompanyEssentials, loadVoucherRow, normalizeInput, parseJson, parse
 import { aboveMrpWarning, complianceWarnings } from './compliance.ts';
 import { baseDirection, copyLabels, documentTitle, isSalesDocument, partyLabels, type CompanyGstStatus } from './titles.ts';
 import { forexPrintBlock } from '../forex/print.ts';
+import { posPrintBlock } from '../pos/print.ts';
 
 // ───────────────────────────── Shared context (one per request / batch) ─────────────────────────────
 
@@ -1177,6 +1178,9 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
   // (forex group) Foreign-currency amounts, rate and INR equivalents of an export / import document.
   const forex = forexPrintBlock(db, data);
   if (forex) data.forex = forex;
+  // (pos group) Tenders, cash tendered and change of a POS bill / return (also drops a "Scan to pay" QR when paid).
+  const posBlock = posPrintBlock(db, data);
+  if (posBlock) data.pos = posBlock;
   if (cancelled) data.warnings.unshift(`This voucher was cancelled${data.status.cancelReason ? ` (${data.status.cancelReason})` : ''}; it prints marked CANCELLED.`);
   else if (data.status.optional) data.warnings.unshift('This is an optional voucher (not in the books); it prints marked OPTIONAL.');
   data.warnings.push(

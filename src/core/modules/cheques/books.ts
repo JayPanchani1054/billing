@@ -13,7 +13,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { notFound, rule, validation } from '../../lib/errors.ts';
 import { bankLedgers, requireBankLedger } from '../banking/common.ts';
-import { chequeNumber, issuedCheques, leafMarks, padCheque, requirePermission, spoiltByPrint } from './common.ts';
+import { chequeNumber, issuedCheques, issuedLeaves, leafMarks, padCheque, requirePermission, spoiltByPrint } from './common.ts';
 
 interface BookRow {
   id: number;
@@ -30,7 +30,7 @@ const BOOK_COLS = 'id, guid, bank_ledger_id, name, from_no, to_no, digits, is_ac
 
 /** Numbers of a bank that are not free: issued (minus `excludeVoucherId`), marked, spoilt by a print. */
 export function usedLeaves(db: Db, bankLedgerId: number, excludeVoucherId: number | null = null): { issued: Set<number>; cancelled: Set<number> } {
-  const all = issuedCheques(db, bankLedgerId);
+  const all = issuedLeaves(db, bankLedgerId);
   const issued = new Set(all.filter((c) => c.voucherId !== excludeVoucherId).map((c) => c.chequeNo));
   const cancelled = new Set<number>(leafMarks(db, bankLedgerId).keys());
   for (const n of spoiltByPrint(db, bankLedgerId, all).keys()) cancelled.add(n);

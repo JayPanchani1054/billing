@@ -7,12 +7,12 @@
  * is either the leaf itself (cheque printers / custom paper) or an A4 sheet with the leaf at its top-left
  * or top-centre; the layout's calibration offsets shift everything.
  */
-import type { ChequeLayoutSpec, ChequePoint, ChequePrintItem } from '../../../../shared/types/cheques.ts';
+import { CHEQUE_PT_MM, CHEQUE_SIGN_LINE_GAP_MM, type ChequeLayoutSpec, type ChequePoint, type ChequePrintItem } from '../../../../shared/types/cheques.ts';
 import type { CustomPageMm, NativePageSize } from '../../../../shared/bridge.ts';
 import { escapeHtml } from '../../../app/lib/exportFormat.ts';
 import { assertPrintableMarkup } from '../../print/lib/document.ts';
 
-export const PT_MM = 25.4 / 72;
+export const PT_MM = CHEQUE_PT_MM;
 /** Average glyph width of the print font as a share of the font size (Segoe UI / Arial, mixed case). */
 const AVG_GLYPH = 0.5;
 
@@ -125,7 +125,7 @@ export function chequeMarks(item: Pick<ChequePrintItem, 'dateDigits' | 'payee' |
   }
   const s = at(spec, page, spec.signatory);
   marks.push({ key: 'for', kind: 'text', text: `For ${item.companyName}`, x: s.x, y: s.y, w: spec.signatory.w, fontPt: fitFontPt(`For ${item.companyName}`, spec.signatory.w, Math.max(7, f - 2)), bold: true, align: 'center' });
-  marks.push({ key: 'sign', kind: 'text', text: item.signatory, x: s.x, y: round1(s.y + 10), w: spec.signatory.w, fontPt: Math.max(7, f - 3), align: 'center' });
+  marks.push({ key: 'sign', kind: 'text', text: item.signatory, x: s.x, y: round1(s.y + CHEQUE_SIGN_LINE_GAP_MM), w: spec.signatory.w, fontPt: Math.max(7, f - 3), align: 'center' });
   return { marks, warnings };
 }
 
@@ -200,4 +200,43 @@ export function selectedCheques<T extends { key: string }>(items: readonly T[], 
 export function mixedLayouts(items: ReadonlyArray<{ layoutName: string; spec: ChequeLayoutSpec }>): string[] {
   const names = [...new Set(items.map((i) => `${i.layoutName}|${JSON.stringify(i.spec)}`))];
   return names.length > 1 ? names.map((n) => n.split('|')[0]) : [];
+}
+
+// ───────────────────────────── Markup without the DOM ─────────────────────────────
+
+/** Inline style of one mark: the same box the preview (components.tsx › MarkView) draws. */
+export function markStyle(m: ChequeMark): string {
+  const parts = [`left:${m.x}mm`, `top:${m.y}mm`, `font-size:${m.fontPt}pt`];
+  if (m.kind === 'rule') {
+    if (m.w === 0) parts.push(`height:${m.h ?? 0}mm`);
+    else parts.push(`width:${m.w ?? 0}mm`);
+  } else if (m.kind === 'box') {
+    if (m.w !== undefined) parts.push(`width:${m.w}mm`);
+    parts.push(`height:${m.h ?? 4}mm`);
+  } else if (m.kind === 'crossing') {
+    parts.push(`width:${m.w ?? 30}mm`);
+  } else if (m.w !== undefined) {
+    parts.push(`width:${m.w}mm`);
+  }
+  return parts.join(';');
+}
+
+/** Class list of one mark. */
+export function markClass(m: ChequeMark): string {
+  if (m.kind === 'rule') return 'cq-m cq-rule';
+  if (m.kind === 'box') return 'cq-m cq-box';
+  if (m.kind === 'crossing') return 'cq-m cq-cross cq-b';
+  return ['cq-m', m.bold ? 'cq-b' : '', m.align === 'center' ? 'cq-c' : ''].filter(Boolean).join(' ');
+}
+
+/**
+ * The `.cq-docs` markup of some pages, every text HTML-escaped — for printing a page the screen does
+ * not show (the calibration sheet from the layout form). Same structure as <ChequeSheets>.
+ */
+export function chequePagesMarkup(pages: ReadonlyArray<{ marks: readonly ChequeMark[] }>, spec: ChequeLayoutSpec): string {
+  const page = chequePage(spec);
+  const body = pages
+    .map((p) => `<div class="cq-page" style="width:${page.widthMm}mm;height:${page.heightMm}mm">${p.marks.map((m) => `<div class="${markClass(m)}" style="${markStyle(m)}">${escapeHtml(m.text)}</div>`).join('')}</div>`)
+    .join('');
+  return `<div class="cq-docs">${body}</div>`;
 }

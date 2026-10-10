@@ -24,6 +24,7 @@ import { migration150 } from './150_indexes.ts';
 import { migration160 } from './160_tds.ts';
 import { migration161 } from './161_tds_advances.ts';
 import { migration170 } from './170_cheques.ts';
+import { migration180 } from './180_pos.ts';
 import { migration190 } from './190_documents.ts';
 import { migration191 } from './191_recurring.ts';
 import { migration192 } from './192_order_closures.ts';
@@ -61,6 +62,7 @@ export const migrations: readonly Migration[] = [
   migration160,
   migration161,
   migration170,
+  migration180,
   migration190,
   migration191,
   migration192,

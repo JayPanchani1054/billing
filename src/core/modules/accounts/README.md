@@ -110,6 +110,12 @@ or nature change is refused when ledgers below would hold details their new grou
 whose nature changes with a move gets its own audit row. Delete: not predefined, no sub-groups, no ledgers.
 
 **Ledgers.**
+- **Aliases (dataplus, migration 220):** `aliases: string[]` on save is the complete list (replaced as a
+  whole when given; trimmed, blanks / repeats / the own name dropped; at most 20, 200 characters each): the
+  first is stored in the `alias` column (shown everywhere it always was), the rest in `ledger_aliases` in
+  order. Every alias is unique (case-insensitive) across all ledger names and aliases, and ledgers share
+  one name space with groups; pickers, Go To, lists, the Excel import / export (the "Alias" column, several
+  separated by `;`) and the Tally import / export use all of them (`src/core/lib/masterAliases.ts`).
 - Name required; name and alias unique among ledgers, and neither may equal another ledger's name/alias **or a
   group's name/alias** (checked for new/changed values, so an old clash never blocks unrelated edits).
 - Defaults on create (fields not given): parties keep bills when F11 bill-wise is on; ledgers under Sales/Purchase
@@ -150,6 +156,10 @@ whose nature changes with a move gets its own audit row. Delete: not predefined,
 - Period lock: when the books are locked up to a date on/after the books beginning, entering or changing an
   opening balance or opening bills fails with LOCKED (they belong to the locked period).
 - Credit limit ≥ 0, credit days 0–3650, interest rate 0–100 (required when interest is on); currency exists.
+- (forex group) The currency cannot change once vouchers record the ledger in its foreign currency, or
+  while its opening balance / opening bills are entered in the currency (Opening Balance in Currency).
+  Re-saving opening bills keeps each bill's foreign amount (same name and Dr/Cr side); moving the rupee
+  opening balance to the other side or to zero clears the opening balance in the currency.
 - Delete refused (BUSINESS_RULE, `details = LedgerUsage + otherReferences`) for predefined ledgers, ledgers used
   in vouchers (count in the message, suggests deactivating), bank statement lines, voucher-type defaults, the F12
   invoice bank, opening bills, a non-zero opening balance, or rows of any other module's table that refer to it
@@ -161,9 +171,16 @@ base type, active flag; never deleted. A custom type changes base type only whil
 based on it). Numbering: method automatic | automatic_override | manual | none; prefix/suffix ≤ 16; start ≥ 1;
 width 0–9; restart yearly | monthly | never. For sales / credit note / debit note of a GST company the number
 (prefix + digits + suffix) must fit 16 characters and use only A–Z a–z 0–9 / -, numbering cannot be 'none', and
-automatic numbering cannot restart monthly (the prefix is fixed text, so numbers would repeat within the
-financial year — GSTR-1 rejects duplicates); otherwise these are `numberingWarnings` (also: headroom < 6 digits,
-manual numbering). When a custom type changes base type, the types based on it follow, each with an audit row.
+automatic numbering cannot restart monthly unless every prefix / suffix variant carries {MM} or {MMM} (else
+numbers would repeat within the financial year — GSTR-1 rejects duplicates); otherwise these are
+`numberingWarnings` (also: headroom < 6 digits, manual numbering). **Tokens and dated rows (dataplus,
+`src/shared/numbering.ts`, migration 221):** prefix / suffix may hold {FY} ('26-27'), {FYYYYY} ('2026-27'),
+{YY}, {MM}, {MMM} — expanded with the voucher date when the number is allocated; the 16-character / allowed
+characters check uses each token's longest expansion. `numbering.prefixRows` / `suffixRows`
+(`[{applicableFrom, text|null}]`, stored in `voucher_type_numbering_rows`, replaced as a whole when given)
+change the prefix / suffix for vouchers dated on or after a date (TallyPrime "Applicable from"); the type's
+own prefix / suffix applies before the first row. Existing numbers are never changed; with no tokens and no
+rows numbering behaves exactly as before. When a custom type changes base type, the types based on it follow, each with an audit row.
 Changing numbering never renumbers existing vouchers and does not touch `voucher_counters`. Config is a
 key-level patch (null removes a key, unknown keys written by other modules are kept); changed keys are
 validated: `defaultLedgerId` under Sales Accounts (sales-side types) / Purchase Accounts (purchase-side), not
@@ -189,4 +206,12 @@ The list returns each currency's latest rate from one query.
 - GST registration rules (GSTIN ↔ type ↔ state) also apply when the company's GST feature is off.
 - Ledger delete finds other modules' references only through foreign keys; ids kept inside JSON settings of
   other modules (other than voucher-type config and the F12 invoice bank) are not seen.
-- Voucher-number prefixes are fixed text (no month/year tokens), hence the monthly-restart rule for GST documents.
+- Numbering tokens cover the financial year, calendar year and month; there is no day token or free date
+  format (Tally's own set is similar). Restart periods remain yearly / monthly / never (no quarterly).
+- A voucher keeps its number when altered — also when its new date falls in another month or financial
+  year, so `INV/25-26/0100` moved to 1-Apr-2026 keeps the 25-26 label (as in Tally). Renumber it by hand
+  (automatic-with-override types) if the old label must not stay.
+- The 16-character / allowed-character rule (CGST Rule 46(b)) is enforced on the numbering of GST voucher
+  types; a number TYPED on a sales invoice / note is checked when the voucher is saved as a confirm-level
+  warning (it can be acknowledged — e.g. numbers taken over from an older system), and GSTR-1 / e-invoice
+  checks list it again.

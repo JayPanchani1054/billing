@@ -43,7 +43,16 @@ interface ForeignLedger {
   openingForex: number;
   debtor: boolean;
   creditor: boolean;
+  /**
+   * A monetary item (AS 11 para 7 / Ind AS 21 para 8: money held and assets / liabilities to be
+   * received or paid in a fixed number of units of currency): Balance Sheet ledgers outside the
+   * non-monetary groups below. Only these are restated at the closing rate.
+   */
+  monetary: boolean;
 }
+
+/** Groups whose ledgers are non-monetary (carried at the historical rate, never revalued). */
+const NON_MONETARY_GROUPS = new Set(['FIXED_ASSETS', 'INVESTMENTS', 'STOCK_IN_HAND', 'CAPITAL_ACCOUNT', 'MISC_EXPENSES_ASSET']);
 
 function foreignLedgers(db: Db, filter: { ledgerId?: number; currencyId?: number }): ForeignLedger[] {
   const billWiseOn = getFeatures(db).billWise;
@@ -55,6 +64,7 @@ function foreignLedgers(db: Db, filter: { ledgerId?: number; currencyId?: number
     opening_balance: number;
     opening_forex_amount: number | null;
     group_codes: string | null;
+    nature: string;
   }>(
     `WITH RECURSIVE chain(ledger_id, group_id) AS (
          SELECT l.id, l.group_id FROM ledgers l JOIN currencies c ON c.id = l.currency_id WHERE c.is_base = 0
@@ -62,6 +72,7 @@ function foreignLedgers(db: Db, filter: { ledgerId?: number; currencyId?: number
          SELECT chain.ledger_id, g.parent_id FROM chain JOIN groups g ON g.id = chain.group_id WHERE g.parent_id IS NOT NULL
        )
      SELECT l.id, l.name, l.currency_id, l.maintain_bill_wise, l.opening_balance, l.opening_forex_amount,
+            (SELECT g.nature FROM groups g WHERE g.id = l.group_id) AS nature,
             (SELECT group_concat(g.reserved_code) FROM chain JOIN groups g ON g.id = chain.group_id
               WHERE chain.ledger_id = l.id AND g.reserved_code IS NOT NULL) AS group_codes
        FROM ledgers l JOIN currencies c ON c.id = l.currency_id
@@ -81,6 +92,7 @@ function foreignLedgers(db: Db, filter: { ledgerId?: number; currencyId?: number
         openingForex: r.opening_forex_amount ?? 0,
         debtor: codes.has('SUNDRY_DEBTORS'),
         creditor: codes.has('SUNDRY_CREDITORS'),
+        monetary: (r.nature === 'assets' || r.nature === 'liabilities') && ![...codes].some((c) => NON_MONETARY_GROUPS.has(c)),
       };
     });
 }
@@ -95,17 +107,23 @@ function balanceAsOf(db: Db, l: ForeignLedger, asOf: string, today: string, dp: 
   return { inr: l.openingInr + r.inr, forex: roundForex(l.openingForex + r.fx, dp) };
 }
 
-function closingRates(db: Db, asOf: string, type: ForexRateType, overrides: ReadonlyArray<{ currencyId: number; rate: number }> = []): Map<number, { rate: number | null; date: string | null; overridden: boolean }> {
-  const out = new Map<number, { rate: number | null; date: string | null; overridden: boolean }>();
+interface ClosingRate {
+  rate: number | null;
+  date: string | null;
+  overridden: boolean;
+  masterRate: number | null;
+  masterDate: string | null;
+}
+
+function closingRates(db: Db, asOf: string, type: ForexRateType, overrides: ReadonlyArray<{ currencyId: number; rate: number }> = []): Map<number, ClosingRate> {
+  const out = new Map<number, ClosingRate>();
   for (const c of allCurrencies(db).values()) {
     if (c.isBase) continue;
-    const o = overrides.find((x) => x.currencyId === c.id);
-    if (o && o.rate > 0) {
-      out.set(c.id, { rate: o.rate, date: asOf, overridden: true });
-      continue;
-    }
     const { rate, row } = rateOn(db, c.id, asOf, type);
-    out.set(c.id, { rate, date: row?.date ?? null, overridden: false });
+    const master = { masterRate: rate, masterDate: row?.date ?? null };
+    const o = overrides.find((x) => x.currencyId === c.id);
+    if (o && o.rate > 0) out.set(c.id, { rate: o.rate, date: asOf, overridden: true, ...master });
+    else out.set(c.id, { rate, date: row?.date ?? null, overridden: false, ...master });
   }
   return out;
 }
@@ -284,6 +302,7 @@ export function forexRevaluation(db: Db, today: string, input: ForexRevaluationI
   const lines: ForexRevaluationLine[] = [];
   const missing = new Set<number>();
   for (const l of foreignLedgers(db, {})) {
+    if (!l.monetary) continue;
     const cur = currencies.get(l.currencyId) as ForexCurrency;
     const dp = cur.decimalPlaces;
     const bal = balanceAsOf(db, l, input.asOf, today, dp);
@@ -318,7 +337,7 @@ export function forexRevaluation(db: Db, today: string, input: ForexRevaluationI
     rateType,
     rates: [...rates.entries()].map(([currencyId, r]) => {
       const c = currencies.get(currencyId) as ForexCurrency;
-      return { currencyId, symbol: c.symbol, formalName: c.formalName, rate: r.rate, rateDate: r.date, overridden: r.overridden };
+      return { currencyId, symbol: c.symbol, formalName: c.formalName, rate: r.rate, rateDate: r.date, overridden: r.overridden, masterRate: r.masterRate, masterDate: r.masterDate };
     }),
     missingRates: [...missing],
     lines,
@@ -336,12 +355,19 @@ export function forexRevaluation(db: Db, today: string, input: ForexRevaluationI
 export function postForexRevaluation(ctx: CompanyCtx, input: ForexRevaluationPostInput): ForexRevaluationPostResult {
   const { db } = ctx;
   const today = ctx.clock.today();
+  if (input.date !== undefined && input.date < input.asOf) {
+    // A journal dated before the balances it restates would move rupees ahead of the vouchers that
+    // created them (and could settle bills that do not exist yet on that date).
+    throw validation([{ path: 'date', message: `The journal date cannot be before the revaluation date (${formatDate(input.asOf)}).` }]);
+  }
   const report = forexRevaluation(db, today, input);
   if (!input.allowRepeat && report.posted.some((p) => p.asOf === input.asOf)) {
     throw rule(`A forex revaluation as of ${formatDate(input.asOf)} is already posted. Alter or delete that journal, or confirm to post another one.`, { needsConfirmation: true });
   }
   if (report.lines.length === 0) throw rule(`Nothing to revalue as of ${formatDate(input.asOf)}: every foreign-currency balance is already carried at the closing rate.`);
-  if (report.missingRates.length > 0 && !input.rates?.length) {
+  // Every currency with a balance needs its closing rate (AS 11 / Ind AS 21 restate ALL monetary items),
+  // whether or not other currencies' rates were typed for this run.
+  if (report.missingRates.length > 0) {
     const names = report.rates.filter((r) => report.missingRates.includes(r.currencyId)).map((r) => r.formalName).join(', ');
     throw rule(`No ${report.rateType} rate of exchange on or before ${formatDate(input.asOf)} for ${names}. Enter the closing rate (Currencies › Rates of Exchange) or type it here.`);
   }

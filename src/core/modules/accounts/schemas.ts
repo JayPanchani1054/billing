@@ -255,6 +255,8 @@ export const VoucherTypeSaveInputSchema = v.object({
       showMrp: patchNullable(v.boolean()),
       // mfg module: a stock journal type used as Manufacturing Journal / Material Out / Material In.
       stockJournalClass: patchNullable(v.enum(STOCK_JOURNAL_CLASSES)),
+      // pos module: a sales type used as POS invoice (counter billing with split tender).
+      posInvoice: patchNullable(v.boolean()),
     })
     .optional(),
 });

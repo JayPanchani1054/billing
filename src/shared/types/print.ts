@@ -15,6 +15,7 @@ import type { Paise } from '../money.ts';
 import type { CompanyConfig, InvoiceTemplate } from '../settings.ts';
 import type { GstNature, Taxability, TaxMode } from './gst.ts';
 import type { PrintForex } from './forex.ts';
+import type { PrintPos } from './pos.ts';
 
 /** Which family of template renders the document. */
 export type PrintLayout = 'invoice' | 'voucher' | 'inventory';
@@ -366,6 +367,8 @@ export interface PrintVoucherData {
   mrpSummary?: PrintMrpSummary | null;
   /** (forex group) Foreign-currency amounts, rate and words of an export / import document; absent / null otherwise. */
   forex?: PrintForex | null;
+  /** (pos group) Tenders, cash tendered and change of a POS bill / return; absent / null otherwise. */
+  pos?: PrintPos | null;
   /** Previous / next voucher of the same type (date, number order) for Next/Prev in the preview. */
   navigation: { prevId: number | null; nextId: number | null };
   /**

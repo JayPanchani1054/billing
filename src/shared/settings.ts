@@ -29,6 +29,8 @@ export interface CompanyFeatures {
   manufacturing: boolean;
   /** Job work: third-party godowns, Material In/Out, job work orders, ITC-04 (mfg module; needs multiple godowns). */
   jobWork: boolean;
+  /** POS invoicing: counter billing with barcode scan, split tender, held bills, day-end summary (pos module; needs inventory). */
+  pos: boolean;
   // Taxation
   gst: boolean;
   einvoice: boolean;
@@ -58,6 +60,7 @@ export const DEFAULT_FEATURES: CompanyFeatures = {
   discountColumn: true,
   manufacturing: false,
   jobWork: false,
+  pos: false,
   gst: true,
   einvoice: false,
   ewayBill: false,

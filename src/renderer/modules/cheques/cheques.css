@@ -1,0 +1,28 @@
+/* Cheques module screens. Semantic design tokens only (no raw colours). Prefix: cq- (the printed
+   cheque page itself is styled by lib/cheque.ts › chequeCss). */
+
+/* ── Layout form: positions table ─────────────────────────────────── */
+.cq-pos {
+  border-collapse: separate;
+  border-spacing: var(--space-2) var(--space-1);
+  font-size: var(--text-base);
+}
+.cq-pos th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  padding-right: var(--space-3);
+}
+.cq-pos thead th {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.cq-pos td {
+  width: 120px;
+}
+.cq-pos td.cq-pos-err {
+  width: auto;
+  color: var(--danger-text);
+  font-size: var(--text-sm);
+}

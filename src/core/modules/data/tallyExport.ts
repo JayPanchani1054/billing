@@ -32,17 +32,26 @@
  * (TallyPrime takes the rate details from the exported masters), SEZ / deemed export / UIN party types
  * (exported as Regular — set "Party type" in Tally), price lists, BOMs, budgets, scenarios.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import { PREDEFINED_VOUCHER_TYPES, type VoucherBaseType } from '../../../shared/constants.ts';
-import { formatDate } from '../../../shared/dates.ts';
+import { addDays, formatDate } from '../../../shared/dates.ts';
 import { stateName, uqcDescription } from '../../../shared/gst/index.ts';
-import type { TallyExportInput, TallyExportResult } from '../../../shared/types/data.ts';
+import type { TallyExportInput, TallyExportMasterCounts, TallyExportResult } from '../../../shared/types/data.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
-import { validation } from '../../lib/errors.ts';
+import { allocate } from '../../../shared/money.ts';
+import { randomToken } from '../../lib/crypto.ts';
+import { AppError, validation } from '../../lib/errors.ts';
 import { allAliases, extraAliasMap } from '../../lib/masterAliases.ts';
 import { escapeAttr, escapeXml } from '../../lib/xml.ts';
-import { createZip } from '../../lib/zip.ts';
-import { fileSlug, requirePermission } from './common.ts';
+import { ZipFileWriter } from '../../lib/zip.ts';
+import { STOCK_MOVEMENT_FILTER } from '../inventory/stock.ts';
+import { computeStockValuation } from '../inventory/valuation.ts';
+import { billFromAggregate, loadBillAggregates } from '../outstanding/engine.ts';
+import { buildSnapshot, loadReportEnv } from '../reports/engine.ts';
+import { fileSlug, requirePermission, yieldToEventLoop } from './common.ts';
+import { EXPORT_YIELD_ROWS, openSnapshot } from './exportData.ts';
 import { ZIP_MIME } from './exportTable.ts';
 
 export const TALLY_XML_MIME = 'application/xml';
@@ -123,6 +132,11 @@ export function tallyQtyText(qty: number, unit: string): string {
   return ` ${s} ${unit}`;
 }
 
+/** Opening quantity: signed (a negative opening stays negative), else as tallyQtyText. */
+function openingQtyText(qty: number, unit: string): string {
+  return qty < 0 ? ` -${tallyQtyText(qty, unit).slice(1)}` : tallyQtyText(qty, unit);
+}
+
 /** Rate '2950.50/Nos'. */
 export function tallyRateText(rate: number, unit: string): string {
   const r = Math.round(rate * 10_000) / 10_000;
@@ -201,20 +215,122 @@ function message(o: Out, write: () => void): void {
   o.close('TALLYMESSAGE');
 }
 
-interface MasterCounts {
-  groups: number;
-  ledgers: number;
-  units: number;
-  godowns: number;
-  stockGroups: number;
-  stockCategories: number;
-  stockItems: number;
-  costCategories: number;
-  costCentres: number;
-  voucherTypes: number;
+type MasterCounts = TallyExportMasterCounts;
+
+// ───────────────────────────── Openings at the period start ─────────────────────────────
+
+interface OpeningBillRow {
+  name: string;
+  date: string;
+  dueDate: string | null;
+  /** Ours, ledger-signed (Dr +). */
+  amount: number;
+  advance: boolean;
 }
 
-function writeMasters(db: Db, booksFrom: string, o: Out): MasterCounts {
+interface OpeningStockRow {
+  godown: string;
+  isPredefined: boolean;
+  batch: string | null;
+  qty: number;
+  /** Paise. */
+  value: number;
+}
+
+/**
+ * Opening balances written on the masters. At the books beginning they are the stored ones (null maps).
+ * When vouchers of a LATER period go with the masters, the Tally company starts at that period
+ * (books beginning = `asOf`) and the openings must be the balances on that date — otherwise Tally
+ * would see the books-beginning openings plus only the period's vouchers:
+ *  - ledgers: the Trial Balance opening on `asOf` with `asOf` as the carry-forward date (reports
+ *    engine): real ledgers carry their balance; income / expense ledgers start at 0 and everything
+ *    they earned before `asOf`, less the stock movement, is in the Profit & Loss A/c opening;
+ *  - bill-wise ledgers: the bills pending at the end of the previous day (outstanding engine); a
+ *    balance not allocated to any bill becomes one opening bill named "On Account" (bills must add up
+ *    to the opening balance, in Tally as here);
+ *  - stock: quantity per item, godown and batch at the end of the previous day, valued at the item's
+ *    stock value on that date (valuation engine; spread over its godowns / batches by quantity).
+ */
+interface Openings {
+  asOf: string;
+  ledgers: Map<number, number> | null;
+  bills: Map<number, OpeningBillRow[]> | null;
+  stock: Map<number, OpeningStockRow[]> | null;
+}
+
+export const ON_ACCOUNT_BILL = 'On Account';
+
+function openingsAt(db: Db, asOf: string, booksFrom: string, today: string): Openings {
+  if (asOf <= booksFrom) return { asOf: booksFrom, ledgers: null, bills: null, stock: null };
+  const env = loadReportEnv(db, today);
+  const snap = buildSnapshot(env, { from: asOf, to: asOf, yearStart: asOf });
+  const ledgers = new Map<number, number>();
+  for (const [id, b] of snap.ledgers) ledgers.set(id, b.opening);
+
+  const dayBefore = addDays(asOf, -1);
+  const billWise = db.all<{ id: number; default_credit_days: number | null }>('SELECT id, default_credit_days FROM ledgers WHERE maintain_bill_wise = 1');
+  const aggregates = loadBillAggregates(
+    db,
+    billWise.map((l) => l.id),
+    { asOf: dayBefore, today },
+  );
+  const bills = new Map<number, OpeningBillRow[]>();
+  for (const l of billWise) {
+    const list: OpeningBillRow[] = [];
+    for (const a of aggregates.get(l.id) ?? []) {
+      const b = billFromAggregate(a, { creditDays: l.default_credit_days });
+      list.push({ name: a.billName, date: b.billDate ?? dayBefore, dueDate: b.dueDate, amount: a.pending, advance: b.refType === 'advance' });
+    }
+    list.sort((x, y) => (x.date === y.date ? x.name.localeCompare(y.name) : x.date < y.date ? -1 : 1));
+    const rest = (ledgers.get(l.id) ?? 0) - list.reduce((s, b) => s + b.amount, 0);
+    if (rest !== 0 && !list.some((b) => b.name.toLowerCase() === ON_ACCOUNT_BILL.toLowerCase())) {
+      list.push({ name: ON_ACCOUNT_BILL, date: dayBefore, dueDate: null, amount: rest, advance: false });
+    }
+    if (list.length > 0) bills.set(l.id, list);
+  }
+
+  // Quantity per item / godown / batch at the end of the previous day, and each item's value then.
+  const main = db.value<number>('SELECT id FROM godowns WHERE is_predefined = 1 ORDER BY id LIMIT 1') ?? null;
+  const qtyRows = db.all<{ item_id: number; godown: string; is_predefined: number; batch: string | null; qty: number }>(
+    `SELECT x.item_id, g.name AS godown, g.is_predefined, x.batch, SUM(x.qty) AS qty
+       FROM (SELECT item_id, godown_id, batch_name AS batch, qty FROM stock_openings
+             UNION ALL
+             SELECT ie.item_id, COALESCE(ie.godown_id, :main), ie.batch_name, ie.qty
+               FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
+              WHERE ie.date < :asOf AND ${STOCK_MOVEMENT_FILTER}) x
+       JOIN godowns g ON g.id = x.godown_id
+      GROUP BY x.item_id, x.godown_id, x.batch COLLATE NOCASE
+      ORDER BY x.item_id, g.is_predefined DESC, g.name, x.batch`,
+    { main, asOf, today },
+  );
+  const valuation = computeStockValuation(db, { from: asOf, to: asOf, today });
+  const valueOf = new Map(valuation.rows.map((r) => [r.itemId, r.opening.value ?? 0] as const));
+  const stock = new Map<number, OpeningStockRow[]>();
+  for (const r of qtyRows) {
+    const qty = Math.round(r.qty * 1e6) / 1e6;
+    if (qty === 0) continue;
+    const list = stock.get(r.item_id) ?? [];
+    list.push({ godown: r.godown, isPredefined: r.is_predefined === 1, batch: r.batch, qty, value: 0 });
+    stock.set(r.item_id, list);
+  }
+  for (const [itemId, list] of stock) {
+    const total = list.reduce((s, x) => s + x.qty, 0);
+    const value = valueOf.get(itemId) ?? 0;
+    if (Math.abs(total) < 1e-9) {
+      stock.delete(itemId);
+      continue;
+    }
+    // Spread the item's value over its rows by quantity; the last row takes the rounding.
+    let left = value;
+    list.forEach((x, i) => {
+      x.value = i === list.length - 1 ? left : Math.round((value * x.qty) / total);
+      left -= x.value;
+    });
+  }
+  return { asOf, ledgers, bills, stock };
+}
+
+function writeMasters(db: Db, booksFrom: string, o: Out, openings: Openings): MasterCounts {
   const counts: MasterCounts = { groups: 0, ledgers: 0, units: 0, godowns: 0, stockGroups: 0, stockCategories: 0, stockItems: 0, costCategories: 0, costCentres: 0, voucherTypes: 0 };
 
   // Groups created by the user (Tally has the 28 predefined ones under the same names), parents first.
@@ -330,14 +446,17 @@ function writeMasters(db: Db, booksFrom: string, o: Out): MasterCounts {
     'SELECT l.*, g.name AS group_name FROM ledgers l JOIN groups g ON g.id = l.group_id ORDER BY l.id',
   );
   for (const l of ledgers) {
-    if (l.reserved_code === 'PROFIT_LOSS' && l.opening_balance === 0) continue; // Tally has its own
+    const opening = openings.ledgers ? (openings.ledgers.get(l.id) ?? 0) : l.opening_balance;
+    if (l.reserved_code === 'PROFIT_LOSS' && opening === 0) continue; // Tally has its own
     const str = (k: string): string | null => (typeof l[k] === 'string' && (l[k] as string).trim() !== '' ? (l[k] as string) : null);
     const num = (k: string): number | null => (typeof l[k] === 'number' ? (l[k] as number) : null);
     message(o, () => {
       const reserved = l.reserved_code === 'CASH' ? 'Cash' : l.reserved_code === 'PROFIT_LOSS' ? 'Profit & Loss A/c' : null;
       o.open('LEDGER', { NAME: l.name, ...(reserved ? { RESERVEDNAME: reserved } : {}), ACTION: 'Create' });
-      o.el('PARENT', l.group_name);
-      o.el('OPENINGBALANCE', tallyAmountText(l.opening_balance));
+      // Tally's own Profit & Loss A/c sits at the top of the chart (Primary), not under a group.
+      if (l.reserved_code === 'PROFIT_LOSS') o.logical('PARENT', 'Primary');
+      else o.el('PARENT', l.group_name);
+      o.el('OPENINGBALANCE', tallyAmountText(opening));
       const billWise = num('maintain_bill_wise') === 1;
       o.yesNo('ISBILLWISEON', billWise);
       if (num('default_credit_days') !== null) o.el('BILLCREDITPERIOD', `${num('default_credit_days')} Days`);
@@ -380,31 +499,49 @@ function writeMasters(db: Db, booksFrom: string, o: Out): MasterCounts {
       if (taxType) o.el('TAXTYPE', taxType === 'OTHER' ? 'Others' : taxType);
       const head = str('gst_duty_head');
       if (head) o.el('GSTDUTYHEAD', DUTY_HEAD_TALLY[head] ?? head);
+      // A charge included in the goods' / services' assessable value (freight, packing): Tally's
+      // "Include in assessable value calculation — Appropriate to — Method of appropriation"
+      // (tag names as in Tally exports we have seen; not verified against a live TallyPrime).
+      const assessable = str('include_in_assessable');
+      if (assessable === 'goods' || assessable === 'services') {
+        o.el('APPROPRIATEFOR', 'GST');
+        o.el('GSTAPPROPRIATETO', assessable === 'goods' ? 'Goods' : 'Services');
+        o.el('EXCISEALLOCTYPE', str('appropriate_by') === 'quantity' ? 'Based on Quantity' : 'Based on Value');
+      }
       // GST rate details of sales / purchase / income / expense ledgers.
       if (str('gst_applicable') === 'applicable') {
-        o.logical('GSTAPPLICABLE', 'Applicable');
-        const supply = str('gst_supply_type');
-        if (supply) o.el('GSTTYPEOFSUPPLY', supply === 'services' ? 'Services' : 'Goods');
         const hist = gstHistory(db, 'ledger', l.id);
-        const rows =
+        const taxability = str('gst_taxability') ?? 'taxable';
+        const rows: GstHistoryRow[] =
           hist.length > 0
             ? hist
-            : num('gst_rate') !== null || str('gst_taxability')
-              ? [{ applicable_from: booksFrom, hsn_sac: str('hsn_sac'), taxability: str('gst_taxability') ?? 'taxable', rate: num('gst_rate') ?? 0, cess_rate: num('cess_rate') ?? 0 }]
+            : num('gst_rate') !== null || taxability !== 'taxable'
+              ? [{ applicable_from: booksFrom, hsn_sac: str('hsn_sac'), taxability, rate: num('gst_rate') ?? 0, cess_rate: num('cess_rate') ?? 0 }]
               : [];
-        writeGstDetails(o, rows);
+        // Without a rate of its own the ledger takes the items' rates: GSTAPPLICABLE is left out, as above.
+        if (rows.length > 0) {
+          o.logical('GSTAPPLICABLE', 'Applicable');
+          const supply = str('gst_supply_type');
+          if (supply) o.el('GSTTYPEOFSUPPLY', supply === 'services' ? 'Services' : 'Goods');
+          writeGstDetails(o, rows);
+        }
       }
       // Bill-wise opening balance.
       if (billWise) {
-        for (const b of db.all<{ bill_name: string; bill_date: string; due_date: string | null; amount: number }>(
-          'SELECT bill_name, bill_date, due_date, amount FROM opening_bills WHERE ledger_id = :id ORDER BY bill_date, id',
-          { id: l.id },
-        )) {
+        const bills: OpeningBillRow[] = openings.bills
+          ? (openings.bills.get(l.id) ?? [])
+          : db
+              .all<{ bill_name: string; bill_date: string; due_date: string | null; amount: number }>(
+                'SELECT bill_name, bill_date, due_date, amount FROM opening_bills WHERE ledger_id = :id ORDER BY bill_date, id',
+                { id: l.id },
+              )
+              .map((b) => ({ name: b.bill_name, date: b.bill_date, dueDate: b.due_date, amount: b.amount, advance: false }));
+        for (const b of bills) {
           o.open('BILLALLOCATIONS.LIST');
-          o.el('NAME', b.bill_name);
-          o.el('BILLDATE', tallyDateText(b.bill_date));
-          if (b.due_date) o.el('BILLCREDITPERIOD', `${Math.max(0, daysBetween(b.bill_date, b.due_date))} Days`);
-          o.yesNo('ISADVANCE', false);
+          o.el('NAME', b.name);
+          o.el('BILLDATE', tallyDateText(b.date));
+          if (b.dueDate) o.el('BILLCREDITPERIOD', `${Math.max(0, daysBetween(b.date, b.dueDate))} Days`);
+          o.yesNo('ISADVANCE', b.advance);
           o.el('OPENINGBALANCE', tallyAmountText(b.amount));
           o.close('BILLALLOCATIONS.LIST');
         }
@@ -443,10 +580,14 @@ function writeMasters(db: Db, booksFrom: string, o: Out): MasterCounts {
        LEFT JOIN stock_groups g ON g.id = i.group_id LEFT JOIN stock_categories c ON c.id = i.category_id ORDER BY i.id`,
   );
   for (const it of items) {
-    const openings = db.all<{ godown: string; is_predefined: number; batch_name: string | null; qty: number; rate: number; value: number }>(
-      'SELECT g.name AS godown, g.is_predefined, o.batch_name, o.qty, o.rate, o.value FROM stock_openings o JOIN godowns g ON g.id = o.godown_id WHERE o.item_id = :id ORDER BY o.id',
-      { id: it.id },
-    );
+    const stockOpenings: OpeningStockRow[] = openings.stock
+      ? (openings.stock.get(it.id) ?? [])
+      : db
+          .all<{ godown: string; is_predefined: number; batch_name: string | null; qty: number; value: number }>(
+            'SELECT g.name AS godown, g.is_predefined, o.batch_name, o.qty, o.value FROM stock_openings o JOIN godowns g ON g.id = o.godown_id WHERE o.item_id = :id ORDER BY o.id',
+            { id: it.id },
+          )
+          .map((r) => ({ godown: r.godown, isPredefined: r.is_predefined === 1, batch: r.batch_name, qty: r.qty, value: r.value }));
     message(o, () => {
       o.open('STOCKITEM', { NAME: it.name, ACTION: 'Create' });
       o.el('PARENT', it.group_name ?? '');
@@ -463,34 +604,35 @@ function writeMasters(db: Db, booksFrom: string, o: Out): MasterCounts {
       }
       o.el('COSTINGMETHOD', COSTING_TALLY[it.costing_method] ?? 'Avg. Cost');
       o.yesNo('ISBATCHWISEON', it.maintain_batches === 1);
-      if (it.gst_applicable === 'applicable') {
+      const itemHist = it.gst_applicable === 'applicable' ? gstHistory(db, 'stock_item', it.id) : [];
+      const itemRows: GstHistoryRow[] =
+        itemHist.length > 0
+          ? itemHist
+          : it.gst_applicable === 'applicable' && (it.gst_rate !== null || it.gst_taxability !== 'taxable')
+            ? [{ applicable_from: booksFrom, hsn_sac: it.hsn_sac, taxability: it.gst_taxability, rate: it.gst_rate ?? 0, cess_rate: it.cess_rate ?? 0 }]
+            : [];
+      // Own GST details only when the item has them; without a rate it follows its stock group /
+      // the sales ledger — in Tally that is GSTAPPLICABLE left out ("Applicable" with no details).
+      if (itemRows.length > 0) {
         o.logical('GSTAPPLICABLE', 'Applicable');
         o.el('GSTTYPEOFSUPPLY', it.is_service === 1 ? 'Services' : 'Goods');
-        const hist = gstHistory(db, 'stock_item', it.id);
-        writeGstDetails(
-          o,
-          hist.length > 0
-            ? hist
-            : it.gst_rate !== null || it.hsn_sac
-              ? [{ applicable_from: booksFrom, hsn_sac: it.hsn_sac, taxability: it.gst_taxability, rate: it.gst_rate ?? 0, cess_rate: it.cess_rate ?? 0 }]
-              : [],
-        );
-      } else {
+        writeGstDetails(o, itemRows);
+      } else if (it.gst_applicable !== 'applicable') {
         o.logical('GSTAPPLICABLE', 'Not Applicable');
       }
-      const qty = openings.reduce((s, x) => s + x.qty, 0);
-      const value = openings.reduce((s, x) => s + x.value, 0);
-      if (openings.length > 0 && qty !== 0) {
-        o.el('OPENINGBALANCE', tallyQtyText(qty, it.unit));
+      const qty = stockOpenings.reduce((s, x) => s + x.qty, 0);
+      const value = stockOpenings.reduce((s, x) => s + x.value, 0);
+      if (stockOpenings.length > 0 && qty !== 0) {
+        o.el('OPENINGBALANCE', openingQtyText(qty, it.unit));
         o.el('OPENINGVALUE', tallyAmountText(value));
         o.el('OPENINGRATE', tallyRateText(value / 100 / qty, it.unit));
-        for (const op of openings) {
+        for (const op of stockOpenings) {
           o.open('BATCHALLOCATIONS.LIST');
-          o.el('GODOWNNAME', op.is_predefined === 1 ? 'Main Location' : op.godown);
-          o.el('BATCHNAME', op.batch_name ?? 'Primary Batch');
-          o.el('OPENINGBALANCE', tallyQtyText(op.qty, it.unit));
+          o.el('GODOWNNAME', op.isPredefined ? 'Main Location' : op.godown);
+          o.el('BATCHNAME', op.batch ?? 'Primary Batch');
+          o.el('OPENINGBALANCE', openingQtyText(op.qty, it.unit));
           o.el('OPENINGVALUE', tallyAmountText(op.value));
-          o.el('OPENINGRATE', tallyRateText(op.rate, it.unit));
+          o.el('OPENINGRATE', tallyRateText(op.qty !== 0 ? op.value / 100 / op.qty : 0, it.unit));
           o.close('BATCHALLOCATIONS.LIST');
         }
       }
@@ -559,6 +701,8 @@ interface VRow {
   effective_date: string | null;
   reference_no: string | null;
   reference_date: string | null;
+  original_invoice_no: string | null;
+  original_invoice_date: string | null;
   party_name: string | null;
   party_ledger: string | null;
   party_gstin: string | null;
@@ -603,199 +747,310 @@ interface IeRow {
   is_consumption: number;
 }
 
-function writeVouchers(db: Db, from: string, to: string, o: Out): VoucherCounts {
+interface BillRow {
+  ledger_entry_id: number;
+  ref_type: string;
+  bill_name: string | null;
+  amount: number;
+  credit_days: number | null;
+}
+
+/** A cost-centre allocation (ours, signed like its entry). */
+interface CostSlice {
+  centre: string;
+  category: string;
+  amount: number;
+}
+
+/** Group rows by a numeric key (one pass, order kept). */
+function groupBy<T>(rows: readonly T[], keyOf: (r: T) => number): Map<number, T[]> {
+  const out = new Map<number, T[]>();
+  for (const r of rows) {
+    const k = keyOf(r);
+    const list = out.get(k);
+    if (list) list.push(r);
+    else out.set(k, [r]);
+  }
+  return out;
+}
+
+/**
+ * Take allocations worth `amount` (signed) from the front of `queue` (same sign only), splitting a
+ * centre's allocation where needed — so the cost-centre split of a ledger whose posting is spread
+ * over several inventory lines and its own entry adds up in each of them.
+ */
+function takeCosts(queue: CostSlice[], amount: number): CostSlice[] {
+  const out: CostSlice[] = [];
+  let need = amount;
+  while (need !== 0 && queue.length > 0) {
+    const s = queue[0];
+    if (Math.sign(s.amount) !== Math.sign(need)) break;
+    const t = Math.abs(s.amount) <= Math.abs(need) ? s.amount : need;
+    out.push({ centre: s.centre, category: s.category, amount: t });
+    s.amount -= t;
+    need -= t;
+    if (s.amount === 0) queue.shift();
+  }
+  return out;
+}
+
+/** CATEGORYALLOCATIONS.LIST › COSTCENTREALLOCATIONS.LIST, grouped by category. */
+function writeCostAllocations(o: Out, costs: readonly CostSlice[], deemedPositive: boolean): void {
+  const byCat = new Map<string, CostSlice[]>();
+  for (const c of costs) {
+    const list = byCat.get(c.category);
+    if (list) list.push(c);
+    else byCat.set(c.category, [c]);
+  }
+  for (const [category, list] of byCat) {
+    o.open('CATEGORYALLOCATIONS.LIST');
+    o.el('CATEGORY', category);
+    o.yesNo('ISDEEMEDPOSITIVE', deemedPositive);
+    for (const c of list) {
+      o.open('COSTCENTREALLOCATIONS.LIST');
+      o.el('NAME', c.centre);
+      o.el('AMOUNT', tallyAmountText(c.amount));
+      o.close('COSTCENTREALLOCATIONS.LIST');
+    }
+    o.close('CATEGORYALLOCATIONS.LIST');
+  }
+}
+
+/**
+ * Writes the period's vouchers one TALLYMESSAGE at a time through `emit` (constant memory), in
+ * batches of VOUCHER_BATCH vouchers whose entries, stock lines, bills and cost allocations are read
+ * with one query each (no per-voucher queries), calling `pause` every EXPORT_YIELD_ROWS vouchers so a
+ * long export does not block the worker.
+ */
+async function writeVouchers(db: Db, from: string, to: string, emit: (text: string) => void, pause: () => Promise<void>): Promise<VoucherCounts> {
   const skipped = new Map<string, number>();
   const skip = (reason: string): void => {
     skipped.set(reason, (skipped.get(reason) ?? 0) + 1);
   };
   let count = 0;
-  const vouchers = db.all<VRow>(
-    `SELECT v.id, v.guid, t.name AS type_name, v.base_type, v.number, v.date, v.effective_date, v.reference_no, v.reference_date,
-            v.party_name, pl.name AS party_ledger, v.party_gstin, v.party_registration_type, v.place_of_supply, v.invoice_mode,
-            v.is_optional, v.is_post_dated, v.is_cancelled, v.narration
-       FROM vouchers v JOIN voucher_types t ON t.id = v.voucher_type_id LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
-      WHERE v.date BETWEEN :from AND :to ORDER BY v.date, v.id`,
-    { from, to },
-  );
-  for (const v of vouchers) {
-    const tallyBase = TALLY_TYPE_OF[v.base_type];
-    if (!tallyBase) {
-      skip(v.base_type === 'physical_stock' ? 'Physical stock vouchers (enter the counted stock in Tally)' : 'Quotations and proforma invoices (Tally has no such voucher type)');
-      continue;
-    }
-    const entries = v.is_cancelled
-      ? []
-      : db.all<LeRow>(
-          `SELECT e.id, e.ledger_id, l.name AS ledger, e.amount, e.instrument_type, e.instrument_no, e.instrument_date, e.bank_name, e.favouring, e.bank_date
-             FROM ledger_entries e JOIN ledgers l ON l.id = e.ledger_id WHERE e.voucher_id = :id ORDER BY e.line_no, e.id`,
-          { id: v.id },
-        );
-    const inventory = v.is_cancelled
-      ? []
-      : db.all<IeRow>(
-          `SELECT ie.line_no, i.name AS item, u.symbol AS unit, g.name AS godown, g.is_predefined AS godown_predefined, ie.batch_name, ie.qty, ie.billed_qty,
-                  ie.rate, ie.discount_pct, ie.amount, ie.ledger_id, l.name AS ledger, ie.tracking_ref, ie.order_ref, ie.is_consumption
-             FROM inventory_entries ie JOIN stock_items i ON i.id = ie.item_id JOIN units u ON u.id = i.unit_id
-             LEFT JOIN godowns g ON g.id = ie.godown_id LEFT JOIN ledgers l ON l.id = ie.ledger_id
-            WHERE ie.voucher_id = :id ORDER BY ie.line_no, ie.id`,
-          { id: v.id },
-        );
-    const isInvoice = v.invoice_mode !== null || inventory.length > 0;
-    const view = v.base_type === 'stock_journal' ? 'Consumption Voucher View' : inventory.length > 0 ? 'Invoice Voucher View' : 'Accounting Voucher View';
-    message(o, () => {
-      o.open('VOUCHER', { REMOTEID: v.guid, VCHTYPE: v.type_name, ACTION: 'Create', OBJVIEW: view });
-      o.el('DATE', tallyDateText(v.date));
-      if (v.effective_date && v.effective_date !== v.date) o.el('EFFECTIVEDATE', tallyDateText(v.effective_date));
-      o.el('GUID', v.guid);
-      o.el('VOUCHERTYPENAME', v.type_name);
-      o.el('VOUCHERNUMBER', v.number);
-      o.el('REFERENCE', v.reference_no);
-      if (v.reference_date) o.el('REFERENCEDATE', tallyDateText(v.reference_date));
-      o.el('PARTYLEDGERNAME', v.party_ledger);
-      o.el('PARTYNAME', v.party_name ?? v.party_ledger);
-      o.el('PARTYGSTIN', v.party_gstin);
-      if (v.party_registration_type) o.el('GSTREGISTRATIONTYPE', REGISTRATION_TALLY[v.party_registration_type] ?? 'Unknown');
-      if (v.place_of_supply && v.place_of_supply !== '96') o.el('PLACEOFSUPPLY', stateName(v.place_of_supply));
-      o.el('NARRATION', v.narration);
-      o.el('PERSISTEDVIEW', view);
-      o.yesNo('ISINVOICE', isInvoice);
-      o.yesNo('ISOPTIONAL', v.is_optional === 1);
-      o.yesNo('ISCANCELLED', v.is_cancelled === 1);
-      o.yesNo('ISPOSTDATED', v.is_post_dated === 1);
-
-      // Inventory lines (grouped by line; one batch allocation per godown / batch row).
-      const lines = new Map<number, IeRow[]>();
-      for (const r of inventory) {
-        const list = lines.get(r.line_no);
-        if (list) list.push(r);
-        else lines.set(r.line_no, [r]);
+  let sinceYield = 0;
+  const ids = db.all<{ id: number }>('SELECT id FROM vouchers WHERE date BETWEEN :from AND :to ORDER BY date, id', { from, to }).map((r) => r.id);
+  for (let at = 0; at < ids.length; at += VOUCHER_BATCH) {
+    const batch = JSON.stringify(ids.slice(at, at + VOUCHER_BATCH));
+    const vouchers = db.all<VRow>(
+      `SELECT v.id, v.guid, t.name AS type_name, v.base_type, v.number, v.date, v.effective_date, v.reference_no, v.reference_date,
+              v.original_invoice_no, v.original_invoice_date, v.party_name, pl.name AS party_ledger, v.party_gstin, v.party_registration_type, v.place_of_supply, v.invoice_mode,
+              v.is_optional, v.is_post_dated, v.is_cancelled, v.narration
+         FROM vouchers v JOIN voucher_types t ON t.id = v.voucher_type_id LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
+        WHERE v.id IN (SELECT value FROM json_each(:ids)) ORDER BY v.date, v.id`,
+      { ids: batch },
+    );
+    const entriesOf = groupBy(
+      db.all<LeRow & { voucher_id: number }>(
+        `SELECT e.voucher_id, e.id, e.ledger_id, l.name AS ledger, e.amount, e.instrument_type, e.instrument_no, e.instrument_date, e.bank_name, e.favouring, e.bank_date
+           FROM ledger_entries e JOIN ledgers l ON l.id = e.ledger_id WHERE e.voucher_id IN (SELECT value FROM json_each(:ids)) ORDER BY e.voucher_id, e.line_no, e.id`,
+        { ids: batch },
+      ),
+      (r) => r.voucher_id,
+    );
+    const inventoryOf = groupBy(
+      db.all<IeRow & { voucher_id: number }>(
+        `SELECT ie.voucher_id, ie.line_no, i.name AS item, u.symbol AS unit, g.name AS godown, g.is_predefined AS godown_predefined, ie.batch_name, ie.qty, ie.billed_qty,
+                ie.rate, ie.discount_pct, ie.amount, ie.ledger_id, l.name AS ledger, ie.tracking_ref, ie.order_ref, ie.is_consumption
+           FROM inventory_entries ie JOIN stock_items i ON i.id = ie.item_id JOIN units u ON u.id = i.unit_id
+           LEFT JOIN godowns g ON g.id = ie.godown_id LEFT JOIN ledgers l ON l.id = ie.ledger_id
+          WHERE ie.voucher_id IN (SELECT value FROM json_each(:ids)) ORDER BY ie.voucher_id, ie.line_no, ie.id`,
+        { ids: batch },
+      ),
+      (r) => r.voucher_id,
+    );
+    const billsOf = groupBy(
+      db.all<BillRow>(
+        `SELECT ledger_entry_id, ref_type, bill_name, amount, credit_days FROM bill_allocations
+          WHERE voucher_id IN (SELECT value FROM json_each(:ids)) AND ledger_entry_id IS NOT NULL ORDER BY ledger_entry_id, id`,
+        { ids: batch },
+      ),
+      (r) => r.ledger_entry_id,
+    );
+    const costsOf = groupBy(
+      db.all<CostSlice & { ledger_entry_id: number }>(
+        `SELECT a.ledger_entry_id, c.name AS centre, k.name AS category, a.amount FROM cost_allocations a JOIN cost_centres c ON c.id = a.cost_centre_id
+           JOIN cost_categories k ON k.id = c.category_id WHERE a.voucher_id IN (SELECT value FROM json_each(:ids)) AND a.ledger_entry_id IS NOT NULL
+          ORDER BY a.ledger_entry_id, k.name, a.id`,
+        { ids: batch },
+      ),
+      (r) => r.ledger_entry_id,
+    );
+    for (const v of vouchers) {
+      const tallyBase = TALLY_TYPE_OF[v.base_type];
+      if (!tallyBase) {
+        skip(v.base_type === 'physical_stock' ? 'Physical stock vouchers (enter the counted stock in Tally)' : 'Quotations and proforma invoices (Tally has no such voucher type)');
+        continue;
       }
-      // The part of each ledger's posting that the inventory lines carry (ACCOUNTINGALLOCATIONS).
-      const allocated = new Map<number, number>();
-      const ledgerTotal = new Map<number, number>();
-      for (const e of entries) ledgerTotal.set(e.ledger_id, (ledgerTotal.get(e.ledger_id) ?? 0) + e.amount);
-      const stockJournal = v.base_type === 'stock_journal';
-      for (const rows of lines.values()) {
-        const first = rows[0];
-        const qty = rows.reduce((s, r) => s + r.qty, 0);
-        const amount = rows.reduce((s, r) => s + r.amount, 0);
-        const inward = stockJournal ? first.is_consumption !== 1 : qty > 0 || (qty === 0 && ledgerSign(ledgerTotal, first.ledger_id) > 0);
-        // Our signed value of this line's ledger posting (Dr + for inward / purchase-side lines).
-        const total = first.ledger_id !== null ? (ledgerTotal.get(first.ledger_id) ?? 0) : 0;
-        const signed = first.ledger_id !== null && total !== 0 ? Math.sign(total) * amount : inward ? amount : -amount;
-        const tag = stockJournal ? (inward ? 'INVENTORYENTRIESIN.LIST' : 'INVENTORYENTRIESOUT.LIST') : 'ALLINVENTORYENTRIES.LIST';
-        o.open(tag);
-        o.el('STOCKITEMNAME', first.item);
-        o.yesNo('ISDEEMEDPOSITIVE', inward);
-        if (first.rate) o.el('RATE', tallyRateText(first.rate, first.unit));
-        if (first.discount_pct) o.el('DISCOUNT', ` ${first.discount_pct}`);
-        o.el('AMOUNT', tallyAmountText(signed));
-        o.el('ACTUALQTY', tallyQtyText(qty, first.unit));
-        const billed = rows.reduce((s, r) => s + Math.abs(r.billed_qty ?? r.qty), 0);
-        o.el('BILLEDQTY', tallyQtyText(billed, first.unit));
-        for (const r of rows) {
-          o.open('BATCHALLOCATIONS.LIST');
-          o.el('GODOWNNAME', r.godown_predefined === 1 || !r.godown ? 'Main Location' : r.godown);
-          o.el('BATCHNAME', r.batch_name ?? 'Primary Batch');
-          o.el('TRACKINGNUMBER', r.tracking_ref);
-          o.el('ORDERNO', r.order_ref);
-          o.el('AMOUNT', tallyAmountText(first.ledger_id !== null && total !== 0 ? Math.sign(total) * r.amount : inward ? r.amount : -r.amount));
-          o.el('ACTUALQTY', tallyQtyText(r.qty, first.unit));
-          o.el('BILLEDQTY', tallyQtyText(r.billed_qty ?? r.qty, first.unit));
-          o.close('BATCHALLOCATIONS.LIST');
+      const entries: LeRow[] = v.is_cancelled ? [] : (entriesOf.get(v.id) ?? []);
+      const inventory: IeRow[] = v.is_cancelled ? [] : (inventoryOf.get(v.id) ?? []);
+      const o = new Out();
+      const isInvoice = v.invoice_mode !== null || inventory.length > 0;
+      const view = v.base_type === 'stock_journal' ? 'Consumption Voucher View' : inventory.length > 0 ? 'Invoice Voucher View' : 'Accounting Voucher View';
+      message(o, () => {
+        o.open('VOUCHER', { REMOTEID: v.guid, VCHTYPE: v.type_name, ACTION: 'Create', OBJVIEW: view });
+        o.el('DATE', tallyDateText(v.date));
+        if (v.effective_date && v.effective_date !== v.date) o.el('EFFECTIVEDATE', tallyDateText(v.effective_date));
+        o.el('GUID', v.guid);
+        o.el('VOUCHERTYPENAME', v.type_name);
+        o.el('VOUCHERNUMBER', v.number);
+        // A note's Reference No. / Date carry the original invoice (what the accountant enters there in Tally).
+        const isNote = v.base_type === 'credit_note' || v.base_type === 'debit_note';
+        const ref = isNote ? (v.original_invoice_no ?? v.reference_no) : v.reference_no;
+        const refDate = isNote ? (v.original_invoice_date ?? v.reference_date) : v.reference_date;
+        o.el('REFERENCE', ref);
+        if (refDate) o.el('REFERENCEDATE', tallyDateText(refDate));
+        o.el('PARTYLEDGERNAME', v.party_ledger);
+        o.el('PARTYNAME', v.party_name ?? v.party_ledger);
+        o.el('PARTYGSTIN', v.party_gstin);
+        if (v.party_registration_type) o.el('GSTREGISTRATIONTYPE', REGISTRATION_TALLY[v.party_registration_type] ?? 'Unknown');
+        if (v.place_of_supply && v.place_of_supply !== '96') o.el('PLACEOFSUPPLY', stateName(v.place_of_supply));
+        o.el('NARRATION', v.narration);
+        o.el('PERSISTEDVIEW', view);
+        o.yesNo('ISINVOICE', isInvoice);
+        o.yesNo('ISOPTIONAL', v.is_optional === 1);
+        o.yesNo('ISCANCELLED', v.is_cancelled === 1);
+        o.yesNo('ISPOSTDATED', v.is_post_dated === 1);
+
+        // Inventory lines (grouped by line; one batch allocation per godown / batch row).
+        const lines = [...groupBy(inventory, (r) => r.line_no).values()];
+        const ledgerTotal = new Map<number, number>();
+        for (const e of entries) ledgerTotal.set(e.ledger_id, (ledgerTotal.get(e.ledger_id) ?? 0) + e.amount);
+        const carries = (rows: readonly IeRow[]): boolean => rows[0].ledger_id !== null && rows[0].ledger !== null && entries.length > 0 && (ledgerTotal.get(rows[0].ledger_id) ?? 0) !== 0;
+        // Each line's share (unsigned) of its sales / purchase ledger posting — the ACCOUNTINGALLOCATIONS
+        // and the item amount. Normally the line value. Charges absorbed into the goods' assessable
+        // value (freight "included in assessable value") are in the line value but posted to their
+        // own ledger: the ledger's posting is then spread over its lines by value, so the voucher
+        // balances exactly as recorded.
+        const share = new Map<IeRow[], number>();
+        const lineValue = (rows: readonly IeRow[]): number => rows.reduce((s, r) => s + r.amount, 0);
+        for (const [ledgerId, group] of groupBy(lines.filter(carries), (rows) => rows[0].ledger_id as number)) {
+          const values = group.map(lineValue);
+          const posted = Math.abs(ledgerTotal.get(ledgerId) ?? 0);
+          const parts = values.reduce((a, b) => a + b, 0) <= posted ? values : allocate(posted, values);
+          group.forEach((rows, i) => share.set(rows, parts[i]));
         }
-        if (first.ledger_id !== null && first.ledger && entries.length > 0 && ledgerTotal.has(first.ledger_id)) {
-          o.open('ACCOUNTINGALLOCATIONS.LIST');
-          o.el('LEDGERNAME', first.ledger);
-          o.yesNo('ISDEEMEDPOSITIVE', signed > 0);
+        // Cost-centre allocations of the ledgers the inventory lines carry: handed out to the
+        // ACCOUNTINGALLOCATIONS first, the rest to the ledger's own entry.
+        const carried = new Set(lines.filter(carries).map((rows) => rows[0].ledger_id as number));
+        const costQueue = new Map<number, CostSlice[]>();
+        for (const e of entries) {
+          if (!carried.has(e.ledger_id)) continue;
+          const q = costQueue.get(e.ledger_id) ?? [];
+          for (const c of costsOf.get(e.id) ?? []) q.push({ centre: c.centre, category: c.category, amount: c.amount });
+          costQueue.set(e.ledger_id, q);
+        }
+        const allocated = new Map<number, number>();
+        const stockJournal = v.base_type === 'stock_journal';
+        for (const rows of lines) {
+          const first = rows[0];
+          const qty = rows.reduce((s, r) => s + r.qty, 0);
+          const amount = lineValue(rows);
+          const value = share.get(rows) ?? amount;
+          const total = first.ledger_id !== null ? (ledgerTotal.get(first.ledger_id) ?? 0) : 0;
+          const inward = stockJournal ? first.is_consumption !== 1 : qty > 0 || (qty === 0 && Math.sign(total) > 0);
+          // Our signed value of this line's ledger posting (Dr + for inward / purchase-side lines).
+          const sign = first.ledger_id !== null && total !== 0 ? Math.sign(total) : inward ? 1 : -1;
+          const signed = sign * value;
+          const rowValues = value === amount ? rows.map((r) => r.amount) : allocate(value, rows.map((r) => r.amount));
+          const tag = stockJournal ? (inward ? 'INVENTORYENTRIESIN.LIST' : 'INVENTORYENTRIESOUT.LIST') : 'ALLINVENTORYENTRIES.LIST';
+          o.open(tag);
+          o.el('STOCKITEMNAME', first.item);
+          o.yesNo('ISDEEMEDPOSITIVE', inward);
+          if (first.rate) o.el('RATE', tallyRateText(first.rate, first.unit));
+          if (first.discount_pct) o.el('DISCOUNT', ` ${first.discount_pct}`);
           o.el('AMOUNT', tallyAmountText(signed));
-          o.close('ACCOUNTINGALLOCATIONS.LIST');
-          allocated.set(first.ledger_id, (allocated.get(first.ledger_id) ?? 0) + signed);
-        }
-        o.close(tag);
-      }
-
-      // Ledger entries (what the inventory lines did not already carry).
-      const entryTag = lines.size > 0 ? 'LEDGERENTRIES.LIST' : 'ALLLEDGERENTRIES.LIST';
-      const remaining = new Map<number, number>(allocated);
-      for (const e of entries) {
-        let amount = e.amount;
-        const carried = remaining.get(e.ledger_id) ?? 0;
-        if (carried !== 0) {
-          // Take the carried part out of this ledger's entries (in order, never past zero).
-          const take = Math.sign(carried) === Math.sign(amount) ? (Math.abs(carried) >= Math.abs(amount) ? amount : carried) : 0;
-          amount -= take;
-          remaining.set(e.ledger_id, carried - take);
-        }
-        const bills = db.all<{ ref_type: string; bill_name: string | null; amount: number; credit_days: number | null }>(
-          'SELECT ref_type, bill_name, amount, credit_days FROM bill_allocations WHERE ledger_entry_id = :id ORDER BY id',
-          { id: e.id },
-        );
-        if (amount === 0 && bills.length === 0) continue;
-        o.open(entryTag);
-        o.el('LEDGERNAME', e.ledger);
-        o.yesNo('ISDEEMEDPOSITIVE', amount > 0);
-        o.yesNo('ISPARTYLEDGER', v.party_ledger !== null && e.ledger === v.party_ledger);
-        o.el('AMOUNT', tallyAmountText(amount));
-        for (const b of bills) {
-          o.open('BILLALLOCATIONS.LIST');
-          if (b.ref_type !== 'on_account') o.el('NAME', b.bill_name);
-          o.el('BILLTYPE', BILL_TYPE_TALLY[b.ref_type] ?? 'On Account');
-          if (b.credit_days !== null && b.ref_type === 'new') o.el('BILLCREDITPERIOD', `${b.credit_days} Days`);
-          o.el('AMOUNT', tallyAmountText(b.amount));
-          o.close('BILLALLOCATIONS.LIST');
-        }
-        const costs = db.all<{ centre: string; category: string; amount: number }>(
-          `SELECT c.name AS centre, k.name AS category, a.amount FROM cost_allocations a JOIN cost_centres c ON c.id = a.cost_centre_id
-             JOIN cost_categories k ON k.id = c.category_id WHERE a.ledger_entry_id = :id ORDER BY k.name, a.id`,
-          { id: e.id },
-        );
-        const byCat = new Map<string, Array<{ centre: string; amount: number }>>();
-        for (const c of costs) {
-          const list = byCat.get(c.category);
-          if (list) list.push(c);
-          else byCat.set(c.category, [c]);
-        }
-        for (const [category, list] of byCat) {
-          o.open('CATEGORYALLOCATIONS.LIST');
-          o.el('CATEGORY', category);
-          o.yesNo('ISDEEMEDPOSITIVE', amount > 0);
-          for (const c of list) {
-            o.open('COSTCENTREALLOCATIONS.LIST');
-            o.el('NAME', c.centre);
-            o.el('AMOUNT', tallyAmountText(c.amount));
-            o.close('COSTCENTREALLOCATIONS.LIST');
+          o.el('ACTUALQTY', tallyQtyText(qty, first.unit));
+          const billed = rows.reduce((s, r) => s + Math.abs(r.billed_qty ?? r.qty), 0);
+          o.el('BILLEDQTY', tallyQtyText(billed, first.unit));
+          rows.forEach((r, i) => {
+            o.open('BATCHALLOCATIONS.LIST');
+            o.el('GODOWNNAME', r.godown_predefined === 1 || !r.godown ? 'Main Location' : r.godown);
+            o.el('BATCHNAME', r.batch_name ?? 'Primary Batch');
+            o.el('TRACKINGNUMBER', r.tracking_ref);
+            o.el('ORDERNO', r.order_ref);
+            o.el('AMOUNT', tallyAmountText(sign * rowValues[i]));
+            o.el('ACTUALQTY', tallyQtyText(r.qty, first.unit));
+            o.el('BILLEDQTY', tallyQtyText(r.billed_qty ?? r.qty, first.unit));
+            o.close('BATCHALLOCATIONS.LIST');
+          });
+          if (carries(rows)) {
+            const ledgerId = first.ledger_id as number;
+            o.open('ACCOUNTINGALLOCATIONS.LIST');
+            o.el('LEDGERNAME', first.ledger);
+            o.yesNo('ISDEEMEDPOSITIVE', signed > 0);
+            o.el('AMOUNT', tallyAmountText(signed));
+            writeCostAllocations(o, takeCosts(costQueue.get(ledgerId) ?? [], signed), signed > 0);
+            o.close('ACCOUNTINGALLOCATIONS.LIST');
+            allocated.set(ledgerId, (allocated.get(ledgerId) ?? 0) + signed);
           }
-          o.close('CATEGORYALLOCATIONS.LIST');
+          o.close(tag);
         }
-        if (e.instrument_type || e.instrument_no) {
-          o.open('BANKALLOCATIONS.LIST');
-          o.el('DATE', tallyDateText(v.date));
-          if (e.instrument_date) o.el('INSTRUMENTDATE', tallyDateText(e.instrument_date));
-          o.el('TRANSACTIONTYPE', INSTRUMENT_TALLY[e.instrument_type ?? 'other'] ?? 'Others');
-          o.el('INSTRUMENTNUMBER', e.instrument_no);
-          o.el('BANKNAME', e.bank_name);
-          o.el('PAYMENTFAVOURING', e.favouring);
-          if (e.bank_date) o.el('BANKERSDATE', tallyDateText(e.bank_date));
+
+        // Ledger entries (what the inventory lines did not already carry).
+        const entryTag = lines.length > 0 ? 'LEDGERENTRIES.LIST' : 'ALLLEDGERENTRIES.LIST';
+        const remaining = new Map<number, number>(allocated);
+        for (const e of entries) {
+          let amount = e.amount;
+          const left = remaining.get(e.ledger_id) ?? 0;
+          if (left !== 0) {
+            // Take the carried part out of this ledger's entries (in order, never past zero).
+            const take = Math.sign(left) === Math.sign(amount) ? (Math.abs(left) >= Math.abs(amount) ? amount : left) : 0;
+            amount -= take;
+            remaining.set(e.ledger_id, left - take);
+          }
+          const bills = billsOf.get(e.id) ?? [];
+          if (amount === 0 && bills.length === 0) continue;
+          o.open(entryTag);
+          o.el('LEDGERNAME', e.ledger);
+          o.yesNo('ISDEEMEDPOSITIVE', amount > 0);
+          o.yesNo('ISPARTYLEDGER', v.party_ledger !== null && e.ledger === v.party_ledger);
           o.el('AMOUNT', tallyAmountText(amount));
-          o.close('BANKALLOCATIONS.LIST');
+          for (const b of bills) {
+            o.open('BILLALLOCATIONS.LIST');
+            if (b.ref_type !== 'on_account') o.el('NAME', b.bill_name);
+            o.el('BILLTYPE', BILL_TYPE_TALLY[b.ref_type] ?? 'On Account');
+            if (b.credit_days !== null && b.ref_type === 'new') o.el('BILLCREDITPERIOD', `${b.credit_days} Days`);
+            o.el('AMOUNT', tallyAmountText(b.amount));
+            o.close('BILLALLOCATIONS.LIST');
+          }
+          const costs = carried.has(e.ledger_id) ? takeCosts(costQueue.get(e.ledger_id) ?? [], amount) : (costsOf.get(e.id) ?? []);
+          writeCostAllocations(o, costs, amount > 0);
+          if (e.instrument_type || e.instrument_no) {
+            o.open('BANKALLOCATIONS.LIST');
+            o.el('DATE', tallyDateText(v.date));
+            if (e.instrument_date) o.el('INSTRUMENTDATE', tallyDateText(e.instrument_date));
+            o.el('TRANSACTIONTYPE', INSTRUMENT_TALLY[e.instrument_type ?? 'other'] ?? 'Others');
+            o.el('INSTRUMENTNUMBER', e.instrument_no);
+            o.el('BANKNAME', e.bank_name);
+            o.el('PAYMENTFAVOURING', e.favouring);
+            if (e.bank_date) o.el('BANKERSDATE', tallyDateText(e.bank_date));
+            o.el('AMOUNT', tallyAmountText(amount));
+            o.close('BANKALLOCATIONS.LIST');
+          }
+          o.close(entryTag);
         }
-        o.close(entryTag);
+        o.close('VOUCHER');
+      });
+      emit(o.text());
+      count++;
+      if (++sinceYield >= EXPORT_YIELD_ROWS) {
+        sinceYield = 0;
+        await pause();
       }
-      o.close('VOUCHER');
-    });
-    count++;
+    }
   }
   return { vouchers: count, skipped: [...skipped].map(([reason, n]) => ({ reason, count: n })) };
 }
 
-function ledgerSign(totals: ReadonlyMap<number, number>, ledgerId: number | null): number {
-  return ledgerId === null ? 0 : Math.sign(totals.get(ledgerId) ?? 0);
-}
+/** Vouchers read per header query (ids bound as one JSON array). */
+const VOUCHER_BATCH = 2000;
+
 
 // ───────────────────────────── Envelope ─────────────────────────────
 
-function envelope(company: string, report: 'All Masters' | 'Vouchers', body: string): string {
+/** The ENVELOPE around the TALLYMESSAGEs: [text before them, text after them]. */
+function envelopeParts(company: string, report: 'All Masters' | 'Vouchers'): [string, string] {
   const head = new Out();
   head.open('ENVELOPE');
   head.open('HEADER');
@@ -810,77 +1065,129 @@ function envelope(company: string, report: 'All Masters' | 'Vouchers', body: str
   head.close('STATICVARIABLES');
   head.close('REQUESTDESC');
   head.open('REQUESTDATA');
-  return `${head.text()}${body}   </REQUESTDATA>\r\n  </IMPORTDATA>\r\n </BODY>\r\n</ENVELOPE>\r\n`;
+  return [head.text(), '   </REQUESTDATA>\r\n  </IMPORTDATA>\r\n </BODY>\r\n</ENVELOPE>\r\n'];
 }
 
 /** UTF-16LE with a byte-order mark. */
 export function utf16leWithBom(text: string): Uint8Array {
-  const buf = Buffer.from(`﻿${text}`, 'utf16le');
+  return utf16le(`\uFEFF${text}`);
+}
+
+function utf16le(text: string): Uint8Array {
+  const buf = Buffer.from(text, 'utf16le');
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }
 
-/** The XML texts (for tests and the route). */
-export function buildTallyExport(db: Db, input: TallyExportInput): { masters: string | null; vouchers: string | null; masterCounts: MasterCounts | null; voucherCounts: VoucherCounts | null; companyName: string } {
+/**
+ * The masters file as text (tests, and the masters part of the export). `openingsAsOf` (the start of
+ * the exported period) after the books beginning writes the opening balances, bills and stock as on
+ * that date (see openingsAt); otherwise the books-beginning openings as entered.
+ */
+export function buildTallyMasters(
+  db: Db,
+  opts: { openingsAsOf?: string; today?: string } = {},
+): { xml: string; counts: MasterCounts; companyName: string; openingsAsOf: string } {
   const company = db.get<{ name: string; books_from: string }>('SELECT name, books_from FROM company WHERE id = 1');
   const name = company?.name ?? 'Company';
-  let masters: string | null = null;
-  let vouchers: string | null = null;
-  let masterCounts: MasterCounts | null = null;
-  let voucherCounts: VoucherCounts | null = null;
-  if (input.masters) {
-    const o = new Out();
-    masterCounts = writeMasters(db, company?.books_from ?? input.from, o);
-    masters = envelope(name, 'All Masters', o.text());
-  }
-  if (input.vouchers) {
-    const o = new Out();
-    voucherCounts = writeVouchers(db, input.from, input.to, o);
-    vouchers = envelope(name, 'Vouchers', o.text());
-  }
-  return { masters, vouchers, masterCounts, voucherCounts, companyName: name };
+  const booksFrom = company?.books_from ?? '1970-01-01';
+  const openings = openingsAt(db, opts.openingsAsOf ?? booksFrom, booksFrom, opts.today ?? opts.openingsAsOf ?? booksFrom);
+  const o = new Out();
+  const counts = writeMasters(db, booksFrom, o, openings);
+  const [head, tail] = envelopeParts(name, 'All Masters');
+  return { xml: head + o.text() + tail, counts, companyName: name, openingsAsOf: openings.asOf };
 }
 
-export function exportTally(ctx: CompanyCtx, input: TallyExportInput): TallyExportResult {
+/**
+ * 'data.tally.export'. Masters only → one XML file. With vouchers → a ZIP (1-Masters.xml +
+ * 2-Vouchers.xml, or Vouchers.xml alone): Tally XML runs to ~4.5 KB a voucher, so the vouchers are
+ * streamed into the ZIP in the company folder (constant memory, one read snapshot, yielding between
+ * batches) and the finished file — about a twentieth of the XML — is read back and deleted.
+ */
+export async function exportTally(ctx: CompanyCtx, input: TallyExportInput): Promise<TallyExportResult> {
   requirePermission(ctx, 'data.export');
   if (!input.masters && !input.vouchers) throw validation([{ path: 'masters', message: 'Choose masters, vouchers or both.' }]);
   if (input.vouchers && input.from > input.to) throw validation([{ path: 'from', message: 'The period starts after it ends. Check the From and To dates.' }]);
-  // One consistent read (sync: nothing else runs in between on this worker).
-  const built = buildTallyExport(ctx.db, input);
-  const slug = fileSlug(built.companyName);
-  const period = `${input.from.replace(/-/g, '')}-${input.to.replace(/-/g, '')}`;
+  const snap = openSnapshot(ctx);
+  let zip: ZipFileWriter | null = null;
   let fileName: string;
   let bytes: Uint8Array;
   let mimeType: string;
-  if (built.masters !== null && built.vouchers !== null) {
-    fileName = `${slug}-Tally-${period}.zip`;
-    bytes = createZip([
-      { name: '1-Masters.xml', data: utf16leWithBom(built.masters) },
-      { name: '2-Vouchers.xml', data: utf16leWithBom(built.vouchers) },
-    ]);
-    mimeType = ZIP_MIME;
-  } else if (built.masters !== null) {
-    fileName = `${slug}-Tally-Masters.xml`;
-    bytes = utf16leWithBom(built.masters);
-    mimeType = TALLY_XML_MIME;
-  } else {
-    fileName = `${slug}-Tally-Vouchers-${period}.xml`;
-    bytes = utf16leWithBom(built.vouchers ?? '');
-    mimeType = TALLY_XML_MIME;
+  let masterCounts: MasterCounts | null = null;
+  let masters: ReturnType<typeof buildTallyMasters> | null = null;
+  let voucherCounts: VoucherCounts | null = null;
+  let companyName: string;
+  try {
+    const db = snap.db;
+    // With the vouchers of a later period, the masters carry the balances on the period's first day.
+    masters = input.masters ? buildTallyMasters(db, { ...(input.vouchers ? { openingsAsOf: input.from } : {}), today: ctx.clock.today() }) : null;
+    masterCounts = masters?.counts ?? null;
+    companyName = masters?.companyName ?? db.value<string>('SELECT name FROM company WHERE id = 1') ?? 'Company';
+    const slug = fileSlug(companyName);
+    if (!input.vouchers) {
+      fileName = `${slug}-Tally-Masters.xml`;
+      bytes = utf16leWithBom(masters?.xml ?? '');
+      mimeType = TALLY_XML_MIME;
+    } else {
+      fs.mkdirSync(ctx.company.dir, { recursive: true });
+      const tmp = path.join(ctx.company.dir, `.export-${randomToken(6)}.tmp`);
+      const writer = new ZipFileWriter(tmp);
+      zip = writer;
+      if (masters) writer.addEntry('1-Masters.xml', utf16leWithBom(masters.xml));
+      writer.beginEntry(masters ? '2-Vouchers.xml' : 'Vouchers.xml');
+      const [head, tail] = envelopeParts(companyName, 'Vouchers');
+      writer.write(utf16leWithBom(head));
+      // Batch the per-voucher texts into ~64 K-character blocks before encoding.
+      let pending: string[] = [];
+      let pendingChars = 0;
+      const flush = (): void => {
+        if (pending.length === 0) return;
+        writer.write(utf16le(pending.join('')));
+        pending = [];
+        pendingChars = 0;
+      };
+      voucherCounts = await writeVouchers(
+        db,
+        input.from,
+        input.to,
+        (text) => {
+          pending.push(text);
+          pendingChars += text.length;
+          if (pendingChars >= 64 * 1024) flush();
+        },
+        async () => {
+          if (!snap.canYield) return;
+          await yieldToEventLoop();
+          if (!ctx.db.isOpen) throw new AppError('CONFLICT', 'The company was closed during the export. Export again.');
+        },
+      );
+      flush();
+      writer.write(utf16le(tail));
+      writer.endEntry();
+      writer.finish();
+      bytes = new Uint8Array(fs.readFileSync(tmp));
+      const period = `${input.from.replace(/-/g, '')}-${input.to.replace(/-/g, '')}`;
+      fileName = masters ? `${slug}-Tally-${period}.zip` : `${slug}-Tally-Vouchers-${period}.zip`;
+      mimeType = ZIP_MIME;
+    }
+  } finally {
+    snap.close();
+    zip?.abort(); // closes if still open, and deletes the temporary file in every case
   }
   const result: TallyExportResult = {
     fileName,
     bytes,
     mimeType,
-    masters: built.masterCounts,
-    vouchers: built.voucherCounts?.vouchers ?? 0,
-    skipped: built.voucherCounts?.skipped ?? [],
+    masters: masterCounts,
+    openingsAsOf: masters?.openingsAsOf ?? null,
+    vouchers: voucherCounts?.vouchers ?? 0,
+    skipped: voucherCounts?.skipped ?? [],
   };
   ctx.db.transaction(() =>
     ctx.audit({
       action: 'export',
       entityType: 'tally_xml',
       entityLabel: input.vouchers ? `Tally XML ${formatDate(input.from)} to ${formatDate(input.to)}` : 'Tally XML (masters)',
-      after: { masters: built.masterCounts, vouchers: result.vouchers, skipped: result.skipped, bytes: bytes.byteLength },
+      after: { masters: masterCounts, openingsAsOf: result.openingsAsOf, vouchers: result.vouchers, skipped: result.skipped, bytes: bytes.byteLength },
     }),
   );
   return result;

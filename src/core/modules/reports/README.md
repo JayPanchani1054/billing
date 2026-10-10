@@ -337,6 +337,7 @@ cold before); Trial Balance ≈ 75 ms; Ratios ≈ 0.16 s (was 1.8 s).
   plain asset ledgers (record closing stock by journal).
 - Ledger Vouchers opened from a P&L-basis Group Summary show Trial-Balance figures (opening = year to
   date before `from`), as Tally does; the period's Dr/Cr agree with the summary.
-- Foreign-currency columns are not shown (forex amounts are not posted by the vouchers engine yet).
+- Statements here are in rupees. A ledger kept in a foreign currency is shown in both currencies by
+  `forex.ledger` (Ledger Vouchers screen: Alt+R) — see src/core/modules/forex/README.md.
 - Group "net Dr/Cr balances" flags are not applied: groups always show the net of their ledgers.
 - Cash flow does not split operating / investing / financing activities (Tally's monthly view only).

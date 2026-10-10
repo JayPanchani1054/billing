@@ -18,6 +18,7 @@ import { Badge, Banner, DataTable, EmptyState, Grid, Inline, KpiCard, SegmentedC
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { OverdueBadge, VGap } from './components.tsx';
 import { partyEmptyBody, partyTreeRows, refTypeLabel } from './lib/model.ts';
+import { useForexContext } from '../forex/hooks.ts';
 import type { PartyTreeRow } from './lib/model.ts';
 
 type Section = 'bills' | 'onAccount';
@@ -43,6 +44,8 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
     { keepPrevious: true, enabled: Number.isSafeInteger(ledgerId) && ledgerId > 0 },
   );
   const d = q.data;
+  // (forex group) A party kept in a foreign currency: Alt+Y shows its bills in that currency too.
+  const fxCurrency = useForexContext().currencyOfLedger(ledgerId);
   const rows = useMemo(() => (d ? partyTreeRows(d) : []), [d]);
   const onAccountRows = d?.onAccount.lines ?? [];
 
@@ -114,6 +117,7 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
     { key: 'Alt+I', label: 'Interest', icon: 'percent', onClick: () => nav.push('outstanding.interest', { ledgerId }), group: 'party' },
     { key: 'Alt+R', label: 'Reminder letter', icon: 'mail', onClick: () => nav.push('outstanding.reminders', { ledgerId }), hidden: !isReceivable, group: 'party' },
     { key: 'Alt+L', label: 'Ledger', icon: 'ledger', onClick: () => nav.push('reports.ledger', { ledgerId }), group: 'party' },
+    { key: 'Alt+Y', label: `Bills in ${fxCurrency?.isoCode ?? fxCurrency?.symbol ?? 'currency'}`, icon: 'rupee', hidden: !fxCurrency, onClick: () => nav.push('forex.outstanding', { ledgerId }), group: 'party' },
   ];
 
   const exportDef = () => ({

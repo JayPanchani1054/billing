@@ -84,8 +84,10 @@ test('revaluation export and journal preview', () => {
   assert.deepEqual(revaluationJournalPreview(r), [
     { ledgerName: 'Pacific Retail LLC', amount: 160_000 },
     { ledgerName: 'Globex GmbH', amount: -30_000 },
-    { ledgerName: 'Forex gain/loss (unrealised)', amount: -130_000 },
+    { ledgerName: 'Forex Gain/Loss', amount: -130_000 },
   ]);
+  // The configured unrealised gain/loss ledger is named in the preview.
+  assert.equal(revaluationJournalPreview(r, 'Exchange Fluctuation').at(-1)?.ledgerName, 'Exchange Fluctuation');
 });
 
 test('entry summary from the server preview', () => {
@@ -105,4 +107,108 @@ test('entry summary from the server preview', () => {
     'Bill 1: booked ₹ 49,950.00, now ₹ 50,400.00',
     'Forex Gain/Loss: Exchange gain ₹ 450.00',
   ]);
+});
+
+// ───────────────────────────── Ledger note, revaluation inputs, opening ─────────────────────────────
+
+import { forexAtRate, impliedRate, ledgerFooterNote, openingIssues, rateOverrides, revaluationBlocker, revaluationNarration, revaluationRateRows } from './model.ts';
+import type { ForexLedgerStatement } from '../../../../shared/types/forex.ts';
+
+const stmt = (over: Partial<ForexLedgerStatement>): ForexLedgerStatement => ({
+  ledgerId: 7,
+  ledgerName: 'Pacific Retail LLC',
+  currency: usd,
+  from: '2026-04-01',
+  to: '2026-06-30',
+  openingForex: 0,
+  openingInr: 0,
+  rows: [],
+  totals: { forexDr: 0, forexCr: 0, inrDr: 0, inrCr: 0 },
+  closingForex: 800,
+  closingInr: 6_640_000,
+  closingRate: 85,
+  revaluedInr: 6_800_000,
+  unrealised: 160_000,
+  ...over,
+});
+
+test('ledger footer note: closing balance at the closing rate', () => {
+  // $800 carried at ₹66,400.00 (₹83 / $); at ₹85: ₹68,000.00 → unrealised gain ₹1,600.00.
+  assert.equal(ledgerFooterNote(stmt({}), money), 'At the closing rate ₹85.00 per USD the balance is worth ₹ 68,000.00 Dr: unrealised gain ₹ 1,600.00.');
+  // A payable of $800 carried at ₹66,400 Cr, worth ₹68,000 Cr at ₹85: the liability grew → loss.
+  assert.equal(
+    ledgerFooterNote(stmt({ closingForex: -800, closingInr: -6_640_000, revaluedInr: -6_800_000, unrealised: -160_000 }), money),
+    'At the closing rate ₹85.00 per USD the balance is worth ₹ 68,000.00 Cr: unrealised loss ₹ 1,600.00.',
+  );
+  assert.match(ledgerFooterNote(stmt({ closingRate: null, revaluedInr: null, unrealised: null }), money), /No closing rate for USD/);
+  assert.equal(ledgerFooterNote(stmt({ closingForex: 0, closingInr: 0 }), money), 'Nothing is outstanding at the end of the period.');
+  assert.match(ledgerFooterNote(stmt({ unrealised: 0, revaluedInr: 6_640_000, closingRate: 83 }), money), /the same as in the books\.$/);
+});
+
+const reval: ForexRevaluationResult = {
+  asOf: '2027-03-31',
+  rateType: 'standard',
+  rates: [
+    { currencyId: 2, symbol: '$', formalName: 'US Dollar', rate: 85, rateDate: '2027-03-31', overridden: false },
+    { currencyId: 3, symbol: '€', formalName: 'Euro', rate: null, rateDate: null, overridden: false },
+  ],
+  missingRates: [3],
+  lines: [{ ledgerId: 7, ledgerName: 'Pacific Retail LLC', billName: 'EXP/1', currencyId: 2, forexAmount: 800, bookedAmount: 6_640_000, closingRate: 85, revaluedAmount: 6_800_000, adjustment: 160_000 }],
+  net: 160_000,
+  posted: [],
+};
+
+test('revaluation inputs: typed rates, blockers and narration', () => {
+  const typed = new Map<number, number>([
+    [3, 92.5],
+    [2, 0],
+  ]);
+  // Only positive rates go to the server, ordered by currency.
+  assert.deepEqual(rateOverrides(typed), [{ currencyId: 3, rate: 92.5 }]);
+  const rows = revaluationRateRows(reval, typed);
+  assert.deepEqual(
+    rows.map((r) => [r.symbol, r.masterRate, r.typed]),
+    [
+      ['$', 85, 0],
+      ['€', null, 92.5],
+    ],
+  );
+  // Typed over the master: the master rate stays visible (the core reports it with masterRate).
+  const over = revaluationRateRows(
+    { ...reval, rates: [{ currencyId: 2, symbol: '$', formalName: 'US Dollar', rate: 86, rateDate: '2027-03-31', overridden: true, masterRate: 85, masterDate: '2027-03-30' }] },
+    new Map([[2, 86]]),
+  );
+  assert.deepEqual([over[0].masterRate, over[0].masterDate, over[0].typed], [85, '2027-03-30', 86]);
+  // A currency without a rate blocks posting until a rate is typed (the core refuses the same).
+  assert.match(revaluationBlocker(reval, 0) ?? '', /No closing rate for Euro/);
+  // A rate typed for one currency does not excuse another that still has none.
+  assert.match(revaluationBlocker(reval, 1) ?? '', /No closing rate for Euro/);
+  assert.equal(revaluationBlocker({ ...reval, missingRates: [] }, 1), null);
+  assert.match(revaluationBlocker({ ...reval, missingRates: [], lines: [] }, 0) ?? '', /Nothing to revalue/);
+  assert.equal(revaluationBlocker(undefined, 0), 'Loading…');
+  assert.equal(
+    revaluationNarration(reval, (iso) => iso),
+    'Forex adjustment: foreign-currency balances restated at the closing standard rate as on 2027-03-31 ($ ₹85.00).',
+  );
+});
+
+test('opening in currency: implied rate, fill at a rate, issues', () => {
+  // ₹66,400.00 for $800 → ₹83 per $.
+  assert.equal(impliedRate(6_640_000, 800), 83);
+  assert.equal(impliedRate(-6_640_000, -800), 83);
+  assert.equal(impliedRate(0, 800), null);
+  // ₹66,400.00 Cr at ₹83 → $800 Cr (signed like the rupees); 0 rate → 0.
+  assert.equal(forexAtRate(-6_640_000, 83, 2), -800);
+  assert.equal(forexAtRate(6_640_000, 0, 2), 0);
+  const bills = [
+    { billName: 'EXP/1', amount: 4_150_000, forexAmount: 500 },
+    { billName: 'EXP/2', amount: 2_490_000, forexAmount: 300 },
+  ];
+  assert.deepEqual(openingIssues(6_640_000, 800, bills, 2), []);
+  assert.deepEqual(openingIssues(6_640_000, 800, [bills[0] as (typeof bills)[0], { ...(bills[1] as (typeof bills)[0]), forexAmount: 250 }], 2), ['The opening bills total 750 but the opening balance in the currency is 800.']);
+  assert.match(openingIssues(6_640_000, -800, [], 2)[0] ?? '', /same side/);
+  assert.match(openingIssues(0, 800, [], 2)[0] ?? '', /rupee opening balance on the ledger first/);
+  // No bill split typed: only the balance is checked (bills are not sent).
+  assert.deepEqual(openingIssues(6_640_000, 800, bills.map((b) => ({ ...b, forexAmount: null })), 2), []);
+  assert.match(openingIssues(6_640_000, 800, [{ billName: 'EXP/1', amount: 4_150_000, forexAmount: -500 }], 2).join(' '), /Bill EXP\/1: the foreign amount must be on the same side/);
 });

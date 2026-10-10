@@ -148,8 +148,11 @@ function slabsSql(filterItems: boolean): string {
 const SLABS_ALL_SQL = slabsSql(false);
 const SLABS_SOME_SQL = slabsSql(true);
 
-/** Applicable slabs per item for a level on a date (latest list dated ≤ date). Optional item restriction. */
-function applicableSlabs(db: Db, levelId: number, date: string, itemIds?: readonly number[]): Map<number, { from: string; slabs: PriceSlab[] }> {
+/**
+ * Applicable slabs per item for a level on a date (latest list dated ≤ date). Optional item restriction.
+ * Exported for the pos module's scan lookup.
+ */
+export function applicableSlabs(db: Db, levelId: number, date: string, itemIds?: readonly number[]): Map<number, { from: string; slabs: PriceSlab[] }> {
   const rows = db.all<SlabRow>(itemIds ? SLABS_SOME_SQL : SLABS_ALL_SQL, itemIds ? { lvl: levelId, date, ids: jsonIds(itemIds) } : { lvl: levelId, date });
   const out = new Map<number, { from: string; slabs: PriceSlab[] }>();
   for (const r of rows) {

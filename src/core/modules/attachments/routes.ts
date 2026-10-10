@@ -22,8 +22,10 @@ export const attachmentsRoutes = {
     input: v.object({ entityType: ENTITY, ids: v.array(v.id(), { max: 5000 }) }),
     handler: (ctx, input) => countAttachments(ctx, input),
   }),
+  // Own transaction: a stored file whose row could not be written is deleted again.
   'attachments.add': companyRoute({
     access: 'attachments.add',
+    transactional: false,
     input: v.object({
       entityType: ENTITY,
       entityId: v.id(),

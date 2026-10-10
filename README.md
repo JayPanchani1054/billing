@@ -34,6 +34,13 @@ server, no internet connection required.
   lower-deduction certificates, automatic deduction on purchases / journals / payments and TCS on
   sales (override with a reason), challans, outstanding with due dates, interest and s.234E late fee,
   26Q / 27Q / 27EQ data as CSV (not the FVU file), exceptions, and TDS receivable vs a Form 26AS CSV.
+- **Multiple currencies** (F11) — parties and bank accounts kept in a foreign currency are entered in
+  that currency with a rate of exchange (default from your rates master: standard / selling / buying);
+  the books stay in rupees. Bill-wise outstanding in both currencies, realised exchange gain / loss
+  posted automatically when a bill is settled at another rate, period-end revaluation at the closing
+  rate with a one-key "Forex adjustment" journal, ledger statements in both currencies, and export
+  invoices (LUT or with IGST) printed in the foreign currency with rupee equivalents (GST and GSTR-1 in
+  rupees). Exchange rates are typed by you — nothing is downloaded.
 - **Accounting** — groups and ledgers, bill-wise outstanding, cost centres, bank reconciliation,
   cheque printing, period locking, Trial Balance, P&L, Balance Sheet, Day Book, ledger statements.
 - **Inventory** — stock items, groups, units (UQC), godowns, batches and expiry, order processing,
@@ -49,7 +56,38 @@ server, no internet connection required.
   and posted from a due list, Sales / Purchase Bills Pending for unbilled challans, order pre-close,
   reversing journals with scenarios on the Trial Balance / P&L / Balance Sheet, and budgets with a
   budget-vs-actual report. See [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
-- **Printing & export** — GST invoices with QR codes, PDF, Excel/CSV export of every report.
+- **Printing & export** — GST invoices with QR codes, PDF, Excel/CSV export of every report. Paper:
+  A4, A5 (portrait / landscape), Letter, Legal, and 80 mm / 58 mm thermal receipt rolls (a compact
+  receipt as long as its contents); an MRP column with "You saved" for items with an MRP, and a
+  warning when a price is above MRP.
+- **Share by e-mail or WhatsApp** (`Alt+W`) — invoices, vouchers and statements as PDF: an editable
+  e-mail draft with the PDF attached opens in your mail program (Outlook / Windows Mail), or a
+  WhatsApp chat opens with the party's number and your message while the PDF is shown in its folder to
+  attach (WhatsApp cannot attach a file from a link). Texts are editable templates; every share is in
+  the edit log.
+- **Cheques & bank payments** (F11 › Cheque printing) — payee bank details (beneficiary, A/c, IFSC,
+  name on cheque), cheque books per bank with the next leaf filled in on Payment / Contra, a cheque
+  leaf register (issued, cleared from the BRS, stale after 3 months, cancelled, unused), cheque
+  printing one by one or in bulk on CTS-2010 leaves (date boxes, amount in words in lakh / crore,
+  `**…/-` guards, A/c Payee crossing) with per-bank layouts in millimetres, presets and a calibration
+  print, and a bulk NEFT / RTGS / IMPS payment file (a documented generic CSV — banks' upload formats
+  differ, map the columns once).
+- **Tally both ways** — migrate from Tally XML, and **Export to Tally**: masters (groups, ledgers with
+  GST / party / bank / bill-wise openings, units, godowns, stock groups and items, cost centres, voucher
+  types, aliases) and the vouchers of a period (bill-wise, cost centres, bank details, stock lines, GST
+  facts — exactly as recorded) as a TallyPrime "Import Data" XML for your CA; for a later period the
+  masters carry the balances, pending bills and stock on its first day. Tested by importing the export
+  back into an empty company with the same trial balance, stock summary and GST totals; not yet tried
+  against TallyPrime itself, so test on a copy of the Tally company first.
+- **Attachments** — attach scanned bills, challans, agreements and payment proofs (PDF, images,
+  Office files, CSV / TXT / JSON / XML; up to 25 MB, no programs or macros) to vouchers, ledgers and
+  stock items (`Alt+F`); open, save a copy or remove them; an Attachment Register; files are kept in the
+  company folder, travel in backups (encrypted with the backup) and are checked by Check Books.
+- **Voucher numbering like Tally** — prefix / suffix tokens `{FY}` (26-27), `{FYYYYY}` (2026-27), `{YY}`,
+  `{MM}`, `{MMM}`, prefix / suffix rows with an "applicable from" date, restart yearly / monthly / never,
+  width and zero-fill; GST invoice numbers are checked for 16 characters and the allowed characters.
+- **Several aliases per ledger and item** — local-language names, supplier codes, old codes: every alias
+  is searched in pickers and Go To, and kept by Excel and Tally import / export.
 - **Security** — optional per-company users and roles, scrypt-hashed passwords with lockout,
   tamper-evident (hash-chained) edit log, encrypted backups. See [docs/SECURITY.md](docs/SECURITY.md).
 - **Multi-company** — each company is a self-contained folder; open one at a time, switch with `F3`.

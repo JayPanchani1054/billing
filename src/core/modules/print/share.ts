@@ -43,12 +43,18 @@ function contactOf(ctx: CompanyCtx, ledgerId: number | null): PartyContact | nul
   return { id: r.id, name: r.mailing_name?.trim() || r.name, email, mobile };
 }
 
-/** First party-like ledger of a voucher without a party header (payment / receipt / journal). */
+/**
+ * First party-like ledger of a voucher without a party header (payment / receipt / journal): one with an
+ * e-mail or phone that is not a cash or bank ledger (a bank's branch e-mail is not the recipient).
+ */
 function inferredParty(ctx: CompanyCtx, voucherId: number): number | null {
   return (
     ctx.db.value<number>(
-      `SELECT le.ledger_id FROM ledger_entries le JOIN ledgers l ON l.id = le.ledger_id
-        WHERE le.voucher_id = :id AND (l.email IS NOT NULL OR l.mobile IS NOT NULL)
+      `WITH RECURSIVE cb(id) AS (SELECT id FROM groups WHERE reserved_code IN ('BANK_ACCOUNTS', 'BANK_OD', 'CASH_IN_HAND')
+                                  UNION SELECT c.id FROM groups c JOIN cb ON c.parent_id = cb.id)
+       SELECT le.ledger_id FROM ledger_entries le JOIN ledgers l ON l.id = le.ledger_id
+        WHERE le.voucher_id = :id AND (l.email IS NOT NULL OR l.mobile IS NOT NULL OR l.phone IS NOT NULL)
+          AND l.group_id NOT IN (SELECT id FROM cb)
         ORDER BY le.line_no LIMIT 1`,
       { id: voucherId },
     ) ?? null

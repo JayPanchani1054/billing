@@ -27,10 +27,11 @@ import { setPeriodLock } from '../company/service.ts';
 import { dataRoutes } from '../data/routes.ts';
 import { verifyData } from '../data/verify.ts';
 import { deleteItem } from '../inventory/items.ts';
-import { deleteVoucher } from '../vouchers/service.ts';
+import { vouchersRoutes } from '../vouchers/routes.ts';
+import { cancelVoucher, deleteVoucher } from '../vouchers/service.ts';
 import { salesInput, save, setupKit, type Kit } from '../vouchers/testkit.ts';
 import { attachmentsRoutes } from './routes.ts';
-import { removeUnusedFiles } from './service.ts';
+import { addAttachment, removeUnusedFiles } from './service.ts';
 import { attachmentsDir, contentProblem, sha256Hex } from './store.ts';
 import { attachmentTypeOf } from '../../../shared/attachments.ts';
 
@@ -119,6 +120,23 @@ describe('attachments: add, list, read', () => {
     assert.equal(a.fileName, 'photo.png');
     assert.equal(contentProblem(attachmentTypeOf('a.jpg')!, new Uint8Array([0xff, 0xd8, 0xff, 0xe0])), null);
   });
+
+  it('an XML file that is really a web page or an Office document is refused; plain XML data is fine', async () => {
+    const xml = attachmentTypeOf('a.xml')!;
+    // Opened from the books, these run in the browser / Office that handles .xml on the computer.
+    for (const active of [
+      '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body onload="x()">bill</body></html>',
+      '<?xml version="1.0"?><?xml-stylesheet type="text/xsl" href="evil.xsl"?><bill/>',
+      '<bill><script>alert(1)</script></bill>',
+      '<?xml version="1.0"?><?mso-application progid="Word.Document"?><w:wordDocument/>',
+      '<!DOCTYPE b [<!ENTITY x SYSTEM "file:///c:/windows/win.ini">]><b>&x;</b>',
+      '<svg xmlns="http://www.w3.org/2000/svg"><a/></svg>',
+    ]) {
+      assert.match(contentProblem(xml, enc(active)) ?? '', /could run when opened/, active);
+    }
+    assert.equal(contentProblem(xml, enc('<?xml version="1.0"?><Invoice><Irn>abc</Irn><Note>A &amp; B</Note></Invoice>')), null);
+    await fails('attachments.add', { entityType: 'voucher', entityId: voucherId, fileName: 'einv.xml', bytes: enc('<a><script>x</script></a>') }, 'VALIDATION', /could run/);
+  });
 });
 
 describe('attachments: permissions, removal, period lock', () => {
@@ -157,7 +175,7 @@ describe('attachments: permissions, removal, period lock', () => {
     await attach(PDF2, 'later scan.pdf');
   });
 
-  it('a ledger or stock item with files cannot be deleted; a deleted voucher takes its rows along', async () => {
+  it('a ledger, stock item or voucher with files cannot be deleted (also not by a user who may not remove files)', async () => {
     const ledger = k.t.addLedger({ name: 'Empty Party', group: 'SUNDRY_DEBTORS' });
     await attach(PDF, 'agreement.pdf', 'ledger', ledger);
     assert.throws(() => deleteLedger(k.t.ctx, ledger), (e: unknown) => e instanceof AppError && /attachments/.test(e.message));
@@ -165,14 +183,49 @@ describe('attachments: permissions, removal, period lock', () => {
     await attach(PNG, 'photo.png', 'stock_item', item);
     assert.throws(() => deleteItem(k.t.ctx, item), (e: unknown) => e instanceof AppError && /attached file/.test(e.message));
 
-    await attach(PDF2, 'bill.pdf');
+    // A voucher: deleting it would take the evidence away with it, so it is refused — through the
+    // dispatcher too, for a user who may delete vouchers but not remove attachments.
+    const bill = await attach(PDF2, 'bill.pdf');
+    assert.throws(() => deleteVoucher(k.t.ctx, voucherId), (e: unknown) => e instanceof AppError && e.code === 'BUSINESS_RULE' && /1 attached file/.test(e.message));
+    const viaRoute = await k.t.call(vouchersRoutes, 'vouchers.delete', { id: voucherId }, { session: k.t.sessionAs({ permissions: ['vouchers.view', 'vouchers.delete'] as never }) });
+    assert.equal(viaRoute.ok, false);
+    if (!viaRoute.ok) assert.match(viaRoute.error.message, /Remove the attachments first/);
+    assert.equal(k.t.db.value('SELECT COUNT(*) FROM vouchers WHERE id = :id', { id: voucherId }), 1);
+    assert.equal(k.t.db.value('SELECT COUNT(*) FROM attachments WHERE voucher_id = :id', { id: voucherId }), 1);
+    // Cancelling keeps the voucher and its file; once the file is removed the voucher can be deleted.
+    await ok('attachments.remove', { id: bill.id });
     deleteVoucher(k.t.ctx, voucherId);
-    assert.equal(k.t.db.value('SELECT COUNT(*) FROM attachments WHERE voucher_id IS NOT NULL'), 0);
-    // The data check mentions the file left behind; the sweep removes it.
+    assert.equal(k.t.db.value('SELECT COUNT(*) FROM vouchers WHERE id = :id', { id: voucherId }), 0);
+  });
+
+  it('a stored file nothing refers to is reported by the data check and removed by the sweep', async () => {
+    const dir = attachmentsDir(k.t.ctx.company.dir);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${sha256Hex(PDF2)}.pdf`), PDF2);
     const before = verifyData(k.t.ctx).checks.find((c) => c.name === 'attachments');
     assert.equal(before?.ok, true);
-    assert.match(before?.details.join(' ') ?? '', /no longer attached/);
+    assert.match(before?.details.join(' ') ?? '', /not attached to anything/);
     assert.equal(removeUnusedFiles(k.t.ctx), 1);
+  });
+
+  it('a file whose row cannot be written is not left behind in the folder', async () => {
+    const realAudit = k.t.ctx.audit;
+    k.t.ctx.audit = () => {
+      throw new Error('disk full');
+    };
+    try {
+      await assert.rejects(() => Promise.resolve().then(() => addAttachment(k.t.ctx, { entityType: 'voucher', entityId: voucherId, fileName: 'scan.pdf', bytes: PDF })));
+    } finally {
+      k.t.ctx.audit = realAudit;
+    }
+    assert.equal(k.t.db.value('SELECT COUNT(*) FROM attachments'), 0);
+    assert.equal(fs.existsSync(path.join(attachmentsDir(k.t.ctx.company.dir), `${sha256Hex(PDF)}.pdf`)), false);
+  });
+
+  it('cancelling a voucher keeps its files', async () => {
+    await attach(PDF);
+    cancelVoucher(k.t.ctx, voucherId, 'Wrong party');
+    assert.equal(k.t.db.value('SELECT COUNT(*) FROM attachments WHERE voucher_id = :id', { id: voucherId }), 1);
   });
 });
 

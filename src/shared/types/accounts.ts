@@ -594,6 +594,8 @@ export interface VoucherTypeConfig {
   showMrp?: boolean | null;
   /** Stock journal types only (mfg module): Manufacturing Journal, Material Out or Material In. */
   stockJournalClass?: 'manufacturing' | 'material_out' | 'material_in' | null;
+  /** Sales types only (pos module): POS invoice class — bills are entered on the POS counter with split tender. */
+  posInvoice?: boolean | null;
 }
 
 export interface VoucherTypeRow {

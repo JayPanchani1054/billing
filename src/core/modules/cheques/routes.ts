@@ -15,7 +15,7 @@ import { patchNullable } from '../../lib/schemas.ts';
 import { v } from '../../lib/validate.ts';
 import { cancelLeaf, deleteBook, listBooks, listChequeBanks, nextLeaf, restoreLeaf, saveBook } from './books.ts';
 import { assertChequePrinting, can } from './common.ts';
-import { exportEPayments, listEPayments } from './epayment.ts';
+import { discardEPaymentBatch, exportEPayments, listEPayments } from './epayment.ts';
 import { CHEQUE_PRESETS, deleteLayout, getBankSettings, listLayouts, saveBankSettings, saveLayout } from './layouts.ts';
 import { getPayee, listPayees, savePayee } from './payees.ts';
 import { CHEQUE_PRINT_MAX, chequePrintData, recordChequePrints } from './printData.ts';
@@ -97,7 +97,7 @@ export const chequesRoutes = {
     },
   }),
   'cheques.book.save': companyRoute({
-    access: 'masters.create',
+    access: 'masters.view', // + masters.create / masters.alter in the service (like accounts.ledger.save)
     input: v.object({
       id: v.id().optional(),
       bankLedgerId: v.id(),
@@ -229,5 +229,11 @@ export const chequesRoutes = {
       if (!can(ctx, 'vouchers.view')) throw forbidden('You do not have permission to view vouchers.');
       return exportEPayments(ctx, input);
     },
+  }),
+  // The save dialog was cancelled: the file was never written, so the payments are not "already exported".
+  'cheques.epayment.discard': companyRoute({
+    access: 'data.export',
+    input: v.object({ batchId: v.id() }),
+    handler: (ctx, input) => discardEPaymentBatch(ctx, input),
   }),
 } satisfies RouteMap;

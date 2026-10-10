@@ -229,6 +229,8 @@ export interface TLedger {
   gstin: string | null;
   registrationType: string | null;
   stateName: string | null;
+  /** COUNTRYNAME (Tally's mailing details); an overseas party has a country other than India. */
+  country: string | null;
   address: string | null;
   pincode: string | null;
   pan: string | null;
@@ -242,6 +244,8 @@ export interface TLedger {
   dutyHead: TallyDutyHead | null;
   gst: TGstInfo;
   openingBills: TOpeningBill[];
+  /** A charge included in the assessable value (APPROPRIATEFOR GST › GSTAPPROPRIATETO / EXCISEALLOCTYPE), else null. */
+  assessable: { to: 'goods' | 'services'; by: 'value' | 'quantity' } | null;
 }
 
 export interface TUnit {
@@ -593,6 +597,7 @@ function parseLedger(n: TNode): TLedger {
     gstin: orNull((valAny(reg, 'GSTIN') || valAny(n, 'PARTYGSTIN', 'GSTIN')).toUpperCase().replace(/\s+/g, '')),
     registrationType: orNull(valAny(reg, 'GSTREGISTRATIONTYPE') || val(n, 'GSTREGISTRATIONTYPE')),
     stateName: orNull(valAny(mailing, 'STATE') || valAny(reg, 'STATE', 'PLACEOFSUPPLY') || valAny(n, 'LEDSTATENAME', 'STATENAME')),
+    country: orNull(valAny(mailing, 'COUNTRY', 'COUNTRYNAME') || valAny(n, 'COUNTRYNAME', 'COUNTRYOFRESIDENCE')),
     address: address.length ? address.join(', ') : null,
     pincode: orNull(valAny(mailing, 'PINCODE') || val(n, 'PINCODE')),
     pan: orNull(val(n, 'INCOMETAXNUMBER').toUpperCase()),
@@ -612,7 +617,17 @@ function parseLedger(n: TNode): TLedger {
     dutyHead: dutyHeadOf(val(n, 'GSTDUTYHEAD')),
     gst: gstInfo(n),
     openingBills: bills,
+    assessable: assessableOf(n),
   };
+}
+
+/** "Include in assessable value calculation: GST, appropriate to Goods / Services, based on value / quantity". */
+function assessableOf(n: TNode): TLedger['assessable'] {
+  if (!/^gst$/i.test(clean(val(n, 'APPROPRIATEFOR')))) return null;
+  const to = clean(val(n, 'GSTAPPROPRIATETO')).toLowerCase();
+  const kind = to.startsWith('service') ? 'services' : to.startsWith('goods') ? 'goods' : null;
+  if (!kind) return null;
+  return { to: kind, by: /quantity/i.test(val(n, 'EXCISEALLOCTYPE')) ? 'quantity' : 'value' };
 }
 
 function parseUnit(n: TNode): TUnit {

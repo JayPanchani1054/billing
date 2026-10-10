@@ -21,7 +21,7 @@ describe('cheque layouts', () => {
 
   it('refuses positions in the MICR band, past the edge, and silly sizes', () => {
     const inBand = layoutIssues({ ...STD, signatory: { x: 140, y: 92 - MICR_BAND_MM + 1, w: 50 } });
-    assert.match(inBand[0].message, /MICR band: keep it above 76 mm/);
+    assert.match(inBand[0].message, /in the MICR band: move it up .*nothing below 76 mm/);
     assert.match(layoutIssues({ ...STD, payee: { x: 100, y: 20, w: 150 } })[0].message, /runs past the leaf's right edge/);
     assert.match(layoutIssues({ ...STD, date: { x: 170, y: 9, pitch: 5 } })[0].message, /eight date boxes run past/);
     assert.match(layoutIssues({ ...STD, widthMm: 400 })[0].message, /Leaf width must be 150–230 mm/);

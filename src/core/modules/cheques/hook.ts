@@ -21,7 +21,7 @@ import type { PostingEnv } from '../vouchers/posting.ts';
 import type { VoucherTypeInfo } from '../vouchers/numbering.ts';
 import type { VoucherRow } from '../vouchers/service.ts';
 import { bookOfLeaf, hasActiveBook, nextLeaf } from './books.ts';
-import { chequeNumber, issuedCheques, leafMarks, spoiltByPrint, voucherLabel } from './common.ts';
+import { chequeNumber, issuedLeaves, leafMarks, spoiltByPrint, voucherLabel, type IssuedLeaf } from './common.ts';
 
 const CHEQUE_BASES: ReadonlySet<string> = new Set(['payment', 'contra']);
 
@@ -64,7 +64,22 @@ function adjust(ctx: PostingAdjustContext): void {
   if (!env.features.chequePrinting || !CHEQUE_BASES.has(ctx.baseType)) return;
   const lines = input.ledgers ?? [];
   const seen = new Map<string, number>();
-  const byBank = new Map<number, ReturnType<typeof issuedCheques>>();
+  // Per bank, read once per save: every cheque issued from it (one scan of its entries), its marked
+  // leaves and the leaves spoilt by a print.
+  const perBank = new Map<number, { others: IssuedLeaf[]; marks: ReturnType<typeof leafMarks>; spoilt: ReturnType<typeof spoiltByPrint> }>();
+  const bankState = (bankId: number) => {
+    let st = perBank.get(bankId);
+    if (!st) {
+      const all = issuedLeaves(env.db, bankId);
+      st = {
+        others: ctx.voucherId === null ? all : all.filter((c) => c.voucherId !== ctx.voucherId),
+        marks: leafMarks(env.db, bankId),
+        spoilt: spoiltByPrint(env.db, bankId, all),
+      };
+      perBank.set(bankId, st);
+    }
+    return st;
+  };
   lines.forEach((l, i) => {
     if (!isChequeCredit(l)) return;
     const path = `ledgers[${i}]`;
@@ -84,19 +99,23 @@ function adjust(ctx: PostingAdjustContext): void {
       return;
     }
     seen.set(key, i);
-    let issued = byBank.get(l.ledgerId);
-    if (!issued) byBank.set(l.ledgerId, (issued = issuedCheques(env.db, l.ledgerId, { excludeVoucherId: ctx.voucherId })));
-    const other = issued.find((c) => c.chequeNo === n);
+    const st = bankState(l.ledgerId);
+    const other = st.others.find((c) => c.chequeNo === n);
     if (other) {
-      ctx.warn('cheque', `Cheque ${raw} of ${bank} is already issued on ${voucherLabel(other.typeName, other.number, other.date)}. Check the cheque number.`, 'confirm', path);
+      const v = env.db.get<{ type_name: string; number: string | null; date: string }>(
+        'SELECT vt.name AS type_name, v.number, v.date FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = :id',
+        { id: other.voucherId },
+      );
+      const on = v ? voucherLabel(v.type_name, v.number, v.date) : 'another voucher';
+      ctx.warn('cheque', `Cheque ${raw} of ${bank} is already issued on ${on}. Check the cheque number.`, 'confirm', path);
       return;
     }
-    const mark = leafMarks(env.db, l.ledgerId).get(n);
+    const mark = st.marks.get(n);
     if (mark) {
       ctx.warn('cheque', `Cheque ${raw} of ${bank} was cancelled on ${formatDate(mark.date)}${mark.reason ? ` (${mark.reason})` : ''}. Use another leaf.`, 'confirm', path);
       return;
     }
-    const spoilt = spoiltByPrint(env.db, l.ledgerId, issuedCheques(env.db, l.ledgerId)).get(n);
+    const spoilt = st.spoilt.get(n);
     if (spoilt) {
       ctx.warn('cheque', `Cheque ${raw} of ${bank} was printed${spoilt.label ? ` for ${spoilt.label}` : ''} and is spoilt. Use another leaf.`, 'confirm', path);
       return;

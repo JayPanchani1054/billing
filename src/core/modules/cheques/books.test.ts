@@ -129,7 +129,7 @@ describe('cheque register', () => {
     saveBook(k.t.ctx, { bankLedgerId: k.L.bank, fromNo: 11, toNo: 16 });
     const issued = k.pay({ amount: 1_000_00 }); // 000011, 15-Apr-2026
     const cleared = k.pay({ amount: 2_000_00 }); // 000012
-    k.t.db.run("UPDATE ledger_entries SET bank_date = '2026-04-16' WHERE voucher_id = :id AND instrument_type = 'cheque'", { id: cleared.id });
+    k.t.db.run("UPDATE ledger_entries SET bank_date = '2026-04-15' WHERE voucher_id = :id AND instrument_type = 'cheque'", { id: cleared.id });
     // Cheque dated 1-Jan-2026, still not cleared on 15-Apr-2026: 3 months ended 1-Apr-2026 → stale.
     k.pay({ amount: 3_000_00, instrumentDate: '2026-01-01' }); // 000013
     k.pay({ amount: 4_000_00, instrumentDate: '2026-05-10' }); // 000014, post-dated cheque
@@ -140,13 +140,14 @@ describe('cheque register', () => {
     assert.equal(by['000011'].payee, 'Supreme Suppliers Private Limited', 'name on cheque from the payee details');
     assert.equal(by['000011'].voucherId, issued.id);
     assert.equal(by['000012'].status, 'cleared');
-    assert.equal(by['000012'].bankDate, '2026-04-16');
+    assert.equal(by['000012'].bankDate, '2026-04-15');
     assert.equal(by['000013'].status, 'stale');
     assert.equal(by['000014'].status, 'issued');
     assert.equal(by['000014'].postDated, true);
     assert.equal(by['000015'].status, 'unused');
     assert.equal(by['000016'].status, 'cancelled');
-    // 1,000 + 2,000 + 3,000 + 4,000 = 10,000.00 issued; uncleared 10,000 − 2,000 = 8,000.00
+    // 1,000 + 2,000 + 3,000 + 4,000 = 10,000.00 issued; uncleared 10,000 − 2,000 = 8,000.00 (all four
+    // vouchers are dated 15-Apr and in the books — the BRS's 'issued but not presented' on that date)
     assert.deepEqual(reg.totals, { leaves: 6, unused: 1, issued: 2, cleared: 1, stale: 1, cancelled: 1, issuedAmount: 10_000_00, unclearedAmount: 8_000_00 });
     assert.deepEqual(chequeRegister(k.t.db, '2026-04-15', { bankLedgerId: k.L.bank, status: 'stale' }).rows.map((r) => r.chequeNo), ['000013']);
     // As on 30-Jun-2026 the April cheque is not stale yet (valid to 15-Jul-2026); the January one is.

@@ -35,6 +35,8 @@ import {
   type ImportPreviewInput,
   type ImportPreviewResult,
   type ImportTemplateInput,
+  type TallyExportInput,
+  type TallyExportResult,
   type TallyImportInput,
   type TallyImportResult,
   type TallyPreviewInput,
@@ -51,6 +53,7 @@ import { exportMasters, exportVouchers } from './exportData.ts';
 import { auditReportOutput, exportTable } from './exportTable.ts';
 import { commitImport, importProgress, importTemplate, previewImport } from './importer.ts';
 import { KIND_SPECS, kindInfo } from './importSpecs.ts';
+import { exportTally } from './tallyExport.ts';
 import { importTally, previewTally, tallyProgress } from './tallyImport.ts';
 import { verifyData } from './verify.ts';
 
@@ -204,6 +207,13 @@ export const TallyImportInputSchema = v.object({
   }),
 }) as Schema<TallyImportInput>;
 
+export const TallyExportInputSchema = v.object({
+  masters: v.boolean(),
+  vouchers: v.boolean(),
+  from: isoDate,
+  to: isoDate,
+}) as Schema<TallyExportInput>;
+
 export const dataRoutes = {
   // ── Backup & restore ──
   'data.backup.create': companyRoute({
@@ -343,6 +353,12 @@ export const dataRoutes = {
     transactional: false,
     input: v.none(),
     handler: (ctx): TallyProgress => tallyProgress(ctx),
+  }),
+  'data.tally.export': companyRoute({
+    access: 'data.export',
+    transactional: false, // streamed from a read snapshot, yields; audited in its own transaction (tallyExport.ts)
+    input: TallyExportInputSchema,
+    handler: (ctx, input): Promise<TallyExportResult> => exportTally(ctx, input),
   }),
 
   // ── Verification ──

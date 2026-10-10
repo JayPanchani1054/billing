@@ -20,6 +20,7 @@ import {
 } from '../lib/layout.ts';
 import type { PrintAddress, PrintVoucherData } from '../../../../shared/types/print.ts';
 import { BankBlock, EInvoiceBlock, safeImage, Stamp, UpiBlock, type DocProps } from './parts.tsx';
+import { ForexPrintBlock } from '../../forex/PrintBlock.tsx';
 
 function AddressCell({ label, a, bold = true }: { label?: string; a: PrintAddress | null; bold?: boolean }) {
   if (!a) return null;
@@ -271,6 +272,8 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
           Tax Amount (in words): <b>{doc.taxInWords}</b>
         </div>
       ) : null}
+      {/* (forex group) Export / import invoice in a foreign currency: amounts in it with the rate. */}
+      <ForexPrintBlock doc={doc} />
       <EInvoiceBlock doc={doc} qr={qrs.einvoice} />
       <table className="bp-box bp-avoid">
         <tbody>

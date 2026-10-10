@@ -51,6 +51,8 @@ export interface IssuedCheque {
   bankDate: string | null;
   favouring: string | null;
   isPostDated: boolean;
+  /** The voucher is in the books (not optional / cancelled): what the BRS counts. */
+  affectsBooks: boolean;
   typeName: string;
   number: string | null;
 }
@@ -72,11 +74,12 @@ export function issuedCheques(db: Db, bankLedgerId: number, opts: { excludeVouch
     bank_date: string | null;
     favouring: string | null;
     is_post_dated: number;
+    affects_books: number;
     type_name: string;
     number: string | null;
   }>(
     `SELECT le.voucher_id, le.line_no, le.ledger_id, le.instrument_no, le.date, le.instrument_date, le.amount, le.bank_date,
-            le.favouring, le.is_post_dated, vt.name AS type_name, v.number
+            le.favouring, le.is_post_dated, le.affects_books, vt.name AS type_name, v.number
        FROM ledger_entries le
        JOIN vouchers v ON v.id = le.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -100,9 +103,33 @@ export function issuedCheques(db: Db, bankLedgerId: number, opts: { excludeVouch
       bankDate: r.bank_date,
       favouring: r.favouring,
       isPostDated: r.is_post_dated === 1,
+      affectsBooks: r.affects_books === 1,
       typeName: r.type_name,
       number: r.number,
     });
+  }
+  return out;
+}
+
+/** A cheque leaf on a voucher: just the number (what leaf allocation and the voucher checks need). */
+export interface IssuedLeaf {
+  voucherId: number;
+  chequeNo: number;
+}
+
+/**
+ * The numbers of the cheques issued from a bank ledger — the light form of issuedCheques (no joins, no
+ * labels): leaf allocation runs on every cheque payment save, so it must stay cheap on a bank ledger with
+ * tens of thousands of entries.
+ */
+export function issuedLeaves(db: Db, bankLedgerId: number): IssuedLeaf[] {
+  const out: IssuedLeaf[] = [];
+  for (const r of db.all<{ voucher_id: number; instrument_no: string }>(
+    "SELECT voucher_id, instrument_no FROM ledger_entries WHERE ledger_id = :bank AND instrument_type = 'cheque' AND amount < 0",
+    { bank: bankLedgerId },
+  )) {
+    const n = chequeNumber(r.instrument_no);
+    if (n !== null) out.push({ voucherId: r.voucher_id, chequeNo: n });
   }
   return out;
 }
@@ -123,7 +150,7 @@ export function leafMarks(db: Db, bankLedgerId: number): Map<number, { reason: s
  * Cheques printed whose leaf is no longer issued on that voucher (voucher deleted, or its cheque number
  * changed after printing): the leaf was written on, so it is spoilt. number → description.
  */
-export function spoiltByPrint(db: Db, bankLedgerId: number, issued: readonly IssuedCheque[]): Map<number, { at: string; label: string | null }> {
+export function spoiltByPrint(db: Db, bankLedgerId: number, issued: readonly IssuedLeaf[]): Map<number, { at: string; label: string | null }> {
   const onVoucher = new Set(issued.map((c) => `${c.voucherId}:${c.chequeNo}`));
   const out = new Map<number, { at: string; label: string | null }>();
   for (const p of db.all<{ voucher_id: number | null; cheque_no: string | null; printed_at: string; voucher_label: string | null }>(

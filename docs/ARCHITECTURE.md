@@ -452,3 +452,149 @@ eledgers.ts, boeRecon.ts, composition.ts, statLedgers.ts, schemas.ts), `src/rend
   CMP-08 interest, composition masters and return files `gst.file`; every mutation audited.
 - **IRP / e-way bill APIs** are not called (no GSP credentials offline): JSON out → portal → response in
   (README §17).
+
+## Multi-currency module (`forex`) — foreign-currency vouchers, bills, exchange gain / loss, revaluation, export invoices
+
+Core `src/core/modules/forex` (README there: model, posting, legal assumptions), renderer
+`src/renderer/modules/forex`, DTOs `src/shared/types/forex.ts`, pure money / rate helpers
+`src/shared/forex.ts`. Migration **230** (block 230–239), additive only.
+
+- **Gating**: F11 `features.multiCurrency` ("Multiple currencies"). Off → menus / Go To hide the screens
+  (`feature`), routes refuse (BUSINESS_RULE) except `forex.context`, and any forex field on a voucher
+  is a field error. Switching it on creates the system ledger **Forex Gain/Loss** (Indirect Expenses,
+  `reserved_code FOREX_GAIN_LOSS`, audited).
+- **Data**: books stay in INR paise (Σ = 0 per voucher). Entries of a ledger whose `currency_id` is
+  foreign also store `currency_id`, signed `forex_amount` (major unit, currency decimals) and
+  `exchange_rate` (₹ per unit, ≤ 6 dp); same on `bill_allocations` (bill in both currencies),
+  `opening_bills.forex_amount`, `ledgers.opening_forex_amount`, and on `vouchers` the document
+  currency / rate / value. `forex_revaluations` marks the revaluation journals.
+- **Posting**: only through the vouchers hook extension point (`forexVoucherHook`): `compose`
+  converts foreign amounts to rupees (invoice: `VoucherInput.forex` = party's currency; ledger mode:
+  line `forexAmount` + `exchangeRate`, default rate from the exchange-rate master — buying for
+  sales / receipts / credit notes, selling for purchases / payments / debit notes); `adjust` carries
+  settled bills at their booked rupees and posts the **realised** difference to the configured ledger
+  in the same voucher; `write` stores the currency columns in the voucher's transaction (they share the
+  entries' `affects_books` / `is_post_dated`). GST is computed on the rupee values only.
+- **Period end**: `forex.revaluation.report/post` — closing rate (master or typed) → INR-only
+  adjustment lines per ledger / pending bill against the unrealised ledger, posted via `saveVoucher`
+  (repeat for the same date needs confirmation). Monetary items only (Balance Sheet ledgers outside
+  Fixed Assets / Investments / Stock-in-Hand / Capital / Misc. Expenses); every currency with a balance
+  needs a closing rate; the journal date may not precede the as-of date.
+- **Ledger master** (accounts, additive): re-saving opening bills keeps their `forex_amount` (same
+  name and side); the currency cannot change while the opening is entered in the currency.
+- **Routes** `forex.*`: context, settings.get/save, rate.suggest, pendingBills, voucher, outstanding,
+  ledger, revaluation.report/post, opening.get/save. Existing permissions only (vouchers.view /
+  reports.view / masters.view / masters.alter / company.manage / vouchers.create); mutations audited.
+- **UI**: voucher entry Alt+Y (invoice currency & rate, or a line's foreign amount, rate and bill-wise
+  split in the currency), side panel with the realised difference; screens Forex Outstanding,
+  Ledger in Foreign Currency, Forex Revaluation (Ctrl+A posts the journal), Opening Balance in
+  Currency, Multi-currency Settings (Masters / Reports menus + Go To); voucher view panel (Alt+Y);
+  links from Ledger Vouchers (Alt+R) and Party Outstanding (Alt+Y).
+- **Print**: `PrintVoucherData.forex` (core `forex/print.ts`); Modern / Classic / Voucher templates
+  print lines, charges, GST and total in the currency next to the rupees, the rate and the total in
+  words in the currency (`ForexPrintBlock`).
+
+## Print group — paper sizes, MRP, sharing, cheque printing, payee bank details, e-payment files
+
+Core `src/core/modules/print` (README: paper, MRP, sharing) and `src/core/modules/cheques` (README:
+tables, hook, register, layouts, e-payments, legal notes); renderer `src/renderer/modules/print`
+and `src/renderer/modules/cheques`; Electron main `src/main/printPage.ts` (paper geometry) and
+`src/main/share.ts` (exports folder, .eml, wa.me); DTOs `shared/types/print.ts`,
+`shared/types/cheques.ts`, `shared/shareText.ts`. Migration **170** (block 170–179).
+
+- **Paper**: `NativePageSize` = A4 | A5 | Letter | Legal | 80mm | 58mm | custom (+ `landscape`,
+  `rollHeightMm`, `customPageMm`) on `print.toPdf` / `print.savePdf` / `print.print` and `share.*`.
+  Main validates strictly and converts: printToPDF `{width,height}` in inches, print in microns;
+  rolls are continuous (receipt height measured by the renderer, clamped 40 mm–3 m), edge to edge;
+  `custom` 50–400 mm per side (cheque leaves). `config.invoice.paperSize` / `rollWidth` / `showMrp`;
+  voucher-type `config.printTemplate` / `showMrp` win. Compact template = thermal receipt (item,
+  qty × rate, amount; tax by rate; MRP and "You saved").
+- **MRP**: `stock_items.mrp` → `PrintLine.mrp`; `PrintVoucherData.mrpSummary` (Σ MRP × qty, savings
+  vs value charged incl. GST); outward sales documents only; price above MRP is a non-blocking
+  print warning (Legal Metrology (Packaged Commodities) Rules, 2011).
+- **Sharing** (Alt+W: voucher view, print preview, Statement of Account, outstanding): core
+  `print.share.context` (recipient from party ledger e-mail / mobile, texts from `config.share`
+  templates) and `print.share.log` (data.export, edit log `export`) **before** the native action.
+  `share.email`: main renders the PDF, saves it under `<data>/companies/<id>/exports/shared` (path
+  chosen by main from the open company, never the renderer), writes an RFC 5322 MIME draft (.eml,
+  base64 PDF, RFC 2047 headers, `X-Unsent: 1`, header-injection checks) and opens it with the OS
+  handler (`shell.openPath`, path checked inside the folder); fallback `mailto:` + show the PDF.
+  `share.whatsapp`: Indian mobile validated → `https://wa.me/91…?text=…` (user confirms the
+  external link), PDF shown in its folder.
+- **Cheques** (F11 `features.chequePrinting`; payee details / e-payments always): payee bank details
+  per ledger (IFSC `^[A-Z]{4}0[A-Z0-9]{6}$`, account typed twice in the UI); cheque books per bank
+  ledger; **issued leaves are derived from the books** (bank credit lines with instrument `cheque`) —
+  only books, user marks, prints, layouts, bank settings and payment-file batches are stored.
+  Posting integration only via the vouchers hook (`cheques/hook.ts`): `compose` fills the next free
+  leaf inside the save transaction, `adjust` warns on reused / cancelled / spoilt leaves,
+  `beforeRemove` cancels the leaves of a cancelled voucher. Register (as on a date): unused / issued
+  (PDC flagged) / cleared (BRS bank date on or before the date) / stale (> 3 months from the cheque
+  date) / cancelled; its uncleared total ties to the BRS "cheques issued but not presented" (in the
+  books, dated ≤ as-on date). Layouts in mm with CTS-2010 presets (202 × 92 mm; nothing printed — text
+  height and the signatory's second line included — may reach the bottom 16 mm MICR band), calibration
+  shift and a calibration grid print. Printing a cheque is an export (`cheques.print.record`, data.export, edit
+  log) recorded before the page goes to the printer.
+- **E-payments**: generic documented CSV (not a bank-proprietary format) of Payments by NEFT / RTGS /
+  IMPS with beneficiary A/c + IFSC (regular vouchers only: never optional / cancelled); RTGS ≥ ₹2 lakh,
+  IMPS ≤ ₹5 lakh checks; batches recorded, re-export warned, a batch whose file was not saved is
+  discarded (`cheques.epayment.discard`, same user / day); data.export + edit log.
+- **Routes** `cheques.*` (22, listed in shared/types/cheques.ts) and `print.share.*`; reads
+  `transactional: false`; every write audited.
+- **UI**: Masters › Payee Bank Details / Cheque Books / Cheque Layouts / Cheque Printing Settings;
+  Banking › Print Cheques / Cheque Leaf Register / E-payment File; all in Go To (plus a payee
+  provider: "Bank details: <party>"). Voucher view **Alt+K** Print cheque (Payment / Contra),
+  **Alt+W** Share. Print Cheques: Space leave out, Alt+X A/c Payee on/off, Alt+P print, Alt+L
+  layouts. Layout editor: Ctrl+1 sample / Ctrl+2 grid, Alt+K calibration sheet, Alt+T test print.
+  Leaf register: Ctrl+1…6 views, Alt+X cancel leaf, Alt+U re-open, Alt+R BRS. E-payment File:
+  Space tick, Alt+A tick all ready, Ctrl+A save file, Alt+M payee bank details.
+
+## Data plus (`dataplus`) — Tally XML export, attachments, numbering tokens, multiple aliases
+
+Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledger_aliases`,
+`stock_item_aliases`), `221_numbering_rows` (`voucher_type_numbering_rows`), `222_attachments`
+(`attachments`, transport-only `attachment_blobs`, grants for the system roles).
+
+- **Tally XML export** — `data.tally.export` (`data.export`, async, `transactional:false`) in
+  `src/core/modules/data/tallyExport.ts`; screen `data.tallyExport` "Export to Tally" (Gateway › Data,
+  Go To; Ctrl+A export, Alt+B Trial Balance). TallyPrime "Import Data" envelope, UTF-16LE + BOM;
+  masters only → `.xml`, with vouchers → `.zip` (`1-Masters.xml`, `2-Vouchers.xml`) streamed through
+  `ZipFileWriter` from one read snapshot (`openSnapshot`, yields every 5 000 vouchers). Vouchers are
+  written as recorded (no recomputation): entries, bill-wise, cost centres, bank instruments,
+  inventory with godown / batch and accounting allocations, GST header facts. Contract test: export →
+  OUR importer into an empty company reproduces the trial balance, stock summary, GST lines, GSTR-3B /
+  GSTR-1, pending bills, every voucher's postings and aliases (`tallyExport.test.ts`). A credit / debit
+  note's original invoice travels as `REFERENCE` / `REFERENCEDATE` both ways (documented assumption).
+  With the vouchers of a period after the books beginning, the masters carry the openings ON the
+  period's first day (`openingsAsOf`: Trial Balance openings with that day as carry-forward date, pending
+  bills + an "On Account" bill for the unallocated rest, stock per godown / batch at its value) so the
+  Tally company can begin its books there. Item lines carry their share of their sales / purchase
+  ledger's posting (assessable-value charges such as freight stay on their own ledger), so every
+  voucher in the file balances. Children are read per batch of 2 000 vouchers (one query per table).
+  The importer recovers reverse charge (RCM-liability duty ledgers), overseas parties (country) and
+  assessable-value charges. Not exported: quotations / proforma / physical stock (reported as skipped),
+  forex amounts (rupees only), e-invoice / e-way bill and shipping bill details, attachments.
+- **Attachments** — core `src/core/modules/attachments` (README), routes `attachments.list / counts /
+  add / read / remove / register`, permissions `attachments.add` / `attachments.remove` (view follows
+  the owner: `vouchers.view` / `masters.view`). The renderer sends bytes from the native Open dialog,
+  never a path; files are checked (allowlist in `src/shared/attachments.ts`, content sniffing, no
+  programs / macros, 25 MB, 50 per owner) and stored content-addressed as
+  `<company>/attachments/<sha256>.<ext>`; opening goes through main (`attachment.openCopy`: re-check,
+  copy to a fresh temp folder, open with the OS handler). Add / remove are audited as `alter` of the
+  owner; removal is refused for vouchers in the locked period; a file is deleted only after commit and
+  when unused. A voucher with attached files cannot be deleted (voucher hook `beforeRemove` in
+  `attachments/hook.ts`, appended to `STATIC_HOOKS`) — remove the files first; cancelling keeps them.
+  XML that is really a web page / Office document is refused. Backups embed the files in the snapshot (`attachment_blobs`) so the `.bahibak` checksums
+  and encryption cover them; restore unpacks them; `data.verify` › `attachments` checks presence + hash.
+  UI: `attachments.manage`, `attachments.register` (Reports menu, Go To), Alt+F from the voucher view
+  (voucher panel) and the ledger / stock item forms.
+- **Numbering tokens** — `src/shared/numbering.ts` (shared by core and the voucher-type form):
+  {FY} {FYYYYY} {YY} {MM} {MMM} in prefix / suffix, expanded with the voucher date at allocation;
+  dated prefix / suffix rows ("Applicable from"); GST documents (sales, credit / debit note of a GST
+  company) are checked at their longest expansion: ≤ 16 characters, letters / digits / `/` / `-`
+  (CGST Rule 46(b)); monthly restart only with {MM} / {MMM} in every variant. Counters and existing
+  numbers are unchanged; no tokens and no rows = the old behaviour.
+- **Multiple aliases** — `src/core/lib/masterAliases.ts`: the `alias` column is the first alias, the
+  extra tables hold the rest in order (≤ 20 per master); unique case-insensitively across names and all
+  aliases within the kind (ledgers also against groups); `aliases: string[]` on ledger / item save;
+  searched by every ledger / item picker, Go To and lists; Excel import / export (the "Alias" column,
+  `;`-separated) and the Tally import (`NAME.LIST`) / export carry them all.

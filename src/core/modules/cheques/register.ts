@@ -2,7 +2,7 @@
  * Cheque register of a bank ledger: every leaf of its cheque books (and cheques issued outside any book)
  * with its state as on a date:
  *   issued    on a Payment / Contra, not yet cleared (post-dated ones flagged)
- *   cleared   bank date entered in the BRS
+ *   cleared   bank date entered in the BRS, on or before `asOf` (cleared later = still issued on that date)
  *   stale     issued, uncleared, and the cheque date is more than 3 months before `asOf` (RBI: cheques
  *             are valid for three months from their date)
  *   cancelled marked by the user, cancelled with its voucher, or spoilt (printed for a voucher it is no
@@ -43,25 +43,38 @@ export function chequeRegister(db: Db, today: string, input: ChequeRegisterInput
   )) {
     if (p.voucher_id !== null && p.cheque_no) printedAt.set(`${p.voucher_id}:${p.cheque_no.trim().replace(/^0+(?=\d)/, '')}`, p.printed_at);
   }
-  // Payee per voucher: favouring, else the payment's largest non cash / bank debit.
-  const payeeCache = new Map<number, string | null>();
+  // Payee per voucher: favouring, else the payment's largest debit that is not cash / bank (ties: first
+  // line), else 'Self' — one query for every cheque of the bank (no per-voucher look-up).
+  const needPayee = [...new Set(issued.filter((c) => !(c.favouring && c.favouring.trim())).map((c) => c.voucherId))];
+  const payeeLedger = new Map<number, number>();
+  if (needPayee.length > 0) {
+    for (const r of db.all<{ voucher_id: number; ledger_id: number }>(
+      `WITH RECURSIVE cb(id) AS (SELECT id FROM groups WHERE reserved_code IN ('BANK_ACCOUNTS', 'BANK_OD', 'CASH_IN_HAND')
+                                  UNION SELECT c.id FROM groups c JOIN cb ON c.parent_id = cb.id),
+       ranked AS (
+         SELECT le.voucher_id, le.ledger_id, ROW_NUMBER() OVER (PARTITION BY le.voucher_id ORDER BY le.amount DESC, le.line_no) AS rn
+           FROM ledger_entries le JOIN ledgers l ON l.id = le.ledger_id
+          WHERE le.voucher_id IN (SELECT value FROM json_each(:ids)) AND le.amount > 0 AND l.group_id NOT IN (SELECT id FROM cb))
+       SELECT voucher_id, ledger_id FROM ranked WHERE rn = 1`,
+      { ids: JSON.stringify(needPayee) },
+    )) {
+      payeeLedger.set(r.voucher_id, r.ledger_id);
+    }
+  }
+  const nameCache = new Map<number, string>();
   const payeeOf = (voucherId: number, favouring: string | null): string | null => {
     if (favouring && favouring.trim()) return favouring.trim();
-    if (!payeeCache.has(voucherId)) {
-      const r = db.get<{ ledger_id: number; base_type: string }>(
-        `WITH RECURSIVE cb(id) AS (SELECT id FROM groups WHERE reserved_code IN ('BANK_ACCOUNTS', 'BANK_OD', 'CASH_IN_HAND')
-                                    UNION SELECT c.id FROM groups c JOIN cb ON c.parent_id = cb.id)
-         SELECT le.ledger_id, v.base_type FROM ledger_entries le JOIN ledgers l ON l.id = le.ledger_id JOIN vouchers v ON v.id = le.voucher_id
-          WHERE le.voucher_id = :v AND le.amount > 0 AND l.group_id NOT IN (SELECT id FROM cb)
-          ORDER BY le.amount DESC, le.line_no LIMIT 1`,
-        { v: voucherId },
-      );
-      payeeCache.set(voucherId, r ? chequePayeeName(db, r.ledger_id) : 'Self');
-    }
-    return payeeCache.get(voucherId) ?? null;
+    const ledgerId = payeeLedger.get(voucherId);
+    if (ledgerId === undefined) return 'Self';
+    let name = nameCache.get(ledgerId);
+    if (name === undefined) nameCache.set(ledgerId, (name = chequePayeeName(db, ledgerId)));
+    return name;
   };
 
   const rows: ChequeRegisterRow[] = [];
+  // Rows that make up the BRS's "cheques issued but not presented" on `asOf` (in the books, dated on or
+  // before it, not cleared by then) — the register's uncleared total ties to the BRS.
+  const outstanding = new Set<string>();
   const blank = (key: string, book: BookRow | null, no: string): ChequeRegisterRow => ({
     key,
     bookId: book?.id ?? null,
@@ -82,8 +95,11 @@ export function chequeRegister(db: Db, today: string, input: ChequeRegisterInput
   const fill = (row: ChequeRegisterRow, n: number): ChequeRegisterRow => {
     const c = byNo.get(n);
     if (c) {
-      const stale = c.bankDate === null && c.chequeDate <= asOf && addMonths(c.chequeDate, CHEQUE_VALIDITY_MONTHS) < asOf;
-      const status: ChequeLeafStatus = c.bankDate !== null ? 'cleared' : stale ? 'stale' : 'issued';
+      // As on `asOf`: a cheque the bank cleared later was still outstanding then.
+      const bankDate = c.bankDate !== null && c.bankDate <= asOf ? c.bankDate : null;
+      const stale = bankDate === null && c.chequeDate <= asOf && addMonths(c.chequeDate, CHEQUE_VALIDITY_MONTHS) < asOf;
+      const status: ChequeLeafStatus = bankDate !== null ? 'cleared' : stale ? 'stale' : 'issued';
+      if (bankDate === null && c.affectsBooks && c.date <= asOf) outstanding.add(row.key);
       return {
         ...row,
         status,
@@ -94,7 +110,7 @@ export function chequeRegister(db: Db, today: string, input: ChequeRegisterInput
         chequeDate: c.chequeDate,
         payee: payeeOf(c.voucherId, c.favouring),
         amount: c.amount,
-        bankDate: c.bankDate,
+        bankDate,
         printedAt: printedAt.get(`${c.voucherId}:${n}`) ?? null,
         reason: stale ? `Not cleared within ${CHEQUE_VALIDITY_MONTHS} months of ${formatDate(c.chequeDate)}` : null,
       };
@@ -126,7 +142,7 @@ export function chequeRegister(db: Db, today: string, input: ChequeRegisterInput
     totals[r.status]++;
     if (r.amount !== null) {
       totals.issuedAmount += r.amount;
-      if (r.status !== 'cleared') totals.unclearedAmount += r.amount;
+      if (outstanding.has(r.key)) totals.unclearedAmount += r.amount;
     }
   }
   const status = input.status ?? 'all';

@@ -96,6 +96,9 @@ export function unpackAttachmentBlobs(db: Db, outDir: string): { files: number; 
     files++;
   }
   db.run('DELETE FROM attachment_blobs');
+  // The file contents made the database as large as the attachments themselves; give the space back
+  // so the restored company does not keep a database bloated with free pages forever.
+  if ((files > 0 || skipped > 0) && !db.inTransaction) db.exec('VACUUM');
   return { files, skipped };
 }
 
@@ -126,7 +129,7 @@ export function describeBlobs(i: { files: number; bytes: number; bad: number; re
 
 /**
  * Data check of the live company: every attachment's stored file exists and matches its SHA-256;
- * stored files no attachment uses (left by deleted vouchers) are listed too.
+ * stored files no attachment uses (copied in by hand, or left by an interrupted attach) are counted too.
  */
 export function checkAttachmentFiles(db: Db, companyDir: string): { problems: string[]; unused: number } {
   if (!hasTable(db, 'attachments')) return { problems: [], unused: 0 };

@@ -320,7 +320,9 @@ function adjust(ctx: PostingAdjustContext): void {
   }
 
   // Bill-wise: carry settled bills at their booked INR; the difference is the realised gain / loss.
-  type Plan = { fe: (typeof forexEntries)[number]; preset: BillAllocationInput[]; diff: Paise };
+  // preset: settled bills at the rupees they are carried at; atRate: every bill at the voucher's rate
+  // (used when the difference cannot be posted yet — preview before the gain/loss ledger exists).
+  type Plan = { fe: (typeof forexEntries)[number]; preset: BillAllocationInput[]; atRate: BillAllocationInput[]; diff: Paise };
   const plans: Plan[] = [];
   const pendingCache = new Map<number, Map<string, ReturnType<typeof pendingForexBills>[number]>>();
   const pendingFor = (ledgerId: number, dp: number) => {
@@ -387,7 +389,7 @@ function adjust(ctx: PostingAdjustContext): void {
       }
       return { ...a, amount, forexAmount: shares[k] };
     });
-    plans.push({ fe, preset, diff });
+    plans.push({ fe, preset, atRate: typed.map((a, k) => ({ ...a, amount: atRate[k], forexAmount: shares[k] })), diff });
   }
 
   const total = plans.reduce((a, p) => a + (p.fe.entry.amount < 0 ? -1 : 1) * p.diff, 0);
@@ -395,7 +397,8 @@ function adjust(ctx: PostingAdjustContext): void {
   if (total !== 0 && glId === undefined) {
     // Preview before the gain/loss ledger exists (it is created by the save, hook prepare).
     ctx.warn('forex', `A realised exchange difference of ${inr(Math.abs(total))} (${total > 0 ? 'loss' : 'gain'}) will be posted to ${'Forex Gain/Loss'}, created when you save.`, 'info');
-    for (const p of plans) if (p.diff === 0) ctx.setBillAllocations(p.fe.entry, p.preset);
+    // The entry stays at the voucher's rate, so its bills do too (they add up to the entry).
+    for (const p of plans) ctx.setBillAllocations(p.fe.entry, p.diff === 0 ? p.preset : p.atRate);
   } else {
     for (const p of plans) {
       const sign = p.fe.entry.amount < 0 ? -1 : 1;

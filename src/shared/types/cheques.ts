@@ -7,7 +7,7 @@
  *   'cheques.payee.list'       PayeeListInput               → { rows, total }             masters.view
  *   'cheques.banks'            {}                           → ChequeBank[]                vouchers.view
  *   'cheques.book.list'        { bankLedgerId? }            → ChequeBook[]                masters.view
- *   'cheques.book.save'        ChequeBookSaveInput          → ChequeBook                  masters.create / alter
+ *   'cheques.book.save'        ChequeBookSaveInput          → ChequeBook                  masters.view + create / alter
  *   'cheques.book.delete'      { id }                       → { ok: true }                masters.delete
  *   'cheques.book.next'        { bankLedgerId, voucherId? } → { chequeNo, bookId } | null vouchers.view
  *   'cheques.leaf.cancel'      ChequeLeafCancelInput        → { ok: true }                vouchers.alter
@@ -23,6 +23,7 @@
  *   'cheques.print.record'     ChequePrintRecordInput       → { recorded }                data.export
  *   'cheques.epayment.list'    EPaymentListInput            → EPaymentCandidate[]         vouchers.view
  *   'cheques.epayment.export'  EPaymentExportInput          → EPaymentExportResult        data.export
+ *   'cheques.epayment.discard' { batchId }                  → { ok: true }                data.export (save cancelled)
  *
  * Money is integer paise; dates 'YYYY-MM-DD'; positions on a cheque leaf are millimetres from the
  * leaf's top-left corner.
@@ -179,6 +180,11 @@ export interface ChequeRegisterResult {
     stale: number;
     cancelled: number;
     issuedAmount: Paise;
+    /**
+     * Cheques issued but not presented as on `asOf`, exactly as the BRS counts them: in the books (not
+     * optional), dated on or before `asOf`, no bank date on or before it. Post-dated cheques dated after
+     * `asOf` and optional vouchers are listed as issued but not in this total.
+     */
     unclearedAmount: Paise;
   };
 }
@@ -203,6 +209,14 @@ export interface ChequePoint {
  * Where everything goes on the leaf. CTS-2010 leaves are 202 mm × 92 mm; the date is eight boxes
  * (D D M M Y Y Y Y) `pitch` mm apart starting at `date`.
  */
+/**
+ * Geometry shared by the core's layout check and the renderer's cheque marks: the signatory text
+ * ("Authorised Signatory") prints this many millimetres below the "For <company>" line, and text boxes
+ * are one font size tall (line-height 1; 1 pt = 25.4 / 72 mm).
+ */
+export const CHEQUE_SIGN_LINE_GAP_MM = 10;
+export const CHEQUE_PT_MM = 25.4 / 72;
+
 export interface ChequeLayoutSpec {
   widthMm: number;
   heightMm: number;
@@ -355,4 +369,6 @@ export interface EPaymentExportResult {
   rows: number;
   total: Paise;
   skipped: Array<{ voucherId: number; label: string; reason: string }>;
+  /** The recorded batch: discard it ('cheques.epayment.discard') when the file was not saved. */
+  batchId: number;
 }

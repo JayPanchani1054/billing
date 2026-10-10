@@ -203,7 +203,9 @@ with 1,000 debtors, 40,000 invoices and 27,000 receipts: `bills` ≈ 400 ms, `pa
 ≈ 5 ms.
 
 ## 5. Limitations
-* Single currency: amounts are base-currency paise (no forex bill-wise / exchange differences).
+* Amounts here are base-currency paise. Bills of parties kept in a foreign currency are shown in both
+  currencies (booked and closing rate, unrealised difference) by the forex module (`forex.outstanding`,
+  `forex.ledger`; the party screen links to it with Alt+Y) — see src/core/modules/forex/README.md.
 * Interest is `simple_365` only (no compounding, no 360-day year, no rate slabs or rate changes inside a
   period); interest on a bill-wise ledger's On Account remainder is not calculated.
 * Bill names are matched exactly (case-sensitive), as stored by the posting engine.

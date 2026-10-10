@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ChequeLayoutSpec } from '../../../../shared/types/cheques.ts';
-import { buildChequeHtml, calibrationMarks, charsThatFit, chequeCss, chequeMarks, chequePage, fitFontPt, mixedLayouts, selectedCheques, splitWords } from './cheque.ts';
+import { buildChequeHtml, calibrationMarks, charsThatFit, chequeCss, chequeMarks, chequePage, chequePagesMarkup, fitFontPt, markClass, markStyle, mixedLayouts, selectedCheques, splitWords } from './cheque.ts';
 
 const SPEC: ChequeLayoutSpec = {
   widthMm: 202,
@@ -88,5 +88,32 @@ describe('cheque document', () => {
     assert.deepEqual(selectedCheques(items, new Set(['a'])), [{ key: 'b' }]);
     assert.deepEqual(mixedLayouts([{ layoutName: 'A', spec: SPEC }, { layoutName: 'A', spec: SPEC }]), []);
     assert.deepEqual(mixedLayouts([{ layoutName: 'A', spec: SPEC }, { layoutName: 'B', spec: { ...SPEC, fontPt: 10 } }]), ['A', 'B']);
+  });
+});
+
+describe('cheque markup without the DOM', () => {
+  it('escapes text, positions every mark in mm and prints as a self-contained page', () => {
+    const { marks } = chequeMarks({ ...ITEM, payee: 'A & B <Traders>' }, SPEC);
+    const body = chequePagesMarkup([{ marks }], SPEC);
+    assert.match(body, /^<div class="cq-docs"><div class="cq-page" style="width:202mm;height:92mm">/);
+    assert.match(body, /A &amp; B &lt;Traders&gt;/);
+    assert.doesNotMatch(body, /<Traders>/);
+    // Date box 1 at x = 158 + 1 × 4.9 = 162.9 mm, y = 9 mm.
+    assert.match(body, /<div class="cq-m cq-b cq-c" style="left:162\.9mm;top:9mm;font-size:11pt;width:4\.9mm">5<\/div>/);
+    assert.match(body, /class="cq-m cq-cross cq-b" style="left:8mm;top:4mm;font-size:9pt;width:30mm">A\/c Payee</);
+    const html = buildChequeHtml({ title: 'Cheque', body, spec: SPEC });
+    assert.match(html, /@page \{ size: 202mm 92mm; margin: 0; \}/);
+  });
+
+  it('calibration sheet: grid rules and labelled boxes', () => {
+    const marks = calibrationMarks(SPEC);
+    const body = chequePagesMarkup([{ marks }], SPEC);
+    // Vertical rule at 0 mm: zero width → height = leaf height.
+    assert.match(body, /class="cq-m cq-rule" style="left:0mm;top:0mm;font-size:6pt;height:92mm">0</);
+    // Horizontal rule at 10 mm: full width.
+    assert.match(body, /class="cq-m cq-rule" style="left:0mm;top:10mm;font-size:6pt;width:202mm"><\/div>/);
+    assert.match(body, /class="cq-m cq-box"[^>]*>PAYEE</);
+    assert.equal(markClass({ key: 'k', kind: 'text', text: '', x: 0, y: 0, fontPt: 9 }), 'cq-m');
+    assert.equal(markStyle({ key: 'k', kind: 'box', text: '', x: 1, y: 2, fontPt: 7 }), 'left:1mm;top:2mm;font-size:7pt;height:4mm');
   });
 });

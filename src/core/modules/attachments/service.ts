@@ -197,34 +197,45 @@ export function addAttachment(ctx: CompanyCtx, input: AttachmentAddInput): Attac
     throw rule('The file could not be saved in the company folder (disk full or no permission). Free some space or check the folder, then try again.');
   }
   const now = ctx.clock.now().toISOString();
-  const id = db.run(
-    `INSERT INTO attachments (guid, voucher_id, ledger_id, stock_item_id, file_name, ext, mime, size_bytes, sha256, note, created_at, created_by, created_by_name)
-     VALUES (:guid, :v, :l, :s, :name, :ext, :mime, :size, :sha, :note, :ts, :uid, :uname)`,
-    {
-      guid: randomUUID(),
-      v: owner.type === 'voucher' ? owner.id : null,
-      l: owner.type === 'ledger' ? owner.id : null,
-      s: owner.type === 'stock_item' ? owner.id : null,
-      name: fileName,
-      ext: type.ext,
-      mime: type.mime,
-      size: bytes.byteLength,
-      sha: sha256,
-      note,
-      ts: now,
-      uid: ctx.session.userId,
-      uname: ctx.session.displayName || ctx.session.username || null,
-    },
-  ).lastInsertRowid;
-  const row = loadRow(db, id);
-  ctx.audit({
-    action: 'alter',
-    entityType: owner.type,
-    entityId: owner.id,
-    entityGuid: owner.guid,
-    entityLabel: `${owner.label} — file attached: ${fileName}`,
-    after: { attachmentAdded: auditImage(row) },
-  });
+  // Own transaction (the route is not transactional): when the row cannot be written the stored
+  // file is taken away again (unless another attachment already uses the same content).
+  let row: AttachmentDbRow;
+  try {
+    row = db.transaction(() => {
+      const id = db.run(
+        `INSERT INTO attachments (guid, voucher_id, ledger_id, stock_item_id, file_name, ext, mime, size_bytes, sha256, note, created_at, created_by, created_by_name)
+         VALUES (:guid, :v, :l, :s, :name, :ext, :mime, :size, :sha, :note, :ts, :uid, :uname)`,
+        {
+          guid: randomUUID(),
+          v: owner.type === 'voucher' ? owner.id : null,
+          l: owner.type === 'ledger' ? owner.id : null,
+          s: owner.type === 'stock_item' ? owner.id : null,
+          name: fileName,
+          ext: type.ext,
+          mime: type.mime,
+          size: bytes.byteLength,
+          sha: sha256,
+          note,
+          ts: now,
+          uid: ctx.session.userId,
+          uname: ctx.session.displayName || ctx.session.username || null,
+        },
+      ).lastInsertRowid;
+      const r = loadRow(db, id);
+      ctx.audit({
+        action: 'alter',
+        entityType: owner.type,
+        entityId: owner.id,
+        entityGuid: owner.guid,
+        entityLabel: `${owner.label} — file attached: ${fileName}`,
+        after: { attachmentAdded: auditImage(r) },
+      });
+      return r;
+    });
+  } catch (err) {
+    removeUnusedFiles(ctx, [{ sha256, ext: type.ext }]);
+    throw err;
+  }
   return toDto(dir, row, true);
 }
 
@@ -275,7 +286,7 @@ export function removeAttachment(ctx: CompanyCtx, id: number): { id: number; rem
 
 /**
  * Delete stored files no attachment row refers to any more — the given ones, or (no argument) every
- * stored file of the folder (attachments of deleted vouchers). Run outside a transaction, after the
+ * stored file of the folder (left by an attach that could not be completed). Run outside a transaction, after the
  * rows are gone; never fails the caller.
  */
 export function removeUnusedFiles(ctx: Pick<CompanyCtx, 'db' | 'company' | 'app'>, which?: ReadonlyArray<{ sha256: string; ext: string }>): number {

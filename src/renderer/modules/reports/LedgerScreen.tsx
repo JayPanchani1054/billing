@@ -13,6 +13,7 @@ import { Badge, DataTable, EmptyState, Field, Inline, Picker, Stack } from '../.
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
 import { currentRow, voucherTarget } from './lib/model.ts';
+import { useForexContext } from '../forex/hooks.ts';
 
 export interface LedgerParams {
   ledgerId?: number;
@@ -37,6 +38,9 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
   const selected = items.find((l) => l.id === ledgerId) ?? null;
   // Alt+A applies to the highlighted voucher only while it belongs to the ledger on screen.
   const current = currentRow(cursor, d?.rows, (r) => r.voucherId);
+  // (forex group) A ledger kept in a foreign currency: Alt+R shows it in both currencies.
+  const fx = useForexContext();
+  const fxCurrency = fx.currencyOfLedger(ledgerId);
 
   const columns = useMemo<Column<LedgerReportRow>[]>(
     () => [
@@ -81,6 +85,7 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
     { key: 'Alt+Y', label: 'Monthly summary', icon: 'calendar', onClick: () => ledgerId !== null && drill({ screen: 'reports.monthlySummary', params: { ledgerId, from: p.from, to: p.to } }), disabled: ledgerId === null, group: 'view' },
     { key: 'Alt+A', label: 'Alter voucher', icon: 'edit', onClick: () => current && drill(voucherTarget(current.voucherId, current.baseType, true)), disabled: !current, group: 'voucher' },
     { key: 'Alt+M', label: 'Ledger master', icon: 'edit', onClick: () => ledgerId !== null && nav.push('accounts.ledger.form', { id: ledgerId }), disabled: ledgerId === null, group: 'ledger' },
+    { key: 'Alt+R', label: `In ${fxCurrency?.isoCode ?? fxCurrency?.symbol ?? 'currency'} and rupees`, icon: 'rupee', hidden: !fxCurrency, onClick: () => ledgerId !== null && nav.push('forex.ledger', { ledgerId, from: p.from, to: p.to }), group: 'ledger' },
   ];
 
   const title = d ? d.ledger.name : 'Ledger';

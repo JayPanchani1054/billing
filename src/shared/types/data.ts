@@ -27,6 +27,7 @@
  *   'data.tally.preview'          TallyPreviewInput      → TallyPreviewResult       data.import     (no writes)
  *   'data.tally.import'           TallyImportInput       → TallyImportResult        data.import     (async, chunked)
  *   'data.tally.progress'         none                   → TallyProgress            data.import
+ *   'data.tally.export'           TallyExportInput       → TallyExportResult        data.export     (Tally "Import Data" XML)
  *
  *   'data.verify'                 none                   → DataVerifyResult         data.backup
  *
@@ -505,6 +506,49 @@ export interface TallyProgress {
   done: number;
   total: number;
   message: string;
+}
+
+export interface TallyExportInput {
+  /** Write the masters (groups, ledgers, units, godowns, stock groups / categories / items, cost centres, voucher types). */
+  masters: boolean;
+  /** Write the vouchers dated within from..to. */
+  vouchers: boolean;
+  from: string;
+  to: string;
+}
+
+/** Counts of masters written to the Tally XML. */
+export interface TallyExportMasterCounts {
+  groups: number;
+  ledgers: number;
+  units: number;
+  godowns: number;
+  stockGroups: number;
+  stockCategories: number;
+  stockItems: number;
+  costCategories: number;
+  costCentres: number;
+  voucherTypes: number;
+}
+
+export interface TallyExportResult {
+  /** 'Acme-Tally-20250401-20260331.zip' (masters + vouchers) or '…-Tally-Masters.xml' / '…-Tally-Vouchers-….xml'. */
+  fileName: string;
+  /** UTF-16LE XML with BOM, or a ZIP of 1-Masters.xml + 2-Vouchers.xml when both were asked for. */
+  bytes: Uint8Array;
+  mimeType: string;
+  /** null when masters were not asked for. */
+  masters: TallyExportMasterCounts | null;
+  /**
+   * Date of the opening balances written on the masters (null without masters): the books beginning,
+   * or — with the vouchers of a later period — the period's first day (balances, pending bills and
+   * stock on that date). The Tally company should begin its books on this date.
+   */
+  openingsAsOf: string | null;
+  /** Vouchers written. */
+  vouchers: number;
+  /** Vouchers of the period NOT written, by reason (quotations, proforma, physical stock). */
+  skipped: Array<{ reason: string; count: number }>;
 }
 
 // ───────────────────────────── Data verification ─────────────────────────────

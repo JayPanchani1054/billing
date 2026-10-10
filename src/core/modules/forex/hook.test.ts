@@ -322,6 +322,41 @@ describe('forex: invoice with IGST, purchases, rules', () => {
     assert.match(w.message, /total \$ 900\.00 but its amount is \$ 1,000\.00/);
   });
 
+  it('altering a foreign-currency invoice rewrites the currency columns; a receipt then settles at the new carrying value', () => {
+    const f = forexCompany();
+    const base = {
+      base: 'sales' as const,
+      date: '2026-05-10',
+      mode: 'accounting_invoice' as const,
+      partyLedgerId: f.customer,
+      placeOfSupply: '96',
+      exportDetails: { withPayment: false },
+      ledgers: [{ ledgerId: f.exportSales, amount: 0, forexAmount: 500 }],
+    };
+    // $500 at ₹83 = ₹41,500.00.
+    const r = f.save({ ...base, forex: { currencyId: f.usd, rate: 83 } });
+    // Alter: $500 at ₹84 = ₹42,000.00 — every row is rebuilt, nothing of the old rate stays.
+    f.save({ ...base, id: r.id, forex: { currencyId: f.usd, rate: 84 } });
+    const party = f.entries(r.id).find((x) => x.ledger_id === f.customer);
+    assert.deepEqual([party?.amount, party?.forex_amount, party?.exchange_rate], [4200000, 500, 84]);
+    assert.equal(sum(f.entries(r.id)), 0);
+    assert.deepEqual(f.bills(r.id).map((b) => [b.amount, b.forex_amount]), [[4200000, 500]]);
+    const v = f.t.db.get<{ exchange_rate: number; forex_amount: number }>('SELECT exchange_rate, forex_amount FROM vouchers WHERE id = :id', { id: r.id });
+    assert.deepEqual([v?.exchange_rate, v?.forex_amount], [84, 500]);
+    // Receipt of the whole $500 at ₹84: carried at ₹42,000 (the altered rate) → no exchange difference.
+    const rc = f.save({
+      base: 'receipt',
+      date: '2026-06-01',
+      mode: 'ledger',
+      ledgers: [
+        { ledgerId: f.bank, amount: 4200000 },
+        { ledgerId: f.customer, amount: 0, forexAmount: -500, exchangeRate: 84, billAllocations: [{ refType: 'against', billName: '1', amount: 4200000, forexAmount: 500 }] },
+      ],
+    });
+    assert.equal(f.entries(rc.id).length, 2, 'no gain / loss line');
+    assert.deepEqual(pendingForexBills(f.t.db, f.customer, '2026-06-30', f.t.today, 2), []);
+  });
+
   it('an INR-only exchange adjustment (forex 0) moves rupees without touching the foreign balance', () => {
     const f = forexCompany();
     const inv = f.save({

@@ -23,6 +23,7 @@ import { documentsRoutes } from '../modules/documents/routes.ts';
 import { mfgRoutes } from '../modules/mfg/routes.ts';
 import { forexRoutes } from '../modules/forex/routes.ts';
 import { attachmentsRoutes } from '../modules/attachments/routes.ts';
+import { posRoutes } from '../modules/pos/routes.ts';
 
 export const routes = {
   ...appRoutes,
@@ -46,6 +47,7 @@ export const routes = {
   ...mfgRoutes,
   ...forexRoutes,
   ...attachmentsRoutes,
+  ...posRoutes,
 };
 
 export type ApiRoutes = typeof routes;

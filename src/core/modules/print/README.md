@@ -13,6 +13,8 @@ Templates never call the API and never compute money.
 | `print.batchData` | vouchers.view | `{ ids }` (1–500) | `{ documents: PrintVoucherData[], notFound: number[] }` (order kept, duplicates dropped) |
 | `print.sample` | company.view | `{ overrides? }` | `PrintVoucherData` of a sample invoice (`sample: true`, `id: 0`) for the settings preview |
 | `print.bankLedgers` | company.view | `{}` | `PrintBank[]` — active ledgers under Bank Accounts / Bank OD **and their sub-groups**, with account details (the Invoice Printing bank select and the F12 › Invoices summary) |
+| `print.share.context` | data.export | `{ voucherId }` or `{ statement: { ledgerId, from, to } }` | `ShareContext`: party e-mail / mobile, subject, body and WhatsApp text from F12 › Sharing, PDF file name (print group) |
+| `print.share.log` | data.export | `ShareLogInput` (`channel`, `to?`, `fileName`) | `{ ok: true }` — the `export` edit-log entry, written before main renders the PDF (print group) |
 
 All are read-only and `transactional: false`. `overrides` is a partial `CompanyConfig['invoice']`
 applied for this call only (live preview of the print settings); it is validated like the config
@@ -126,12 +128,70 @@ printing; the preview shows them under "Before you print".
 - e-Invoice (`irn`, `ackNo`, `ackDate`, `signedQr`) and e-Way Bill come from the voucher (printed as "e-Invoice" / "e-Way Bill No.", GSTN's spelling).
 - `navigation.prevId / nextId`: same voucher type, ordered by date, number sequence, id.
 
+## Paper sizes and thermal receipts (print group)
+
+`config.invoice.paperSize` (A4, A5, A5 landscape, Letter, Legal) is the paper of the Modern and
+Classic templates; `rollWidth` (80 mm / 58 mm) is the roll of the Compact template. A voucher type's
+`printTemplate` and every print preview (Alt+T template, Alt+S paper) can change them. The renderer
+names the size (`NativePageSize`, shared/bridge.ts) and Electron main (`src/main/printPage.ts`,
+pure and unit-tested) turns it into what each API expects: `webContents.printToPDF` takes a named
+size or `{ width, height }` in **inches**, `webContents.print` a named size or `{ width, height }` in
+**microns**; A5 landscape is A5 + `landscape: true`. Rolls are continuous paper: the page is the roll
+width by the receipt's measured height (40 mm – 3 m), edge to edge (the layout carries its own
+padding). `custom` (50–400 mm each side) is used by cheque leaves (202 × 92 mm). Sizes and lengths
+are validated in main; anything else is refused.
+
+The Compact template is built for rolls: no wide tables — item, `qty × rate`, amount; a tax summary
+by rate; totals; MRP and "You saved" when shown.
+
+## MRP (print group)
+
+The item master's MRP (`stock_items.mrp`, paise per unit, inclusive of all taxes) is on each line
+(`PrintLine.mrp`). F12 › Invoice printing › *Show MRP* (or the voucher type's *MRP column*, which
+wins) prints an **MRP** column with "MRP inclusive of all taxes" on outward sales documents (sales
+invoices and outward notes, quotations, proforma invoices, sales orders, delivery challans), and on
+invoices **"You saved ₹…"** =
+Σ max(0, MRP × qty − value charged incl. GST) per line (`mrpSummaryOf`). Selling a pre-packaged
+commodity above its MRP is not allowed (Legal Metrology (Packaged Commodities) Rules, 2011): the
+preview of an invoice warns when a line's value incl. tax exceeds MRP × qty (`aboveMrpWarning`,
+with a paisa-per-unit rounding allowance), never blocking. The MRP is the item master's **current**
+MRP when the document is printed — it is not frozen with the voucher, so a reprint after the MRP was
+changed shows the new MRP (known gap below).
+
+## Sharing (print group)
+
+Alt+W on a voucher view / print preview, and on the Statement of Account / outstanding screens,
+opens the Share dialog. `print.share.context` pre-fills the recipient from the party ledger (e-mail;
+*Mobile*, else a *Phone* that is a mobile number) and the texts from F12 › Sharing
+(`config.share`, placeholders `{document} {number} {date} {amount} {party} {company} {period}`,
+edited on Invoice Printing). A voucher with no party (a Contra, a journal) is addressed to its first
+ledger with an e-mail or phone that is **not** a cash or bank ledger — a bank branch's contact is never
+offered as the recipient. The renderer calls `print.share.log` (data.export, edit log `export`)
+and then the native action, which renders the PDF from the same preview HTML:
+
+- `share.email` — main saves the PDF in the company's own folder `<data>/companies/<id>/exports/shared`
+  (chosen by main, never a renderer path; collision-free names), writes a draft **.eml** next to it
+  (RFC 5322 / MIME `multipart/mixed`, base64 PDF attachment, RFC 2047 headers, `X-Unsent: 1` so
+  Outlook / Windows Mail open it as an editable draft, no `From:`; CR/LF in any header refused) and
+  opens it with the default mail program; when none opens .eml files it falls back to a `mailto:`
+  link and shows the PDF in its folder.
+- `share.whatsapp` — main saves the PDF, validates the number (10-digit Indian mobile starting 6–9 →
+  `91…`) and opens `https://wa.me/91XXXXXXXXXX?text=…` (the user confirms the external link), then
+  shows the PDF in its folder to attach in WhatsApp (WhatsApp offers no way to attach a file from a
+  link).
+
 ## Known gaps
 
-- `print.print` in the main process (src/main/print.ts) always asks Chromium for A4 paper, and
-  `print.savePdf` accepts A4/A5/Letter/Legal only (no `preferCSSPageSize`). A5 prints use an A5
-  `@page` rule (honoured when the printer dialog leaves paper to the document); 80 mm receipts keep
-  a 72 mm-wide, centred layout on whatever sheet is used (an A4 page in a PDF).
+- MRP is read from the stock item when printing, not stored per invoice line: reprinting an old
+  invoice after the item's MRP changed prints the new MRP. Keep the old MRP until old invoices are
+  printed, or note it on the invoice.
+
+- A thermal receipt is one continuous page as long as its contents (measured in the preview, 40 mm
+  to 3 m). Drivers that do not support a custom page length print it on their default roll page and
+  cut where the driver decides; set the roll's paper size in the printer's own settings if it does.
 - With several copies or vouchers in one job, pages show "Page n" (Chromium cannot restart the page
   counter per document); a single document shows "Page n of m".
-- Multi-currency invoices print in rupees only.
+- An invoice in a foreign currency prints the usual rupee invoice (GST in rupees) plus a block with
+  each line / charge in the currency, the rate, GST and the total in both currencies and the total in
+  words in the currency (`PrintVoucherData.forex`, built by forex/print.ts; rendered by the Modern,
+  Classic and Voucher templates). The Compact (thermal) template does not print it.

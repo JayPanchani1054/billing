@@ -14,6 +14,7 @@ import type { TdsVoucherPreview, VoucherTdsInput } from './tds.ts';
 import type { VoucherGstDetailsInput } from './gst-plus.ts';
 import type { StockJournalCostPreview, StockJournalExtInput } from './mfg.ts';
 import type { ForexVoucherPreview, VoucherForexInput } from './forex.ts';
+import type { PosBillView, VoucherPosInput } from './pos.ts';
 
 // ───────────────────────────── Enumerations ─────────────────────────────
 
@@ -88,7 +89,9 @@ export type VoucherWarningCode =
   /** Cheque leaf checks: already issued / cancelled / spoilt, not in a cheque book (cheques module voucher hook). */
   | 'cheque'
   /** Foreign-currency checks and realised exchange differences (forex module voucher hook). */
-  | 'forex';
+  | 'forex'
+  /** POS bill / return: tenders, change, credit, exchange credit, returned quantities (pos module voucher hook). */
+  | 'pos';
 
 export interface VoucherWarning {
   code: VoucherWarningCode;
@@ -312,6 +315,8 @@ export interface VoucherInput {
   stockJournal?: StockJournalExtInput;
   /** Forex module (F11 › Multiple currencies): document currency + rate of exchange (see VoucherForexInput). */
   forex?: VoucherForexInput;
+  /** POS module (F11 › POS invoicing): split tender / refund of a POS bill or return (see VoucherPosInput). */
+  posBill?: VoucherPosInput;
 }
 
 /** One occurrence of a recurring-voucher template (documents module): `periodKey` 'YYYY-MM' or 'YYYY-MM-DD'. */
@@ -438,6 +443,8 @@ export interface VoucherPreview {
   stockJournal?: StockJournalCostPreview;
   /** Foreign-currency amounts, rates and realised exchange differences (forex module). */
   forex?: ForexVoucherPreview;
+  /** POS bill / return: tenders, credit, change (pos module). */
+  posBill?: PosBillView;
 }
 
 export interface VoucherSaveResult {

@@ -1067,6 +1067,9 @@ export function duplicateVoucher(ctx: CompanyCtx, id: number): VoucherInput {
   // A copy is a new document: not a conversion of the source's quotation, not a recurring occurrence.
   delete out.convertedFromId;
   delete out.recurring;
+  // POS (pos module): a copy is a fresh bill — the tenders are paid again at the counter (exchange credit
+  // and card / UPI references belong to the source), and a return copy is not tied to the source's bill.
+  if (out.posBill) delete out.posBill;
   // Validity (quotation / proforma) and "applicable up to" (reversing journal) keep their length from the
   // new date: a 15-day offer copied today is valid for 15 days from today (documents module).
   if (out.validUntil) out.validUntil = addDays(out.date, Math.max(0, diffDays(row.date, out.validUntil)));

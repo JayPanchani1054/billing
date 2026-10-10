@@ -459,6 +459,16 @@ export function validateLedger(f: LedgerFields, bills: OpeningBillInput[], rc: L
     const kept = rc.db.value<number>('SELECT 1 FROM ledger_entries WHERE ledger_id = :id AND currency_id IS NOT NULL LIMIT 1', { id: rc.id });
     if (kept !== undefined) {
       issues.add('currencyId', 'Vouchers already record this ledger in its foreign currency, so its currency cannot be changed. Create a new ledger for the other currency.');
+    } else {
+      // Opening balance / opening bills entered in the old currency would be read in the new one.
+      const openingFx = rc.db.value<number>(
+        `SELECT 1 FROM ledgers WHERE id = :id AND COALESCE(opening_forex_amount, 0) <> 0
+          UNION ALL SELECT 1 FROM opening_bills WHERE ledger_id = :id AND COALESCE(forex_amount, 0) <> 0 LIMIT 1`,
+        { id: rc.id },
+      );
+      if (openingFx !== undefined) {
+        issues.add('currencyId', 'The opening balance of this ledger is entered in its foreign currency (Multi-currency › Opening in currency). Clear it there first, or create a new ledger for the other currency.');
+      }
     }
   }
   checkLedgerNames(rc.db, f.name, f.alias, rc.id, issues, rc.existing);

@@ -48,9 +48,9 @@ export function PayeeListScreen() {
       refreshing={q.refreshing}
       error={q.error}
       onRetry={q.refetch}
-      hint="Enter Alter · Alt+C Add for a ledger · Ctrl+F Search · Ctrl+1 With details / Ctrl+2 All parties · Alt+E Export"
+      hint="Enter Alter · Alt+C Create bank details · Ctrl+F Search · Ctrl+1 With details / Ctrl+2 All parties · Alt+E Export"
       actions={[
-        { key: 'Alt+C', label: 'Add bank details', icon: 'plus', primary: true, onClick: () => nav.push('cheques.payee.form', {}), hidden: !canAlter },
+        { key: 'Alt+C', label: 'Create bank details', icon: 'plus', primary: true, onClick: () => nav.push('cheques.payee.form', {}), hidden: !canAlter },
         { key: 'Alt+A', label: 'Alter', icon: 'edit', onClick: () => current && nav.push('cheques.payee.form', { ledgerId: current.ledgerId }), disabled: !current },
         { key: 'Ctrl+1', label: 'With details', icon: 'filter', onClick: () => setView('details'), disabled: view === 'details', group: 'view' },
         { key: 'Ctrl+2', label: 'All parties', icon: 'filter', onClick: () => setView('all'), disabled: view === 'all', group: 'view' },

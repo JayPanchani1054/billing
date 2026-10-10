@@ -23,6 +23,7 @@ import type { CreateCompanyInput } from '../../shared/types/app.ts';
 import { AppError, conflict } from '../lib/errors.ts';
 import { normalizeCompanyIdentity } from '../modules/company/validation.ts';
 import { ensureMfgVoucherTypes } from '../modules/mfg/voucherTypes.ts';
+import { ensurePosSetup } from '../modules/pos/store.ts';
 import type { Db } from './db.ts';
 
 export interface SeedOptions {
@@ -65,6 +66,8 @@ export function resolveInitialFeatures(input: CreateCompanyInput): CompanyFeatur
     f.einvoice = false;
     f.ewayBill = false;
   }
+  // POS counter bills stock items (pos module).
+  if (!f.inventory) f.pos = false;
   // Security needs at least one user who can log in.
   f.security = Boolean(input.owner);
   return f;
@@ -167,6 +170,8 @@ export function seedCompany(db: Db, input: CreateCompanyInput, opts: SeedOptions
     }
     // Classed stock journal types (mfg module) when the company starts with Manufacturing / Job work on.
     if (features.manufacturing || features.jobWork) ensureMfgVoucherTypes(db, ts, features);
+    // POS voucher types and tender modes (pos module) when the company starts with POS invoicing on.
+    if (features.pos) ensurePosSetup(db, ts);
 
     // Units of measure.
     const unitIds: Record<string, number> = {};

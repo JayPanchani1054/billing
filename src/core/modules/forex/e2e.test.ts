@@ -154,9 +154,17 @@ describe('Multi-currency end to end (runtime.dispatch)', () => {
     assert.deepEqual(rep.lines.map((l) => [l.ledgerName, l.billName, l.forexAmount, l.bookedAmount, l.revaluedAmount, l.adjustment]), [
       ['Pacific Retail LLC', '1', 800, P(66_400), P(68_000), P(1_600)],
     ]);
+    // The journal cannot be dated before the balances it restates (review fix).
+    await e.fails('forex.revaluation.post', { asOf: '2026-06-30', date: '2026-06-29' }, 'VALIDATION', /cannot be before the revaluation date/);
     const posted = await e.call<ForexRevaluationPostResult>('forex.revaluation.post', { asOf: '2026-06-30' });
     assert.equal(posted.net, P(1_600));
     await e.fails('forex.revaluation.post', { asOf: '2026-06-30' }, 'BUSINESS_RULE', /already posted/);
+    // The screen asks before posting again (withConfirmation): the refusal must carry needsConfirmation.
+    const again = await e.raw('forex.revaluation.post', { asOf: '2026-06-30' });
+    assert.equal(again.ok, false);
+    if (!again.ok) assert.equal((again.error.details as { needsConfirmation?: boolean } | undefined)?.needsConfirmation, true);
+    // Confirmed: nothing is left to restate, so it is refused for that reason instead (no empty journal).
+    await e.fails('forex.revaluation.post', { asOf: '2026-06-30', allowRepeat: true }, 'BUSINESS_RULE', /Nothing to revalue/);
     const after = await e.call<ForexRevaluationResult>('forex.revaluation.report', { asOf: '2026-06-30' });
     assert.equal(after.lines.length, 0);
     assert.equal(after.posted.length, 1);
@@ -170,5 +178,10 @@ describe('Multi-currency end to end (runtime.dispatch)', () => {
       ['Pacific Retail LLC', P(1_600)],
       ['Forex Gain/Loss', -P(1_600)],
     ]);
+    // Deleting the journal removes its revaluation record (ON DELETE CASCADE): the difference is back
+    // and posting is no longer treated as a repeat.
+    await e.call('vouchers.delete', { id: posted.voucherId, reason: 'wrong closing rate' });
+    const undone = await e.call<ForexRevaluationResult>('forex.revaluation.report', { asOf: '2026-06-30' });
+    assert.deepEqual([undone.posted.length, undone.net], [0, P(1_600)]);
   });
 });

@@ -36,6 +36,7 @@ import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { Paise } from '../../../shared/money.ts';
 import type {
   BillAllocationInput,
+  InstrumentInput,
   LedgerEntryRole,
   VoucherInput,
   VoucherMode,
@@ -50,6 +51,8 @@ import { gstVoucherHook } from '../gst/hook.ts';
 import { mfgVoucherHook } from '../mfg/hook.ts';
 import { chequeVoucherHook } from '../cheques/hook.ts';
 import { forexVoucherHook } from '../forex/hook.ts';
+import { attachmentsVoucherHook } from '../attachments/hook.ts';
+import { posVoucherHook } from '../pos/hook.ts';
 import type { LedgerInfo, Masters } from './masters.ts';
 import type { VoucherTypeInfo } from './numbering.ts';
 import type { PlanEntry, PlanEntryForex, PostingEnv, PostingPlan } from './posting.ts';
@@ -116,8 +119,11 @@ export interface PostingAdjustContext {
   readonly invoiceValue: Paise | null;
   /** Entries built so far (read; change them only through adjustEntry / addEntry). */
   readonly entries: readonly PlanEntry[];
-  /** Append an entry posted by this hook. */
-  addEntry(e: { ledgerId: number; amount: Paise; role: LedgerEntryRole; narration?: string | null }): PlanEntry;
+  /**
+   * Append an entry posted by this hook. `instrument` (optional, extend-only) records how the money
+   * moved on a cash / bank line, e.g. the pos hook's card / UPI tenders (instrument type + reference).
+   */
+  addEntry(e: { ledgerId: number; amount: Paise; role: LedgerEntryRole; narration?: string | null; instrument?: InstrumentInput | null }): PlanEntry;
   /**
    * Change an entry's amount by `delta` (signed). The amount the entry had before any hook changed it
    * is kept in `originalAmount`, so bill-wise / cost allocations typed for it are rescaled.
@@ -171,7 +177,7 @@ export interface VoucherHook {
 }
 
 /** Always-on hooks (run first, in this order). Extend-only. */
-const STATIC_HOOKS: readonly VoucherHook[] = [tdsVoucherHook, gstVoucherHook, mfgVoucherHook, forexVoucherHook, chequeVoucherHook];
+const STATIC_HOOKS: readonly VoucherHook[] = [tdsVoucherHook, gstVoucherHook, mfgVoucherHook, forexVoucherHook, chequeVoucherHook, attachmentsVoucherHook, posVoucherHook];
 const registered: VoucherHook[] = [];
 
 /** Register a hook (idempotent per hook object). */

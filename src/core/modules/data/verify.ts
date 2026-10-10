@@ -335,7 +335,7 @@ function duplicateNumbers(db: Db): DataVerifyCheck {
 function attachmentFiles(ctx: CompanyCtx): DataVerifyCheck {
   const { problems, unused } = checkAttachmentFiles(ctx.db, ctx.company.dir);
   const c = check('attachments', 'Attached files are present and unchanged', problems);
-  if (unused > 0) c.details.push(`(${unused} stored file(s) are no longer attached to anything — left by deleted vouchers; they are not in backups.)`);
+  if (unused > 0) c.details.push(`(${unused} stored file(s) in the attachments folder are not attached to anything — e.g. copied there by hand or left by an interrupted attach; they are not in backups and can be deleted.)`);
   return c;
 }
 

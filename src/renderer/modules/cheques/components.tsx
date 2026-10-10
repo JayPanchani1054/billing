@@ -5,9 +5,10 @@
  */
 import { useCallback, useRef, useState } from 'react';
 import type { CSSProperties, Ref } from 'react';
-import type { ChequeLayoutSpec } from '../../../shared/types/cheques.ts';
-import { native, useFeatures, userMessage } from '../../app/index.ts';
-import { ScrollArea, useToast } from '../../ui/index.ts';
+import type { ChequeBank, ChequeLayoutSpec } from '../../../shared/types/cheques.ts';
+import { native, Screen, useApiQuery, useFeatures, useNav, userMessage } from '../../app/index.ts';
+import { Button, EmptyState, ScrollArea, Select, useToast } from '../../ui/index.ts';
+import { CHEQUES_OFF } from './lib/model.ts';
 import { buildChequeHtml, chequeCss, chequePage, type ChequeMark } from './lib/cheque.ts';
 
 function MarkView({ m }: { m: ChequeMark }) {
@@ -107,4 +108,83 @@ export function useChequePrintJob(rootRef: { current: HTMLDivElement | null }): 
 /** F11 › Cheque printing is on. */
 export function useChequesOn(): boolean {
   return useFeatures().chequePrinting;
+}
+
+/** Bank ledgers (Bank Accounts / Bank OD) with their cheque set-up. */
+export function useChequeBanks(): { banks: readonly ChequeBank[]; loading: boolean } {
+  const q = useApiQuery('cheques.banks', {}, { staleTime: 30_000 });
+  return { banks: q.data ?? NO_BANKS, loading: q.loading };
+}
+
+const NO_BANKS: readonly ChequeBank[] = [];
+
+export function bankOptionLabel(b: Pick<ChequeBank, 'name' | 'accountNo'>): string {
+  return b.accountNo ? `${b.name} (A/c ${b.accountNo})` : b.name;
+}
+
+/** Bank chooser of the cheques screens; `allowAll` adds "All banks" (value null). */
+export function ChequeBankSelect({
+  banks,
+  value,
+  onChange,
+  allowAll = false,
+  autoFocus,
+  disabled,
+}: {
+  banks: readonly ChequeBank[];
+  value: number | null;
+  onChange: (id: number | null) => void;
+  allowAll?: boolean;
+  autoFocus?: boolean;
+  disabled?: boolean;
+}) {
+  const options = [...(allowAll ? [{ value: '', label: 'All banks' }] : []), ...banks.map((b) => ({ value: String(b.ledgerId), label: bankOptionLabel(b) }))];
+  return (
+    <Select
+      aria-label="Bank"
+      size="sm"
+      value={value === null ? '' : String(value)}
+      placeholder={allowAll ? undefined : 'Choose the bank'}
+      options={options}
+      disabled={disabled}
+      data-autofocus={autoFocus ? '' : undefined}
+      onChange={(v: string) => onChange(v === '' ? null : Number(v))}
+    />
+  );
+}
+
+/** The feature is off: say how to turn it on (F11). */
+export function ChequesOff({ title }: { title: string }) {
+  const nav = useNav();
+  return (
+    <Screen title={title} icon="bank">
+      <EmptyState
+        icon="bank"
+        title="Cheque printing is turned off"
+        body={CHEQUES_OFF}
+        action={
+          <Button variant="primary" onClick={() => nav.push('company.features')}>
+            Open Features (F11)
+          </Button>
+        }
+      />
+    </Screen>
+  );
+}
+
+/** No bank ledger yet. */
+export function NoChequeBanks() {
+  const nav = useNav();
+  return (
+    <EmptyState
+      icon="bank"
+      title="No bank accounts yet"
+      body="Cheque books belong to a bank ledger (under Bank Accounts or Bank OD A/c). Create the bank ledger first."
+      action={
+        <Button variant="primary" icon="plus" onClick={() => nav.push('accounts.ledger.form', { groupCode: 'BANK_ACCOUNTS' })}>
+          Create bank ledger
+        </Button>
+      }
+    />
+  );
 }

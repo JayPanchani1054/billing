@@ -38,6 +38,12 @@ DTOs and the route table are in `src/shared/types/inventory.ts`. Migration `040_
   A batch name is required for batch items only while the company's *Batches* feature is on (the
   posting engine records batches only then); an item cannot stop maintaining batches while its
   opening stock is batch-wise (re-enter the openings in the same save).
+- **Aliases (dataplus, migration 220):** `aliases: string[]` on an item save is the complete list (first →
+  `alias` column, the rest → `stock_item_aliases` in order; at most 20). Names and aliases are unique among
+  stock items (case-insensitive, names and all aliases); the item picker, Go To, lists, the Excel import /
+  export (the "Alias" column, several separated by `;`) and the Tally import / export use every alias.
+  Files can be attached to an item (Alt+F on the form; `src/core/modules/attachments`); an item with
+  attachments cannot be deleted until they are removed.
 - **Units:** decimal places cannot be reduced below what existing opening / voucher quantities of
   items counted in the unit (or in a compound unit built on it) need. A compound unit always has its
   second unit's decimal places.

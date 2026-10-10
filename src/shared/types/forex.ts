@@ -267,7 +267,17 @@ export interface ForexRevaluationLine {
 export interface ForexRevaluationResult {
   asOf: string;
   rateType: ForexRateType;
-  rates: Array<{ currencyId: number; symbol: string; formalName: string; rate: number | null; rateDate: string | null; overridden: boolean }>;
+  rates: Array<{
+    currencyId: number;
+    symbol: string;
+    formalName: string;
+    rate: number | null;
+    rateDate: string | null;
+    overridden: boolean;
+    /** The master rate of the date (also when a typed rate overrides it), and its date. */
+    masterRate?: number | null;
+    masterDate?: string | null;
+  }>;
   /** Currencies with balances but no rate: their lines are left out. */
   missingRates: number[];
   lines: ForexRevaluationLine[];

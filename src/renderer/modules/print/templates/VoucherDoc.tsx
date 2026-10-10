@@ -5,6 +5,7 @@
  */
 import { money, rupees, voucherSides } from '../lib/layout.ts';
 import { CompanyBlock, RefsGrid, Stamp, TitleBlock, type DocProps } from './parts.tsx';
+import { ForexPrintBlock } from '../../forex/PrintBlock.tsx';
 
 export function VoucherDoc({ doc, copyLabel, template }: DocProps) {
   const debit = doc.entries.reduce((a, e) => a + e.debit, 0);
@@ -77,6 +78,8 @@ export function VoucherDoc({ doc, copyLabel, template }: DocProps) {
           </tr>
         </tfoot>
       </table>
+      {/* (forex group) Entries of ledgers kept in a foreign currency: amount and rate. */}
+      <ForexPrintBlock doc={doc} />
       <section className="bp-summary bp-avoid">
         <div className="bp-summary-left">
           <div>

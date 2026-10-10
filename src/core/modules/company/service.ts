@@ -30,6 +30,7 @@ import type { Db } from '../../db/db.ts';
 import { ensureGstLedgers } from '../../db/seed.ts';
 import { ensureMfgVoucherTypes } from '../mfg/voucherTypes.ts';
 import { ensureForexLedger } from '../forex/store.ts';
+import { ensurePosSetup } from '../pos/store.ts';
 import { AppError, forbidden, notFound, rule, validation } from '../../lib/errors.ts';
 import { authorizeUserPath } from '../../lib/paths.ts';
 import { normalizeCompanyIdentity } from './validation.ts';
@@ -249,6 +250,8 @@ export function normalizeFeatures(f: CompanyFeatures): CompanyFeatures {
     out.actualAndBilledQty = false;
     out.priceLevels = false;
     out.manufacturing = false;
+    // POS counter bills stock items (pos module).
+    out.pos = false;
   }
   if (!out.batches) out.expiryDates = false;
   // Job work needs third-party godowns (mfg module).
@@ -291,6 +294,8 @@ function applyFeatures(ctx: CompanyCtx, current: CompanyFeatures, patch: Company
   }
   // Forex Gain/Loss system ledger (forex module), when Multiple currencies is switched on.
   if (next.multiCurrency && !current.multiCurrency) ensureForexLedger(db, now.toISOString(), ctx.audit);
+  // POS Sales / POS Return voucher types, Cash tender and exchange-credit ledger (pos module), when switched on.
+  if (next.pos && !current.pos) ensurePosSetup(db, now.toISOString(), ctx.audit);
   if (next.security !== current.security) {
     if (!ctx.session.isOwner && !ctx.session.permissions.has('security.manage'))
       throw new AppError('FORBIDDEN', 'Only a user who can manage security may turn security on or off');

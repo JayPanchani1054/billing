@@ -235,6 +235,9 @@ function validateConfig(db: Db, baseType: VoucherBaseType, cfg: VoucherTypeConfi
   if (cfg.stockJournalClass !== null && cfg.stockJournalClass !== undefined && baseType !== 'stock_journal') {
     issues.add('config.stockJournalClass', 'Manufacturing Journal / Material In / Material Out applies only to stock journal voucher types');
   }
+  if (cfg.posInvoice === true && baseType !== 'sales') {
+    issues.add('config.posInvoice', 'POS invoice applies only to sales voucher types');
+  }
   if (cfg.defaultGodownId !== null && cfg.defaultGodownId !== undefined) {
     if (db.value('SELECT 1 FROM godowns WHERE id = :id', { id: cfg.defaultGodownId }) === undefined) {
       issues.add('config.defaultGodownId', 'The selected godown does not exist');
@@ -405,6 +408,11 @@ function writeVoucherType(ctx: CompanyCtx, input: VoucherTypeSaveInput): number 
   if (row && (config.stockJournalClass ?? null) !== (baseConfig.stockJournalClass ?? null)) {
     const used = db.value<number>('SELECT COUNT(*) FROM vouchers WHERE voucher_type_id = :id', { id: row.id }) ?? 0;
     if (used > 0) issues.add('config.stockJournalClass', `${plural(used, 'voucher')} of this type exist; create a new voucher type for the other use.`);
+  }
+  // pos module: POS bills carry tenders entered on the counter; the class cannot change under them.
+  if (row && (config.posInvoice === true) !== (baseConfig.posInvoice === true)) {
+    const used = db.value<number>('SELECT COUNT(*) FROM vouchers WHERE voucher_type_id = :id', { id: row.id }) ?? 0;
+    if (used > 0) issues.add('config.posInvoice', `${plural(used, 'voucher')} of this type exist; create a new voucher type for the other use.`);
   }
   // On alter only what changed is re-checked (a default ledger deactivated later must not block
   // unrelated edits such as numbering); on create, and when the base type changes, everything is.

@@ -8,7 +8,7 @@
  * hold it against a leaf, and correct the positions / the offsets (README › Cheques).
  */
 import { randomUUID } from 'node:crypto';
-import type { ChequeBankSettings, ChequeBankSettingsInput, ChequeLayout, ChequeLayoutSaveInput, ChequeLayoutSpec, ChequePreset } from '../../../shared/types/cheques.ts';
+import { CHEQUE_PT_MM, CHEQUE_SIGN_LINE_GAP_MM, type ChequeBankSettings, type ChequeBankSettingsInput, type ChequeLayout, type ChequeLayoutSaveInput, type ChequeLayoutSpec, type ChequePreset } from '../../../shared/types/cheques.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { notFound, rule, validation } from '../../lib/errors.ts';
@@ -72,6 +72,25 @@ const LABEL: Record<(typeof POINTS)[number], string> = {
   signatory: 'Signatory',
 };
 
+/**
+ * Lowest point (mm from the top) of what prints at a field whose top edge is at `y` — the same boxes the
+ * renderer draws (lib/cheque.ts › chequeMarks): one line of text one font size tall; the crossing has
+ * its rules and padding; the signatory has the "Authorised Signatory" line below "For <company>".
+ */
+export function fieldBottomMm(key: (typeof POINTS)[number], y: number, fontPt: number): number {
+  const line = (pt: number): number => pt * CHEQUE_PT_MM;
+  switch (key) {
+    case 'figures':
+      return y + line(fontPt + 1);
+    case 'acPayee':
+      return y + line(Math.max(7, fontPt - 2)) + 2.3;
+    case 'signatory':
+      return y + CHEQUE_SIGN_LINE_GAP_MM + line(Math.max(7, fontPt - 3));
+    default:
+      return y + line(fontPt);
+  }
+}
+
 /** Problems with a layout (empty when fine), as field issues. */
 export function layoutIssues(spec: ChequeLayoutSpec): Array<{ path: string; message: string }> {
   const out: Array<{ path: string; message: string }> = [];
@@ -90,8 +109,13 @@ export function layoutIssues(spec: ChequeLayoutSpec): Array<{ path: string; mess
       continue;
     }
     if (p.x >= spec.widthMm) out.push({ path: `spec.${k}.x`, message: `${LABEL[k]} starts beyond the leaf's width (${spec.widthMm} mm)` });
-    if (p.y > usable) {
-      out.push({ path: `spec.${k}.y`, message: `${LABEL[k]} is in the MICR band: keep it above ${usable} mm from the top (the bottom ${MICR_BAND_MM} mm must stay clear)` });
+    const bottom = fieldBottomMm(k, p.y, spec.fontPt);
+    if (bottom > usable + 0.01) {
+      const what = k === 'signatory' ? `${LABEL[k]} (with the "Authorised Signatory" line ${CHEQUE_SIGN_LINE_GAP_MM} mm below it)` : LABEL[k];
+      out.push({
+        path: `spec.${k}.y`,
+        message: `${what} would print down to ${Math.round(bottom * 10) / 10} mm, in the MICR band: move it up by ${Math.ceil((bottom - usable) * 10) / 10} mm (the bottom ${MICR_BAND_MM} mm must stay clear, i.e. nothing below ${usable} mm)`,
+      });
     }
     if (p.w !== undefined && (!num(p.w) || p.w <= 0 || p.x + p.w > spec.widthMm + 0.01)) {
       out.push({ path: `spec.${k}.w`, message: `${LABEL[k]}: the width runs past the leaf's right edge` });
@@ -126,10 +150,30 @@ export function cleanSpec(spec: ChequeLayoutSpec): ChequeLayoutSpec {
   };
 }
 
+/** Every number of a spec is present (a stored layout is usable, though it may break a placement rule). */
+function wellFormed(v: unknown): v is ChequeLayoutSpec {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  const num = (x: unknown): boolean => typeof x === 'number' && Number.isFinite(x);
+  const pt = (x: unknown): boolean => !!x && typeof x === 'object' && num((x as { x: unknown }).x) && num((x as { y: unknown }).y);
+  return (
+    ['widthMm', 'heightMm', 'fontPt', 'offsetX', 'offsetY'].every((k) => num(o[k])) &&
+    POINTS.every((k) => pt(o[k])) &&
+    num((o.date as { pitch?: unknown } | undefined)?.pitch) &&
+    typeof o.placement === 'string' &&
+    ['leaf', 'a4_left', 'a4_center'].includes(o.placement)
+  );
+}
+
+/**
+ * A stored layout as saved. Only a damaged one falls back to the standard preset: a layout saved under
+ * an older, looser rule keeps its positions (the user calibrated them) and the cheque print data warns
+ * about the rule it breaks (printData.ts) — silently printing at other positions would be worse.
+ */
 function parseSpec(json: string): ChequeLayoutSpec {
   try {
-    const v = JSON.parse(json) as ChequeLayoutSpec;
-    return layoutIssues(v).length === 0 ? cleanSpec(v) : DEFAULT_PRESET.spec;
+    const v: unknown = JSON.parse(json);
+    return wellFormed(v) ? cleanSpec(v) : DEFAULT_PRESET.spec;
   } catch {
     return DEFAULT_PRESET.spec;
   }

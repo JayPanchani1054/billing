@@ -3,7 +3,7 @@
  * Export conventions: rupee amounts are paise ('amount' / 'drcr' columns); foreign amounts are plain
  * numbers ('number' column with the currency's decimals), signed + debit / − credit.
  */
-import { formatExchangeRate, formatForex, type ForexRateType } from '../../../../shared/forex.ts';
+import { formatExchangeRate, formatForex, paiseToForex, roundRate, sumForex, toMinor, type ForexRateType } from '../../../../shared/forex.ts';
 import type {
   ForexCurrency,
   ForexLedgerStatement,
@@ -208,11 +208,11 @@ export function revaluationExport(d: ForexRevaluationResult): ExportTable {
 }
 
 /** Ledger journal lines the revaluation will post (preview): per ledger, Dr / Cr. */
-export function revaluationJournalPreview(d: ForexRevaluationResult): Array<{ ledgerName: string; amount: Paise }> {
+export function revaluationJournalPreview(d: ForexRevaluationResult, gainLossLedgerName?: string | null): Array<{ ledgerName: string; amount: Paise }> {
   const m = new Map<string, Paise>();
   for (const l of d.lines) m.set(l.ledgerName, (m.get(l.ledgerName) ?? 0) + l.adjustment);
   const out = [...m.entries()].filter(([, a]) => a !== 0).map(([ledgerName, amount]) => ({ ledgerName, amount }));
-  if (d.net !== 0) out.push({ ledgerName: 'Forex gain/loss (unrealised)', amount: -d.net });
+  if (d.net !== 0) out.push({ ledgerName: gainLossLedgerName || 'Forex Gain/Loss', amount: -d.net });
   return out;
 }
 
@@ -243,5 +243,108 @@ export function entrySummary(p: ForexVoucherPreview | undefined, currencyOf: (id
     out.push({ key: `r:${r.ledgerId}:${r.billName}`, label: `Bill ${r.billName}`, value: `booked ₹ ${money(r.bookedAmount)}, now ₹ ${money(r.settledAmount)}` });
   }
   if (p.gainLoss !== 0) out.push({ key: 'gl', label: p.gainLossLedger?.name ?? 'Forex gain/loss', value: gainLossText(p.gainLoss, money) });
+  return out;
+}
+
+/** Under the ledger in both currencies: the closing balance at the closing rate (unrealised). */
+export function ledgerFooterNote(d: ForexLedgerStatement, money: (x: Paise) => string): string {
+  const code = d.currency.isoCode ?? d.currency.symbol;
+  if (d.closingForex === 0 && d.closingInr === 0) return 'Nothing is outstanding at the end of the period.';
+  if (d.closingRate === null || d.revaluedInr === null) return `No closing rate for ${code} on or before the period end in Currencies › Rates of Exchange: the unrealised difference cannot be shown.`;
+  const u = d.unrealised ?? 0;
+  const at = `At the closing rate ₹${formatExchangeRate(d.closingRate)} per ${code} the balance is worth ₹ ${money(Math.abs(d.revaluedInr))} ${d.revaluedInr >= 0 ? 'Dr' : 'Cr'}`;
+  // unrealised = revalued − carried, signed like a posting to the ledger: Dr + raises an asset / lowers a liability.
+  return u === 0 ? `${at} — the same as in the books.` : `${at}: unrealised ${u > 0 ? 'gain' : 'loss'} ₹ ${money(Math.abs(u))}.`;
+}
+
+// ───────────────────────────── Revaluation inputs ─────────────────────────────
+
+export interface RevaluationRateRow {
+  currencyId: number;
+  symbol: string;
+  formalName: string;
+  /** The master rate (null: none on or before the date). */
+  masterRate: number | null;
+  masterDate: string | null;
+  /** What the user typed instead (null: use the master). */
+  typed: number | null;
+}
+
+/** Rows of the closing-rate editor: the report's currencies with what the user typed. */
+export function revaluationRateRows(d: ForexRevaluationResult | undefined, typed: ReadonlyMap<number, number>): RevaluationRateRow[] {
+  if (!d) return [];
+  return d.rates.map((r) => ({
+    currencyId: r.currencyId,
+    symbol: r.symbol,
+    formalName: r.formalName,
+    masterRate: r.masterRate !== undefined ? r.masterRate : r.overridden ? null : r.rate,
+    masterDate: r.masterDate !== undefined ? r.masterDate : r.overridden ? null : r.rateDate,
+    typed: typed.get(r.currencyId) ?? null,
+  }));
+}
+
+/** The `rates` input of forex.revaluation.*: typed rates > 0 only, ordered by currency for a stable query key. */
+export function rateOverrides(typed: ReadonlyMap<number, number>): Array<{ currencyId: number; rate: number }> {
+  return [...typed.entries()]
+    .filter(([, rate]) => Number.isFinite(rate) && rate > 0)
+    .sort((a, b) => a[0] - b[0])
+    .map(([currencyId, rate]) => ({ currencyId, rate }));
+}
+
+/**
+ * Why the revaluation cannot be posted yet (null: it can). Every currency with a balance needs a
+ * closing rate — `missingRates` already excludes the currencies typed for this run, so a rate typed for
+ * one currency does not excuse another (the core refuses the same). `_typedCount` is kept for callers.
+ */
+export function revaluationBlocker(d: ForexRevaluationResult | undefined, _typedCount = 0): string | null {
+  if (!d) return 'Loading…';
+  if (d.missingRates.length > 0) {
+    const names = d.rates.filter((r) => d.missingRates.includes(r.currencyId)).map((r) => r.formalName);
+    return `No closing rate for ${names.join(', ')}: type it below or enter it in Currencies › Rates of Exchange.`;
+  }
+  if (d.lines.length === 0) return 'Nothing to revalue: every foreign-currency balance is already carried at the closing rate.';
+  return null;
+}
+
+/** Default narration of the "Forex adjustment" journal. */
+export function revaluationNarration(d: ForexRevaluationResult, dateText: (iso: string) => string): string {
+  const rates = d.rates.filter((r) => r.rate !== null).map((r) => `${r.symbol} ₹${formatExchangeRate(r.rate as number)}`);
+  return `Forex adjustment: foreign-currency balances restated at the closing ${d.rateType} rate as on ${dateText(d.asOf)}${rates.length ? ` (${rates.join(', ')})` : ''}.`;
+}
+
+// ───────────────────────────── Opening balance in the currency ─────────────────────────────
+
+/** Rupees per unit implied by a rupee amount and its foreign amount (null when either is 0). */
+export function impliedRate(inr: Paise, forex: number): number | null {
+  if (inr === 0 || forex === 0) return null;
+  return roundRate(Math.abs(inr / 100 / forex));
+}
+
+/** Foreign amount of a rupee amount at a rate, signed like the rupees (fill helper of the opening form). */
+export function forexAtRate(inr: Paise, rate: number, dp: number): number {
+  if (!(rate > 0) || inr === 0) return 0;
+  return paiseToForex(inr, rate, dp);
+}
+
+/** What is wrong with an opening draft before it is sent (the core checks the same and more). */
+export function openingIssues(
+  openingInr: Paise,
+  openingForex: number | null,
+  bills: ReadonlyArray<{ billName: string; amount: Paise; forexAmount: number | null }>,
+  dp: number,
+): string[] {
+  const out: string[] = [];
+  const fx = openingForex ?? 0;
+  if (openingInr === 0 && fx !== 0) out.push('Enter the rupee opening balance on the ledger first (Ledger › Opening balance).');
+  if (openingInr !== 0 && fx !== 0 && Math.sign(openingInr) !== Math.sign(fx)) out.push('The opening balance in the currency must be on the same side (Dr / Cr) as the rupee opening balance.');
+  for (const b of bills) {
+    const bf = b.forexAmount ?? 0;
+    if (b.amount !== 0 && bf !== 0 && Math.sign(b.amount) !== Math.sign(bf)) out.push(`Bill ${b.billName}: the foreign amount must be on the same side (Dr / Cr) as its rupee amount.`);
+  }
+  // Bills are sent (and must add up) once any of them has a foreign amount.
+  if (bills.some((b) => (b.forexAmount ?? 0) !== 0)) {
+    const total = sumForex(bills.map((b) => b.forexAmount ?? 0), dp);
+    if (toMinor(total, dp) !== toMinor(fx, dp)) out.push(`The opening bills total ${total} but the opening balance in the currency is ${fx}.`);
+  }
   return out;
 }

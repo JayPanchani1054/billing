@@ -14,13 +14,13 @@
  * Every file is recorded (epayment_batches) and in the edit log as an export.
  */
 import { randomUUID } from 'node:crypto';
-import { formatDate } from '../../../shared/dates.ts';
+import { formatDate, todayLocal } from '../../../shared/dates.ts';
 import type { Paise } from '../../../shared/money.ts';
 import type { EPaymentCandidate, EPaymentExportInput, EPaymentExportResult, EPaymentListInput, EPaymentMode } from '../../../shared/types/cheques.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { toCsv } from '../../lib/csv.ts';
-import { validation } from '../../lib/errors.ts';
+import { notFound, rule, validation } from '../../lib/errors.ts';
 import { loadGroupTree } from '../accounts/books.ts';
 import { requirePermission, voucherLabel } from './common.ts';
 
@@ -50,6 +50,19 @@ interface Entry {
   instrument_type: string | null;
 }
 
+interface PayeeRow {
+  beneficiary_name: string | null;
+  account_no: string | null;
+  ifsc: string | null;
+  bank_name: string | null;
+  account_type: string | null;
+  payment_mode: string | null;
+  email: string | null;
+  mobile: string | null;
+  name: string;
+  mailing_name: string | null;
+}
+
 interface Resolved extends EPaymentCandidate {
   narration: string | null;
   debitAccountNo: string | null;
@@ -71,6 +84,21 @@ function resolve(db: Db, vouchers: readonly Row[]): Resolved[] {
       ledgerCache.set(id, l);
     }
     return l;
+  };
+  // One look-up per payee ledger, not per voucher (a month of payments repeats the same suppliers).
+  const payees = new Map<number, PayeeRow | undefined>();
+  const payeeOf = (id: number): PayeeRow | undefined => {
+    if (!payees.has(id)) {
+      payees.set(
+        id,
+        db.get<PayeeRow>(
+          `SELECT p.beneficiary_name, p.account_no, p.ifsc, p.bank_name, p.account_type, p.payment_mode, l.email, l.mobile, l.name, l.mailing_name
+             FROM ledgers l LEFT JOIN payee_bank_details p ON p.ledger_id = l.id WHERE l.id = :id`,
+          { id },
+        ),
+      );
+    }
+    return payees.get(id);
   };
   const isBank = (id: number) => tree.byId.get(ledger(id).group)?.cls.isBank === true;
   const isCashBank = (id: number) => tree.byId.get(ledger(id).group)?.cls.isCashOrBank === true;
@@ -106,13 +134,7 @@ function resolve(db: Db, vouchers: readonly Row[]): Resolved[] {
     const amount: Paise = -bankLine.amount;
     const top = [...debits].sort((a, b) => b.amount - a.amount || a.line_no - b.line_no)[0];
     const payeeId = top?.ledger_id ?? null;
-    const p = payeeId !== null
-      ? db.get<{ beneficiary_name: string | null; account_no: string | null; ifsc: string | null; bank_name: string | null; account_type: string | null; payment_mode: string | null; email: string | null; mobile: string | null; name: string; mailing_name: string | null }>(
-          `SELECT p.beneficiary_name, p.account_no, p.ifsc, p.bank_name, p.account_type, p.payment_mode, l.email, l.mobile, l.name, l.mailing_name
-             FROM ledgers l LEFT JOIN payee_bank_details p ON p.ledger_id = l.id WHERE l.id = :id`,
-          { id: payeeId },
-        )
-      : undefined;
+    const p = payeeId !== null ? payeeOf(payeeId) : undefined;
     const mode: EPaymentMode = TRANSFER.has(instrument)
       ? (instrument as EPaymentMode)
       : p?.payment_mode && TRANSFER.has(p.payment_mode)
@@ -159,7 +181,7 @@ const PAYMENT_SELECT = `SELECT v.id, v.date, v.number, vt.name AS type_name, v.n
 export function listEPayments(db: Db, input: EPaymentListInput): EPaymentCandidate[] {
   if (input.from > input.to) throw validation([{ path: 'to', message: 'The end date must be on or after the start date' }]);
   const rows = db.all<Row>(
-    `${PAYMENT_SELECT} WHERE v.base_type = 'payment' AND v.is_cancelled = 0 AND v.date BETWEEN :from AND :to ORDER BY v.date, v.number_seq, v.id`,
+    `${PAYMENT_SELECT} WHERE v.base_type = 'payment' AND v.is_cancelled = 0 AND v.is_optional = 0 AND v.date BETWEEN :from AND :to ORDER BY v.date, v.number_seq, v.id`,
     { from: input.from, to: input.to },
   );
   return resolve(db, rows)
@@ -208,7 +230,7 @@ export function exportEPayments(ctx: CompanyCtx, input: EPaymentExportInput): EP
     throw validation([{ path: 'valueDate', message: `The value date cannot be before today (${formatDate(today)}): banks refuse past-dated transfers` }]);
   }
   const rows = db.all<Row>(
-    `${PAYMENT_SELECT} WHERE v.id IN (SELECT value FROM json_each(:ids)) AND v.base_type = 'payment' AND v.is_cancelled = 0`,
+    `${PAYMENT_SELECT} WHERE v.id IN (SELECT value FROM json_each(:ids)) AND v.base_type = 'payment' AND v.is_cancelled = 0 AND v.is_optional = 0`,
     { ids: JSON.stringify(ids) },
   );
   const resolved = new Map(resolve(db, rows).map((r) => [r.voucherId, r]));
@@ -218,7 +240,7 @@ export function exportEPayments(ctx: CompanyCtx, input: EPaymentExportInput): EP
     const r = resolved.get(id);
     const row = rows.find((x) => x.id === id);
     if (!r) {
-      skipped.push({ voucherId: id, label: row ? voucherLabel(row.type_name, row.number, row.date) : `Voucher #${id}`, reason: 'Not a bank-transfer Payment (cancelled, paid by cheque / cash, or from more than one bank line).' });
+      skipped.push({ voucherId: id, label: row ? voucherLabel(row.type_name, row.number, row.date) : `Voucher #${id}`, reason: 'Not a bank-transfer Payment (cancelled, optional, paid by cheque / cash, or from more than one bank line).' });
     } else if (r.problem) {
       skipped.push({ voucherId: id, label: r.voucherLabel, reason: r.problem });
     } else {
@@ -253,10 +275,10 @@ export function exportEPayments(ctx: CompanyCtx, input: EPaymentExportInput): EP
   const bankName = banks.size === 1 ? ready[0].bankLedgerName : 'several banks';
   const fileName = `e-payments ${bankName.replace(/[\\/:*?"<>|]+/g, '-')} ${today}.csv`;
   const now = ctx.clock.now().toISOString();
-  const batchId = db.run(
+  const batchId = Number(db.run(
     `INSERT INTO epayment_batches (guid, bank_ledger_id, file_name, rows, total, created_by, created_at) VALUES (:g, :b, :f, :n, :t, :by, :now)`,
     { g: randomUUID(), b: banks.size === 1 ? ready[0].bankLedgerId : null, f: fileName, n: ready.length, t: total, by: ctx.session.userId, now },
-  ).lastInsertRowid;
+  ).lastInsertRowid);
   for (const r of ready) db.run('INSERT INTO epayment_batch_items (batch_id, voucher_id, amount) VALUES (:b, :v, :a)', { b: batchId, v: r.voucherId, a: r.amount });
   ctx.audit({
     action: 'export',
@@ -265,5 +287,37 @@ export function exportEPayments(ctx: CompanyCtx, input: EPaymentExportInput): EP
     entityLabel: `${fileName} (${ready.length} payment${ready.length === 1 ? '' : 's'})`,
     after: { format: 'csv', rows: ready.length, total, vouchers: ready.map((r) => r.voucherId) },
   });
-  return { bytes: new TextEncoder().encode(csv), fileName, rows: ready.length, total, skipped };
+  return { bytes: new TextEncoder().encode(csv), fileName, rows: ready.length, total, skipped, batchId };
+}
+
+/**
+ * The user cancelled the save dialog: the file was never written, so its batch must not mark the payments
+ * as "already in a payment file" (that warning exists to stop a double upload). Only the user who made the
+ * batch, on the same day, can discard it; both the export and the discard stay in the edit log.
+ */
+export function discardEPaymentBatch(ctx: CompanyCtx, input: { batchId: number }): { ok: true } {
+  const { db } = ctx;
+  requirePermission(ctx, 'vouchers.view', 'view vouchers');
+  const b = db.get<{ id: number; guid: string; file_name: string; rows: number; total: number; created_by: number | null; created_at: string }>(
+    'SELECT id, guid, file_name, rows, total, created_by, created_at FROM epayment_batches WHERE id = :id',
+    { id: input.batchId },
+  );
+  if (!b) throw notFound('Payment file', input.batchId);
+  const sameUser = (b.created_by ?? null) === (ctx.session.userId ?? null);
+  const sameDay = todayLocal(new Date(b.created_at)) === todayLocal(ctx.clock.now());
+  if (!sameUser || !sameDay) {
+    throw rule('A payment file can be discarded only right after it was made, by the same user (when its save was cancelled).');
+  }
+  const vouchers = db.all<{ voucher_id: number }>('SELECT voucher_id FROM epayment_batch_items WHERE batch_id = :id ORDER BY voucher_id', { id: b.id }).map((r) => r.voucher_id);
+  db.run('DELETE FROM epayment_batch_items WHERE batch_id = :id', { id: b.id });
+  db.run('DELETE FROM epayment_batches WHERE id = :id', { id: b.id });
+  ctx.audit({
+    action: 'delete',
+    entityType: 'epayment_batch',
+    entityId: b.id,
+    entityGuid: b.guid,
+    entityLabel: `${b.file_name} — not saved (discarded)`,
+    before: { rows: b.rows, total: b.total, vouchers },
+  });
+  return { ok: true };
 }

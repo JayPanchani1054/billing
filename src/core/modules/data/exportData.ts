@@ -642,7 +642,7 @@ function csvSink(zip: ZipFileWriter): SheetSink {
  * transaction (WAL snapshot) when the company is a file, else the company connection itself (tests'
  * in-memory companies), where the export must not yield.
  */
-function openSnapshot(ctx: CompanyCtx): { db: Db; canYield: boolean; close(): void } {
+export function openSnapshot(ctx: CompanyCtx): { db: Db; canYield: boolean; close(): void } {
   const file = ctx.company.dbPath;
   if (file !== ':memory:' && file !== '' && fs.existsSync(file)) {
     const db = new Db(file, { readOnly: true });

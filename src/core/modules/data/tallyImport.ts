@@ -675,8 +675,12 @@ function ledgerFields(run: Run, l: TLedger, groupId: number): LedgerSaveInput {
   if (l.email) input.email = l.email;
   if (l.pan) input.pan = l.pan;
   if (l.gstin) input.gstin = l.gstin;
+  const abroad = l.country !== null && !/^india$/i.test(l.country.trim());
+  if (abroad) input.country = l.country;
   const reg = l.registrationType ? REGISTRATION[key(l.registrationType)] : undefined;
-  if (reg) input.registrationType = reg;
+  // A party outside India without a GSTIN is an overseas party (Tally marks it only by its country).
+  if (abroad && !l.gstin && cls?.isParty && (reg === undefined || reg === 'unregistered' || reg === 'consumer')) input.registrationType = 'overseas';
+  else if (reg) input.registrationType = reg;
   else if (l.gstin && cls?.isParty) input.registrationType = 'regular';
   if (cls?.isBank) {
     if (l.bank.accountNo) input.bankAccountNo = l.bank.accountNo;
@@ -693,6 +697,10 @@ function ledgerFields(run: Run, l: TLedger, groupId: number): LedgerSaveInput {
   } else if (l.taxType && cls?.isDutyTax) {
     const t = l.taxType.toUpperCase();
     input.taxType = t === 'TDS' || t === 'TCS' ? t : 'OTHER';
+  }
+  if (l.assessable && cls && !cls.isDutyTax && !cls.isParty && !cls.isCashOrBank) {
+    input.includeInAssessable = l.assessable.to;
+    input.appropriateBy = l.assessable.by;
   }
   if (cls && !cls.isDutyTax && !cls.isParty && !cls.isCashOrBank) {
     const g = gstFields(l.gst);
@@ -1048,6 +1056,11 @@ interface LedgerInfo {
   cls: ReturnType<typeof ledgerClass>;
   reservedCode: string | null;
   dutyHead: TallyDutyHead | null;
+  /** GST duty ledgers: 'output' | 'input' | 'rcm_liability' (null when not set). */
+  taxDirection: string | null;
+  /** A charge absorbed into the goods lines' assessable value (include_in_assessable 'goods'). */
+  assessable: 'goods' | null;
+  appropriateByQty: boolean;
   billWise: boolean;
   creditDays: number | null;
   costCentres: boolean;
@@ -1111,6 +1124,9 @@ function loadLedgers(db: Db): { byName: Map<string, LedgerInfo>; byId: Map<numbe
     group_id: number;
     reserved_code: string | null;
     gst_duty_head: string | null;
+    gst_tax_direction: string | null;
+    include_in_assessable: string | null;
+    appropriate_by: string | null;
     tax_type: string | null;
     maintain_bill_wise: number;
     default_credit_days: number | null;
@@ -1121,7 +1137,7 @@ function loadLedgers(db: Db): { byName: Map<string, LedgerInfo>; byId: Map<numbe
     address: string | null;
     pincode: string | null;
   }>(
-    `SELECT id, name, alias, group_id, reserved_code, gst_duty_head, tax_type, maintain_bill_wise, default_credit_days, cost_centres_applicable,
+    `SELECT id, name, alias, group_id, reserved_code, gst_duty_head, gst_tax_direction, include_in_assessable, appropriate_by, tax_type, maintain_bill_wise, default_credit_days, cost_centres_applicable,
             state_code, gstin, gst_registration_type, address, pincode FROM ledgers ORDER BY id`,
   );
   const byName = new Map<string, LedgerInfo>();
@@ -1140,6 +1156,9 @@ function loadLedgers(db: Db): { byName: Map<string, LedgerInfo>; byId: Map<numbe
       cls,
       reservedCode: r.reserved_code,
       dutyHead: (r.tax_type === 'GST' || r.tax_type === null) && head ? head : null,
+      taxDirection: r.gst_tax_direction,
+      assessable: r.include_in_assessable === 'goods' ? 'goods' : null,
+      appropriateByQty: r.appropriate_by === 'quantity',
       billWise: r.maintain_bill_wise === 1,
       creditDays: r.default_credit_days,
       costCentres: r.cost_centres_applicable === 1,
@@ -1203,6 +1222,8 @@ interface EntryRow {
   costs: Array<{ centreId: number; amount: number }>;
   bank: TEntry['bank'];
   fromInventory: boolean;
+  /** An assessable-value charge absorbed into the item lines (no GST line of its own). */
+  absorbed?: boolean;
 }
 
 interface InvRow {
@@ -1214,6 +1235,8 @@ interface InvRow {
   rate: number;
   discountPct: number;
   amount: number;
+  /** The line's own value (before absorbing assessable-value charges) — what VoucherInput gets. */
+  ownAmount: number;
   ledgerId: number | null;
   trackingRef: string | null;
   orderRef: string | null;
@@ -1475,6 +1498,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
             rate,
             discountPct: line.discountPct,
             amount: Math.abs(s.amount),
+            ownAmount: Math.abs(s.amount),
             ledgerId,
             trackingRef,
             orderRef: s.alloc?.orderNo ?? null,
@@ -1490,11 +1514,31 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
 
   // ── GST lines (as recorded: tax per head from the duty-ledger postings) ──
   const partySign = base === 'sales' || base === 'debit_note' ? 1 : -1;
+  // Charges included in the goods' assessable value (freight, packing — ledger master "include in
+  // assessable value") are absorbed into the goods item lines as the posting engine does: by value
+  // (or quantity), largest remainder. The charge keeps its own ledger entry but has no GST line.
+  if (isGstDoc && isAccounting && !cancelled && inv.length > 0) {
+    for (const e of entries) {
+      if (e.role !== 'charge' || e.fromInventory || e.ledger.assessable !== 'goods') continue;
+      const targets = inv.filter((r) => !r.item.isService && r.amount > 0);
+      if (targets.length === 0) continue;
+      let weights = targets.map((r) => (e.ledger.appropriateByQty ? Math.abs(r.qty) : r.amount));
+      if (weights.every((w) => w === 0)) weights = targets.map((r) => r.amount);
+      const shares = allocate(-partySign * e.amount, weights);
+      targets.forEach((r, k) => {
+        r.amount += shares[k];
+      });
+      e.absorbed = true;
+    }
+  }
   const partyInfo = partyId !== null ? env.ledgerById.get(partyId) : undefined;
   const outward = base === 'sales' || base === 'credit_note' || (base === 'debit_note' && partyInfo?.cls.isDebtor === true);
   const gstRows: GstRow[] = [];
+  // Reverse charge (inward): the voucher posts the tax to the RCM liability ledgers (and takes the
+  // credit in the input ledgers) — the tax of the supply is what the RCM ledgers carry.
+  const reverseCharge = isGstDoc && !outward && !cancelled && entries.some((e) => e.head !== null && e.ledger.taxDirection === 'rcm_liability');
   const heads = { IGST: 0, CGST: 0, SGST: 0, CESS: 0 };
-  for (const e of entries) if (e.head) heads[e.head] += e.amount;
+  for (const e of entries) if (e.head && (!reverseCharge || e.ledger.taxDirection === 'rcm_liability')) heads[e.head] += e.amount;
   for (const h of Object.keys(heads) as TallyDutyHead[]) heads[h] = Math.abs(heads[h]);
   const totalTax = heads.IGST + heads.CGST + heads.SGST + heads.CESS;
   let notes: string[] = [];
@@ -1527,7 +1571,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     const hasItems = inv.length > 0;
     for (const e of entries) {
       if (e.role === 'party' || e.role === 'tax' || e.role === 'round_off' || e.role === 'cash_bank') continue;
-      if (hasItems && e.fromInventory) continue;
+      if ((hasItems && e.fromInventory) || e.absorbed) continue;
       const profile = resolveLedgerTaxProfile(env.lookup, { ledgerId: e.ledger.id, date: v.date });
       if (profile.source === 'not_applicable' && !(e.role === 'sales' || e.role === 'purchase')) continue;
       gstRows.push({
@@ -1582,7 +1626,9 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
 
   // ── Header ──
   const party = partyInfo;
-  const posCode = stateCodeOrNull(v.placeOfSupply) ?? (outward ? (party?.stateCode ?? env.company.stateCode) : env.company.stateCode);
+  const overseas = party?.registrationType === 'overseas';
+  // An export's place of supply is outside India ('96', Other Country) unless the file names one.
+  const posCode = stateCodeOrNull(v.placeOfSupply) ?? (outward && overseas ? '96' : outward ? (party?.stateCode ?? env.company.stateCode) : env.company.stateCode);
   const interState = heads.IGST > 0 ? true : heads.CGST + heads.SGST > 0 ? false : (party?.stateCode ?? env.company.stateCode) !== env.company.stateCode;
   const partyEntry = entries.find((e) => e.role === 'party' && e.ledger.id === partyId);
   const debits = entries.reduce((s, e) => s + (e.amount > 0 ? e.amount : 0), 0);
@@ -1594,14 +1640,24 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
   const gstNature =
     gstRows.length > 0
       ? classifySupply(
-          { direction: outward ? 'outward' : 'inward', companyRegistration: env.company.registration, partyRegistration: regParty, interState, b2clThresholdPaise: env.b2clThreshold },
+          {
+            direction: outward ? 'outward' : 'inward',
+            companyRegistration: env.company.registration,
+            partyRegistration: regParty,
+            interState,
+            reverseCharge,
+            // Export / SEZ supply: IGST charged = with payment of tax, none = under LUT / bond.
+            exportWithPayment: heads.IGST > 0,
+            b2clThresholdPaise: env.b2clThreshold,
+          },
           { invoiceValue: total, allNonTaxable: gstRows.every((g) => g.taxability !== 'taxable'), goodsValue: gstRows.filter((g) => g.supply === 'goods').reduce((s, g) => s + g.taxable, 0), servicesValue: gstRows.filter((g) => g.supply === 'services').reduce((s, g) => s + g.taxable, 0) },
         )
       : null;
   const invoiceMode = isGstDoc && isAccounting ? (inv.length > 0 ? 'item' : gstRows.length > 0 || v.isInvoice ? 'accounting' : null) : null;
   const affectsStock = inv.some((r) => r.affectsStock) ? 1 : 0;
 
-  const input = buildInput(env, v, { typeId, base, partyId, entries, inv, partySign, posCode });
+  const isNote = base === 'credit_note' || base === 'debit_note';
+  const input = buildInput(env, v, { typeId, base, partyId, entries, inv, partySign, posCode, reverseCharge });
   const meta = {
     v: 1,
     source: 'tally',
@@ -1619,8 +1675,12 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     number: v.number,
     number_seq: numberSeq(db, typeId, v.number, v.date ?? undefined, env.company.fyStartMonth),
     date: v.date,
-    reference_no: v.reference,
-    reference_date: v.referenceDate,
+    // Credit / debit notes: Tally's Reference No. / Date on a note is the original invoice (dataplus convention,
+    // see README › Tally export); it fills the GSTR-1 CDNR original-invoice fields.
+    reference_no: isNote ? null : v.reference,
+    reference_date: isNote ? null : v.referenceDate,
+    original_invoice_no: isNote ? v.reference : null,
+    original_invoice_date: isNote ? v.referenceDate : null,
     party_ledger_id: partyId,
     party_name: party ? party.name : null,
     party_address: party?.address ?? null,
@@ -1635,7 +1695,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     is_cancelled: cancelled ? 1 : 0,
     affects_books: affectsBooks ? 1 : 0,
     affects_stock: affectsStock,
-    is_reverse_charge: 0,
+    is_reverse_charge: reverseCharge ? 1 : 0,
     narration: v.narration,
     total_amount: total,
     taxable_amount: cancelled ? 0 : taxable,
@@ -1733,7 +1793,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
       `INSERT INTO gst_lines (voucher_id, line_no, source, item_id, ledger_id, description, hsn_sac, uqc, qty, supply_type, taxability, rate, cess_rate,
               taxable_value, igst, cgst, sgst, cess, is_reverse_charge, itc_eligibility, date, affects_books, is_post_dated)
        VALUES (:id, :line, :source, :item, :ledger, :description, :hsn, :uqc, :qty, :supply, :taxability, :rate, :cessRate, :taxable, :igst, :cgst, :sgst,
-              :cess, 0, :itc, :date, :books, :pdc)`,
+              :cess, :rc, :itc, :date, :books, :pdc)`,
       {
         id,
         line: i + 1,
@@ -1753,6 +1813,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
         cgst: g.cgst,
         sgst: g.sgst,
         cess: g.cess,
+        rc: reverseCharge ? 1 : 0,
         itc: g.itc,
         date: v.date,
         books,
@@ -1781,14 +1842,15 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
 function buildInput(
   env: VoucherEnv,
   v: TVoucher,
-  x: { typeId: number; base: VoucherBaseType; partyId: number | null; entries: EntryRow[]; inv: InvRow[]; partySign: number; posCode: string | null },
+  x: { typeId: number; base: VoucherBaseType; partyId: number | null; entries: EntryRow[]; inv: InvRow[]; partySign: number; posCode: string | null; reverseCharge: boolean },
 ): VoucherInput {
   const common: Omit<VoucherInput, 'mode'> = {
     voucherTypeId: x.typeId,
     date: v.date as string,
     ...(v.number ? { number: v.number } : {}),
-    ...(v.reference ? { referenceNo: v.reference } : {}),
-    ...(v.referenceDate ? { referenceDate: v.referenceDate } : {}),
+    ...(x.base === 'credit_note' || x.base === 'debit_note'
+      ? { ...(v.reference ? { originalInvoiceNo: v.reference } : {}), ...(v.referenceDate ? { originalInvoiceDate: v.referenceDate } : {}) }
+      : { ...(v.reference ? { referenceNo: v.reference } : {}), ...(v.referenceDate ? { referenceDate: v.referenceDate } : {}) }),
     ...(v.narration ? { narration: v.narration } : {}),
     ...(v.isOptional ? { isOptional: true } : {}),
     ...(v.isPostDated ? { isPostDated: true } : {}),
@@ -1806,7 +1868,7 @@ function buildInput(
       ...(r.billedQty !== null && r.billedQty !== Math.abs(r.qty) ? { billedQty: r.billedQty } : {}),
       rate: r.rate,
       ...(r.discountPct ? { discountPct: r.discountPct } : {}),
-      amount: r.amount,
+      amount: r.ownAmount,
       ...(r.ledgerId !== null ? { ledgerId: r.ledgerId } : {}),
       ...(r.trackingRef ? { trackingRef: r.trackingRef } : {}),
       ...(r.orderRef ? { orderRef: r.orderRef } : {}),
@@ -1826,6 +1888,7 @@ function buildInput(
       mode,
       partyLedgerId: x.partyId,
       ...(x.posCode ? { placeOfSupply: x.posCode } : {}),
+      ...(x.reverseCharge ? { reverseCharge: true } : {}),
       ...(mode === 'item_invoice' ? { items: items() } : {}),
       ...(ledgers.length ? { ledgers } : {}),
       ...(partyBills ? { partyBillAllocations: partyBills } : {}),

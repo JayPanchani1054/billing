@@ -420,3 +420,276 @@ to the IRP or the e-way bill system directly. Instead:
    invoice); e-Way Bills › **Alt+N** records the e-way bill number and validity.
 
 Cancel an IRN on the portal within 24 hours and then mark it cancelled in Bahi (Alt+K).
+
+## Multiple currencies (exports, imports, foreign bank accounts)
+
+Use this if you bill overseas customers in dollars, pay foreign suppliers in euros, or keep an EEFC
+account. Your books stay in rupees — every voucher still balances in rupees — but customers, suppliers
+and bank accounts that you deal with in a foreign currency are *also* kept in that currency.
+
+### Setting it up
+
+1. **F11 › Features › Multiple currencies** — turn it on. A ledger called **Forex Gain/Loss** (under
+   Indirect Expenses) is created for exchange differences.
+2. **Masters › Currencies** — create the currency (for example `$`, US Dollar, ISO code `USD`, 2
+   decimals). **Alt+R** enters a rate of exchange for a date: *standard*, *selling* and *buying* rates in
+   rupees for one unit. Enter the rates you actually use (your bank's rate, or for exports of goods the
+   rate notified by CBIC for customs). Bahi does not download rates.
+3. Open the customer / supplier / bank ledger and set its **Currency**. From then on it is entered in
+   that currency. (Once vouchers record a ledger in a currency, its currency cannot be changed — create a
+   new ledger instead.)
+4. Opening balances: enter the rupee opening balance in the ledger as usual, then **Masters › Opening
+   Balance in Currency** (or Alt+O in Forex Outstanding / Ledger in Foreign Currency) to give the same balance — and each
+   opening bill — in the currency. **Alt+R** there fills every amount at one rate.
+5. Optional: **Masters › Multi-currency Settings** — choose other ledgers for realised and unrealised
+   differences, and which rate (standard / selling / buying) is used at the year end.
+
+### Export invoices
+
+Create the sales invoice (F8) for the overseas customer as usual. Because the customer is kept in
+dollars, Bahi fills in the **rate of exchange** from your rates (the buying rate of the invoice date)
+or asks for it when there is none; **Alt+Y** shows or changes it. Type rates and amounts **in dollars**; the rupee value is what
+posts, and GST is worked out in rupees. In **Ctrl+I › More details › Export** choose *under LUT* (no
+IGST) or *with payment of IGST*, and fill the shipping bill number, date and port code when you have
+them. The side panel shows the invoice value in dollars, the rate and the rupee value.
+
+The printed invoice is your normal GST invoice in rupees (with the "supply meant for export…" line)
+plus a table of every line in dollars next to the rupees, the rate, GST in rupees (and its dollar
+equivalent), the total in both currencies and the dollar total in words. GSTR-1 shows the export in
+rupees (EXPWP / EXPWOP), as the portal wants.
+
+Import purchases work the same way with a supplier kept in a foreign currency (selling rate by
+default).
+
+### Receipts and payments — exchange gain or loss
+
+When the customer pays, enter the receipt (F6) with the customer's line **in dollars** and the rate the
+bank gave you (Bahi asks for both when you leave the customer's line; **Alt+Y** reopens it). Choose the
+bills it settles in the same dialog, in dollars. If the rate differs from the rate the invoice was
+booked at, Bahi works out the **realised exchange gain or loss** and posts it to Forex Gain/Loss *in the
+same receipt* — the bill is cleared in both currencies. Example: an invoice of $1,000 at ₹83 (₹83,000);
+$600 received at ₹84 = ₹50,400; the bill carried ₹49,800 for that $600, so ₹600 is an exchange gain.
+
+Moving money between your EEFC account and a rupee account is an ordinary contra: the EEFC line in
+dollars at the bank's rate.
+
+### Reports
+
+- **Reports › Forex Outstanding** — every party in a foreign currency with its pending bills: amount
+  in the currency, the rate it was booked at, the rupees in your books, today's (period-end) closing
+  rate, what it is worth at that rate and the difference. Ctrl+1/2/3 all / receivables / payables;
+  Enter opens the ledger or the bill's voucher.
+- **Reports › Ledger in Foreign Currency** — a ledger's vouchers with amounts, rates and running
+  balances in both currencies. From the normal ledger report, **Alt+R** switches to it; from a party's
+  outstanding, **Alt+Y** shows its bills in the currency.
+- A voucher opened from any report shows a **Foreign currency** panel with the amounts, rates and any
+  exchange difference it posted.
+
+### Year end (or quarter end): revaluation
+
+Accounting Standards (AS 11 / Ind AS 21) ask you to restate money owed in a foreign currency at the
+**closing rate**. Enter the closing rate in Currencies (or type it on the screen), then open **Reports
+› Forex Revaluation** for the period end (Alt+F2). It lists each balance, what it is carried at, what it
+is worth at the closing rate and the adjustment. **Ctrl+A** posts the **Forex adjustment** journal
+(you can change its date and narration first — not earlier than the revaluation date). Every currency
+with a balance needs its closing rate before you can post. Only money items are restated: parties,
+bank accounts, loans and deposits; sales, purchase, expense ledgers and fixed assets, investments or
+stock kept in a currency stay at the rate they were booked at. Bahi warns you before posting a second
+revaluation for the same date. If you reverse revaluations on the first day of the next year, duplicate the journal
+(Alt+2 on the voucher) and swap the sides.
+
+Things Bahi does not do: download exchange rates, treat long-term foreign-currency loans under AS 11
+para 46A, or hedge accounting — record those with a journal and ask your CA.
+
+## Printing, sharing, cheques and bank payments
+
+### Paper sizes and thermal receipts
+
+Company › **Invoice Printing** sets the template and paper for everything you print: **Modern** and
+**Classic** print on A4, A5 (portrait or landscape), Letter or Legal; **Compact** is a till receipt
+for 80 mm or 58 mm thermal rolls — item, quantity × rate and amount on narrow lines, a tax summary,
+and a page exactly as long as the receipt. A voucher type can have its own template (Masters ›
+Voucher Types), and every print preview lets you change it for that print: **Alt+T** template,
+**Alt+S** paper, **Ctrl+1/2/3** original / duplicate / triplicate.
+
+### MRP on invoices
+
+Give stock items their MRP (per unit, inclusive of all taxes), then turn on **Show MRP** in Invoice
+Printing (or *MRP column* on a voucher type). Sales invoices, quotations, orders and challans print an
+MRP column marked "inclusive of all taxes", and invoices add **"You saved ₹…"** — the MRP value less
+what the customer actually paid. If a line is billed above its MRP, the preview warns you before
+printing: packaged goods must not be sold above MRP.
+
+### Sharing an invoice or statement by e-mail or WhatsApp
+
+On a saved voucher, its print preview, a Statement of Account or an outstanding report press
+**Alt+W**. The party's e-mail and mobile come from its ledger (fill in *E-mail* and *Mobile* there
+once); the subject and message come from the texts in Invoice Printing › Sharing, which you can
+change (placeholders such as {document}, {number}, {amount}, {party}).
+
+- **E-mail**: Bahi saves the PDF in the company's *exports\shared* folder and opens a ready e-mail
+  in your mail program (Outlook, Windows Mail) with the PDF attached — check it and press Send. If
+  no mail program is set up, your default mail link opens instead and the PDF is shown in its folder
+  to attach.
+- **WhatsApp**: WhatsApp (app or web) opens a chat with the party's number and your message, and
+  the PDF is shown in its folder — drag it into the chat. (WhatsApp does not let any program attach
+  a file for you.)
+
+Sharing needs the *Export* permission, and every share is recorded in the edit log.
+
+### Payee bank details
+
+Masters › **Payee Bank Details** keeps each supplier's (or employee's, or landlord's) bank account:
+beneficiary name as the bank has it, account number (typed twice, so a wrong digit is caught), IFSC
+(11 characters: 4 letters for the bank, a zero, 6 letters or digits for the branch; the bank code is
+shown as you type), bank, branch, account type, the **name to write on cheques** if it differs, and how you
+usually pay them. Confirm a new or changed account with the payee before paying — fraudsters often
+send "changed bank details" letters. Go To finds them too: type the party's name.
+
+### Cheque books and cheque printing
+
+Turn on **F11 › Cheque printing**, then:
+
+1. **Masters › Cheque Books** (Alt+C): choose the bank and type the first and last leaf number
+   printed on the book (for example 000501 to 000525). Payments and Contras paid **by cheque**
+   (Alt+K on the bank line → Cheque) now get the next unused leaf automatically when saved; you can
+   still type a number yourself.
+2. **Masters › Cheque Layouts**: start from the *CTS-2010 standard leaf* preset (202 × 92 mm). Press
+   **Alt+K** to print the **calibration sheet** on plain paper, hold it against a real cheque in front
+   of a light and move the boxes (millimetres from the leaf's top-left corner) until the date boxes,
+   payee line and amount boxes fall in place — or use *Shift right / down* when everything is off by
+   the same amount. **Alt+T** prints a sample cheque on plain paper to check. Nothing may be printed
+   in the bottom 16 mm (the MICR code line); Bahi refuses positions whose text would reach it —
+   including the "Authorised Signatory" line, which prints 10 mm below "For <your company>".
+3. **Masters › Cheque Printing Settings**: give each bank its layout, whether cheques are crossed
+   **A/c Payee** by default, and the signatory text (Authorised Signatory, Partner, Director…).
+4. To print: open the payment and press **Alt+K** (Print cheque), or Banking › **Print Cheques**,
+   tick several payments of the period (Space, Alt+A all) and press Ctrl+A. Check the preview —
+   date as DDMMYYYY in the boxes, the payee, the amount in words in lakh / crore ending with "Only",
+   the figures as **\*\*1,23,456.78/-** so nothing can be added — then **Alt+P**. Space leaves a
+   cheque out; Alt+X switches its A/c Payee crossing (self cheques for cash withdrawals are never
+   crossed). Printing is recorded in the edit log and the register; a reprint is warned.
+
+Feed the leaf as your printer needs: a cheque printer or a printer that takes custom paper prints the
+leaf on its own; an ordinary A4 printer can use the *On an A4 sheet* placements.
+
+### Cheque leaf register
+
+Banking › **Cheque Leaf Register** shows every leaf of a bank's books as on a date: **issued**
+(post-dated ones marked PDC), **cleared** (the bank date you entered in Bank Reconciliation — Alt+R
+opens it), **stale** (not cleared three months after the cheque date — banks will not pay it; issue
+a fresh cheque), **cancelled** and **unused**. Ctrl+1…6 switch the view. A spoilt or lost leaf:
+**Alt+X**, with the reason, so it is never used; Alt+U re-opens one cancelled by mistake. Cancelling
+a payment cancels its leaf; deleting a payment frees it unless it was printed. Enter opens the
+payment. Change the *as on* date to see the register on an earlier day (a cheque cleared later shows
+as issued then); the "Issued, not cleared" total is the same figure as "cheques issued but not
+presented" in Bank Reconciliation on that date (optional payments and cheques dated later are listed
+but not counted).
+
+### Bulk e-payment file (NEFT / RTGS / IMPS)
+
+Banking › **E-payment File** lists the period's payments by bank transfer (bank line NEFT / RTGS /
+IMPS, or no instrument). Tick the ones to pay (Space; Alt+A ticks all that are ready), optionally set
+the value date, and press **Ctrl+A** to save a CSV to upload in your bank's net banking (bulk / file
+upload). A payment that cannot go in the file says why: no bank details for the payee (Alt+M opens
+them), several payees in one voucher, RTGS under ₹2,00,000, IMPS over ₹5,00,000. Payments already
+in an earlier file are marked, and Bahi asks before you put them in another (paying twice). If you
+cancel the Save dialog, nothing is marked. Optional (memorandum) payments are never listed.
+
+The file is Bahi's own documented layout (beneficiary name, account, IFSC, amount, mode, value date,
+remarks and more). Banks' upload formats differ: most let you map the columns of a CSV once; if yours
+needs a fixed template, rearrange the columns in Excel the first time and save it as your template.
+Careful: Excel drops the leading zeros of account numbers such as 001122334455 when it opens a CSV —
+import the account column as *Text*, or upload the file exactly as Bahi saved it.
+
+## Tally export, attachments, voucher numbering and aliases
+
+### Export to Tally (for your CA or auditor)
+
+Most chartered accountants finalise accounts in TallyPrime. **Gateway › Data › Export to Tally** (or
+Go To, "Export to Tally") writes your books as a file TallyPrime can import:
+
+1. Tick **Masters** (groups, ledgers with GST, address, bank and bill-wise opening details, units,
+   godowns, stock groups and items with opening stock, cost centres, voucher types, aliases) and / or
+   **Vouchers of the period**, and enter the period. **Ctrl+A** exports; you choose where to save.
+2. Masters alone come as one `.xml` file. With vouchers you get a `.zip` holding `1-Masters.xml` and
+   `2-Vouchers.xml` — extract it first (right-click › Extract All); Tally cannot read a ZIP.
+3. In TallyPrime, open (or create) the company with the books-beginning date the screen shows under
+   **Opening balances as on** and the same GST details, then **Gateway of Tally › Import › Masters**
+   with `1-Masters.xml`, then **Import › Transactions** with `2-Vouchers.xml`.
+4. Compare the Trial Balance and Stock Summary in Tally with Bahi for the same period (**Alt+B** on the
+   export screen opens Bahi's Trial Balance).
+
+**Opening balances.** If you export the vouchers of, say, 2026-27 while your books here began earlier,
+the masters carry the balances as on 1-Apr-2026 — every ledger's balance on that day (last year's
+profit in the Profit & Loss A/c), the bills still pending (an amount received or paid without a bill
+becomes one opening bill called "On Account") and the stock in each godown and batch at its value — so
+your CA's Tally company can simply begin on that date. Masters exported on their own, or with vouchers
+from your first day, carry the opening balances you entered.
+
+Vouchers go exactly as recorded — the same tax, round-off, numbers, bill references, cost centres,
+cheque details and stock lines; nothing is recalculated. Freight or packing that you include in the
+goods' taxable value stays on its own ledger, and the freight ledger is marked so that Tally includes
+it in the assessable value too. Not exported: quotations, proforma invoices
+and physical stock vouchers (the screen tells you how many were left out), e-invoice / e-way bill
+details, an export's shipping bill number / date / port code (enter them again in Tally),
+attachments, and foreign-currency amounts (exported in rupees). SEZ, deemed-export and UIN
+parties arrive in Tally as Regular — set their party type there. For a credit or debit note the
+original invoice number and date go in Tally's Reference No. and Date.
+
+The export has been tested by importing it back into an empty Bahi company (same trial balance, stock
+summary, GST returns and pending bills); it has not yet been tried against every TallyPrime release,
+so the first time import it into a **copy** of the Tally company and check.
+
+### Attaching bills, challans and other papers
+
+Keep the purchase bill scan with the purchase, the signed delivery challan with the sale, the bank
+advice with the payment, the agreement with the party's ledger:
+
+- On a voucher, open it (Day Book › **Enter** or **Alt+Enter**) and press **Alt+F**; on a ledger or
+  stock item form press **Alt+F**. In the Attachments screen **Alt+C** attaches a file (Windows' own
+  file dialog), **Enter** or **Alt+O** opens it in the program Windows uses for it, **Alt+K** saves a
+  copy elsewhere, **Alt+D** removes it.
+- Allowed: PDF, pictures (JPG, PNG, GIF, WebP, TIFF, BMP), Excel / Word / OpenDocument files without
+  macros, CSV, TXT, JSON and XML — up to 25 MB each and 50 per voucher or master. Programs, scripts,
+  web pages and archives are refused, as is a program renamed to look like a PDF or an XML file that is
+  really a web page.
+- The files are kept in the company's own folder (under `attachments`), go into every backup (and
+  are encrypted with it when the backup has a password), and come back with a restore. **Check Books**
+  confirms that every attached file is still there and unchanged.
+- Attaching and removing appear in the voucher's or master's edit history (**Alt+H**). Files of a
+  voucher in the locked period can be added but not removed. A voucher, ledger or item with files
+  cannot be deleted until the files are removed (so a bill scan can never disappear with a deleted
+  entry); cancelling a voucher keeps its files.
+- **Reports › Attachment Register** lists every attached file with what it belongs to; **Alt+M** opens
+  the voucher or master.
+- Who may do what: Accountants attach and remove, Data Entry users attach, Auditors only view (owners
+  can change this in the roles).
+
+### Voucher numbers like INV/26-27/0001
+
+Open the voucher type (**Gateway › Masters › Voucher Types**, or Go To) and in **Numbering**:
+
+- **Prefix / Suffix** may contain codes that are filled in from the voucher date: `{FY}` → `26-27`,
+  `{FYYYYY}` → `2026-27`, `{YY}` → `26`, `{MM}` → `04`, `{MMM}` → `Apr`. Example: prefix `INV/{FY}/`,
+  zero padding 4, starts again every year → `INV/26-27/0001`, and on 1 April 2027 `INV/27-28/0001`
+  without touching the voucher type. The preview under the fields shows the next number.
+- **Prefix / suffix from a date** — add a row with an "applicable from" date to change the prefix or
+  suffix from that date on (for example a new branch code from 1 October). Leave the text empty to
+  stop using a prefix from that date.
+- **Starts again**: every year, every month or never. For GST invoices, credit and debit notes a
+  monthly restart needs `{MM}` or `{MMM}` in the prefix or suffix, otherwise numbers would repeat
+  within the year.
+- **GST rule** (CGST Rule 46(b)): a tax invoice number may have at most **16 characters** and only
+  letters, digits, `/` and `-`, and must be unique in the financial year. Bahi checks this when you
+  save the voucher type, counting each code at its longest (`{FYYYYY}` as 7 characters).
+- Changing the numbering never renumbers vouchers already saved.
+
+### Several aliases for a ledger or item
+
+A party may be known by a short name, a Hindi or Gujarati name, or an old code; an item by a supplier's
+code or a barcode-less short name. In the ledger or stock item form, **Alias** holds the first one and
+**More aliases** takes as many more as you like (one per line, up to 20 in all). Every alias works in
+every picker, in Go To and in the lists. Two ledgers (or a ledger and a group) cannot share a name or
+alias, and neither can two items. In Excel import / export the **Alias** column holds all aliases
+separated by `;`, and Tally import / export keeps them all.

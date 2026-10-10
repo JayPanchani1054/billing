@@ -6,7 +6,7 @@
  * a self cheque ('Self', never crossed); a Payment pays its debit party — the payee's "name on cheque",
  * else the beneficiary name, else the ledger's mailing name, else its name.
  */
-import { addMonths, formatDate } from '../../../shared/dates.ts';
+import { addMonths, formatDate, localDateOf } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { Paise } from '../../../shared/money.ts';
 import type { ChequeLayoutSpec, ChequePrintData, ChequePrintItem, ChequePrintRecordInput } from '../../../shared/types/cheques.ts';
@@ -17,7 +17,7 @@ import { validation } from '../../lib/errors.ts';
 import { loadGroupTree } from '../accounts/books.ts';
 import { CHEQUE_VALIDITY_MONTHS } from '../banking/registers.ts';
 import { chequePayeeName, requirePermission, voucherLabel } from './common.ts';
-import { getBankSettings, layoutForBank } from './layouts.ts';
+import { getBankSettings, layoutForBank, layoutIssues } from './layouts.ts';
 
 export const CHEQUE_PRINT_MAX = 200;
 
@@ -143,12 +143,20 @@ export function chequePrintData(ctx: CompanyCtx, voucherIds: readonly number[], 
   const today = ctx.clock.today();
   const company = db.value<string>("SELECT COALESCE(NULLIF(TRIM(mailing_name), ''), name) FROM company LIMIT 1") ?? ctx.company.name;
   const { isBank, isCash } = classifier(db);
-  const settingsCache = new Map<number, { acPayee: boolean; signatory: string; bankName: string; layout: { id: number | null; name: string; spec: ChequeLayoutSpec } }>();
+  const settingsCache = new Map<number, { acPayee: boolean; signatory: string; bankName: string; layout: { id: number | null; name: string; spec: ChequeLayoutSpec }; layoutProblem: string | null }>();
   const bankSetup = (bankId: number) => {
     let s = settingsCache.get(bankId);
     if (!s) {
       const st = getBankSettings(db, bankId);
-      s = { acPayee: st.acPayee, signatory: st.signatory ?? 'Authorised Signatory', bankName: st.bankLedgerName, layout: layoutForBank(db, bankId, layoutId) };
+      const layout = layoutForBank(db, bankId, layoutId);
+      const issues = layoutIssues(layout.spec);
+      s = {
+        acPayee: st.acPayee,
+        signatory: st.signatory ?? 'Authorised Signatory',
+        bankName: st.bankLedgerName,
+        layout,
+        layoutProblem: issues.length > 0 ? `The layout “${layout.name}” needs correcting before you print on a leaf: ${issues[0].message}.` : null,
+      };
       settingsCache.set(bankId, s);
     }
     return s;
@@ -174,12 +182,13 @@ export function chequePrintData(ctx: CompanyCtx, voucherIds: readonly number[], 
         .all<{ printed_at: string; cheque_no: string | null }>('SELECT printed_at, cheque_no FROM cheque_prints WHERE voucher_id = :v ORDER BY id', { v: id })
         .map((p) => ({ at: p.printed_at, chequeNo: p.cheque_no }));
       const warnings: string[] = [];
+      if (setup.layoutProblem) warnings.push(setup.layoutProblem);
       if (!c.chequeNo) warnings.push('The voucher has no cheque number: enter it in the bank details (Alt+K) or add a cheque book so numbers are filled in.');
       if (c.chequeDate > today) warnings.push(`Post-dated cheque: dated ${formatDate(c.chequeDate)}.`);
       else if (addMonths(c.chequeDate, CHEQUE_VALIDITY_MONTHS) < today) {
         warnings.push(`The cheque is dated ${formatDate(c.chequeDate)}, more than ${CHEQUE_VALIDITY_MONTHS} months ago: banks do not pay stale cheques. Change the cheque date in the voucher.`);
       }
-      if (printed.length > 0) warnings.push(`Already printed ${printed.length === 1 ? 'once' : `${printed.length} times`} (last on ${formatDate(printed[printed.length - 1].at.slice(0, 10))}). Cancel the spoilt leaf if you print it again on a new one.`);
+      if (printed.length > 0) warnings.push(`Already printed ${printed.length === 1 ? 'once' : `${printed.length} times`} (last on ${formatDate(localDateOf(printed[printed.length - 1].at))}). Cancel the spoilt leaf if you print it again on a new one.`);
       cheques.push({
         key: `${id}:${c.lineNo}`,
         voucherId: id,

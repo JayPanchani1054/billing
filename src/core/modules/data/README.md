@@ -14,6 +14,7 @@ Renderer screens: `src/renderer/modules/data/`.
 | `importApply.ts` | one applier per kind, through the accounts / inventory / vouchers services |
 | `tallyParse.ts` | Tally XML → typed model (`TallyFile`) |
 | `tallyImport.ts` | `data.tally.preview` / `data.tally.import` / `data.tally.progress` |
+| `tallyExport.ts` | `data.tally.export` — masters / vouchers as TallyPrime "Import Data" XML (dataplus) |
 | `verify.ts` | `data.verify` integrity report |
 | `common.ts` | permission helper, file-name helpers, `assertNoCompanyOpen` |
 | `tallyFixture.ts` | (tests only) hand-written UTF-16LE Tally export with hand-verified figures |
@@ -45,6 +46,7 @@ contains its own history row.
 | `data.tally.preview` | `TallyPreviewInput` → `TallyPreviewResult` | `data.import` | no writes |
 | `data.tally.import` | `TallyImportInput` → `TallyImportResult` | `data.import` | async, chunked; audited `import` |
 | `data.tally.progress` | none → `TallyProgress` | `data.import` | poll while importing |
+| `data.tally.export` | `TallyExportInput` → `TallyExportResult` | `data.export` | async, streamed from a read snapshot; audited `export` (`entityType 'tally_xml'`) |
 | `data.verify` | none → `DataVerifyResult` | `data.backup` | read-only |
 
 Every route is `transactional: false`: async handlers must be, the read-only ones are heavy, and the
@@ -210,6 +212,106 @@ Nothing is written.
   loop between chunks (`data.tally.progress`). ONE `import` audit entry + an `import_batches` row
   (`kind 'tally_xml'`).
 
+- Aliases (dataplus): every name of a ledger / stock item's `NAME.LIST` after the first is an alias —
+  the first goes to the `alias` column, the rest to `ledger_aliases` / `stock_item_aliases`; one already
+  used by another master of the kind is left out with a warning.
+- Credit / debit notes (dataplus): the note's `REFERENCE` / `REFERENCEDATE` are taken as the **original
+  invoice** number and date (`original_invoice_no` / `_date`, GSTR-1 CDNR), not as the note's own
+  reference — that is the field an accountant fills with the original invoice in Tally. *Assumption*:
+  TallyPrime may also carry the original invoice in tags we do not read; check a note's original
+  invoice after migrating.
+- GST treatment recovered from the postings (dataplus review): an inward GST document posting to a duty
+  ledger whose tax direction is `rcm_liability` is a **reverse-charge** purchase (`is_reverse_charge`,
+  nature `inward_rcm`; the tax is what the RCM ledgers carry). A party ledger whose `COUNTRYNAME` is not
+  India and that has no GSTIN is **overseas** (Tally marks exports only by the country); a sale to it
+  without `PLACEOFSUPPLY` has place of supply `96` and is an export with payment of IGST when IGST is
+  posted, else under LUT. A ledger with `APPROPRIATEFOR` GST / `GSTAPPROPRIATETO` Goods /
+  `EXCISEALLOCTYPE` (Tally's "include in assessable value", tag names unverified) is a charge absorbed
+  into the goods lines' assessable value: on an item invoice its amount is spread over the goods lines
+  (by value or quantity, largest remainder — as the posting engine does) and it gets no GST line of its
+  own; the stored VoucherInput keeps the lines' own values.
+
+## Tally export (`data.tally.export`, dataplus)
+
+`{ masters, vouchers, from, to }` → `{ fileName, bytes, mimeType, masters: counts | null, openingsAsOf,
+vouchers, skipped: [{reason, count}] }`. For the CA / auditor who works in TallyPrime (Gateway of Tally › Import
+› Masters / Transactions), and to move books back to Tally.
+
+- **File.** `ENVELOPE › HEADER (TALLYREQUEST Import Data) › BODY › IMPORTDATA › REQUESTDESC (REPORTNAME
+  'All Masters' | 'Vouchers', STATICVARIABLES/SVCURRENTCOMPANY) › REQUESTDATA › TALLYMESSAGE*`, UTF-16LE
+  with a BOM (Tally writes UTF-16LE; it reads it with or without the BOM). Masters only → one `.xml`.
+  With vouchers → a `.zip` of `1-Masters.xml` + `2-Vouchers.xml` (or `Vouchers.xml` alone): Tally XML
+  runs to ~4.5 KB a voucher, so the vouchers are streamed into the ZIP (`ZipFileWriter`, 256 KiB deflate
+  blocks) in the company folder from ONE read snapshot (`openSnapshot`, yielding every 5 000 vouchers
+  with a file-backed company), read back once and the temporary file deleted. Vouchers are read in
+  batches of 2 000 with ONE query each for headers, ledger entries, stock lines, bill allocations and
+  cost allocations (no per-voucher queries). 30 000 vouchers: ~1.6 s, 134 MB of XML → 3 MB ZIP, ~300 MB
+  RSS. Tally cannot import a ZIP: extract it, import masters first.
+- **Openings (`openingsAsOf`).** Masters alone, or with vouchers from the books beginning, carry the
+  openings as entered (ledger opening balances, opening bills, opening stock). With the vouchers of a
+  LATER period the Tally company starts at that period, so the masters carry the balances on its first
+  day: ledgers = the Trial Balance opening on that day with that day as the carry-forward date (real
+  ledgers their balance; income / expense ledgers 0, everything they earned before it — less the stock
+  movement — in the Profit & Loss A/c, written under Primary as Tally keeps it); bill-wise ledgers = the
+  bills pending at the end of the previous day (outstanding engine), with any unallocated balance as one
+  opening bill named `On Account` (opening bills must add up to the opening balance, here and in Tally);
+  stock = quantity per item / godown / batch at the end of the previous day, valued at the item's stock
+  value on that day (valuation engine), spread over its godowns / batches by quantity. A FIFO / LIFO
+  item therefore starts in Tally as one cost layer at that value.
+- **Masters.** User groups (parents first; Tally's 28 predefined groups carry the same names and are not
+  written), units (simple), user godowns (not "Main Location"), stock groups (GST details), stock
+  categories, cost categories (not "Primary Cost Category") and centres, every ledger (opening balance,
+  bill-wise openings with credit period, credit limit, mailing / contact / PAN, GST registration incl.
+  `LEDGSTREGDETAILS.LIST`, bank details, duty head, effective-dated `GSTDETAILS.LIST` from
+  `gst_rate_history`, aliases), stock items (base / alternate unit, costing method, batches, HSN / rate
+  history, opening stock per godown and batch, part no. as `MAILINGNAME`, aliases) and user voucher types
+  (parent, numbering method, abbreviation). Name + aliases are written as `LANGUAGENAME.LIST › NAME.LIST`.
+  A ledger / item with GST applicable but no rate of its own (it follows its group / the item / the
+  sales ledger) is written without `GSTAPPLICABLE` — Tally's "as per group" — never as a rate of 0.
+- **Vouchers** of the period, **as recorded** (amounts, tax, round-off and numbers are never
+  recomputed; every voucher's entries + accounting allocations add up to 0 — tested): `ALLLEDGERENTRIES.LIST` (or `LEDGERENTRIES.LIST` beside inventory), bill-wise
+  (`BILLTYPE` New Ref / Agst Ref / Advance / On Account, credit period), cost centres
+  (`CATEGORYALLOCATIONS.LIST › COSTCENTREALLOCATIONS.LIST`), bank instruments (`BANKALLOCATIONS.LIST`),
+  inventory lines (`ALLINVENTORYENTRIES.LIST`, stock journals as `INVENTORYENTRIESIN/OUT.LIST`) with
+  godown / batch allocations and the sales / purchase ledger as `ACCOUNTINGALLOCATIONS.LIST`, party
+  GSTIN, registration type, place of supply (state name), optional / cancelled / post-dated flags, the
+  voucher GUID as `REMOTEID` and `GUID`. A note carries its original invoice in `REFERENCE` (see above).
+  An item line's `AMOUNT` / `ACCOUNTINGALLOCATIONS` is its share of its sales / purchase ledger's posting:
+  normally the line value; when charges such as freight are absorbed into the goods' assessable value
+  (stored line values include them, the charge keeps its own ledger) the ledger's posting is spread over
+  its lines by value — Tally adds the assessable-value charge itself from the ledger master
+  (`APPROPRIATEFOR` / `GSTAPPROPRIATETO` / `EXCISEALLOCTYPE`, written for such ledgers; tag names as in
+  Tally exports we have seen, not verified against a live TallyPrime). Cost-centre allocations of a
+  ledger carried by inventory lines go with the `ACCOUNTINGALLOCATIONS` (split where needed) and the rest
+  with the ledger's own entry, so each adds up.
+  Not written (reported in `skipped`): quotations and proforma invoices (no Tally voucher type), physical
+  stock vouchers.
+- **Conventions.** Tally amounts are negative for Debit (ours Dr +); dates `yyyymmdd`; quantities
+  `' 10 Nos'`; rates `'100.00/Nos'`; `&#4; Applicable` for Tally's logical values. Every value goes
+  through `escapeXml` / `escapeAttr`; nothing typed by a user becomes markup.
+- **Round trip (tested).** `tallyExport.test.ts` exports a month of GST business (intra- and inter-state
+  item invoices, a purchase into a second godown, a cheque receipt against bills and an opening bill, a
+  cost-centre payment, contra, journal, a godown transfer, a credit note against an invoice, a services
+  invoice, an optional journal, a cancelled payment, a quotation) and imports it with OUR importer into an
+  empty company: trial balance (every group and ledger: opening, Dr, Cr, closing), stock summary (closing
+  qty and value per item), `gst_lines` totals per base type and rate, GSTR-3B and GSTR-1 of the month,
+  pending bills, every voucher's postings, stock lines, flags, party / GSTIN / place of supply and original
+  invoice, aliases, cost allocations and markup characters in a narration all come out identical. Further
+  round trips (dataplus review): a second-year period exported for a Tally company beginning that year
+  (Trial Balance incl. openings, stock per godown and batch, pending bills); an invoice with freight in the
+  assessable value, cost centres on a carried ledger, a sales order / delivery note / tracked invoice,
+  rejection in, memorandum, advance receipt (every row of every voucher, gst_lines and the Trial Balance);
+  a reverse-charge purchase and an export under LUT (gst_lines, natures, GSTR-3B).
+- **Not written / known gaps.** Foreign-currency amounts (forex module) are exported in rupees only;
+  e-invoice IRN / e-way bill details; export shipping bill number / date / port code (no Tally tag we could
+  verify — re-enter them; the GST exceptions report lists such exports); per-line GST overrides (Tally takes the rate from the masters);
+  SEZ / deemed export / UIN parties are exported as `Regular` and overseas as `Unregistered` (set the
+  party type in Tally); price lists, BOMs, budgets, scenarios, attachments. The alternate-unit tags
+  (`ADDITIONALUNITS`, `DENOMINATOR`, `CONVERSION`) and the `MAILINGNAME.LIST` use for a part number follow
+  Tally exports we have seen but were not verified against a live TallyPrime import: check compound units
+  after importing. The export has been verified against our own importer, not against TallyPrime itself
+  (not available offline) — test on a copy of the Tally company first.
+
 ## Data check (`data.verify`)
 
 Read-only; each check reports a count and up to 50 plain-English details:
@@ -221,9 +323,21 @@ matches the voucher type) · `bill_allocations` (bills add up to their entry, sa
 `gst_tax_postings` (gst_lines tax per head = duty-ledger postings; skipped for reverse charge, imports,
 non-claimable tax, ledger-mode vouchers) · `orphans` (vouchers in the books without entries, masters under
 missing parents) · `group_tree` (no cycles) · `opening_difference` (Σ openings + opening stock = 0) ·
-`audit_chain` (hash chain) · `duplicate_numbers` (per voucher type and numbering period, for types with "Prevent duplicates" on).
+`audit_chain` (hash chain) · `duplicate_numbers` (per voucher type and numbering period, for types with "Prevent duplicates" on) ·
+`attachments` (dataplus: every attached file is in the company's attachments folder and matches its SHA-256;
+stored files nothing uses any more are mentioned, not counted).
+
+Backups (dataplus) carry the attached files inside the database snapshot (`attachment_blobs`, see
+`src/core/modules/attachments/README.md`); backup verification adds an `attachments` check and a restore
+writes the files back into the restored company's attachments folder.
 
 ## Tests
+
+`tallyExport.test.ts` (dataplus): value formats, the round trips above, the file shape (UTF-16LE BOM,
+envelope, escaping, our parser reads it), vouchers-only ZIP and period, permission + audit through the
+dispatcher, validation messages; review regressions: openings at the period start (balances, P&L brought
+forward, bills incl. On Account, stock per godown / batch), balanced vouchers with assessable-value
+freight, cost centres on carried ledgers, reverse charge and export under LUT recovered by the importer.
 
 `backup.test.ts`, `export.test.ts`, `import.test.ts`, `tally.test.ts`, `verify.test.ts` (105 tests):
 backup round trip plain / encrypted / wrong password / tampered / truncated / newer schema, retention,

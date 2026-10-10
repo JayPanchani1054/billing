@@ -415,13 +415,34 @@ function saveLedgerTx(ctx: CompanyCtx, input: LedgerSaveInput, sc: SaveContext):
     db.run(UPDATE_SQL, { ...rowParams(fields), ts, id });
   }
   if (!row || billsProvided) {
+    // (forex group) Keep the foreign amount of a re-entered opening bill (same name, same Dr/Cr side),
+    // entered under Multi-currency › Opening in currency; the rewrite would otherwise drop it.
+    const forexByName = new Map<string, number>();
+    if (row) {
+      for (const r of db.all<{ bill_name: string; forex_amount: number }>(
+        'SELECT bill_name, forex_amount FROM opening_bills WHERE ledger_id = :id AND forex_amount IS NOT NULL AND forex_amount <> 0',
+        { id },
+      )) {
+        forexByName.set(r.bill_name, r.forex_amount);
+      }
+    }
     db.run('DELETE FROM opening_bills WHERE ledger_id = :id', { id });
     for (const b of bills) {
+      const fx = forexByName.get(b.billName);
       db.run(
-        'INSERT INTO opening_bills (ledger_id, bill_name, bill_date, due_date, amount) VALUES (:id, :name, :date, :due, :amount)',
-        { id, name: b.billName, date: b.billDate, due: b.dueDate ?? null, amount: b.amount },
+        'INSERT INTO opening_bills (ledger_id, bill_name, bill_date, due_date, amount, forex_amount) VALUES (:id, :name, :date, :due, :amount, :fx)',
+        { id, name: b.billName, date: b.billDate, due: b.dueDate ?? null, amount: b.amount, fx: fx !== undefined && Math.sign(fx) === Math.sign(b.amount) ? fx : null },
       );
     }
+  }
+  // (forex group) An opening balance in the currency must stay on the side of the rupee opening balance.
+  if (row) {
+    db.run(
+      `UPDATE ledgers SET opening_forex_amount = NULL
+        WHERE id = :id AND opening_forex_amount IS NOT NULL
+          AND (opening_balance = 0 OR (opening_balance > 0) <> (opening_forex_amount > 0))`,
+      { id },
+    );
   }
   writeGstHistory(db, id, existing, fields, provided, input.applicableFrom, sc.company.booksFrom);
   writeExtraAliases(db, 'ledger', id, extras);

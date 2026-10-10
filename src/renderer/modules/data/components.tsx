@@ -62,7 +62,14 @@ export function useSaveFile(): (bytes: Uint8Array, fileName: string, title: stri
   return useCallback(
     async (bytes, fileName, title) => {
       const ext = /\.([a-z0-9]+)$/i.exec(fileName)?.[1]?.toLowerCase() ?? '';
-      const filters = ext === 'xlsx' ? [{ name: 'Excel workbook', extensions: ['xlsx'] }] : ext === 'zip' ? [{ name: 'ZIP of CSV files', extensions: ['zip'] }] : [{ name: 'CSV', extensions: ['csv'] }];
+      const filters =
+        ext === 'xlsx'
+          ? [{ name: 'Excel workbook', extensions: ['xlsx'] }]
+          : ext === 'zip'
+            ? [{ name: 'ZIP file', extensions: ['zip'] }]
+            : ext === 'xml'
+              ? [{ name: 'Tally XML', extensions: ['xml'] }]
+              : [{ name: 'CSV', extensions: ['csv'] }];
       try {
         const saved = await native('dialog.saveFile', { title, defaultName: fileName, filters, data: bytes });
         if (!saved) return null;

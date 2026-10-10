@@ -519,7 +519,7 @@ class PostingBuilder {
             role: e.role,
             gstDutyHead: null,
             narration: e.narration ?? null,
-            instrument: null,
+            instrument: e.instrument ?? null,
             bills: [],
             costs: [],
             source: { kind: 'hook', hook: name },

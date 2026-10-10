@@ -19,12 +19,14 @@ import { currencyMap, fxDrCr, outstandingExport, outstandingRows, rateText, RATE
 
 type Kind = 'all' | 'receivable' | 'payable';
 
-export function OutstandingScreen({ params }: ScreenProps<{ kind?: Kind }>) {
+export function OutstandingScreen({ params }: ScreenProps<{ kind?: Kind; ledgerId?: number }>) {
   const nav = useNav();
   const features = useFeatures();
   const { to } = usePeriod();
   const [kind, setKind] = useState<Kind>(params?.kind ?? 'all');
-  const q = useApiQuery('forex.outstanding', { asOf: to, kind }, { enabled: features.multiCurrency, keepPrevious: true });
+  // Opened from a party (outstanding.party Alt+Y): that party only, until Ctrl+1/2/3 picks a side.
+  const [ledgerId, setLedgerId] = useState<number | null>(typeof params?.ledgerId === 'number' ? params.ledgerId : null);
+  const q = useApiQuery('forex.outstanding', ledgerId !== null ? { asOf: to, kind, ledgerId } : { asOf: to, kind }, { enabled: features.multiCurrency, keepPrevious: true });
   const d = q.data;
   const cur = useMemo(() => currencyMap(d?.currencies ?? []), [d]);
   const rows = useMemo(() => (d ? outstandingRows(d) : []), [d]);
@@ -69,7 +71,10 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: Kind }>) {
   const kindActions = (['all', 'receivable', 'payable'] as const).map((k, i) => ({
     key: `Ctrl+${i + 1}`,
     label: k === 'all' ? 'All parties' : k === 'receivable' ? 'Receivables' : 'Payables',
-    onClick: () => setKind(k),
+    onClick: () => {
+      setKind(k);
+      setLedgerId(null);
+    },
     group: 'view',
   }));
   return (
@@ -91,7 +96,10 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: Kind }>) {
             { value: 'receivable', label: 'Receivables' },
             { value: 'payable', label: 'Payables' },
           ]}
-          onChange={setKind}
+          onChange={(k) => {
+            setKind(k);
+            setLedgerId(null);
+          }}
         />
       }
       exportDef={() => (d ? { ...outstandingExport(d), subtitle: `As on ${formatDate(d.asOf)}` } : { columns: [], rows: [] })}
