@@ -9,8 +9,9 @@
  * Only the screen component is lazy. Menus, Go To providers, dashboard cards, voucher panels, Home
  * notices, print blocks, module CSS and dialog screens (`presentation: 'dialog'`, which open over a live
  * screen in the same frame as their key) stay eager. While the chunk loads, `ScreenStack` (nav.tsx) shows
- * the screen skeleton inside the screen's error boundary; initial focus follows the content in
- * (nav.tsx initial-focus watch). A file that eager code also imports statically is not split by the
+ * the screen skeleton inside the screen's error boundary, re-renders the screen the moment the chunk has
+ * arrived (no 300 ms Suspense reveal throttle) and picks the initial focus once it has rendered, as for an
+ * eager screen. A file that eager code also imports statically is not split by the
  * bundler — `lazyScreen.test.ts` refuses that, so every lazy screen really leaves the start-up bundle.
  */
 import { createElement, use } from 'react';

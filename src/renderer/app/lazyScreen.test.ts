@@ -296,6 +296,16 @@ function chain(graph: Map<string, string | null>, file: string): string {
 describe('lazy screen wiring', () => {
   const decls = lazyDecls();
 
+  test('lazyScreen renders a loaded screen synchronously and suspends only on the one cached import', () => {
+    const src = read(path.join(appDir, 'lazyScreen.tsx'));
+    // Loaded (re-open, prefetched): no `use`, so no fallback flash; otherwise React `use` on loader.load(),
+    // which returns the same promise every time (createLazyLoader above).
+    assert.match(src, /const Comp = now\.status === 'loaded' \? now\.value : use\(loader\.load\(\)\);/);
+    assert.match(src, /const now = loader\.peek\(\);/);
+    // preload() never rejects (an idle prefetch nobody awaits must not log an unhandled rejection).
+    assert.match(src, /out\.preload = \(\) =>\s*loader\.load\(\)\.then\(\s*\(\) => undefined,\s*\(\) => undefined,\s*\);/);
+  });
+
   test('the scan finds the lazy screens', () => {
     assert.ok(decls.length >= 100, `only ${decls.length} lazy screens found`);
     for (const m of ['banking', 'gst', 'reports', 'stock', 'outstanding', 'tds']) assert.ok(decls.some((d) => d.module === m), m);
@@ -355,6 +365,27 @@ describe('lazy screen wiring', () => {
     const stuck = [...new Set(decls.map((d) => d.file))].filter((f) => graph.has(f)).map((f) => chain(graph, f));
     assert.deepEqual(stuck, [], 'a file loaded with lazyScreen is also imported statically — the bundler keeps it in the entry');
   });
+
+  test('no stylesheet moves into a lazy chunk (SPEC D15): every CSS file a lazy screen needs is already eager', () => {
+    const graph = eagerGraph();
+    const cssOf = (file: string): string[] =>
+      [...read(file).matchAll(/^\s*import\s*'(\.[^']+\.css)'/gm)].map((m) => path.resolve(path.dirname(file), m[1]));
+    const eagerCss = new Set([...graph.keys()].filter((f) => fs.existsSync(f)).flatMap(cssOf));
+    assert.ok(eagerCss.size >= 10, 'the eager graph carries the module stylesheets');
+    // Everything a lazy file pulls in that is not eager lands in its chunk.
+    const seen = new Set<string>();
+    const queue = [...new Set(decls.map((d) => d.file))];
+    const missing: string[] = [];
+    while (queue.length > 0) {
+      const f = queue.shift() as string;
+      if (seen.has(f) || graph.has(f) || !fs.existsSync(f)) continue;
+      seen.add(f);
+      for (const css of cssOf(f)) if (!eagerCss.has(css)) missing.push(`${path.relative(rendererDir, f)} → ${path.relative(rendererDir, css)}`);
+      queue.push(...staticImports(f));
+    }
+    assert.ok(seen.size >= decls.length / 2, 'the walk visits the lazy files');
+    assert.deepEqual(missing, [], 'import the stylesheet from the module index.ts (eager) as well');
+  });
 });
 
 describe('idle prefetch of the Essentials screens', () => {
@@ -394,7 +425,36 @@ describe('idle prefetch of the Essentials screens', () => {
 
   test('ScreenStack shows the screen skeleton inside the error boundary and prefetches when idle', () => {
     const nav = read(path.join(appDir, 'nav.tsx'));
-    assert.match(nav, /<ScreenErrorBoundary title=\{def\.title\}>\s*(?:\{\/\*[^*]*\*\/\}\s*)?<Suspense fallback=\{<ScreenSkeleton \/>\}>\{content\}<\/Suspense>\s*<\/ScreenErrorBoundary>/);
+    assert.match(nav, /<ScreenErrorBoundary title=\{def\.title\}>\s*(?:\{\/\*[^*]*\*\/\}\s*)?<Suspense fallback=\{<LazyScreenLoading load=\{lazyLoad\} onLoaded=\{onLazyLoaded\} \/>\}>\{content\}<\/Suspense>\s*<\/ScreenErrorBoundary>/);
+    assert.match(nav, /function LazyScreenLoading\(.*\) \{[\s\S]*?return \(\s*<div data-lazy-screen-loading="">\s*<ScreenSkeleton \/>/, 'the fallback is the screen skeleton');
+    assert.match(nav, /whenLazyScreenLoaded\(c, /, 'initial focus waits for the screen\'s code, then picks as for an eager screen');
+  });
+
+  test('a loaded chunk is shown at once, not after React\'s 300 ms Suspense retry throttle', () => {
+    const nav = read(path.join(appDir, 'nav.tsx'));
+    // The fallback waits for the same cached load and then updates its ScreenHost (an ordinary update,
+    // committed at once) instead of leaving the reveal to Suspense's throttled retry.
+    const fallback = /function LazyScreenLoading\(.*\) \{([\s\S]*?)\n\}/.exec(nav)?.[1] ?? '';
+    assert.match(fallback, /useEffect\(\(\) => \{[\s\S]*load\(\)\.then\(\(\) => \{\s*if \(live\) onLoaded\(\);/, 'the fallback reports the arrived chunk to the host');
+    assert.match(fallback, /return \(\) => \{\s*live = false;/, 'no update after the screen was closed');
+    assert.match(nav, /const onLazyLoaded = useCallback\(\(\) => setLazyLoaded\(\(n\) => n \+ 1\), \[\]\);/);
+    assert.match(nav, /const lazyLoad = isLazyScreen\(Comp\) \? Comp\.preload : null;/);
+    // The update must reach the boundary's content: the element changes identity with the update.
+    assert.match(nav, /const content = useMemo\(\(\) => <Comp key=\{lazyLoaded\} params=\{entry\.params\} \/>, \[Comp, entry\.params, lazyLoaded\]\);/);
+  });
+
+  test('while a screen\'s code loads, keys never reach the hidden screen that opened it', () => {
+    const nav = read(path.join(appDir, 'nav.tsx'));
+    // Focus left on the (now hidden) Home button would let Enter open the screen again.
+    assert.match(nav, /if \(opener instanceof HTMLElement && opener !== document\.body && !c\.contains\(opener\) && !isShown\(opener\)\) opener\.blur\(\);/);
+    assert.match(nav, /function isShown\(el: Element\): boolean \{\s*return el\.isConnected && el\.getClientRects\(\)\.length > 0;/);
+    // After the load, focus the user put on something visible elsewhere is kept; a hidden leftover is not a choice.
+    assert.match(nav, /return active !== null && active !== document\.body && !container\.contains\(active\) && isShown\(active\);/);
+    assert.match(nav, /whenLazyScreenLoaded\(c, \(\) => \{\s*if \(!focusIsElsewhere\(c\)\) focusNow\(\);/);
+  });
+
+  test('idle prefetch and "Try again" are wired', () => {
+    const nav = read(path.join(appDir, 'nav.tsx'));
     assert.match(nav, /runWhenIdle\(tasks, browserIdleScheduler\(\)\)/);
     assert.match(nav, /PREFETCH_SCREENS\.flatMap/);
     assert.match(nav, /retryLazyScreens\(\)/, '"Try again" re-arms a failed chunk load');

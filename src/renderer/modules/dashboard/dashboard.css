@@ -19,7 +19,6 @@
   padding: var(--space-5) var(--space-6);
 }
 
-/* ── Header (embedded only) ───────────────────────────────────────── */
 .bx-db__head {
   display: flex;
   flex-wrap: wrap;
@@ -45,7 +44,6 @@
   gap: var(--space-2);
 }
 
-/* ── KPI row ──────────────────────────────────────────────────────── */
 .bx-db__kpis {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -55,7 +53,6 @@
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
 }
 
-/* ── Card grid ────────────────────────────────────────────────────── */
 .bx-db__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
@@ -67,6 +64,11 @@
 }
 .bx-db__wide {
   grid-column: 1 / -1;
+}
+/* Home: "Show more insights" (the other cards mount only when open). */
+.bx-db__more {
+  display: flex;
+  justify-content: center;
 }
 .bx-db__card {
   min-width: 0;
@@ -89,7 +91,6 @@
   font-weight: var(--fw-semibold);
 }
 
-/* ── Alerts ───────────────────────────────────────────────────────── */
 .bx-db-alerts {
   display: flex;
   flex-direction: column;
@@ -100,13 +101,12 @@
 .bx-db-alerts > li + li {
   border-top: 1px solid var(--border-subtle);
 }
-.bx-db-alert {
+/* Clickable rows (alerts, ageing buckets). */
+.bx-db-alert,
+.bx-db-age__row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: start;
-  gap: var(--space-2-5);
+  gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-1);
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -115,8 +115,20 @@
   text-align: left;
   cursor: pointer;
 }
-.bx-db-alert:hover {
+.bx-db-alert:hover,
+.bx-db-age__row:hover {
   background: var(--row-hover);
+}
+.bx-db-alert:focus-visible,
+.bx-db-age__row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.bx-db-alert {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2-5);
+  padding: var(--space-2) var(--space-1);
 }
 /* An alert the viewer may not open (no permission): informational, not clickable. */
 .bx-db-alert.is-static {
@@ -124,10 +136,6 @@
 }
 .bx-db-alert.is-static:hover {
   background: transparent;
-}
-.bx-db-alert:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -2px;
 }
 .bx-db-alert__icon {
   display: inline-flex;
@@ -161,7 +169,6 @@
   color: var(--success-icon);
 }
 
-/* ── Ageing mini-bars ─────────────────────────────────────────────── */
 .bx-db-age {
   display: flex;
   flex-direction: column;
@@ -171,27 +178,10 @@
   list-style: none;
 }
 .bx-db-age__row {
-  display: grid;
   grid-template-columns: 96px minmax(60px, 1fr) minmax(96px, auto);
   align-items: center;
-  gap: var(--space-2);
-  width: 100%;
   min-height: 28px;
   padding: var(--space-0-5) var(--space-1);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.bx-db-age__row:hover {
-  background: var(--row-hover);
-}
-.bx-db-age__row:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -2px;
 }
 .bx-db-age__label {
   color: var(--text-secondary);
@@ -220,7 +210,6 @@
   white-space: nowrap;
 }
 
-/* ── Status pills in tables ───────────────────────────────────────── */
 .bx-db-flags {
   display: inline-flex;
   flex-wrap: wrap;
@@ -233,8 +222,6 @@
   white-space: nowrap;
 }
 
-/* ── Getting started (no vouchers yet) ────────────────────────────── */
-/* ── GST card: one block per return month ─────────────────────────── */
 .bx-db-gst + .bx-db-gst {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
@@ -249,7 +236,6 @@
   color: var(--text-primary);
 }
 
-/* ── Getting started (no vouchers yet) ────────────────────────────── */
 .bx-db-start {
   display: flex;
   flex-direction: column;

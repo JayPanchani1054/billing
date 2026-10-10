@@ -1,0 +1,63 @@
+/* Settings hub (company.settings): topics left, the topic's settings right. */
+.bx-settings {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+.bx-settings__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bx-settings__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1-5) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bx-settings__item:hover {
+  background: var(--row-hover);
+}
+.bx-settings__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.bx-settings__item[aria-current='true'] {
+  background: var(--row-selected);
+  box-shadow: inset 2px 0 0 var(--brand);
+  color: var(--text-primary);
+  font-weight: var(--fw-semibold);
+}
+.bx-settings__row {
+  padding: var(--space-2-5) var(--space-2);
+  color: var(--text-primary);
+}
+.bx-settings__text {
+  flex: 1;
+  min-width: 0;
+}
+.bx-settings__title {
+  display: block;
+  font-weight: var(--fw-semibold);
+}
+.bx-settings__note {
+  display: block;
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+@media (max-width: 900px) {
+  .bx-settings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

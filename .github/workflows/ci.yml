@@ -119,12 +119,19 @@ jobs:
       - name: Ensure app icon
         run: node scripts/make-icon.mjs --if-missing
 
-      # scripts/after-pack.cjs fails the build if the Electron fuses cannot be applied.
+      # scripts/after-pack.cjs fails the build if the Electron fuses cannot be applied. dist:win runs
+      # electron-builder with --publish never: CI builds are never published.
       - name: Build installer
         run: npm run dist:win
 
       - name: Verify Electron fuses on the packaged binary
         run: npm run check:fuses
+
+      # The in-app updater's files: latest.yml (this version, the installer's sha512 and size), the
+      # .blockmap, and resources/app-update.yml in the packaged app (electron-builder.yml publish).
+      - name: Check the update files (latest.yml, blockmap, app-update.yml)
+        shell: bash
+        run: node scripts/release-assets.mjs check release "$(node -p "require('./package.json').version")"
 
       - name: Checksums
         shell: bash
@@ -138,6 +145,8 @@ jobs:
           name: Pevqori-Windows-Installer
           path: |
             release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
             release/SHA256SUMS.txt
           retention-days: 30
           if-no-files-found: error
@@ -146,7 +155,7 @@ jobs:
     name: Install and launch the packaged app (Windows)
     needs: windows-installer
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -164,6 +173,18 @@ jobs:
       - name: Smoke-test the installed app
         shell: pwsh
         run: ./scripts/smoke-installed.ps1 -Installer (Get-ChildItem release/Pevqori-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence
+
+      # build/installer.nsh: a silent install while Pevqori runs waits 30 s, then exits with code 3 and
+      # changes nothing — Pevqori is never closed by the installer; after it is closed the install works.
+      - name: Installer leaves a running Pevqori alone (exit code 3)
+        shell: pwsh
+        run: ./scripts/smoke-installed.ps1 -Scenario RunningApp -Installer (Get-ChildItem release/Pevqori-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence/running-app
+
+      # build/installer.nsh: installing over a newer version is refused silently with exit code 4 unless
+      # /ALLOWDOWNGRADE is given. (The upgrade over a real previous release runs in release.yml.)
+      - name: Installer refuses a downgrade (exit code 4)
+        shell: pwsh
+        run: ./scripts/smoke-installed.ps1 -Scenario Downgrade -Installer (Get-ChildItem release/Pevqori-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence/downgrade
 
       - name: Upload smoke evidence
         if: failure()

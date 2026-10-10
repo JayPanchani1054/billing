@@ -247,6 +247,14 @@ export interface DashboardSetup {
   hasSales: boolean;
   /** A backup folder is chosen in F12 › Backup. */
   backupFolderSet: boolean;
+  /**
+   * 2.0: the Sales invoice number series was set up — a Sales voucher type whose numbering differs
+   * from the seed (method, prefix, suffix, start, width, restart), a dated prefix / suffix row, or a
+   * next number set on the Invoice Numbering screen (edit log).
+   */
+  numberingSet: boolean;
+  /** 2.0: at least one receipt voucher (any status) — "Record a payment". */
+  hasReceipts: boolean;
 }
 
 export interface DashboardFeatures {

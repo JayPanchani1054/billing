@@ -15,6 +15,12 @@ import {
   flowKpi,
   gstDueLine,
   gstItems,
+  HOME_INSIGHTS,
+  HOME_RECENT_LIMIT,
+  homeKpis,
+  homeSections,
+  isVoucherTarget,
+  parseInsightsOpen,
   plural,
   shortMonth,
   parseStartPrefs,
@@ -54,7 +60,7 @@ function sample(over: Partial<DashboardSummary> = {}): DashboardSummary {
     },
     features: { inventory: true, integrated: true, gst: true, billWise: true, einvoice: false, ewayBill: false },
     hasVouchers: true,
-    setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true },
+    setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true, numberingSet: true, hasReceipts: true },
     sales: flow,
     purchases: { today: 0, mtd: 300_000, ytd: 875_000, period: 875_000, lastYear: { today: 0, mtd: 250_000, ytd: 250_000, period: 250_000 } },
     grossProfit: { method: 'stock_valuation', sales: 480_000, purchases: 875_000, directIncomes: 0, directExpenses: 0, openingStock: 1_454_000, closingStock: 1_989_000, costOfSales: 340_000, amount: 140_000, marginPercent: 29.17 },
@@ -296,15 +302,22 @@ test("GST: last month's return comes first on the card and in the alerts", () =>
 });
 
 const ALL = { manageCompany: true, createMasters: true, createVouchers: true, importData: true, inventory: true } as const;
-const NOTHING_DONE = { profileComplete: false, featuresReviewed: false, invoicePrintingSet: false, hasOwnLedgers: false, hasItems: false, hasSales: false, backupFolderSet: false };
+const NOTHING_DONE = { profileComplete: false, featuresReviewed: false, invoicePrintingSet: false, hasOwnLedgers: false, hasItems: false, hasSales: false, backupFolderSet: false, numberingSet: false, hasReceipts: false };
 
-test('getting started: one list — company details, features, printing, ledgers, items, sale, backups (+ XML data import while empty)', () => {
+test('getting started: one list — company details, features, number series, printing, ledgers, items, sale, payment, backups (+ XML data import while empty)', () => {
   const all = startSteps({ ...ALL, setup: NOTHING_DONE, hasVouchers: false });
-  assert.deepEqual(all.map((x) => x.id), ['profile', 'features', 'printing', 'ledgers', 'items', 'sale', 'backup', 'xmlImport']);
+  assert.deepEqual(all.map((x) => x.id), ['profile', 'features', 'numbering', 'printing', 'ledgers', 'items', 'sale', 'payment', 'backup', 'xmlImport']);
   const by = new Map(all.map((x) => [x.id, x]));
   assert.deepEqual(by.get('profile')?.target, { screen: 'company.profile' });
   assert.deepEqual(by.get('features')?.target, { screen: 'company.features' });
   assert.deepEqual(by.get('printing')?.target, { screen: 'print.settings' });
+  assert.equal(by.get('printing')?.title, 'Choose what prints on your invoice');
+  // 2.0: the invoice number series (Invoice Numbering screen) and the first payment received (F6 Receipt).
+  assert.deepEqual(by.get('numbering')?.target, { screen: 'accounts.numbering' });
+  assert.equal(by.get('numbering')?.title, 'Set your invoice number series');
+  assert.equal(by.get('payment')?.target, 'receipt-voucher');
+  assert.equal(by.get('payment')?.shortcut, 'F6');
+  assert.equal(by.get('payment')?.title, 'Record a payment');
   // "Create ledger" opens Ledger Creation under Sundry Debtors (customers first; "Under" stays editable).
   assert.deepEqual(by.get('ledgers')?.target, { screen: 'accounts.ledger.form', params: { groupCode: 'SUNDRY_DEBTORS' } });
   assert.deepEqual(by.get('backup')?.target, { screen: 'company.config', params: { tab: 'backup' } });
@@ -313,17 +326,22 @@ test('getting started: one list — company details, features, printing, ledgers
   assert.deepEqual(by.get('xmlImport')?.target, { screen: 'data.xmlImport' });
   assert.equal(by.get('xmlImport')?.optional, true);
   assert.ok(all.every((x) => !x.done));
-  assert.deepEqual(startProgress(all), { done: 0, total: 7, complete: false }, 'XML data import is optional, not counted');
+  assert.deepEqual(startProgress(all), { done: 0, total: 9, complete: false }, 'XML data import is optional, not counted');
   // Once there are vouchers the XML data import step goes; the rest stay until done.
   assert.ok(!startSteps({ ...ALL, setup: NOTHING_DONE, hasVouchers: true }).some((x) => x.id === 'xmlImport'));
 });
 
 test('getting started: by permission and by what the user may open', () => {
-  assert.deepEqual(startSteps({ ...ALL, manageCompany: false, importData: false, inventory: false }).map((x) => x.id), ['ledgers', 'sale']);
+  assert.deepEqual(startSteps({ ...ALL, manageCompany: false, importData: false, inventory: false }).map((x) => x.id), ['ledgers', 'sale', 'payment']);
   assert.deepEqual(startSteps({ manageCompany: false, createMasters: false, createVouchers: false, importData: false, inventory: true }), []);
   // A screen the user cannot open (no permission / feature off) is left out.
   const blocked = new Set(['print.settings', 'data.xmlImport']);
-  assert.deepEqual(startSteps({ ...ALL, canOpen: (id) => !blocked.has(id) }).map((x) => x.id), ['profile', 'features', 'ledgers', 'items', 'sale', 'backup']);
+  assert.deepEqual(startSteps({ ...ALL, canOpen: (id) => !blocked.has(id) }).map((x) => x.id), ['profile', 'features', 'numbering', 'ledgers', 'items', 'sale', 'payment', 'backup']);
+  // The Invoice Numbering screen not registered (or not allowed): its step is left out, nothing else.
+  assert.deepEqual(
+    startSteps({ ...ALL, canOpen: (id) => id !== 'accounts.numbering' }).map((x) => x.id),
+    ['profile', 'features', 'printing', 'ledgers', 'items', 'sale', 'payment', 'backup', 'xmlImport'],
+  );
 });
 
 test('getting started: done from the books, or ticked by hand — never by clicking the step', () => {
@@ -333,7 +351,10 @@ test('getting started: done from the books, or ticked by hand — never by click
   assert.deepEqual(done, ['profile', 'features', 'ledgers', 'sale']);
   assert.equal(steps.find((x) => x.id === 'features')?.doneFromBooks, false);
   assert.equal(steps.find((x) => x.id === 'profile')?.doneFromBooks, true);
-  assert.deepEqual(startProgress(steps), { done: 4, total: 7, complete: false });
+  assert.deepEqual(startProgress(steps), { done: 4, total: 9, complete: false });
+  // 2.0 steps are done from the books too (a changed Sales series, a receipt).
+  const more = startSteps({ ...ALL, setup: { ...NOTHING_DONE, numberingSet: true, hasReceipts: true }, hasVouchers: true });
+  assert.deepEqual(more.filter((x) => x.doneFromBooks).map((x) => x.id), ['numbering', 'payment']);
   // While the summary loads nothing is done (no flash of "done").
   assert.ok(startSteps({ ...ALL, ticked: [] }).every((x) => !x.done));
 });
@@ -342,7 +363,7 @@ test('getting started card: stays after the first voucher until all done or hidd
   const some = startSteps({ ...ALL, setup: { ...NOTHING_DONE, hasSales: true }, hasVouchers: true });
   assert.equal(startCardMode(some, { hidden: false, hasVouchers: true }), 'steps', 'regression: it vanished at the first voucher');
   assert.equal(startCardMode(some, { hidden: true, hasVouchers: true }), null);
-  const allDone = startSteps({ ...ALL, setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true }, hasVouchers: true });
+  const allDone = startSteps({ ...ALL, setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true, numberingSet: true, hasReceipts: true }, hasVouchers: true });
   assert.equal(startCardMode(allDone, { hidden: false, hasVouchers: true }), null);
   // Nothing the user can do: an empty note while the books are empty, nothing afterwards.
   assert.equal(startCardMode([], { hidden: false, hasVouchers: false }), 'empty');
@@ -387,11 +408,82 @@ test('"Show Get started" undoes Hide — offered only while hidden and the card 
   const some = startSteps({ ...ALL, setup: { ...NOTHING_DONE, hasSales: true }, hasVouchers: true });
   assert.equal(canShowStartCard(some, { hidden: true, hasVouchers: true }), true);
   assert.equal(canShowStartCard(some, { hidden: false, hasVouchers: true }), false, 'already showing');
-  const allDone = startSteps({ ...ALL, setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true }, hasVouchers: true });
+  const allDone = startSteps({ ...ALL, setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true, numberingSet: true, hasReceipts: true }, hasVouchers: true });
   assert.equal(canShowStartCard(allDone, { hidden: true, hasVouchers: true }), false, 'nothing would show');
   // Wired on the full dashboard (rail Alt+S) and the Gateway panel (a button: no hotkeys there).
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../DashboardScreen.tsx', import.meta.url), 'utf8');
   assert.match(src, /key: 'Alt\+S', label: 'Show Get started', icon: 'eye', onClick: start\.show, hidden: !start\.canShow/);
   assert.match(src, /start\.canShow \? \([\s\S]*Show Get started/);
+});
+
+test('Home tiles (2.0): To collect, To pay, Cash & bank, Sales this month — each drills', () => {
+  const s = sample();
+  const tiles = homeKpis(s, s.asOf);
+  assert.deepEqual(tiles.map((t) => t.label), ['To collect', 'To pay', 'Cash & bank', 'Sales this month']);
+  const [collect, pay, money, month] = tiles;
+  assert.equal(collect.value, 500_800);
+  assert.equal(collect.caption, '₹3.4 K overdue from 2 customers');
+  assert.deepEqual(collect.target, { screen: 'outstanding.receivables' });
+  assert.equal(pay.value, 667_500);
+  assert.equal(pay.caption, '₹2.3 K overdue');
+  assert.deepEqual(pay.target, { screen: 'outstanding.payables' });
+  assert.equal(money.value, s.cashBank.cashTotal + s.cashBank.bankTotal);
+  assert.equal(money.caption, cashBankCaption(s.cashBank));
+  assert.deepEqual(money.target, DRILL.cashBank(balanceRange(s)));
+  assert.equal(month.value, 130_000);
+  assert.equal(month.delta, 30);
+  assert.equal(month.caption, 'Same month last year ₹1.0 K');
+  assert.deepEqual(month.target, { screen: 'reports.register', params: { baseType: 'sales', from: '2026-10-01', to: '2026-10-08' } });
+  for (const t of tiles) assert.ok(t.value >= 0, `${t.label} is never negative`);
+});
+
+test('Home tiles: negatives are relabelled; a past period names its month; nothing due / last year', () => {
+  const base = sample();
+  const s = sample({
+    receivables: { ...base.receivables, total: -5_000, overdue: 0 },
+    payables: { ...base.payables, total: -1_000, overdue: 0, dueSoon: { ...base.payables.dueSoon, count: 0, amount: 0 } },
+    cashBank: { ...base.cashBank, cashTotal: -2_000, bankTotal: 0 },
+    sales: { ...base.sales, mtd: -700, lastYear: { ...base.sales.lastYear, mtd: 0 } },
+  });
+  const [collect, pay, money, month] = homeKpis(s, s.asOf);
+  assert.deepEqual([collect.label, collect.value, collect.caption], ['Advances from customers', 5_000, 'Nothing overdue']);
+  assert.deepEqual([pay.label, pay.value, pay.caption], ['Advances to suppliers', 1_000, 'Nothing due in 7 days']);
+  assert.deepEqual([money.label, money.value], ['Cash & bank (overdrawn)', 2_000]);
+  assert.deepEqual([month.label, month.value, month.delta, month.caption], ['Net returns this month', 700, null, 'Nothing in the same month last year']);
+  // Balances as on a past period end: the month tile names the month.
+  assert.equal(homeKpis(sample(), '2026-11-20')[3].label, 'Sales in Oct 2026');
+  // Payables due soon (nothing overdue).
+  const soon = sample({ payables: { ...base.payables, overdue: 0 } });
+  assert.equal(homeKpis(soon, soon.asOf)[1].caption, '₹885 due in 7 days');
+});
+
+test('Home sections (2.0): four sections mounted; the other cards only after "Show more insights"', () => {
+  assert.deepEqual(homeSections({ hasVouchers: true, insightsOpen: false }), { main: ['kpis', 'attention', 'start', 'recent'], insights: [] });
+  assert.deepEqual(homeSections({ hasVouchers: false, insightsOpen: false }).main, ['start', 'kpis', 'attention'], 'Get started first while the books are empty');
+  const open = homeSections({ hasVouchers: true, insightsOpen: true });
+  assert.deepEqual(open.insights, [...HOME_INSIGHTS]);
+  assert.ok(open.insights.includes('moduleCards'), 'module cards (their own queries) are insights');
+  assert.ok(!homeSections({ hasVouchers: true, insightsOpen: false }).main.includes('moduleCards'));
+  assert.equal(HOME_RECENT_LIMIT, 5);
+  assert.equal(parseInsightsOpen('1'), true);
+  assert.equal(parseInsightsOpen(null), false);
+  assert.equal(parseInsightsOpen('yes'), false);
+  assert.equal(isVoucherTarget('receipt-voucher'), true);
+  assert.equal(isVoucherTarget({ screen: 'print.settings' }), false);
+});
+
+test('Home variant wiring: the embedded dashboard renders from homeSections; the full dashboard keeps every card', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../DashboardScreen.tsx', import.meta.url), 'utf8');
+  const embedded = src.slice(src.indexOf('function EmbeddedDashboard('), src.indexOf('function groupSections('));
+  assert.match(embedded, /homeSections\(\{ hasVouchers: s\?\.hasVouchers \?\? true, insightsOpen \}\)/);
+  assert.match(embedded, /sections\.insights\.map\(render\)/);
+  assert.match(embedded, /aria-expanded=\{insightsOpen\}/);
+  assert.match(embedded, /limit=\{HOME_RECENT_LIMIT\}/);
+  // The full Dashboard body still lists every card.
+  const full = src.slice(src.indexOf('function DashboardBody('));
+  for (const card of ['KpiRow', 'TrendCard', 'AlertsCard', 'AgeingCard', 'CashBankCard', 'GstCard', 'TopCustomersCard', 'TopItemsCard', 'LowStockCard', 'PostDatedCard', 'ModuleCards', 'RecentVouchersCard']) {
+    assert.ok(full.includes(`<${card} `) || full.includes(`<${card} />`), `full dashboard renders ${card}`);
+  }
 });

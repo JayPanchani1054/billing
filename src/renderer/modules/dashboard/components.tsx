@@ -31,7 +31,10 @@ import {
   flowKpi,
   gstDueLine,
   gstItems,
+  homeKpis,
+  isVoucherTarget,
   parseStartPrefs,
+  START_VOUCHER_BASE,
   plural,
   salesSpark,
   signedKpi,
@@ -151,6 +154,43 @@ export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummar
         caption={s ? cashBankCaption(s.cashBank) : undefined}
         onClick={s ? drill.to(DRILL.cashBank(balanceRange(s))) : undefined}
       />
+    </div>
+  );
+}
+
+// ───────────────────────────── Home tiles (2.0) ─────────────────────────────
+
+/**
+ * Home's four tiles (lib/model.ts homeKpis): To collect, To pay, Cash & bank, Sales this month. Each
+ * drills to its report when the viewer may open it.
+ */
+export function HomeKpiRow({ s, loading, workingDate }: { s: DashboardSummary | undefined; loading: boolean; workingDate?: string }) {
+  const drill = useDrill();
+  const tiles = useMemo(() => (s ? homeKpis(s, workingDate) : null), [s, workingDate]);
+  if (!tiles) {
+    return (
+      <div className="bx-db__kpis" role="group" aria-label="Key figures">
+        {(['To collect', 'To pay', 'Cash & bank', 'Sales this month'] as const).map((label) => (
+          <KpiCard key={label} label={label} value={0} amount loading={loading} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="bx-db__kpis" role="group" aria-label="Key figures">
+      {tiles.map((t) => (
+        <KpiCard
+          key={t.id}
+          label={t.label}
+          icon={t.icon}
+          value={t.value}
+          amount
+          loading={loading}
+          delta={t.delta !== undefined && t.delta !== null ? { value: t.delta, label: 'vs last year', goodWhen: 'up' } : undefined}
+          caption={t.caption}
+          onClick={drill.to(t.target)}
+        />
+      ))}
     </div>
   );
 }
@@ -540,7 +580,7 @@ function VoucherFlags({ r }: { r: Pick<DashboardVoucherRow, 'isCancelled' | 'isO
   );
 }
 
-export function RecentVouchersCard({ s, loading, className }: { s: DashboardSummary | undefined; loading: boolean; className?: string }) {
+export function RecentVouchersCard({ s, loading, className, limit }: { s: DashboardSummary | undefined; loading: boolean; className?: string; /** Rows shown (Home: 5); all by default. */ limit?: number }) {
   const drill = useDrill();
   const columns = useMemo<Column<DashboardVoucherRow>[]>(
     () => [
@@ -577,7 +617,7 @@ export function RecentVouchersCard({ s, loading, className }: { s: DashboardSumm
       <DataTable<DashboardVoucherRow>
         aria-label="Recently entered vouchers"
         columns={columns}
-        rows={s?.recentVouchers ?? []}
+        rows={limit === undefined ? (s?.recentVouchers ?? []) : (s?.recentVouchers ?? []).slice(0, limit)}
         getRowKey={(r) => String(r.id)}
         loading={loading && !s}
         skeletonRows={5}
@@ -781,7 +821,7 @@ export function GettingStarted({ s, className }: { s: DashboardSummary | undefin
               shortcut={st.shortcut}
               onClick={() => {
                 const t = st.target;
-                if (t === 'sales-voucher') shell.openVoucher('sales');
+                if (isVoucherTarget(t)) shell.openVoucher(START_VOUCHER_BASE[t]);
                 else drill.open(t);
               }}
             >

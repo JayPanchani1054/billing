@@ -1,7 +1,8 @@
 /**
- * Company module: company details, features (F11), configuration (F12), period lock, password,
- * about and shortcuts screens. The pre-workspace screens (data folder, company list, create
- * wizard, login, forced password change) are exported from ./gate.ts and rendered by the shell.
+ * Company module: the Settings hub (2.0, 'company.settings' {category?}), company details, features
+ * (F11), configuration (F12), period lock, password, about and shortcuts screens. The pre-workspace
+ * screens (data folder, company list, create wizard, login, forced password change) are exported
+ * from ./gate.ts and rendered by the shell.
  *
  * Screen params:
  *   'company.config' (F12)  { tab?: 'invoice' | 'gst' | 'guards' | 'display' | 'backup' }  opens that tab
@@ -15,7 +16,9 @@ import { CompanyProfileScreen } from './CompanyProfileScreen.tsx';
 import { ConfigScreen } from './ConfigScreen.tsx';
 import { FeaturesScreen } from './FeaturesScreen.tsx';
 import { PeriodLockScreen } from './PeriodLockScreen.tsx';
+import { SettingsScreen } from './SettingsScreen.tsx';
 import { UpdateNotice } from './UpdateNotice.tsx';
+import './company.css';
 
 export const companyModule: ModuleDef = {
   id: 'company',
@@ -27,8 +30,11 @@ export const companyModule: ModuleDef = {
     { id: 'company.changePassword', title: 'Change Password', component: ChangePasswordScreen, presentation: 'dialog' },
     { id: 'company.about', title: 'About Pevqori', component: AboutScreen, goto: true, keywords: ['version', 'help'] },
     { id: 'company.shortcuts', title: 'Keyboard Shortcuts', component: ShortcutsScreen, keywords: ['keys', 'hotkeys', 'help'] },
+    // 2.0: the Settings hub — an index over the settings screens (lib/settingsIndex.ts); the topbar ⚙ opens it.
+    { id: 'company.settings', title: 'Settings', component: SettingsScreen, goto: true, keywords: ['preferences', 'options', 'setup', 'settings', 'configure'] },
   ],
   menu: [
+    { section: 'company', label: 'Settings', screen: 'company.settings', order: 5, keywords: ['preferences', 'options', 'setup'], description: 'Every setting in one place' },
     { section: 'company', label: 'Company Details', screen: 'company.profile', order: 10, access: 'company.view', description: 'Name, address, GSTIN, books and logo', keywords: ['alter company'] },
     { section: 'company', label: 'Features', screen: 'company.features', hotkey: 'F11', order: 20, description: 'Turn stock, orders, GST and more on or off' },
     { section: 'company', label: 'Configuration', screen: 'company.config', hotkey: 'F12', order: 30, description: 'Round-off, GST settings, checks, display and backups' },

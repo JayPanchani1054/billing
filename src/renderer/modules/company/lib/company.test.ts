@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { gstinCheckChar } from '../../../../shared/gst/gstin.ts';
-import { applyGstin, booksFromForFy, buildCreateInput, defaultDraft, draftFieldOfPath, firstInvalidStep, gstinError, stepOfPath, validateStep } from './companyForm.ts';
+import { applyGstin, applyRecommended, booksFromForFy, buildCreateInput, defaultDraft, draftFieldOfPath, firstInvalidStep, gstinError, recommendedSummary, stepOfPath, validateStep, WIZARD_STEPS } from './companyForm.ts';
 import type { CompanyDraft } from './companyForm.ts';
 import { passwordPolicyError, passwordStrength, usernameError } from './password.ts';
 
@@ -112,5 +112,62 @@ describe('company wizard model', () => {
     assert.equal(stepOfPath('name'), 'business');
     assert.equal(draftFieldOfPath('owner.password'), 'ownerPassword');
     assert.equal(draftFieldOfPath('stateCode'), 'stateCode');
+  });
+});
+
+describe('create with recommended settings (2.0)', () => {
+  const TODAY = '2026-10-05';
+
+  test('steps 3–5 take their defaults; what the user typed on steps 1–2 stays', () => {
+    const typed: CompanyDraft = { ...valid(), fyStartMonth: 1, booksFrom: '2026-01-01', features: { inventory: false, batches: true }, secure: false, ownerUsername: '', ownerPassword: '', ownerPasswordConfirm: '' };
+    const r = applyRecommended(typed, TODAY);
+    const def = defaultDraft(TODAY);
+    assert.equal(r.fyStartMonth, 4);
+    assert.equal(r.booksFrom, '2026-04-01');
+    assert.deepEqual(r.features, def.features);
+    assert.equal(r.secure, true, 'password protection on (the recommended choice)');
+    assert.equal(r.ownerUsername, 'owner');
+    for (const k of ['name', 'stateCode', 'gstin', 'pan', 'gstRegistrationType'] as const) assert.equal(r[k], typed[k]);
+    // Only a password is missing before it can be created — the Review step asks for it inline.
+    assert.equal(firstInvalidStep(r), 'security');
+    assert.equal(firstInvalidStep({ ...r, secure: false }), null, 'or protection switched off: ready to create');
+    assert.equal(firstInvalidStep({ ...r, ownerPassword: 'ledger2026', ownerPasswordConfirm: 'ledger2026' }), null);
+  });
+
+  test('a step the user already opened keeps their choices; a typed owner name and password are kept', () => {
+    const custom: CompanyDraft = { ...valid(), fyStartMonth: 1, booksFrom: '2026-01-01', features: { inventory: false }, ownerUsername: 'meera' };
+    const afterFeatures = applyRecommended(custom, TODAY, WIZARD_STEPS.indexOf('features'));
+    assert.equal(afterFeatures.fyStartMonth, 1, 'Books was opened');
+    assert.deepEqual(afterFeatures.features, { inventory: false }, 'Features was opened');
+    assert.equal(afterFeatures.ownerUsername, 'meera');
+    assert.equal(afterFeatures.ownerPassword, 'ledger2026');
+    assert.deepEqual(applyRecommended(custom, TODAY, WIZARD_STEPS.indexOf('review')), custom, 'every step opened: nothing changes');
+  });
+
+  test('the recommended company is what the Next path would create with its defaults', () => {
+    const nextPath = buildCreateInput({ ...valid(), secure: false });
+    const quick = buildCreateInput({ ...applyRecommended({ ...valid(), fyStartMonth: 7 }, TODAY), secure: false });
+    assert.deepEqual(quick, nextPath);
+  });
+
+  test('summary names the financial year and what is switched on', () => {
+    assert.equal(
+      recommendedSummary(TODAY),
+      'Financial year April to March (FY 2026-27, books from 01-Apr-2026), stock and bill-wise dues on, password protection on. Change any of it later with F11 and F12.',
+    );
+  });
+});
+
+describe('create with recommended settings: wizard wiring (CreateCompanyWizard.tsx)', () => {
+  test('the button sits on the GST & tax step only; Review shows the password fields inline on that path only', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../CreateCompanyWizard.tsx', import.meta.url), 'utf8');
+    assert.match(src, /\{step === 'gst' \? \(\s*<Button icon="check-circle" onClick=\{recommend\} disabled=\{busy\}>\s*Create with recommended settings/);
+    assert.match(src, /setDraft\(\(d\) => applyRecommended\(d, today, furthest\)\)/);
+    assert.match(src, /<ReviewSection title="Security"[^\n]*>\s*\{quick \? \(\s*<Stack gap=\{3\}>\s*<SecurityFields /);
+    // Ctrl+A (create) reads `quick`: the hotkey must see its current value.
+    assert.match(src, /\[draft, step, touched, busy, quick\]/);
+    // The note promises the defaults only while Books, Features and Security are still unopened.
+    assert.match(src, /furthest < WIZARD_STEPS\.indexOf\('books'\)\s*\? `skips the next three steps: \$\{recommendedSummary\(today\)\}`/);
   });
 });

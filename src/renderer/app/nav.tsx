@@ -622,6 +622,62 @@ function watchInitialFocus(container: HTMLElement, first: FocusPick): () => void
   return stop;
 }
 
+/** Marks the Suspense fallback of a full screen whose code is still loading (lazyScreen.tsx). */
+const LAZY_LOADING_SELECTOR = '[data-lazy-screen-loading]';
+
+/**
+ * Suspense fallback of a lazy screen: the screen skeleton (`aria-busy`), as for a first data load.
+ *
+ * `onLoaded` re-renders the ScreenHost as soon as the screen's code has arrived. Left to Suspense's own
+ * retry, React holds a resolved boundary's content back until 300 ms after its fallback was shown
+ * (FALLBACK_THROTTLE_MS), so a cold open would show the skeleton for at least 300 ms whatever the
+ * chunk's real load time; an ordinary update of the parent is committed at once.
+ */
+function LazyScreenLoading({ load, onLoaded }: { load: (() => Promise<void>) | null; onLoaded: () => void }) {
+  useEffect(() => {
+    if (!load) return undefined;
+    let live = true;
+    void load().then(() => {
+      if (live) onLoaded();
+    });
+    return () => {
+      live = false;
+    };
+  }, [load, onLoaded]);
+  return (
+    <div data-lazy-screen-loading="">
+      <ScreenSkeleton />
+    </div>
+  );
+}
+
+/** Is `el` an element the user can see (not inside a hidden screen, still in the document)? */
+function isShown(el: Element): boolean {
+  return el.isConnected && el.getClientRects().length > 0;
+}
+
+/**
+ * Has the user put focus somewhere else than `container` (and the page body) on purpose? Focus left
+ * on an element that is no longer shown — e.g. the Home menu button that opened this screen, now in a
+ * hidden screen — is not a choice.
+ */
+function focusIsElsewhere(container: HTMLElement): boolean {
+  const active = document.activeElement;
+  return active !== null && active !== document.body && !container.contains(active) && isShown(active);
+}
+
+/** Call `done` once the lazy screen in `container` has replaced its loading fallback. Returns a stop function. */
+function whenLazyScreenLoaded(container: HTMLElement, done: () => void): () => void {
+  if (typeof MutationObserver === 'undefined') return () => undefined;
+  const observer = new MutationObserver(() => {
+    if (container.querySelector(LAZY_LOADING_SELECTOR)) return;
+    observer.disconnect();
+    done();
+  });
+  observer.observe(container, { childList: true, subtree: true });
+  return () => observer.disconnect();
+}
+
 function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; index: number; isTop: boolean; visible: boolean; def: ScreenDef }) {
   const internal = useNavInternal();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -637,6 +693,7 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
       const restore = firstTime ? null : internal.takeFocusRestore();
       if (!isDialog) {
         let stopWatch: () => void = () => undefined;
+        let stopWait: () => void = () => undefined;
         const raf = requestAnimationFrame(() => {
           const c = containerRef.current;
           if (!c) return;
@@ -644,14 +701,30 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
             restore.focus();
             return;
           }
-          if (c.contains(document.activeElement)) return; // the screen focused something itself
-          const pick = focusFirst(c);
-          // Still loading (skeleton → only the heading or a toolbar button): follow the content in.
-          if (pick) stopWatch = watchInitialFocus(c, pick);
+          const focusNow = () => {
+            if (c.contains(document.activeElement)) return; // the screen focused something itself
+            const pick = focusFirst(c);
+            // Still loading (skeleton → only the heading or a toolbar button): follow the content in.
+            if (pick) stopWatch = watchInitialFocus(c, pick);
+          };
+          if (!c.querySelector(LAZY_LOADING_SELECTOR)) {
+            focusNow();
+            return;
+          }
+          // The screen's code is still loading (lazyScreen.tsx): pick the initial focus once it has
+          // rendered, as for an eager screen — unless the user has put focus somewhere else meanwhile.
+          // Meanwhile no key may reach the hidden screen that opened this one (Enter on the Home
+          // button would open it again): focus left there goes back to the page.
+          const opener = document.activeElement;
+          if (opener instanceof HTMLElement && opener !== document.body && !c.contains(opener) && !isShown(opener)) opener.blur();
+          stopWait = whenLazyScreenLoaded(c, () => {
+            if (!focusIsElsewhere(c)) focusNow();
+          });
         });
         wasTop.current = isTop;
         return () => {
           cancelAnimationFrame(raf);
+          stopWait();
           stopWatch();
         };
       }
@@ -661,7 +734,12 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
   }, [isTop, isDialog, internal]);
 
   const Comp = def.component;
-  const content = useMemo(() => <Comp params={entry.params} />, [Comp, entry.params]);
+  // A lazy screen whose code arrived re-renders here (LazyScreenLoading): `lazyLoaded` gives the
+  // element a new identity so the boundary's content renders in this update, not in a throttled retry.
+  const [lazyLoaded, setLazyLoaded] = useState(0);
+  const onLazyLoaded = useCallback(() => setLazyLoaded((n) => n + 1), []);
+  const lazyLoad = isLazyScreen(Comp) ? Comp.preload : null;
+  const content = useMemo(() => <Comp key={lazyLoaded} params={entry.params} />, [Comp, entry.params, lazyLoaded]);
 
   return (
     <ScreenContext.Provider value={ctx}>
@@ -685,7 +763,7 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
               >
                 <ScreenErrorBoundary title={def.title}>
                   {/* A lazy screen's code is loading (lazyScreen.tsx): the same skeleton as a first data load. */}
-                  <Suspense fallback={<ScreenSkeleton />}>{content}</Suspense>
+                  <Suspense fallback={<LazyScreenLoading load={lazyLoad} onLoaded={onLazyLoaded} />}>{content}</Suspense>
                 </ScreenErrorBoundary>
               </div>
             )}

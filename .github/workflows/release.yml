@@ -1,7 +1,10 @@
 name: Release
 
-# Push a tag like v0.2.0 (matching package.json "version") to build the Windows installer, smoke-test
-# the installed app and publish it as a GitHub Release with SHA-256 checksums.
+# Push a tag like v2.0.0 (matching package.json "version") to build the Windows installer, smoke-test
+# the installed app (fresh install, and an in-place upgrade over the previous release) and publish it as
+# a GitHub Release: the installer, its .blockmap and latest.yml (the in-app updater's feed, see
+# electron-builder.yml publish), SHA256SUMS.txt, and the version's CHANGELOG.md section as the release
+# notes. Release checklist: docs/BUILD.md §6.
 #
 # Secret hygiene (docs/BUILD.md §7, docs/SECURITY.md):
 #   - The build job has a READ-ONLY token, and checkout does not persist it in .git/config.
@@ -54,6 +57,11 @@ jobs:
             exit 1
           fi
 
+      # Fail fast (before a long build) when the changelog has no section for this version.
+      - name: Check CHANGELOG.md has this version's release notes
+        shell: bash
+        run: node scripts/release-assets.mjs notes "${GITHUB_REF_NAME#v}" CHANGELOG.md
+
       # A release is built from the committed lockfile only (reproducible: the same tag always installs
       # the same versions). Without one, run the Lockfile workflow on the branch and re-tag.
       - name: Install dependencies (exact lockfile, no secrets in this environment)
@@ -97,11 +105,21 @@ jobs:
       - name: Verify Electron fuses on the packaged binary
         run: npm run check:fuses
 
+      # latest.yml must describe exactly this installer (version == tag, file name, sha512, size), the
+      # .blockmap must exist and the packaged app must carry resources/app-update.yml for this repository.
+      - name: Check the update files (latest.yml, blockmap, app-update.yml)
+        shell: bash
+        run: node scripts/release-assets.mjs check release "${GITHUB_REF_NAME#v}"
+
+      - name: Release notes from CHANGELOG.md
+        shell: bash
+        run: node scripts/release-assets.mjs notes "${GITHUB_REF_NAME#v}" CHANGELOG.md release/release-notes.md
+
       - name: Checksums
         shell: bash
         run: |
           cd release
-          sha256sum Pevqori-Setup-*.exe | tee SHA256SUMS.txt
+          sha256sum Pevqori-Setup-*.exe Pevqori-Setup-*.exe.blockmap latest.yml | tee SHA256SUMS.txt
 
       - name: Upload installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -109,15 +127,18 @@ jobs:
           name: release-installer
           path: |
             release/Pevqori-Setup-*.exe
+            release/Pevqori-Setup-*.exe.blockmap
+            release/latest.yml
             release/SHA256SUMS.txt
+            release/release-notes.md
           retention-days: 7
           if-no-files-found: error
 
   smoke:
-    name: Install and launch the installer (Windows)
+    name: Install, upgrade and launch the installer (Windows)
     needs: build
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
@@ -134,6 +155,29 @@ jobs:
       - name: Smoke-test the installed app
         shell: pwsh
         run: ./scripts/smoke-installed.ps1 -Installer (Get-ChildItem release/Pevqori-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence
+
+      # The latest published release (this tag's own release does not exist yet), downloaded with this
+      # job's read-only token. None yet, or no asset named Pevqori-Setup-*.exe: the upgrade smoke is skipped
+      # with a notice.
+      - name: Download the previous release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path previous | Out-Null
+          gh release download --repo "$env:GITHUB_REPOSITORY" --pattern 'Pevqori-Setup-*.exe' --dir previous
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::notice::No previous release with a Pevqori-Setup-*.exe asset; the upgrade smoke test is skipped."
+            Remove-Item -Recurse -Force previous
+          }
+          exit 0
+
+      # In-place upgrade over the previous release: same folder and uninstall entry, version N, data and
+      # settings untouched, N runs, N-1 refused afterwards (exit code 4), uninstall keeps data.
+      - name: Upgrade smoke (previous release → this one)
+        if: hashFiles('previous/Pevqori-Setup-*.exe') != ''
+        shell: pwsh
+        run: ./scripts/smoke-installed.ps1 -Installer (Get-ChildItem release/Pevqori-Setup-*.exe | Select-Object -First 1).FullName -Previous (Get-ChildItem previous/Pevqori-Setup-*.exe | Select-Object -First 1).FullName -Evidence smoke-evidence/upgrade
 
       - name: Upload smoke evidence
         if: failure()
@@ -158,17 +202,23 @@ jobs:
           name: release-installer
           path: release
 
-      - name: Verify checksums
+      - name: Verify checksums and the update feed version
         working-directory: release
-        run: sha256sum --check SHA256SUMS.txt
+        run: |
+          sha256sum --check SHA256SUMS.txt
+          grep -qx "version: ${GITHUB_REF_NAME#v}" latest.yml || { echo "::error::latest.yml is not for ${GITHUB_REF_NAME}"; exit 1; }
 
+      # One step attaches everything the in-app updater and a manual download need; electron-builder
+      # itself never publishes (--publish never).
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: Pevqori ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: release/release-notes.md
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
           files: |
             release/Pevqori-Setup-*.exe
+            release/Pevqori-Setup-*.exe.blockmap
+            release/latest.yml
             release/SHA256SUMS.txt

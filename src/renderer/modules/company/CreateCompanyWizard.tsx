@@ -2,6 +2,11 @@
  * Create a company in six short steps: Business → GST & tax → Books → Features → Security → Review.
  * Enter moves through fields and to the next step; Ctrl+A creates (jumping to any step that still
  * needs attention); Esc cancels (asking first when something was typed).
+ *
+ * 2.0: the GST & tax step also offers "Create with recommended settings" (lib/companyForm.ts
+ * applyRecommended): Books, Features and Security take their defaults and the wizard jumps to Review,
+ * where — on that path only — the password protection switch and fields sit inline in the Security
+ * section, so the company is created without visiting steps 3–5. The Next path is unchanged.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -40,12 +45,14 @@ import { GstinOk, StatePicker, StrengthMeter } from './fields.tsx';
 import { GateLayout } from './GateLayout.tsx';
 import {
   applyGstin,
+  applyRecommended,
   booksFromForFy,
   buildCreateInput,
   defaultDraft,
   draftFieldOfPath,
   firstInvalidStep,
   MONTH_OPTIONS,
+  recommendedSummary,
   STEP_LABELS,
   stepOfPath,
   validateStep,
@@ -71,6 +78,12 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState(false);
+  // Reached Review through "Create with recommended settings": Security is edited there, inline.
+  const [quick, setQuick] = useState(false);
+  const quickRef = useRef(quick);
+  quickRef.current = quick;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const createRef = useRef<HTMLButtonElement | null>(null);
   const stepIndex = WIZARD_STEPS.indexOf(step);
@@ -101,7 +114,10 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
       const body = bodyRef.current;
       if (!body) return;
       if (stepRef.current === 'review' && focusTarget.current === 'first') {
-        createRef.current?.focus();
+        // Recommended path with password protection on and no password yet: the password field first.
+        const d = draftRef.current;
+        const password = quickRef.current && d.secure && !d.ownerPassword ? body.querySelector<HTMLElement>('input[type="password"]') : null;
+        (password ?? createRef.current)?.focus();
         return;
       }
       const invalid = focusTarget.current === 'error' ? body.querySelector<HTMLElement>('[aria-invalid="true"]') : null;
@@ -133,6 +149,24 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
     goTo(WIZARD_STEPS[stepIndex + 1]);
   };
 
+  /** "Create with recommended settings" (GST & tax step): defaults for steps 3–5, then Review. */
+  const recommend = () => {
+    for (const s of ['business', 'gst'] as const) {
+      const e = validateStep(s, draft);
+      if (Object.keys(e).length > 0) {
+        setErrors(e);
+        if (s === step) requestFocus('error');
+        else goTo(s, 'error');
+        return;
+      }
+    }
+    setErrors({});
+    setDraft((d) => applyRecommended(d, today, furthest));
+    setTouched(true);
+    setQuick(true);
+    goTo('review');
+  };
+
   const back = () => {
     if (stepIndex > 0) {
       setErrors({});
@@ -146,7 +180,9 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
     const bad = firstInvalidStep(draft);
     if (bad) {
       setErrors(validateStep(bad, draft));
-      goTo(bad, 'error');
+      // On the recommended path the Security fields are on Review itself: stay there.
+      if (bad === 'security' && quick && step === 'review') requestFocus('error');
+      else goTo(bad, 'error');
       return;
     }
     setBusy(true);
@@ -191,7 +227,7 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
       'Alt+ArrowLeft': () => back(),
       'Alt+ArrowRight': () => next(),
     },
-    [draft, step, touched, busy],
+    [draft, step, touched, busy, quick],
   );
 
   // Closing the window with a half-filled wizard asks first (main's close guard).
@@ -298,6 +334,12 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
               <Field label="PAN" optional error={errors.pan} hint={registered ? 'Filled in from the GSTIN.' : undefined}>
                 <TextInput value={draft.pan} onChange={(e) => update({ pan: e.target.value.toUpperCase().slice(0, 10) })} uppercase mono maxLength={10} placeholder="ABCDE1234F" />
               </Field>
+              <p className="bx-wizard__note">
+                <Icon name="check-circle" size="sm" /> In a hurry? <strong>Create with recommended settings</strong>{' '}
+                {furthest < WIZARD_STEPS.indexOf('books')
+                  ? `skips the next three steps: ${recommendedSummary(today)}`
+                  : 'goes straight to the last step and keeps what you chose on the steps you already opened.'}
+              </p>
             </Stack>
           ) : null}
 
@@ -353,36 +395,7 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
           {step === 'security' ? (
             <Stack gap={3}>
               <h2 className="bx-wizard__step-title">Protect your books</h2>
-              <div className="bx-feature-row">
-                <Switch checked={draft.secure} onChange={(on) => update({ secure: on })} label="Protect this company with a password (recommended)" />
-                <p className="bx-feature-row__desc">Anyone who opens this company will need a username and password. You become its Owner.</p>
-              </div>
-              {draft.secure ? (
-                <>
-                  <FieldGroup columns={2}>
-                    <Field label="Owner username" required error={errors.ownerUsername}>
-                      <TextInput value={draft.ownerUsername} onChange={(e) => update({ ownerUsername: e.target.value })} autoComplete="username" maxLength={32} />
-                    </Field>
-                    <Field label="Your name" optional>
-                      <TextInput value={draft.ownerDisplayName} onChange={(e) => update({ ownerDisplayName: e.target.value })} maxLength={80} />
-                    </Field>
-                  </FieldGroup>
-                  <Field label="Password" required error={errors.ownerPassword} hint="At least 8 characters with letters and digits.">
-                    <PasswordInput value={draft.ownerPassword} onChange={(e) => update({ ownerPassword: e.target.value })} autoComplete="new-password" />
-                  </Field>
-                  <StrengthMeter password={draft.ownerPassword} context={[draft.name, draft.ownerUsername]} />
-                  <Field label="Type the password again" required error={errors.ownerPasswordConfirm}>
-                    <PasswordInput value={draft.ownerPasswordConfirm} onChange={(e) => update({ ownerPasswordConfirm: e.target.value })} autoComplete="new-password" />
-                  </Field>
-                  <Banner tone="warning" inline>
-                    Keep this password safe. If it is lost, the company's data cannot be opened by anyone.
-                  </Banner>
-                </>
-              ) : (
-                <Banner tone="warning" title="Not protected">
-                  Anyone who uses this computer can open the company and see or change your accounts.
-                </Banner>
-              )}
+              <SecurityFields draft={draft} errors={errors} update={update} />
             </Stack>
           ) : null}
 
@@ -423,7 +436,13 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
                 </p>
               </ReviewSection>
               <ReviewSection title="Security" onEdit={() => goTo('security')}>
-                <p className="bx-review__text">{draft.secure ? `Password protected — owner “${draft.ownerUsername}”` : 'Not password protected'}</p>
+                {quick ? (
+                  <Stack gap={3}>
+                    <SecurityFields draft={draft} errors={errors} update={update} />
+                  </Stack>
+                ) : (
+                  <p className="bx-review__text">{draft.secure ? `Password protected — owner “${draft.ownerUsername}”` : 'Not password protected'}</p>
+                )}
               </ReviewSection>
               {serverError ? (
                 <Banner tone="danger" title="The company was not created">
@@ -442,6 +461,11 @@ export function CreateCompanyWizard({ onCancel }: { onCancel: () => void }) {
           {stepIndex > 0 ? (
             <Button icon="arrow-left" onClick={back} disabled={busy}>
               Back
+            </Button>
+          ) : null}
+          {step === 'gst' ? (
+            <Button icon="check-circle" onClick={recommend} disabled={busy}>
+              Create with recommended settings
             </Button>
           ) : null}
           {step === 'review' ? (
@@ -470,5 +494,43 @@ function ReviewSection({ title, onEdit, children }: { title: string; onEdit: () 
       </header>
       {children}
     </section>
+  );
+}
+
+/** Password protection: the Security step, and Review on the recommended path (same labels). */
+function SecurityFields({ draft, errors, update }: { draft: CompanyDraft; errors: DraftErrors; update: (patch: Partial<CompanyDraft>) => void }) {
+  return (
+    <>
+      <div className="bx-feature-row">
+        <Switch checked={draft.secure} onChange={(on) => update({ secure: on })} label="Protect this company with a password (recommended)" />
+        <p className="bx-feature-row__desc">Anyone who opens this company will need a username and password. You become its Owner.</p>
+      </div>
+      {draft.secure ? (
+        <>
+          <FieldGroup columns={2}>
+            <Field label="Owner username" required error={errors.ownerUsername}>
+              <TextInput value={draft.ownerUsername} onChange={(e) => update({ ownerUsername: e.target.value })} autoComplete="username" maxLength={32} />
+            </Field>
+            <Field label="Your name" optional>
+              <TextInput value={draft.ownerDisplayName} onChange={(e) => update({ ownerDisplayName: e.target.value })} maxLength={80} />
+            </Field>
+          </FieldGroup>
+          <Field label="Password" required error={errors.ownerPassword} hint="At least 8 characters with letters and digits.">
+            <PasswordInput value={draft.ownerPassword} onChange={(e) => update({ ownerPassword: e.target.value })} autoComplete="new-password" />
+          </Field>
+          <StrengthMeter password={draft.ownerPassword} context={[draft.name, draft.ownerUsername]} />
+          <Field label="Type the password again" required error={errors.ownerPasswordConfirm}>
+            <PasswordInput value={draft.ownerPasswordConfirm} onChange={(e) => update({ ownerPasswordConfirm: e.target.value })} autoComplete="new-password" />
+          </Field>
+          <Banner tone="warning" inline>
+            Keep this password safe. If it is lost, the company's data cannot be opened by anyone.
+          </Banner>
+        </>
+      ) : (
+        <Banner tone="warning" title="Not protected">
+          Anyone who uses this computer can open the company and see or change your accounts.
+        </Banner>
+      )}
+    </>
   );
 }

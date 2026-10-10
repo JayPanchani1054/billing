@@ -259,7 +259,7 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
 - **Screen bar and command bar**: the breadcrumb row hosts the top screen's **command bar**
   (`ui/CommandBar.tsx`, rule in `app/lib/commandBar.ts`): the `primary` action, up to 3 / 2 / 1 buttons by
   width (first actions with `prominent: true`, then Alter, Print, Share, Export, More details, Create), and
-  **More ▾** with every other action and its key, then the globals F11 / F12 / F1. It never registers
+  **More ▾** with every other action and its key, then the globals F11 / F12 (when the user may open them) / F1. It never registers
   keys — `useScreenActions` does — so showing or hiding a button never changes a key. The 1.0 right rail
   is the optional **shortcut bar** (`aria-label="Shortcut bar"`, preference `shortcutBar`).
   `ActionRailItem.prominent` (and any later action field) is written **after `onClick`** in object
@@ -470,6 +470,34 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
   `baseline` block (sizes from the Linux report — the gate is a ratio and the platforms' bundles differ by a
   few bytes at most — and timings per platform) to paste into `build/perf-budget.json` as a data-only commit. Raising a ceiling or the baseline is a
   reviewed decision, never a fix for a slower build.
+- **Lazy screens** (2.0) — the screens of `attachments`¹, `banking`, `cheques`, `data`, `documents`, `forex`, `gst`,
+  `gstrecon`, `inventory`, `mfg`, `outstanding`, `pos`, `reports`, `security`, `stock` and `tds` are fetched the first
+  time they open, so their code is not in the initial JS. A module's `index.ts` declares them with
+  `lazyScreen()` (`src/renderer/app/lazyScreen.tsx`) instead of a static import, and registers them unchanged:
+  `const BrsScreen = lazyScreen(() => import('./BrsScreen.tsx').then((m) => m.BrsScreen));` — the const keeps the
+  export's name. `lazyScreen` returns a plain function component with `preload()`: the first render suspends on
+  one cached import (React `use`), later renders are synchronous. `ScreenStack` (`app/nav.tsx`) wraps every
+  full screen in `<Suspense>` inside its error boundary; the fallback is the screen skeleton, so a loading chunk
+  looks like a first data load (`.bx-screen-skeleton`, `aria-busy="true"`). The fallback re-renders its
+  `ScreenHost` as soon as the chunk has arrived, so the screen shows at once (left to Suspense's own retry, React
+  would hold it back until 300 ms after the skeleton appeared). Esc works meanwhile; focus left on the hidden
+  screen that opened this one (e.g. the Home button) is released so no key reaches it, and the initial focus is
+  picked once the screen has rendered, exactly as for an eager screen (unless the user has put focus on something
+  else that is visible). Other keys typed during a cold load are not delivered to the screen. A chunk that fails
+  to load shows the screen's error boundary; its "Try again" re-arms every failed load (`retryLazyScreens`) and
+  imports the chunk again — if the engine keeps refusing that chunk (a damaged installation), only reinstalling
+  helps. After `pevqori:shell-ready` the shell prefetches the lazy targets of Home ›
+  Essentials (`PREFETCH_SCREENS`), one chunk per idle slot (`requestIdleCallback`, 2 s timeout), skipping
+  screens the user cannot open. **Stay eager**: menus, Go To providers, dashboard cards, voucher panels, Home
+  notices, print blocks and module CSS (still imported by `index.ts`); dialog screens (`presentation: 'dialog'`,
+  which open over a live screen in the same frame as their key) and the screens sharing their file;
+  `inventory.item.form`; the `accounts`, `company`, `dashboard`, `print` and `vouchers` modules; and any file
+  other eager code imports statically (the bundler would keep it in the entry anyway — e.g. `data/RestoreFlow.tsx`,
+  used by the company list). ¹`attachments` has no lazy screen for that reason (its screens share a file with
+  its voucher panel, which the ledger and item forms import). **Adding a lazy screen**: give it its own file (or
+  one only screens use), declare it with `lazyScreen` in the module's `index.ts`, and add its id to
+  `PREFETCH_SCREENS` if it is an Essentials target. `src/renderer/app/lazyScreen.test.ts` enforces all of this,
+  including that no lazily loaded file is reachable from `main.tsx` through static imports.
 - Core paths are budgeted separately by the SQL they run (§9, `sqlPlans.ts`, `perf-hooks.test.ts`).
 
 ## 10. Definition of done for any module

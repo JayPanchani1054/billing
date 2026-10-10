@@ -72,7 +72,8 @@ Indian businesses — and the date the books begin; opening balances are entered
 **Features** (the common switches of F11) → **Security** (protect the company with an Owner username and
 password — recommended) → **Review**. **Enter** moves through the fields, **Alt+→** goes to the next
 step and **Ctrl+A** creates the company (jumping to any step that still needs attention). Everything can
-be changed later.
+be changed later. In a hurry? **Create with recommended settings** on the *GST and tax* step goes
+straight to the last step (section 2, *Quick setup with recommended settings*).
 
 If the company is password-protected, Pevqori asks for the username and password each time it is opened.
 
@@ -97,11 +98,11 @@ key instead (F8 for Sales, …). A new installation starts on Essentials; if you
 Home keeps All menus and the shortcut bar you know, and offers once to *Try the simpler Home*. Your choice
 is remembered on this computer.
 
-On the right is the **dashboard**: cash and bank, receivables and payables, sales and purchases, the
-GST estimate, stock alerts and due items, plus a **Get started** card that walks you through company
-details, features, invoice printing, your first ledgers and items, your first sale and backups (Alt+S on
-the full dashboard, *Reports › **Dashboard***, brings the card back if you hid it). A user who may not
-see the dashboard gets a short greeting instead.
+On the right is the **dashboard**: four tiles — To collect, To pay, Cash & bank and Sales this month —
+what needs your attention and your last five vouchers, with *Show more insights* for the rest, plus a
+**Get started** card for a new company (section 2, *Get started and the Home dashboard*; Alt+S on the
+full dashboard, *Reports › **Dashboard***, brings the card back if you hid it). A user who may not see
+the dashboard gets a short greeting instead.
 
 ### The top bar, the screen bar and the status bar
 
@@ -140,6 +141,32 @@ see the dashboard gets a short greeting instead.
 - **Ctrl+S** saves wherever **Ctrl+A** accepts or saves (forms, voucher entry, dialogs).
 
 ## 2. Company, features (F11) and configuration (F12)
+
+### Settings: every setting in one place
+
+The gear in the top bar (or *Company › **Settings*** on Home, or Go To "settings") opens **Settings**:
+topics on the left, the settings of the chosen topic on the right, each with one line saying what you
+change there and — where it is known — how it is set now (*Modern template*, *Not locked*, *No backup
+folder chosen*…). Choosing a setting opens its usual screen; **Esc** brings you back to Settings.
+
+| Topic | Settings |
+|---|---|
+| Business | Company details · Features (**F11**) · Configuration (**F12**) |
+| Invoices & printing | Invoice printing · Invoice numbering · Voucher types (every option, for experts) |
+| GST & TDS | GST settings (the GST tab of F12) · TDS / TCS setup |
+| Banking & cheques | Cheque printing settings · Cheque books · Payee bank details |
+| Users & security | Users & roles · Security settings · Lock books · Change password |
+| Data & backup | Backup · Automatic backups · Restore a backup · Import from Excel · XML data import · Export data · XML data export · the data folder (*Show in folder*) |
+| Modules | POS settings · Multi-currency settings |
+| Appearance | Theme, density, Home view and the shortcut bar — right on the page, for you on this computer |
+| About & updates | About Pevqori and updates |
+
+You only see what you may open: a setting of a feature that is off (F11), or one your role does not
+allow, is not listed, and a topic with nothing left disappears. The search box at the top has the focus
+when Settings opens (**Ctrl+F** returns to it): type a word — *logo*, *prefix*, *password*, *backup* —
+to list the matching settings of every topic, **↓** to move into the list and **Enter** to open one.
+In the topic list **↑ ↓** choose a topic and **→** (or **Enter**) moves to its settings; **←** goes back.
+Typing a letter while a list has the focus continues in the search box.
 
 ### Company details
 
@@ -187,6 +214,37 @@ or deleting vouchers dated on or before a date — typically after filing return
 It needs the *lock and unlock the books* permission (Owners always have it). Bank dates of a locked
 period are protected too (section 8.1), as are opening balances when the lock reaches the books
 beginning.
+
+### Quick setup with recommended settings
+
+On the *GST and tax* step of *Create Company*, **Create with recommended settings** skips the next three
+steps and goes straight to *Check and create* with what suits most businesses: the financial year April
+to March of the current year with the books beginning on 1 April, *Maintain stock* and *Bill-wise
+details* on, and password protection on with the Owner username *owner*. On that path the password
+switch and fields are on the *Check and create* page itself: type a password (twice), or switch
+protection off, and press **Create company** (**Ctrl+A**). A step you had already opened keeps what you
+chose there, and *Change* next to any section — or **Back** — still opens every step. The usual *Next*
+path is unchanged. Everything can be changed later (F11, F12, *Security Settings*).
+
+### Get started and the Home dashboard
+
+On Home, the right-hand panel shows your business in four tiles — **To collect** (what customers owe
+you, and how much of it is overdue), **To pay** (what you owe suppliers), **Cash & bank** and **Sales
+this month** (against the same month last year) — then **Needs your attention** (overdue bills, GST
+due, low stock, backups…) and your last five vouchers. Click a tile or a line to open the report behind
+it. **Show more insights** adds the sales and purchases chart, receivables ageing, the cash and bank
+accounts, the GST estimate and the cards of the features you use; Pevqori remembers whether you left it
+open. *Full dashboard* (or *Reports › **Dashboard***) shows everything on one page.
+
+Until your company is set up, a **Get started** card lists the first steps, each with a button that
+opens the right screen: check your company details, switch on the features you need (F11), **set your
+invoice number series** (*Invoice Numbering*), **choose what prints on your invoice** (*Invoice
+Printing*), add your customers, suppliers and bank, add the items you sell, record your first sale
+(F8), **record a payment** you receive (*Receipt*, F6) and set up backups — plus, while the books are
+empty, importing from another accounting program. A step ticks itself off when the books show it is
+done (for example once a receipt exists, or once the Sales series has a prefix, a padding width or
+another starting number); you can also tick a step by hand (*Mark as done*) or *Hide* the card (*Show
+Get started* brings it back).
 
 ## 3. Masters
 

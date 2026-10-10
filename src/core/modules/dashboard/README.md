@@ -39,7 +39,7 @@ count once their date is reached.
 | Recent vouchers | The last 8 vouchers entered (highest id), any status, flagged cancelled / optional / post-dated; a cancelled voucher shows amount 0. |
 | Post-dated | Vouchers marked post-dated, dated after the working date, not cancelled / optional, whose net cash/bank movement is non-zero: `direction` in (receipt) / out (payment), `inflow` / `outflow` totals, the main bank ledger and cheque number; earliest first (10 listed, `count` = all). |
 | Backup | `data/backup.ts lastBackupAt` (backup history, else the edit log) and whole days since then on the clock. |
-| Setup | `setup.ts setupFacts` — the "Get started" card's steps, done from the books (never from a click): `profileComplete` (company address and state), `featuresReviewed` (an F11 save in the edit log that changed something other than password protection), `invoicePrintingSet` (config.invoice differs from the defaults), `hasOwnLedgers` (a non-predefined ledger), `hasItems`, `hasSales` (any sales voucher), `backupFolderSet` (F12 › Backup folder chosen). A few one-row reads inside the memo, so any save refreshes them. The renderer (`modules/dashboard/lib/model.ts startSteps`) adds the steps the user ticked and filters by permission / `nav.canOpen`. |
+| Setup | `setup.ts setupFacts` — the "Get started" card's steps, done from the books (never from a click): `profileComplete` (company address and state), `featuresReviewed` (an F11 save in the edit log that changed something other than password protection), `invoicePrintingSet` (config.invoice differs from the defaults), `hasOwnLedgers` (a non-predefined ledger), `hasItems`, `hasSales` (any sales voucher), `backupFolderSet` (F12 › Backup folder chosen), and (2.0) `numberingSet` (`numberingSetUp`: a non-POS Sales voucher type whose numbering differs from the seed — method, prefix, suffix, start, width, restart —, a dated prefix / suffix row on one, or a next number set for one on the Invoice Numbering screen, found in the edit log) and `hasReceipts` (any receipt voucher). A few one-row reads inside the memo, so any save refreshes them. The renderer (`modules/dashboard/lib/model.ts startSteps`) adds the steps the user ticked and filters by permission / `nav.canOpen`. |
 
 ## Performance
 
@@ -72,6 +72,19 @@ says whether it was served from the memo (`cached`) and how long the call took (
 
 ## Screen (`src/renderer/modules/dashboard`)
 
+- **Home variant (2.0)** — `dashboard.home {embedded: true}` in Home's right panel: four tiles
+  (`lib/model.ts homeKpis`: To collect → Receivables, To pay → Payables, Cash & bank → Cash/Bank Books,
+  Sales this month → the Sales register of the month; negatives relabelled, never a bare minus), Needs
+  your attention, Get started and the last five vouchers (`HOME_RECENT_LIMIT`). **Show more insights**
+  (`homeSections`) mounts the trend chart, ageing, cash & bank, GST and the cards other modules contribute
+  (`ModuleDef.dashboardCards`, which run their own queries) only while open; the choice is kept in
+  `localStorage['pevqori.home.insights']` (try/catch — without storage it is per session). Home therefore
+  issues one `dashboard.summary` request and no module-card queries until asked. The full Dashboard
+  (Reports menu, Go To) is unchanged.
+- Get started (2.0) adds **Set your invoice number series** (`accounts.numbering`, done from
+  `setup.numberingSet`; left out until that screen is registered) and **Record a payment** (Receipt F6
+  via `shell.openVoucher('receipt')`, done from `setup.hasReceipts`); the invoice printing step reads
+  **Choose what prints on your invoice** (`print.settings`, `setup.invoicePrintingSet`).
 - Request: `summaryInput(workingDate, period)` → `asOf` = the working date, or the period end when the
   period ends earlier. The screens the balances drill into (Receivables / Payables, Reorder Status)
   report as on the period end and Cash/Bank Books / Ledger are opened with `to = asOf`, so a tile and

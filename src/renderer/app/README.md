@@ -452,7 +452,7 @@ may handle `F8` itself to switch the voucher type). The full list renders in the
 Every screen's actions show in the screen bar's **command bar** (`lib/commandBar.ts` → `ui/CommandBar.tsx`):
 the `primary` action as the filled button; up to 3 / 2 / 1 more buttons by width — first the actions you
 mark `prominent: true` (declaration order), then Alter (Alt+A), Print (Alt+P), Share (Alt+W), Export
-(Alt+E), More details (Ctrl+I), Create (Alt+C); everything else, then F11 / F12 / F1, under **More ▾**
+(Alt+E), More details (Ctrl+I), Create (Alt+C); everything else, then F11 / F12 (for users who may open them) / F1, under **More ▾**
 with its key. Hidden actions never show; disabled ones show their `hint` in More. The command bar never
 registers keys, so `prominent` changes only what is visible. Write `prominent` (and any new action field)
 **after `onClick`** — never straight after `label` — or `lib/keyConventions.test.ts` cannot see the action.

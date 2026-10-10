@@ -1,13 +1,19 @@
 #!/usr/bin/env node
-// Procedurally draws the Pevqori app icon and writes:
-//   build/icon.png  512×512 RGBA PNG (electron-builder / Linux / docs)
-//   build/icon.ico  Windows icon: 16–128 px as 32-bit BMP entries + 256 px as an embedded PNG
-// Design: rounded square with an indigo → deep-blue diagonal gradient, a faint ledger page with a
-// margin rule, and a white ₹ glyph built from simple shapes (bars, half-ring bowl, diagonal leg).
-// Uses only node:* modules (zlib for PNG deflate; CRC32 implemented here).
+// Procedurally draws the Pevqori brand images and writes:
+//   build/icon.png              512×512 RGBA PNG (electron-builder / Linux / docs)
+//   build/icon.ico              Windows icon: 16–128 px as 32-bit BMP entries + 256 px as an embedded PNG
+//   build/installerSidebar.bmp  164×314 24-bit BMP: installer/uninstaller welcome + finish pages
+//   build/installerHeader.bmp   150×57 24-bit BMP: installer page header
+// Icon: rounded square with an indigo → deep-blue diagonal gradient, a faint ledger page with a margin
+// rule, and a white ₹ glyph built from simple shapes (bars, half-ring bowl, diagonal leg).
+// Installer bitmaps: slate-950 background, the icon as the brand mark and a "Pevqori" wordmark whose
+// letters are drawn from the same simple shapes (no font file, so the output is identical everywhere).
+// Uses only node:* modules (zlib for PNG deflate; CRC32 implemented here). Deterministic: the same
+// script always writes the same bytes (src/main/make-icon.test.ts compares the committed bitmaps).
 //
-//   node scripts/make-icon.mjs              (re)generate both files
-//   node scripts/make-icon.mjs --if-missing only when one is missing (CI; keeps a hand-made icon)
+//   node scripts/make-icon.mjs              (re)generate every file
+//   node scripts/make-icon.mjs --if-missing only the groups (icon / installer bitmaps) with a missing file
+//                                           (CI; keeps a hand-made icon)
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -85,7 +91,7 @@ function mixWhite(c, a) {
 }
 
 /** Rasterise at `size` px with N×N supersampling. Returns straight-alpha RGBA bytes (top-down). */
-function render(size) {
+export function render(size) {
   const n = size <= 64 ? 8 : 4;
   const detail = size >= 48; // the faint ledger page only adds noise at tiny sizes
   const scale = 512 / size;
@@ -152,7 +158,7 @@ function chunk(type, data) {
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-function encodePng(rgba, width, height) {
+export function encodePng(rgba, width, height) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
@@ -212,7 +218,7 @@ function encodeDib(rgba, size) {
   return Buffer.concat([header, xor, mask]);
 }
 
-function encodeIco(images) {
+export function encodeIco(images) {
   const dir = Buffer.alloc(6);
   dir.writeUInt16LE(0, 0); // reserved
   dir.writeUInt16LE(1, 2); // type: icon
@@ -237,7 +243,7 @@ function encodeIco(images) {
 
 // ───────────────────────────── verification ─────────────────────────────
 
-function verifyPng(buf, expected) {
+export function verifyPng(buf, expected) {
   if (!buf.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error('PNG signature mismatch');
   if (buf.toString('ascii', 12, 16) !== 'IHDR') throw new Error('first chunk is not IHDR');
   const w = buf.readUInt32BE(16);
@@ -260,7 +266,7 @@ function verifyPng(buf, expected) {
   return `${w}×${h} RGBA, ${buf.length} bytes`;
 }
 
-function verifyIco(buf, sizes) {
+export function verifyIco(buf, sizes) {
   if (buf.readUInt16LE(0) !== 0 || buf.readUInt16LE(2) !== 1) throw new Error('ICO header invalid');
   const count = buf.readUInt16LE(4);
   if (count !== sizes.length) throw new Error('ICO entry count mismatch');
@@ -276,28 +282,261 @@ function verifyIco(buf, sizes) {
   return `${count} images (${sizes.join(', ')} px), ${buf.length} bytes`;
 }
 
-// ───────────────────────────── main ─────────────────────────────
 
-const pngPath = path.join(outDir, 'icon.png');
-const icoPath = path.join(outDir, 'icon.ico');
-if (process.argv.includes('--if-missing') && existsSync(pngPath) && existsSync(icoPath)) {
-  console.log('build/icon.png and build/icon.ico exist — leaving them unchanged');
-  process.exit(0);
+// ───────────────────────────── installer bitmaps ─────────────────────────────
+
+/** slate-950 #020617 — the installer canvas (docs/ARCHITECTURE.md "Visual language"). */
+export const INSTALLER_BG = [2, 6, 23];
+/** The wordmark colour: white, like the ₹ in the icon. */
+const INK = [255, 255, 255];
+
+export const SIDEBAR = { width: 164, height: 314 };
+export const HEADER = { width: 150, height: 57 };
+
+// Wordmark glyphs on a font-unit grid: y grows UP from the baseline, x-height 10, cap height 14,
+// descender 4, stroke 2.2. Each glyph is a point test plus its advance width.
+const S = 2.2;
+const XH = 10;
+const CAP = 14;
+
+function annulus(x, y, cx, cy, R, r) {
+  const d = (x - cx) ** 2 + (y - cy) ** 2;
+  return d <= R * R && d >= r * r;
 }
 
-mkdirSync(outDir, { recursive: true });
+function box(x, y, x0, y0, x1, y1) {
+  return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+}
 
-const png512 = encodePng(render(512), 512, 512);
-writeFileSync(pngPath, png512);
+function capsule(x, y, ax, ay, bx, by, hw) {
+  return inCapsule(x, y, { ax, ay, bx, by, hw });
+}
 
-const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
-const ico = encodeIco(
-  ICO_SIZES.map((size) => {
-    const rgba = render(size);
-    return { size, data: size >= 256 ? encodePng(rgba, size, size) : encodeDib(rgba, size) };
-  }),
-);
-writeFileSync(icoPath, ico);
+const RING_R = XH / 2;
+const RING_r = RING_R - S;
+const ring = (x, y) => annulus(x, y, RING_R, RING_R, RING_R, RING_r);
 
-console.log(`build/icon.png  ${verifyPng(readFileSync(pngPath), 512)}`);
-console.log(`build/icon.ico  ${verifyIco(readFileSync(icoPath), ICO_SIZES)}`);
+/** @type {Record<string, { width: number; inside: (x: number, y: number) => boolean }>} */
+const GLYPHS = {
+  P: {
+    width: 8.6,
+    inside: (x, y) =>
+      box(x, y, 0, 0, S, CAP) || // stem
+      box(x, y, 0, CAP - S, 4.6, CAP) || // top bar
+      box(x, y, 0, 6, 4.6, 6 + S) || // middle bar
+      (x >= 4.6 && annulus(x, y, 4.6, 10.1, 4, 4 - S)), // bowl
+  },
+  e: {
+    width: XH,
+    inside: (x, y) => {
+      if (box(x, y, 0.4, 4.3, XH - 0.4, 4.3 + 0.85 * S)) return true; // crossbar
+      if (!ring(x, y)) return false;
+      const a = Math.atan2(y - RING_R, x - RING_R);
+      return !(a > -0.85 && a < -0.05); // the opening, lower right
+    },
+  },
+  v: {
+    width: 9.4,
+    inside: (x, y) => y >= 0 && y <= XH && (capsule(x, y, 1.1, XH - 1.1, 4.7, 1.1, S / 2) || capsule(x, y, 8.3, XH - 1.1, 4.7, 1.1, S / 2)),
+  },
+  q: {
+    width: XH,
+    inside: (x, y) => ring(x, y) || box(x, y, XH - S, -4, XH, XH - 1.2),
+  },
+  o: { width: XH, inside: (x, y) => ring(x, y) },
+  r: {
+    width: 6.6,
+    inside: (x, y) => box(x, y, 0, 0, S, XH) || (y >= 6 && x >= S - 0.1 && x <= 6.6 && annulus(x, y, S + 3.4, 6, 4, 4 - S)),
+  },
+  i: {
+    width: S,
+    inside: (x, y) => box(x, y, 0, 0, S, XH) || (x - S / 2) ** 2 + (y - 12.7) ** 2 <= 1.4 * 1.4,
+  },
+};
+const WORD = 'Pevqori';
+const TRACKING = 1.5;
+/** Font units: the wordmark spans x 0…WORD_WIDTH and y −4 (descender) … 14 (cap height). */
+export const WORD_WIDTH = [...WORD].reduce((w, ch) => w + GLYPHS[ch].width, 0) + TRACKING * (WORD.length - 1);
+
+function inWord(x, y) {
+  let x0 = 0;
+  for (const ch of WORD) {
+    const g = GLYPHS[ch];
+    if (x >= x0 - 0.5 && x <= x0 + g.width + 0.5) {
+      if (g.inside(x - x0, y)) return true;
+    }
+    x0 += g.width + TRACKING;
+  }
+  return false;
+}
+
+/** A width × height RGB canvas (top-down rows, 3 bytes per pixel) filled with `bg`. */
+function canvas(width, height, bg) {
+  const px = Buffer.alloc(width * height * 3);
+  for (let i = 0; i < width * height; i++) px.set(bg, i * 3);
+  return { width, height, px };
+}
+
+/** Composite the icon (straight-alpha RGBA from render()) at (left, top). */
+function drawIcon(c, size, left, top) {
+  const rgba = render(size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const s = (y * size + x) * 4;
+      const a = rgba[s + 3] / 255;
+      if (a === 0) continue;
+      const d = ((top + y) * c.width + left + x) * 3;
+      for (let k = 0; k < 3; k++) c.px[d + k] = Math.round(rgba[s + k] * a + c.px[d + k] * (1 - a));
+    }
+  }
+}
+
+/** Draw the wordmark with its left edge at `left`, baseline at `baseline` (px), `scale` px per font unit. */
+function drawWord(c, left, baseline, scale) {
+  const n = 4;
+  const x0 = Math.max(0, Math.floor(left));
+  const x1 = Math.min(c.width, Math.ceil(left + WORD_WIDTH * scale));
+  const y0 = Math.max(0, Math.floor(baseline - (CAP + 0.5) * scale));
+  const y1 = Math.min(c.height, Math.ceil(baseline + 4.5 * scale));
+  for (let py = y0; py < y1; py++) {
+    for (let px = x0; px < x1; px++) {
+      let hits = 0;
+      for (let sy = 0; sy < n; sy++) {
+        for (let sx = 0; sx < n; sx++) {
+          const fx = (px + (sx + 0.5) / n - left) / scale;
+          const fy = (baseline - (py + (sy + 0.5) / n)) / scale;
+          if (inWord(fx, fy)) hits++;
+        }
+      }
+      if (hits === 0) continue;
+      const a = hits / (n * n);
+      const d = (py * c.width + px) * 3;
+      for (let k = 0; k < 3; k++) c.px[d + k] = Math.round(INK[k] * a + c.px[d + k] * (1 - a));
+    }
+  }
+}
+
+/** Installer sidebar (welcome / finish pages): brand mark centred above the wordmark. */
+export function renderInstallerSidebar() {
+  const { width, height } = SIDEBAR;
+  const c = canvas(width, height, INSTALLER_BG);
+  const icon = 80;
+  drawIcon(c, icon, Math.round((width - icon) / 2), 84);
+  const scale = 1.75;
+  drawWord(c, Math.round((width - WORD_WIDTH * scale) / 2), 84 + icon + 26 + CAP * scale, scale);
+  return c;
+}
+
+/** Installer header (inner pages): brand mark at the left, wordmark beside it. */
+export function renderInstallerHeader() {
+  const { width, height } = HEADER;
+  const c = canvas(width, height, INSTALLER_BG);
+  const icon = 37;
+  const top = Math.round((height - icon) / 2);
+  drawIcon(c, icon, 10, top);
+  const left = 10 + icon + 8;
+  const scale = Math.min(1.3, (width - left - 8) / WORD_WIDTH);
+  drawWord(c, left, Math.round(height / 2 + (CAP * scale) / 2), scale);
+  return c;
+}
+
+// ───────────────────────────── BMP writer ─────────────────────────────
+
+/**
+ * 24-bit uncompressed Windows BMP (BITMAPFILEHEADER + 40-byte BITMAPINFOHEADER, bottom-up rows padded
+ * to 4 bytes, BGR) — the format the installer's MUI pages load.
+ */
+export function encodeBmp({ width, height, px }) {
+  const stride = Math.ceil((width * 3) / 4) * 4;
+  const imageSize = stride * height;
+  const buf = Buffer.alloc(54 + imageSize);
+  buf.write('BM', 0, 'ascii');
+  buf.writeUInt32LE(buf.length, 2); // file size
+  buf.writeUInt32LE(54, 10); // pixel data offset
+  buf.writeUInt32LE(40, 14); // biSize
+  buf.writeInt32LE(width, 18);
+  buf.writeInt32LE(height, 22); // positive: bottom-up
+  buf.writeUInt16LE(1, 26); // planes
+  buf.writeUInt16LE(24, 28); // bits per pixel
+  buf.writeUInt32LE(0, 30); // BI_RGB
+  buf.writeUInt32LE(imageSize, 34);
+  buf.writeInt32LE(2835, 38); // 72 dpi
+  buf.writeInt32LE(2835, 42);
+  for (let y = 0; y < height; y++) {
+    const row = 54 + (height - 1 - y) * stride;
+    for (let x = 0; x < width; x++) {
+      const s = (y * width + x) * 3;
+      const d = row + x * 3;
+      buf[d] = px[s + 2];
+      buf[d + 1] = px[s + 1];
+      buf[d + 2] = px[s];
+    }
+  }
+  return buf;
+}
+
+/** Checks a BMP's headers; returns a summary line or throws. */
+export function verifyBmp(buf, width, height) {
+  if (buf.toString('ascii', 0, 2) !== 'BM') throw new Error('BMP signature mismatch');
+  if (buf.readUInt32LE(2) !== buf.length) throw new Error('BMP file size field mismatch');
+  if (buf.readUInt32LE(14) !== 40) throw new Error('BMP is not BITMAPINFOHEADER (v3)');
+  const w = buf.readInt32LE(18);
+  const h = buf.readInt32LE(22);
+  if (w !== width || h !== height) throw new Error(`BMP is ${w}×${h}, expected ${width}×${height}`);
+  if (buf.readUInt16LE(28) !== 24 || buf.readUInt32LE(30) !== 0) throw new Error('BMP is not 24-bit uncompressed');
+  const offset = buf.readUInt32LE(10);
+  if (offset + Math.ceil((w * 3) / 4) * 4 * h !== buf.length) throw new Error('BMP pixel data size mismatch');
+  return `${w}×${h} 24-bit BMP, ${buf.length} bytes`;
+}
+
+// ───────────────────────────── main ─────────────────────────────
+
+export const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
+
+export function iconFiles() {
+  return {
+    png: encodePng(render(512), 512, 512),
+    ico: encodeIco(
+      ICO_SIZES.map((size) => {
+        const rgba = render(size);
+        return { size, data: size >= 256 ? encodePng(rgba, size, size) : encodeDib(rgba, size) };
+      }),
+    ),
+  };
+}
+
+export function installerFiles() {
+  return { sidebar: encodeBmp(renderInstallerSidebar()), header: encodeBmp(renderInstallerHeader()) };
+}
+
+function main() {
+  const ifMissing = process.argv.includes('--if-missing');
+  const pngPath = path.join(outDir, 'icon.png');
+  const icoPath = path.join(outDir, 'icon.ico');
+  const sidebarPath = path.join(outDir, 'installerSidebar.bmp');
+  const headerPath = path.join(outDir, 'installerHeader.bmp');
+  mkdirSync(outDir, { recursive: true });
+
+  if (ifMissing && existsSync(pngPath) && existsSync(icoPath)) {
+    console.log('build/icon.png and build/icon.ico exist — leaving them unchanged');
+  } else {
+    const { png, ico } = iconFiles();
+    writeFileSync(pngPath, png);
+    writeFileSync(icoPath, ico);
+    console.log(`build/icon.png  ${verifyPng(readFileSync(pngPath), 512)}`);
+    console.log(`build/icon.ico  ${verifyIco(readFileSync(icoPath), ICO_SIZES)}`);
+  }
+
+  if (ifMissing && existsSync(sidebarPath) && existsSync(headerPath)) {
+    console.log('build/installerSidebar.bmp and build/installerHeader.bmp exist — leaving them unchanged');
+  } else {
+    const { sidebar, header } = installerFiles();
+    writeFileSync(sidebarPath, sidebar);
+    writeFileSync(headerPath, header);
+    console.log(`build/installerSidebar.bmp  ${verifyBmp(readFileSync(sidebarPath), SIDEBAR.width, SIDEBAR.height)}`);
+    console.log(`build/installerHeader.bmp   ${verifyBmp(readFileSync(headerPath), HEADER.width, HEADER.height)}`);
+  }
+}
+
+// Run only as a script (`node scripts/make-icon.mjs`), not when a test imports the module.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

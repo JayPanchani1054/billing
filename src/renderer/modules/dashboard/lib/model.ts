@@ -227,6 +227,8 @@ export const DRILL = {
   features: (): DrillTarget => ({ screen: 'company.features' }),
   profile: (): DrillTarget => ({ screen: 'company.profile' }),
   invoicePrinting: (): DrillTarget => ({ screen: 'print.settings' }),
+  /** 2.0 Invoice Numbering screen (accounts module; absent until registered — the step is then left out). */
+  invoiceNumbering: (): DrillTarget => ({ screen: 'accounts.numbering' }),
   backupSettings: (): DrillTarget => ({ screen: 'company.config', params: { tab: 'backup' } }),
   /** Ledger Creation under a group (reserved code, e.g. 'SUNDRY_DEBTORS'); Alt+C-style "Under" stays editable. */
   newLedger: (groupCode?: 'SUNDRY_DEBTORS' | 'SUNDRY_CREDITORS' | 'BANK_ACCOUNTS'): DrillTarget => ({ screen: 'accounts.ledger.form', params: groupCode ? { groupCode } : {} }),
@@ -437,15 +439,25 @@ export function gstDueLine(g: DashboardGst, asOf: string): string {
 
 // ───────────────────────────── Getting started ─────────────────────────────
 
-export type StartStepId = 'profile' | 'features' | 'printing' | 'ledgers' | 'items' | 'sale' | 'backup' | 'xmlImport';
+export type StartStepId = 'profile' | 'features' | 'numbering' | 'printing' | 'ledgers' | 'items' | 'sale' | 'payment' | 'backup' | 'xmlImport';
+
+/** A voucher to open with its F-key's checks (shell.openVoucher), instead of a screen. */
+export type StartVoucherTarget = 'sales-voucher' | 'receipt-voucher';
+
+/** The base type a voucher target opens. */
+export const START_VOUCHER_BASE: Readonly<Record<StartVoucherTarget, 'sales' | 'receipt'>> = { 'sales-voucher': 'sales', 'receipt-voucher': 'receipt' };
+
+export function isVoucherTarget(t: DrillTarget | StartVoucherTarget): t is StartVoucherTarget {
+  return typeof t === 'string';
+}
 
 export interface StartStep {
   id: StartStepId;
   title: string;
   body: string;
   action: string;
-  /** Screen to open, or `sales-voucher` for the sales invoice (shell.openVoucher). */
-  target: DrillTarget | 'sales-voucher';
+  /** Screen to open, or a voucher (`sales-voucher` F8, `receipt-voucher` F6) opened by shell.openVoucher. */
+  target: DrillTarget | StartVoucherTarget;
   shortcut?: string;
   /** Done — from the books (`setup`), or ticked by the user. Clicking the step never marks it. */
   done: boolean;
@@ -471,10 +483,12 @@ export interface StartStepsInput {
 }
 
 /**
- * The company's first steps — one list for the whole app (the Gateway shows it through the
- * dashboard): company details, features, invoice printing, ledgers, items, the first sale and
- * backups, plus the XML data import while the books are empty. Filtered by what the user may do
- * and open; each step is done when the books say so (`setup`) or when the user ticked it.
+ * The company's first steps — one list for the whole app (Home shows it through the dashboard):
+ * company details, features, the invoice number series (2.0), what prints on the invoice, ledgers,
+ * items, the first sale, the first payment received (2.0) and backups, plus the XML data import while
+ * the books are empty. Filtered by what the user may do and open (a step whose screen is not
+ * registered or not allowed is left out); each step is done when the books say so (`setup`) or when
+ * the user ticked it.
  */
 export function startSteps(o: StartStepsInput): StartStep[] {
   const canOpen = o.canOpen ?? (() => true);
@@ -482,7 +496,7 @@ export function startSteps(o: StartStepsInput): StartStep[] {
   const ticked = new Set(o.ticked ?? []);
   const steps: StartStep[] = [];
   const add = (step: Omit<StartStep, 'done' | 'doneFromBooks'>, fromBooks: boolean | undefined): void => {
-    if (step.target !== 'sales-voucher' && !canOpen(step.target.screen)) return;
+    if (!isVoucherTarget(step.target) && !canOpen(step.target.screen)) return;
     const books = fromBooks === true;
     steps.push({ ...step, doneFromBooks: books, done: books || ticked.has(step.id) });
   };
@@ -490,7 +504,23 @@ export function startSteps(o: StartStepsInput): StartStep[] {
     add({ id: 'profile', title: 'Check your company details', body: 'Address, GSTIN and logo appear on every invoice.', action: 'Company details', target: DRILL.profile() }, f?.profileComplete);
     add({ id: 'features', title: 'Switch on what you need', body: 'GST, inventory, bill-wise dues, godowns and more.', action: 'Features', target: DRILL.features(), shortcut: 'F11' }, f?.featuresReviewed);
     add(
-      { id: 'printing', title: 'Set up invoice printing', body: 'Template, bank details, UPI QR code and declaration — with a preview.', action: 'Invoice printing', target: DRILL.invoicePrinting() },
+      {
+        id: 'numbering',
+        title: 'Set your invoice number series',
+        body: 'Prefix, starting number and a fresh series every financial year — e.g. INV/26-27/0001.',
+        action: 'Invoice numbering',
+        target: DRILL.invoiceNumbering(),
+      },
+      f?.numberingSet,
+    );
+    add(
+      {
+        id: 'printing',
+        title: 'Choose what prints on your invoice',
+        body: 'Template, logo, bank details, UPI QR code, declaration and terms — with a live preview.',
+        action: 'Invoice printing',
+        target: DRILL.invoicePrinting(),
+      },
       f?.invoicePrintingSet,
     );
   }
@@ -500,6 +530,10 @@ export function startSteps(o: StartStepsInput): StartStep[] {
   }
   if (o.createVouchers) {
     add({ id: 'sale', title: 'Record your first sale', body: 'Sales, dues, cash and GST then appear here.', action: 'Sales invoice', target: 'sales-voucher', shortcut: 'F8' }, f?.hasSales);
+    add(
+      { id: 'payment', title: 'Record a payment', body: 'When a customer pays you, enter the receipt so “To collect” stays right.', action: 'Receipt', target: 'receipt-voucher', shortcut: 'F6' },
+      f?.hasReceipts,
+    );
   }
   if (o.manageCompany) {
     add({ id: 'backup', title: 'Set up backups', body: 'Choose a backup folder — ideally on another drive or a USB disk.', action: 'Backup settings', target: DRILL.backupSettings() }, f?.backupFolderSet);
@@ -564,6 +598,101 @@ export function parseStartPrefs(raw: string | null | undefined): StartPrefs {
 export function toggleTicked(prefs: StartPrefs, id: string, on: boolean): StartPrefs {
   const ticked = prefs.ticked.filter((x) => x !== id);
   return { ...prefs, ticked: on ? [...ticked, id] : ticked };
+}
+
+// ───────────────────────────── Home variant (2.0) ─────────────────────────────
+
+/** One of the four Home tiles: To collect, To pay, Cash & bank, Sales this month. */
+export interface HomeKpi {
+  id: 'collect' | 'pay' | 'cashBank' | 'salesMonth';
+  /** Relabelled instead of a minus sign when the figure is negative ('Advances from customers'). */
+  label: string;
+  icon: 'users' | 'truck' | 'wallet' | 'rupee';
+  /** Never negative (see label). */
+  value: Paise;
+  caption: string;
+  /** Sales this month only: % vs the same month last year (null when last year was 0). */
+  delta?: number | null;
+  /** Where the tile drills (nav.canOpen still decides whether it is clickable). */
+  target: DrillTarget;
+}
+
+/**
+ * The Home tiles, in this order: who owes you, whom you owe, the money you have, and this month's
+ * sales. `workingDate`: when the balances are as on a past period end (summaryInput) the month tile
+ * names that month instead of "this month".
+ */
+export function homeKpis(s: DashboardSummary, workingDate?: string): HomeKpi[] {
+  const r = s.receivables;
+  const p = s.payables;
+  const collect = signedKpi('To collect', r.total, 'Advances from customers');
+  const pay = signedKpi('To pay', p.total, 'Advances to suppliers');
+  const money = signedKpi('Cash & bank', s.cashBank.cashTotal + s.cashBank.bankTotal, 'Cash & bank (overdrawn)');
+  const past = workingDate !== undefined && s.asOf !== workingDate;
+  const monthLabel = past ? `Sales in ${monthLong(s.asOf.slice(0, 7))}` : 'Sales this month';
+  const sales = signedKpi(monthLabel, s.sales.mtd, past ? `Net returns in ${monthLong(s.asOf.slice(0, 7))}` : 'Net returns this month');
+  const lastYear = s.sales.lastYear.mtd;
+  return [
+    {
+      id: 'collect',
+      label: collect.label,
+      icon: 'users',
+      value: collect.value,
+      caption: r.overdue > 0 ? `${compact(r.overdue)} overdue from ${plural(r.overduePartyCount, 'customer')}` : 'Nothing overdue',
+      target: DRILL.receivables(),
+    },
+    {
+      id: 'pay',
+      label: pay.label,
+      icon: 'truck',
+      value: pay.value,
+      caption:
+        p.overdue > 0
+          ? `${compact(p.overdue)} overdue`
+          : p.dueSoon.count > 0
+            ? `${compact(p.dueSoon.amount)} due in ${p.dueSoon.days} days`
+            : `Nothing due in ${p.dueSoon.days} days`,
+      target: DRILL.payables(),
+    },
+    { id: 'cashBank', label: money.label, icon: 'wallet', value: money.value, caption: cashBankCaption(s.cashBank), target: DRILL.cashBank(balanceRange(s)) },
+    {
+      id: 'salesMonth',
+      label: sales.label,
+      icon: 'rupee',
+      value: sales.value,
+      caption: lastYear === 0 ? 'Nothing in the same month last year' : `Same month last year ${compact(lastYear)}`,
+      delta: deltaPercent(s.sales.mtd, lastYear),
+      target: DRILL.salesRegister(s.ranges.mtd),
+    },
+  ];
+}
+
+/** Recent vouchers listed on Home (the full dashboard lists all the summary returns). */
+export const HOME_RECENT_LIMIT = 5;
+
+export type HomeSection = 'start' | 'kpis' | 'attention' | 'recent' | 'trend' | 'ageing' | 'cashBank' | 'gst' | 'moduleCards';
+
+/** Mounted only after "Show more insights" (each one reads more data; module cards run their own queries). */
+export const HOME_INSIGHTS: readonly HomeSection[] = ['trend', 'ageing', 'cashBank', 'gst', 'moduleCards'];
+
+/**
+ * What the Home variant of the dashboard mounts: the four tiles, Needs your attention, Get started
+ * (it hides itself once complete) and the last five vouchers — Get started first while the books are
+ * empty — and, only while "Show more insights" is open, the remaining cards. The full Dashboard
+ * (Reports menu) is unchanged.
+ */
+export function homeSections(o: { hasVouchers: boolean; insightsOpen: boolean }): { main: HomeSection[]; insights: HomeSection[] } {
+  return {
+    main: o.hasVouchers ? ['kpis', 'attention', 'start', 'recent'] : ['start', 'kpis', 'attention'],
+    insights: o.insightsOpen ? [...HOME_INSIGHTS] : [],
+  };
+}
+
+/** "Show more insights" is remembered per user profile (localStorage). */
+export const HOME_INSIGHTS_KEY = 'pevqori.home.insights';
+
+export function parseInsightsOpen(raw: string | null | undefined): boolean {
+  return raw === '1';
 }
 
 // ───────────────────────────── Export ─────────────────────────────

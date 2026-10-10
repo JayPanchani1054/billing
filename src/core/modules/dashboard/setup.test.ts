@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_CONFIG } from '../../../shared/settings.ts';
 import { createTestCompany } from '../../testing/fixtures.ts';
+import { accountsRoutes } from '../accounts/routes.ts';
 import { companyRoutes } from '../company/routes.ts';
 import { invoicePrintingCustomised } from './setup.ts';
 import { summaryForCtx } from './summary.ts';
@@ -24,6 +25,8 @@ test('a new company: only what the create wizard filled in counts as done', () =
     hasItems: false,
     hasSales: false,
     backupFolderSet: false,
+    numberingSet: false, // the seeded Sales series: automatic, no prefix, starts at 1
+    hasReceipts: false,
   });
   t.close();
 });
@@ -52,13 +55,42 @@ test('each step turns done from the data, and the memoised summary picks it up',
   t.close();
 });
 
-test('first sale: done once a sales voucher exists', () => {
+test('first sale and first receipt: done once such a voucher exists', () => {
   const b = buildDashboardBooks();
   const s = summaryForCtx(b.t.ctx, INPUT).setup;
   assert.equal(s.hasSales, true);
+  assert.equal(s.hasReceipts, true);
   assert.equal(s.hasOwnLedgers, true);
   assert.equal(s.hasItems, true);
   b.t.close();
+});
+
+test('invoice number series (2.0): a changed Sales series, a dated prefix row or a next number set counts; POS series do not', async () => {
+  const t = createTestCompany({ today: TODAY });
+  const sales = t.ids.voucherTypes.sales;
+  // A POS Sales type comes with its own "POS/" series (pos/store.ts) — not the owner's choice.
+  t.db.run(
+    `INSERT INTO voucher_types (guid, name, abbreviation, base_type, parent_id, is_predefined, is_active, numbering_method, numbering_prefix, numbering_restart, config, created_at, updated_at)
+     VALUES ('pos-guid', 'POS Sales', 'POS', 'sales', :parent, 0, 1, 'automatic', 'POS/', 'yearly', '{"posInvoice":true}', :ts, :ts)`,
+    { parent: sales, ts: '2026-10-08T00:00:00.000Z' },
+  );
+  assert.equal(summaryForCtx(t.ctx, INPUT).setup.numberingSet, false);
+  // A save that leaves the numbering as seeded is not a set-up.
+  await t.callOk(accountsRoutes, 'accounts.voucherType.save', { id: sales, numbering: { restart: 'yearly' } });
+  assert.equal(summaryForCtx(t.ctx, INPUT).setup.numberingSet, false);
+  await t.callOk(accountsRoutes, 'accounts.voucherType.save', { id: sales, numbering: { prefix: 'INV/{FY}/', width: 4 } });
+  assert.equal(summaryForCtx(t.ctx, INPUT).setup.numberingSet, true);
+  t.close();
+
+  const rows = createTestCompany({ today: TODAY });
+  await rows.callOk(accountsRoutes, 'accounts.voucherType.save', { id: rows.ids.voucherTypes.sales, numbering: { prefixRows: [{ applicableFrom: '2026-07-01', text: 'A/' }] } });
+  assert.equal(summaryForCtx(rows.ctx, INPUT).setup.numberingSet, true, 'a dated prefix row');
+  rows.close();
+
+  const next = createTestCompany({ today: TODAY });
+  await next.callOk(accountsRoutes, 'accounts.voucherType.setNextNumber', { id: next.ids.voucherTypes.sales, date: TODAY, next: 41, acknowledgeWarnings: true });
+  assert.equal(summaryForCtx(next.ctx, INPUT).setup.numberingSet, true, 'a next number set on the Invoice Numbering screen');
+  next.close();
 });
 
 test('password protection alone is not a review of the features', async () => {

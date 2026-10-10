@@ -82,6 +82,31 @@ export function defaultDraft(today: string): CompanyDraft {
 }
 
 /**
+ * "Create with recommended settings" (2.0, on the GST & Tax step): the Books, Features and Security
+ * steps take their defaults — financial year April to March from the current year, stock and bill-wise
+ * dues on, password protection on with the owner "owner" — and the wizard jumps to Review. A step the
+ * user already opened (`furthest`: index of the furthest step reached) keeps what they chose there, and
+ * a typed owner name / password is never thrown away.
+ */
+export function applyRecommended(d: CompanyDraft, today: string, furthest = WIZARD_STEPS.indexOf('gst')): CompanyDraft {
+  const def = defaultDraft(today);
+  const unopened = (step: WizardStep) => furthest < WIZARD_STEPS.indexOf(step);
+  return {
+    ...d,
+    ...(unopened('books') ? { fyStartMonth: def.fyStartMonth, booksFrom: def.booksFrom } : {}),
+    ...(unopened('features') ? { features: { ...def.features } } : {}),
+    ...(unopened('security') ? { secure: def.secure, ownerUsername: d.ownerUsername.trim() ? d.ownerUsername : def.ownerUsername } : {}),
+  };
+}
+
+/** One sentence under the button: what "recommended" means for this draft's dates. */
+export function recommendedSummary(today: string): string {
+  const def = defaultDraft(today);
+  const fy = financialYear(def.booksFrom, def.fyStartMonth);
+  return `Financial year April to March (FY ${fy.label}, books from ${formatDate(def.booksFrom)}), stock and bill-wise dues on, password protection on. Change any of it later with F11 and F12.`;
+}
+
+/**
  * Typing a GSTIN fills the state and PAN when it is valid (the state code and PAN are part of
  * the GSTIN), so the user never types them twice.
  */

@@ -1,6 +1,7 @@
 /**
- * Dashboard module: 'dashboard.home' {embedded?}. The Gateway renders it inline in its right panel
- * with { embedded: true } (compact, no hotkeys); Go To / the Reports menu open the full page.
+ * Dashboard module: 'dashboard.home' {embedded?}. Home renders it inline in its right panel with
+ * { embedded: true } (the 2.0 Home variant: four tiles, attention, Get started, recent vouchers and
+ * "Show more insights"; no hotkeys); Go To / the Reports menu open the full page (unchanged).
  * Data: 'dashboard.summary' (src/core/modules/dashboard). See src/core/modules/dashboard/README.md.
  */
 import type { ModuleDef } from '../../app/registry.ts';
