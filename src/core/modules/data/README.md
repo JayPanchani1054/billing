@@ -291,7 +291,7 @@ Nothing is written.
 
 `{ masters, vouchers, from, to }` → `{ fileName, bytes, mimeType, masters: counts | null, openingsAsOf,
 vouchers, skipped: [{reason, count}] }`. For the CA / auditor who works in another accounting program (its Import
-› Masters / Transactions), and to move books back to your previous accounting software.
+› Masters / Transactions), and to move books back to your previous accounting program.
 
 - **File.** `ENVELOPE › HEADER (<REQUEST_TAG> Import Data) › BODY › IMPORTDATA › REQUESTDESC (REPORTNAME
   'All Masters' | 'Vouchers', STATICVARIABLES/SVCURRENTCOMPANY) › REQUESTDATA › <MESSAGE_TAG>*`, UTF-16LE

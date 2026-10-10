@@ -1378,10 +1378,10 @@ unchanged. Each problem is explained in plain words; **Alt+R** checks again.
 Every export is recorded in the edit log and needs the *Export* permission; importing needs *Import* plus
 the right to create the masters or vouchers concerned.
 
-### 13.5 Moving from another accounting program (XML data import), and XML data export
+### 13.5 XML data import and export (moving to or from another accounting program)
 
 **XML Data Import** (*Data › **XML Data Import***) brings your masters and vouchers across from your
-previous accounting software, if it can export them as XML:
+previous accounting program, if it can export them as XML:
 
 1. In your previous accounting program, open the company and export its **masters** and **transactions**
    as XML (see that program's help for its export command). Copy the `.xml` files to this computer.
