@@ -447,7 +447,7 @@ function jsonOrNull(v: unknown): string | null {
   return JSON.stringify(v);
 }
 
-export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResult {
+export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput, opts: { keepFigures?: boolean } = {}): VoucherSaveResult {
   const { db } = ctx;
   let input = normalizeInput(raw);
   const env = loadEnv(ctx);
@@ -496,6 +496,7 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
   for (const hook of voucherHooks()) hook.prepare?.(ctx, { env, input, voucherType: vt });
   const plan = buildPosting(env, input, { voucherType: vt, number: decision.number, voucherId: existing?.id ?? null });
   if (existing) assertAlterKeepsLinks(db, existing, plan);
+  if (existing && opts.keepFigures === true) assertSameFigures(db, existing, plan);
   runValidateHooks(ctx, input, existing ?? null, vt.baseType, plan.header.partyLedgerId);
   enforceWarnings(plan.warnings, input.acknowledgeWarnings === true);
 
@@ -635,6 +636,45 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
     after: numberAudit(snapshotFromPlan(plan, input), existing ?? null, decision),
   });
   return { id, number: decision.number, warnings: notes.length > 0 ? [...plan.warnings, ...notes] : plan.warnings, totals: plan.totals, updatedAt: now };
+}
+
+/**
+ * 2.0 renumber (`keepFigures`): the posting rebuilt from the stored input must be the saved one, figure for
+ * figure — totals, ledger entries, stock rows and GST rows. A voucher whose figures are derived from the
+ * books at save time (a physical stock count against the book quantity, a manufacturing journal costed at
+ * the current average) would otherwise be silently re-derived by a number change; it is refused instead.
+ */
+function assertSameFigures(db: Db, existing: VoucherRow, plan: PostingPlan): void {
+  const id = existing.id;
+  const h = plan.header;
+  const saved = JSON.stringify([
+    [existing.total_amount, existing.taxable_amount, existing.tax_amount, existing.round_off],
+    db.all<{ ledger_id: number; amount: number }>('SELECT ledger_id, amount FROM ledger_entries WHERE voucher_id = :id ORDER BY line_no', { id }).map((r) => [r.ledger_id, r.amount]),
+    db
+      .all<{ item_id: number; godown_id: number | null; qty: number; amount: number }>(
+        'SELECT item_id, godown_id, qty, amount FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no',
+        { id },
+      )
+      .map((r) => [r.item_id, r.godown_id, r.qty, r.amount]),
+    db
+      .all<{ taxable_value: number; igst: number; cgst: number; sgst: number; cess: number }>(
+        'SELECT taxable_value, igst, cgst, sgst, cess FROM gst_lines WHERE voucher_id = :id ORDER BY line_no',
+        { id },
+      )
+      .map((r) => [r.taxable_value, r.igst, r.cgst, r.sgst, r.cess]),
+  ]);
+  const rebuilt = JSON.stringify([
+    [h.totalAmount, h.taxableAmount, h.taxAmount, h.roundOff],
+    plan.entries.map((e) => [e.ledgerId, e.amount]),
+    [...plan.inventory].sort((a, b) => a.lineNo - b.lineNo).map((l) => [l.itemId, l.godownId, l.qty, l.amount]),
+    plan.gstLines.map((g) => [g.taxableValue, g.igst, g.cgst, g.sgst, g.cess]),
+  ]);
+  if (saved !== rebuilt) {
+    throw rule(
+      'Changing the number here would recalculate this voucher\'s amounts or quantities from the current books. ' +
+        'Alter the voucher (Alt+A), check the figures and change the number there.',
+    );
+  }
 }
 
 /** 2.0: the edit-log image of a save records a changed number (alter) or an override (create). */
@@ -1250,17 +1290,22 @@ export function renumberVoucher(ctx: CompanyCtx, input: VoucherRenumberInput): V
   if (!meta.input) {
     throw rule('This voucher was saved without its entry details (an older import). Alter the voucher (Alt+A) and change the number there.');
   }
-  return saveVoucher(ctx, {
-    ...storedInput(ctx.db, row),
-    id: row.id,
-    expectedUpdatedAt: input.expectedUpdatedAt,
-    acknowledgeWarnings: input.acknowledgeWarnings === true,
-    numberOverride: {
-      number: input.number,
-      ...(input.reason !== undefined ? { reason: input.reason } : {}),
-      ...(input.continueSeries !== undefined ? { continueSeries: input.continueSeries } : {}),
+  // keepFigures: only the number may change (a re-derived count or cost is refused, see assertSameFigures).
+  return saveVoucher(
+    ctx,
+    {
+      ...storedInput(ctx.db, row),
+      id: row.id,
+      expectedUpdatedAt: input.expectedUpdatedAt,
+      acknowledgeWarnings: input.acknowledgeWarnings === true,
+      numberOverride: {
+        number: input.number,
+        ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        ...(input.continueSeries !== undefined ? { continueSeries: input.continueSeries } : {}),
+      },
     },
-  });
+    { keepFigures: true },
+  );
 }
 
 /**

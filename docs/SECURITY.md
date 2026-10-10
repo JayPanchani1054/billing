@@ -245,7 +245,9 @@ electron-updater, in the main process only. Offline-first stays the rule:
   is manual. With updates off, the updater code (`out/main/updater.cjs`) is never even loaded.
 - **What is sent.** Ordinary HTTPS requests for the release feed (`releases.atom` / `releases/latest`),
   `latest.yml`, the installer and its `.blockmap` — no company data, no user name, no machine identifier
-  beyond what any HTTPS client sends (IP address, a User-Agent).
+  beyond what any HTTPS client sends (IP address, a User-Agent). electron-updater's own per-installation
+  `x-user-staging-id` header (a random ID it keeps in `.updaterId`) is removed from every request by the
+  updater session (`withoutIdentifyingHeaders`, `updates/policy.ts`).
 - **Where.** A separate in-memory session (`electron-updater` partition, HTTP cache off, every permission
   request denied) whose every request — redirects included — must pass `isAllowedUpdateUrl`
   (`updates/policy.ts`): `https` only, default port, no user/password in the URL, and only

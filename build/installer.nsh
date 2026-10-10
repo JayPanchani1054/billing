@@ -118,18 +118,29 @@
   Push $R3
   ClearErrors
   ; The uninstall key electron-builder writes (its GUID is derived from appId): per-user installs in HKCU,
-  ; per-machine installs in HKLM.
+  ; per-machine installs in HKLM. Both are read: with two installations side by side ("Only for me" and
+  ; "Anyone who uses this computer") the newer one counts, whichever is being replaced — a company it
+  ; opened cannot be opened by an older version. $R1 = HKCU's version, $R0 = HKLM's, then the newer.
   !ifdef UNINSTALL_REGISTRY_KEY
     ReadRegStr $R0 HKCU "${UNINSTALL_REGISTRY_KEY}" "DisplayVersion"
-    ${If} $R0 == ""
-      ReadRegStr $R0 HKLM "${UNINSTALL_REGISTRY_KEY}" "DisplayVersion"
-    ${EndIf}
+    StrCpy $R1 $R0
+    ReadRegStr $R0 HKLM "${UNINSTALL_REGISTRY_KEY}" "DisplayVersion"
   !else
     ReadRegStr $R0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}" "DisplayVersion"
-    ${If} $R0 == ""
-      ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}" "DisplayVersion"
-    ${EndIf}
+    StrCpy $R1 $R0
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}" "DisplayVersion"
   !endif
+  ${If} $R0 == ""
+    StrCpy $R0 $R1
+  ${ElseIf} $R1 != ""
+    !insertmacro _pevqoriStripPre $R1 $R2
+    !insertmacro _pevqoriStripPre $R0 $R3
+    ${VersionCompare} $R2 $R3 $R2
+    ${If} $R2 == 1
+      StrCpy $R0 $R1
+    ${EndIf}
+  ${EndIf}
+  ClearErrors
   ${If} $R0 != ""
     ${GetParameters} $R1
     ClearErrors

@@ -20,7 +20,7 @@ import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { NumberingScheme } from '../../../shared/numbering.ts';
 import type { NumberingMethod, VoucherMode, VoucherNumberOverride } from '../../../shared/types/vouchers.ts';
 import { api, userMessage } from '../../app/index.ts';
-import { Banner, Button, Checkbox, Field, Hotkeys, KeyValueList, Modal, Stack, TextArea, TextInput, useEnterAdvance } from '../../ui/index.ts';
+import { Banner, Button, Checkbox, Field, Hotkeys, KeyValueList, Modal, Stack, TextInput, useEnterAdvance } from '../../ui/index.ts';
 import { OkHint } from '../accounts/components.tsx';
 import {
   changeNumberTitle,
@@ -151,8 +151,9 @@ export function ChangeNumberDialog(p: ChangeNumberDialogProps) {
         >
           <TextInput value={typed} maxLength={p.gstDoc ? 40 : 80} mono spellCheck={false} autoComplete="off" onValueChange={setTyped} data-autofocus />
         </Field>
+        {/* One line: Enter moves on (on the last field it uses the number) instead of starting a new line. */}
         <Field label="Reason (edit log)" optional hint="Why the number changes — kept with the change in the edit history (Alt+H).">
-          <TextArea value={reason} maxLength={RENUMBER_REASON_MAX} autoGrow maxRows={3} onValueChange={setReason} />
+          <TextInput value={reason} maxLength={RENUMBER_REASON_MAX} autoComplete="off" onValueChange={setReason} />
         </Field>
         <Checkbox
           label={series.label}

@@ -56,6 +56,13 @@ describe('voucher screens: Ctrl+R change number, Alt+W share (2.0)', () => {
     for (const f of ['tds/EntryPanel.tsx', 'forex/EntryPanel.tsx']) assert.deepEqual(uses(text(f), 'Alt+W'), [], f);
   });
 
+  it('the Change Number dialog is all single-line fields, so Enter walks number → reason → "Use this number"', () => {
+    const src = text('vouchers/ChangeNumberDialog.tsx');
+    assert.match(src, /useEnterAdvance<HTMLElement>\(\{ onComplete: accept \}\)/);
+    // A textarea takes plain Enter as a new line (ui/hooks/useEnterAdvance.ts): the dialog could not be finished by Enter.
+    assert.doesNotMatch(src, /<TextArea\b/);
+  });
+
   it('the Change Number dialog, the quick party dialog and the Saved bar register only Ctrl+A', () => {
     for (const f of ['vouchers/ChangeNumberDialog.tsx', 'accounts/QuickPartyDialog.tsx', 'vouchers/entry/SavedBar.tsx']) {
       const src = text(f);

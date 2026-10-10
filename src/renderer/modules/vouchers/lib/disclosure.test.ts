@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { buildVoucherInput } from './buildInput.ts';
-import { disclosedHasValue, headerDisclosure, isSalesSideDoc, placeOfSupplyChip } from './disclosure.ts';
+import { disclosedHasValue, headerDisclosure, isSalesSideDoc, placeOfSupplyAssumed, placeOfSupplyChip } from './disclosure.ts';
 import { formReducer, newForm } from './formState.ts';
 
 const base = {
@@ -87,6 +87,19 @@ describe('place of supply chip', () => {
     assert.equal(placeOfSupplyChip({ chosen: '', computed: '24', interState: null, hasError: false }), null);
     assert.equal(placeOfSupplyChip({ chosen: '', computed: '24', interState: false, hasError: true }), null);
     assert.equal(placeOfSupplyChip({ chosen: '', computed: '00', interState: false, hasError: false }), null, 'unknown state code');
+  });
+
+  it('a party without a state (no consignee state) only ASSUMES the company state: the select shows (SPEC 6.3)', () => {
+    const assumed = placeOfSupplyAssumed({ direction: 'outward', partyChosen: true, partyStateCode: null, consigneeStateCode: undefined });
+    assert.equal(assumed, true);
+    assert.equal(placeOfSupplyChip({ chosen: '', computed: '27', interState: false, hasError: false, assumed }), null);
+    // A consignee state, or the party's own state, is a real basis: the chip stays.
+    assert.equal(placeOfSupplyAssumed({ direction: 'outward', partyChosen: true, partyStateCode: ' ', consigneeStateCode: '24' }), false);
+    assert.equal(placeOfSupplyAssumed({ direction: 'outward', partyChosen: true, partyStateCode: '24', consigneeStateCode: null }), false);
+    // No party yet: the chip (no layout jump while the party is being chosen); purchases: always our state.
+    assert.equal(placeOfSupplyAssumed({ direction: 'outward', partyChosen: false, partyStateCode: null, consigneeStateCode: null }), false);
+    assert.equal(placeOfSupplyAssumed({ direction: 'inward', partyChosen: true, partyStateCode: null, consigneeStateCode: null }), false);
+    assert.ok(placeOfSupplyChip({ chosen: '', computed: '27', interState: false, hasError: false, assumed: false }));
   });
 
   it('the chip does not change what is sent: placeOfSupply stays automatic until chosen', () => {

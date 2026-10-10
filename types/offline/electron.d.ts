@@ -313,10 +313,22 @@ export interface OnBeforeRedirectListenerDetails {
   statusLine: string;
   fromCache: boolean;
 }
+export interface OnBeforeSendHeadersListenerDetails {
+  id: number;
+  url: string;
+  method: string;
+  resourceType: string;
+  requestHeaders: Record<string, string>;
+}
+export interface BeforeSendResponse {
+  cancel?: boolean;
+  requestHeaders?: Record<string, string | string[]>;
+}
 export interface WebRequest {
   onHeadersReceived(listener: ((details: OnHeadersReceivedListenerDetails, callback: (response: HeadersReceivedResponse) => void) => void) | null): void;
   onBeforeRequest(listener: ((details: OnBeforeRequestListenerDetails, callback: (response: { cancel?: boolean; redirectURL?: string }) => void) => void) | null): void;
   onBeforeRedirect(listener: ((details: OnBeforeRedirectListenerDetails) => void) | null): void;
+  onBeforeSendHeaders(listener: ((details: OnBeforeSendHeadersListenerDetails, callback: (response: BeforeSendResponse) => void) => void) | null): void;
 }
 export interface FromPartitionOptions {
   /** Whether to enable cache. Default is `true` unless the `--disable-http-cache` switch is used. */

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { emptyQuickParty, quickPartyGroup, quickPartyInput, quickPartyNoun, quickPartyProblems, withGstin } from './quickParty.ts';
+import { createLabelFor, emptyQuickParty, quickPartyGroup, quickPartyInput, quickPartyNoun, quickPartyProblems, withGstin } from './quickParty.ts';
 
 // A valid GSTIN (checksum) of Maharashtra: PAN AAPFU0939F.
 const GSTIN = '27AAPFU0939F1ZV';
@@ -14,6 +14,13 @@ describe('quick customer / supplier (Alt+C in a party picker)', () => {
     assert.equal(quickPartyGroup(null), null);
     assert.equal(quickPartyNoun('SUNDRY_DEBTORS'), 'customer');
     assert.equal(quickPartyNoun('SUNDRY_CREDITORS'), 'supplier');
+  });
+
+  it("the picker's create row names what Alt+C opens", () => {
+    assert.equal(createLabelFor('SUNDRY_DEBTORS', ' Ravi Traders '), 'Create customer “Ravi Traders”');
+    assert.equal(createLabelFor('SUNDRY_CREDITORS', ''), 'Create a new supplier');
+    assert.equal(createLabelFor(null, 'Freight'), 'Create ledger “Freight”');
+    assert.equal(createLabelFor(null, ' '), 'Create a new ledger');
   });
 
   it('starts from the typed name and the company state', () => {
@@ -60,5 +67,16 @@ describe('quick customer / supplier (Alt+C in a party picker)', () => {
     });
     // Without a GSTIN the registration type is left to the core default (unregistered); the state is kept.
     assert.deepEqual(quickPartyInput(emptyQuickParty('Walk-in', '24'), { groupId: 31, billWise: false }), { name: 'Walk-in', groupId: 31, billWise: false, country: 'India', stateCode: '24' });
+  });
+
+  it('a GSTIN typed and then cleared takes its PAN with it (the dialog has no PAN box to show it)', () => {
+    const typed = withGstin(emptyQuickParty('Ravi Traders', '24'), GSTIN);
+    const cleared = withGstin(typed, '');
+    assert.equal(cleared.pan, 'AAPFU0939F', 'the draft still holds the PAN filled earlier');
+    const input = quickPartyInput(cleared, { groupId: 31, billWise: false });
+    assert.equal(input.pan, undefined, 'never saved unseen');
+    assert.equal(input.gstin, undefined);
+    assert.equal(input.registrationType, 'unregistered');
+    assert.equal(input.stateCode, '27', 'the state stays: the State box shows it again');
   });
 });

@@ -174,6 +174,23 @@ export function isAllowedUpdateUrl(raw: string): boolean {
   return false;
 }
 
+/**
+ * Request headers the updater session never sends. electron-updater adds `x-user-staging-id` (a random
+ * UUID it keeps in <userData>/.updaterId) to every feed and latest.yml request; it would let the server
+ * recognise this installation across checks. Staged roll-outs are decided on this computer, so dropping
+ * it changes nothing else.
+ */
+export const STRIPPED_REQUEST_HEADERS: readonly string[] = ['x-user-staging-id'];
+
+/** A copy of `headers` without STRIPPED_REQUEST_HEADERS (names compared case-insensitively). */
+export function withoutIdentifyingHeaders(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers ?? {})) {
+    if (!STRIPPED_REQUEST_HEADERS.includes(name.toLowerCase())) out[name] = value;
+  }
+  return out;
+}
+
 // ───────────────────────────── versions ─────────────────────────────
 
 function parseVersion(v: string): { nums: number[]; pre: string | null } | null {

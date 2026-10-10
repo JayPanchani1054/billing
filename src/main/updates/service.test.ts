@@ -53,6 +53,7 @@ interface Harness {
   events: UpdateStatus[];
   order: string[];
   allow: ((url: string) => boolean) | null;
+  editHeaders: ((headers: Record<string, string>) => Record<string, string>) | null;
   redirects: Array<[string, string]>;
   permissionsDenied: boolean;
   loads: number;
@@ -76,6 +77,7 @@ function harness(options: { policy?: Partial<Parameters<typeof resolveUpdatePoli
     events: [],
     order: [],
     allow: null,
+    editHeaders: null,
     redirects: [],
     permissionsDenied: false,
     loads: 0,
@@ -115,6 +117,9 @@ function harness(options: { policy?: Partial<Parameters<typeof resolveUpdatePoli
       return {
         onBeforeRequest: (allow) => {
           h.allow = allow;
+        },
+        onBeforeSendHeaders: (edit) => {
+          h.editHeaders = edit;
         },
         onBeforeRedirect: (listener) => {
           listener('https://github.com/JayPanchani1054/billing/releases/download/v2.1.0/latest.yml', 'https://release-assets.githubusercontent.com/x');
@@ -221,6 +226,20 @@ describe('update service — network silence', () => {
     await s.check();
     assert.equal(h.loads, 1);
     assert.equal(h.sessions, 1);
+  });
+
+  it('strips the library\'s per-install identifier header from every updater request (nothing identifying is sent)', async () => {
+    const h = harness();
+    const s = createUpdateService(h.deps);
+    assert.equal(h.sessions, 0, 'nothing before the first check');
+    await s.check();
+    const edit = h.editHeaders as ((headers: Record<string, string>) => Record<string, string>) | null;
+    assert.ok(edit, 'the header filter is installed with the session hardening, before the library loads');
+    // electron-updater sends a random UUID persisted in <userData>/.updaterId with every feed / latest.yml request.
+    const sent = { 'User-Agent': 'electron-builder', Accept: 'application/xml', 'x-user-staging-id': '1f0c2a4e-1111-5222-8333-944445555666' };
+    assert.deepEqual(edit(sent), { 'User-Agent': 'electron-builder', Accept: 'application/xml' });
+    assert.deepEqual(edit({ 'X-User-Staging-Id': 'abc', 'Cache-Control': 'no-cache' }), { 'Cache-Control': 'no-cache' });
+    assert.equal(sent['x-user-staging-id'], '1f0c2a4e-1111-5222-8333-944445555666', 'the input object is not mutated');
   });
 
   it('weekly: first check 2 minutes after start, then every 24 h only when due', async () => {

@@ -20,7 +20,7 @@ import { useCan } from '../../app/state.tsx';
 import { Picker } from '../../ui/index.ts';
 import type { ControlSize } from '../../ui/index.ts';
 import { groupCodeForClasses } from './lib/groupClass.ts';
-import { quickPartyGroup } from '../vouchers/lib/quickParty.ts';
+import { createLabelFor, quickPartyGroup } from '../vouchers/lib/quickParty.ts';
 import { QuickPartyDialog } from './QuickPartyDialog.tsx';
 
 // ───────────────────────────── Ledgers ─────────────────────────────
@@ -154,7 +154,7 @@ export function LedgerPicker(props: LedgerPickerProps) {
       onChange={(l) => onChange(l?.id ?? null, l)}
       onCommit={onCommit ? (l) => onCommit(l?.id ?? null, l) : undefined}
       onCreate={allowCreate ? (q) => void create(q) : undefined}
-      createLabel={(q) => (q.trim() ? `Create ledger “${q.trim()}”` : 'Create a new ledger')}
+      createLabel={(q) => createLabelFor(quickGroup, q)}
       placeholder={placeholder ?? 'Type a ledger name, alias or GSTIN'}
       disabled={disabled}
       readOnly={readOnly}

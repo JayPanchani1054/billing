@@ -395,6 +395,8 @@ function createUpdates(prefs: ReturnType<typeof createPrefsStore>, wm: WindowMan
       const ses = session.fromPartition(UPDATER_PARTITION, { cache: false });
       return {
         onBeforeRequest: (allow) => ses.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !allow(details.url) })),
+        onBeforeSendHeaders: (edit) =>
+          ses.webRequest.onBeforeSendHeaders((details, callback) => callback({ requestHeaders: edit(details.requestHeaders) })),
         onBeforeRedirect: (listener) => ses.webRequest.onBeforeRedirect((details) => listener(details.url, details.redirectURL)),
         denyPermissions: () => {
           ses.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));

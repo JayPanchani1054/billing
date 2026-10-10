@@ -142,7 +142,9 @@ same company. A backup folder chosen with an older version is confirmed once aft
 Running an **older** installer (version 2.0.0 or later) over a newer installation shows a warning: *"A
 newer Pevqori (x) is installed. Installing y is not supported: a company opened by the newer version
 cannot be opened by this one. Continue anyway?"* Choose **No** unless you know that no company was opened
-with the newer version. Installers older than 2.0.0 do not have this check and install without asking.
+with the newer version. When Pevqori is installed twice on the computer (once "Only for me" and once for
+"Anyone who uses this computer"), the newer of the two counts. Installers older than 2.0.0 do not have
+this check and install without asking.
 To go back safely, run the older installer, choose **Yes**, then restore a backup made with that older
 version (a company already opened by the newer version is refused by the older one, never damaged).
 

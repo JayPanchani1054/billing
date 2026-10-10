@@ -25,6 +25,16 @@ export function quickPartyNoun(group: QuickPartyGroup): 'customer' | 'supplier' 
   return group === 'SUNDRY_DEBTORS' ? 'customer' : 'supplier';
 }
 
+/**
+ * The picker's "create" row: it names what Alt+C opens — "Create customer “Ravi Traders”" for the quick
+ * dialog, "Create ledger “…”" for the full ledger form.
+ */
+export function createLabelFor(group: QuickPartyGroup | null, typed: string): string {
+  const noun = group ? quickPartyNoun(group) : 'ledger';
+  const q = typed.trim();
+  return q ? `Create ${noun} “${q}”` : `Create a new ${noun}`;
+}
+
 export interface QuickPartyDraft {
   name: string;
   gstin: string;
@@ -70,7 +80,9 @@ export function quickPartyInput(d: QuickPartyDraft, a: { groupId: number; billWi
   const gstin = d.gstin.trim().toUpperCase();
   if (gstin !== '') input.gstin = gstin;
   if (d.stateCode !== '') input.stateCode = d.stateCode;
-  if (d.pan.trim() !== '') input.pan = d.pan.trim().toUpperCase();
+  // The dialog has no PAN box: its PAN only ever comes from a GSTIN typed here. Once that GSTIN is
+  // cleared the PAN goes with it (it would otherwise be saved unseen on an unregistered party).
+  if (gstin !== '' && d.pan.trim() !== '') input.pan = d.pan.trim().toUpperCase();
   if (d.registrationType !== '') input.registrationType = d.registrationType;
   if (d.mobile.trim() !== '') input.mobile = d.mobile.trim();
   if (d.email.trim() !== '') input.email = d.email.trim();

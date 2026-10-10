@@ -8,7 +8,9 @@ import type { BindValue } from '../../db/db.ts';
 import { formatVoucherNumber, loadVoucherType, parseVoucherSeq } from './numbering.ts';
 import { vouchersRoutes } from './routes.ts';
 import { nextVoucherNumber, previewVoucher } from './service.ts';
-import { bills, header, purchaseInput, salesInput, save, setupKit, throwsApp, throwsField, type Kit } from './testkit.ts';
+import { bills, header, purchaseInput, salesInput, save, setupKit, stockOf, throwsApp, throwsField, type Kit } from './testkit.ts';
+import { saveBom } from '../mfg/bom.ts';
+import { mfgKit, post as mfgPost, purchase as mfgPurchase } from '../mfg/testkit.ts';
 
 function configureSales(k: Kit, cols: Record<string, BindValue>): void {
   for (const [col, value] of Object.entries(cols)) {
@@ -464,6 +466,65 @@ describe('number override: review regressions', () => {
     // The voucher being altered gives its own party.
     const cust = dn('DN-7', k.L.acme, k.I.mixer, k.t.today);
     assert.equal((await check({ excludeId: cust.id })).ok, true);
+    k.t.close();
+  });
+});
+
+// ───────────────────────────── V1 review (money invariants): renumbering never changes figures ─────────────────────────────
+
+describe('vouchers.renumber keeps every figure (V1 review)', () => {
+  const figures = (k: Kit, id: number) => ({
+    head: k.t.db.get('SELECT total_amount, taxable_amount, tax_amount, round_off FROM vouchers WHERE id = :id', { id }),
+    entries: k.t.db.all('SELECT ledger_id, amount FROM ledger_entries WHERE voucher_id = :id ORDER BY line_no', { id }),
+    stock: k.t.db.all('SELECT item_id, godown_id, qty, amount FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no', { id }),
+    gst: k.t.db.all('SELECT taxable_value, igst, cgst, sgst, cess FROM gst_lines WHERE voucher_id = :id ORDER BY line_no', { id }),
+  });
+
+  it('a physical stock count entered before a back-dated sale is not re-counted by a renumber (refused, figures kept)', async () => {
+    const k = setupKit();
+    save(k, salesInput(k, { date: '2026-04-10', items: [{ itemId: k.I.rice, qty: 3, rate: 100 }] }));
+    // Book 97, counted 95 → adjustment −2.
+    const count = save(k, { voucherTypeId: k.vt.physical_stock, date: k.t.today, mode: 'inventory', items: [{ itemId: k.I.rice, qty: 95, rate: 50 }] });
+    // A sale entered later, dated before the count: re-deriving the count now would post +2 instead of −2.
+    save(k, salesInput(k, { date: '2026-04-12', items: [{ itemId: k.I.rice, qty: 4, rate: 100 }] }));
+    const before = figures(k, count.id);
+    const stockBefore = stockOf(k, k.I.rice);
+    const r = await k.t.call(vouchersRoutes, 'vouchers.renumber', { id: count.id, number: 'PS-9', expectedUpdatedAt: String(header(k, count.id).updated_at), acknowledgeWarnings: true });
+    assert.equal(r.ok ? 'ok' : r.error.code, 'BUSINESS_RULE');
+    assert.match(r.ok ? '' : r.error.message, /Alter the voucher \(Alt\+A\)/);
+    assert.deepEqual(figures(k, count.id), before);
+    assert.equal(stockOf(k, k.I.rice), stockBefore);
+    assert.equal(header(k, count.id).number, count.number);
+    k.t.close();
+  });
+
+  it('a manufacturing journal is not re-costed by a renumber after a back-dated purchase (refused, figures kept)', async () => {
+    const m = mfgKit();
+    const b = saveBom(m.t.ctx, { itemId: m.I.chair, name: 'Standard', outputQty: 1, lines: [{ kind: 'component', itemId: m.I.steel, qty: 5 }] });
+    const mj = mfgPost(m, {
+      voucherTypeId: m.VT.manufacturing,
+      date: '2026-05-10',
+      mode: 'inventory',
+      stockJournal: { bomId: b.id, lines: [{ role: 'product', itemId: m.I.chair, qty: 1 }, { role: 'component', itemId: m.I.steel, qty: 5 }] },
+    });
+    // Steel bought later but dated before the journal, at another rate: the average cost on 10-May changes.
+    mfgPurchase(m, '2026-05-01', [{ itemId: m.I.steel, qty: 100, rate: 90 }], m.L.supreme);
+    const stock = () => m.t.db.all('SELECT item_id, qty, rate, amount FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no', { id: mj.id });
+    const before = stock();
+    const updated = String(m.t.db.value('SELECT updated_at FROM vouchers WHERE id = :id', { id: mj.id }));
+    const r = await m.t.call(vouchersRoutes, 'vouchers.renumber', { id: mj.id, number: 'MJ-9', expectedUpdatedAt: updated, acknowledgeWarnings: true });
+    assert.equal(r.ok ? 'ok' : r.error.code, 'BUSINESS_RULE');
+    assert.deepEqual(stock(), before);
+    m.t.close();
+  });
+
+  it('a voucher whose rebuilt posting is identical is renumbered as before', async () => {
+    const k = setupKit();
+    const count = save(k, { voucherTypeId: k.vt.physical_stock, date: k.t.today, mode: 'inventory', items: [{ itemId: k.I.rice, qty: 95, rate: 50 }] });
+    const before = figures(k, count.id);
+    const r = await k.t.callOk<{ number: string }>(vouchersRoutes, 'vouchers.renumber', { id: count.id, number: 'PS-9', expectedUpdatedAt: String(header(k, count.id).updated_at) });
+    assert.equal(r.number, 'PS-9');
+    assert.deepEqual(figures(k, count.id), before);
     k.t.close();
   });
 });

@@ -166,8 +166,8 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
     <article className="bp-doc bp-classic">
       <Stamp doc={doc} />
       <div className="bp-topline">
-        <span data-part="einvoice">{doc.einvoice ? `IRN: ${doc.einvoice.irn}` : ''}</span>
-        <span className="bp-strong" data-part="copyLabel">
+        <span data-part={doc.einvoice ? 'einvoice' : undefined}>{doc.einvoice ? `IRN: ${doc.einvoice.irn}` : ''}</span>
+        <span className="bp-strong" data-part={copyLabel && isPartShown(doc, 'copyLabel') ? 'copyLabel' : undefined}>
           {copyLabel && isPartShown(doc, 'copyLabel') ? copyLabel : ''}
         </span>
       </div>

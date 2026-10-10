@@ -21,7 +21,9 @@
 #                         install succeeds.
 #   -Scenario Downgrade   install, pretend a newer version is installed (DisplayVersion 999.0.0 in the
 #                         uninstall entry), install silently: exit code 4 and nothing changed; again with
-#                         /ALLOWDOWNGRADE: installed, DisplayVersion back to N.
+#                         /ALLOWDOWNGRADE: installed, DisplayVersion back to N; then pretend a newer
+#                         per-machine installation exists next to it (HKLM entry; skipped with a notice
+#                         without administrator rights): exit code 4 again.
 #
 #   pwsh ./scripts/smoke-installed.ps1 -Installer release\Pevqori-Setup-2.0.0.exe [-Scenario …] [-Previous old.exe] [-Evidence dir]
 #
@@ -254,6 +256,8 @@ $installerPath = (Resolve-Path $Installer).Path
 $script:location = $installDir
 $script:installed = $false
 $running = $null
+# A stand-in per-machine uninstall entry written by the Downgrade scenario (removed in finally).
+$script:fakeMachineKey = $null
 
 try {
   if ((Get-UninstallEntries).Count -ne 0) { throw 'Pevqori is already installed on this machine; the smoke test needs a clean machine' }
@@ -372,6 +376,30 @@ try {
       if ($after.DisplayVersion -ne $version) { throw "DisplayVersion is $($after.DisplayVersion) after /ALLOWDOWNGRADE, expected $version" }
       if ($after.Location -ne $installDir) { throw 'The /ALLOWDOWNGRADE install did not reuse the program folder' }
       Write-Step '/ALLOWDOWNGRADE installed over it'
+
+      # Two installations side by side: this per-user N and a newer per-machine one (stand-in: an HKLM
+      # uninstall entry for the same GUID with DisplayVersion 999.0.0 and no DisplayName, so it is neither
+      # counted by Get-UninstallEntries nor taken for a real installation by the installer). The newer one
+      # counts: upgrading the per-user installation silently is refused with exit code 4.
+      $machineKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($after.Key)"
+      if (Test-Path $machineKey) { throw "$machineKey already exists; the smoke test needs a clean machine" }
+      # (The /ALLOWDOWNGRADE install replaced the program folder, sentinel included.)
+      Set-Content -Path $sentinel -Value $runId
+      try {
+        New-Item -Path $machineKey -Force | Out-Null
+        $script:fakeMachineKey = $machineKey
+        Set-ItemProperty -Path $machineKey -Name 'DisplayVersion' -Value '999.0.0'
+      } catch {
+        Write-Host "::notice::Two-installations downgrade step skipped: cannot write $machineKey ($_)."
+      }
+      if ($script:fakeMachineKey) {
+        Assert-ExitCode (Invoke-Installer $installerPath @('/S', '/currentuser')) $ExitDowngrade "Installing $version per user while a newer per-machine Pevqori is installed"
+        if ((Get-SingleEntry).DisplayVersion -ne $version) { throw 'The refused downgrade changed the per-user uninstall entry' }
+        if (-not (Test-Path $sentinel)) { throw 'The refused downgrade changed the program folder' }
+        Remove-Item -Path $script:fakeMachineKey -Recurse -Force
+        $script:fakeMachineKey = $null
+        Write-Step "Newer per-machine installation respected (exit code $ExitDowngrade)"
+      }
     }
   }
 
@@ -395,6 +423,7 @@ finally {
     Get-PevqoriProcesses $script:location | Stop-Process -Force -ErrorAction SilentlyContinue
     try { $null = Invoke-Uninstall $script:location } catch { Write-Warning "Clean-up uninstall failed: $_" }
   }
+  if ($script:fakeMachineKey) { Remove-Item -Path $script:fakeMachineKey -Recurse -Force -ErrorAction SilentlyContinue }
   Remove-Item -Path $appDataSentinel -Force -ErrorAction SilentlyContinue
   if (-not $appDataExisted -and (Test-Path $appDataSettings) -and -not (Get-ChildItem -Path $appDataSettings -Force)) {
     Remove-Item -Path $appDataSettings -Force -ErrorAction SilentlyContinue

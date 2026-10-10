@@ -11,7 +11,8 @@
  *   and GSTR-2B matching depend on them); payments / receipts keep their reference inline (they have no
  *   More details).
  * - Place of supply: a chip "Gujarat (24) · intra-state ✎" when it is derived (automatic and known);
- *   the existing select when it was chosen by hand, cannot be derived (no party state, overseas) or has an error.
+ *   the existing select when it was chosen by hand, cannot be derived or would only be assumed (a
+ *   party without a state, overseas) or has an error.
  */
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { stateName } from '../../../../shared/gst/states.ts';
@@ -73,11 +74,22 @@ export interface PlaceOfSupplyChip {
 }
 
 /**
- * The derived place of supply as a chip, or null when the select must show: chosen by hand (`chosen`
- * not ''), not derivable (`computed` null), outside India ('96'), or the field has an error.
+ * True when the place of supply of an outward document would only be ASSUMED: a party is chosen but
+ * neither it nor the consignee has a state, so the engine falls back to the company's state
+ * (shared/gst/pos.ts). The select shows then, so the user sees and confirms it (SPEC 6.3 "no party
+ * state"). Before a party is chosen the chip stays (no layout jump under the Enter chain).
  */
-export function placeOfSupplyChip(a: { chosen: string; computed: string | null; interState: boolean | null; hasError: boolean }): PlaceOfSupplyChip | null {
-  if (a.hasError || a.chosen !== '' || a.computed === null || a.computed === '' || a.computed === '96' || a.interState === null) return null;
+export function placeOfSupplyAssumed(a: { direction: 'outward' | 'inward'; partyChosen: boolean; partyStateCode: string | null | undefined; consigneeStateCode: string | null | undefined }): boolean {
+  return a.direction === 'outward' && a.partyChosen && !(a.partyStateCode ?? '').trim() && !(a.consigneeStateCode ?? '').trim();
+}
+
+/**
+ * The derived place of supply as a chip, or null when the select must show: chosen by hand (`chosen`
+ * not ''), not derivable (`computed` null), only assumed (`assumed`, see placeOfSupplyAssumed), outside
+ * India ('96'), or the field has an error.
+ */
+export function placeOfSupplyChip(a: { chosen: string; computed: string | null; interState: boolean | null; hasError: boolean; assumed?: boolean }): PlaceOfSupplyChip | null {
+  if (a.hasError || a.assumed === true || a.chosen !== '' || a.computed === null || a.computed === '' || a.computed === '96' || a.interState === null) return null;
   const name = stateName(a.computed);
   if (!name) return null;
   return { label: `${name} (${a.computed}) · ${a.interState ? 'inter-state' : 'intra-state'}`, code: a.computed };

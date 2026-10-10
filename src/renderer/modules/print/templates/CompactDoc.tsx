@@ -186,7 +186,7 @@ export function CompactDoc({ doc, copyLabel, qrs, pageSize, template }: DocProps
                       </span>
                     ) : null}
                   </td>
-                  <td className="bp-num" data-part="col.amount">
+                  <td className="bp-num" data-part={cols.amount ? 'col.amount' : undefined}>
                     {cols.amount && (doc.totals.grandTotal !== 0 || l.amount !== 0) ? money(l.amount) : ''}
                   </td>
                 </tr>

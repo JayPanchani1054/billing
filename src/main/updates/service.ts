@@ -12,6 +12,7 @@
  *    successful check is 7+ days old (isDue). Nothing runs on the start-up path.
  *  - Allowlist: every request of the updater session (redirects included) must pass isAllowedUpdateUrl;
  *    everything else is cancelled and logged. Permission requests are denied; the HTTP cache is off.
+ *    The library's per-install `x-user-staging-id` header is stripped from every request.
  *  - Library settings: autoDownload, autoInstallOnAppQuit, allowDowngrade and allowPrerelease off,
  *    disableWebInstaller on. Integrity is electron-updater's: sha512 from latest.yml for every download,
  *    plus the Authenticode publisher check when the build is signed. A failed check deletes the file.
@@ -23,7 +24,7 @@
 import { AppError } from '../../core/lib/errors.ts';
 import type { UpdateMode, UpdatePolicy, UpdateStatus } from '../../shared/bridge.ts';
 import type { LogLevel } from '../log.ts';
-import { cleanVersion, isAllowedUpdateUrl, isDue, isNewerVersion, releaseNotesText } from './policy.ts';
+import { cleanVersion, isAllowedUpdateUrl, isDue, isNewerVersion, releaseNotesText, withoutIdentifyingHeaders } from './policy.ts';
 
 /** electron-updater's own network session partition (electron-updater 6.x electronHttpExecutor NET_SESSION_NAME). */
 export const UPDATER_PARTITION = 'electron-updater';
@@ -80,6 +81,8 @@ export interface UpdaterPort {
 export interface UpdaterSessionPort {
   /** Every request: return true to let it through, false to cancel it. */
   onBeforeRequest(allow: (url: string) => boolean): void;
+  /** Every request: the headers actually sent are `edit(headers)`. */
+  onBeforeSendHeaders(edit: (headers: Record<string, string>) => Record<string, string>): void;
   onBeforeRedirect(listener: (from: string, to: string) => void): void;
   denyPermissions(): void;
 }
@@ -229,6 +232,8 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
       if (!ok) deps.log('warn', 'Updates: blocked a request outside the update allowlist', { target: safeOrigin(url) });
       return ok;
     });
+    // No per-install identifier leaves this computer (docs/SECURITY.md "What is sent").
+    ses.onBeforeSendHeaders(withoutIdentifyingHeaders);
     ses.onBeforeRedirect((from, to) => deps.log('info', 'Updates: redirect', { from: safeOrigin(from), to: safeOrigin(to) }));
     const loaded = deps.loadUpdater();
     loaded.configure(

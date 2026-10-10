@@ -20,7 +20,7 @@ import { Combobox, useToast } from '../../../ui/index.ts';
 import type { ControlSize } from '../../../ui/index.ts';
 import { createdLedgerProblem, createGroupCode, ledgerAllowed, slotNoun } from '../lib/masters.ts';
 import type { LedgerSlot } from '../lib/masters.ts';
-import { quickPartyGroup } from '../lib/quickParty.ts';
+import { createLabelFor, quickPartyGroup } from '../lib/quickParty.ts';
 import type { QuickPartyGroup } from '../lib/quickParty.ts';
 import { QuickPartyDialog } from '../../accounts/QuickPartyDialog.tsx';
 
@@ -148,7 +148,7 @@ export const LedgerCombo = memo(function LedgerCombo(props: LedgerComboProps) {
       onChange={(l) => onChange(l?.id ?? null, l)}
       onCommit={onCommit ? (l) => onCommit(l?.id ?? null, l) : undefined}
       onCreate={canCreate ? (q) => void create(q) : undefined}
-      createLabel={(q) => (q.trim() ? `Create ledger “${q.trim()}”` : 'Create a new ledger')}
+      createLabel={(q) => createLabelFor(quickPartyGroup(createGroupCode(slot, baseType, direction)), q)}
       placeholder={props.placeholder ?? `Type a ${noun} name`}
       emptyText={canCreate ? `No ${noun} matches — press Alt+C to create it` : `No ${noun} matches`}
       invalid={props.invalid}

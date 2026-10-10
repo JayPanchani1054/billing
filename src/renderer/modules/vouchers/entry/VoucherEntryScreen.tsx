@@ -79,8 +79,8 @@ import { afterSavePrint, entryPrintTarget, savedToastMessage, voucherRefLabel } 
 import type { SavedVoucherRef } from '../lib/printing.ts';
 import { clientIssues } from '../lib/validate.ts';
 import { changeNumberAvailability, isGstDocType } from '../lib/changeNumber.ts';
-import { disclosedHasValue, headerDisclosure, placeOfSupplyChip } from '../lib/disclosure.ts';
-import { recordPaymentTarget, SHARE_DENIED_HINT } from '../lib/savedBar.ts';
+import { disclosedHasValue, headerDisclosure, placeOfSupplyAssumed, placeOfSupplyChip } from '../lib/disclosure.ts';
+import { recordPaymentTarget, savedBarVisible, SHARE_DENIED_HINT } from '../lib/savedBar.ts';
 import type { SavedBarState } from '../lib/savedBar.ts';
 import { ChangeNumberDialog } from '../ChangeNumberDialog.tsx';
 import { SavedBar } from './SavedBar.tsx';
@@ -1191,7 +1191,23 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     // An error on a disclosed field brings it inline (where it is shown and focused).
     pinned: detailsPinned || !!cellErrors[headerId('referenceNo')] || !!cellErrors[headerId('referenceDate')],
   });
-  const posChip = gstDoc && !posOpen ? placeOfSupplyChip({ chosen: form.placeOfSupply, computed: computedPos, interState: invoice.computation ? invoice.computation.interState : null, hasError: !!cellErrors[headerId('placeOfSupply')] }) : null;
+  // A party without a state (and no consignee state): the engine only assumes the company's state — the select shows.
+  const posAssumed = placeOfSupplyAssumed({
+    direction,
+    partyChosen: partyTax !== null,
+    partyStateCode: partyTax?.stateCode || (partyTax?.gstin && /^\d{2}/.test(partyTax.gstin) ? partyTax.gstin.slice(0, 2) : null),
+    consigneeStateCode: form.consignee?.stateCode,
+  });
+  const posChip =
+    gstDoc && !posOpen
+      ? placeOfSupplyChip({
+          chosen: form.placeOfSupply,
+          computed: computedPos,
+          interState: invoice.computation ? invoice.computation.interState : null,
+          hasError: !!cellErrors[headerId('placeOfSupply')],
+          assumed: posAssumed,
+        })
+      : null;
 
   const header = (
     <div className="bx-vch-head" ref={setHeaderRef}>
@@ -1567,7 +1583,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         <div className="bx-vch" data-density="compact">
           <div className="bx-vch__main">
             {banner ? <ErrorBanner title={banner.title} messages={banner.messages} onDismiss={() => setBanner(null)} /> : null}
-            {savedBar && !form.touched ? renderSavedBar(savedBar) : null}
+            {savedBar && savedBarVisible(savedBar, form.touched) ? renderSavedBar(savedBar) : null}
             {header}
             <div className="bx-vch-body" onKeyDown={onGridKeyDown}>
               {grids}

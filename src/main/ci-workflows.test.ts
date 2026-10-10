@@ -101,6 +101,21 @@ describe('GitHub workflows', () => {
     assert.equal(REVIEWED_INSTALL_SCRIPTS['node_modules/esbuild']?.action, 'run');
   });
 
+  it('no ${{ … }} expression is pasted into a run: script (a tag or branch name is attacker-chosen text; pass it through env)', () => {
+    for (const file of WORKFLOWS) {
+      for (const [name, job] of jobs(read(file))) {
+        for (const step of steps(job)) {
+          const at = step.search(/^ {8}run:/m);
+          if (at < 0) continue;
+          const rest = step.slice(at);
+          const next = rest.slice(1).search(/^ {8}[A-Za-z_-]+:/m);
+          const script = next < 0 ? rest : rest.slice(0, next + 1);
+          assert.doesNotMatch(script, /\$\{\{/, `${file} › ${name}: ${/- name: (.+)/.exec(step)?.[1] ?? 'a step'} interpolates an expression into its script`);
+        }
+      }
+    }
+  });
+
   it('release: builds from the lockfile alone — no dependency or build cache another run could have written', () => {
     const release = read('release.yml');
     assert.doesNotMatch(release, /actions\/cache@/);
@@ -269,6 +284,23 @@ describe('build/installer.nsh (running app, downgrade guard)', () => {
     assert.match(body('customInit'), /\$\{IfNot\} \$\{UAC_IsInnerInstance\}[\s\S]*_pevqoriDowngradeGuard[\s\S]*_pevqoriWaitForApp[\s\S]*\$\{EndIf\}/);
   });
 
+  it('two installations side by side (per-user + per-machine): the NEWER installed version counts, not just the per-user one', () => {
+    // A per-user 1.0 next to a per-machine 3.0: installing 2.0 (per-user, the default when both exist) must
+    // still be refused — a company the per-machine 3.0 opened cannot be opened by 2.0. HKLM used to be read
+    // only when HKCU had no entry, so the newer per-machine installation was never seen.
+    const guard = new RegExp(`^!macro _pevqoriDowngradeGuard\\n([\\s\\S]*?)^!macroend$`, 'm').exec(nsh)?.[1] ?? '';
+    const reads = /ReadRegStr \$R0 HKCU ("[^"\n]+") "DisplayVersion"\n\s*StrCpy \$R1 \$R0\n\s*ReadRegStr \$R0 HKLM \1 "DisplayVersion"\n/g;
+    assert.equal([...guard.matchAll(reads)].length, 2, 'both keys are always read (with and without UNINSTALL_REGISTRY_KEY), HKCU kept in $R1');
+    assert.doesNotMatch(guard, /\$\{If\} \$R0 == ""\n\s*ReadRegStr \$R0 HKLM/, 'HKLM is not read only as a fallback');
+    assert.match(
+      guard,
+      /\$\{If\} \$R0 == ""\n\s*StrCpy \$R0 \$R1\n\s*\$\{ElseIf\} \$R1 != ""\n\s*!insertmacro _pevqoriStripPre \$R1 \$R2\n\s*!insertmacro _pevqoriStripPre \$R0 \$R3\n\s*\$\{VersionCompare\} \$R2 \$R3 \$R2\n\s*\$\{If\} \$R2 == 1\n\s*StrCpy \$R0 \$R1\n\s*\$\{EndIf\}\n\s*\$\{EndIf\}\n/,
+      'the newer of the two (pre-release suffix dropped) is the installed version compared with ${VERSION}',
+    );
+    // …and that choice is made before the comparison with the version being installed.
+    assert.ok(guard.indexOf('StrCpy $R0 $R1') < guard.indexOf('${If} $R0 != ""'));
+  });
+
   it('stays warning-free: no Var or Function declarations (unused in one of electron-builder’s two passes)', () => {
     assert.doesNotMatch(nsh, /^\s*(Var|Function)\b/m);
     // The uninstall log note is kept.
@@ -364,6 +396,17 @@ describe('scripts/smoke-installed.ps1 (installer scenarios)', () => {
     assert.match(upgrade, /Assert-SameTree \$settingsBefore/);
     assert.match(upgrade, /\$ExitDowngrade/);
     assert.match(upgrade, /::notice::Upgrade smoke skipped/);
+  });
+
+  it('downgrade: also with a newer per-machine installation next to the per-user one (stand-in HKLM entry, always removed)', () => {
+    const downgrade = /'Downgrade' \{\n([\s\S]*?)\n {4}\}\n {2}\}\n/.exec(ps1)?.[1] ?? '';
+    assert.match(downgrade, /\$machineKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\\$\(\$after\.Key\)"/);
+    assert.match(downgrade, /Set-ItemProperty -Path \$machineKey -Name 'DisplayVersion' -Value '999\.0\.0'/);
+    assert.match(downgrade, /Invoke-Installer \$installerPath @\('\/S', '\/currentuser'\)\) \$ExitDowngrade "Installing \$version per user while a newer per-machine/);
+    // The stand-in entry has no DisplayName (never counted as an installation) and is removed on every path.
+    assert.doesNotMatch(downgrade, /-Name 'DisplayName'/);
+    assert.match(ps1, /^\$script:fakeMachineKey = \$null$/m);
+    assert.match(/\nfinally \{\n([\s\S]*)$/.exec(ps1)?.[1] ?? '', /if \(\$script:fakeMachineKey\) \{ Remove-Item -Path \$script:fakeMachineKey -Recurse -Force/);
   });
 
   it('the harness never relies on the installer closing Pevqori, and uninstalling keeps data and settings', () => {
