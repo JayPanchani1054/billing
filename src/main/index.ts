@@ -33,6 +33,7 @@ import { contentSecurityPolicy, hardenAppSession, hardenWebContents } from './se
 import { evaluateSmoke, SMOKE_SCRIPT, SMOKE_TIMEOUT_MS } from './smoke.ts';
 import type { SmokeVerdict } from './smoke.ts';
 import { createWindowManager } from './window.ts';
+import { migrateLegacyUserData } from './legacyUserData.ts';
 import type { WindowManager } from './window.ts';
 
 const isE2E = process.env.PEVQORI_E2E === '1';
@@ -156,6 +157,27 @@ function openLogsFolder(): void {
   });
 }
 
+/**
+ * First launch after the product rename: copy the settings of the installation made by an older build
+ * (legacyUserData.ts) before anything reads them. Skipped when a test / smoke run points userData or
+ * the data folder somewhere explicit. Never stops the app from starting.
+ */
+function carryOverLegacySettings(dataDirOverridden: boolean, defaultDataDir: string): void {
+  if (dataDirOverridden || absoluteEnvPath(process.env.PEVQORI_USER_DATA)) return;
+  try {
+    const r = migrateLegacyUserData({
+      appDataDir: app.getPath('appData'),
+      userDataDir: app.getPath('userData'),
+      documentsDir: documentsDir(),
+      defaultDataDir,
+      dev: !app.isPackaged,
+    });
+    if (r.status === 'migrated') log('info', 'Settings of the earlier installation were carried over', { copied: r.copied, dataDir: r.dataDir });
+  } catch (err) {
+    log('warn', 'Settings of the earlier installation could not be carried over', describeError(err));
+  }
+}
+
 /** The Documents folder, or the home folder on profiles where Windows/XDG cannot resolve it. */
 function documentsDir(): string {
   try {
@@ -181,6 +203,8 @@ function faultError(error: { name: string; message: string; stack?: string }): E
  */
 async function bootRuntime(): Promise<CoreProxy | null> {
   const dataDirOverride = absoluteEnvPath(process.env.PEVQORI_DATA_DIR);
+  const defaultDataDir = dataDirOverride ?? path.join(documentsDir(), PROFILE_NAME);
+  carryOverLegacySettings(dataDirOverride !== null, defaultDataDir);
   // The edit-log anchor key is sealed with the OS here (safeStorage exists only on this thread) and
   // handed to the worker; see anchor-key.ts and docs/SECURITY.md T4.
   const auditAnchorKey = loadAnchorKeyForWorker(app.getPath('userData'), safeStorage, log);
@@ -188,7 +212,7 @@ async function bootRuntime(): Promise<CoreProxy | null> {
     appVersion: appVersion(),
     spawn: nodeWorkerSpawner(workerScriptPath(__dirname), {
       userDataDir: app.getPath('userData'),
-      defaultDataDir: dataDirOverride ?? path.join(documentsDir(), PROFILE_NAME),
+      defaultDataDir,
       appVersion: appVersion(),
       logDir: app.getPath('logs'),
       consoleLog: !app.isPackaged,

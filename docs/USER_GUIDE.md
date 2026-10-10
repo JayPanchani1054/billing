@@ -1380,7 +1380,7 @@ the right to create the masters or vouchers concerned.
 
 ### 13.5 Moving from Tally, and Export to Tally
 
-**Migrate from Tally** (*Data › **Migrate from Tally***):
+**XML Data Import** (*Data › **XML Data Import***):
 
 1. In Tally, open the company and export **masters** and **transactions** as XML (TallyPrime:
    *Gateway of Tally › Export*, **Alt+E**; Tally ERP 9: *Display › List of Accounts › Alt+E* for masters).
@@ -1401,7 +1401,7 @@ GST on advances recorded with the GST system ledgers is recognised, but Tally's 
 arrive as plain journals. Features the data uses (cost centres, godowns, …) are switched on for you.
 
 **Export to Tally (for your CA or auditor).** Most chartered accountants finalise accounts in TallyPrime.
-*Data › **Export to Tally*** writes your books as a file TallyPrime can import:
+*Data › **XML Data Export*** writes your books as a file TallyPrime can import:
 
 1. Tick **Masters** (groups, ledgers with GST, address, bank and bill-wise opening details, units,
    godowns, stock groups and items with opening stock, cost centres, voucher types, aliases) and / or

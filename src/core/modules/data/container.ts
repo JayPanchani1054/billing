@@ -29,12 +29,28 @@ import path from 'node:path';
 import { Transform, Writable, type TransformCallback } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip, createGzip } from 'node:zlib';
-import type { BackupManifest } from '../../../shared/types/data.ts';
+import { BACKUP_EXTENSION, type BackupManifest } from '../../../shared/types/data.ts';
 import { SCRYPT_N, SCRYPT_P, SCRYPT_R, randomToken } from '../../lib/crypto.ts';
 import { AppError } from '../../lib/errors.ts';
 import { renameWithRetry } from '../../lib/fsutil.ts';
+import { LEGACY_BACKUP_EXTENSION, LEGACY_BACKUP_FORMAT, LEGACY_BACKUP_MAGIC, LEGACY_ENC_MAGIC } from '../../lib/legacyNames.ts';
 
 export const BACKUP_MAGIC = 'PEVQBAK1';
+/** manifest.format written by this build. */
+export const BACKUP_FORMAT = 'pevqori-backup';
+/**
+ * Backups made before the rename (LEGACY_* in legacyNames.ts: other extension, container magic,
+ * manifest format and envelope magic) are still listed, verified and restored. New backups always use
+ * the current names.
+ */
+const READABLE_MAGICS: readonly string[] = [BACKUP_MAGIC, LEGACY_BACKUP_MAGIC];
+const READABLE_FORMATS: readonly unknown[] = [BACKUP_FORMAT, LEGACY_BACKUP_FORMAT];
+
+/** True for a file name with a backup extension (current, or of a backup made before the rename). */
+export function hasBackupExtension(name: string): boolean {
+  const n = name.toLowerCase();
+  return n.endsWith(BACKUP_EXTENSION) || n.endsWith(LEGACY_BACKUP_EXTENSION);
+}
 export const FORMAT_VERSION = 1;
 /** Space reserved for the manifest JSON by the writer (readers accept any length up to MAX_MANIFEST). */
 export const MANIFEST_RESERVED = 16 * 1024;
@@ -42,6 +58,7 @@ const MAX_MANIFEST = 1024 * 1024;
 const FIXED_HEADER = 12;
 
 const ENC_MAGIC = Buffer.from('PEVQENC1', 'ascii');
+const LEGACY_ENC = Buffer.from(LEGACY_ENC_MAGIC, 'ascii');
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
@@ -185,7 +202,7 @@ export async function writeContainer(opts: {
     }
 
     const manifest: BackupManifest = {
-      format: 'pevqori-backup',
+      format: BACKUP_FORMAT,
       formatVersion: FORMAT_VERSION,
       ...opts.manifest,
       encrypted: Boolean(opts.password),
@@ -225,7 +242,7 @@ function checkManifest(raw: unknown): BackupManifest {
   };
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) bad('no manifest');
   const m = raw as Record<string, unknown>;
-  if (m.format !== 'pevqori-backup') bad('unknown format');
+  if (!READABLE_FORMATS.includes(m.format)) bad('unknown format');
   if (typeof m.formatVersion !== 'number' || !Number.isInteger(m.formatVersion)) bad('no format version');
   if ((m.formatVersion as number) > FORMAT_VERSION) {
     throw new AppError('CONFLICT', `This backup was made by a newer version of Pevqori (backup format ${String(m.formatVersion)}). Update Pevqori to use it.`);
@@ -240,7 +257,7 @@ function checkManifest(raw: unknown): BackupManifest {
   if (typeof m.payloadSha256 !== 'string' || !HEX64.test(m.payloadSha256)) bad('field payloadSha256');
   if (typeof m.dbSha256 !== 'string' || !HEX64.test(m.dbSha256)) bad('field dbSha256');
   return {
-    format: 'pevqori-backup',
+    format: BACKUP_FORMAT,
     formatVersion: 1,
     appVersion: m.appVersion as string,
     schemaVersion: m.schemaVersion as number,
@@ -285,7 +302,7 @@ export function readContainerInfo(file: string): ContainerInfo {
   try {
     const fileSize = fs.fstatSync(fd).size;
     const head = Buffer.alloc(FIXED_HEADER);
-    if (fs.readSync(fd, head, 0, FIXED_HEADER, 0) < FIXED_HEADER || head.toString('ascii', 0, 8) !== BACKUP_MAGIC) {
+    if (fs.readSync(fd, head, 0, FIXED_HEADER, 0) < FIXED_HEADER || !READABLE_MAGICS.includes(head.toString('ascii', 0, 8))) {
       throw new BackupFileError('container', 'This is not a Pevqori backup file (.pvqbak).');
     }
     const len = head.readUInt32LE(8);
@@ -336,7 +353,8 @@ export async function extractPayload(file: string, info: ContainerInfo, password
       } finally {
         fs.closeSync(fd);
       }
-      if (!prefix.subarray(0, ENC_MAGIC.length).equals(ENC_MAGIC)) throw new BackupFileError('container', 'This backup file is damaged (bad encryption header).');
+      const magic = prefix.subarray(0, ENC_MAGIC.length);
+      if (!magic.equals(ENC_MAGIC) && !magic.equals(LEGACY_ENC)) throw new BackupFileError('container', 'This backup file is damaged (bad encryption header).');
       const salt = prefix.subarray(ENC_MAGIC.length, ENC_MAGIC.length + SALT_BYTES);
       const iv = prefix.subarray(ENC_MAGIC.length + SALT_BYTES, ENC_HEADER);
       const key = await deriveKey(password as string, salt);

@@ -269,7 +269,7 @@ interface StreamedEntry {
  * write() is buffered up to ZIP_STREAM_CHUNK bytes, deflated as an independent block run that ends on
  * a byte boundary (Z_SYNC_FLUSH, not final) and appended; endEntry() adds the final block. The
  * concatenation is one valid raw-deflate stream (RFC 1951 blocks; no back-reference crosses a chunk).
- * CRC-32 is computed incrementally and patched into the local header afterwards (no data
+ * CRC-32 is computed as the data streams by and patched into the local header afterwards (no data
  * descriptors, so every reader handles it). Synchronous; no ZIP64 (< 4 GB, ≤ 65 535 entries).
  * Always deflates. Call finish() to write the central directory, or abort() to delete the file.
  */

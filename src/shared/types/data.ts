@@ -560,7 +560,7 @@ export interface XmlExportMasterCounts {
 }
 
 export interface XmlExportResult {
-  /** 'Acme-Tally-20250401-20260331.zip' (masters + vouchers) or '…-Tally-Masters.xml' / '…-Tally-Vouchers-….xml'. */
+  /** 'Acme-XML-20250401-20260331.zip' (masters + vouchers) or '…-XML-Masters.xml' / '…-XML-Vouchers-….zip'. */
   fileName: string;
   /** UTF-16LE XML with BOM, or a ZIP of 1-Masters.xml + 2-Vouchers.xml when both were asked for. */
   bytes: Uint8Array;

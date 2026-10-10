@@ -655,7 +655,7 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
 (`attachments`, transport-only `attachment_blobs`, grants for the system roles).
 
 - **Tally XML export** — `data.xmlExport.create` (`data.export`, async, `transactional:false`) in
-  `src/core/modules/data/xmlExport.ts`; screen `data.xmlExport` "Export to Tally" (Gateway › Data,
+  `src/core/modules/data/xmlExport.ts`; screen `data.xmlExport` "XML Data Export" (Gateway › Data,
   Go To; Ctrl+A export, Alt+B Trial Balance). TallyPrime "Import Data" envelope, UTF-16LE + BOM;
   masters only → `.xml`, with vouchers → `.zip` (`1-Masters.xml`, `2-Vouchers.xml`) streamed through
   `ZipFileWriter` from one read snapshot (`openSnapshot`, yields every 5 000 vouchers). Vouchers are

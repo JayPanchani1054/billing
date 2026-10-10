@@ -26,7 +26,7 @@ export const SPREADSHEET_FILTERS = [
   { name: 'All files', extensions: ['*'] },
 ];
 export const XML_FILTERS = [
-  { name: 'Tally XML export', extensions: ['xml'] },
+  { name: 'XML export file', extensions: ['xml'] },
   { name: 'All files', extensions: ['*'] },
 ];
 export const BACKUP_FILTERS = [

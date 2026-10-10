@@ -20,6 +20,8 @@ import type {
 import type { ApiResult } from '../shared/api.ts';
 import type { FileFilter, NativeAction, NativeActions } from '../shared/bridge.ts';
 import { AppError, toErrorPayload } from '../core/lib/errors.ts';
+import { LEGACY_BACKUP_EXTENSION } from '../core/lib/legacyNames.ts';
+import { BACKUP_EXTENSION } from '../shared/types/data.ts';
 import type { Runtime } from '../core/app/runtime.ts';
 import { checkOpenCopy, writeOpenCopy } from './attachments.ts';
 import { openExternalUrl, parseExternalUrl } from './external.ts';
@@ -115,9 +117,14 @@ function fileFilters(v: unknown): FileFilter[] | undefined {
       if (typeof e !== 'string' || !/^(\*|[A-Za-z0-9_-]{1,16})$/.test(e)) throw invalid('Invalid file filters.');
       return e;
     });
+    // Backups made before the rename carry the legacy extension: offer them wherever backups are picked.
+    if (extensions.includes(BACKUP_EXT) && !extensions.includes(LEGACY_BACKUP_EXT)) extensions.push(LEGACY_BACKUP_EXT);
     return { name, extensions };
   });
 }
+
+const BACKUP_EXT = BACKUP_EXTENSION.slice(1);
+const LEGACY_BACKUP_EXT = LEGACY_BACKUP_EXTENSION.slice(1);
 
 function optAbsolutePath(o: Record<string, unknown>, key: string): string | undefined {
   const v = optText(o, key, 1024);

@@ -51,7 +51,7 @@ import { authorizeUserPath, isBackupFolderApproved, isUncOrDevicePath, isWithin 
 import { getConfig, readSetting, writeSetting } from '../company/service.ts';
 import { localStamp, safeFileNamePart } from './common.ts';
 import { describeBlobs, embedAttachmentsInSnapshot, inspectAttachmentBlobs, unpackAttachmentBlobs, type EmbedResult } from '../attachments/backup.ts';
-import { BackupFileError, checkPayloadDigest, extractPayload, readContainerInfo, writeContainer, type ContainerInfo } from './container.ts';
+import { BackupFileError, checkPayloadDigest, extractPayload, hasBackupExtension, readContainerInfo, writeContainer, type ContainerInfo } from './container.ts';
 
 export const BACKUP_PASSWORD_MIN = 8;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -391,7 +391,7 @@ function scanFolder(folder: string, current?: { companyId: string; companyGuid: 
   }
   const out: BackupFileInfo[] = [];
   for (const n of names) {
-    if (!n.toLowerCase().endsWith(BACKUP_EXTENSION) || n.startsWith('.')) continue;
+    if (!hasBackupExtension(n) || n.startsWith('.')) continue;
     const p = path.join(folder, n);
     try {
       if (!fs.statSync(p).isFile()) continue;
@@ -471,7 +471,7 @@ export function inspectBackupFile(access: BackupFileAccess, rawPath: string): Ba
 
 function backupPath(access: BackupFileAccess, raw: string): string {
   const file = authorizeUserPath(access.app, raw, 'read-file', { field: 'path', what: 'backup file', trusted: access.trusted });
-  if (!file.toLowerCase().endsWith(BACKUP_EXTENSION)) {
+  if (!hasBackupExtension(file)) {
     throw validation([{ path: 'path', message: `Choose a Pevqori backup file (*${BACKUP_EXTENSION})` }]);
   }
   if (!exists(file)) throw new AppError('NOT_FOUND', 'The backup file no longer exists. Choose it again.');

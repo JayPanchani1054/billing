@@ -169,14 +169,17 @@ export class FileAuditAnchorStore implements AuditAnchorStore {
     return out;
   }
 
-  sign(head: Omit<AuditAnchor, 'mac'>): string {
-    return createHmac('sha256', this.key()).update(anchorMacInput(head)).digest('hex');
+  sign(head: Omit<AuditAnchor, 'mac'>, legacy = false): string {
+    return createHmac('sha256', this.key()).update(anchorMacInput(head, legacy)).digest('hex');
   }
 
+  /** Anchors recorded before the rename (other MAC prefix) still verify; new ones are signed with the current prefix. */
   verify(anchor: AuditAnchor): boolean {
     if (typeof anchor.mac !== 'string' || !HEX64.test(anchor.mac)) return false;
-    const expected = Buffer.from(this.sign(anchor), 'hex');
-    return timingSafeEqual(expected, Buffer.from(anchor.mac, 'hex'));
+    const given = Buffer.from(anchor.mac, 'hex');
+    const current = timingSafeEqual(Buffer.from(this.sign(anchor), 'hex'), given);
+    const legacy = timingSafeEqual(Buffer.from(this.sign(anchor, true), 'hex'), given);
+    return current || legacy;
   }
 
   get(companyId: string): AuditAnchor | null {

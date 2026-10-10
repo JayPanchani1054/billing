@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createCipheriv, scryptSync } from 'node:crypto';
 import { describe, it } from 'node:test';
 import {
   decryptBytes,
@@ -11,11 +12,15 @@ import {
   passwordPolicy,
   randomBase36,
   randomToken,
+  SCRYPT_N,
+  SCRYPT_P,
+  SCRYPT_R,
   sha256Hex,
   verifyPassword,
   verifyPasswordSync,
 } from './crypto.ts';
 import { AppError } from './errors.ts';
+import { LEGACY_ENC_MAGIC } from './legacyNames.ts';
 
 describe('password hashing', () => {
   it('produces scrypt$N$r$p$salt$hash with fresh salts', async () => {
@@ -99,6 +104,24 @@ describe('AES-256-GCM envelope', () => {
     assert.equal(enc.length, 8 + 16 + 12 + 16 + data.length);
     assert.deepEqual(decryptBytes(enc, 'Backup#2026'), data);
     assert.notDeepEqual(encryptBytes(data, 'Backup#2026'), enc, 'fresh salt/iv each time');
+  });
+
+  it('decrypts an envelope written before the rename (legacy magic); a forged magic swap fails', () => {
+    const password = 'Backup#2026';
+    const salt = Buffer.alloc(16, 1);
+    const iv = Buffer.alloc(12, 2);
+    const key = scryptSync(password.normalize('NFKC'), salt, 32, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, maxmem: 256 * SCRYPT_N * SCRYPT_R * SCRYPT_P });
+    const header = Buffer.concat([Buffer.from(LEGACY_ENC_MAGIC, 'ascii'), salt, iv]);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    cipher.setAAD(header);
+    const body = Buffer.concat([cipher.update(data), cipher.final()]);
+    const legacy = new Uint8Array(Buffer.concat([header, cipher.getAuthTag(), body]));
+    assert.ok(isEncrypted(legacy));
+    assert.deepEqual(decryptBytes(legacy, password), data);
+    // The magic is authenticated: relabelling a legacy envelope as a current one is detected.
+    const relabelled = new Uint8Array(legacy);
+    relabelled.set(Buffer.from('PEVQENC1', 'ascii'), 0);
+    assert.throws(() => decryptBytes(relabelled, password), AppError);
   });
 
   it('round-trips empty data', () => {

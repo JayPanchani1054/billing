@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createCipheriv, createDecipheriv, createHash, scryptSync } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +7,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import type { ApiResult } from '../../../shared/api.ts';
 import type { CompanyListItem, CreateCompanyInput, OpenResult } from '../../../shared/types/app.ts';
+import { BACKUP_EXTENSION } from '../../../shared/types/data.ts';
 import type { BackupAutoResult, BackupCreateResult, BackupFolderStatus, BackupListResult, BackupRestoreResult, BackupVerifyResult } from '../../../shared/types/data.ts';
 import { appRoutes } from '../../app/routes.ts';
 import { fixedClock, type FixedClock } from '../../app/clock.ts';
@@ -19,7 +21,9 @@ import { createTestCompany, makeGstin, type TestCompany } from '../../testing/fi
 import { companyRoutes } from '../company/routes.ts';
 import { saveConfig } from '../company/service.ts';
 import { autoBackup, BACKUP_PAGES_PER_STEP, createBackup, defaultBackupFolder, lastBackupAt, listBackups, verifyBackup } from './backup.ts';
-import { BACKUP_MAGIC, readContainerInfo, writeContainer } from './container.ts';
+import { BACKUP_FORMAT, BACKUP_MAGIC, readContainerInfo, writeContainer } from './container.ts';
+import { LEGACY_BACKUP_EXTENSION, LEGACY_BACKUP_FORMAT, LEGACY_BACKUP_MAGIC, LEGACY_ENC_MAGIC } from '../../lib/legacyNames.ts';
+import { SCRYPT_N, SCRYPT_P, SCRYPT_R } from '../../lib/crypto.ts';
 import { dataRoutes } from './routes.ts';
 import { securityRoutes } from '../security/routes.ts';
 
@@ -114,6 +118,78 @@ describe('backup: create and verify', () => {
     assert.equal(defaultBackupFolder(t.ctx), dir);
     const r = await createBackup(t.ctx, {});
     assert.equal(r.folder, dir);
+  });
+});
+
+/**
+ * Re-wrap a backup made by this build as a backup made before the rename would be: legacy extension,
+ * container magic, manifest format and (when encrypted) envelope magic — the envelope is re-encrypted
+ * because its header is authenticated. Returns the new file's path.
+ */
+function toLegacyBackup(src: string, password?: string): string {
+  const info = readContainerInfo(src);
+  let payload = fs.readFileSync(src).subarray(info.payloadOffset);
+  if (info.manifest.encrypted) {
+    assert.ok(password);
+    const salt = payload.subarray(8, 24);
+    const iv = payload.subarray(24, 36);
+    const key = scryptSync(password.normalize('NFKC'), salt, 32, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, maxmem: 256 * SCRYPT_N * SCRYPT_R * SCRYPT_P });
+    const decipher = createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAAD(payload.subarray(0, 36));
+    decipher.setAuthTag(payload.subarray(36, 52));
+    const plain = Buffer.concat([decipher.update(payload.subarray(52)), decipher.final()]);
+    const header = Buffer.concat([Buffer.from(LEGACY_ENC_MAGIC, 'ascii'), salt, iv]);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    cipher.setAAD(header);
+    const body = Buffer.concat([cipher.update(plain), cipher.final()]);
+    payload = Buffer.concat([header, cipher.getAuthTag(), body]);
+  }
+  const manifest = {
+    ...info.manifest,
+    format: LEGACY_BACKUP_FORMAT,
+    payloadSha256: createHash('sha256').update(payload).digest('hex'),
+    payloadBytes: payload.length,
+  };
+  const json = Buffer.from(JSON.stringify(manifest), 'utf8');
+  const head = Buffer.alloc(12);
+  head.write(LEGACY_BACKUP_MAGIC, 0, 'ascii');
+  head.writeUInt32LE(json.length, 8);
+  const target = path.join(path.dirname(src), `legacy-${path.basename(src, BACKUP_EXTENSION)}${LEGACY_BACKUP_EXTENSION}`);
+  fs.writeFileSync(target, Buffer.concat([head, json, payload]));
+  return target;
+}
+
+describe('backup: files made before the rename', () => {
+  it('new backups use the current extension, container magic, manifest format and envelope magic', async () => {
+    const r = await createBackup(t.ctx, { folder: dir, password: PASSWORD });
+    assert.ok(r.path.endsWith(BACKUP_EXTENSION));
+    const bytes = fs.readFileSync(r.path);
+    assert.equal(bytes.subarray(0, 8).toString('ascii'), BACKUP_MAGIC);
+    const info = readContainerInfo(r.path);
+    assert.equal(info.manifest.format, BACKUP_FORMAT);
+    assert.equal(bytes.subarray(info.payloadOffset, info.payloadOffset + 8).toString('ascii'), 'PEVQENC1');
+    assert.notEqual(BACKUP_EXTENSION, LEGACY_BACKUP_EXTENSION);
+    assert.notEqual(BACKUP_MAGIC, LEGACY_BACKUP_MAGIC);
+  });
+
+  it('an old-format backup (plain) is listed and verifies; its manifest reads with the current format', async () => {
+    const legacy = toLegacyBackup((await createBackup(t.ctx, { folder: dir })).path);
+    assert.equal(fs.readFileSync(legacy).subarray(0, 8).toString('ascii'), LEGACY_BACKUP_MAGIC);
+    assert.equal(readContainerInfo(legacy).manifest.format, BACKUP_FORMAT);
+    const v = await verifyBackup(t.ctx, legacy, undefined);
+    assert.equal(v.ok, true, JSON.stringify(v.checks));
+    const listed = listBackups(t.ctx, dir).backups.find((x) => x.fileName === path.basename(legacy));
+    assert.ok(listed?.manifest, 'the old backup is listed');
+  });
+
+  it('an old-format encrypted backup verifies with its password (and not without)', async () => {
+    const legacy = toLegacyBackup((await createBackup(t.ctx, { folder: dir, password: PASSWORD })).path, PASSWORD);
+    const info = readContainerInfo(legacy);
+    assert.equal(fs.readFileSync(legacy).subarray(info.payloadOffset, info.payloadOffset + 8).toString('ascii'), LEGACY_ENC_MAGIC);
+    assert.equal((await verifyBackup(t.ctx, legacy, undefined)).needsPassword, true);
+    const good = await verifyBackup(t.ctx, legacy, PASSWORD);
+    assert.equal(good.ok, true, JSON.stringify(good.checks));
+    assert.equal((await verifyBackup(t.ctx, legacy, 'Wrong@2026')).ok, false);
   });
 });
 
@@ -416,6 +492,14 @@ describe('restore (app runtime)', () => {
     } finally {
       db.close();
     }
+  });
+
+  it('restores an old-format (encrypted) backup made before the rename', async () => {
+    const { backup } = await backupOf('Legacy Traders', PASSWORD);
+    await call('app.company.close');
+    const legacy = toLegacyBackup(backup.path, PASSWORD);
+    const res = await call<BackupRestoreResult>('data.backup.restoreFromFile', { path: legacy, password: PASSWORD, mode: 'new' });
+    assert.equal(res.company.name, 'Legacy Traders');
   });
 
   it('a wrong password restores nothing', async () => {

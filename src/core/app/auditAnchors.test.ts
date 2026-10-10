@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ApiResult } from '../../shared/api.ts';
 import type { AppState, CreateCompanyInput } from '../../shared/types/app.ts';
@@ -13,6 +14,8 @@ import type { BackupCreateResult, BackupVerifyResult } from '../../shared/types/
 import type { AuditVerifyReport } from '../../shared/types/security.ts';
 import { Db } from '../db/db.ts';
 import { computeAuditHash, GENESIS_HASH, verifyAuditChain } from '../lib/audit.ts';
+import { ANCHOR_MAC_PREFIX, anchorMacInput } from '../lib/auditAnchor.ts';
+import { LEGACY_ANCHOR_MAC_PREFIX } from '../lib/legacyNames.ts';
 import { companyRoutes } from '../modules/company/routes.ts';
 import { readContainerInfo, writeContainer } from '../modules/data/container.ts';
 import { dataRoutes } from '../modules/data/routes.ts';
@@ -237,5 +240,19 @@ describe('FileAuditAnchorStore', () => {
     // Another installation (different key) cannot vouch for it.
     const other = new FileAuditAnchorStore({ dir: path.join(root, 'u2'), log: () => undefined });
     assert.equal(other.verify(anchor), false);
+  });
+
+  it('check-points recorded before the rename (other MAC prefix) still verify; new ones use the current prefix', () => {
+    const key = Buffer.alloc(32, 7);
+    const store = new FileAuditAnchorStore({ dir: path.join(root, 'u3'), log: () => undefined, key });
+    const head = { companyId: 'c1', companyGuid: 'g', lastId: 9, lastHash: 'cd'.repeat(32), at: '2026-10-05T00:00:00.000Z' };
+    const mac = (prefixLegacy: boolean): string => createHmac('sha256', key).update(anchorMacInput(head, prefixLegacy)).digest('hex');
+    assert.ok(anchorMacInput(head).startsWith(`${ANCHOR_MAC_PREFIX}|`));
+    assert.ok(anchorMacInput(head, true).startsWith(`${LEGACY_ANCHOR_MAC_PREFIX}|`));
+    assert.equal(store.verify({ ...head, mac: mac(true) }), true, 'legacy check-point');
+    assert.equal(store.verify({ ...head, mac: mac(false) }), true, 'current check-point');
+    assert.equal(store.verify({ ...head, lastId: 8, mac: mac(true) }), false, 'an edited legacy check-point is still caught');
+    const fresh = store.put({ companyId: 'c1', companyGuid: 'g', lastId: 9, lastHash: 'cd'.repeat(32) }, new Date(head.at));
+    assert.equal(fresh.mac, mac(false), 'new check-points are signed with the current prefix');
   });
 });

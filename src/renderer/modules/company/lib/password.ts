@@ -36,7 +36,7 @@ export interface PasswordStrength {
   acceptable: boolean;
 }
 
-const COMMON = ['password', 'passw0rd', '12345678', '123456789', '1234567890', 'qwerty', 'qwertyuiop', 'abc12345', 'admin123', 'welcome', 'letmein', 'iloveyou', 'india123', 'pevqori', 'tally', 'owner', 'admin'];
+const COMMON = ['password', 'passw0rd', '12345678', '123456789', '1234567890', 'qwerty', 'qwertyuiop', 'abc12345', 'admin123', 'welcome', 'letmein', 'iloveyou', 'india123', 'pevqori', 'owner', 'admin'];
 
 const LABELS: Readonly<Record<StrengthScore, PasswordStrength['label']>> = { 0: 'Too weak', 1: 'Weak', 2: 'Fair', 3: 'Good', 4: 'Strong' };
 

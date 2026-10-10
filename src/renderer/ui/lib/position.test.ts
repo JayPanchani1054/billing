@@ -21,7 +21,7 @@ test('does not flip when the other side is smaller', () => {
   assert.equal(p.available, 800 - 330 - 4 - 8);
 });
 
-test('shifts horizontally to stay inside the viewport', () => {
+test('shifts sideways to stay inside the viewport', () => {
   const p = computePosition({ top: 100, left: 900, width: 80, height: 30 }, { width: 240, height: 100 }, vp, 'bottom-start', 4, 8);
   assert.equal(p.left, 1000 - 8 - 240);
   const q = computePosition({ top: 100, left: 0, width: 80, height: 30 }, { width: 240, height: 100 }, vp, 'bottom-end', 4, 8);

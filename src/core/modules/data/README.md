@@ -226,12 +226,13 @@ Nothing is written.
   from the GST duty-ledger postings, allocated over the taxable lines by HSN/rate. `ISOPTIONAL` → optional
   (not in the books); `ISCANCELLED` → cancelled with no entries. Unbalanced vouchers, unknown
   ledgers/items/types, dates before the books beginning or in a locked period are issues (skipped).
-  `meta = {v:1, source:'tally', importBatchId, tally:{guid, remoteId, voucherType, isInvoice}, input}`.
+  `meta = {v:1, source:'xml_import', importBatchId, xmlImport:{guid, remoteId, voucherType, isInvoice}, input}`
+  (vouchers imported by builds before the rename carry the legacy source / key of `xmlFormat.ts`; both are recognised).
   Duplicates: same Tally GUID, or the same voucher type + number in its numbering period — except that a
   number match against a voucher imported from Tally with a *different* GUID is not a duplicate (Tally
   allows repeated numbers, e.g. manual numbering). `onDuplicate: 'skip'` skips (a number clash with a
   voucher entered in Pevqori is reported as a `number_exists` warning); `'update'` rewrites only vouchers
-  that came from Tally (`meta.source = 'tally'`) and not inside the locked period — a voucher entered here
+  that came from Tally (`meta.source = 'xml_import'`, or the legacy value) and not inside the locked period — a voucher entered here
   is never overwritten. Imported numbers in the voucher type's own format advance `voucher_counters`.
 - Permissions: `data.import`, plus `masters.create` (masters), `vouchers.create` and `vouchers.backdate`
   (vouchers are dated in the past), and `masters.alter` / `vouchers.alter` for `onDuplicate: 'update'`.

@@ -2251,7 +2251,7 @@ export async function importXml(ctx: CompanyCtx, input: XmlImportInput): Promise
           });
         } catch (err) {
           stopped = true;
-          ctx.app.log('error', 'Tally import stopped', { error: err });
+          ctx.app.log('error', 'XML data import stopped', { error: err });
           add({ severity: 'error', code: 'stopped', message: `The import stopped at voucher ${start + 1}: ${err instanceof Error ? err.message : 'unexpected error'}. Vouchers before it were imported.` });
           break;
         }
@@ -2269,7 +2269,7 @@ export async function importXml(ctx: CompanyCtx, input: XmlImportInput): Promise
     };
     db.transaction(() => {
       db.run('UPDATE import_batches SET meta = :meta WHERE id = :id', { id: batchId, meta: JSON.stringify({ status: stopped ? 'stopped' : 'done', ...summary }) });
-      ctx.audit({ action: 'import', entityType: 'import_batch', entityId: batchId, entityLabel: `Tally data from ${input.fileName}`.slice(0, 300), after: summary });
+      ctx.audit({ action: 'import', entityType: 'import_batch', entityId: batchId, entityLabel: `XML data import from ${input.fileName}`.slice(0, 300), after: summary });
     });
     setProgress(ctx, { running: false, phase: stopped ? 'failed' : 'done', done: counts.created + counts.updated, total: file.vouchers.length, message: stopped ? 'The import stopped early.' : 'Import finished.' });
     return result;

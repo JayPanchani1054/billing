@@ -301,7 +301,7 @@ describe('tally export: the file, permissions and audit', () => {
   it('masters only: one UTF-16LE XML with a BOM in the ENVELOPE / IMPORTDATA shape, values escaped', async () => {
     writeExtraAliases(k.t.db, 'ledger', k.L.acme, ['A&B <Co>']);
     const r = await exportXml(k.t.ctx, { masters: true, vouchers: false, from: FROM, to: TO });
-    assert.equal(r.fileName, 'Round-Trip-Traders-Tally-Masters.xml');
+    assert.equal(r.fileName, 'Round-Trip-Traders-XML-Masters.xml');
     assert.equal(r.mimeType, 'application/xml');
     assert.deepEqual([r.bytes[0], r.bytes[1]], [0xff, 0xfe]); // UTF-16LE BOM
     assert.equal(r.vouchers, 0);
@@ -326,7 +326,7 @@ describe('tally export: the file, permissions and audit', () => {
   it('vouchers only: a ZIP of Vouchers.xml; the period is honoured and amounts are signed as Tally expects', async () => {
     populate();
     const r = await exportXml(k.t.ctx, { masters: false, vouchers: true, from: '2026-04-05', to: '2026-04-08' });
-    assert.equal(r.fileName, 'Round-Trip-Traders-Tally-Vouchers-20260405-20260408.zip');
+    assert.equal(r.fileName, 'Round-Trip-Traders-XML-Vouchers-20260405-20260408.zip');
     assert.equal(r.mimeType, 'application/zip');
     assert.equal(r.masters, null);
     assert.equal(r.vouchers, 2); // the two sales of 5 and 8 April
@@ -348,7 +348,7 @@ describe('tally export: the file, permissions and audit', () => {
   it('runs through the dispatcher, needs data.export and writes one audit entry', async () => {
     const before = k.t.db.value<number>(`SELECT COUNT(*) FROM audit_log WHERE entity_type = 'xml_data'`) ?? 0;
     const ok = await k.t.callOk<XmlExportResult>(dataRoutes, 'data.xmlExport.create', { masters: true, vouchers: true, from: FROM, to: TO });
-    assert.equal(ok.fileName, 'Round-Trip-Traders-Tally-20260401-20270331.zip');
+    assert.equal(ok.fileName, 'Round-Trip-Traders-XML-20260401-20270331.zip');
     assert.equal(k.t.db.value(`SELECT COUNT(*) FROM audit_log WHERE entity_type = 'xml_data' AND action = 'export'`), before + 1);
     const denied = await k.t.call(dataRoutes, 'data.xmlExport.create', { masters: true, vouchers: false, from: FROM, to: TO }, { session: k.t.sessionAs({ permissions: ['masters.view', 'reports.view'] }) });
     assert.equal(denied.ok, false);

@@ -68,7 +68,7 @@ export function useSaveFile(): (bytes: Uint8Array, fileName: string, title: stri
           : ext === 'zip'
             ? [{ name: 'ZIP file', extensions: ['zip'] }]
             : ext === 'xml'
-              ? [{ name: 'Tally XML', extensions: ['xml'] }]
+              ? [{ name: 'XML file', extensions: ['xml'] }]
               : [{ name: 'CSV', extensions: ['csv'] }];
       try {
         const saved = await native('dialog.saveFile', { title, defaultName: fileName, filters, data: bytes });

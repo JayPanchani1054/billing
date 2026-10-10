@@ -1164,7 +1164,7 @@ export async function exportXml(ctx: CompanyCtx, input: XmlExportInput): Promise
     companyName = masters?.companyName ?? db.value<string>('SELECT name FROM company WHERE id = 1') ?? 'Company';
     const slug = fileSlug(companyName);
     if (!input.vouchers) {
-      fileName = `${slug}-Tally-Masters.xml`;
+      fileName = `${slug}-XML-Masters.xml`;
       bytes = utf16leWithBom(masters?.xml ?? '');
       mimeType = XML_DATA_MIME;
     } else {
@@ -1207,7 +1207,7 @@ export async function exportXml(ctx: CompanyCtx, input: XmlExportInput): Promise
       writer.finish();
       bytes = new Uint8Array(fs.readFileSync(tmp));
       const period = `${input.from.replace(/-/g, '')}-${input.to.replace(/-/g, '')}`;
-      fileName = masters ? `${slug}-Tally-${period}.zip` : `${slug}-Tally-Vouchers-${period}.zip`;
+      fileName = masters ? `${slug}-XML-${period}.zip` : `${slug}-XML-Vouchers-${period}.zip`;
       mimeType = ZIP_MIME;
     }
   } finally {
@@ -1227,7 +1227,7 @@ export async function exportXml(ctx: CompanyCtx, input: XmlExportInput): Promise
     ctx.audit({
       action: 'export',
       entityType: 'xml_data',
-      entityLabel: input.vouchers ? `Tally XML ${formatDate(input.from)} to ${formatDate(input.to)}` : 'Tally XML (masters)',
+      entityLabel: input.vouchers ? `XML data export ${formatDate(input.from)} to ${formatDate(input.to)}` : 'XML data export (masters)',
       after: { masters: masterCounts, openingsAsOf: result.openingsAsOf, vouchers: result.vouchers, skipped: result.skipped, bytes: bytes.byteLength },
     }),
   );

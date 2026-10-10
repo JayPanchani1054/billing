@@ -4,7 +4,7 @@
  *
  * - The working date defaults to today, never earlier than the books beginning date. A date the
  *   user picks is remembered for the rest of that calendar day (tomorrow starts at "today" again,
- *   so nobody accidentally keeps entering vouchers on yesterday's date).
+ *   so nobody keeps entering vouchers on yesterday's date by mistake).
  * - The period defaults to the current financial year up to today, starting no earlier than the
  *   books beginning date, and is remembered per company until changed.
  */

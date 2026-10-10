@@ -11,12 +11,12 @@ import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
 import { reportsRoutes } from '../reports/routes.ts';
 import { dataRoutes } from './routes.ts';
 import { ACME_GSTIN, DELHI_GSTIN, SUPREME_GSTIN, xmlFixtureBytes, xmlFixtureXml, utf16le } from './xmlFixture.ts';
-import { importXml, previewXml, XML_IMPORT_SOURCE } from './xmlImport.ts';
+import { importXml, previewXml, XML_IMPORT_META_KEY, XML_IMPORT_SOURCE } from './xmlImport.ts';
 import { creditDays, ourAmount, parseXmlFile, xmlAmount, xmlDate, xmlQty, xmlRate } from './xmlParse.ts';
 import { verifyData } from './verify.ts';
 import { saveVoucher } from '../vouchers/service.ts';
 import { setPeriodLock } from '../company/service.ts';
-import { MESSAGE_CLOSE, MESSAGE_OPEN, MESSAGE_TAG } from './xmlFormat.ts';
+import { LEGACY_IMPORT_META_KEY, LEGACY_IMPORT_SOURCE, MESSAGE_CLOSE, MESSAGE_OPEN, MESSAGE_TAG } from './xmlFormat.ts';
 
 let t: TestCompany;
 beforeEach(() => {
@@ -455,6 +455,31 @@ describe('data.xmlImport.commit: repeated numbers and existing vouchers', () => 
     assert.equal(again.vouchers.created, 0);
     assert.equal(again.vouchers.skipped, 3);
     assert.equal(t.db.value(`SELECT COUNT(*) FROM vouchers WHERE base_type = 'payment'`), 3);
+  });
+
+  it('vouchers imported by builds before the rename (legacy meta source / key) are still recognised on re-import', async () => {
+    const bytes = withVouchers(payment('g-pay-1', '7', '20260410', '1000.00') + payment('g-pay-2', '7', '20260411', '250.00'));
+    assert.equal((await runImport({}, bytes)).vouchers.created, 2);
+    // Rewrite their meta to the form older builds stored.
+    t.db.run(
+      `UPDATE vouchers SET meta = json_remove(json_set(meta, '$.source', :legacySource, :legacyPath, json(json_extract(meta, :path))), :path)
+        WHERE base_type = 'payment'`,
+      { legacySource: LEGACY_IMPORT_SOURCE, legacyPath: `$.${LEGACY_IMPORT_META_KEY}`, path: `$.${XML_IMPORT_META_KEY}` },
+    );
+    const legacy = JSON.parse(t.db.value<string>(`SELECT meta FROM vouchers WHERE base_type = 'payment' ORDER BY id LIMIT 1`) ?? '{}');
+    assert.equal(legacy.source, LEGACY_IMPORT_SOURCE);
+    assert.equal(legacy[LEGACY_IMPORT_META_KEY]?.guid, 'g-pay-1');
+    assert.equal(legacy[XML_IMPORT_META_KEY], undefined);
+
+    const again = await runImport({}, bytes);
+    assert.equal(again.vouchers.created, 0);
+    assert.equal(again.vouchers.skipped, 2);
+    const upd = await runImport({ onDuplicate: 'update' }, withVouchers(payment('g-pay-1', '7', '20260410', '1200.00') + payment('g-pay-2', '7', '20260411', '250.00')));
+    assert.equal(upd.vouchers.created, 0);
+    assert.equal(upd.vouchers.updated, 2);
+    assert.ok(!upd.issues.some((i) => i.code === 'number_exists'), 'an older import is not mistaken for a voucher entered by hand');
+    assert.equal(t.db.value(`SELECT COUNT(*) FROM vouchers WHERE base_type = 'payment'`), 2);
+    assert.equal(closing('Office Rent'), 1_450_00);
   });
 
   it('"update existing" refreshes Tally vouchers but never overwrites a voucher entered in Pevqori', async () => {

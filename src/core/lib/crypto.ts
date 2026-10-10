@@ -10,7 +10,8 @@
  *    DB transaction (e.g. a transactional company route creating a user).
  *  - File encryption: AES-256-GCM with a scrypt-derived key. Envelope layout:
  *      'PEVQENC1' (8) | salt (16) | iv (12) | tag (16) | ciphertext
- *    The 36-byte header (magic + salt + iv) is authenticated as AAD.
+ *    The 36-byte header (magic + salt + iv) is authenticated as AAD. Envelopes written before the rename
+ *    (LEGACY_ENC_MAGIC, legacyNames.ts) still decrypt; new ones always carry the current magic.
  */
 import {
   createCipheriv,
@@ -25,6 +26,7 @@ import {
   type ScryptOptions,
 } from 'node:crypto';
 import { AppError } from './errors.ts';
+import { LEGACY_ENC_MAGIC } from './legacyNames.ts';
 
 // ───────────────────────────── Passwords ─────────────────────────────
 
@@ -175,6 +177,7 @@ export function sha256Hex(data: string | Uint8Array): string {
 // ───────────────────────────── AES-256-GCM file envelope ─────────────────────────────
 
 const MAGIC = Buffer.from('PEVQENC1', 'ascii');
+const LEGACY_MAGIC = Buffer.from(LEGACY_ENC_MAGIC, 'ascii');
 const ENC_SALT_BYTES = 16;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
@@ -185,9 +188,11 @@ function deriveFileKey(password: string, salt: Uint8Array): Buffer {
   return scryptSync(password.normalize('NFKC'), salt, 32, scryptOptions(SCRYPT_N, SCRYPT_R, SCRYPT_P));
 }
 
-/** True when `data` starts with the Pevqori encryption envelope magic. */
+/** True when `data` starts with the Pevqori encryption envelope magic (current or written before the rename). */
 export function isEncrypted(data: Uint8Array): boolean {
-  return data.length >= MAGIC.length && Buffer.from(data.buffer, data.byteOffset, MAGIC.length).equals(MAGIC);
+  if (data.length < MAGIC.length) return false;
+  const head = Buffer.from(data.buffer, data.byteOffset, MAGIC.length);
+  return head.equals(MAGIC) || head.equals(LEGACY_MAGIC);
 }
 
 /** Encrypt bytes with a password (AES-256-GCM, scrypt key). */

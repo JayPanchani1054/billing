@@ -21,6 +21,7 @@
  */
 import type { AuditAnchor } from '../api/context.ts';
 import type { Db } from '../db/db.ts';
+import { LEGACY_ANCHOR_MAC_PREFIX } from './legacyNames.ts';
 
 export interface AuditHead {
   lastId: number;
@@ -33,9 +34,15 @@ export function auditHead(db: Db): AuditHead | null {
   return r ? { lastId: r.id, lastHash: r.hash } : null;
 }
 
-/** Canonical byte string the MAC covers (field order fixed; '|' cannot occur in ids, guids, hex or ISO dates). */
-export function anchorMacInput(a: Omit<AuditAnchor, 'mac'>): string {
-  return ['pevqori-audit-anchor-v1', a.companyId, a.companyGuid, String(a.lastId), a.lastHash, a.at].join('|');
+/** Domain-separation prefix of the MAC input. */
+export const ANCHOR_MAC_PREFIX = 'pevqori-audit-anchor-v1';
+
+/**
+ * Canonical byte string the MAC covers (field order fixed; '|' cannot occur in ids, guids, hex or ISO
+ * dates). `legacy` = the prefix of anchors recorded before the rename (verification only).
+ */
+export function anchorMacInput(a: Omit<AuditAnchor, 'mac'>, legacy = false): string {
+  return [legacy ? LEGACY_ANCHOR_MAC_PREFIX : ANCHOR_MAC_PREFIX, a.companyId, a.companyGuid, String(a.lastId), a.lastHash, a.at].join('|');
 }
 
 export type AnchorStatus = 'match' | 'mismatch' | 'invalid' | 'missing';

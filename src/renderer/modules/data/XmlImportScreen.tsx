@@ -62,7 +62,7 @@ export function XmlImportScreen() {
     setBusy('file');
     setError(null);
     try {
-      const f = await chooseFile('Choose the Tally XML export', XML_FILTERS);
+      const f = await chooseFile('Choose the XML export file', XML_FILTERS);
       if (!f) return;
       const problem = xmlFileProblem(f.name);
       if (problem) {
