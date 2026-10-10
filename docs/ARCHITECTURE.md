@@ -880,6 +880,40 @@ both layers live in JSON that backup, restore and the XML export already carry.
   recipient (46(d)); no copy marking. Purchases, a debit note to a supplier and accounting vouchers get
   none. A particular the document does not carry is never warned about. Pass the document as core built it,
   not the result of `applyPrintLayout` (which has already removed the values the checks look at).
+- **Templates and the one choke point (renderer, WP-06).** `templates/PrintDocuments.tsx` draws every
+  document as `layoutDoc(doc, layers)` = `applyPrintLayout(doc, resolve(saved company ‹ saved voucher type ‹
+  this print))` (`modules/print/lib/layoutParts.ts`, memoised on the document and the layers). The preview,
+  Print, Save PDF and Share (all three serialise the rendered `.bp-docs`), batch printing, print after
+  saving and the Invoice Printing sample go through it; batch printing and print-after-save pass no
+  per-print layer. Each template exports `SUPPORTED_PARTS` (`TEMPLATE_PARTS[kind]`; the editor lists
+  catalogue ∩ template ∩ layout) and honours them: gates `isPartShown(doc, id)`, item columns through
+  `itemColumns()` (ANDed with "not hidden"; a column never prints without data), totals rows through
+  `totalRows()` (filtered; the grand total is locked), wording through
+  `printText(doc, id, templateText(kind, id, doc))` — `templateText` is the template's own 1.0 wording, so
+  an empty layout prints today's document; the only markup difference is the added `data-part="<id>"`
+  attributes. Page numbers hidden → `buildPrintHtml({ pageNumbers: false })` → `pageCss(…, 'none')`. The
+  Compact receipt has no logo, CIN, S.No., batch, per-line tax, HSN summary, bank block or page numbers;
+  Classic keeps its Amount column (it carries the tax rows and the total). `lib/partsCoverage.test.ts`
+  scans each template (and the blocks it draws through) for a click target and the mechanism of every
+  supported part, and checks every printed `data-part` is a catalogue id.
+- **Editor (`modules/print/LayoutEditor.tsx`, Alt+L on Print Preview, "Customize layout…" in Invoice
+  Printing).** A 360 px panel beside the preview: Show (switches per group, locks, the rule of a statutory
+  particular, where a value comes from, "nothing to print on this document") and Texts (placeholder = the
+  inherited wording, ↺ per field). Click-to-select: `data-part` attributes plus one delegated click handler
+  on the preview container (outside `.bp-docs`); the outline styles (`editingCss`) are scoped under
+  `.bp-editing` on that container and are never serialised. Option-owned parts and texts change this print
+  through the preview overrides (`print.voucherData { overrides }`, debounced); everything else is the
+  per-print layer applied in the renderer. **Save for {voucher type}** → `accounts.voucherType.save { id,
+  config }` (`voucherTypePatch`: the layer merged into the type's, the four flags and MRP, declaration and
+  terms into their keys — `''` hides the part and clears the key — the title into Print title, the
+  signatory label as a layer text); **Save for all documents** → `company.config.save { invoice }`
+  (`companyPatch`). After a save only what the saved layers do not already give stays on this print
+  (`remainingPerPrint`). Reset: this print · saved for the voucher type (layer + show / hide flags; its
+  texts stay) · saved for all documents (layer only). The per-print edit is remembered per company and
+  voucher type in `sessionStorage['pevqori.printLayout.<companyId>.<voucherTypeId>']` (try/catch, cleaned
+  on read) and offered — never applied unasked — when that kind of document is opened again; print after
+  saving ignores it. In Invoice Printing the same panel edits the draft (`invoice.layout` and the options),
+  saved with the form (Ctrl+A).
 
 ## Data plus (`dataplus`) — XML data export, attachments, numbering tokens, multiple aliases
 

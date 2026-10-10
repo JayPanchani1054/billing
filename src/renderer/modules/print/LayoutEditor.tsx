@@ -122,7 +122,7 @@ export function LayoutEditor({ model, warnings, onPart, onText, pick, onEscape, 
   );
 
   return (
-    <aside aria-label="Customize what prints">
+    <aside aria-label="Customize what prints" style={{ position: 'sticky', top: 0 }}>
       <Card title="Customize what prints" subtitle={description} padding="sm">
         <div ref={rootRef} onKeyDown={onKeyDown}>
           <Stack gap={3}>

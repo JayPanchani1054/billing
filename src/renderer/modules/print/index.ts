@@ -3,6 +3,9 @@
  * vouchers, and invoice print settings. Templates are React components over the print DTO
  * (shared/types/print.ts); the printed HTML is the serialised preview.
  *
+ * (2.0) Print layouts: Alt+L on the preview (and "Customize layout…" in Invoice Printing) shows / hides
+ * every printable part and changes every printed text — README.md "Customize what prints".
+ *
  * Screens:
  *   'print.voucher'  {id, copies?, template?, pageSize?, autoPrint?, share?}  preview + print / share one voucher
  *   'print.batch'    {ids?, template?}                                 pick / print many vouchers
@@ -18,14 +21,20 @@ import { VoucherSharePanel } from './VoucherSharePanel.tsx';
 export const printModule: ModuleDef = {
   id: 'print',
   screens: [
-    { id: 'print.voucher', title: 'Print Preview', component: PrintVoucherScreen, access: 'vouchers.view', keywords: ['print', 'invoice', 'pdf', 'share', 'e-mail', 'whatsapp'] },
+    {
+      id: 'print.voucher',
+      title: 'Print Preview',
+      component: PrintVoucherScreen,
+      access: 'vouchers.view',
+      keywords: ['print', 'invoice', 'pdf', 'share', 'e-mail', 'whatsapp', 'customize layout', 'hide columns'],
+    },
     { id: 'print.batch', title: 'Print Vouchers', component: PrintBatchScreen, access: 'vouchers.view', keywords: ['print', 'batch', 'bulk', 'multiple invoices', 'pdf'] },
     {
       id: 'print.settings',
       title: 'Invoice Printing',
       component: PrintSettingsScreen,
       access: 'company.view',
-      keywords: ['invoice template', 'print settings', 'bank details', 'upi qr', 'declaration', 'copies', 'paper size', 'thermal', 'mrp', 'share', 'e-mail', 'whatsapp'],
+      keywords: ['invoice template', 'print settings', 'bank details', 'upi qr', 'declaration', 'copies', 'paper size', 'thermal', 'mrp', 'share', 'e-mail', 'whatsapp', 'customize layout'],
     },
   ],
   menu: [

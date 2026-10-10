@@ -1428,9 +1428,9 @@ the e-invoice response is imported (section 6.3).
 ### 12.2 Print preview, paper sizes and thermal receipts
 
 **Alt+P** on a voucher (or Ctrl+P in the Day Book) opens the print preview: **Alt+P** prints, **Alt+E**
-saves a PDF, **Alt+W** shares, **PgUp / PgDn** moves to the previous / next voucher, **Alt+T** changes the
-template and **Alt+S** the paper for this print, **Ctrl+1/2/3** original / duplicate / triplicate,
-**Alt+V** opens the voucher.
+saves a PDF, **Alt+W** shares, **Alt+L** customizes what prints (12.5), **PgUp / PgDn** moves to the
+previous / next voucher, **Alt+T** changes the template and **Alt+S** the paper for this print,
+**Ctrl+1/2/3** original / duplicate / triplicate, **Alt+V** opens the voucher.
 
 **Modern** and **Classic** print on A4, A5 (portrait or landscape), Letter or Legal; **Compact** is a till
 receipt for 80 mm or 58 mm thermal rolls — item, quantity × rate and amount on narrow lines, a tax
@@ -1468,6 +1468,41 @@ come from the texts in Invoice Printing, which you can change (placeholders such
 
 Sharing needs the *Export* permission, and every share is recorded in the edit log. Pevqori itself sends
 nothing over the internet: your mail program or WhatsApp does.
+
+### 12.5 Customize what prints
+
+In the print preview of any invoice, note, challan, order or voucher press **Alt+L** (or *Customize
+layout* in the command bar). A panel opens beside the preview:
+
+- **Show** lists every part this template prints, in groups — header (logo, your name, address, GSTIN,
+  PAN, CIN, phone and e-mail, title, copy label …), document details, parties (bill-to, the buyer's
+  GSTIN, ship-to), each item column (S.No., HSN/SAC, quantity, unit, MRP, rate, discount, GST rate, the
+  per-line tax columns, amount), totals rows, amount and tax in words, HSN / tax summaries, bank details,
+  UPI QR, the e-invoice IRN and QR, declaration, terms, notes, narration, signature, the
+  "computer-generated" line, the footer line and page numbers. Turn a switch off to hide that part (Space
+  toggles, Tab moves on). A lock marks what always prints: the CANCELLED / OPTIONAL stamp, the document
+  number and date, the grand total, the item description and the ledger entries of a voucher. Click a part
+  in the preview to jump to its switch.
+- **Texts** has a box for every printed wording: the title, the copy labels, the "Bill to" / "Ship to"
+  labels, column headings, the "Amount in words" and "Total" labels, declaration, terms, a notes paragraph
+  printed above the terms, the signatory label, the "For {company}" line, a footer line and the
+  "computer-generated" text. An empty box prints the wording shown in grey; ↺ goes back to it.
+
+Changes apply **to this print only** and show at once in the preview; Print, Save as PDF and Share print
+exactly what you see. If you change the same kind of document again later in the session, the panel offers
+**Apply them** to repeat the earlier changes. To keep them, use **Save for Sales** (for every document of
+this voucher type; needs the *Alter masters* permission) or **Save for all documents** (needs *Change
+company settings*). Choices that Invoice Printing already offers — HSN summary, bank details, UPI QR,
+tax on every line, MRP column, declaration, terms and signatory — are saved into those same settings
+(and into the voucher type's own choices for a voucher type). **Reset ▾** undoes this print's changes, or
+what is saved for the voucher type or for all documents. *Company › **Invoice Printing*** has the same
+panel (**Alt+L**, *Customize layout…*) for all documents; save it there with **Ctrl+A**. Batch printing
+(*Utilities › **Print Vouchers***) and printing right after saving use the saved layouts.
+
+Hiding a particular that GST rules require on that document — for example the buyer's GSTIN on a B2B tax
+invoice, the HSN/SAC codes (column and summary both hidden), the place of supply of an inter-State supply,
+the signature, or the IRN and QR code of an e-invoice — never stops you printing: the panel and the
+"Before you print" banner say what is missing and which rule asks for it (CGST Rules 46, 48, 49, 53, 55).
 
 ## 13. Data: backup, restore, import, export, attachments
 
@@ -1820,7 +1855,7 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 | Gateway | **↑ ↓** move · **Enter** open · the highlighted letter opens its item |
 | Day Book | **Enter** / **Alt+A** alter · **Alt+Enter** view · **Ctrl+P** print voucher · **Alt+2** duplicate · **Alt+D** delete · **Alt+T** today · **Alt+F2** period |
 | Voucher view | **Alt+A** alter · **Alt+P** print · **Alt+W** share · **Alt+X** cancel · **Alt+D** delete · **Alt+2** duplicate · **Alt+H** history · **Alt+F** attachments · **Alt+K** print cheque · **Alt+T** POS return · **Alt+U** TDS / TCS · **Alt+Y** currency · **Alt+V** / **Alt+O** convert quotation · **Alt+S** quotation status · **Alt+R** make recurring · **Alt+L** pre-close order |
-| Print preview | **Alt+P** print · **Alt+E** PDF · **Alt+W** share · **PgUp / PgDn** previous / next · **Alt+T** template · **Alt+S** paper · **Ctrl+1/2/3** copies · **Alt+V** open voucher |
+| Print preview | **Alt+P** print · **Alt+E** PDF · **Alt+W** share · **Alt+L** customize what prints · **PgUp / PgDn** previous / next · **Alt+T** template · **Alt+S** paper · **Ctrl+1/2/3** copies · **Alt+V** open voucher |
 | Trial Balance | **Alt+F1** · **Alt+L** ledger-wise · **Alt+O** opening · **Alt+T** transactions · **Alt+Z** zero balances · **Alt+X** expand · **Alt+S** scenario · **Alt+B** budget |
 | Balance Sheet / P&L | **Alt+F1** · **Alt+C** compare last year (Balance Sheet) · **Alt+V** vertical / horizontal (P&L) · **Alt+S** scenario · **Alt+B** budget |
 | Ledger | **Alt+L** change ledger · **Alt+M** master · **Alt+Y** monthly summary · **Alt+A** alter voucher · **Alt+R** both currencies |
