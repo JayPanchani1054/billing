@@ -19,7 +19,8 @@ export function TdsVoucherPanel({ voucherId, updatedAt }: VoucherPanelProps) {
   const features = useFeatures();
   const on = features.tds || features.tcs;
   const q = useApiQuery('tds.voucher', { voucherId }, { enabled: on, staleTime: 10_000 });
-  const d = q.data;
+  // TDS and TCS turned off in F11 since this voucher was last shown: no panel and no Alt+U (cached data aside).
+  const d = on ? q.data : undefined;
   const challan = d?.challan ?? null;
   const lines = d?.lines ?? [];
   const first = lines[0];

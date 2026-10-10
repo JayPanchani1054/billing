@@ -44,6 +44,16 @@ export const taxSum = (t: TaxAmounts): number => t.igst + t.cgst + t.sgst + t.ce
  * Head-wise amounts to deposit for a set-off: what each minor head needs, less the cash already in the
  * electronic cash ledger for that major head (used against tax first, then interest, penalty, fee, others).
  */
+/**
+ * GST Set-off: the penalty / other amounts typed on the screen are only kept by posting the set-off,
+ * so leaving with any typed (and nothing posted yet) asks first.
+ */
+export function setoffDirty(penalty: TaxAmounts, others: TaxAmounts, posted: unknown): boolean {
+  if (posted !== null && posted !== undefined) return false;
+  const any = (t: TaxAmounts): boolean => t.igst !== 0 || t.cgst !== 0 || t.sgst !== 0 || t.cess !== 0;
+  return any(penalty) || any(others);
+}
+
 export function challanDefaults(s: Pick<GstSetoffResult, 'cash'>): CashHeadAmount[] {
   const out: CashHeadAmount[] = [];
   for (const row of s.cash) {

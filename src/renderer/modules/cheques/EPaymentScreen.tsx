@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react';
 import { formatDate, localDateOf, todayLocal } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { EPaymentCandidate } from '../../../shared/types/cheques.ts';
-import { api, invalidate, native, ReportScreen, showInFolder, useApiQuery, useCan, useConfirm, useNav, usePeriod, userMessage, type ScreenProps } from '../../app/index.ts';
+import { api, invalidate, native, ReportScreen, showInFolder, useApiQuery, useCan, useConfirm, useNav, usePeriod, userMessage, useWorkingDate, type ScreenProps } from '../../app/index.ts';
 import { Badge, Banner, Checkbox, DataTable, DateInput, EmptyState, Field, Inline, Stack, useToast, type Column } from '../../ui/index.ts';
 import { ChequeBankSelect, useChequeBanks } from './components.tsx';
 import { alreadyExported, CHEQUE_INVALIDATES, epaymentChosen, epaymentExport, makeAndSavePaymentFile, readyPayments, toggleAllReady } from './lib/model.ts';
@@ -23,6 +23,7 @@ export function EPaymentScreen({ params }: ScreenProps<{ bankLedgerId?: number }
   const confirm = useConfirm();
   const canExport = useCan('data.export');
   const { from, to } = usePeriod();
+  const { date: workingDate } = useWorkingDate();
   const { banks } = useChequeBanks();
   const [bankId, setBankId] = useState<number | null>(typeof params.bankLedgerId === 'number' ? params.bankLedgerId : null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -150,7 +151,7 @@ export function EPaymentScreen({ params }: ScreenProps<{ bankLedgerId?: number }
             <ChequeBankSelect banks={banks} value={bankId} onChange={(v) => { setBankId(v); setSelected(new Set()); }} allowAll />
           </Field>
           <Field label="Value date" hint="Blank: each payment's date (never before today)">
-            <DateInput aria-label="Value date" size="sm" value={valueDate} minDate={todayLocal()} onChange={setValueDate} />
+            <DateInput aria-label="Value date" size="sm" value={valueDate} minDate={todayLocal()} referenceDate={workingDate} onChange={setValueDate} />
           </Field>
         </Inline>
       }

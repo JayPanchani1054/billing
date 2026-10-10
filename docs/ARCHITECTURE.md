@@ -240,6 +240,12 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   detailed/condensed, `Ctrl+1…9` switch view/tab, `Ctrl+F` search box, `Alt+E` export, `Alt+P` print (`Ctrl+P` the highlighted voucher in the Day Book).
   Screens never bind the global keys (`reservedGlobalKeys()`), e.g. `Alt+F5` = Sales Order. Labels use
   Tally verbs ("Create …", "Alter", "Delete").
+  A screen that other modules extend (voucher view + `voucherPanels`, voucher entry + its TDS / forex
+  panels, ledger / item forms + attachments Alt+F) is one key space: no key twice (checked from source).
+- Permissions in the UI: an action the role forbids is hidden; a view-only form keeps Save disabled with
+  the reason and a "view only" notice; Export / Print stay visible, disabled with the permission they
+  need. The core refuses regardless. F11 off ⇒ no menu item, Go To entry, voucher-panel key or Gateway
+  notice of that feature.
 - Pickers (ledger/item/group selection) are type-ahead lists that show balances/stock and offer "+ Create"
   (`Alt+C`) inline.
 - Amounts: right-aligned, tabular numerals, Indian grouping (`12,34,567.00`), Dr/Cr suffix in reports;

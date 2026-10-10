@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { GstSetoffResult } from '../../../../shared/types/gst-plus.ts';
 import {
+  setoffDirty,
   amendmentTableLabel,
   boeFieldErrors,
   cashLedgerMatrix,
@@ -180,5 +181,16 @@ describe('return period typed in the GST details dialog', () => {
     const { periodKeyError } = await import('./gstplus.ts');
     for (const ok of ['', '  ', '092026', '122026', '2026-27-Q2']) assert.equal(periodKeyError(ok), undefined, ok);
     for (const bad of ['132026', '2026-28-Q1', '2026-27-Q5', 'Sep 2026', '92026']) assert.match(periodKeyError(bad) ?? '', /MMYYYY/, bad);
+  });
+});
+
+describe('GST set-off: leaving with typed amounts asks first', () => {
+  const z = { igst: 0, cgst: 0, sgst: 0, cess: 0 };
+  it('is dirty only while something is typed and nothing is posted', () => {
+    assert.equal(setoffDirty(z, z, null), false);
+    assert.equal(setoffDirty({ ...z, cgst: 50_000 }, z, null), true);
+    assert.equal(setoffDirty(z, { ...z, cess: 100 }, null), true);
+    // Posted: the amounts are in the journal, nothing to lose.
+    assert.equal(setoffDirty({ ...z, igst: 50_000 }, z, { voucherId: 9 }), false);
   });
 });

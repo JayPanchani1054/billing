@@ -8,6 +8,7 @@ import {
   budgetLinesForSave,
   canConvert,
   DAY_OF_MONTH_OPTIONS,
+  defaultDecision,
   documentsExport,
   expiryText,
   groupBills,
@@ -197,5 +198,15 @@ describe('documents screen model', () => {
     assert.equal(varianceDrill({ kind: 'group', refId: 9, basis: 'net_transactions' }, 'a', 'b', 3).params.scenarioId, 3);
     assert.equal(varianceDrill({ kind: 'group', refId: 9, basis: 'net_transactions' }, 'a', 'b').params.scenarioId, undefined);
     assert.equal(varianceDrill({ kind: 'ledger', refId: 4, basis: 'net_transactions' }, 'a', 'b', 3).params.scenarioId, undefined);
+  });
+});
+
+describe('quotation status dialog', () => {
+  it('starts on the opposite of an accepted document, else on Accepted', () => {
+    assert.equal(defaultDecision('accepted'), 'rejected');
+    assert.equal(defaultDecision('open'), 'accepted');
+    assert.equal(defaultDecision('rejected'), 'accepted');
+    // While the status is still loading: Accepted, replaced once it arrives (QuotationsScreen DocumentStatusDialog).
+    assert.equal(defaultDecision(undefined), 'accepted');
   });
 });

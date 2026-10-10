@@ -54,6 +54,22 @@ describe('screen conventions (real modules)', () => {
     assert.deepEqual(clashes, []);
   });
 
+  test('no hotkey map (useHotkeys / <Hotkeys map>) takes a reserved global key either', () => {
+    const forbidden = new Set(reservedGlobalKeys().map((k) => k.toLowerCase()).filter((k) => !SAME_MEANING.has(k)));
+    let scanned = 0;
+    const clashes: string[] = [];
+    for (const f of files) {
+      for (const m of f.text.matchAll(/'((?:Alt|Ctrl|Shift|F\d)[^']*)'\s*:\s*(?:\(|[a-z!])/g)) {
+        for (const k of m[1].split(',').map((x) => x.trim().toLowerCase())) {
+          scanned++;
+          if (forbidden.has(k)) clashes.push(`${f.file}: ${k}`);
+        }
+      }
+    }
+    assert.ok(scanned > 50, `only ${scanned} hotkey-map keys scanned`);
+    assert.deepEqual(clashes, []);
+  });
+
   test('Alt+digit only means Duplicate (Alt+2); views, tabs and copies use Ctrl+1…9', () => {
     const odd = files.flatMap((f) =>
       actionKeys(f.text)

@@ -19,7 +19,8 @@ export function ForexVoucherPanel({ voucherId, updatedAt }: VoucherPanelProps) {
   const features = useFeatures();
   const on = features.multiCurrency === true;
   const q = useApiQuery('forex.voucher', { id: voucherId }, { enabled: on, staleTime: 10_000 });
-  const d = q.data;
+  // Feature turned off in F11 since this voucher was last shown: no panel and no Alt+Y (cached data aside).
+  const d = on ? q.data : undefined;
   const first = d?.entries[0];
   useScreenActions(first ? [{ key: 'Alt+Y', label: 'Ledger in currency', icon: 'rupee', group: 'details', onClick: () => nav.push('forex.ledger', { ledgerId: first.ledgerId }) }] : []);
   // updatedAt is part of the props so a re-saved voucher re-renders this panel with fresh data.

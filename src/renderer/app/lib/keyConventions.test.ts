@@ -131,3 +131,232 @@ describe('key conventions across modules', () => {
     assert.equal(summary.filter((a) => a.keys.includes('alt+d')).length, 0);
   });
 });
+
+// ─────────────── One key, one meaning per screen — including what other modules add to it ───────────────
+
+/** Function components of a source file, by name (top-level `function Name` / `export function Name`). */
+function componentsOf(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const part of text.split(/\n(?=(?:export )?function [A-Z])/)) {
+    const m = /^(?:export )?function ([A-Z]\w*)/.exec(part.trimStart());
+    if (m) out.set(m[1], part);
+  }
+  return out;
+}
+
+/** `export const ATTACHMENTS_KEY = 'Alt+F'` style constants used as action keys. */
+function keyConstants(files: ReadonlyArray<{ file: string; text: string }>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const f of files) for (const m of f.text.matchAll(/export const ([A-Z_]+) = '((?:Alt|Ctrl|Shift)\+[^']+)'/g)) out.set(m[1], m[2]);
+  // lib/*.ts files are not in `files` (only .ts/.tsx under modules are, and lib files are .ts — included).
+  return out;
+}
+
+/** Overlays bind their own (blocking) scope, so their keys never meet the screen's. */
+const isOverlay = (name: string): boolean => /(Dialog|Modal|Drawer)$/.test(name);
+
+interface KeyUse {
+  key: string;
+  label: string;
+  where: string;
+}
+
+/**
+ * Keys a component registers: rail actions (`key: 'Alt+X', label: …` or `key: CONSTANT`) and hotkey
+ * maps (`'Alt+X': () => …`), plus those of the same-file components it renders (overlays aside).
+ */
+function keysOfComponent(files: ReadonlyArray<{ file: string; text: string }>, consts: Map<string, string>, file: string, name: string, seen = new Set<string>()): KeyUse[] {
+  const id = `${file}#${name}`;
+  if (seen.has(id)) return [];
+  seen.add(id);
+  const text = files.find((f) => f.file === file)?.text;
+  assert.ok(text !== undefined, `${file} not scanned`);
+  const comps = componentsOf(text);
+  const body = comps.get(name);
+  assert.ok(body !== undefined, `${file}: no component ${name}`);
+  const out: KeyUse[] = [];
+  const add = (keys: string, label: string) => {
+    for (const k of keys.split(',')) out.push({ key: k.trim().toLowerCase(), label: label.trim(), where: id });
+  };
+  for (const m of body.matchAll(/key:\s*(?:'([^']+)'|([A-Z_]+))\s*,\s*label:\s*([^\n]+?),\s*(?:icon|onClick|primary|disabled|hidden|group|hint)\b/g)) {
+    const k = m[1] ?? consts.get(m[2]);
+    if (k && /^(Alt|Ctrl|Shift|F\d)/.test(k)) add(k, m[3]);
+  }
+  for (const m of body.matchAll(/key:\s*(?:'([^']+)'|([A-Z_]+))\s*,\s*\n\s*label:\s*([^\n]+?),\s*\n/g)) {
+    const k = m[1] ?? consts.get(m[2]);
+    if (k && /^(Alt|Ctrl|Shift|F\d)/.test(k)) add(k, m[3]);
+  }
+  for (const m of body.matchAll(/'((?:Alt|Ctrl|Shift)\+[^']+)'\s*:\s*(?:\(|[a-z])/g)) add(m[1], '(hotkey)');
+  for (const m of body.matchAll(/<([A-Z]\w+)\b/g)) {
+    if (m[1] !== name && comps.has(m[1]) && !isOverlay(m[1])) out.push(...keysOfComponent(files, consts, file, m[1], seen));
+  }
+  return out;
+}
+
+/**
+ * Components of other modules a host screen's file renders inline (`import { X } from '../../<module>/…'`,
+ * `<X`), overlays aside. The host file holds one screen (its body is often an inner `…Form` component).
+ */
+function guestComponents(files: ReadonlyArray<{ file: string; text: string }>, hostFile: string): Array<{ file: string; name: string }> {
+  const text = files.find((f) => f.file === hostFile)?.text ?? '';
+  const out: Array<{ file: string; name: string }> = [];
+  const hostModule = hostFile.split('/')[0];
+  for (const m of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*'(\.\.?\/[^']+\.tsx)'/g)) {
+    const file = path.posix.join(path.posix.dirname(hostFile), m[2]);
+    if (file.split('/')[0] === hostModule || !files.some((f) => f.file === file)) continue; // same module, or the shell
+    for (const raw of m[1].split(',')) {
+      const name = raw.trim();
+      if (/^[A-Z]/.test(name) && !isOverlay(name) && new RegExp(`<${name}\\b`).test(text)) out.push({ file, name });
+    }
+  }
+  return out;
+}
+
+/** Every module's `voucherPanels: [A, B]`, resolved through the index file's imports. */
+function voucherPanels(files: ReadonlyArray<{ file: string; text: string }>): Array<{ file: string; name: string }> {
+  const out: Array<{ file: string; name: string }> = [];
+  for (const f of files.filter((x) => /^[a-z]+\/index\.ts$/.test(x.file))) {
+    const list = /voucherPanels:\s*\[([^\]]*)\]/.exec(f.text);
+    if (!list) continue;
+    const dir = f.file.split('/')[0];
+    for (const raw of list[1].split(',')) {
+      const name = raw.trim();
+      if (!name) continue;
+      const imp = [...f.text.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/([^']+)'/g)].find((m) => m[1].split(',').some((n) => n.trim() === name));
+      assert.ok(imp, `${f.file}: cannot find the import of ${name}`);
+      out.push({ file: `${dir}/${imp[2]}`, name });
+    }
+  }
+  return out;
+}
+
+/** Keys bound with more than one meaning across the given parts of one screen (Ctrl+A accept is per scope by design). */
+function clashes(uses: readonly KeyUse[]): string[] {
+  const byKey = new Map<string, Set<string>>();
+  for (const u of uses) {
+    if (u.key === 'ctrl+a') continue;
+    const set = byKey.get(u.key) ?? new Set<string>();
+    set.add(u.where);
+    byKey.set(u.key, set);
+  }
+  return [...byKey].filter(([, where]) => where.size > 1).map(([k, where]) => `${k}: ${[...where].join(' and ')}`);
+}
+
+describe('key conventions: screens other modules extend (parity wave)', () => {
+  const files = sources(modulesDir);
+  const consts = keyConstants(files);
+  const scan = (file: string, name: string) => keysOfComponent(files, consts, file, name);
+
+  test('voucher view: its own keys and every module panel (documents, attachments, cheques, POS, forex, TDS, sharing …) never share a key', () => {
+    const panels = voucherPanels(files);
+    assert.ok(panels.length >= 9, `only ${panels.length} voucher panels found`);
+    for (const m of ['tds', 'documents', 'attachments', 'forex', 'pos', 'cheques', 'print']) assert.ok(panels.some((p) => p.file.startsWith(`${m}/`)), `${m} panel not found`);
+    const uses = [...scan('vouchers/VoucherViewScreen.tsx', 'VoucherViewScreen'), ...panels.flatMap((p) => scan(p.file, p.name))];
+    for (const k of ['alt+a', 'alt+d', 'alt+f', 'alt+k', 'alt+t', 'alt+u', 'alt+v', 'alt+w', 'alt+y']) assert.ok(uses.some((u) => u.key === k), `${k} not scanned`);
+    assert.deepEqual(clashes(uses), []);
+  });
+
+  test('voucher entry: its own keys and the TDS / forex panels it renders never share a key', () => {
+    const guests = guestComponents(files, 'vouchers/entry/VoucherEntryScreen.tsx');
+    assert.ok(guests.some((g) => g.name === 'TdsEntryPanel') && guests.some((g) => g.name === 'ForexEntryPanel'), JSON.stringify(guests));
+    const uses = [...scan('vouchers/entry/VoucherEntryScreen.tsx', 'VoucherEntryScreen'), ...guests.flatMap((g) => scan(g.file, g.name))];
+    assert.ok(uses.some((u) => u.key === 'alt+u' && u.where.startsWith('tds/')), 'TDS panel Alt+U scanned');
+    assert.ok(uses.some((u) => u.key === 'alt+n') && uses.some((u) => u.key === 'alt+k'), 'hotkey maps of voucher entry scanned');
+    assert.deepEqual(clashes(uses), []);
+  });
+
+  test('ledger and stock item forms: Alt+F attachments never meets a key of the form', () => {
+    for (const [file, name] of [
+      ['accounts/LedgerFormScreen.tsx', 'LedgerFormScreen'],
+      ['inventory/ItemForm.tsx', 'ItemFormScreen'],
+    ] as const) {
+      const guests = guestComponents(files, file);
+      assert.ok(guests.some((g) => g.name === 'AttachmentsRailAction'), `${file}: AttachmentsRailAction not found`);
+      const uses = [...scan(file, name), ...guests.flatMap((g) => scan(g.file, g.name))];
+      assert.ok(uses.some((u) => u.key === 'alt+f'), `${file}: Alt+F not scanned`);
+      assert.deepEqual(clashes(uses), []);
+    }
+  });
+
+  test('within one screen a key has one meaning (alternatives of one ternary aside)', () => {
+    // Mutually exclusive actions written as two entries (only one is ever shown): checked by hand.
+    const EXCLUSIVE = new Set([
+      'data/RestoreFlow.tsx#RestoreScreen ctrl+a',
+      'security/SecuritySettingsScreen.tsx#SettingsForm alt+o',
+      'security/UsersRolesScreen.tsx#UsersTab alt+v',
+      'tds/VoucherPanel.tsx#TdsVoucherPanel alt+u',
+    ]);
+    const bad: string[] = [];
+    const used = new Set<string>();
+    let scanned = 0;
+    for (const f of files.filter((x) => x.file.endsWith('.tsx'))) {
+      for (const name of componentsOf(f.text).keys()) {
+        const uses = scan(f.file, name).filter((u) => u.where === `${f.file}#${name}`);
+        scanned += uses.length;
+        const labels = new Map<string, Set<string>>();
+        for (const u of uses) labels.set(u.key, (labels.get(u.key) ?? new Set()).add(u.label));
+        for (const [k, set] of labels) {
+          if (set.size < 2) continue;
+          if (EXCLUSIVE.has(`${f.file}#${name} ${k}`)) used.add(`${f.file}#${name} ${k}`);
+          else bad.push(`${f.file}#${name} ${k}: ${[...set].join(' | ')}`);
+        }
+      }
+    }
+    assert.ok(scanned > 400, `only ${scanned} keys scanned`);
+    assert.deepEqual(bad, []);
+    assert.deepEqual([...EXCLUSIVE].filter((e) => !used.has(e)), [], 'stale entries in EXCLUSIVE');
+  });
+
+  test('Alt+A alters (or opens the record to alter); a tick list without alteration may use it to tick everything', () => {
+    const all = actions(files);
+    const show = (a: Action) => `${a.file}: ${a.keys.join(', ')} (${a.label})`;
+    const altA = all.filter((a) => a.keys.includes('alt+a'));
+    const tickAll = altA.filter((a) => /Tick all|everyone/.test(a.label));
+    assert.deepEqual(
+      altA.filter((a) => !tickAll.includes(a) && !/Alter|View role|Open record/.test(a.label)).map(show),
+      [],
+    );
+    // A screen that ticks all with Alt+A has no "Alter" action to confuse it with.
+    for (const t of tickAll) assert.deepEqual(all.filter((a) => a.file === t.file && /^'Alter/.test(a.label)).map(show), [], t.file);
+    assert.deepEqual([...new Set(tickAll.map((a) => a.file))].sort(), ['cheques/EPaymentScreen.tsx', 'cheques/PrintChequesScreen.tsx', 'outstanding/RemindersScreen.tsx', 'print/PrintBatchScreen.tsx']);
+  });
+});
+
+// ─────────────── Permissions: hidden, or disabled with a reason ───────────────
+
+describe('parity-wave screens: an action the role forbids is hidden, or disabled with a hint', () => {
+  const PARITY = ['tds/', 'documents/', 'mfg/', 'attachments/', 'forex/', 'pos/', 'cheques/', 'gst/'];
+  const files = sources(modulesDir).filter((f) => PARITY.some((p) => f.file.startsWith(p)) && f.file.endsWith('.tsx'));
+
+  /** Single-object rail actions `{ key: '…', … }` (brace-balanced). */
+  function actionObjects(text: string): string[] {
+    const out: string[] = [];
+    for (const m of text.matchAll(/\{\s*key:\s*'[^']+'/g)) {
+      let depth = 0;
+      let j = m.index;
+      for (; j < text.length; j++) {
+        if (text[j] === '{') depth++;
+        else if (text[j] === '}' && --depth === 0) break;
+      }
+      out.push(text.slice(m.index, j + 1));
+    }
+    return out;
+  }
+
+  test('no action is only disabled by a permission (users see nothing they cannot use, or why)', () => {
+    const bad: string[] = [];
+    let checked = 0;
+    for (const f of files) {
+      for (const obj of actionObjects(f.text)) {
+        const disabled = /disabled:\s*([^\n]*?)(?:,\s*(?:hint|hidden|onClick|group|icon|label)\b|\s*\}$)/.exec(obj)?.[1] ?? '';
+        const perms = [...disabled.matchAll(/!(can[A-Z]\w*)\b/g)].map((m) => m[1]);
+        if (perms.length === 0) continue;
+        checked++;
+        const hidden = /hidden:\s*([^\n]*?)(?:,|\s*\}$)/.exec(obj)?.[1] ?? '';
+        if (!perms.every((p) => hidden.includes(p)) && !/\bhint:/.test(obj)) bad.push(`${f.file}: ${obj.replace(/\s+/g, ' ').slice(0, 90)}`);
+      }
+    }
+    assert.ok(checked >= 20, `only ${checked} permission-gated actions found`);
+    assert.deepEqual(bad, []);
+  });
+});

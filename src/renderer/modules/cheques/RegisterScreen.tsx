@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatDate, localDateOf, todayLocal } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { ChequeRegisterRow } from '../../../shared/types/cheques.ts';
-import { fieldErrorsOf, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useNav, userMessage, type ScreenProps } from '../../app/index.ts';
+import { fieldErrorsOf, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useNav, userMessage, useWorkingDate, type ScreenProps } from '../../app/index.ts';
 import { Badge, Button, DataTable, DateInput, Dialog, EmptyState, Field, Hotkeys, Inline, KpiCard, SegmentedControl, Select, Stack, TextInput, useToast, type Column } from '../../ui/index.ts';
 import { ChequeBankSelect, ChequesOff, NoChequeBanks, useChequeBanks, useChequesOn } from './components.tsx';
 import { CHEQUE_INVALIDATES, leafActions, REGISTER_VIEWS, registerExport, STATUS_LABELS, STATUS_TONES, type RegisterView } from './lib/model.ts';
@@ -32,6 +32,7 @@ export function ChequeLeafRegisterScreen({ params }: ScreenProps<ChequeRegisterP
 
 function Register({ params }: { params: ChequeRegisterParams }) {
   const nav = useNav();
+  const { date: workingDate } = useWorkingDate();
   const canAlter = useCan('vouchers.alter');
   const { banks, loading: banksLoading } = useChequeBanks();
   const [bankId, setBankId] = useState<number | null>(typeof params.bankLedgerId === 'number' ? params.bankLedgerId : null);
@@ -131,7 +132,7 @@ function Register({ params }: { params: ChequeRegisterParams }) {
             onChange={(v: string) => setBookId(v === '' ? null : Number(v))}
             options={[{ value: '', label: 'All books' }, ...(books.data ?? []).map((b) => ({ value: String(b.id), label: b.name }))]}
           />
-          <DateInput aria-label="Status as on" size="sm" value={asOf} onChange={(v) => v && setAsOf(v)} />
+          <DateInput aria-label="Status as on" size="sm" value={asOf} referenceDate={workingDate} onChange={(v) => v && setAsOf(v)} />
         </Inline>
       }
       exportDef={() => (q.data ? registerExport(q.data) : { title: 'Cheque Leaf Register', columns: [], rows: [] })}

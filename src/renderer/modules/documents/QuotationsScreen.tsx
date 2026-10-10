@@ -9,14 +9,14 @@
  *
  * 'documents.quotation.status' {id} (dialog) — mark accepted / rejected (with a reason) / open again.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '../../../shared/format.ts';
 import type { DocumentBaseType, DocumentDecision, DocumentRow, DocumentStatus } from '../../../shared/types/documents.ts';
 import { DialogScreen, ReportScreen, useApiMutation, useApiQuery, useCan, useFeatures, useNav, usePeriod, userMessage, useShell, useWorkingDate } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, Banner, Button, DataTable, EmptyState, Field, RadioGroup, SegmentedControl, Stack, TextArea, useHotkeys, useToast } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
-import { canConvert, DOC_LABEL, DOCUMENTS_INVALIDATES, documentsExport, expiryText, STATUS_META } from './lib/model.ts';
+import { canConvert, defaultDecision, DOC_LABEL, DOCUMENTS_INVALIDATES, documentsExport, expiryText, STATUS_META } from './lib/model.ts';
 
 const STATUS_FILTERS: ReadonlyArray<{ value: DocumentStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
@@ -166,7 +166,12 @@ export function DocumentStatusDialog({ params }: ScreenProps<{ id: number }>) {
   const links = useApiQuery('documents.links', { voucherId: params.id }, { staleTime: 0 });
   const save = useApiMutation('documents.quotation.setStatus', { invalidates: DOCUMENTS_INVALIDATES });
   const current = links.data?.document?.status;
-  const [decision, setDecision] = useState<DocumentDecision>(current === 'accepted' ? 'rejected' : 'accepted');
+  const [decision, setDecision] = useState<DocumentDecision>(defaultDecision(current));
+  // The dialog opens before the status loads: start on the right choice once it arrives, unless the user already chose.
+  const [chosen, setChosen] = useState(false);
+  useEffect(() => {
+    if (!chosen && current !== undefined) setDecision(defaultDecision(current));
+  }, [current, chosen]);
   const [reason, setReason] = useState('');
   const submit = async () => {
     try {
@@ -194,7 +199,15 @@ export function DocumentStatusDialog({ params }: ScreenProps<{ id: number }>) {
       <StatusKeys onAccept={() => void submit()} />
       <Stack gap={3}>
         {save.error && Object.keys(save.fieldErrors).length === 0 ? <Banner tone="danger">{userMessage(save.error)}</Banner> : null}
-        <RadioGroup<DocumentDecision> label="Status" options={DECISIONS} value={decision} onChange={setDecision} />
+        <RadioGroup<DocumentDecision>
+          label="Status"
+          options={DECISIONS}
+          value={decision}
+          onChange={(v) => {
+            setChosen(true);
+            setDecision(v);
+          }}
+        />
         <Field label="Reason" optional={decision !== 'rejected'} required={decision === 'rejected'} error={save.fieldErrors.reason}>
           <TextArea value={reason} onValueChange={setReason} maxLength={500} autoGrow placeholder={decision === 'rejected' ? 'Price, delivery time, lost to a competitor…' : ''} data-autofocus />
         </Field>

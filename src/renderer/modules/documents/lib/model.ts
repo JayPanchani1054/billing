@@ -12,6 +12,7 @@ import type {
   BudgetLineKind,
   BudgetVarianceRow,
   DocumentBaseType,
+  DocumentDecision,
   DocumentRow,
   DocumentStatus,
   RecurringDueRow,
@@ -67,6 +68,15 @@ export function expiryText(r: Pick<DocumentRow, 'daysToExpiry' | 'status'>): str
 /** Can the document be converted now (the server re-checks)? */
 export function canConvert(status: DocumentStatus): boolean {
   return status === 'open' || status === 'accepted' || status === 'expired';
+}
+
+/**
+ * The decision the status dialog starts on: the opposite of an accepted document's state (it is being
+ * reopened or lost), otherwise "Accepted". Worked out once the document's status has loaded — the
+ * dialog opens before it arrives.
+ */
+export function defaultDecision(status: DocumentStatus | undefined): DocumentDecision {
+  return status === 'accepted' ? 'rejected' : 'accepted';
 }
 
 export function documentsExport(rows: readonly DocumentRow[], base: DocumentBaseType): ExportTable {

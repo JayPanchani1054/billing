@@ -78,7 +78,7 @@ export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'ArrowUp, ArrowDown', label: 'Move in lists and reports', group: 'Lists & reports', global: false },
   { keys: 'Enter', label: 'Open / drill down', group: 'Lists & reports', global: false },
   { keys: 'Alt+Enter', label: 'View the voucher (read-only)', group: 'Lists & reports', global: false },
-  { keys: 'Alt+A', label: 'Alter the selected voucher or master', group: 'Lists & reports', global: false },
+  { keys: 'Alt+A', label: 'Alter the selected voucher or master', group: 'Lists & reports', global: false, description: 'Tick lists with nothing to alter (Print Cheques, E-payment File, Print batch, Reminders): tick / untick everything' },
   { keys: 'Alt+M', label: "Open the report subject's master (ledger, item)", group: 'Lists & reports', global: false },
   { keys: 'Alt+F1', label: 'Detailed / condensed', group: 'Lists & reports', global: false },
   { keys: 'Alt+X', label: 'Expand / collapse all (tree reports)', group: 'Lists & reports', global: false },

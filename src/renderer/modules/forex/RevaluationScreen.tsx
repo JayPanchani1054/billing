@@ -250,7 +250,7 @@ function PostDialog(props: {
         <Stack gap={3}>
           {error ? <Banner tone="danger">{error}</Banner> : null}
           <Field label="Journal date" required hint="Usually the balance-sheet date (as on).">
-            <DateInput data-autofocus value={date} onChange={setDate} />
+            <DateInput data-autofocus value={date} onChange={setDate} referenceDate={props.asOf} minDate={props.asOf} />
           </Field>
           <Field label="Narration">
             <TextArea rows={3} value={narration} maxLength={4000} onValueChange={setNarration} />

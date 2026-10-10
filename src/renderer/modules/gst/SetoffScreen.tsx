@@ -15,12 +15,12 @@ import { CASH_MINOR_HEADS } from '../../../shared/types/gst-plus.ts';
 import type { LedgerPickerRow } from '../../../shared/types/accounts.ts';
 import type { TaxAmounts, TaxHead } from '../../../shared/types/gst-returns.ts';
 import { TAX_HEADS } from '../../../shared/types/gst-returns.ts';
-import { formatDate, formatMoney, ReportScreen, useApiMutation, useApiQuery, useCan, useNav, useWorkingDate, userMessage } from '../../app/index.ts';
+import { formatDate, formatMoney, ReportScreen, useApiMutation, useApiQuery, useCan, useDirty, useNav, useWorkingDate, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { AmountInput, Banner, Button, DataTable, DateInput, EmptyState, Field, Hotkeys, Modal, Panel, Select, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { GstHelp, WideTable } from './components.tsx';
-import { challanDefaults, challanFieldErrors, challanGrid, gridToHeads, HEAD_NAMES, MINOR_LABELS, setoffExport } from './lib/gstplus.ts';
+import { challanDefaults, challanFieldErrors, challanGrid, gridToHeads, HEAD_NAMES, MINOR_LABELS, setoffDirty, setoffExport } from './lib/gstplus.ts';
 import { usePlusPeriod } from './plusComponents.tsx';
 
 const money = (p: number): string => formatMoney(p);
@@ -37,6 +37,8 @@ export function SetoffScreen({ params }: ScreenProps<{ period?: string }>) {
   const [dialog, setDialog] = useState<'challan' | 'post' | null>(null);
   const s = q.data;
   const posted = s?.posted ?? null;
+  // Penalty / other amounts typed here live only until the set-off is posted: Esc asks before dropping them.
+  useDirty(setoffDirty(penalty, others, s ? posted : null));
 
   const actions: ScreenActionItem[] = [
     {

@@ -450,7 +450,7 @@ One meaning per key in every module (`CONVENTION_SHORTCUTS` in `lib/shortcuts.ts
 | `Ctrl+Enter` | leave a multi-line box |
 | `Esc` | back (shell) |
 | `Alt+C` | create (a master from a picker, or the screen's main "Create …") |
-| `Alt+A` | alter the selected voucher / master |
+| `Alt+A` | alter the selected voucher / master (a tick list with nothing to alter — Print Cheques, E-payment File, Print batch, Reminders — ticks / unticks everything) |
 | `Alt+D` | delete the master or voucher on screen (master lists also accept `Ctrl+D`) |
 | `Ctrl+D` | remove the line (voucher and grid rows) |
 | `Alt+N` / `Ctrl+N` | insert a line above |
@@ -473,6 +473,32 @@ ledger", "Alter", "Delete"); hints read `<Key> <Capitalised action>` ("Alt+C Cre
 `lib/screenConventions.test.ts` checks every module's status-bar hints, labels and keys). Plain
 letter keys are free for screen accelerators (ignored while typing). Put every action in the rail via
 `actions` / `useScreenActions` so it is discoverable.
+
+**Screens other modules extend share one key space.** `vouchers.view` and every module's
+`voucherPanels` (documents Alt+V/O/S/R/L, attachments Alt+F, cheques Alt+K, POS Alt+T, forex Alt+Y,
+TDS Alt+U, sharing Alt+W), voucher entry and the TDS / forex entry panels it renders, and the ledger /
+stock item forms with the attachments rail action (Alt+F) never bind the same key twice;
+`lib/keyConventions.test.ts` composes them from source (dialogs aside — they have their own scope) and
+also checks that within one screen component a key has one meaning. A new panel picks a free key.
+
+**Permissions: hidden, or disabled with the reason.** An action the user's role does not allow is
+`hidden` (the core refuses anyway) — as in the voucher view. A form or settings screen the user may
+only view keeps **Save** disabled with a `hint` naming the permission and shows `ReadOnlyNotice` (or a
+"view only" banner); Export / Print stay visible, disabled with `EXPORT_DENIED_HINT`. Never leave a
+permission-disabled action without either (`keyConventions.test.ts` checks the parity-wave modules).
+
+**F11 off ⇒ no trace.** A screen behind a feature declares `feature` / `anyFeature`; menu items inherit
+it, Go To drops it, voucher panels render nothing and register no rail key while the feature is off
+(even with cached data), and Gateway notices / dashboard cards check the feature before asking the core.
+`lib/featureGating.test.ts` builds the real Gateway and Go To with every feature off (nothing of TDS /
+TCS, forex, POS, manufacturing / job work; of cheques only Payee Bank Details and E-payment File) and
+with each turned on.
+
+**Grids, tables and dates.** Every `DataTable` has an `aria-label`; hand-made `<table>`s in screens
+too; every `DateInput` gets a `referenceDate` (the working date, or the date the field is about) so
+"5" or "5-10" resolve the Tally way (company settings dates aside); every report offers Export / Print
+and focuses its main grid (`lib/screenA11y.test.ts` checks the parity-wave reports). Lists that hold editable cells (e.g. POS return quantities) wrap them in a
+`useEnterAdvance` container so Enter moves from cell to cell and on to the next field.
 
 ---
 
@@ -578,5 +604,6 @@ export function TrialBalance() {
 | `ShortcutsOverlay.tsx`, `VoucherPicker.tsx`, `lib/shortcuts.ts`, `lib/voucherTypes.ts`, `hooks/useVoucherChoices.ts` | keyboard map, F1, F10 (predefined + company voucher types) |
 | `Screen.tsx`, `export.ts`, `lib/exportFormat.ts`, `display.ts` | layout patterns, export/print, formatting |
 | `lib/featureCatalog.ts`, `preferences.ts` | F11 feature texts & rules, theme/density |
+| `lib/keyConventions.test.ts`, `lib/screenConventions.test.ts`, `lib/menuPositions.test.ts`, `lib/gatewayLabels.test.ts`, `lib/featureGating.test.ts`, `lib/screenA11y.test.ts` | conventions checked on the real module sources: keys, hints, menu positions and labels, F11 gating, grid / table names, date shorthand, report export and focus |
 
 Pure logic lives in `lib/*.ts` with `node:test` tests: `node --test "src/renderer/app/**/*.test.ts"`.
