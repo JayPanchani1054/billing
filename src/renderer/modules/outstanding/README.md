@@ -67,7 +67,7 @@ Bills as a tree (→ / + expands the history: new ref, against ref, advance…);
 opens the voucher. Ctrl+2 lists on-account entries (bill-wise ledgers only; a ledger not maintained
 bill-wise shows its balance FIFO or as one On Account amount — Alt+N — and the empty list says so,
 `partyEmptyBody`). Totals: bills pending, advances, on account,
-balance. KPIs: balance, overdue, unadjusted, credit terms/limit used. Alt+H settled bills, Alt+N
+balance. KPIs: balance, overdue, unadjusted, credit terms/limit used. Alt+F1 settled bills (detailed view; Alt+H stays edit history), Alt+N
 FIFO ↔ On Account for non-bill-wise ledgers. Actions: Statement (Alt+S), Interest (Alt+I), Reminder
 letter (Alt+R, receivable side), Ledger (Alt+L).
 

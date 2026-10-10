@@ -62,7 +62,7 @@ import { ACCOUNT_ROW, buildVoucherInput, formFromInput } from '../lib/buildInput
 import type { BuiltInput } from '../lib/buildInput.ts';
 import { cellId, confirmationRequest, headerId, mapFieldErrors, parseCellId, targetOf, warningsByRow, warningsOfDetails } from '../lib/errorPaths.ts';
 import type { KeyMaps } from '../lib/errorPaths.ts';
-import { formReducer, isBlankItem, isBlankLedger, itemLineValue, itemsOf, newForm } from '../lib/formState.ts';
+import { amountDecimals, formReducer, isBlankItem, isBlankLedger, itemLineValue, itemsOf, newForm } from '../lib/formState.ts';
 import type { ItemRow, LedgerRow, VoucherForm } from '../lib/formState.ts';
 import { entrySections, initialFocusId, neighbourSection, nextCell, rowAfterDelete, verticalCell } from '../lib/gridNav.ts';
 import type { EntrySection, GridModel } from '../lib/gridNav.ts';
@@ -187,13 +187,22 @@ export function VoucherEntryScreen({ params }: ScreenProps<VoucherEntryParams>) 
     });
   }, [handOver, type, params.id, params.duplicateOf, params.date, params.partyId, nav]);
 
+  // POS invoice types (sales types with config.posInvoice, pos module) are entered on the POS counter:
+  // hand F10 / Go To / Alt+A over to 'pos.counter' (which keeps the tenders on alteration).
+  const posType = (ctx0?.voucherType.config as { posInvoice?: boolean | null } | null | undefined)?.posInvoice === true;
+  const posHandOver = posType && !readOnly && params.duplicateOf === undefined && nav.canOpen('pos.counter');
+  useEffect(() => {
+    if (!posHandOver || !type) return;
+    nav.replace('pos.counter', { voucherTypeId: type.id, ...(params.id !== undefined ? { id: params.id } : {}) });
+  }, [posHandOver, type, params.id, nav]);
+
   // A company-defined type opened from F10 / Go To ({ baseType, voucherTypeId }) shows its own name.
   const label = params.baseType && params.voucherTypeId === undefined ? baseTypeLabel(params.baseType) : (type?.name ?? (params.baseType ? baseTypeLabel(params.baseType) : 'Voucher'));
   const title = params.id !== undefined ? `${detail?.voucherType.name ?? label} Alteration` : `${type?.name ?? label} Voucher`;
   const loading = typesQ.loading || waiting || (type !== null && !ctx0);
   const error = typesQ.error ?? (params.id !== undefined ? detailQ.error : null) ?? (params.duplicateOf !== undefined ? dupQ.error : null) ?? (wantsDraft ? draftQ.error : null) ?? ctxQ.error;
 
-  if (error || loading || !types || readOnly || handOver) {
+  if (error || loading || !types || readOnly || handOver || posHandOver) {
     return <Screen title={title} icon="invoice" loading={!error} error={error} onRetry={() => void (typesQ.refetch(), detailQ.refetch(), dupQ.refetch(), draftQ.refetch(), ctxQ.refetch())} />;
   }
   if (!type) {
@@ -333,9 +342,15 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   // ── Foreign currency (forex module; F11 › Multiple currencies) ──
   const fx = useForexContext();
   const partyCurrency = isInvoiceMode(form.mode) ? fx.currencyOfLedger(form.partyLedgerId) : undefined;
-  /** Invoice in a foreign currency: its amounts on the form are foreign × 100 (forex/lib/entry.ts). */
+  /** Invoice in a foreign currency: its amounts on the form are foreign × 10^formDecimals (forex/lib/entry.ts). */
   const docForex = isInvoiceMode(form.mode) ? (form.forex ?? null) : null;
   const docCurrency = docForex ? fx.currencyById(docForex.currencyId) : undefined;
+  /** Decimal places of the amount fields: the invoice currency's (0, 2, 3 or 4), else 2 (paise). */
+  const formDecimals = amountDecimals(form);
+  useEffect(() => {
+    const want = docForex ? (docCurrency?.decimalPlaces ?? formDecimals) : 2;
+    if (want !== formDecimals) dispatch({ type: 'forexUnit', decimals: want });
+  }, [docForex === null, docCurrency?.decimalPlaces, formDecimals]);
   const fxReady = fx.enabled && fx.data !== undefined;
   useEffect(() => {
     // The invoice currency follows the party: its currency at the master rate of the date (Alt+Y changes it).
@@ -763,10 +778,11 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       onQtyCommitted,
       openRowDialog,
       deleteRow,
+      amountDecimals: formDecimals,
     }),
     // ledgers / items are memoised per list version (pickers/hooks.ts): this value stays the same
     // while the user types, so only the edited row re-renders.
-    [baseType, form.date, voucherId, features, direction, ledgers, ledgerDetails, items, godowns, excludeLedgerIds, onItemChosen, advanceFrom, onQtyCommitted, openRowDialog, deleteRow],
+    [baseType, form.date, voucherId, features, direction, ledgers, ledgerDetails, items, godowns, excludeLedgerIds, onItemChosen, advanceFrom, onQtyCommitted, openRowDialog, deleteRow, formDecimals],
   );
   const gridEnvRef = useRef(gridEnv);
   gridEnvRef.current = gridEnv;
@@ -776,7 +792,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const del = useApiMutation('vouchers.delete', { invalidates: VOUCHER_INVALIDATES });
   const cancelM = useApiMutation('vouchers.cancel', { invalidates: VOUCHER_INVALIDATES });
   const typeName = ctx.voucherType.name;
-  // The voucher type's switch, or F12 › Invoice printing for invoice-like types (vouchers.entryContext).
+  // The voucher type's switch, or Invoice Printing (print settings) for invoice-like types (vouchers.entryContext).
   const printAfterSave = ctx.config.printAfterSave && nav.isRegistered('print.voucher');
 
   const handleSaveError = (err: unknown, built: BuiltInput) => {
@@ -1265,14 +1281,14 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         ) : null}
       </>
     ) : form.mode === 'accounting_invoice' ? (
-      <TotalRow span={ledgerSpan} trailing={ledgerTrailing} label="Total of lines" value={form.ledgers.reduce((a, r) => a + (r.ledgerId === null ? 0 : (r.amount ?? 0)), 0)} />
+      <TotalRow span={ledgerSpan} trailing={ledgerTrailing} label="Total of lines" decimals={formDecimals} value={form.ledgers.reduce((a, r) => a + (r.ledgerId === null ? 0 : (r.amount ?? 0)), 0)} />
     ) : undefined;
 
   const itemSpan = (cols: readonly string[]) => 1 + cols.indexOf('amount');
   const itemFooter = (rows: readonly ItemRow[]): ReactNode => {
     if (!itemCols.includes('amount')) return undefined;
-    const value = rows.reduce((a, r) => (isBlankItem(r) ? a : a + itemLineValue(r)), 0);
-    return <TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label={form.mode === 'item_invoice' ? 'Value of items' : 'Total'} value={value} />;
+    const value = rows.reduce((a, r) => (isBlankItem(r) ? a : a + itemLineValue(r, formDecimals)), 0);
+    return <TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label={form.mode === 'item_invoice' ? 'Value of items' : 'Total'} decimals={formDecimals} value={value} />;
   };
 
   const grids: ReactNode[] = [];
@@ -1377,7 +1393,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
 
   // A foreign-currency invoice's form total is in that currency: the party effect uses the rupees of the last check.
   const partyEffect = isInvoiceMode(form.mode) && postsParty(baseType) ? sign * (docForex ? (serverTotal ?? 0) : invoice.grandTotal) : 0;
-  const docTotalText = docForex && docCurrency ? formatForex(decodeForex(invoice.grandTotal), docCurrency.decimalPlaces, docCurrency.symbol) : null;
+  const docTotalText = docForex && docCurrency ? formatForex(decodeForex(invoice.grandTotal, formDecimals), docCurrency.decimalPlaces, docCurrency.symbol) : null;
   const metaBadges = (
     <>
       <Badge tone="neutral">{MODE_LABEL[form.mode]}</Badge>
@@ -1479,6 +1495,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
               doc={docForex}
               docCurrency={docCurrency}
               formTotal={invoice.grandTotal}
+              formDecimals={formDecimals}
               serverTotal={serverTotal}
               preview={preview?.form === form ? preview.forex : undefined}
               currencyOf={(id) => fx.currencyById(id)}
@@ -1588,7 +1605,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
               ledgerId={party.ledgerId}
               ledgerName={party.name}
               currency={docCurrency}
-              total={Math.abs(decodeForex(invoice.grandTotal))}
+              total={Math.abs(decodeForex(invoice.grandTotal, formDecimals))}
               side={sign > 0 ? 'dr' : 'cr'}
               date={form.date}
               excludeVoucherId={voucherId}

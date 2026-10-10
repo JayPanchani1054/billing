@@ -85,7 +85,8 @@ describe('lockfile sync check (scripts/lockfile-sync.mjs)', () => {
     }
     const release = wf('release.yml');
     assert.match(release, /node scripts\/lockfile-sync\.mjs \|\|/);
-    assert.match(release, /npm ci --no-audit --no-fund/);
+    // A release installs without running dependency install scripts (scripts/install-scripts.mjs runs the reviewed ones).
+    assert.match(release, /npm ci --ignore-scripts --no-audit --no-fund/);
     assert.doesNotMatch(release, /npm install --no-audit/, 'a release never resolves versions afresh');
   });
 });

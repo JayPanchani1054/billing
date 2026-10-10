@@ -20,7 +20,7 @@ import type {
 } from '../../../shared/types/vouchers.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
-import { conflict, forbidden, notFound, rule } from '../../lib/errors.ts';
+import { AppError, conflict, forbidden, notFound, rule } from '../../lib/errors.ts';
 import { assertDateUnlocked, getConfig, getFeatures } from '../company/service.ts';
 import { composeVoucherInput, voucherHooks } from './hooks.ts';
 import {
@@ -572,7 +572,7 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput): VoucherSaveResu
   }
 
   writeChildren(db, id, plan, input.date);
-  if (bankKeep) restoreBankLinks(db, id, bankKeep, plan.header.affectsBooks);
+  if (bankKeep) restoreBankLinks(ctx, id, bankKeep, plan.header.affectsBooks);
   // Extension point (hooks.ts › afterSave): links / state of other modules that depend on this voucher.
   for (const hook of voucherHooks()) {
     hook.afterSave?.(ctx, {
@@ -772,7 +772,8 @@ function captureBankLinks(db: Db, voucherId: number): BankKeep {
  * voucher that no longer counts in the books (made optional) keeps its bank dates but its statement
  * lines go back to unmatched: a matched line must point at an entry that is in the books.
  */
-function restoreBankLinks(db: Db, voucherId: number, keep: BankKeep, inBooks: boolean): void {
+function restoreBankLinks(ctx: CompanyCtx, voucherId: number, keep: BankKeep, inBooks: boolean): void {
+  const { db } = ctx;
   const relevant = keep.entries.filter((e) => e.bankDate !== null || keep.statementLines.some((s) => s.entryId === e.id));
   if (relevant.length === 0) return;
   const fresh = db.all<{ id: number; ledger_id: number; amount: number }>(
@@ -788,11 +789,42 @@ function restoreBankLinks(db: Db, voucherId: number, keep: BankKeep, inBooks: bo
     mapping.set(old.id, match.id);
     if (old.bankDate) db.run('UPDATE ledger_entries SET bank_date = :d WHERE id = :id', { d: old.bankDate, id: match.id });
   }
+  // A bank date that is not carried over is cleared: one in the locked period needs period.lock.
+  assertLockedBankDatesKept(
+    ctx,
+    relevant.filter((e) => !mapping.has(e.id)).map((e) => e.bankDate),
+    'Changing the bank ledger or amount of this voucher',
+  );
   for (const s of keep.statementLines) {
     const target = inBooks ? mapping.get(s.entryId) : undefined;
     if (target !== undefined) db.run('UPDATE bank_statement_lines SET matched_entry_id = :e WHERE id = :id', { e: target, id: s.id });
     else db.run(`UPDATE bank_statement_lines SET matched_entry_id = NULL, status = 'unmatched' WHERE id = :id`, { id: s.id });
   }
+}
+
+/**
+ * Bank dates in the locked period (on or before F12 lockedUpTo) belong to a closed reconciliation
+ * (banking/common.ts assertBankDateChangeAllowed): clearing one needs the right to lock and unlock the
+ * books (period.lock; Owners always), else LOCKED. The voucher itself is then in the open period — its
+ * bank date is earlier only within the early-clearing tolerance or for a cheque dated before it — so
+ * the voucher lock alone does not cover it.
+ */
+function assertLockedBankDatesKept(ctx: CompanyCtx, cleared: ReadonlyArray<string | null>, what: string): void {
+  const locked = getConfig(ctx.db).lockedUpTo;
+  if (!locked || can(ctx, 'period.lock')) return;
+  const hit = cleared.filter((d): d is string => d !== null && d <= locked).sort()[0];
+  if (hit === undefined) return;
+  throw new AppError(
+    'LOCKED',
+    `Books are locked up to ${formatDate(locked)}. ${what} would clear the bank date ${formatDate(hit)}, which is in the locked period (a closed reconciliation). ` +
+      'Ask a user who may lock and unlock the books to do it, or unlock the period first.',
+    { lockedUpTo: locked },
+  );
+}
+
+/** The voucher's bank dates (cleared when it is deleted or cancelled). */
+function bankDatesOf(db: Db, voucherId: number): Array<string | null> {
+  return db.all<{ bank_date: string | null }>('SELECT bank_date FROM ledger_entries WHERE voucher_id = :id AND bank_date IS NOT NULL', { id: voucherId }).map((r) => r.bank_date);
 }
 
 function unmatchBankLines(db: Db, voucherId: number): void {
@@ -953,6 +985,7 @@ export function deleteVoucher(ctx: CompanyCtx, id: number, reason?: string, expe
   assertNoteNotBilled(db, row);
   // Extension point (hooks.ts › beforeRemove): a module may refuse (e.g. a document in a filed GSTR-1).
   for (const hook of voucherHooks()) hook.beforeRemove?.(ctx, row, 'delete');
+  assertLockedBankDatesKept(ctx, bankDatesOf(db, id), 'Deleting this voucher');
   const before = snapshotFromDb(db, row, vt.name);
   unmatchBankLines(db, id);
   for (const hook of voucherHooks()) hook.clear?.(db, id);
@@ -984,6 +1017,7 @@ export function cancelVoucher(
   assertBillsNotSettled(db, id);
   assertNoteNotBilled(db, row);
   for (const hook of voucherHooks()) hook.beforeRemove?.(ctx, row, 'cancel');
+  assertLockedBankDatesKept(ctx, bankDatesOf(db, id), 'Cancelling this voucher');
   const before = snapshotFromDb(db, row, vt.name);
   const now = ctx.clock.now().toISOString();
   const meta = parseMeta(row.meta);
@@ -1070,6 +1104,9 @@ export function duplicateVoucher(ctx: CompanyCtx, id: number): VoucherInput {
   // POS (pos module): a copy is a fresh bill — the tenders are paid again at the counter (exchange credit
   // and card / UPI references belong to the source), and a return copy is not tied to the source's bill.
   if (out.posBill) delete out.posBill;
+  // A job work challan's return-date extension (s.143, granted by the Commissioner) belongs to that
+  // challan; a copy starts without it (as the mfg screen's own duplicate does).
+  if (out.stockJournal) out.stockJournal = { ...out.stockJournal, lines: out.stockJournal.lines.map(({ extendedTo: _ext, ...l }) => l) };
   // Validity (quotation / proforma) and "applicable up to" (reversing journal) keep their length from the
   // new date: a 15-day offer copied today is valid for 15 days from today (documents module).
   if (out.validUntil) out.validUntil = addDays(out.date, Math.max(0, diffDays(row.date, out.validUntil)));
@@ -1078,7 +1115,9 @@ export function duplicateVoucher(ctx: CompanyCtx, id: number): VoucherInput {
   // refunded belong to the source only; an advance's rate and a stat-adjustment nature are kept.
   if (out.gstDetails) {
     const { advance, adjustment } = out.gstDetails;
-    if (advance || adjustment) out.gstDetails = { ...(advance ? { advance: { ...advance } } : {}), ...(adjustment ? { adjustment: { ...adjustment } } : {}) };
+    // A Rule 37 journal's invoices belong to the source too (a copy would reverse their credit twice).
+    const adj = adjustment ? (({ rule37: _rule37, ...rest }) => rest)(adjustment) : undefined;
+    if (advance || adj) out.gstDetails = { ...(advance ? { advance: { ...advance } } : {}), ...(adj ? { adjustment: adj } : {}) };
     else delete out.gstDetails;
   }
   if (out.ledgers) {

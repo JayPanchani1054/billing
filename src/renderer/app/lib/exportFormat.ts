@@ -6,6 +6,7 @@
  * Conventions for `rows`: amounts ('amount' / 'drcr') are integer PAISE, dates are ISO strings,
  * quantities/numbers are plain numbers, text is text. Every value is HTML-escaped.
  */
+import { neutraliseFormula } from '../../../shared/csvSafe.ts';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatDrCr, formatIndianNumber, formatMoney } from '../../../shared/format.ts';
 
@@ -110,7 +111,8 @@ export function csvCellText(value: ExportCell, column: ExportColumn): string {
  * prefixed with an apostrophe so Excel shows it as text.
  */
 export function guardFormula(text: string): string {
-  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  // One shared rule with the core CSV / Excel writers (plain numbers such as "-12.50" stay numbers).
+  return neutraliseFormula(text);
 }
 
 function csvQuote(text: string): string {
@@ -124,7 +126,8 @@ export function toCsv(def: Pick<TableExportDef, 'columns' | 'rows' | 'totals'>):
     def.columns
       .map((col, i) => {
         const raw = csvCellText(cells[i], col);
-        const safe = typeof cells[i] === 'string' && !isNumericKind(col.kind) ? guardFormula(raw) : raw;
+        // Every text value is guarded — also text inside a numeric column (a real number is never a string here).
+        const safe = typeof cells[i] === 'string' ? guardFormula(raw) : raw;
         return csvQuote(safe);
       })
       .join(',');

@@ -19,8 +19,10 @@ export interface ForexEntryPanelProps {
   /** Invoice in a foreign currency: its currency + rate (null otherwise). */
   doc: VoucherForexInput | null;
   docCurrency: ForexCurrency | undefined;
-  /** Invoice total on the form (foreign × 100) when `doc` is set. */
+  /** Invoice total on the form (foreign × 10^formDecimals) when `doc` is set. */
   formTotal: Paise;
+  /** Decimal places of the form's amount fields (VoucherForm.forexDecimals; default 2). */
+  formDecimals?: number;
   /** Rupee invoice value of the last server check (null: not checked yet). */
   serverTotal: Paise | null;
   preview: ForexVoucherPreview | undefined;
@@ -49,7 +51,7 @@ export function ForexEntryPanel(p: ForexEntryPanelProps) {
               Invoice in {c.formalName} @ ₹{formatExchangeRate(p.doc.rate)}
             </span>
             <span className="bx-num">
-              Total <strong>{formatForex(decodeForex(p.formTotal), c.decimalPlaces, c.symbol)}</strong>
+              Total <strong>{formatForex(decodeForex(p.formTotal, p.formDecimals ?? 2), c.decimalPlaces, c.symbol)}</strong>
               {p.serverTotal !== null ? <> · books ₹ {money(p.serverTotal)}</> : null}
             </span>
             <span className="bx-muted">Rates and amounts on the lines are in {c.symbol}; GST is computed in rupees.</span>

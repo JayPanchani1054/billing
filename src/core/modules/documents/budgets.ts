@@ -19,7 +19,8 @@
  *  - ledger closing: the Trial-Balance closing at `to` (nominal ledgers year to date);
  *  - group: the same over every ledger under it (the reserved Profit & Loss A/c excluded; closing
  *    stock is not a ledger balance and is not included);
- *  - cost centre (with its sub-centres): Σ cost allocations of the period / up to `to`.
+ *  - cost centre (with its sub-centres): Σ cost allocations of the period / up to `to` (with a scenario:
+ *    its excluded types out, its provisional vouchers in — reports/scenario.ts scenarioCostCentreAdjust).
  */
 import { randomUUID } from 'node:crypto';
 import { diffDays, formatDate } from '../../../shared/dates.ts';
@@ -42,6 +43,7 @@ import type { Db } from '../../db/db.ts';
 import { notFound } from '../../lib/errors.ts';
 import { BOOKS_FILTER, loadGroupTree } from '../accounts/books.ts';
 import { assertPeriod, buildSnapshot, loadReportEnv, nominalMovement } from '../reports/engine.ts';
+import { scenarioCostCentreAdjust } from '../reports/scenario.ts';
 import { fieldIssue, nowIso, requirePermission, txt } from './common.ts';
 
 interface BudgetDbRow {
@@ -248,7 +250,14 @@ export function budgetVariance(ctx: CompanyCtx, input: BudgetVarianceInput): Bud
         WHERE ca.cost_centre_id IN (SELECT id FROM tree) AND ca.date <= :to AND ${BOOKS_FILTER('ca')}`,
       { cid, from, to, today: ctx.clock.today() },
     );
-    return { net: r?.net ?? 0, closing: r?.closing ?? 0 };
+    const books = { net: r?.net ?? 0, closing: r?.closing ?? 0 };
+    if (!env.scenario) return books;
+    // A scenario changes the cost-centre actuals the same way as the account actuals (reports/scenario.ts).
+    const ids = db
+      .all<{ id: number }>(`WITH RECURSIVE tree(id) AS (SELECT :cid UNION ALL SELECT c.id FROM cost_centres c JOIN tree t ON c.parent_id = t.id) SELECT id FROM tree`, { cid })
+      .map((x) => x.id);
+    const adj = scenarioCostCentreAdjust(db, env.scenario, { centreIds: ids, from, to, today: ctx.clock.today() });
+    return adj.dropBooks ? { net: adj.net, closing: adj.closing } : { net: books.net + adj.net, closing: books.closing + adj.closing };
   };
 
   // A line inside another line's figure is shown but not added to the totals again (each amount once).

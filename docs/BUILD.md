@@ -52,7 +52,12 @@ implements the core's `Runtime` interface for main: every `bahi:api` call become
 freezes the window ("Not Responding"), and an out-of-memory export kills only the worker, which is
 restarted (no company open; the window is told and returns to the company list). Calls are bounded
 (30 min), shutdown is bounded (30 s, then the thread is terminated), slow round trips (≥ 500 ms) are
-logged as `Slow route`. The worker may import only `node:*` builtins — never `electron` — and the
+logged as `Slow route`. *Exit and long statements*: node:sqlite cannot interrupt a statement that is
+running, and `Worker.terminate()` only takes effect once that statement returns to JavaScript, so a
+quit during one long statement (a huge report query, the backup snapshot) waits for it — bounded by
+the shutdown (30 s) and termination (3 s) limits and, at the latest, the main process's hard deadline
+(`src/main/quit.ts` `QUIT_DEADLINE_MS`, 40 s), after which the process exits anyway; SQLite rolls back
+the unfinished transaction on the next open, so nothing committed is lost. The worker may import only `node:*` builtins — never `electron` — and the
 build fails otherwise. In a packaged app it is shipped unpacked (`electron-builder.yml → asarUnpack`,
 loaded from `resources/app.asar.unpacked/out/main/`) because worker threads cannot read scripts from
 inside `app.asar`.
@@ -182,8 +187,10 @@ tagged commit has a matching lockfile, so the same tag always installs the same 
    ```
 3. `.github/workflows/release.yml` runs three jobs:
    - **build** (windows-latest, read-only token): checks the tag equals `v<package.json version>`,
-     installs dependencies with `npm ci` from the committed lockfile (fails if it is missing or stale,
-     §5.2), typechecks and tests **with no secrets in the environment**, builds, then
+     installs dependencies with `npm ci --ignore-scripts` from the committed lockfile (fails if it is
+     missing or stale, §5.2) and runs only the install scripts reviewed in `scripts/install-scripts.mjs`
+     (`--check` fails the release on a new, unreviewed one; `--run` runs esbuild's), typechecks and
+     tests **with no secrets in the environment**, builds, then
      packages (and signs, if configured) in a single step that alone sees the certificate, verifies the
      fuses and writes `SHA256SUMS.txt`;
    - **smoke** (windows-latest): installs and launches the installer exactly like CI's windows-smoke;

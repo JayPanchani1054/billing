@@ -34,6 +34,7 @@ import type { ReturnPeriodRef, TaxAmounts, TaxHead } from '../../../shared/types
 import { TAX_HEADS } from '../../../shared/types/gst-returns.ts';
 import type { LedgerLineInput, VoucherSaveResult } from '../../../shared/types/vouchers.ts';
 import { formatDate } from '../../../shared/dates.ts';
+import { formatMoney } from '../../../shared/format.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { conflict, rule, validation } from '../../lib/errors.ts';
@@ -57,9 +58,35 @@ interface SetoffPlan {
   outputPart: TaxAmounts;
   /** Negative 4(C) paid in cash (Dr Input). */
   excessReversal: TaxAmounts;
-  /** Credit utilised per credit head (Cr Input). */
+  /** Credit utilised per credit head that the Input tax ledgers hold (Cr Input). */
   itcUsed: TaxAmounts;
+  /** Credit utilised per credit head beyond what the Input tax ledgers hold — "credit not in the books" (Cr GST Credit Not in Books). */
+  itcOutside: TaxAmounts;
   compositionTax: Paise;
+}
+
+/**
+ * Input tax credit the books hold per head for a set-off: the Input tax ledgers' balance from every
+ * voucher dated up to the end of the return period, plus the entries of the set-off journals posted
+ * (for other periods) on or before the set-off date — so the next period's purchases are not used to
+ * cover credit that is not in the books, and earlier set-offs are taken out (books filter).
+ */
+export function bookInputCredit(db: Db, periodTo: string, setoffDate: string, today: string, excludeVoucherId?: number): TaxAmounts {
+  const out = zeroTax();
+  const duty = dutyLedgers(db);
+  for (const h of TAX_HEADS) {
+    const id = duty.input[h];
+    if (id === undefined) continue;
+    out[h] =
+      db.value<number>(
+        `SELECT COALESCE(SUM(le.amount), 0) FROM ledger_entries le
+          WHERE le.ledger_id = :id AND ${BOOKS_FILTER('le')} AND le.voucher_id <> :ex
+            AND CASE WHEN EXISTS (SELECT 1 FROM gst_stat_lines s WHERE s.voucher_id = le.voucher_id AND s.nature IN ('cash_utilised', 'itc_utilised'))
+                     THEN le.date <= :setoff ELSE le.date <= :to END`,
+        { id, today, ex: excludeVoucherId ?? 0, setoff: setoffDate, to: periodTo },
+      ) ?? 0;
+  }
+  return out;
 }
 
 const take = (t: Partial<TaxAmounts> | undefined, h: TaxHead): Paise => Math.max(0, t?.[h] ?? 0);
@@ -149,7 +176,7 @@ export function listChallans(db: Db, opts: { from?: string; to?: string; period?
   });
 }
 
-function plan(db: Db, company: GstCompany, period: ReturnPeriodRef & { key: string }, today: string, extras: SetoffExtras): SetoffPlan {
+function plan(db: Db, company: GstCompany, period: ReturnPeriodRef & { key: string }, today: string, extras: SetoffExtras, setoffDate?: string): SetoffPlan {
   const composition = company.registration === 'composition';
   const notes: string[] = [];
   const liability = zeroTax();
@@ -162,6 +189,7 @@ function plan(db: Db, company: GstCompany, period: ReturnPeriodRef & { key: stri
   const outputPart = zeroTax();
   const excessReversal = zeroTax();
   const itcUsed = zeroTax();
+  const itcOutside = zeroTax();
   const cashTax = zeroTax();
   let compositionTax = 0;
   if (composition) {
@@ -209,6 +237,22 @@ function plan(db: Db, company: GstCompany, period: ReturnPeriodRef & { key: stri
       }
     }
     if (TAX_HEADS.some((h) => s.payment.broughtForward[h] !== 0)) notes.push('Credit brought forward from the previous period (per the books) is included in the credit available.');
+    // Credit the Input tax ledgers do not hold ("credit not in the books" in GSTR-3B) is never credited
+    // to them: that part of the utilisation goes to "GST Credit Not in Books".
+    const posted = postedFor(db, period.key, today);
+    const held = bookInputCredit(db, period.to, setoffDate ?? (today > period.to ? today : period.to), today, posted?.voucherId);
+    for (const h of TAX_HEADS) {
+      const fromBooks = Math.min(itcUsed[h], Math.max(0, held[h] + excessReversal[h]));
+      itcOutside[h] = itcUsed[h] - fromBooks;
+      itcUsed[h] = fromBooks;
+    }
+    if (TAX_HEADS.some((h) => itcOutside[h] > 0)) {
+      const parts = TAX_HEADS.filter((h) => itcOutside[h] > 0).map((h) => `${HEAD_LABELS[h]} ${formatMoney(itcOutside[h], { symbol: true })}`);
+      notes.push(
+        `Credit used that the Input tax ledgers do not hold (${parts.join(', ')}) — your "credit not in the books" entry — is credited to "GST Credit Not in Books", not to the Input ledgers. ` +
+          'Give that ledger an opening balance (or a journal) for the credit the portal held when you started.',
+      );
+    }
   }
   // Cash available for THIS return: once its set-off is posted, the cash that set-off used still counts
   // as available to it (otherwise the screen would ask for the same deposit again).
@@ -247,7 +291,7 @@ function plan(db: Db, company: GstCompany, period: ReturnPeriodRef & { key: stri
     challans: listChallans(db, { period: period.key }, today),
     notes,
   };
-  return { result, outputPart, excessReversal, itcUsed, compositionTax };
+  return { result, outputPart, excessReversal, itcUsed, itcOutside, compositionTax };
 }
 
 export function computeSetoff(db: Db, company: GstCompany, period: ReturnPeriodRef & { key: string }, today: string, extras: SetoffExtras = {}): GstSetoffResult {
@@ -271,7 +315,7 @@ export function postSetoff(
   if (input.date < period.to) {
     throw validation([{ path: 'date', message: `Set-off is made when the return is filed, after the period ends: date it on or after ${formatDate(period.to)}.` }]);
   }
-  const p = plan(db, company, period, today, input);
+  const p = plan(db, company, period, today, input, input.date);
   const r = p.result;
   if (r.posted) {
     throw conflict(
@@ -293,6 +337,8 @@ export function postSetoff(
     for (const h of TAX_HEADS) add(duty.output[h], p.outputPart[h], `Output ${h.toUpperCase()}`);
     for (const h of TAX_HEADS) add(duty.input[h], p.excessReversal[h], `Input ${h.toUpperCase()}`);
     for (const h of TAX_HEADS) add(duty.input[h], -p.itcUsed[h], `Input ${h.toUpperCase()}`);
+    const outside = TAX_HEADS.reduce((sum, h) => sum + p.itcOutside[h], 0);
+    if (outside > 0) add(ensureStatLedger(db, 'GST_CREDIT_OUTSIDE', ts, (e) => ctx.audit(e)), -outside, 'GST Credit Not in Books');
   }
   for (const h of TAX_HEADS) add(duty.rcm[h], r.rcm[h], `${h.toUpperCase()} Payable (Reverse Charge)`);
   const sumMinor = (k: 'interest' | 'fee' | 'penalty' | 'others'): Paise => r.cash.reduce((s, c) => s + c[k], 0);

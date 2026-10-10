@@ -1,7 +1,8 @@
 // A new user's first day, driven through the real UI of the built app (out/), keyboard first:
 //
 //   first launch (data folder) → Create Company wizard → party ledger → stock item → sales invoice
-//   (F8, typed) → Day Book → voucher → Print Preview → Balance Sheet → GSTR-1 → Backup
+//   (F8, typed) → Alt+P (Print Preview of the invoice just saved) → Day Book → voucher → Print Preview
+//   → Balance Sheet → GSTR-1 → Backup
 //
 // Every value typed here is pinned by the API-level twin src/core/testing/e2e/first-day.test.ts
 // (same masters, same routes, same figures), which runs in `npm test` — keep the two in step.
@@ -209,6 +210,18 @@ test('enter a sales invoice by keyboard (F8)', async () => {
   await expect(check).toBeVisible();
   await check.getByRole('button', { name: 'Save anyway' }).click();
   await expect(page.getByText('Sales 1 saved')).toBeVisible();
+
+  // Alt+P straight after saving prints the invoice just saved (the form is already blank for the next
+  // one): the rail offers "Print Sales 1" and opens its preview; Esc comes back to the empty entry.
+  await expect(entry.getByLabel(/^Party A\/c name/)).toHaveValue('');
+  await page.keyboard.press('Alt+p');
+  const preview = screen('print.voucher');
+  await expect(preview).toBeVisible();
+  await expect(preview.getByRole('heading', { name: 'Print Preview', level: 1 })).toBeVisible();
+  await expect(preview).toContainText(FLOW.party.name);
+  await expect(preview).toContainText('1,180.00');
+  await page.keyboard.press('Escape');
+  await expect(entry).toBeVisible();
 });
 
 test('Day Book shows the invoice; it opens and prints (preview)', async () => {

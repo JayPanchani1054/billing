@@ -70,11 +70,13 @@ function adjust(ctx: PostingAdjustContext): void {
   const w = wants(ctx.env.features, ctx.baseType, ctx.mode);
   const challan = ctx.input.tds?.challan ?? null;
   if (ctx.voucherId !== null && (!w.tds || !w.tcs)) warnTurnedOff(ctx, w);
-  if (!w.tds && !w.tcs && !challan) return;
+  if (!w.tds && !w.tcs && !challan && !noteKind(ctx)) return;
   const store = new TdsStore(ctx.env.db);
   const lines: TdsVoucherLine[] = [];
   if (w.tds) lines.push(...computeKind(ctx, store, 'tds'));
   if (w.tcs) lines.push(...computeKind(ctx, store, 'tcs'));
+  const nk = noteKind(ctx);
+  if (nk) lines.push(...reverseOnNote(ctx, store, nk));
   if (challan) checkChallan(ctx, store, challan);
   if (lines.length > 0 || challan) ctx.setData({ lines, challan } satisfies TdsHookData);
 }
@@ -164,8 +166,11 @@ function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind):
   const manual = manualPayableCredits(ctx, store, kind);
   const manualUsed = new Set<number>();
   if (buckets.size === 0) {
+    // A TDS journal for a bill booked gross (Dr party / Cr TDS Payable): the credit typed to the duty
+    // ledger is the deduction on that bill — recorded for the reports and the statement.
+    const gross = kind === 'tds' && ctx.baseType === 'journal' && ctx.mode === 'ledger' && manual.size > 0 ? grossBillJournal(ctx, store, manual, manualUsed) : [];
     warnUnmatchedManual(ctx, kind, manual, manualUsed);
-    return [];
+    return gross;
   }
 
   if (!deductee.ledger) {
@@ -195,6 +200,17 @@ function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind):
       continue;
     }
     if (nature.section === '194Q' && !settings.buyer194Q) continue; // buyer below ₹10 crore: 194Q does not apply.
+    // s.194T: payments by a FIRM (partnership firm or LLP) to its partners. Any other deductor (company,
+    // individual, …) does not deduct under it (TDS/TCS › Setup › deductor category).
+    if (nature.section === '194T' && settings.deductorCategory !== 'firm') {
+      ctx.warn(
+        'tds',
+        `194T applies only when a firm (partnership or LLP) pays its partners; this company is set up as a ${settings.deductorCategory} deductor (TDS/TCS › Setup), so nothing was deducted under 194T.`,
+        'info',
+        b.paths[0],
+      );
+      continue;
+    }
     const rate = rateFromRow(rateRow);
     const assessable = b.taxable + (rate.baseIncludesGst ? b.tax : 0);
     const payableId = store.payableLedgerId(kind, nature.section);
@@ -304,6 +320,246 @@ function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind):
   }
   warnUnmatchedManual(ctx, kind, manual, manualUsed);
   postLines(ctx, kind, out.filter((l) => !manualLines.has(l)), deductee);
+  return out;
+}
+
+// ───────────────────────────── TDS journal on a bill booked gross ─────────────────────────────
+
+/**
+ * Journal Dr <party> / Cr TDS Payable – <section> with nothing TDS-applicable on it: the tax deducted
+ * later on a bill booked gross. The party is the one party DEBITED; the bill is the one its bill-wise
+ * "Against" names (else none). The nature is the party's default nature of that section, else the
+ * bill's line of that section, else the first active nature of the section. Base: the bill's TDS line
+ * (its assessable was already counted — this line then adds nothing to the threshold totals and clears
+ * a below-threshold amount), else the bill's taxable value, else the tax grossed up at the rate in force.
+ */
+function grossBillJournal(ctx: PostingAdjustContext, store: TdsStore, manual: ReadonlyMap<number, Paise>, manualUsed: Set<number>): TdsVoucherLine[] {
+  const m = ctx.masters;
+  const db = ctx.env.db;
+  store.preloadDetails(ctx.entries.map((e) => e.ledgerId));
+  const debited = ctx.entries.filter((e) => {
+    if (e.source.kind !== 'ledger' || e.amount <= 0) return false;
+    const L = m.ledger(e.ledgerId);
+    if (L.isCashBank || L.isGstDuty) return false;
+    const det = store.detail(L.id);
+    return !det?.payable_kind && isPartyRole(L, det);
+  });
+  const ids = [...new Set(debited.map((e) => e.ledgerId))];
+  if (ids.length !== 1) return [];
+  const party = m.ledger(ids[0]);
+  const d = store.deductee(party.id);
+  if (!d) return [];
+  const partyDetail = store.detail(party.id);
+  if (partyDetail && partyDetail.applicable !== 1) return [];
+  // The bill: bill-wise "Against" on the party's line.
+  const entry = debited[0];
+  const line = entry.source.kind === 'ledger' ? ctx.input.ledgers?.[entry.source.index] : undefined;
+  const billName = (line?.billAllocations ?? []).find((a) => a.refType === 'against' && a.billName?.trim())?.billName?.trim() ?? null;
+  const bill = billName
+    ? (db.get<{ id: number; taxable: number; total: number; label: string }>(
+        `SELECT v.id, v.taxable_amount AS taxable, v.total_amount AS total, vt.name || ' ' || COALESCE(v.number, '') AS label
+           FROM bill_allocations ba JOIN vouchers v ON v.id = ba.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
+          WHERE ba.ledger_id = :party AND ba.bill_name = :name AND ba.ref_type = 'new' AND v.id <> :self
+          ORDER BY ba.id LIMIT 1`,
+        { party: party.id, name: billName, self: ctx.voucherId ?? 0 },
+      ) ?? null)
+    : null;
+  const out: TdsVoucherLine[] = [];
+  for (const [payableId, amount] of manual) {
+    const section = store.detail(payableId)?.payable_section ?? null;
+    if (!section) continue;
+    const def = d.defaultNatureId !== null ? store.nature(d.defaultNatureId) : null;
+    const billLine = bill
+      ? (db.get<{ nature_id: number; assessable: number; base: number; status: string }>(
+          `SELECT nature_id, assessable, base, status FROM tds_lines WHERE voucher_id = :v AND kind = 'tds' AND section = :s ORDER BY line_no LIMIT 1`,
+          { v: bill.id, s: section },
+        ) ?? null)
+      : null;
+    const natureId =
+      def && def.kind === 'tds' && def.section === section
+        ? def.id
+        : (billLine?.nature_id ??
+          db.value<number>(`SELECT id FROM tds_natures WHERE kind = 'tds' AND section = :s AND is_active = 1 ORDER BY id LIMIT 1`, { s: section }) ??
+          null);
+    if (natureId === null) continue;
+    const nature = store.nature(natureId) as NatureRow;
+    let assessable = 0;
+    let catchUp = 0;
+    let base = 0;
+    if (billLine) {
+      base = billLine.assessable;
+      if (billLine.status === 'below_threshold') catchUp = billLine.assessable;
+    } else if (bill) {
+      assessable = bill.taxable > 0 ? bill.taxable : Math.abs(bill.total);
+      base = assessable;
+    } else {
+      const rateRow = store.rateOn(natureId, ctx.date);
+      const pct = rateRow ? rateFromRow(rateRow) : null;
+      const r = pct ? (d.panStatus !== 'valid' ? pct.rateNoPan : d.type === 'company' ? pct.rateCompany : d.type === 'individual' ? pct.rateIndividual : pct.rateOthers) : 0;
+      assessable = r > 0 ? Math.round((amount * 100) / r) : 0;
+      base = assessable;
+    }
+    manualUsed.add(payableId);
+    out.push({
+      kind: 'tds',
+      natureId,
+      natureName: nature.name,
+      section,
+      partyLedgerId: d.ledgerId,
+      partyName: d.name,
+      deducteeType: d.type,
+      pan: d.pan,
+      panStatus: d.panStatus,
+      assessable,
+      catchUp,
+      base,
+      rate: base > 0 ? Math.round((amount / base) * 100 * 10_000) / 10_000 : 0,
+      computed: amount,
+      amount,
+      overridden: false,
+      reason: null,
+      status: 'deducted',
+      payableLedgerId: payableId,
+      payableLedgerName: payableLedgerName('tds', section),
+      note: bill
+        ? `TDS deducted by journal on ${bill.label.trim()} (${billName}), booked gross.`
+        : `TDS deducted by journal (Dr ${party.name} / Cr ${payableLedgerName('tds', section)}); no bill named — the base is the tax grossed up at the rate in force.`,
+      billVoucherId: bill?.id ?? null,
+    });
+  }
+  if (out.length > 0) {
+    ctx.warn('tds', `Recorded as TDS deducted from ${party.name}${bill ? ` on ${billName}` : ''} (a bill booked gross); it is in the TDS reports and the quarterly statement.`, 'info');
+  }
+  return out;
+}
+
+// ───────────────────────────── Debit / credit notes ─────────────────────────────
+
+/** TDS on a debit note to a supplier, TCS on a credit note to a customer (invoice modes). */
+function noteKind(ctx: PostingAdjustContext): TdsKind | null {
+  if (!isInvoiceMode(ctx.mode) || !ctx.party || ctx.party.isCashBank) return null;
+  if (ctx.baseType === 'debit_note' && !ctx.outward && ctx.env.features.tds) return 'tds';
+  if (ctx.baseType === 'credit_note' && ctx.outward && ctx.env.features.tcs) return 'tcs';
+  return null;
+}
+
+/**
+ * A debit note (purchase return / reduction) against a bill on which TDS was deducted, or a credit note
+ * against a sale on which TCS was collected, reverses that tax in proportion to the note's taxable value
+ * (note ÷ bill, never more than what is left of the bill's tax): Dr the duty ledger, and the party is
+ * debited (TDS) / credited (TCS) that much less / more. The bill is the one the note's bill-wise
+ * "Against" names, else the original invoice number. A reversal the user typed by hand (Dr the duty
+ * ledger) is taken as it is. Lines are negative and carry the bill (tds_lines.bill_voucher_id).
+ */
+function reverseOnNote(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind): TdsVoucherLine[] {
+  const db = ctx.env.db;
+  const party = ctx.party as LedgerInfo;
+  const billBase = kind === 'tds' ? 'purchase' : 'sales';
+  const against = (ctx.input.partyBillAllocations ?? []).find((a) => a.refType === 'against' && a.billName?.trim())?.billName?.trim() ?? null;
+  let billId: number | null = null;
+  if (against) {
+    billId =
+      db.value<number>(
+        `SELECT v.id FROM bill_allocations ba JOIN vouchers v ON v.id = ba.voucher_id
+          WHERE ba.ledger_id = :party AND ba.bill_name = :name AND ba.ref_type = 'new' AND v.base_type = :base ORDER BY ba.id LIMIT 1`,
+        { party: party.id, name: against, base: billBase },
+      ) ?? null;
+  }
+  const orig = ctx.input.originalInvoiceNo?.trim();
+  if (billId === null && orig) {
+    billId =
+      db.value<number>(
+        `SELECT id FROM vouchers WHERE party_ledger_id = :party AND base_type = :base AND affects_books = 1
+            AND (number = :no OR (:base = 'purchase' AND reference_no = :no))
+          ORDER BY date DESC, id DESC LIMIT 1`,
+        { party: party.id, base: billBase, no: orig },
+      ) ?? null;
+  }
+  if (billId === null) return [];
+  const bill = db.get<{ taxable: number; number: string | null; label: string }>(
+    `SELECT v.taxable_amount AS taxable, v.number, vt.name || ' ' || COALESCE(v.number, '') AS label FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = :id`,
+    { id: billId },
+  );
+  if (!bill || bill.taxable <= 0) return [];
+  const billLines = db.all<{ nature_id: number; section: string; assessable: number; amount: number; rate: number; payable_ledger_id: number | null }>(
+    `SELECT nature_id, section, assessable, amount, rate, payable_ledger_id FROM tds_lines
+      WHERE voucher_id = :v AND kind = :kind AND amount > 0 AND affects_books = 1 AND (is_post_dated = 0 OR date <= :today)`,
+    { v: billId, kind, today: ctx.env.today },
+  );
+  if (billLines.length === 0) return [];
+  const noteTaxable = ctx.invoiceLines.reduce((a, l) => a + l.taxableValue, 0);
+  if (noteTaxable <= 0) return [];
+  const settings = store.settings();
+  const d = store.deductee(party.id);
+  const partyEntry = ctx.entries.find((e) => e.source.kind === 'party') ?? null;
+  // Debits the user typed to the duty ledgers (a reversal entered by hand).
+  const manualDr = new Map<number, Paise>();
+  for (const e of ctx.entries) {
+    if (e.source.kind === 'hook' || e.amount <= 0) continue;
+    const det = store.detail(e.ledgerId);
+    if (det?.payable_kind === kind) manualDr.set(e.ledgerId, (manualDr.get(e.ledgerId) ?? 0) + e.amount);
+  }
+  const out: TdsVoucherLine[] = [];
+  let posted = 0;
+  for (const bl of billLines) {
+    const done = db.get<{ amount: number; assessable: number }>(
+      `SELECT COALESCE(-SUM(amount), 0) AS amount, COALESCE(-SUM(assessable), 0) AS assessable FROM tds_lines
+        WHERE bill_voucher_id = :bill AND nature_id = :n AND amount < 0 AND voucher_id <> :self
+          AND affects_books = 1 AND (is_post_dated = 0 OR date <= :today)`,
+      { bill: billId, n: bl.nature_id, self: ctx.voucherId ?? 0, today: ctx.env.today },
+    ) ?? { amount: 0, assessable: 0 };
+    const leftTax = Math.max(0, bl.amount - done.amount);
+    const leftBase = Math.max(0, bl.assessable - done.assessable);
+    if (leftTax === 0) continue;
+    let rev = Math.min(leftTax, Math.round((bl.amount * noteTaxable) / bill.taxable));
+    if (settings.roundToRupee) rev = Math.min(leftTax, Math.round(rev / 100) * 100);
+    const revBase = Math.min(leftBase, Math.round((bl.assessable * noteTaxable) / bill.taxable));
+    const handTyped = bl.payable_ledger_id !== null ? manualDr.get(bl.payable_ledger_id) : undefined;
+    if (handTyped !== undefined && bl.payable_ledger_id !== null) {
+      rev = handTyped;
+      manualDr.delete(bl.payable_ledger_id);
+    }
+    if (rev <= 0) continue;
+    const nature = store.nature(bl.nature_id);
+    out.push({
+      kind,
+      natureId: bl.nature_id,
+      natureName: nature?.name ?? bl.section,
+      section: bl.section,
+      partyLedgerId: party.id,
+      partyName: d?.name ?? party.name,
+      deducteeType: d?.type ?? 'others',
+      pan: d?.pan ?? null,
+      panStatus: d?.panStatus ?? 'missing',
+      assessable: -revBase,
+      catchUp: 0,
+      base: -revBase,
+      rate: bl.rate,
+      computed: -rev,
+      amount: -rev,
+      overridden: handTyped !== undefined,
+      reason: handTyped !== undefined ? 'Entered by hand on the note' : null,
+      status: 'deducted',
+      payableLedgerId: bl.payable_ledger_id,
+      payableLedgerName: payableLedgerName(kind, bl.section),
+      note: `Reverses ${inr(rev)} of the ${kind.toUpperCase()} on ${bill.label.trim()} in proportion to this note (${inr(noteTaxable)} of ${inr(bill.taxable)}).`,
+      billVoucherId: billId,
+    });
+    if (handTyped === undefined && bl.payable_ledger_id !== null) {
+      ctx.addEntry({ ledgerId: bl.payable_ledger_id, amount: rev, role: kind === 'tcs' ? 'charge' : 'other', narration: `${kind.toUpperCase()} u/s ${bl.section} reversed on ${bill.label.trim()}` });
+      posted += rev;
+    }
+  }
+  if (posted > 0) {
+    if (!partyEntry) {
+      ctx.warn('tds', `There is no party entry to adjust the ${kind.toUpperCase()} reversed (${inr(posted)}).`, 'block');
+      return out;
+    }
+    // TDS: the supplier is debited that much less; TCS: the customer is credited that much more.
+    ctx.adjustEntry(partyEntry, -posted);
+    if (kind === 'tcs') ctx.addToInvoiceValue(posted);
+    ctx.warn('tds', `${kind.toUpperCase()} of ${inr(posted)} deducted on ${bill.label.trim()} is reversed in proportion to this note.`, 'info');
+  }
   return out;
 }
 
@@ -555,11 +811,11 @@ export const tdsVoucherHook: VoucherHook = {
       w.db.run(
         `INSERT INTO tds_lines (voucher_id, line_no, kind, nature_id, section, party_ledger_id, deductee_type, pan, pan_status, non_resident,
                 assessable, catch_up, base, rate, computed, amount, overridden, reason, status, payable_ledger_id, note, date,
-                affects_books, is_post_dated, advance_adjusted)
+                affects_books, is_post_dated, advance_adjusted, bill_voucher_id)
          VALUES (:vid, :lineNo, :kind, :natureId, :section, :party, :type, :pan, :panStatus,
                  COALESCE((SELECT non_resident FROM tds_ledger_details WHERE ledger_id = :party), 0),
                  :assessable, :catchUp, :base, :rate, :computed, :amount, :overridden, :reason, :status, :payable, :note, :date, :books, :pdc,
-                 :advance)`,
+                 :advance, :bill)`,
         {
           vid: w.voucherId,
           lineNo: i + 1,
@@ -585,6 +841,7 @@ export const tdsVoucherHook: VoucherHook = {
           books,
           pdc,
           advance: l.advanceAdjusted ?? 0,
+          bill: l.billVoucherId ?? null,
         },
       );
     });

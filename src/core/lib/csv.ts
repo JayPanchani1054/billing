@@ -4,8 +4,10 @@
  * Reading: quoted fields, "" escapes, embedded CR/LF, CRLF/LF/CR line ends, BOM stripped, optional delimiter
  * sniffing. Writing: RFC 4180 quoting, CRLF line ends, optional BOM, and CSV/formula-injection protection
  * (OWASP): a text cell starting with = + - @ TAB or CR is prefixed with a single quote so spreadsheet apps show
- * it as text instead of evaluating it. Real numbers (typeof 'number') are never altered.
+ * it as text instead of evaluating it. Real numbers (typeof 'number') and text that is exactly a plain number
+ * ("-1250.50", "-1,23,456.00") are never altered (src/shared/csvSafe.ts).
  */
+import { neutraliseFormula } from '../../shared/csvSafe.ts';
 import { FileFormatError, positionAt, stripBom } from './text.ts';
 
 export type CsvDelimiter = ',' | ';' | '\t' | '|';
@@ -184,13 +186,8 @@ export function parseCsv(input: string, opts: ParseCsvOptions = {}): string[][] 
   return rows.length > maxRows ? rows.slice(0, maxRows) : rows;
 }
 
-/** Characters that make Excel/LibreOffice/Sheets treat a cell as a formula (OWASP CSV injection list). */
-const FORMULA_START = /^[=+\-@\t\r]/;
-
-/** Prefix a single quote to text that a spreadsheet would otherwise evaluate as a formula. */
-export function neutraliseFormula(text: string): string {
-  return FORMULA_START.test(text) ? `'${text}` : text;
-}
+// Formula-injection guard: one shared rule for every CSV / Excel export (src/shared/csvSafe.ts).
+export { neutraliseFormula } from '../../shared/csvSafe.ts';
 
 function csvCell(value: CsvValue, delimiter: string, neutralise: boolean): string {
   if (value === null || value === undefined) return '';

@@ -48,6 +48,13 @@ export const ItemLookupSchema = v.strictObject({
   godownId: v.id().optional(),
 });
 
+export const ItemGetSchema = v.strictObject({
+  itemId: v.id(),
+  date: v.date(),
+  priceLevelId: v.id().optional(),
+  godownId: v.id().optional(),
+});
+
 export const CustomerFindSchema = v.strictObject({ mobile: v.string({ min: 1, max: 20 }) });
 
 export const CustomerCreateSchema = v.object({
@@ -92,8 +99,9 @@ const PeriodShape = {
   from: v.date(),
   to: v.date(),
   voucherTypeIds: v.array(v.id(), { max: 50 }).optional(),
-  userId: v.id().optional(),
+  userId: v.id().nullable().optional(),
   counter: v.string({ max: 40 }).optional(),
+  modeId: v.id().optional(),
 };
 
 export const SummarySchema = v.strictObject(PeriodShape);

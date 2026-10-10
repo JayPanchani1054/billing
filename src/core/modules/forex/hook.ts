@@ -251,7 +251,9 @@ function adjust(ctx: PostingAdjustContext): void {
     decimals: new Map([...currencies.values()].map((c) => [c.id, c.decimalPlaces])),
   };
 
-  const forexEntries: Array<{ entry: PlanEntry; currency: ForexCurrency; amount: number; rate: number | null; typed: BillAllocationInput[] | undefined; path: string; lineIndex: number | null }> = [];
+  // grossForex: the foreign amount before another hook (TDS u/s 195) changed the entry's rupees — the
+  // amount bill-wise details may have been typed for.
+  const forexEntries: Array<{ entry: PlanEntry; currency: ForexCurrency; amount: number; grossForex: number; rate: number | null; typed: BillAllocationInput[] | undefined; path: string; lineIndex: number | null }> = [];
 
   if (invoice && docCur && input.forex) {
     const dp = docCur.decimalPlaces;
@@ -283,7 +285,10 @@ function adjust(ctx: PostingAdjustContext): void {
       const docForex = sumForex([...lineForex, paiseToForex(residualInr, rate, dp)], dp);
       data.documentForex = docForex;
       if (ledgerCur.get(party.ledgerId) === docCur.id) {
-        forexEntries.push({ entry: party, currency: docCur, amount: sign * docForex, rate, typed: input.partyBillAllocations, path: 'partyBillAllocations', lineIndex: null });
+        const gross = party.originalAmount !== undefined && party.originalAmount !== party.amount && party.amount !== 0
+          ? Math.abs(roundForex((docForex * party.originalAmount) / party.amount, dp))
+          : Math.abs(docForex);
+        forexEntries.push({ entry: party, currency: docCur, amount: sign * docForex, grossForex: gross, rate, typed: input.partyBillAllocations, path: 'partyBillAllocations', lineIndex: null });
       }
     } else if (ctx.invoiceValue !== null) {
       // Orders / notes / quotations priced in the currency: no party entry, the document value only.
@@ -311,6 +316,7 @@ function adjust(ctx: PostingAdjustContext): void {
         entry: e,
         currency: cur,
         amount: fx,
+        grossForex: Math.abs(line.forexAmount),
         rate: fx === 0 ? null : (line.exchangeRate ?? null),
         typed: line.billAllocations,
         path: `ledgers[${e.source.index}].billAllocations`,
@@ -344,7 +350,14 @@ function adjust(ctx: PostingAdjustContext): void {
     let shares: number[];
     if (typed.every((a) => a.forexAmount !== undefined)) {
       shares = typed.map((a) => a.forexAmount as number);
-      const sum = sumForex(shares, dp);
+      let sum = sumForex(shares, dp);
+      // Typed for the gross while TDS (s.195) reduced what the party is credited with: the bills
+      // follow in proportion (as their rupees do), so the supplier's bill holds the net in the currency.
+      if (toMinor(sum, dp) !== toMinor(absF, dp) && toMinor(sum, dp) === toMinor(fe.grossForex, dp) && fe.entry.originalAmount !== undefined) {
+        shares = allocateForex(absF, shares.map((x) => toMinor(x, dp)), dp);
+        sum = sumForex(shares, dp);
+        ctx.warn('forex', `Bill-wise ${fe.currency.symbol} amounts of ${L.name} were reduced in proportion to the tax deducted (${formatForex(absF, dp, fe.currency.symbol)} in all).`, 'info', fe.path);
+      }
       if (toMinor(sum, dp) !== toMinor(absF, dp)) {
         ctx.warn(
           'forex',

@@ -14,7 +14,7 @@ import type { Paise } from '../../../../shared/money.ts';
 import type { RoundOffMethod } from '../../../../shared/settings.ts';
 import type { LedgerLineGstInput } from '../../../../shared/types/vouchers.ts';
 import { ledgerGstOverride } from './buildInput.ts';
-import { isBlankItem, isBlankLedger, itemLineValue } from './formState.ts';
+import { amountDecimals, isBlankItem, isBlankLedger, itemLineValue } from './formState.ts';
 import type { VoucherForm } from './formState.ts';
 import { singleEntryAccountSide } from './kinds.ts';
 
@@ -207,7 +207,9 @@ export function computeInvoiceTotals(f: VoucherForm, env: TotalsEnv): ClientTota
         qty: valueQty,
         rate: r.rate ?? 0,
         discountPct: r.discountPct ?? undefined,
-        amount: r.amount ?? undefined,
+        // (forex) Amounts held in 10^-d units of a currency with d ≠ 2 decimals: the line value is given
+        // in those units (the engine's own qty × rate would be in hundredths).
+        amount: r.amount ?? (amountDecimals(f) !== 2 ? itemLineValue(r, amountDecimals(f)) : undefined),
         rateInclusiveOfTax: r.rateInclusiveOfTax ?? false,
         taxability: p.taxability,
         gstRate: p.rate,

@@ -58,6 +58,9 @@ describe('GST routes', () => {
       'gst.filing.mark': 'gst.file',
       'gst.filing.unmark': 'gst.file',
       'gst.amendments.list': 'gst.view',
+      'gst.gstr3b.changes': 'gst.view',
+      'gst.rule37.report': 'gst.view',
+      'gst.rule37.post': 'gst.file',
       'gst.setoff.compute': 'gst.view',
       'gst.setoff.post': 'gst.file',
       'gst.challan.post': 'gst.file',
@@ -89,6 +92,7 @@ describe('GST routes', () => {
       'gst.filing.mark',
       'gst.filing.unmark',
       'gst.gstr3b.saveAdjustments',
+      'gst.rule37.post',
       'gst.setoff.post',
     ]);
   });

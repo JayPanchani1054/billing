@@ -114,6 +114,11 @@ describe('toCsv', () => {
     assert.equal(toCsv([['=1+1']], { neutraliseFormulas: false }), '=1+1\r\n');
   });
 
+  it('never breaks a negative amount written as text (TDS / e-payment rupee strings)', () => {
+    assert.equal(toCsv([['-1250.50', '-1,23,456.00', '-12', '-1+1']]), "-1250.50,\"-1,23,456.00\",-12,'-1+1\r\n");
+    assert.deepEqual(parseCsv(toCsv([['-1250.50']])), [['-1250.50']]);
+  });
+
   it('adds a BOM when asked (Excel-friendly UTF-8)', () => {
     const csv = toCsv([['₹', 'राम']], { bom: true });
     assert.equal(csv, '﻿₹,राम\r\n');

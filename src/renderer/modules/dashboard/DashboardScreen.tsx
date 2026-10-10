@@ -32,6 +32,7 @@ import {
   TopCustomersCard,
   TopItemsCard,
   TrendCard,
+  useStartSteps,
 } from './components.tsx';
 import type { DashboardLayout } from './components.tsx';
 import { exportTable, summaryInput } from './lib/model.ts';
@@ -70,6 +71,8 @@ export function DashboardScreen({ params }: ScreenProps<DashboardParams>) {
 function FullDashboard() {
   const { q, workingDate } = useSummary();
   const s = q.data;
+  // Undo "Hide" on the Get started card (kept per company in this browser).
+  const start = useStartSteps(s);
   return (
     <ReportScreen
       title="Dashboard"
@@ -78,7 +81,10 @@ function FullDashboard() {
       refreshing={q.refreshing}
       error={s ? undefined : q.error}
       onRetry={() => void q.refetch()}
-      actions={[{ key: 'Alt+R', label: 'Refresh', icon: 'refresh', onClick: () => void q.refetch(), group: 'view' }]}
+      actions={[
+        { key: 'Alt+R', label: 'Refresh', icon: 'refresh', onClick: () => void q.refetch(), group: 'view' },
+        { key: 'Alt+S', label: 'Show Get started', icon: 'eye', onClick: start.show, hidden: !start.canShow, group: 'view' },
+      ]}
       exportDef={s ? () => exportTable(s) : undefined}
       hint="Tab Move between cards · Enter Open · Alt+F2 Period · F2 Date · Alt+E Export · Alt+P Print · Esc Back"
     >
@@ -95,6 +101,7 @@ function EmbeddedDashboard() {
   const { q, asOf, workingDate } = useSummary();
   const s = q.data;
   const titleId = useId();
+  const start = useStartSteps(s);
   return (
     <section className="bx-db bx-db--embedded" aria-labelledby={titleId} aria-busy={q.refreshing || undefined}>
       <header className="bx-db__head">
@@ -110,6 +117,12 @@ function EmbeddedDashboard() {
           <Button size="sm" variant="ghost" icon="calendar" onClick={period.openDialog} aria-keyshortcuts="Alt+F2">
             Change period
           </Button>
+          {start.canShow ? (
+            // No hotkey here: plain letters and Alt keys on the Gateway belong to its menu.
+            <Button size="sm" variant="ghost" icon="eye" onClick={start.show}>
+              Show Get started
+            </Button>
+          ) : null}
           <IconButton size="sm" icon="refresh" aria-label="Refresh dashboard" loading={q.refreshing} onClick={() => void q.refetch()} />
           <Button size="sm" iconRight="arrow-right" onClick={() => nav.push('dashboard.home', {})}>
             Full dashboard

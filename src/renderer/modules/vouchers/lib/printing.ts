@@ -3,7 +3,7 @@
  *
  * - Voucher entry: Alt+P prints the voucher being altered, or — on a new voucher — the voucher just
  *   saved from this screen ("Print Sales 12"), so a fresh invoice is one key away from the printer.
- * - Print after saving (voucher type or F12 › Invoice printing, see vouchers.entryContext): the
+ * - Print after saving (voucher type or Invoice Printing (print settings), see vouchers.entryContext): the
  *   preview opens with `autoPrint`, which sends it to the printer as soon as it is ready.
  * - Day Book / voucher lists: Ctrl+P prints the highlighted voucher (Alt+P prints the register).
  */

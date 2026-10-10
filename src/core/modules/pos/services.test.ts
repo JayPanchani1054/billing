@@ -13,7 +13,8 @@ import { cancelVoucher } from '../vouchers/service.ts';
 import { discardHeldBill, holdBill, listHeldBills, recallHeldBill } from './held.ts';
 import { createCustomer, findCustomers, lookupItem } from './lookup.ts';
 import { posRegister, posSummary } from './reports.ts';
-import { openExchangeCredits, returnContext } from './returns.ts';
+import { openExchangeCredits, returnContext, voucherPos } from './returns.ts';
+import { posRoutes } from './routes.ts';
 import { deleteTenderMode, getPosSettings, listTenderModes, posContext, savePosSettings, saveTenderMode } from './store.ts';
 import { bill, line, posKit, saveBill, tender } from './testkit.ts';
 
@@ -263,6 +264,12 @@ describe('day-end summary and register', () => {
     assert.equal(posRegister(k.t.db, k.t.today, { from: k.t.today, to: k.t.today, kind: 'return' }).total, 1);
     assert.equal(posRegister(k.t.db, k.t.today, { from: k.t.today, to: k.t.today, counter: 'A' }).total, 1);
     assert.equal(posSummary(k.t.db, k.t.today, { from: k.t.today, to: k.t.today, voucherTypeIds: [k.saleType] }).returns, 1);
+    // Drill-down filters (review): a tender row opens the bills paid by that mode; a cashier row the
+    // bills of that user — null = entered without a login (this company has no security).
+    assert.deepEqual(posRegister(k.t.db, k.t.today, { from: k.t.today, to: k.t.today, modeId: k.M.card }).rows.map((r) => r.billValue), [23_600]);
+    assert.equal(posRegister(k.t.db, k.t.today, { from: k.t.today, to: k.t.today, modeId: k.M.upi }).total, 1);
+    assert.equal(posRegister(k.t.db, k.t.today, { from: k.t.today, to: k.t.today, userId: null }).total, 3);
+    assert.equal(posRegister(k.t.db, k.t.today, { from: k.t.today, to: k.t.today, userId: 999 }).total, 0);
   });
 
   it('MRP saving counts what the customer saved against MRP', () => {
@@ -294,5 +301,41 @@ describe('print block', () => {
     assert.equal(d2.pos?.credit, 6_000);
     assert.equal(d2.upi?.amount, 6_000);
     assert.match(d2.upi?.uri ?? '', /am=60\.00/);
+  });
+});
+
+describe('routes', () => {
+  it('permissions: settings need company.manage; a Data Entry user may bill, hold and look up', async () => {
+    const k = posKit();
+    const dataEntry = k.t.sessionAs({ role: 'Data Entry' });
+    const denied = await k.t.call(posRoutes, 'pos.settings.save', { printAfterSave: false }, { session: dataEntry });
+    assert.equal(denied.ok, false);
+    if (!denied.ok) assert.equal(denied.error.code, 'FORBIDDEN');
+    const look = await k.t.call(posRoutes, 'pos.item.lookup', { code: 'SP-01', date: k.t.today }, { session: dataEntry });
+    assert.equal(look.ok, true);
+    const held = await k.t.call(posRoutes, 'pos.held.save', { total: 100, draft: { voucherTypeId: k.saleType, lines: [{ itemId: k.I.pen, qty: 1, rate: 10 }] } }, { session: dataEntry });
+    assert.equal(held.ok, true);
+    const auditor = k.t.sessionAs({ role: 'Auditor' });
+    const hold2 = await k.t.call(posRoutes, 'pos.held.save', { total: 100, draft: { voucherTypeId: k.saleType, lines: [{ itemId: k.I.pen, qty: 1, rate: 10 }] } }, { session: auditor });
+    assert.equal(hold2.ok, false);
+    const sum = await k.t.call(posRoutes, 'pos.summary', { from: k.t.today, to: k.t.today }, { session: auditor });
+    assert.equal(sum.ok, true);
+  });
+
+  it('pos.item.get and pos.voucher', async () => {
+    const k = posKit();
+    const item = await k.t.callOk<{ itemId: number; mrp: number | null }>(posRoutes, 'pos.item.get', { itemId: k.I.soap, date: k.t.today });
+    assert.deepEqual([item.itemId, item.mrp], [k.I.soap, 5_900]);
+    const r = saveBill(k, bill(k, [line(k.I.soap, 1, 100)], { tenders: [tender(k.M.upi, 11_800, { reference: 'R1' })], counter: 'Till 2' }));
+    const v = voucherPos(k.t.db, r.id);
+    assert.equal(v?.kind, 'sale');
+    assert.equal(v?.counter, 'Till 2');
+    assert.deepEqual(v?.tenders.map((t) => [t.name, t.amount, t.reference]), [['UPI', 11_800, 'R1']]);
+    assert.equal(await k.t.callOk(posRoutes, 'pos.voucher', { id: 999_999 }), null);
+    // Feature off: routes refuse, the context says so.
+    saveFeatures(k.t.ctx, { pos: false });
+    const off = await k.t.call(posRoutes, 'pos.item.lookup', { code: 'SP-01', date: k.t.today });
+    assert.equal(off.ok, false);
+    assert.equal((await k.t.callOk<{ enabled: boolean }>(posRoutes, 'pos.context', {})).enabled, false);
   });
 });

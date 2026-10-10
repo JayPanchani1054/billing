@@ -50,7 +50,7 @@ const DECIMAL_RE = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
  * the amount is too large to hold exactly (beyond Number.MAX_SAFE_INTEGER paise).
  *   '1,23,456.789' → 12345679   '₹ 50' → 5000   '100 Cr' → -10000   '-₹ 1,234.50' → -123450
  */
-export function parseAmount(input: string): Paise | null {
+export function parseAmount(input: string, decimals = 2): Paise | null {
   let s = input.trim();
   if (s === '' || s.length > MAX_NUMBER_TEXT) return null;
   let sign = 1;
@@ -78,10 +78,13 @@ export function parseAmount(input: string): Paise | null {
   if (!DECIMAL_RE.test(s)) return null;
   // Exact decimal → paise on the digit string (no float multiply): the third decimal decides the
   // rounding, half away from zero, so '1.0049999' → 100 and '1.005' → 101.
+  // `decimals` (extend-only, default 2 = paise): the result is in 10^-decimals units of the amount — e.g. a
+  // foreign currency with 0, 3 or 4 decimal places (forex voucher entry).
+  const dp = Math.max(0, Math.min(6, Math.trunc(decimals)));
   const [whole, frac = ''] = s.split('.');
-  const digits = `${frac}000`;
-  let paise = BigInt(whole || '0') * 100n + BigInt(digits.slice(0, 2));
-  if (digits.charCodeAt(2) >= 53 /* '5' */) paise += 1n;
+  const digits = `${frac}${'0'.repeat(dp + 1)}`;
+  let paise = BigInt(whole || '0') * 10n ** BigInt(dp) + (dp > 0 ? BigInt(digits.slice(0, dp)) : 0n);
+  if (digits.charCodeAt(dp) >= 53 /* '5' */) paise += 1n;
   // Beyond 2^53 paise the amount can no longer be held exactly — reject it rather than corrupt it.
   if (paise > BigInt(Number.MAX_SAFE_INTEGER)) return null;
   const out = sign * Number(paise);

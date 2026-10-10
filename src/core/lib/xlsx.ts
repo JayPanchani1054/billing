@@ -7,6 +7,9 @@
  * constant memory). SECURITY: text is only ever written as a shared or inline string (never as a
  * formula, so "=HYPERLINK(…)" from a party name stays inert text), XML-invalid control characters are stripped,
  * names/attributes are escaped, and literal `_xHHHH_` sequences are escaped so Excel cannot reinterpret them.
+ * Text that a spreadsheet could take for a formula (starting with = + - @ TAB CR, not a plain number —
+ * shared/csvSafe.ts) also gets a `quotePrefix` style, so it stays text even when the user edits the cell
+ * (the value itself is unchanged, so our importer reads it back exactly).
  *
  * Reader — imports (bank statements, masters, GST portal Excel files): resolves workbook.xml + relationships,
  * shared strings (incl. rich-text runs, ignoring phonetic runs), inline strings, numbers, booleans, errors (null),
@@ -17,6 +20,7 @@
 import { FileFormatError, decodeText } from './text.ts';
 import { createZip, readZip } from './zip.ts';
 import type { ReadZipOptions, ZipArchive, ZipFileWriter, ZipInputEntry } from './zip.ts';
+import { needsFormulaGuard } from '../../shared/csvSafe.ts';
 import { XML_DECLARATION, escapeAttr, escapeXml, localName, parseXml, saxParse, stripInvalidXmlChars } from './xml.ts';
 import type { XmlElement } from './xml.ts';
 
@@ -275,6 +279,8 @@ interface StyleSpec {
   fontId: number;
   indent: number;
   align: '' | 'left' | 'right';
+  /** Excel "quote prefix" (formula-injection guard): the cell shows its text verbatim and stays text if edited. */
+  quote?: boolean;
 }
 
 function createStyles(): { id(spec: StyleSpec): number; xml(): string } {
@@ -283,7 +289,7 @@ function createStyles(): { id(spec: StyleSpec): number; xml(): string } {
   return {
     id(spec) {
       // numFmtId < 1024, fontId < 4, indent < 16, align < 3 → one small integer key (hot path: once per cell).
-      const key = ((spec.numFmtId * 4 + spec.fontId) * 16 + spec.indent) * 3 + (spec.align === '' ? 0 : spec.align === 'left' ? 1 : 2);
+      const key = (((spec.numFmtId * 4 + spec.fontId) * 16 + spec.indent) * 3 + (spec.align === '' ? 0 : spec.align === 'left' ? 1 : 2)) * 2 + (spec.quote ? 1 : 0);
       let id = index.get(key);
       if (id === undefined) {
         id = specs.length;
@@ -299,7 +305,8 @@ function createStyles(): { id(spec: StyleSpec): number; xml(): string } {
         const attrs =
           `numFmtId="${s.numFmtId}" fontId="${s.fontId}" fillId="0" borderId="0" xfId="0"` +
           (s.numFmtId !== FMT_GENERAL ? ' applyNumberFormat="1"' : '') +
-          (s.fontId !== FONT_REGULAR ? ' applyFont="1"' : '');
+          (s.fontId !== FONT_REGULAR ? ' applyFont="1"' : '') +
+          (s.quote ? ' quotePrefix="1"' : '');
         if (!s.align) return `<xf ${attrs}/>`;
         const indent = s.indent > 0 ? ` indent="${s.indent}"` : '';
         return `<xf ${attrs} applyAlignment="1"><alignment horizontal="${s.align}"${indent}/></xf>`;
@@ -431,7 +438,7 @@ function createCellXml(styles: ReturnType<typeof createStyles>, widths: number[]
     const text = xlsxText(v);
     if (text === '') return '';
     if (col < widths.length) widths[col] = Math.max(widths[col], estimateWidth(text, kind));
-    const s = styles.id({ numFmtId: FMT_GENERAL, fontId, indent: r.indent, align: r.indent ? 'left' : '' });
+    const s = styles.id({ numFmtId: FMT_GENERAL, fontId, indent: r.indent, align: r.indent ? 'left' : '', quote: needsFormulaGuard(text) });
     return textCell(ref, s, text);
   };
 }
@@ -482,7 +489,7 @@ function buildSheet(
       if (c < widths.length) widths[c] = Math.max(widths[c], header.length + 2);
       if (!header) continue;
       const align = NUMERIC_KINDS.has(col.kind) ? 'right' : '';
-      const s = styles.id({ numFmtId: FMT_GENERAL, fontId: FONT_BOLD, indent: 0, align });
+      const s = styles.id({ numFmtId: FMT_GENERAL, fontId: FONT_BOLD, indent: 0, align, quote: needsFormulaGuard(header) });
       cells += `<c r="${colNames[c]}${headerRowNum}" s="${s}" t="s"><v>${sst.index(header)}</v></c>`;
     }
     out.push(`<row r="${headerRowNum}">${cells}</row>`);
@@ -731,7 +738,7 @@ export class XlsxStreamWriter {
       for (let c = 0; c < cols; c++) {
         const header = xlsxText(String(columns[c].header ?? ''));
         if (!header) continue;
-        const st = this.styles.id({ numFmtId: FMT_GENERAL, fontId: FONT_BOLD, indent: 0, align: NUMERIC_KINDS.has(columns[c].kind) ? 'right' : '' });
+        const st = this.styles.id({ numFmtId: FMT_GENERAL, fontId: FONT_BOLD, indent: 0, align: NUMERIC_KINDS.has(columns[c].kind) ? 'right' : '', quote: needsFormulaGuard(header) });
         cells += inlineTextCell(`${colNames[c]}1`, st, header);
       }
       rowNum = 1;

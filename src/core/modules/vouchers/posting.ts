@@ -478,6 +478,10 @@ class PostingBuilder {
     if (this.accounting) {
       this.applyBills();
       this.applyCosts();
+    } else if (this.base === 'memorandum' || this.base === 'reversing_journal') {
+      // Provisional vouchers keep their cost-centre split too (stored with affects_books = 0, so no
+      // books report counts it): a scenario that includes them adds it to cost-centre actuals.
+      this.applyCosts();
     }
     // Memorandum / reversing journals post nothing to the books but must still balance.
     if (this.accounting || this.mode === 'ledger') this.checkBalance();

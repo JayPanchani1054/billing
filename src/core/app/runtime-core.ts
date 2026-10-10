@@ -8,6 +8,7 @@ import { createDispatcher } from '../api/dispatch.ts';
 import type { RouteMap } from '../api/route.ts';
 import { systemClock } from './clock.ts';
 import { FileAuditAnchorStore } from './auditAnchors.ts';
+import { FileBackupFolderApprovals } from './backupFolders.ts';
 import { AppConfigStore } from './config.ts';
 import { AppController } from './controller.ts';
 import { createLogger } from './logger.ts';
@@ -31,6 +32,7 @@ export function createRuntimeWithRoutes(opts: RuntimeOptions, routes: RouteMap):
     authorizeDataDir: opts.authorizeDataDir,
     authorizePath: opts.authorizePath,
     auditAnchors: new FileAuditAnchorStore({ dir: opts.userDataDir, log: (l, m, meta) => logger.log(l, m, meta), sealer: opts.secretSealer, key: opts.auditAnchorKey }),
+    backupFolders: new FileBackupFolderApprovals({ dir: opts.userDataDir, log: (l, m, meta) => logger.log(l, m, meta) }),
   });
   const dispatcher = createDispatcher(routes, () => controller.dispatchState());
   logger.log('info', 'Runtime started', { version: opts.appVersion, platform: process.platform });

@@ -23,6 +23,8 @@ the voucher or master they support — audit and GST input-tax-credit evidence. 
 | `attachments.read` | `{ id }` → `AttachmentFile` (bytes, name, mime) | view right |
 | `attachments.remove` | `{ id }` → `{ id }` | `attachments.remove`; own transaction |
 | `attachments.register` | `{ entityType?, search?, from?, to?, limit?, offset? }` → every attachment with its owner | the view rights the user has |
+| `attachments.unused` | `{}` → `AttachmentUnusedResult` (stored files no attachment refers to, with sizes) | `attachments.remove` |
+| `attachments.sweep` | `{}` → `AttachmentSweepResult` (`removed`, `bytes`) — deletes them (each re-checked first); one edit-log entry (`delete`, entity type `attachment_files`, count, size, SHA-256 prefixes) when anything was removed | `attachments.remove`; no transaction around the file deletes |
 
 `entityType`: `voucher` · `ledger` · `stock_item`. New permissions `attachments.add` (Accountant, Data
 Entry) and `attachments.remove` (Accountant); the Owner has every right. Migration 222 grants them to
@@ -68,13 +70,14 @@ restore writes the files into the restored company's `attachments/` folder, empt
 `VACUUM`s the restored database (so it does not keep the files' size as free pages) — a live company
 never carries file contents in its database. `data.verify` › `attachments`: every attached file present
 and matching its SHA-256; stored files nothing uses (copied in by hand, an interrupted attach) are
-mentioned (they are not in backups); `removeUnusedFiles()` deletes them.
+mentioned (they are not in backups); Attachment Register › Alt+U (`attachments.sweep`) deletes them.
 
 ## UI
 
 `attachments.manage {entityType, entityId, label?}` and `attachments.register` (Gateway › Reports ›
 Attachment Register, Go To). Keys: Alt+C attach (native file dialog), Enter / Alt+O open a copy, Alt+K
-save a copy, Alt+D remove, Alt+M open the owner, Alt+E export / Alt+P print the list. Alt+F opens the
+save a copy, Alt+D remove, Alt+M open the owner, Alt+E export / Alt+P print the list; on the register,
+Alt+U "Remove unused files" (lists them, asks, sweeps; needs `attachments.remove`). Alt+F opens the
 files from the voucher view (voucher panel) and from the ledger / stock item forms.
 
 ## Tests
@@ -84,13 +87,12 @@ program, macros, size, kind, active XML), duplicate content, the locked period, 
 the last row goes, audit entries on the owner, a voucher / ledger / item with files cannot be deleted
 (also through `vouchers.delete` for a user without `attachments.remove`), cancelling keeps the files, a
 failed attach leaves no file behind, unused files reported and swept, backup → restore carrying the files
-(plain and encrypted), the data check finding a missing or changed file, the register.
+(plain and encrypted), the data check finding a missing or changed file, the register; `sweep.test.ts`:
+the unused-files list and sweep (permission, attached files kept, edit-log entry).
 
 ## Known gaps
 
 - No preview inside the app: files open in the program Windows uses for their kind.
 - Attachments are not part of the Excel / Tally exports (Tally has no attachment format).
-- Stored files nothing refers to (copied into the folder by hand) are only reported by the data check;
-  there is no button to sweep them yet (`removeUnusedFiles()` exists in the core).
 - A CSV opened in Excel is not checked for formula injection (Excel's own protected view / DDE settings
   apply); attach a PDF of a bank statement where possible.

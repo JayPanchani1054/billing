@@ -522,6 +522,63 @@ describe('data.tally.import: repeated numbers and existing vouchers', () => {
   });
 });
 
+describe('data.tally.import: debit notes', () => {
+  const invItem = (name: string, qty: number, rate: string, amount: string, ledger: string): string => `
+      <ALLINVENTORYENTRIES.LIST>
+       <STOCKITEMNAME>${name}</STOCKITEMNAME>
+       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+       <RATE>${rate}/Nos</RATE>
+       <AMOUNT>${amount}</AMOUNT>
+       <ACTUALQTY> ${qty} Nos</ACTUALQTY>
+       <BILLEDQTY> ${qty} Nos</BILLEDQTY>
+       <ACCOUNTINGALLOCATIONS.LIST>
+        <LEDGERNAME>${ledger}</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${amount}</AMOUNT>
+       </ACCOUNTINGALLOCATIONS.LIST>
+      </ALLINVENTORYENTRIES.LIST>`;
+  const led = (name: string, amount: string): string => `
+      <LEDGERENTRIES.LIST>
+       <LEDGERNAME>${name}</LEDGERNAME>
+       <ISDEEMEDPOSITIVE>${amount.startsWith('-') ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
+       <AMOUNT>${amount}</AMOUNT>
+      </LEDGERENTRIES.LIST>`;
+  const note = (guid: string, num: string, party: string, body: string): string => `
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <VOUCHER REMOTEID="${guid}" VCHTYPE="Debit Note" ACTION="Create" OBJVIEW="Invoice Voucher View">
+      <DATE>20260415</DATE>
+      <GUID>${guid}</GUID>
+      <VOUCHERTYPENAME>Debit Note</VOUCHERTYPENAME>
+      <VOUCHERNUMBER>${num}</VOUCHERNUMBER>
+      <PARTYLEDGERNAME>${party}</PARTYLEDGERNAME>
+      <ISINVOICE>Yes</ISINVOICE>${body}
+     </VOUCHER>
+    </TALLYMESSAGE>`;
+
+  it('a Debit Note to a customer is value-only (no stock movement), as when entered here; one to a supplier moves stock out', async () => {
+    // To Acme Traders (customer, Maharashtra): price revision on 1 mixer, ₹ 100 + CGST 9 + SGST 9 = ₹ 118 Dr.
+    // To Supreme Suppliers (supplier): return of 2 rice bags × 1,100 = 2,200 + CGST 55 + SGST 55 = ₹ 2,310 Dr.
+    const bytes = withVouchers(
+      note('g-dn-1', 'DN-1', 'Acme Traders', invItem('Mixer Grinder 750W', 1, '100.00', '100.00', 'Sales GST 18%') + led('Acme Traders', '-118.00') + led('CGST', '9.00') + led('SGST', '9.00')) +
+        note('g-dn-2', 'DN-2', 'Supreme Suppliers', invItem('Rice Bag 25kg', 2, '1100.00', '2200.00', 'Purchase GST 5%') + led('Supreme Suppliers', '-2310.00') + led('CGST', '55.00') + led('SGST', '55.00')),
+    );
+    const r = await runImport({}, bytes);
+    assert.equal(r.vouchers.created, 2, JSON.stringify(r.issues.filter((i) => i.object?.startsWith('VOUCHER'))));
+    // Mixer: opening 10, the customer's debit note moves nothing → 10.
+    assert.equal(stockQty('Mixer Grinder 750W'), 10);
+    // Rice: opening 40 − 2 returned to the supplier = 38.
+    assert.equal(stockQty('Rice Bag 25kg'), 38);
+    const dn1 = t.db.value<number>(`SELECT id FROM vouchers WHERE number = 'DN-1'`) as number;
+    // The line is kept for value and GST (qty outward, but affects_stock = 0), and the voucher moves no stock.
+    assert.deepEqual(t.db.get(`SELECT qty, amount, affects_stock AS stock FROM inventory_entries WHERE voucher_id = :id`, { id: dn1 }), { qty: -1, amount: 100_00, stock: 0 });
+    assert.equal(t.db.value(`SELECT affects_stock FROM vouchers WHERE id = :id`, { id: dn1 }), 0);
+    const info = r.issues.filter((i) => i.code === 'debit_note_value_only');
+    assert.equal(info.length, 1, 'only the customer note is reported');
+    assert.equal(info[0].severity, 'info');
+    assert.match(info[0].object ?? '', /DN-1/);
+  });
+});
+
 describe('data.tally: tricky XML', () => {
   it('BOM + entities + a parent defined later + a missing parent: imports what it can and reports the rest', async () => {
     const xml = `<ENVELOPE><BODY><IMPORTDATA><REQUESTDATA>

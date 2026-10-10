@@ -6,7 +6,7 @@
  * waits on an empty line; Enter on it leaves the grid).
  */
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
-import { lineAmount } from '../../../../shared/money.ts';
+import { lineAmount, roundPaise } from '../../../../shared/money.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import type {
   BillAllocationInput,
@@ -150,6 +150,12 @@ export interface VoucherForm {
    * (amount fields hold the foreign amount × 100, like paise); the server converts to rupees.
    */
   forex?: VoucherForexInput | null;
+  /**
+   * (forex module) Decimal places of the amount fields of an invoice in a foreign currency: they hold the
+   * foreign amount × 10^forexDecimals (absent = 2, like paise). Follows the currency's decimal places
+   * (0, 2, 3 or 4) — the 'forexUnit' action rescales the typed amounts when it changes.
+   */
+  forexDecimals?: number;
   /** Anything typed since load / reset (Esc asks before discarding). */
   touched: boolean;
   /** Key counter. */
@@ -190,13 +196,41 @@ export function blankLedger(key: string, side: Side = 'dr'): LedgerRow {
 export const isBlankItem = (r: ItemRow): boolean => r.itemId === null;
 export const isBlankLedger = (r: LedgerRow): boolean => r.ledgerId === null;
 
-/** Value of an item line in paise: typed amount, else round(qty × rate × (1 − disc%)) on the billed qty. */
-export function itemLineValue(r: ItemRow): Paise {
+/**
+ * Value of an item line in paise: typed amount, else round(qty × rate × (1 − disc%)) on the billed qty.
+ * `decimals` (forex invoice: VoucherForm.forexDecimals) gives the value in 10^-decimals units instead.
+ */
+export function itemLineValue(r: ItemRow, decimals = 2): Paise {
   if (r.amount !== null) return r.amount;
   const q = r.billedQty ?? r.qty ?? 0;
   const rate = r.rate ?? 0;
   if (q === 0 || rate === 0) return 0;
-  return lineAmount(q, rate, r.discountPct ?? 0);
+  if (decimals === 2) return lineAmount(q, rate, r.discountPct ?? 0);
+  return roundPaise(q * rate * 10 ** decimals * (1 - (r.discountPct ?? 0) / 100));
+}
+
+/** Decimal places of the amount fields of the form (forex invoice: the currency's; else 2 = paise). */
+export const amountDecimals = (f: Pick<VoucherForm, 'forexDecimals'>): number => f.forexDecimals ?? 2;
+
+/**
+ * Rescale the typed amounts of the form (item amounts, invoice ledger lines, party bills) from the
+ * form's current unit to 10^-`decimals` (forex invoice whose currency has 0, 3 or 4 decimals).
+ */
+export function rescaleAmounts(f: VoucherForm, decimals: number): VoucherForm {
+  const from = amountDecimals(f);
+  if (from === decimals) return f;
+  const k = 10 ** (decimals - from);
+  const scale = (a: Paise): Paise => {
+    const v = roundPaise(a * k);
+    return v === 0 ? 0 : v;
+  };
+  return {
+    ...f,
+    items: f.items.map((r) => (r.amount === null ? r : { ...r, amount: scale(r.amount) })),
+    ledgers: f.ledgers.map((r) => (r.amount === null ? r : { ...r, amount: scale(r.amount) })),
+    partyBills: f.partyBills ? f.partyBills.map((b) => ({ ...b, amount: scale(b.amount) })) : f.partyBills,
+    forexDecimals: decimals === 2 ? undefined : decimals,
+  };
 }
 
 /** Signed Dr+/Cr− amount of a double-entry row (0 when empty). */
@@ -325,7 +359,9 @@ export type FormAction =
   | { type: 'balanceLast' }
   | { type: 'setMode'; mode: VoucherMode }
   | { type: 'setLayout'; layout: LedgerLayout }
-  | { type: 'next'; date?: string; isOptional?: boolean; partyLedgerId?: number | null };
+  | { type: 'next'; date?: string; isOptional?: boolean; partyLedgerId?: number | null }
+  /** (forex) The amount fields' decimal places follow the invoice currency (not a user edit: `touched` kept). */
+  | { type: 'forexUnit'; decimals: number };
 
 export function formReducer(f: VoucherForm, a: FormAction): VoucherForm {
   switch (a.type) {
@@ -389,6 +425,8 @@ export function formReducer(f: VoucherForm, a: FormAction): VoucherForm {
     }
     case 'ledgerDelete':
       return normalize({ ...f, ledgers: f.ledgers.filter((r) => r.key !== a.key), touched: true });
+    case 'forexUnit':
+      return rescaleAmounts(f, a.decimals);
     case 'balanceLast':
       return balanceLast(f);
     case 'setMode': {

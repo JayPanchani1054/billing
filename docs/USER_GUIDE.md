@@ -23,7 +23,8 @@ your GST invoice numbers stay consecutive (CGST Rule 46).
 - **Convert with one key:** on the register or the opened document, **Alt+V** makes a Sales Invoice and
   **Alt+O** a Sales Order (quotations only; needs Order processing in F11). The new voucher opens filled
   in; check it and save. The quotation then shows *Converted* with a link to the invoice — it cannot be
-  converted twice (cancel or delete the invoice first if you need to).
+  converted twice (cancel or delete the invoice first if you need to). The invoice can never be dated
+  (or later altered to a date) before its quotation, nor the quotation moved after its invoice.
 - **Duplicate (Alt+2)** a quotation to re-quote: the copy is dated today and keeps the same validity
   length (a 15-day offer stays a 15-day offer).
 
@@ -86,7 +87,8 @@ memorandum vouchers, reversing journals and optional vouchers of the voucher typ
 without the actual books — and which regular voucher types to leave out (e.g. "before year-end
 journals"). On the **Trial Balance, Profit & Loss and Balance Sheet press Alt+S** and choose the
 scenario; the report title shows it, and the totals still balance. Group summaries you drill into follow
-the scenario; ledger statements, outstanding and GST returns always show the books.
+the scenario; ledger statements, outstanding and GST returns always show the books. Budget variance
+under a scenario follows it for cost centres too.
 
 ### Budgets and budget variance
 
@@ -148,8 +150,17 @@ earlier credits taken in now"). The supplier is credited with the bill less TDS,
 amount (you must give a reason — it is recorded and listed under Exceptions) or, for an **advance
 payment**, to choose the nature to deduct under. When the bill for that advance comes, the part already
 taxed as the advance is set off — TDS is deducted only on the rest. If you type the *TDS Payable* line
-yourself, the app takes your amount instead of adding its own. A purchase return or sales return does
-not reverse TDS / TCS: alter the original bill instead.
+yourself, the app takes your amount instead of adding its own.
+
+A **debit note** to a supplier against a bill with TDS (bill-wise *Against* the bill, or its invoice
+number in *Original invoice*) reverses the TDS in proportion — a note for 10% of the bill reverses 10%
+of its TDS, never more than is left — and a **credit note** to a customer reverses TCS the same way.
+If you booked a bill **without** TDS and deduct it later by a journal (Dr the supplier against the bill,
+Cr *TDS Payable – 194C*), Bahi records it as the TDS on that bill: it shows in Outstanding, the
+statement and every report. 194T (payments by a firm to its partners) is deducted only when the
+deductor category in TDS / TCS Setup is *Firm*. On a bill from a foreign supplier kept in dollars, TDS
+u/s 195 is worked out on the rupee value; the supplier is owed the net in dollars, and paying that net
+settles the bill.
 
 **6. Pay the tax.** TDS / TCS › **TDS / TCS Outstanding** shows, month by month and section by
 section, what was deducted and not yet deposited, the due date (7th of the next month; 30 April for
@@ -232,7 +243,12 @@ In the godown form (Masters › Godowns), *Whose stock* says what a location hol
 - **Our stock with third party** — your goods at a job worker or agent. Still your stock: valued and
   in your Balance Sheet.
 - **Third-party stock with us** — a principal's goods you process. Quantities are tracked but they are
-  **never valued and never part of your closing stock**.
+  **never valued and never part of your closing stock** — nor of your item quantities, reorder status
+  or the dashboard's low-stock list (open that godown in the godown summary to see them).
+
+A Manufacturing Journal, Material Out or Material In is altered on its own screen. If that screen cannot
+open (e.g. the feature was turned off in F11), saving it from the plain Stock Journal screen is refused
+with a message saying what to turn on — so its job work and costing details are never lost.
 
 Link the godown to the job worker's (or principal's) ledger; challans then pick the right godown when
 you choose the party.
@@ -350,6 +366,9 @@ electronic cash ledger and what is still to deposit.
    your Output, Input, reverse-charge, interest / late fee and cash-ledger accounts for the period.
    To change it, alter or delete that journal (Alt+V opens it) and post again. If you post it before
    recording the challan, the screen warns you and the cash ledger shows a negative balance until you do.
+   Credit you entered in GSTR-3B as *credit not in the books* is never taken from your Input ledgers:
+   the journal credits it to **GST Credit Not in Books** (give that ledger an opening balance for the
+   credit the portal held when you started).
 
 GST › **Electronic Cash Ledger** and **Electronic Credit Ledger** show the balances per head as kept in
 your books (opening, deposited / accrued, utilised, reversed, closing) with every voucher behind them
@@ -374,6 +393,20 @@ that appear in GSTR-2B.
 After filing a return on the portal, open it in Bahi and press **Alt+F** (Mark filed) — enter the
 filing date and the ARN. GST › **Return Filing Status** lists every return marked filed (Alt+U unmarks
 one entered by mistake).
+
+Once **GSTR-3B** of a month is marked filed, that month is protected too: altering a purchase, an ITC
+reversal or reverse-charge journal, a bill of entry or any voucher with GST of that month asks you to
+confirm; the change (and a voucher entered later but dated in that month, or one deleted or cancelled)
+is listed in GST › **Changes after GSTR-3B Filing** and reported in your **next** GSTR-3B — more credit
+in 4(A), less credit as a reversal in 4(B)(2), tax in 3.1 — while the filed month keeps the figures you
+filed.
+
+GST › **Rule 37 (180 Days)** lists purchase bills not paid within 180 days of their date (as on the date
+you choose): the input tax credit to reverse for the unpaid part, the GSTR-3B month it belongs to, and —
+once you pay — the credit to reclaim. **Alt+R** posts the reversal journal, **Alt+L** the reclaim (both
+GST stat adjustments, in 4(B)(2) / 4(A)(5) + 4(D)(1)). Interest u/s 50 is not worked out: enter it in
+GSTR-3B under *Your entries*. A supplier kept without bill-wise details cannot be traced; the screen
+lists such bills to check by hand.
 
 Once GSTR-1 of a month is marked filed, its invoices are protected:
 
@@ -459,7 +492,8 @@ equivalent), the total in both currencies and the dollar total in words. GSTR-1 
 rupees (EXPWP / EXPWOP), as the portal wants.
 
 Import purchases work the same way with a supplier kept in a foreign currency (selling rate by
-default).
+default). Amounts are typed with the currency's own decimals: none for yen, three for Kuwaiti dinars,
+four where the currency has four.
 
 ### Receipts and payments — exchange gain or loss
 
@@ -662,7 +696,9 @@ advice with the payment, the agreement with the party's ledger:
   cannot be deleted until the files are removed (so a bill scan can never disappear with a deleted
   entry); cancelling a voucher keeps its files.
 - **Reports › Attachment Register** lists every attached file with what it belongs to; **Alt+M** opens
-  the voucher or master.
+  the voucher or master. **Alt+U** removes stored files nothing is attached to any more (left by an
+  attach that could not finish) after showing how many and how large — attached files are never
+  touched, and the removal is in the edit log.
 - Who may do what: Accountants attach and remove, Data Entry users attach, Auditors only view (owners
   can change this in the roles).
 
@@ -693,3 +729,160 @@ code or a barcode-less short name. In the ledger or stock item form, **Alias** h
 every picker, in Go To and in the lists. Two ledgers (or a ledger and a group) cannot share a name or
 alias, and neither can two items. In Excel import / export the **Alias** column holds all aliases
 separated by `;`, and Tally import / export keeps them all.
+
+## POS: billing at the counter
+
+For shops that bill walk-in customers: scan, take payment in any mix of cash, card and UPI, give change,
+print a receipt — and still have proper GST invoices in your books.
+
+### Turning it on
+
+Press **F11** and turn on **POS invoicing** (under Inventory; it needs *Maintain stock*). Bahi creates a
+**POS Sales** voucher type with its own bill numbers (POS/1, POS/2 …), a **POS Return** type for goods
+coming back (PR/1 …), a **Cash** payment mode and an **Exchange credit** mode.
+
+Then open **Masters › POS Settings**:
+
+- **Tender modes** (Alt+C): add **UPI** on the bank account your QR code pays into, and **Card** on the
+  bank account (or on a "Card Settlements Receivable" ledger if your card machine pays a day later, net of
+  charges — move the money to the bank with a Contra or Journal when it arrives).
+- **Price level** (with Price levels on): the counter uses that price list, including quantity slabs.
+- **Print the receipt after each bill**: on. In **Print Preview › Printer** choose your receipt printer
+  once for roll paper — then receipts print straight away without the print dialog.
+
+### Billing a customer
+
+Open **Transactions › POS Counter** (or Go To › "POS"). The cursor waits in the scan box.
+
+1. **Scan** each item. A scanner simply types the barcode and Enter. You can also type the item's part
+   number, alias or name. `3*` before a code adds three. Scanning the same item again adds to its line.
+2. To change a line, select it with **↑ ↓** and press **+ / −** for quantity, or **Alt+Q** for quantity,
+   rate, discount and batch. **Ctrl+D** removes it. **Alt+F** finds an item by name.
+3. The big **To pay** figure is the exact bill, GST and round-off included; "You save … on MRP" shows the
+   customer's saving on MRP items.
+4. Press **Enter** on the empty scan box (or **Ctrl+A**) to **pay**. The whole bill sits on Cash: type the
+   cash the customer hands over and press Enter — the bill is saved, the change is shown and the receipt
+   prints. To split, type the UPI or card amount on its row (the cash row adjusts) and the reference
+   (UTR / last digits of the card).
+
+The bill is one sales voucher: the cash, UPI and card amounts go straight to their ledgers, sales and
+GST are credited as for any invoice, and stock goes out.
+
+### Customers and credit
+
+Walk-in customers need no name. For a regular customer press **Alt+U**, type the **mobile number** and
+Enter: an existing customer is picked; otherwise type the name (and state) and **Ctrl+A** creates them.
+A customer may pay part now — whatever is not paid stays on their account as an outstanding bill. A
+walk-in bill must be paid in full.
+
+For a bill of **₹50,000 or more** (taxable value) to a buyer who has no GSTIN, the law asks for the
+buyer's name, address of delivery and state on the invoice (CGST Rule 46(e)) — Bahi reminds you to pick
+the customer, and to add the address to a customer created at the counter (only name, mobile and state
+are taken there). Taking **₹2,00,000 or more in cash** on one bill is not allowed under the Income-tax Act;
+Bahi warns before saving.
+
+If a customer from another state takes the goods at your counter, GST is still your state's (CGST +
+SGST). If you **deliver** the goods to them in their state, tick "Goods delivered to the customer" on
+the counter so the bill charges IGST.
+
+### Hold, recall, reprint
+
+- **Alt+O** puts the bill on hold (the customer went back for one more thing); **Alt+L** lists held bills —
+  Enter brings one back, Alt+D discards it.
+- **Alt+P** reprints the last bill, **Alt+V** opens it.
+
+### Returns and exchanges
+
+Press **Alt+T** on the counter (or on a POS bill's view), or open **Transactions › POS Return /
+Exchange**, and enter the bill number. Type the quantity coming back on each line (**Alt+R** returns
+everything), then **Ctrl+A**:
+
+- **Refund** in cash, to the card or by UPI;
+- **Exchange credit**: the customer takes other goods instead — the counter opens with the credit
+  ready to use on the new bill;
+- for a customer, leave it on their **account**.
+
+The return is a credit note against the original bill: the goods come back into stock and the GST is
+reversed. Bahi will not let more come back than was sold, nor refund more than the bill charged for
+those goods (the return uses the bill's rate and discount). A bill with returns cannot be cancelled until
+its returns are cancelled; it can still be altered, but not to sell less than came back, to another
+customer or to a date after the return. A return whose exchange credit was already used on a bill keeps
+at least that credit. A return dated after **30 November** following the financial year of the sale
+gets a reminder: by then GST can no longer be reduced by a credit note (CGST s.34(2)) — ask your
+accountant.
+
+If you open a POS bill or return from the Day Book and alter it as an ordinary voucher, its payments
+(and the bill it returns) are kept and checked again; to change what was paid, alter the bill on the
+counter.
+
+### Day-end
+
+**Reports › POS Day-end Summary** shows, for the working date (or a period): bills, returns, net sales,
+GST, what was sold on credit, the **cash** that should be in the drawer, change given, and the split by
+payment mode, by cashier and by counter. Type the opening float and the cash you counted to see whether
+the drawer tallies. **Ctrl+4** lists every bill and return (Enter opens one); Enter on a payment mode,
+cashier or counter lists just their bills. Alt+E exports, Alt+P prints.
+
+
+## Good to know: backups, locked periods, imports and everyday screens
+
+### A backup folder from another computer must be confirmed here
+
+The backup folder you choose in **F12 › Backup** is stored in the company. When the company arrives on
+this computer some other way — restored from a backup made elsewhere, a company folder copied over, or
+a data folder shared with another PC — Bahi does **not** write to that folder until you confirm it on
+this computer (it could be a network share you never chose here). Meanwhile backups, automatic or not,
+go to the default folder inside the data folder. With automatic backups on, a warning says so each time
+you open the company; in any case:
+
+- **Data › Backup** shows "Confirm the backup folder" — choose **Confirm folder…** and pick the same
+  folder (or another one) in the folder window;
+- or in **F12 › Backup** choose **Choose…** and pick it again, or **Use default**.
+
+Confirming needs the right to change the company configuration. A folder inside the data folder never
+needs confirming. After upgrading, a backup folder chosen with an older version is confirmed the same
+way, once.
+
+### Bank dates in a locked period
+
+When the books are locked up to a date (Company › Lock Books), a bank date on or before that date is
+part of a closed reconciliation. Setting, moving or clearing such a bank date — in the BRS, by matching
+or unmatching a statement line, by deleting an imported statement with "unmatch", or by deleting,
+cancelling or altering (bank ledger or amount) a voucher of the open period whose cheque cleared in the
+locked period — needs the right to lock and unlock the books (Owners always have it); others get "Books
+are locked up to …". Automatic
+matching then leaves the statement lines of the locked period unmatched for such a user. A cheque
+written in a locked month that clears in an open month is reconciled as usual.
+
+### "Another task is running in this company"
+
+An Excel or Tally import cannot start while the company is busy with another long task — for example
+the automatic backup that runs a few seconds after you open the company or log in, an export, or a
+Tally import. The message now offers **Wait and retry**: Bahi tries again every 2 seconds (for up to
+2 minutes) and starts the import as soon as the company is free.
+
+### Closing Bahi during a very long operation
+
+Bahi finishes the automatic backup and closes the company before it exits. If one very long database
+step is still running (a huge report or backup), closing waits for it, but never longer than about 40
+seconds; after that Bahi exits anyway. Nothing saved is lost: an unfinished step is undone the next
+time the company opens.
+
+### Smaller changes
+
+- **Debit Note to a customer imported from Tally** — kept for its value and GST only and does not
+  reduce stock, the same as a debit note entered in Bahi (a price revision; goods that go out are
+  billed on a Sales invoice). Tally reduces stock for such a note, so the import log lists each one.
+- **Transactions menu** — voucher types you deactivated in Masters › Voucher Types no longer appear in
+  the Gateway's Transactions menu or in Go To (for users who may view masters; for others the list of
+  voucher types cannot be read, so they still see every type, as F10 does).
+- **Party outstanding** — **Alt+F1** shows or hides settled bills (Alt+H means edit history everywhere).
+- **Create ledger** from the dashboard's Get started card opens under Sundry Debtors; from a bank
+  statement line it opens under Sundry Debtors (deposit), Indirect Incomes (interest the bank
+  credited), Sundry Creditors (payment), Indirect Expenses (bank charges / fees) or Bank Accounts
+  (contra). You can still change "Under".
+- **Voucher entry** — **Alt+P** right after saving prints the voucher just saved.
+- **Get started** — if you hid the card, **Alt+S** on the full dashboard (or the **Show Get started**
+  button on the Gateway's dashboard panel) brings it back.
+- **Users and roles** — Alt+H on a role shows only that role's history, even when a deleted role once
+  had the same number.

@@ -26,9 +26,37 @@ export interface AutoBackupNotice {
 type Obj = Record<string, unknown>;
 const isObj = (x: unknown): x is Obj => typeof x === 'object' && x !== null && !Array.isArray(x);
 
+/**
+ * Why a stored F12 backup folder is not used (BackupListResult.unapprovedFolder,
+ * BackupAutoResult.folderNotApproved): it was set on another computer, or came with a restored backup
+ * or a copied company, so it must be confirmed on this computer first.
+ */
+export function unapprovedFolderText(folder: string): string {
+  return `The backup folder ${folder} was set on another computer or came with a restored backup, so Bahi ERP does not write to it until you confirm it here. Backups go to the default folder in the data folder meanwhile.`;
+}
+
+/** Same folder, ignoring trailing separators (and letter case for Windows paths). */
+export function sameFolder(a: string, b: string): boolean {
+  const norm = (p: string): string => {
+    const t = p.trim().replace(/[\\/]+$/, '');
+    return /^[a-z]:|\\/i.test(p) ? t.replace(/\//g, '\\').toLowerCase() : t;
+  };
+  return norm(a) === norm(b);
+}
+
 /** What to show for a 'data.backup.auto' result (null = nothing to say: off, recent, new company). */
 export function autoBackupNotice(result: unknown): AutoBackupNotice | null {
   if (!isObj(result)) return null;
+  if (typeof result.folderNotApproved === 'string' && result.folderNotApproved !== '') {
+    const folder = result.folderNotApproved;
+    const done = result.reason === 'created' && result.ran === true;
+    return {
+      tone: 'warning',
+      title: 'Confirm the backup folder',
+      message: `${done ? 'Backed up to the default folder instead. ' : result.reason === 'failed' ? 'The automatic backup failed. ' : ''}${unapprovedFolderText(folder)} Open Backup and choose Confirm folder.`,
+      openBackup: true,
+    };
+  }
   if (result.reason === 'created' && result.ran === true) {
     const backup = isObj(result.backup) ? result.backup : null;
     const file = backup && typeof backup.fileName === 'string' ? backup.fileName : null;

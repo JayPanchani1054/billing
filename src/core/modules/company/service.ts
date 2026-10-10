@@ -32,7 +32,7 @@ import { ensureMfgVoucherTypes } from '../mfg/voucherTypes.ts';
 import { ensureForexLedger } from '../forex/store.ts';
 import { ensurePosSetup } from '../pos/store.ts';
 import { AppError, forbidden, notFound, rule, validation } from '../../lib/errors.ts';
-import { authorizeUserPath } from '../../lib/paths.ts';
+import { authorizeUserPath, isBackupFolderApproved } from '../../lib/paths.ts';
 import { normalizeCompanyIdentity } from './validation.ts';
 
 // ───────────────────────────── Settings storage ─────────────────────────────
@@ -339,9 +339,23 @@ export function saveConfig(ctx: CompanyCtx, partial: CompanyConfigInput): Compan
   // The backup folder comes from the renderer: accept a new one only if the user picked it in the folder
   // dialog this session (or it lies in the data folder). Otherwise data.backup.auto would keep exporting
   // the books to wherever a compromised renderer pointed it (e.g. a remote \\host\share).
+  // The folder is also approved for this company on THIS installation (AppRuntime.backupFolders): a
+  // folder stored in the company file but never picked here (restored backup, copied company) is not
+  // a trusted root and is not written to until the user picks it again (F12 or the Backup screen).
   const folder = next.backup.folder;
+  const companyGuid = db.value<string>('SELECT guid FROM company WHERE id = 1') ?? null;
+  const currentApproved = current.backup.folder !== null && isBackupFolderApproved(ctx.app, companyGuid, current.backup.folder) ? current.backup.folder : null;
   if (folder !== null && folder !== current.backup.folder) {
-    next.backup.folder = authorizeUserPath(ctx.app, folder, 'write-dir', { field: 'backup.folder', what: 'backup folder', trusted: [current.backup.folder] });
+    next.backup.folder = authorizeUserPath(ctx.app, folder, 'write-dir', { field: 'backup.folder', what: 'backup folder', trusted: [currentApproved] });
+    if (companyGuid) ctx.app.backupFolders?.approve(companyGuid, next.backup.folder, ctx.clock.now());
+  } else if (folder !== null && currentApproved === null && companyGuid) {
+    // Unchanged but not approved here: re-picking the same folder in the dialog approves it; saving
+    // other F12 settings leaves it as it is (still unapproved) without refusing the save.
+    try {
+      ctx.app.backupFolders?.approve(companyGuid, authorizeUserPath(ctx.app, folder, 'write-dir', { field: 'backup.folder', what: 'backup folder' }), ctx.clock.now());
+    } catch (err) {
+      if (!(err instanceof AppError)) throw err;
+    }
   }
   const { lutValidFrom, lutValidTo } = next.gst;
   if (lutValidFrom && lutValidTo && lutValidTo < lutValidFrom)

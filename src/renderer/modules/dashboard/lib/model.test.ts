@@ -20,6 +20,7 @@ import {
   parseStartPrefs,
   signedKpi,
   startCardMode,
+  canShowStartCard,
   startProgress,
   startSteps,
   toggleTicked,
@@ -304,6 +305,8 @@ test('getting started: one list — company details, features, printing, ledgers
   assert.deepEqual(by.get('profile')?.target, { screen: 'company.profile' });
   assert.deepEqual(by.get('features')?.target, { screen: 'company.features' });
   assert.deepEqual(by.get('printing')?.target, { screen: 'print.settings' });
+  // "Create ledger" opens Ledger Creation under Sundry Debtors (customers first; "Under" stays editable).
+  assert.deepEqual(by.get('ledgers')?.target, { screen: 'accounts.ledger.form', params: { groupCode: 'SUNDRY_DEBTORS' } });
   assert.deepEqual(by.get('backup')?.target, { screen: 'company.config', params: { tab: 'backup' } });
   assert.equal(by.get('sale')?.target, 'sales-voucher');
   assert.equal(by.get('sale')?.shortcut, 'F8');
@@ -378,4 +381,17 @@ test('exportTable: net advances are labelled, not negative', () => {
   assert.ok(t.rows.some((r) => r[0] === 'Receivables (net advance from customers)' && r[1] === 10_000));
   assert.ok(t.rows.some((r) => r[0] === 'Payables (net advance to suppliers)' && r[1] === 2_000));
   for (const r of t.rows.slice(8)) if (typeof r[1] === 'number') assert.ok(r[1] >= 0, `${String(r[0])} is negative`);
+});
+
+test('"Show Get started" undoes Hide — offered only while hidden and the card would show', async () => {
+  const some = startSteps({ ...ALL, setup: { ...NOTHING_DONE, hasSales: true }, hasVouchers: true });
+  assert.equal(canShowStartCard(some, { hidden: true, hasVouchers: true }), true);
+  assert.equal(canShowStartCard(some, { hidden: false, hasVouchers: true }), false, 'already showing');
+  const allDone = startSteps({ ...ALL, setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true }, hasVouchers: true });
+  assert.equal(canShowStartCard(allDone, { hidden: true, hasVouchers: true }), false, 'nothing would show');
+  // Wired on the full dashboard (rail Alt+S) and the Gateway panel (a button: no hotkeys there).
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../DashboardScreen.tsx', import.meta.url), 'utf8');
+  assert.match(src, /key: 'Alt\+S', label: 'Show Get started', icon: 'eye', onClick: start\.show, hidden: !start\.canShow/);
+  assert.match(src, /start\.canShow \? \([\s\S]*Show Get started/);
 });

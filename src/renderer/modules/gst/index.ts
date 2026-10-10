@@ -16,6 +16,7 @@ import { Gstr9Screen } from './Gstr9Screen.tsx';
 import { AdvancesScreen, BoeScreen } from './AdvancesBoeScreens.tsx';
 import { Cmp08Screen, CompositionRatesScreen, Gstr4Screen } from './CompositionScreens.tsx';
 import { AmendmentsScreen, FilingsScreen } from './FilingScreens.tsx';
+import { Gstr3bChangesScreen, Rule37Screen } from './GapsScreens.tsx';
 import { CashLedgerScreen, CreditLedgerScreen } from './LedgerScreens.tsx';
 import { SetoffScreen } from './SetoffScreen.tsx';
 import { CompositionCard } from './CompositionCard.tsx';
@@ -46,6 +47,8 @@ export const gstModule: ModuleDef = {
     { id: 'gst.advances', title: 'Advances (GST)', component: AdvancesScreen, access: 'gst.view', gstOnly: true, keywords: ['advance', 'table 11', '11a', '11b', 'advance receipt', 'refund voucher'] },
     { id: 'gst.boe', title: 'Bills of Entry', component: BoeScreen, access: 'gst.view', gstOnly: true, keywords: ['bill of entry', 'boe', 'import', 'customs', 'impg', 'icegate', '4(a)(1)'] },
     { id: 'gst.amendments', title: 'GSTR-1 Amendments', component: AmendmentsScreen, access: 'gst.view', gstOnly: true, keywords: ['amendment', '9a', '9c', 'b2ba', 'cdnra', 'filed'] },
+    { id: 'gst.gstr3b.changes', title: 'Changes after GSTR-3B Filing', component: Gstr3bChangesScreen, access: 'gst.view', gstOnly: true, keywords: ['gstr3b', 'filed', 'changed after filing', 'late purchase', 'itc', 'amendment'] },
+    { id: 'gst.rule37', title: 'Rule 37 (180 Days)', component: Rule37Screen, access: 'gst.view', gstOnly: true, keywords: ['rule 37', '180 days', 'unpaid', 'itc reversal', 'reclaim', '16(2)', 'interest'] },
     { id: 'gst.filings', title: 'Return Filing Status', component: FilingsScreen, access: 'gst.view', gstOnly: true, keywords: ['filed', 'arn', 'filing status', 'mark filed'] },
   ],
   menu: [
@@ -59,6 +62,8 @@ export const gstModule: ModuleDef = {
     { section: 'gst', label: 'Advances (GST)', screen: 'gst.advances', order: 85, gstRegistrations: ['regular'], description: 'Tax on advances received and adjusted — GSTR-1 Table 11' },
     { section: 'gst', label: 'Bills of Entry', screen: 'gst.boe', order: 86, description: 'Imports of goods: IGST paid at customs, reconciled with GSTR-2B' },
     { section: 'gst', label: 'GSTR-1 Amendments', screen: 'gst.amendments', order: 87, gstRegistrations: ['regular'], description: 'Documents changed after their GSTR-1 was filed (9A / 9C / 10)' },
+    { section: 'gst', label: 'Changes after GSTR-3B Filing', screen: 'gst.gstr3b.changes', order: 88, gstRegistrations: ['regular'], description: 'Vouchers changed after their GSTR-3B was filed, reported in the next GSTR-3B' },
+    { section: 'gst', label: 'Rule 37 (180 Days)', screen: 'gst.rule37', order: 89, gstRegistrations: ['regular'], description: 'Purchases not paid within 180 days: credit to reverse, and to reclaim once paid' },
     { section: 'gst', label: 'Return Filing Status', screen: 'gst.filings', order: 95, description: 'Returns marked filed, with date and ARN' },
     { section: 'gst', label: 'Composition Rates', screen: 'gst.composition', order: 96, gstRegistrations: ['composition'], description: 'Your composition category and the effective-dated rates' },
     { section: 'gst', label: 'GST Exceptions', screen: 'gst.exceptions', order: 30, description: 'Entries to fix before filing' },

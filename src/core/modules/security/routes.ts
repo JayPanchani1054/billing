@@ -119,6 +119,7 @@ export const AuditEntityHistoryInputSchema = v.object({
   entityType: v.string({ min: 1, max: 100 }),
   entityId: v.int({ min: 0 }),
   entityGuid: v.string({ max: 100 }).optional(),
+  currentOnly: v.boolean().optional(),
 }) as Schema<AuditEntityHistoryInput>;
 
 export const AuditExportInputSchema = v.strictObject({

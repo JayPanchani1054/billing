@@ -11,7 +11,9 @@
  *       AND ie.date <= :asOf
  * Quantities are signed in the item's base unit (inward +, outward −). An entry without a godown
  * counts in 'Main Location'. Godown filters are exact unless `includeSubGodowns` is set (then the
- * godown and every godown under it, like Tally's godown summary of a parent location).
+ * godown and every godown under it, like Tally's godown summary of a parent location). Without a godown
+ * filter the figures are OUR stock: a principal's goods with us for job work ('party_with_us' godowns)
+ * are left out, as in valuation.ts.
  * Batch names match case-insensitively.
  */
 import { roundTo } from '../../../shared/money.ts';
@@ -46,14 +48,26 @@ export function godownSet(db: Db, godownId: number, includeSub: boolean): Set<nu
   );
 }
 
-/** Bound parameters for the `:gf` / `:gids` godown condition (GODOWN_IN / OPENING_GODOWN_IN). */
-function godownParams(db: Db, godownId: number | null | undefined, includeSub: boolean | undefined): { gf: number; gids: string } {
-  if (godownId === null || godownId === undefined) return { gf: 0, gids: '[]' };
-  return { gf: 1, gids: jsonIds([...godownSet(db, godownId, includeSub === true)]) };
+/**
+ * Godowns holding a PRINCIPAL's goods with us for job work (`third_party_kind = 'party_with_us'`, mfg
+ * module). Those goods are not ours: without a godown filter they are left out of every quantity here
+ * (item list closing qty, reorder status, dashboard low stock, order positions), as valuation.ts leaves
+ * them out of values. Asking for such a godown explicitly still shows what lies there.
+ */
+function principalGodownIds(db: Db): string {
+  return jsonIds(db.all<{ id: number }>(`SELECT id FROM godowns WHERE third_party_kind = 'party_with_us' ORDER BY id`).map((r) => r.id));
 }
 
-const GODOWN_IN = `(:gf = 0 OR COALESCE(ie.godown_id, :main) IN (SELECT value FROM json_each(:gids)))`;
-const OPENING_GODOWN_IN = `(:gf = 0 OR godown_id IN (SELECT value FROM json_each(:gids)))`;
+/** Bound parameters for the `:gf` / `:gids` / `:pw` godown condition (GODOWN_IN / OPENING_GODOWN_IN). */
+function godownParams(db: Db, godownId: number | null | undefined, includeSub: boolean | undefined): { gf: number; gids: string; pw: string } {
+  if (godownId === null || godownId === undefined) return { gf: 0, gids: '[]', pw: principalGodownIds(db) };
+  return { gf: 1, gids: jsonIds([...godownSet(db, godownId, includeSub === true)]), pw: '[]' };
+}
+
+const GODOWN_IN = `((:gf = 0 AND (:pw = '[]' OR COALESCE(ie.godown_id, :main) NOT IN (SELECT value FROM json_each(:pw))))
+  OR (:gf = 1 AND COALESCE(ie.godown_id, :main) IN (SELECT value FROM json_each(:gids))))`;
+const OPENING_GODOWN_IN = `((:gf = 0 AND (:pw = '[]' OR COALESCE(godown_id, 0) NOT IN (SELECT value FROM json_each(:pw))))
+  OR (:gf = 1 AND godown_id IN (SELECT value FROM json_each(:gids))))`;
 
 export interface StockOnHandQuery {
   itemId: number;

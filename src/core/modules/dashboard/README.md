@@ -85,6 +85,11 @@ says whether it was served from the memo (`cached`) and how long the call took (
 - GST card: last month's return (when `gstDue`) above this month so far; the GST alert prefers it.
 - A company without vouchers gets numbered first steps by permission (Features F11, ledgers, items,
   first sale F8, Migrate from Tally).
+- Get started: "Create ledger" opens Ledger Creation under Sundry Debtors (`DRILL.newLedger('SUNDRY_DEBTORS')`,
+  "Under" stays editable). **Hide** is remembered per company in this browser (localStorage) and can be
+  undone: **Alt+S Show Get started** on the full dashboard's rail, or a **Show Get started** button in the
+  Gateway panel's header (no hotkey there) — offered only while hidden and the card would show
+  (`lib/model.ts canShowStartCard`). Every mounted copy of the card re-reads the preference on a change.
 
 ## Tests
 

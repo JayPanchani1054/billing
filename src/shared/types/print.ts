@@ -66,7 +66,7 @@ export const PRINT_ROLL_SIZES: readonly PrintPageSize[] = ['80mm', '58mm'];
 
 export const PRINT_TEMPLATES: readonly InvoiceTemplate[] = ['modern', 'classic', 'compact'];
 
-/** Invoice print options (F12 › Invoice printing) — the subset of CompanyConfig['invoice'] the documents use. */
+/** Invoice print options (Invoice Printing (print settings)) — the subset of CompanyConfig['invoice'] the documents use. */
 export type InvoicePrintOptions = CompanyConfig['invoice'];
 
 /** Name + address block (company, buyer, consignee). Empty strings are normalised to null. */
@@ -155,7 +155,7 @@ export interface PrintLine {
  * buyer saved against it (Σ per line of MRP value − value charged incl. tax, never negative).
  */
 export interface PrintMrpSummary {
-  /** The MRP column / 'You saved' line is printed (F12 › Invoice printing › Show MRP, voucher type). */
+  /** The MRP column / 'You saved' line is printed (Invoice Printing (print settings) › Show MRP, voucher type). */
   show: boolean;
   mrpValue: Paise;
   savings: Paise;
@@ -359,7 +359,7 @@ export interface PrintVoucherData {
   signatoryLabel: string;
   /** Copy labels for this kind of document (Rule 48 / Rule 55). */
   copyLabels: PrintCopyLabels;
-  /** Resolved print options: F12 › Invoice printing, voucher-type overrides and preview overrides applied. */
+  /** Resolved print options: Invoice Printing (print settings), voucher-type overrides and preview overrides applied. */
   options: InvoicePrintOptions;
   /** Template to start with (voucher type › F12 › layout default). */
   defaultTemplate: InvoiceTemplate;

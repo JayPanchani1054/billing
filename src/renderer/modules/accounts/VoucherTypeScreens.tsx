@@ -212,6 +212,7 @@ const EMPTY_CONFIG: VtDraft['config'] = {
   printTemplate: null,
   stockJournalClass: null,
   showMrp: null,
+  posInvoice: null,
 };
 
 function draftOf(vt: VoucherTypeDetail | null, parent: VoucherTypeRow | null): VtDraft {
@@ -605,6 +606,19 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
                       { value: 'manufacturing', label: 'Manufacturing Journal' },
                       { value: 'material_out', label: 'Material Out (job work)' },
                       { value: 'material_in', label: 'Material In (job work)' },
+                    ]}
+                  />
+                </Field>
+              ) : null}
+              {baseType === 'sales' && (company.features.pos || d.config.posInvoice === true) ? (
+                <Field label="Use as" error={cfgErr.posInvoice} hint="POS invoice: bills are entered on the POS counter (barcode scan, split payment, change, thermal receipt). Fixed once the type has vouchers.">
+                  <Select
+                    value={d.config.posInvoice === true ? 'pos' : ''}
+                    onChange={(v) => setCfg('posInvoice', v === 'pos' ? true : null)}
+                    disabled={readOnly || predefined || (original?.voucherCount ?? 0) > 0}
+                    options={[
+                      { value: '', label: 'Sales invoice' },
+                      { value: 'pos', label: 'POS invoice (counter billing)' },
                     ]}
                   />
                 </Field>

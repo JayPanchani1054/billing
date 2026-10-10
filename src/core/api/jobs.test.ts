@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { Db } from '../db/db.ts';
 import { AppError } from '../lib/errors.ts';
-import { beginCompanyWork, companyWorkInFlight, exclusiveJobFor, OTHER_WORK_RUNNING_MESSAGE, runExclusiveJob, whenJobDone } from './jobs.ts';
+import { beginCompanyWork, BUSY_DETAILS, companyWorkInFlight, exclusiveJobFor, OTHER_WORK_RUNNING_MESSAGE, runExclusiveJob, whenJobDone } from './jobs.ts';
 
 const job = { message: 'An import is running.', allow: new Set<string>() };
 const code = (err: unknown): string => (err instanceof AppError ? err.code : String(err));
@@ -23,6 +23,9 @@ describe('exclusive jobs', () => {
         runExclusiveJob(db, job, async () => undefined),
         (err: unknown) => code(err) === 'CONFLICT' && (err as Error).message === OTHER_WORK_RUNNING_MESSAGE,
       );
+      // "Busy" conflicts say so in their details, so the screen can offer "Wait and retry".
+      await assert.rejects(runExclusiveJob(db, job, async () => undefined), (err: unknown) => JSON.stringify((err as { details?: unknown }).details) === JSON.stringify(BUSY_DETAILS));
+      assert.deepEqual(BUSY_DETAILS, { reason: 'busy', retryable: true });
       assert.equal(db.inTransaction, false, 'nothing was started');
       other();
       other(); // idempotent

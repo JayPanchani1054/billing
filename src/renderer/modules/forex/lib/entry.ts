@@ -3,24 +3,31 @@
  * input mapping (lib/buildInput.ts) and the forex dialogs.
  *
  * Convention on the entry form: in an invoice kept in a foreign currency (VoucherForm.forex), the
- * amount fields of the grid hold the FOREIGN amount × 100 (like paise: $12.50 → 1250), so the grid,
- * its totals and the party bill-wise split work unchanged in the document currency. The server
- * converts to rupees at the rate (src/core/modules/forex/hook.ts).
+ * amount fields of the grid hold the FOREIGN amount in 10^-d units, d = the currency's decimal places
+ * (VoucherForm.forexDecimals: $12.50 → 1250, KWD 12.345 → 12345, ¥1,250 → 1250), so the grid, its
+ * totals and the party bill-wise split work unchanged in the document currency. The server converts to
+ * rupees at the rate (src/core/modules/forex/hook.ts).
  */
 import { allocate, type Paise } from '../../../../shared/money.ts';
 import { forexToPaise, roundForex, sumForex, toMinor } from '../../../../shared/forex.ts';
 import type { BillAllocationInput, BillRefType } from '../../../../shared/types/vouchers.ts';
 
-/** Foreign amount → the form's ×100 integer (2 decimals): 12.5 → 1250. */
-export function encodeForex(amount: number): Paise {
-  return toMinor(amount, 2);
+/**
+ * Foreign amount → the form's integer in 10^-decimals units (VoucherForm.forexDecimals; default 2, like
+ * paise): 12.5 → 1250; with 3 decimals 12.345 → 12345; with 0, ¥1,250 → 1250.
+ */
+export function encodeForex(amount: number, decimals = 2): Paise {
+  return toMinor(amount, decimals);
 }
 
-/** The form's ×100 integer → foreign amount: 1250 → 12.5. */
-export function decodeForex(value: Paise): number {
-  const n = value / 100;
+/** The form's integer → foreign amount: 1250 → 12.5 (2 decimals), 12345 → 12.345 (3 decimals). */
+export function decodeForex(value: Paise, decimals = 2): number {
+  const n = value / 10 ** decimals;
   return n === 0 ? 0 : n;
 }
+
+/** Decimal places a loaded foreign-currency invoice is first held at (exact for 0–4 decimal currencies; the screen then rescales to the currency's). */
+export const LOAD_FOREX_DECIMALS = 4;
 
 /** A foreign amount signed like the rupee amount of its line (0 stays 0; a 0-rupee line keeps the typed sign). */
 export function signedForex(forex: number, rupees: Paise): number {
@@ -30,9 +37,9 @@ export function signedForex(forex: number, rupees: Paise): number {
   return rupees < 0 ? -abs : abs;
 }
 
-/** Party bills of a foreign-currency invoice: each carries its foreign amount (from the ×100 amount when missing). */
-export function forexBills(bills: readonly BillAllocationInput[]): BillAllocationInput[] {
-  return bills.map((b) => (b.forexAmount !== undefined ? { ...b } : { ...b, forexAmount: decodeForex(b.amount) }));
+/** Party bills of a foreign-currency invoice: each carries its foreign amount (from the form's encoded amount when missing). */
+export function forexBills(bills: readonly BillAllocationInput[], decimals = 2): BillAllocationInput[] {
+  return bills.map((b) => (b.forexAmount !== undefined ? { ...b } : { ...b, forexAmount: decodeForex(b.amount, decimals) }));
 }
 
 // ───────────────────────────── Bill-wise in the currency ─────────────────────────────
@@ -59,7 +66,7 @@ export function draftsToAllocations(drafts: readonly ForexBillDraft[], o: { dp: 
   const filled = drafts.filter((d) => (d.forexAmount ?? 0) > 0 && (d.refType === 'on_account' || d.billName.trim() !== ''));
   const fx = filled.map((d) => roundForex(d.forexAmount ?? 0, o.dp));
   let amounts: Paise[];
-  if (o.unit === 'encoded') amounts = fx.map((x) => encodeForex(x));
+  if (o.unit === 'encoded') amounts = fx.map((x) => encodeForex(x, o.dp));
   else {
     const total = sumForex(fx, o.dp);
     const inr = o.rate ? forexToPaise(total, o.dp, o.rate) : 0;

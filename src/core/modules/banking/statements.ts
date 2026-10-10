@@ -29,6 +29,7 @@ import {
   money,
   requireBankLedger,
   unlinkLine,
+  assertBankDateChangeAllowed,
   type BankLedger,
   type LineRow,
 } from './common.ts';
@@ -499,6 +500,11 @@ export function deleteBatch(ctx: CompanyCtx, batchId: number, unmatch: boolean):
         'Unmatch them first, or delete the statement with "unmatch" so their bank dates are cleared as well.',
       { linked: linked.length },
     );
+  }
+  // Unmatching clears the entries' bank dates: one in the locked period needs period.lock (common.ts).
+  for (const l of linked) {
+    const bankDate = db.value<string>('SELECT bank_date FROM ledger_entries WHERE id = :id', { id: l.matched_entry_id }) ?? null;
+    assertBankDateChangeAllowed(ctx, bankDate, null, () => `Deleting this statement with "unmatch"`);
   }
   for (const l of linked) unlinkLine(db, l);
   const meta = parseMeta(batch.meta);

@@ -73,6 +73,49 @@ export function confirmationOf(err: unknown): ConfirmationRequest | null {
   return { message: err.message, warnings };
 }
 
+/**
+ * CONFLICT that only means "busy right now": an automatic backup, an export, a Tally import or another
+ * import holds the company (core api/jobs.ts BUSY_DETAILS). The same request works once that task
+ * finishes, so screens offer "Wait and retry" (retryWhileBusy) instead of a dead end.
+ */
+export function isBusyConflict(err: unknown): boolean {
+  if (!isApiError(err) || err.code !== 'CONFLICT') return false;
+  const d = err.details;
+  return typeof d === 'object' && d !== null && (d as { reason?: unknown }).reason === 'busy';
+}
+
+export interface RetryWhileBusyOptions {
+  /** Pause between attempts (default 2 s). */
+  intervalMs?: number;
+  /** Give up (rethrow the last busy conflict) after this long (default 2 minutes). */
+  timeoutMs?: number;
+  /** Called before each new attempt (attempt 2, 3, …) — e.g. to show "Still waiting…". */
+  onWait?: (attempt: number) => void;
+  /** Stop waiting (screen closed): the last busy conflict is rethrown. */
+  cancelled?: () => boolean;
+  /** Injected for tests. */
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/** Run `fn`; while it fails with a busy conflict, wait and run it again (bounded). Other errors are thrown at once. */
+export async function retryWhileBusy<T>(fn: () => Promise<T>, opts: RetryWhileBusyOptions = {}): Promise<T> {
+  const interval = opts.intervalMs ?? 2_000;
+  const timeout = opts.timeoutMs ?? 120_000;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = opts.now ?? (() => Date.now());
+  const started = now();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isBusyConflict(err) || now() - started + interval > timeout || opts.cancelled?.()) throw err;
+    }
+    await sleep(interval);
+    opts.onWait?.(attempt + 1);
+  }
+}
+
 /** A sentence safe to show to a user for any thrown value. */
 export function userMessage(err: unknown): string {
   if (isApiError(err)) {

@@ -1,0 +1,134 @@
+/* POS counter screens. Semantic design tokens only (no raw colours). Prefix: pos- */
+
+.pos-counter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .pos-counter {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pos-counter__bar {
+  width: 100%;
+}
+.pos-scan {
+  flex: 1 1 auto;
+  min-width: 280px;
+}
+.pos-scan__input {
+  font-size: var(--fs-16);
+}
+.pos-counter__name {
+  width: 120px;
+}
+
+.pos-empty {
+  padding: var(--space-6) var(--space-3);
+  text-align: center;
+}
+
+.pos-total {
+  padding: var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-1);
+}
+.pos-total__label {
+  color: var(--text-secondary);
+  font-size: var(--fs-14);
+}
+.pos-total__amount {
+  font-size: var(--text-display);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.pos-total__amount.is-pending {
+  color: var(--text-muted);
+}
+.pos-total__detail {
+  text-align: right;
+  font-size: var(--fs-12);
+}
+.pos-total__saved {
+  margin-top: var(--space-1);
+  text-align: right;
+  color: var(--success-text);
+  font-weight: var(--fw-semibold);
+}
+.pos-total--small .pos-total__amount {
+  font-size: var(--fs-24);
+}
+
+.pos-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
+.pos-tenders {
+  width: 100%;
+  border-collapse: collapse;
+}
+.pos-tenders th {
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
+  text-align: left;
+  border-bottom: 1px solid var(--border-default);
+}
+.pos-tenders td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.pos-tenders .bx-num {
+  text-align: right;
+}
+.pos-tenders__amount {
+  width: 170px;
+}
+
+.pos-pay-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  justify-content: flex-end;
+}
+.pos-pay-summary > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.pos-pay-summary strong {
+  font-size: var(--fs-20);
+}
+.pos-pay-summary__change strong {
+  font-size: var(--fs-32);
+  color: var(--text-primary);
+}
+
+.pos-drawer {
+  flex-wrap: wrap;
+}
+
+/* A receipt being printed: laid out (its roll length is measured) but out of sight. */
+.pos-offscreen {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: auto;
+  pointer-events: none;
+}

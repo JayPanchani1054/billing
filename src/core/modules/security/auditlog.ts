@@ -298,6 +298,15 @@ export function entityHistory(db: Db, input: AuditEntityHistoryInput): AuditEnti
     guidFilter = 'AND (entity_guid = :guid OR entity_guid IS NULL)';
     params.guid = input.entityGuid;
   }
+  if (input.currentOnly) {
+    // Records without a guid (users, roles): the current holder of the id starts at its latest
+    // 'create' — entries before it belong to a deleted record whose id was reused.
+    const since = db.value<number>(`SELECT MAX(id) FROM audit_log WHERE entity_type = :type AND entity_id = :id AND action = 'create'`, { type: input.entityType, id: input.entityId });
+    if (typeof since === 'number') {
+      guidFilter += ' AND id >= :since';
+      params.since = since;
+    }
+  }
   // Newest N, shown oldest first.
   const rows = db
     .all<AuditDbRow>(`SELECT * FROM audit_log WHERE entity_type = :type AND entity_id = :id ${guidFilter} ORDER BY id DESC LIMIT :limit`, params)

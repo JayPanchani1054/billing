@@ -54,6 +54,7 @@ import {
   countTabs,
   defaultKind,
   ledgerFitsKind,
+  newLedgerGroupFor,
   reasonsText,
   suggestLedger,
   tabOf,
@@ -185,7 +186,11 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
    */
   const createLedgerFor = async (line: StatementLineView, draft: CreateFormDraft, typed: string): Promise<void> => {
     setCreating(null);
-    const created = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', { initialName: typed, forResult: true });
+    const created = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', {
+      initialName: typed,
+      groupCode: newLedgerGroupFor(draft.kind, line),
+      forResult: true,
+    });
     setCreating({
       line,
       draft: created ? { ...draft, ledger: { id: created.id, name: created.name, groupName: '', classes: [] }, touched: true } : draft,

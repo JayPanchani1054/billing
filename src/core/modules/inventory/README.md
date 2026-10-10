@@ -65,6 +65,12 @@ An entry without a godown counts in *Main Location*. Godown filters are exact by
 also covers every godown under it, like Tally's godown summary of a parent location. Batch names
 match case-insensitively.
 
+**Whose stock** (final wave): without a godown filter, `stockOnHand`, `batchesFor` and `stockByItem`
+give OUR stock — a principal's goods lying with us for job work (godowns with `third_party_kind =
+'party_with_us'`, mfg module) are left out, as the valuation leaves them out of values. So the item
+list's closing quantity, the item picker, reorder status, order positions and the dashboard's low-stock
+list never count them. Asking for such a godown explicitly still shows what lies there.
+
 ### Contract for the posting engine (vouchers)
 
 | Voucher | `inventory_entries.qty` | `amount` |
@@ -261,6 +267,7 @@ stockReplayCount(): number                                    // replays run in 
 // Prices & masters
 priceFor(db, { itemId, priceLevelId?, date, qty, side? }): PriceForResult
 slabForQty(slabs, qty): PriceSlab | null
+applicableSlabs(db, levelId, date, itemIds?): Map<itemId, { from, slabs }>   // exported for the pos scan lookup
 getItem(db, id, asOf): StockItemDetail;  listItems(db, input, today)
 itemPicker(db, { asOf?, godownId?, priceLevelId?, search?, limit? }, today): ItemPickerRow[]   // search: name/alias/part no./barcode
 booksFrom(db): string;  mainGodownId(db): number;  compoundSymbol(first, conversion, second): string

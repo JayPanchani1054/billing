@@ -229,6 +229,9 @@ describe('edit log navigation and output', () => {
   it('builds history params and export input for one record', () => {
     assert.deepEqual(auditHistoryParams('ledger', 7, 'Sharma & Sons'), { entityType: 'ledger', entityId: 7, label: 'Sharma & Sons' });
     assert.deepEqual(historyTarget(auditHistoryParams('voucher', 3, undefined, 'g-1')), { entityType: 'voucher', entityId: 3, entityGuid: 'g-1' });
+    // Users and roles have no guid: their history shows the current holder of the id only.
+    assert.deepEqual(auditHistoryParams('role', 5, 'Billing'), { entityType: 'role', entityId: 5, label: 'Billing', currentOnly: true });
+    assert.deepEqual(historyTarget(auditHistoryParams('user', 2, 'ravi')), { entityType: 'user', entityId: 2, label: 'ravi', currentOnly: true });
     assert.deepEqual(historyExportInput({ entityType: 'voucher', entityId: 3, label: 'x' }, 'xlsx'), { entityType: 'voucher', entityId: 3, format: 'xlsx' });
   });
 

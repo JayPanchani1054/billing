@@ -59,12 +59,42 @@ function warnPrincipalGodown(ctx: PostingAdjustContext): void {
   );
 }
 
+const CLASS_SCREEN: Readonly<Record<string, string>> = {
+  manufacturing: 'Manufacturing Journal',
+  material_out: 'Material Out',
+  material_in: 'Material In',
+};
+
+function refuseAlterWithoutBlock(db: Db, voucherId: number, typeName: string, features: { manufacturing: boolean; jobWork: boolean }): void {
+  const cls = db.value<string>('SELECT class FROM stock_journal_details WHERE voucher_id = :id', { id: voucherId });
+  if (cls === undefined) return;
+  const screen = CLASS_SCREEN[cls] ?? 'Manufacturing Journal';
+  const feature = cls === 'manufacturing' ? 'Manufacturing' : 'Job work';
+  const on = cls === 'manufacturing' ? features.manufacturing : features.jobWork;
+  throw validation([
+    {
+      path: 'stockJournal',
+      message:
+        `This ${typeName} carries ${cls === 'manufacturing' ? 'production (bill of materials and costing)' : 'job work (challan, party godown and return dates)'} details that this screen cannot show. ` +
+        (on
+          ? `Alter it from Transactions › ${screen} so they are kept.`
+          : `Turn on ${feature} (F11 › Features), then alter it from Transactions › ${screen} so they are kept.`),
+    },
+  ]);
+}
+
 export const mfgVoucherHook: VoucherHook = {
   name: 'mfg',
 
   compose(env, input, vt, voucherId) {
     const cls = vt.baseType === 'stock_journal' ? stockJournalClassOf(vt.config) : null;
-    if (!input.stockJournal) return undefined;
+    if (!input.stockJournal) {
+      // Altering a classed journal without its block (e.g. on the plain Stock Journal screen, which
+      // happens when the mfg screen cannot be opened) would save it as a plain stock journal and
+      // silently drop its production / job work details (challans, s.143 dates, ITC-04, costing).
+      if (voucherId !== null && vt.baseType === 'stock_journal') refuseAlterWithoutBlock(env.db, voucherId, vt.name, env.features);
+      return undefined;
+    }
     if (!cls) {
       throw validation([
         { path: 'stockJournal', message: `${vt.name} is not a Manufacturing Journal, Material In or Material Out voucher type; enter its item lines directly.` },

@@ -21,7 +21,7 @@
 import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { Paise } from '../../../shared/money.ts';
-import type { CashHeadAmount, GstAdjustmentNature, GstDocSnapshot, VoucherGstDetailsInput } from '../../../shared/types/gst-plus.ts';
+import type { CashHeadAmount, GstAdjustmentNature, GstDocSnapshot, Gstr3bEffect, VoucherGstDetailsInput } from '../../../shared/types/gst-plus.ts';
 import { GST_ADJUSTMENT_LABELS } from '../../../shared/types/gst-plus.ts';
 import type { TaxHead } from '../../../shared/types/gst-returns.ts';
 import { TAX_HEADS } from '../../../shared/types/gst-returns.ts';
@@ -34,6 +34,7 @@ import type { VoucherRow } from '../vouchers/service.ts';
 import type { VoucherInput } from '../../../shared/types/vouchers.ts';
 import { advanceReceiptForBill, advanceTax, receivedAdvance, shareOfAdvance, type AdvanceTax } from './advances.ts';
 import { loadCompany } from './docs.ts';
+import { anyGstr3bFiled, filedGstr3bPeriod, gstr3bReportPeriod, recordGstr3bChange, voucherEffect, voucherHasGstr3bChanges } from './filed3b.ts';
 import { amendmentPeriod, docSnapshot, filedGstr1Period, periodLabel, recordAmendment } from './filings.ts';
 import { monthPeriodKey, parsePeriodKey, quarterPeriodKey } from './period.ts';
 import { dutyLedgers, ensureStatLedger, statLedgerId } from './statLedgers.ts';
@@ -65,9 +66,13 @@ interface HookData {
   stat: StatRow[];
   challan: { cpin: string; cin: string | null; brn: string | null; challanDate: string | null; bankName: string | null; mode: string | null; period: string | null } | null;
   amendment: { today: string; originalDate: string | null; original: GstDocSnapshot | null; originalFiled: string | null } | null;
+  /** Changes after GSTR-3B is filed (filed3b.ts): the effect before this save and the filed period. */
+  filed3b: { today: string; original: Gstr3bEffect | null; originalPeriod: string } | null;
+  /** Rule 37 reversal / reclaim journal: the purchase invoices it is for (gst_rule37_links). */
+  rule37: { kind: 'reversal' | 'reclaim'; links: Array<{ purchaseVoucherId: number } & Record<TaxHead, Paise>> } | null;
 }
 
-const emptyData = (): HookData => ({ advances: [], boe: null, stat: [], challan: null, amendment: null });
+const emptyData = (): HookData => ({ advances: [], boe: null, stat: [], challan: null, amendment: null, filed3b: null, rule37: null });
 
 const money = (p: Paise): string => formatMoney(p, { symbol: true });
 const OUTWARD_BASES = new Set(['sales', 'credit_note', 'debit_note']);
@@ -128,6 +133,7 @@ function adjust(ctx: PostingAdjustContext): void {
   if (gstOn && OUTWARD_BASES.has(ctx.baseType) && ctx.outward && env.company.gstRegistrationType === 'regular') {
     if (amendmentCheck(ctx, data)) used = true;
   }
+  if (gstOn && env.company.gstRegistrationType === 'regular' && filed3bCheck(ctx, data)) used = true;
   if (ctx.baseType === 'receipt' && ctx.voucherId !== null) guardUsedAdvance(ctx, data);
   if (used) ctx.setData(data);
 }
@@ -440,8 +446,10 @@ function statAdjustment(ctx: PostingAdjustContext, a: NonNullable<VoucherGstDeta
       return;
     }
     push(a.nature, amounts);
+    if (a.rule37 && a.rule37.length > 0) rule37Links(ctx, a, amounts, data);
     return;
   }
+  if (a.rule37 && a.rule37.length > 0) ctx.warn('gst_stat', 'Rule 37 invoices go only on an ITC reversal under Rule 37 or an ITC reclaim.', 'block', `${path}.rule37`);
   // Reverse-charge liability.
   const liability = { igst: 0, cgst: 0, sgst: 0, cess: 0 } as Record<TaxHead, Paise>;
   const credit = { igst: 0, cgst: 0, sgst: 0, cess: 0 } as Record<TaxHead, Paise>;
@@ -462,6 +470,44 @@ function statAdjustment(ctx: PostingAdjustContext, a: NonNullable<VoucherGstDeta
   }
   push('rcm_liability', liability, a.taxableValue ?? 0);
   push('rcm_credit', credit);
+}
+
+/**
+ * Rule 37 journal: the purchase invoices it reverses (or reclaims) credit for. Each must be a purchase in
+ * the books; their per-head sums must equal the journal's Input tax lines (so the 180-day report never
+ * counts a reversal twice or not at all).
+ */
+function rule37Links(ctx: PostingAdjustContext, a: NonNullable<VoucherGstDetailsInput['adjustment']>, amounts: Record<TaxHead, Paise>, data: HookData): void {
+  const path = 'gstDetails.adjustment.rule37';
+  if (a.nature !== 'itc_reversal_r37' && a.nature !== 'itc_reclaim') {
+    ctx.warn('gst_stat', 'Rule 37 invoices go only on an ITC reversal under Rule 37 or an ITC reclaim.', 'block', path);
+    return;
+  }
+  const links: Array<{ purchaseVoucherId: number } & Record<TaxHead, Paise>> = [];
+  const sums = { igst: 0, cgst: 0, sgst: 0, cess: 0 } as Record<TaxHead, Paise>;
+  const seen = new Set<number>();
+  for (const [i, l] of (a.rule37 ?? []).entries()) {
+    const v = ctx.env.db.get<{ base_type: string }>('SELECT base_type FROM vouchers WHERE id = :id', { id: l.purchaseVoucherId });
+    if (!v || v.base_type !== 'purchase' || seen.has(l.purchaseVoucherId)) {
+      ctx.warn('gst_stat', `Rule 37 line ${i + 1}: choose a purchase invoice (each once).`, 'block', `${path}[${i}].purchaseVoucherId`);
+      return;
+    }
+    seen.add(l.purchaseVoucherId);
+    const row = { purchaseVoucherId: l.purchaseVoucherId, igst: l.igst ?? 0, cgst: l.cgst ?? 0, sgst: l.sgst ?? 0, cess: l.cess ?? 0 };
+    for (const h of TAX_HEADS) {
+      if (!Number.isSafeInteger(row[h]) || row[h] < 0) {
+        ctx.warn('gst_stat', `Rule 37 line ${i + 1}: ${h.toUpperCase()} must be zero or a positive amount.`, 'block', `${path}[${i}].${h}`);
+        return;
+      }
+      sums[h] += row[h];
+    }
+    links.push(row);
+  }
+  if (TAX_HEADS.some((h) => sums[h] !== amounts[h])) {
+    ctx.warn('gst_stat', 'The credit of the Rule 37 invoices does not add up to the Input tax lines of this journal. Make them equal.', 'block', path);
+    return;
+  }
+  data.rule37 = { kind: a.nature === 'itc_reclaim' ? 'reclaim' : 'reversal', links };
 }
 
 function sumOnLedger(ctx: PostingAdjustContext, ledgerId: number | undefined): Paise {
@@ -571,6 +617,121 @@ function amendmentCheck(ctx: PostingAdjustContext, data: HookData): boolean {
   return false;
 }
 
+// ───────────────────────────── Changes after GSTR-3B is filed ─────────────────────────────
+
+const GST_DOC_BASES = new Set(['sales', 'purchase', 'credit_note', 'debit_note']);
+
+/** An outward document whose GSTR-1 period is filed: the GSTR-1 amendments already move its 3.1 figures. */
+function coveredByGstr1(ctx: PostingAdjustContext, dates: ReadonlyArray<string | null>): boolean {
+  if (!OUTWARD_BASES.has(ctx.baseType) || !ctx.outward) return false;
+  return dates.some((d) => d !== null && filedGstr1Period(ctx.env.db, d) !== null);
+}
+
+/**
+ * A voucher touching a period whose GSTR-3B is marked filed (filed3b.ts): confirm, and log the change
+ * for the next return. Vouchers already in the log are kept current silently (so the log never holds a
+ * stale effect).
+ */
+function filed3bCheck(ctx: PostingAdjustContext, data: HookData): boolean {
+  const { db, today } = ctx.env;
+  if (!anyGstr3bFiled(db)) return false;
+  const existing =
+    ctx.voucherId !== null
+      ? db.get<{ date: string; affects_books: number }>('SELECT date, affects_books FROM vouchers WHERE id = :id', { id: ctx.voucherId })
+      : undefined;
+  if (coveredByGstr1(ctx, [existing?.date ?? null, ctx.date])) return false;
+  const company = loadCompany(db);
+  const existingFiled = existing && existing.affects_books === 1 ? filedGstr3bPeriod(db, existing.date) : null;
+  const logged = ctx.voucherId !== null ? voucherHasGstr3bChanges(db, ctx.voucherId) : null;
+  // The effect before this save is needed only when the voucher sits in a filed period or is logged.
+  const original = existing && ctx.voucherId !== null && (existingFiled || logged) ? voucherEffect(db, company, ctx.voucherId, today) : null;
+  const origFiled = original ? existingFiled : null;
+  if (origFiled && existing) {
+    const report = gstr3bReportPeriod(db, company, existing.date, today);
+    ctx.warn(
+      'gst_amendment',
+      `GSTR-3B for ${origFiled.periodLabel} was filed on ${formatDate(origFiled.filedOn)} with this voucher's tax / credit. The change will be reported in the GSTR-3B for ${periodLabel('gstr3b', report)}; the filed return keeps its figures.`,
+      'confirm',
+      'date',
+    );
+    data.filed3b = { today, original, originalPeriod: origFiled.period };
+    return true;
+  }
+  const g = ctx.input.gstDetails;
+  const mayTouch =
+    GST_DOC_BASES.has(ctx.baseType) || !!(g?.advance || g?.advanceRefund || (g?.advanceAdjustments?.length ?? 0) > 0 || g?.billOfEntry || g?.adjustment);
+  const newFiled = filedGstr3bPeriod(db, ctx.date);
+  if (newFiled && mayTouch && !ctx.isOptional) {
+    const report = gstr3bReportPeriod(db, company, ctx.date, today);
+    ctx.warn(
+      'gst_amendment',
+      `GSTR-3B for ${newFiled.periodLabel} has already been filed. Any tax or input tax credit of this voucher will be reported in the GSTR-3B for ${periodLabel('gstr3b', report)} (GST › Changes after GSTR-3B filing).`,
+      'confirm',
+      'date',
+    );
+    data.filed3b = { today, original, originalPeriod: newFiled.period };
+    return true;
+  }
+  if (logged) {
+    data.filed3b = { today, original, originalPeriod: logged.originalPeriod };
+    return true;
+  }
+  return false;
+}
+
+function writeFiled3b(w: VoucherHookWriteContext, f: NonNullable<HookData['filed3b']>): void {
+  const { db, voucherId } = w;
+  const company = loadCompany(db);
+  const amended = voucherEffect(db, company, voucherId, f.today);
+  const row = db.get<{ guid: string; updated_at: string; date: string }>('SELECT guid, updated_at, date FROM vouchers WHERE id = :id', { id: voucherId });
+  if (!row) return;
+  const docDate = f.original?.date ?? row.date;
+  // A voucher first logged keeps reporting into the period chosen for its filed date.
+  const report = gstr3bReportPeriod(db, company, filedGstr3bPeriod(db, docDate) ? docDate : (parsePeriodKey(f.originalPeriod)?.from ?? docDate), f.today);
+  const logged = db.value('SELECT 1 FROM gst_3b_changes WHERE voucher_guid = :g AND report_period = :p', { g: row.guid, p: report }) !== undefined;
+  if (!logged && JSON.stringify(f.original) === JSON.stringify(amended)) return; // nothing GSTR-3B reports changed
+  if (!f.original && !amended) return;
+  recordGstr3bChange(db, {
+    voucherId,
+    guid: row.guid,
+    kind: f.original ? 'altered' : 'added',
+    originalPeriod: f.originalPeriod,
+    reportPeriod: report,
+    label: (amended ?? f.original)?.label ?? `Voucher #${voucherId}`,
+    docDate,
+    original: f.original,
+    amended,
+    ts: row.updated_at,
+  });
+}
+
+/** Delete / cancel of a voucher in a filed GSTR-3B period (or already in the log): log its removal. */
+function removeFiled3b(ctx: CompanyCtx, row: VoucherRow): void {
+  const db = ctx.db;
+  if (!anyGstr3bFiled(db)) return;
+  const today = ctx.clock.today();
+  const filed = filedGstr3bPeriod(db, row.date);
+  const logged = voucherHasGstr3bChanges(db, row.id);
+  if (!filed && !logged) return;
+  const company = loadCompany(db);
+  if (OUTWARD_BASES.has(row.base_type) && reportedNature(row.gst_nature) && filedGstr1Period(db, row.date)) return;
+  const original = voucherEffect(db, company, row.id, today);
+  if (!original) return;
+  const report = gstr3bReportPeriod(db, company, row.date, today);
+  recordGstr3bChange(db, {
+    voucherId: row.id,
+    guid: row.guid,
+    kind: 'removed',
+    originalPeriod: filed?.period ?? logged?.originalPeriod ?? '',
+    reportPeriod: report,
+    label: original.label,
+    docDate: row.date,
+    original,
+    amended: null,
+    ts: ctx.clock.now().toISOString(),
+  });
+}
+
 function writeAmendment(w: VoucherHookWriteContext, a: NonNullable<HookData['amendment']>): void {
   const { db, voucherId } = w;
   const company = loadCompany(db);
@@ -662,6 +823,17 @@ function write(w: VoucherHookWriteContext): void {
     );
   }
   if (d.amendment) writeAmendment(w, d.amendment);
+  if (d.filed3b) writeFiled3b(w, d.filed3b);
+  if (d.rule37) {
+    const books = w.affectsBooks ? 1 : 0;
+    for (const l of d.rule37.links) {
+      db.run(
+        `INSERT INTO gst_rule37_links (voucher_id, purchase_voucher_id, kind, igst, cgst, sgst, cess, date, affects_books, is_post_dated)
+         VALUES (:id, :pid, :kind, :igst, :cgst, :sgst, :cess, :date, :books, :pdc)`,
+        { id, pid: l.purchaseVoucherId, kind: d.rule37.kind, igst: l.igst, cgst: l.cgst, sgst: l.sgst, cess: l.cess, date, books, pdc },
+      );
+    }
+  }
 }
 
 function clear(db: Db, voucherId: number): void {
@@ -669,11 +841,13 @@ function clear(db: Db, voucherId: number): void {
   db.run('DELETE FROM gst_bill_of_entry WHERE voucher_id = :id', { id: voucherId });
   db.run('DELETE FROM gst_stat_lines WHERE voucher_id = :id', { id: voucherId });
   db.run('DELETE FROM gst_challans WHERE voucher_id = :id', { id: voucherId });
+  db.run('DELETE FROM gst_rule37_links WHERE voucher_id = :id', { id: voucherId });
 }
 
 /**
  * Delete / cancel: a document reported in a filed GSTR-1 cannot simply disappear (the portal keeps it);
- * an advance already adjusted or refunded cannot be removed while those vouchers stand.
+ * an advance already adjusted or refunded cannot be removed while those vouchers stand; the removal of a
+ * voucher of a filed GSTR-3B period is logged for the next GSTR-3B (filed3b.ts).
  */
 function beforeRemove(ctx: CompanyCtx, row: VoucherRow, action: 'delete' | 'cancel'): void {
   const db = ctx.db;
@@ -683,11 +857,17 @@ function beforeRemove(ctx: CompanyCtx, row: VoucherRow, action: 'delete' | 'canc
       throw rule(`This receipt's advance has been adjusted or refunded by ${users} other voucher(s). ${action === 'delete' ? 'Delete' : 'Cancel'} those first, or alter them to drop the adjustment.`);
     }
   }
-  if (!OUTWARD_BASES.has(row.base_type) || row.affects_books !== 1 || !reportedNature(row.gst_nature)) return;
-  const filed = filedGstr1Period(db, row.date);
-  if (!filed) return;
-  throw rule(
-    `GSTR-1 for ${filed.periodLabel} was filed with this document, so it cannot be ${action === 'delete' ? 'deleted' : 'cancelled'}. ` +
+  if (OUTWARD_BASES.has(row.base_type) && row.affects_books === 1 && reportedNature(row.gst_nature)) {
+    const filed1 = filedGstr1Period(db, row.date);
+    if (filed1) throw gstr1Refusal(filed1.periodLabel, action);
+  }
+  // A voucher of a filed GSTR-3B period: its removal is reported in the next GSTR-3B.
+  if (row.affects_books === 1) removeFiled3b(ctx, row);
+}
+
+function gstr1Refusal(filedPeriodLabel: string, action: 'delete' | 'cancel'): Error {
+  return rule(
+    `GSTR-1 for ${filedPeriodLabel} was filed with this document, so it cannot be ${action === 'delete' ? 'deleted' : 'cancelled'}. ` +
       'Issue a credit note for it, or alter it (the change is reported as an amendment in your next GSTR-1). If the return was marked filed by mistake, unmark it under GST › Return filing status.',
   );
 }

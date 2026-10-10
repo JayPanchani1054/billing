@@ -45,6 +45,8 @@ const entryMenu: MenuItem[] = voucherMenuEntries(VOUCHER_FEATURE).map((e) => {
     access: 'vouchers.create',
     keywords: e.keywords,
     description: e.description,
+    // Hidden when the company deactivated this predefined voucher type (Masters › Voucher Types).
+    voucherBaseType: e.baseType,
   };
   if (e.hotkey) item.hotkey = e.hotkey;
   if (e.feature) item.feature = e.feature;

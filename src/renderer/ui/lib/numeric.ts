@@ -14,11 +14,11 @@ export type ParsedAmount =
   | { ok: false; error: string };
 
 /**
- * Parse amount-field text into paise. Accepts plain numbers with grouping, `₹`/`Rs` prefixes, a
+ * Parse amount-field text into paise (or 10^-decimals units). Accepts plain numbers with grouping, `₹`/`Rs` prefixes, a
  * trailing `Dr`/`Cr` (reported as `side`; `Cr` also negates when no side handling is wanted) and
  * arithmetic expressions (`1200*3`, `1,000 + 18%`). Empty text → `{ ok: true, paise: null }`.
  */
-export function parseAmountText(text: string): ParsedAmount {
+export function parseAmountText(text: string, decimals = 2): ParsedAmount {
   let s = text.trim();
   if (s === '') return { ok: true, paise: null, side: null };
   let side: DrCrSide | null = null;
@@ -32,11 +32,11 @@ export function parseAmountText(text: string): ParsedAmount {
   if (looksLikeExpression(s)) {
     const r = evaluateExpression(s);
     if (!r.ok) return { ok: false, error: r.error };
-    const paise = roundPaise(r.value * 100);
+    const paise = roundPaise(r.value * 10 ** decimals);
     if (!Number.isSafeInteger(paise)) return { ok: false, error: 'Amount is too large' };
     return { ok: true, paise, side };
   }
-  const p = parseAmount(s);
+  const p = parseAmount(s, decimals);
   if (p === null) return { ok: false, error: 'Not a valid amount' };
   if (!Number.isSafeInteger(p)) return { ok: false, error: 'Amount is too large' };
   return { ok: true, paise: p, side };
@@ -61,11 +61,18 @@ export function parseNumberText(text: string, opts: { decimals?: number; express
   return { ok: true, value: value === 0 ? 0 : value };
 }
 
-/** Display text for an amount field (absolute when `absolute`), Indian grouping, 2 decimals. */
-export function formatAmountText(p: Paise | null, opts: { blankZero?: boolean; absolute?: boolean } = {}): string {
+/**
+ * Display text for an amount field (absolute when `absolute`), Indian grouping, 2 decimals — or
+ * `decimals` places when the value is held in 10^-decimals units (a foreign currency with 0, 3 or 4
+ * decimal places in forex voucher entry).
+ */
+export function formatAmountText(p: Paise | null, opts: { blankZero?: boolean; absolute?: boolean; decimals?: number } = {}): string {
   if (p === null) return '';
   if (p === 0 && opts.blankZero) return '';
-  return formatMoney(p, { absolute: opts.absolute });
+  const dp = opts.decimals ?? 2;
+  if (dp === 2) return formatMoney(p, { absolute: opts.absolute });
+  const v = (opts.absolute ? Math.abs(p) : p) / 10 ** dp;
+  return formatIndianNumber(v, dp);
 }
 
 /** Display text for a number field with Indian grouping (`grouping: false` → plain digits). */

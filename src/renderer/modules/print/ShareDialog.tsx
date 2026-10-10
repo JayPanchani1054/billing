@@ -1,8 +1,8 @@
 /**
  * Share dialog (print group): send the document on screen as a PDF by e-mail (a draft opens in the
  * user's mail program with the PDF attached) or on WhatsApp (chat opens with the message; the PDF is
- * shown in its folder to attach). Recipient and texts come from the party ledger and F12 › Invoice
- * printing › Sharing ('print.share.context'), editable here.
+ * shown in its folder to attach). Recipient and texts come from the party ledger and Invoice Printing
+ * (print settings) › Sharing ('print.share.context'), editable here.
  *
  * Order of work: 'print.share.log' (data.export permission + edit-log 'export' entry, like printing) →
  * native 'share.email' / 'share.whatsapp' (main renders the PDF into <company>/exports/shared, never a

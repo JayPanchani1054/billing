@@ -2,6 +2,7 @@
  * Pure logic of the auto-match review screen: tabs, the voucher kind and contra ledger proposed for an
  * unmatched statement line, which ledgers fit a kind, and building the bulk-create request.
  */
+import type { GroupCode } from '../../../../shared/constants.ts';
 import type { LedgerClassName } from '../../../../shared/types/accounts.ts';
 import type { CreateFromLineInput, FromLineKind, MatchReason, StatementLineStatus, StatementLineView } from '../../../../shared/types/banking.ts';
 
@@ -138,4 +139,22 @@ export const STATUS_TONE: Record<StatementLineStatus, 'neutral' | 'success' | 'i
 /** "Same amount · 1 day after the voucher date · Cheque/ref. no. 501 is in the statement". */
 export function reasonsText(reasons: readonly MatchReason[]): string {
   return reasons.map((r) => r.text).join(' · ');
+}
+
+/** Deposits that are the bank's own income to us (savings / FD interest), not a customer's payment. */
+const BANK_INCOME_WORDS = /\b(INT(EREST)?\.?\s*(CR|CREDIT|PAID)|SB\s+INT(EREST)?|FD\s+INT(EREST)?|INTEREST\s+ON)\b/i;
+
+const BANK_CHARGE_WORDS = /\b(CHARGES?|CHGS|CHRG|SMS|FEES?|COMMISSION|INTEREST\s+DEBIT|INT\s+DR|AMC|PENALTY|MIN(IMUM)?\s*BAL)\b/i;
+
+/**
+ * Group preselected when a ledger is created from a statement line (Alt+C in the line's ledger picker;
+ * the user can still change it): a contra line's other side is a bank account; a deposit of interest
+ * credited by the bank is income (Indirect Incomes), any other deposit is usually from a customer
+ * (Sundry Debtors); a withdrawal for bank charges / fees is an expense (Indirect
+ * Expenses), any other withdrawal usually pays a supplier (Sundry Creditors).
+ */
+export function newLedgerGroupFor(kind: FromLineKind, line: Pick<StatementLineView, 'description'>): GroupCode {
+  if (kind === 'contra') return 'BANK_ACCOUNTS';
+  if (kind === 'receipt') return BANK_INCOME_WORDS.test(line.description) ? 'INDIRECT_INCOMES' : 'SUNDRY_DEBTORS';
+  return BANK_CHARGE_WORDS.test(line.description) ? 'INDIRECT_EXPENSES' : 'SUNDRY_CREDITORS';
 }

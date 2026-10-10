@@ -26,7 +26,7 @@ import type {
   OpenCompanySummary,
   SessionInfo,
 } from '../../shared/types/app.ts';
-import type { AppRuntime, AuditAnchorStore, Clock, OpenCompanyInfo, PathUse, Session } from '../api/context.ts';
+import type { AppRuntime, AuditAnchorStore, BackupFolderApprovals, Clock, OpenCompanyInfo, PathUse, Session } from '../api/context.ts';
 import type { DispatchState } from '../api/dispatch.ts';
 import { exclusiveJobFor, whenJobDone } from '../api/jobs.ts';
 import { Db } from '../db/db.ts';
@@ -65,6 +65,8 @@ export interface ControllerOptions {
   authorizePath?: (absPath: string, use: PathUse) => boolean;
   /** Out-of-database edit-log anchors (exposed as AppRuntime.auditAnchors). Omitted: no anchoring. */
   auditAnchors?: AuditAnchorStore;
+  /** Backup folders approved on this installation (exposed as AppRuntime.backupFolders). */
+  backupFolders?: BackupFolderApprovals;
 }
 
 export interface DeleteCompanyRequest {
@@ -149,6 +151,7 @@ export class AppController {
       log: (level, message, meta) => self.logger.log(level, message, meta),
       ...(authorizePath ? { authorizePath: (absPath: string, use: PathUse) => authorizePath(absPath, use) } : {}),
       ...(opts.auditAnchors ? { auditAnchors: opts.auditAnchors } : {}),
+      ...(opts.backupFolders ? { backupFolders: opts.backupFolders } : {}),
     };
     controllers.set(this.app, this);
   }

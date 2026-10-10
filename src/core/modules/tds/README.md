@@ -74,6 +74,32 @@ kept in step when TDS details are saved; the computation reads only `tds_ledger_
   (any earlier date; each advance once): the set-off part (`advance_adjusted`) is left out of the base
   and of the aggregate (it was counted when paid), while the single-transaction limit is still tested
   on the whole bill (194C: ₹80,000 bill after a ₹50,000 taxed advance → tax on ₹30,000).
+- **Debit / credit notes** (final wave): a debit note to a supplier (TDS) or a credit note to a customer
+  (TCS), in an invoice mode, against a bill whose tax was deducted / collected reverses that tax **in
+  proportion** — the note's taxable value ÷ the bill's, per nature, never more than what is left of the
+  bill's tax after earlier notes (rounded to the rupee when the setting says so). The bill is the one the
+  note's bill-wise "Against" names, else the original invoice number (purchase: the supplier's invoice
+  number). Posting: `Dr <duty ledger>`; the supplier is debited that much less (TDS) / the customer
+  credited that much more (TCS, and the note's value includes it). A reversal typed by hand (Dr the duty
+  ledger) is taken as it is. The note's `tds_lines` row is negative and carries the bill
+  (`bill_voucher_id`, migration 240); the outstanding report and the quarterly statement **net** it into
+  the bill's deduction (`netReversals`; a reversal whose bill is in an earlier, already reported quarter
+  is not netted there — the excess deposit stays on the challan, as on TRACES).
+- **TDS journal on a bill booked gross** (final wave): a Journal `Dr <party> / Cr TDS Payable – <section>`
+  with nothing TDS-applicable on it is the deduction on that bill: the party is the one party debited,
+  the bill the one its bill-wise "Against" names. The line takes the nature of the party's default
+  nature of that section, else the bill's line of that section, else the first active nature of the
+  section; its base is the bill's TDS line (whose assessable was already counted — the journal adds
+  nothing to the thresholds and clears a below-threshold amount through `catch_up`), else the bill's
+  taxable value, else the tax grossed up at the rate in force. It is in every TDS report and the
+  statement (info warning, no confirmation).
+- **194T** is deducted only when the deductor category (TDS/TCS › Setup) is **firm** (partnership firm
+  or LLP paying its partners); any other deductor gets an info warning and nothing under 194T.
+- **s.195 on a foreign-currency bill** (with the forex module): the tax is computed in rupees on the
+  bill's rupee value at the voucher's rate; the supplier's foreign amount follows its rupees (forex
+  hook), and bill-wise amounts typed in the currency for the gross are reduced in the same proportion,
+  so the bill holds the net in both currencies and a later payment of that net settles it exactly (any
+  difference of rate is the realised exchange gain / loss) — tested in `gaps.test.ts`.
 - **Feature turned off**: altering a voucher that carries TDS / TCS while the feature is now off asks
   for confirmation before the tax is dropped.
 - Every derived row honours `affects_books` and `is_post_dated`; optional / cancelled vouchers never
@@ -181,11 +207,9 @@ year are skipped; a re-import replaces the year. Matching: customer's deductor T
 - Surcharge and cess are only entered on challans (non-resident rates are set per nature / override).
 - A statement correction (revised return) is not tracked beyond the filing date and token.
 - Interest on short deduction is an estimate (to the as-of date), shown in exceptions only.
-- Debit notes (purchase returns) and credit notes (sales returns) do not reverse TDS / TCS: the tax of
-  the original bill / invoice stays in the reports. Alter the original voucher (or override its tax
-  with a reason) when the return cancels part of it.
-- TDS deducted by a separate journal on a bill booked gross (Dr party / Cr TDS Payable) has no base the
-  hook can see: such a voucher asks for confirmation and is not in the reports — book the deduction
-  with the bill, or as a payment with the nature (Alt+U) so the hand-typed TDS line is matched.
+- Debit / credit notes reverse TDS / TCS in proportion in the invoice modes only; a note in ledger mode,
+  or one without a bill-wise "Against" or original invoice number, reverses nothing (alter the bill or
+  override its tax with a reason). The reversal assumes the note returns every nature of the bill in
+  the same proportion.
 - An advance below the threshold (nothing deducted) is not set off against the later bill; both count
   in the year's aggregate.

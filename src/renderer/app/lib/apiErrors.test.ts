@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { ApiError, confirmationOf, errorDetailsText, fieldErrorsOf, nestedFieldErrors, userMessage } from './apiErrors.ts';
+import { ApiError, confirmationOf, errorDetailsText, fieldErrorsOf, isBusyConflict, nestedFieldErrors, retryWhileBusy, userMessage } from './apiErrors.ts';
 
 describe('ApiError helpers', () => {
   test('from payload', () => {
@@ -47,5 +47,57 @@ describe('ApiError helpers', () => {
     assert.match(t, /Screen: Trial Balance/);
     assert.match(t, /Code: INTERNAL/);
     assert.match(t, /Action: reports\.tb/);
+  });
+});
+
+describe('busy conflicts: wait and retry (an import while the automatic backup runs)', () => {
+  const busy = () => new ApiError('CONFLICT', 'Another task is still running in this company…', { reason: 'busy', retryable: true }, 'data.import.preview');
+
+  test('isBusyConflict: only CONFLICT with reason "busy"', () => {
+    assert.equal(isBusyConflict(busy()), true);
+    assert.equal(isBusyConflict(new ApiError('CONFLICT', 'Taken', { field: 'name' })), false);
+    assert.equal(isBusyConflict(new ApiError('BUSINESS_RULE', 'x', { reason: 'busy' })), false);
+    assert.equal(isBusyConflict(new Error('x')), false);
+  });
+
+  test('retries while busy, then returns the result', async () => {
+    let calls = 0;
+    const waits: number[] = [];
+    const slept: number[] = [];
+    const out = await retryWhileBusy(
+      async () => {
+        calls++;
+        if (calls < 3) throw busy();
+        return 'imported';
+      },
+      { intervalMs: 500, sleep: async (ms) => void slept.push(ms), onWait: (n) => waits.push(n), now: () => 0 },
+    );
+    assert.equal(out, 'imported');
+    assert.equal(calls, 3);
+    assert.deepEqual(slept, [500, 500]);
+    assert.deepEqual(waits, [2, 3]);
+  });
+
+  test('other errors are not retried; a busy conflict past the time limit or after cancel is rethrown', async () => {
+    let calls = 0;
+    await assert.rejects(
+      retryWhileBusy(async () => {
+        calls++;
+        throw new ApiError('VALIDATION', 'bad', []);
+      }, { sleep: async () => undefined }),
+      (e: unknown) => e instanceof ApiError && e.code === 'VALIDATION',
+    );
+    assert.equal(calls, 1);
+    let t = 0;
+    await assert.rejects(
+      retryWhileBusy(async () => {
+        throw busy();
+      }, { intervalMs: 1_000, timeoutMs: 3_000, sleep: async (ms) => void (t += ms), now: () => t }),
+      (e: unknown) => isBusyConflict(e),
+    );
+    assert.ok(t <= 3_000);
+    let n = 0;
+    await assert.rejects(retryWhileBusy(async () => { n++; throw busy(); }, { cancelled: () => true, sleep: async () => undefined }), (e: unknown) => isBusyConflict(e));
+    assert.equal(n, 1);
   });
 });

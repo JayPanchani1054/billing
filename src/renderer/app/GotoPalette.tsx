@@ -7,7 +7,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { VoucherBaseType } from '../../shared/constants.ts';
 import { Icon, Kbd, Modal, Spinner, splitHighlight, useDebouncedValue, useListNavigation } from '../ui/index.ts';
 import { cx } from '../ui/lib/cx.ts';
-import { useVoucherChoices } from './hooks/useVoucherChoices.ts';
+import { useInactiveBaseTypes, useVoucherChoices } from './hooks/useVoucherChoices.ts';
 import { getGotoProviders, onGotoProvidersChange, pushRecent, rankGoto, resolveGotoTarget, searchProviders, usableProviders } from './lib/goto.ts';
 import type { GotoItem, GotoProvider, RankedGoto } from './lib/goto.ts';
 import { buildStaticGotoItems, parseRecent, usableRecents } from './lib/gotoItems.ts';
@@ -72,11 +72,12 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
   const listId = useId();
 
   const voucherTypes = useVoucherChoices();
+  const inactiveBaseTypes = useInactiveBaseTypes();
   const staticItems = useMemo(() => {
     const available = (b: VoucherBaseType) => shell.voucherAvailability(b).ok;
     return buildStaticGotoItems(
       modules,
-      { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null, gstRegistration: app.company?.gstRegistration ?? null },
+      { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null, gstRegistration: app.company?.gstRegistration ?? null, inactiveBaseTypes },
       {
         // The vouchers module's Transactions menu already lists every voucher type (filtered by
         // permission and features) — the shell's own commands would show each one twice.
@@ -85,7 +86,7 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
         extra: customVoucherGotoItems(voucherTypes.filter((t) => available(t.baseType))),
       },
     );
-  }, [modules, app.can, app.company, nav, shell, voucherTypes]);
+  }, [modules, app.can, app.company, nav, shell, voucherTypes, inactiveBaseTypes]);
 
   // Recents are kept per company (not per user): show only those THIS user can open now.
   const shownRecent = useMemo(

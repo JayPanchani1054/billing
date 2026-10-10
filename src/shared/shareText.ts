@@ -1,6 +1,6 @@
 /**
  * Share texts (print group): the e-mail subject / body and WhatsApp message used when a document is
- * shared, from the templates in F12 › Invoice printing › Sharing (CompanyConfig.share). Pure — used by
+ * shared, from the templates in Invoice Printing (print settings) › Sharing (CompanyConfig.share). Pure — used by
  * the core ('print.share.context') and the settings screen preview.
  *
  * Placeholders (case-insensitive, unknown ones are left as typed so a typo is visible):

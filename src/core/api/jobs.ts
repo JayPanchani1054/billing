@@ -44,6 +44,13 @@ export function companyWorkInFlight(db: Db): number {
   return activeWork.get(db) ?? 0;
 }
 
+/**
+ * Details of a CONFLICT that only means "busy right now — the same request will work once the other
+ * task finishes" (a backup, export, Tally import or import job holds the company). The renderer offers
+ * "Wait and retry" for it (app/lib/apiErrors.ts isBusyConflict).
+ */
+export const BUSY_DETAILS: { readonly reason: 'busy'; readonly retryable: true } = { reason: 'busy', retryable: true };
+
 export const OTHER_WORK_RUNNING_MESSAGE =
   'Another task is still running in this company (an export, a backup or a Tally import). Wait for it to finish, then try again.';
 
@@ -68,8 +75,8 @@ export function whenJobDone(db: Db): Promise<void> {
  * transaction is open on it (a nested call).
  */
 export async function runExclusiveJob<T>(db: Db, job: ExclusiveJob, fn: () => Promise<T>): Promise<T> {
-  if (running.has(db)) throw new AppError('CONFLICT', running.get(db)?.message ?? 'Another job is running. Wait for it to finish.');
-  if (companyWorkInFlight(db) > 1) throw new AppError('CONFLICT', OTHER_WORK_RUNNING_MESSAGE);
+  if (running.has(db)) throw new AppError('CONFLICT', running.get(db)?.message ?? 'Another job is running. Wait for it to finish.', BUSY_DETAILS);
+  if (companyWorkInFlight(db) > 1) throw new AppError('CONFLICT', OTHER_WORK_RUNNING_MESSAGE, BUSY_DETAILS);
   if (db.inTransaction) throw new AppError('INTERNAL', 'An exclusive job cannot start inside a transaction.');
   running.set(db, job);
   let release: () => void = () => undefined;

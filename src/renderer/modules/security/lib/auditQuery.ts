@@ -84,6 +84,8 @@ export type AuditScreenParams = {
   entityType?: string;
   entityId?: number;
   entityGuid?: string;
+  /** Records without a guid (users, roles): only the current holder of the id (AuditEntityHistoryInput.currentOnly). */
+  currentOnly?: boolean;
   /** Record label for the title while loading (e.g. 'Sales 42'). */
   label?: string;
 };
@@ -92,8 +94,12 @@ export interface HistoryTarget {
   entityType: string;
   entityId: number;
   entityGuid?: string;
+  currentOnly?: boolean;
   label?: string;
 }
+
+/** Record types without a guid column whose ids can be reused (a deleted role's id): history shows the current holder only. */
+export const GUIDLESS_ENTITY_TYPES: ReadonlySet<string> = new Set(['user', 'role']);
 
 /**
  * Params that open the Edit Log in record-history mode, for "Edit history" actions on other screens:
@@ -103,6 +109,7 @@ export function auditHistoryParams(entityType: string, entityId: number, label?:
   const p: AuditScreenParams = { entityType, entityId };
   if (label) p.label = label;
   if (entityGuid) p.entityGuid = entityGuid;
+  else if (GUIDLESS_ENTITY_TYPES.has(entityType)) p.currentOnly = true;
   return p;
 }
 
@@ -115,6 +122,7 @@ export function historyTarget(params: unknown): HistoryTarget | null {
   if (!type || !Number.isSafeInteger(id) || id < 0) return null;
   const out: HistoryTarget = { entityType: type, entityId: id };
   if (typeof p.entityGuid === 'string' && p.entityGuid) out.entityGuid = p.entityGuid;
+  if (p.currentOnly === true) out.currentOnly = true;
   if (typeof p.label === 'string' && p.label) out.label = p.label;
   return out;
 }

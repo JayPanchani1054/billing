@@ -687,7 +687,11 @@ function RawJson({ label, value }: { label: string; value: JsonValue | null }) {
 function HistoryView({ target }: { target: HistoryTarget }) {
   const nav = useNav();
   const now = useNow();
-  const q = useApiQuery('security.audit.entityHistory', { entityType: target.entityType, entityId: target.entityId, entityGuid: target.entityGuid }, { keepPrevious: true });
+  const q = useApiQuery(
+    'security.audit.entityHistory',
+    { entityType: target.entityType, entityId: target.entityId, entityGuid: target.entityGuid, ...(target.currentOnly ? { currentOnly: true } : {}) },
+    { keepPrevious: true },
+  );
   const verify = useVerify();
   const exporter = useAuditExport();
   const [order, setOrder] = useState<'newest' | 'oldest'>('newest');

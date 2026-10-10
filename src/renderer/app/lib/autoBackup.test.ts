@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { autoBackupNotice, withTimeout } from './autoBackup.ts';
+import { autoBackupNotice, sameFolder, unapprovedFolderText, withTimeout } from './autoBackup.ts';
 
 describe('autoBackupNotice', () => {
   test('a written backup is announced with its file name', () => {
@@ -17,6 +17,25 @@ describe('autoBackupNotice', () => {
     assert.match(n?.message ?? '', /drive not found/);
     assert.equal(n?.openBackup, true);
     assert.match(autoBackupNotice({ reason: 'failed' })?.message ?? '', /could not be written/);
+  });
+
+  test('a folder not approved on this computer: warns (even after a backup to the default folder) and offers the Backup screen', () => {
+    const n = autoBackupNotice({ ran: true, reason: 'created', lastBackupAt: '2026-10-09T05:00:00Z', backup: { fileName: 'x.bahibak' }, folderNotApproved: '\\\\nas\\books' });
+    assert.equal(n?.tone, 'warning');
+    assert.equal(n?.title, 'Confirm the backup folder');
+    assert.match(n?.message ?? '', /^Backed up to the default folder instead\. The backup folder \\\\nas\\books was set on another computer/);
+    assert.match(n?.message ?? '', /Confirm folder/);
+    assert.equal(n?.openBackup, true);
+    assert.match(autoBackupNotice({ ran: false, reason: 'failed', folderNotApproved: 'E:\\B' })?.message ?? '', /^The automatic backup failed\./);
+    assert.match(unapprovedFolderText('D:\\Backups'), /does not write to it until you confirm it/);
+  });
+
+  test('sameFolder ignores trailing separators, and case only for Windows paths', () => {
+    assert.equal(sameFolder('D:\\Backups\\', 'd:\\backups'), true);
+    assert.equal(sameFolder('D:/Backups', 'D:\\Backups'), true);
+    assert.equal(sameFolder('/home/a/B', '/home/a/B/'), true);
+    assert.equal(sameFolder('/home/a/B', '/home/a/b'), false);
+    assert.equal(sameFolder('D:\\Backups', 'D:\\Backups2'), false);
   });
 
   test('nothing to say when off, recent, a new company or malformed', () => {

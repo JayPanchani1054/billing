@@ -99,7 +99,9 @@ The reports routes `reports.trialBalance`, `reports.profitLoss`, `reports.balanc
   Saving links target → source in the same transaction (hook) and audits "converted" on the source.
   Refused: already converted (one live conversion — cancel or delete the target to convert again),
   cancelled, rejected, a target dated before the source, an accounting-invoice quotation into a sales
-  order (orders need stock items). An alter never adds, moves or removes a link.
+  order (orders need stock items). An alter never adds, moves or removes a link, but it is re-checked
+  against it: the converted voucher may not be altered to a date before its quotation / proforma, nor
+  the quotation to a date after the voucher it was converted into (field error on `date`).
 - **Printing**: titles "Quotation" / "Proforma Invoice" (a voucher type's print title may replace the
   title); a proforma always carries **"This is not a tax invoice"**; both print "Valid Until", terms of
   sale, and the proforma prints bank details / UPI QR for an advance (print module, `titles.ts`, `data.ts`).
@@ -188,9 +190,11 @@ today, and respect the period lock. Optional and cancelled orders cannot be pre-
 - **Actuals**: nominal ledgers as in the P&L (period movement; + opening when the period contains the
   books beginning); other ledgers Dr − Cr of the period; closing = the Trial-Balance closing at `to`;
   groups = the sum over their ledgers (Profit & Loss A/c excluded; closing stock is not a ledger balance);
-  cost centres (with sub-centres) = cost allocations. With `scenarioId` the ledger figures follow the
-  scenario (cost-centre figures always follow the books — cost allocations of provisional vouchers are
-  not scenario-aware).
+  cost centres (with sub-centres) = cost allocations. With `scenarioId` both the ledger and the
+  cost-centre figures follow the scenario (`reports/scenario.ts › scenarioCostCentreAdjust`: excluded
+  types out, provisional vouchers of included types in, books dropped when actuals are not included).
+  Memorandum vouchers and reversing journals keep their cost-centre split (stored with
+  `affects_books = 0`, so no books report counts it) for this.
 - **Variance** = actual − budget (Dr + / Cr −); variance % = variance ÷ |budget| × 100 (2 decimals; null for
   a zero budget); "over budget" = actual beyond the budget on the budget's own side.
 - **Totals** of the variance report count each amount once: a ledger or group under a budgeted group,
@@ -208,7 +212,8 @@ today, and respect the period lock. Optional and cancelled orders cannot be pre-
 paused alter, pre-close duplicates, challan count, duplicate validity, budget totals / basis) against a
 real in-memory company, and `e2e.test.ts` through `runtime.dispatch`
 (quotation → invoice, recurring post twice → once, bills pending → invoice, pre-close / reopen, reversing
-journal under a scenario, pro-rated budget variance, edit log).
+journal under a scenario, pro-rated budget variance, edit log); `gaps.test.ts` (final wave: conversion
+dates re-checked on alteration; cost-centre actuals under a scenario).
 
 ## Known gaps
 
@@ -217,4 +222,5 @@ journal under a scenario, pro-rated budget variance, edit log).
 - A quotation in a foreign currency, revision history of a quotation (Tally keeps none either) and an
   e-mail of the quotation are not built here (print / share belong to the print module).
 - Budgets are not imported from Tally XML (BUDGET objects are still skipped by the importer).
-- Cost-centre budget actuals ignore the scenario (see §6).
+- Ledger Vouchers, outstanding, GST reports and the Day Book always show the books (no scenario); the
+  scenario and budget chosen on a report are not remembered after the screen closes.

@@ -94,6 +94,9 @@ JSON exports need a month or a quarter (not a range).
 | `gst.filing.mark` | **file** | `{ form, period, filedOn, arn? }` | `GstFiling` — snapshot of the summary as filed; audited. GSTR-1 / 3B for regular, CMP-08 / GSTR-4 for composition only |
 | `gst.filing.unmark` | **file** | `{ form, period }` | refused while amendments point at a filed GSTR-1; audited |
 | `gst.amendments.list` | view | `{ period?, voucherId? }` | `GstAmendmentRow[]` |
+| `gst.gstr3b.changes` | view | `{ period?, voucherId? }` | `Gstr3bChangeRow[]` — vouchers changed after their period's GSTR-3B was filed (§18) |
+| `gst.rule37.report` | view | `{ asOf, partyLedgerId? }` | `Rule37Result` — purchases unpaid after 180 days (§19) |
+| `gst.rule37.post` | **file** | `{ asOf, date, kind: 'reversal' \| 'reclaim', voucherIds?, narration? }` | `VoucherSaveResult` — the Rule 37 journal (§19) |
 | `gst.setoff.compute` | view | `{ period, penalty?, others? }` | `GstSetoffResult` (credit utilisation, cash per major × minor head, available in the cash ledger, to deposit, challans, posted journal) |
 | `gst.setoff.post` | **file** | `{ period, date, penalty?, others?, narration? }` | `VoucherSaveResult` — one Journal (CONFLICT when already posted for the period) |
 | `gst.challan.post` | **file** | `{ date, bankLedgerId, cpin, cin?, brn?, challanDate?, bankName?, mode?, period?, heads[], narration? }` | `VoucherSaveResult` — one Payment voucher |
@@ -465,9 +468,9 @@ outward taxable value and tax, net ITC and cash. Labelled "Prepared from books �
   documented JSON / CSV, not the portal's offline-tool schema (§15).
 - Purchases: e-way bills for inward supplies from unregistered suppliers and purchase returns are not
   listed as pending.
-- Only a filed **GSTR-1** freezes its period (amendments). Altering a purchase or journal of a period
-  whose GSTR-3B is marked filed changes that period's GSTR-3B silently (report the difference in the
-  next 3B by hand); a set-off already posted is not recomputed (alter or delete it and post again).
+- A filed GSTR-1 freezes its period (amendments, §16) and a filed **GSTR-3B** freezes its period too
+  (changes after filing, §18). A set-off already posted is not recomputed when the period's vouchers
+  change later (alter or delete it and post again).
 - Composition taxpayers: advances are refused (no Table 11); tax on an advance for a composition
   supplier is not computed — include it in the quarter's CMP-08 turnover yourself where it applies.
 - GSTR-2B import reconciliation (`gst.boe.reconcile`) reads the JSON or the portal's ZIP of JSON parts;
@@ -540,8 +543,10 @@ Natures (`GST_ADJUSTMENT_NATURES`) and the 3B row each reaches (current GSTR-3B 
 The hook refuses Output ledgers in an adjustment, reversals / reclaims for a composition taxpayer and a
 reverse-charge journal without the RCM payable lines; it asks to confirm a journal dated outside the
 chosen period. Interest (s.50) and late fee are entered in GSTR-3B "Your entries" (or CMP-08 interest)
-and paid through the set-off. Rule 37's 180-day test itself is not run automatically: Outstanding ›
-Payables shows the bills; pass the reversal journal for those still unpaid.
+and paid through the set-off. Rule 37's 180-day test is run by GST › Rule 37 (§19), which posts the
+reversal / reclaim journal through this mechanism; `adjustment.rule37` lists the purchase invoices
+(stored in `gst_rule37_links`; their per-head sums must equal the journal's Input tax lines; a
+duplicate (Alt+2) keeps the nature, never the invoices).
 
 ## 14. Set-off, challans and electronic ledgers (`setoff.ts`, `setoffPost.ts`, `eledgers.ts`)
 
@@ -556,6 +561,14 @@ others), with what the electronic cash ledger already holds and what is still to
 period's set-off is posted, the cash it used still counts as available to it, so nothing is asked twice).
 The set-off can be posted before the challan (the screen warns; the cash ledger shows a negative balance
 until the challan is recorded).
+
+**Credit not in the books** (the GSTR-3B entry `creditLedgerBalance`, e.g. the portal balance when the
+books started) is credit the Input tax ledgers do not hold. The set-off journal credits the Input ledgers
+only with what they hold for the period (`bookInputCredit`: their balance from vouchers dated up to the
+period's end plus the set-off journals posted on or before the set-off date); the rest of the credit
+utilised is credited to the system ledger **GST Credit Not in Books** (Loans & Advances (Asset),
+`GST_CREDIT_OUTSIDE`, created on demand and audited) — so an Input ledger is never driven into credit.
+Give that ledger an opening balance (or a journal) for the credit the portal held; the screen says so.
 
 `gst.challan.post` records a PMT-06 challan: one Payment voucher Dr "GST Electronic Cash Ledger" / Cr
 the bank, with CPIN (14 digits), CIN (17 characters, after payment), BRN, date, bank, mode and the
@@ -646,3 +659,42 @@ supported round trip is:
 IRN cancellation within 24 hours and the 30-day reporting limit for AATO ≥ ₹10 crore are shown on the
 screens; enforcing them is the portal's job. An optional online connector (main process only, opt-in,
 credentials in Electron safeStorage) is the documented next step.
+
+## 18. Changes after GSTR-3B is filed (`filed3b.ts`, migration 240)
+
+A period whose **GSTR-3B** is marked filed is protected like a filed GSTR-1 period:
+
+- altering a voucher of that period whose GSTR-3B effect is not nil (purchases and their ITC, ITC
+  reversal / reclaim and reverse-charge journals, bills of entry, advances, outward documents whose
+  GSTR-1 is not filed) asks to confirm ('gst_amendment' warning); a voucher entered later but dated in
+  the filed period, and a deleted / cancelled one, are logged too (`gst_3b_changes`: the voucher's 3B
+  effect before and after — `voucherEffect`, computed with the same `accumulate()` / `bookAdjustments`
+  as GSTR-3B);
+- the change is reported in the **first later period whose GSTR-3B is not filed** (normally at most the
+  working date's period); the filed period keeps its filed figures (`gstr3bChangeCorrections`, used by
+  `computeGstr3b`; summed over all periods the corrections are zero). In the reporting period, tax
+  changes are in 3.1 (a reduction nets against that period's supplies), more credit is in 4(A), less
+  credit is a reversal in 4(B)(2) (GSTR-3B takes no negative 4(A)); a reversal undone is a reclaim
+  (4(A)(5) + 4(D)(1));
+- outward documents of a period whose GSTR-1 is filed are left to the GSTR-1 amendments (§16), which
+  already move their 3.1 figures — never counted twice; a voucher already in the log is kept current
+  silently on every later save;
+- `gst.gstr3b.changes` lists the log by reporting period (screen GST › Changes after GSTR-3B Filing);
+  `gst.filing.unmark` is refused for a GSTR-3B period that changes point at.
+
+## 19. Rule 37 — purchases not paid within 180 days (`rule37.ts`)
+
+CGST Act s.16(2) second proviso / Rule 37: credit on an invoice the supplier was not paid (value + tax)
+within 180 days of its date is reversed, in proportion to the unpaid part, in GSTR-3B 4(B)(2) for the
+period following the one in which the 180 days end, with interest u/s 50; it is re-availed (4(A)(5) +
+4(D)(1)) once paid (Rule 37(4)). `gst.rule37.report` (as on a date) lists every purchase in the books —
+B2B forward charge (natures `inward_b2b`, and `inward_sez` services), credit not marked ineligible —
+whose 180th day has passed, with the unpaid part of **its own bill** (bill-wise: payments, debit notes
+and TDS set against it, dated up to the as-on date), credit due to stand reversed
+(credit × unpaid ÷ invoice value, per head), already reversed (net of reclaims, `gst_rule37_links`),
+**reverse now** and **reclaim now**. Suppliers kept without bill-wise details are listed apart (check by
+hand). `gst.rule37.post` (gst.file) posts the reversal (Dr ITC Reversed (GST) / Cr Input tax) or the
+reclaim (Dr Input tax / Cr ITC Reversed (GST)) as one Journal with `gstDetails.adjustment`
+(`itc_reversal_r37` / `itc_reclaim` + `rule37[]`), through `saveVoucher` (numbered, audited,
+period-lock aware). Interest u/s 50 is not computed: enter it under GSTR-3B "Your entries". Screen:
+GST › Rule 37 (180 Days) — Alt+R post reversal, Alt+L post reclaim.

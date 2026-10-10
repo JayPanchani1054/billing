@@ -47,7 +47,14 @@ A screen the user may not open is refused with a toast; one whose feature is off
 **MenuItem**: `section`, `label` (Title Case, short — it gets a Tally accelerator letter), `screen`,
 `params?`, `hotkey?` (display only — global keys belong to the shell, see §9), `keywords?`, `access?`,
 `order?` (lower first), `gstOnly?`, and (additive) `feature?`, `description?` (tooltip on the
-Gateway, second line in Go To). Items inherit their screen's `access/feature/gstOnly`.
+Gateway, second line in Go To), `voucherBaseType?` (a voucher-entry item for that predefined type:
+hidden when the company deactivated it — `MenuContext.inactiveBaseTypes`, from
+`hooks/useVoucherChoices.ts useInactiveBaseTypes`). Items inherit their screen's `access/feature/gstOnly`.
+
+Busy company: a request refused only because another long task holds the company (`CONFLICT` with
+`details.reason === 'busy'`, core `api/jobs.ts BUSY_DETAILS`) is recognised by `lib/apiErrors.ts
+isBusyConflict`; screens offer "Wait and retry", which repeats the call with `retryWhileBusy` (every 2 s,
+up to 2 minutes; Excel import and Tally import do).
 
 Gateway sections, in display order: `masters`, `transactions`, `banking`, `utilities`, `reports`,
 `inventory_reports`, `gst`, `data`, `security`, `company`. Accelerator letters (one per item, unique

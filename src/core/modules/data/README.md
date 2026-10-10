@@ -106,13 +106,37 @@ Manifest: `format 'bahi-backup'`, `formatVersion 1`, `appVersion`, `schemaVersio
   the backup file being restored (local folders only) or is the replaced company's own folder; otherwise
   it is cleared (automatic backups go to the default folder until a folder is picked again in F12) and the
   `restore` entry records it as `backupFolderNotKept` (docs/SECURITY.md §3.5).
+- **Backup folder approved on this installation** (follow-up): the F12 `backup.folder` lives in the
+  company file, so it also arrives with a company folder copied from another PC, a data folder shared
+  between PCs, or a restore that kept it. It is used — as the default folder of manual and automatic
+  backups, as the folder listed by default, and as a trusted root for renderer paths — only when it is
+  **approved for this company (guid) on this installation**: `AppRuntime.backupFolders`
+  (`core/app/backupFolders.ts`, `<userData>/backup-folders.json`, never in the data folder, a company
+  file or a backup), or it lies inside the data folder. `backup.ts approvedBackupFolder` /
+  `unapprovedBackupFolder`. A folder is approved when F12 saves a new folder authorised by the folder
+  dialog (company.config.save), when F12 is saved after the same folder was picked again in the dialog,
+  or by `data.backup.approveFolder {folder}` (company.manage; the folder must be picked in the dialog
+  this session — the stored value alone never counts; a different folder becomes the F12 folder,
+  audited as `settings`). While unapproved nothing is read from or written to it: backups go to
+  `<dataDir>/backups/<companyId>`; `data.backup.auto` (when automatic backups are on) returns
+  `folderNotApproved` — also when no backup is due (`recent` / `new`) — (the shell warns with
+  "Open Backup"), `data.backup.list` returns `unapprovedFolder` (the Backup screen offers "Confirm
+  folder…") and `data.backup.folderStatus` (authenticated) tells F12. Without an approvals store (tests,
+  headless use) every configured folder counts as approved. Upgrading: folders chosen before this change
+  are confirmed once.
 
 ## Export
 
 - `data.export.table` — shell contract (`src/renderer/app/export.ts`). `amount` cells are PAISE → rupees
   (Excel: real numbers with the Indian `##,##,##0.00` format); `drcr` = signed paise → magnitude + a `Dr/Cr`
   column in Excel, one signed column in CSV; `percent` 18 = 18 %; `date` ISO → Excel dates. CSV: UTF-8
-  with BOM, CRLF, and any text starting with `= + - @ TAB CR` is prefixed with `'` (formula injection).
+  with BOM, CRLF, and any text starting with `= + - @ TAB CR` is prefixed with `'` (formula injection) —
+  except text that is exactly a plain number ("-1250.50", "-1,23,456.00"), so a negative amount still
+  opens as a number. One rule for every CSV / Excel export (`src/shared/csvSafe.ts`: core `lib/csv.ts`
+  `toCsv` — TDS return CSVs, ITC-04 / CMP-08 / GSTR-4 files, e-payment files, edit log, reconciliation —,
+  `exportTable`, `exportData`, and the renderer's `exportFormat.ts`). In Excel (`lib/xlsx.ts`) text is
+  never a formula (shared / inline strings) and such text additionally gets the `quotePrefix` style, so it
+  stays text even when the user edits the cell; the value itself is unchanged (imports read it back).
   Audited as `export`. The shell sends Excel AND CSV through this route (no renderer-built CSV), so a
   user without `data.export` (e.g. the built-in Data Entry role) cannot export either.
 - `data.export.audit {title, subtitle?, period?, rows, format:'pdf'|'print'}` — the shell builds the
@@ -159,6 +183,11 @@ example rows, plus an Instructions sheet (column, required, type, help, allowed 
   import) is still in flight on the company. App-level writes that bypass the dispatcher follow the same
   rule: login / password change are refused with `CONFLICT` until the job ends, and a logout or idle lock
   ends the session at once but writes its `logout` edit-log entry after the job.
+  These "busy" refusals (and a second Excel / Tally import while one runs) carry `details { reason:
+  'busy', retryable: true }` (`BUSY_DETAILS`): the Import and Tally screens then show "Another task is
+  running in this company" with **Wait and retry**, which repeats the same request every 2 s for up to
+  2 minutes (renderer `app/lib/apiErrors.ts retryWhileBusy`) — e.g. an import started while the
+  automatic backup right after login is still being written.
 - Permissions: besides `data.import`, masters kinds need `masters.create` (+ `masters.alter` with
   `updateExisting`), opening balances / opening stock need `masters.alter`, voucher kinds need
   `vouchers.create` (the masters services leave permission checks to their routes, so the importer asks).
@@ -220,6 +249,14 @@ Nothing is written.
   reference — that is the field an accountant fills with the original invoice in Tally. *Assumption*:
   TallyPrime may also carry the original invoice in tags we do not read; check a note's original
   invoice after migrating.
+- Debit Note to a customer (follow-up): its stock lines are imported for **value and GST only**
+  (`inventory_entries.affects_stock = 0`, voucher `affects_stock = 0`) — the same rule as a debit note
+  entered here (`vouchers/posting.ts › valueOnlyItemLines`, a supplementary invoice / price revision,
+  CGST s.34(3)). Tally reduces stock for such a note, so each one is listed in the import log
+  (`debit_note_value_only`, info) and the imported closing stock is higher than Tally's by those
+  quantities; goods that really went out belong on a Sales invoice. A debit note to a supplier (purchase
+  return) moves stock out as before. This keeps the stock summary, the Balance Sheet closing stock, the
+  Tally export round trip and a later alteration of the imported voucher consistent.
 - GST treatment recovered from the postings (dataplus review): an inward GST document posting to a duty
   ledger whose tax direction is `rcm_liability` is a **reverse-charge** purchase (`is_reverse_charge`,
   nature `inward_rcm`; the tax is what the RCM ledgers carry). A party ledger whose `COUNTRYNAME` is not

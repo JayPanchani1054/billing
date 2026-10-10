@@ -17,10 +17,43 @@ import type { InstrumentType } from '../../../shared/types/vouchers.ts';
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { BindValue, Db } from '../../db/db.ts';
-import { forbidden, notFound, rule } from '../../lib/errors.ts';
+import { AppError, forbidden, notFound, rule } from '../../lib/errors.ts';
 import { BOOKS_FILTER, loadGroupTree } from '../accounts/books.ts';
+import { getConfig } from '../company/service.ts';
 
 export const can = (ctx: CompanyCtx, p: Permission): boolean => ctx.session.isOwner || ctx.session.permissions.has(p);
+
+/**
+ * Period lock for bank dates (ARCHITECTURE §4 period lock, banking README): a bank date on or before
+ * the date the books are locked up to is part of a closed reconciliation. Setting, moving or clearing
+ * one — the old OR the new date in the locked period — needs the right to lock and unlock the books
+ * (`period.lock`, Owners always), exactly as unlocking, changing and re-locking would; anyone else gets
+ * LOCKED. A cheque of a locked month that clears in an open month (old date none, new date open) is
+ * ordinary work and allowed.
+ */
+export function canChangeLockedBankDates(ctx: CompanyCtx): boolean {
+  return can(ctx, 'period.lock');
+}
+
+/** The locked-up-to date when `date` falls in the locked period, else null. */
+export function lockedBankDate(ctx: CompanyCtx, date: string | null): string | null {
+  if (date === null) return null;
+  const lockedUpTo = getConfig(ctx.db).lockedUpTo;
+  return lockedUpTo && date <= lockedUpTo ? lockedUpTo : null;
+}
+
+export function assertBankDateChangeAllowed(ctx: CompanyCtx, oldDate: string | null, newDate: string | null, what: () => string): void {
+  if (oldDate === newDate) return;
+  const lockedUpTo = lockedBankDate(ctx, oldDate) ?? lockedBankDate(ctx, newDate);
+  if (lockedUpTo === null || canChangeLockedBankDates(ctx)) return;
+  const inLock = lockedBankDate(ctx, oldDate) !== null ? (oldDate as string) : (newDate as string);
+  throw new AppError(
+    'LOCKED',
+    `Books are locked up to ${fmtDate(lockedUpTo)}. ${what()} would change the bank date ${fmtDate(inLock)}, which is in the locked period. ` +
+      'Ask a user who may lock and unlock the books to do it, or unlock the period first.',
+    { lockedUpTo },
+  );
+}
 
 export function requirePermission(ctx: CompanyCtx, p: Permission, what: string): void {
   if (!can(ctx, p)) throw forbidden(`You do not have permission to ${what}.`);

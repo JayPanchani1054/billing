@@ -42,6 +42,18 @@ export const VoucherGstDetailsSchema = v.object({
       nature: v.enum(GST_ADJUSTMENT_NATURES),
       period: ReturnPeriodKeySchema.optional(),
       taxableValue: v.paise({ min: 0 }).optional(),
+      rule37: v
+        .array(
+          v.object({
+            purchaseVoucherId: v.id(),
+            igst: v.paise({ min: 0 }).optional(),
+            cgst: v.paise({ min: 0 }).optional(),
+            sgst: v.paise({ min: 0 }).optional(),
+            cess: v.paise({ min: 0 }).optional(),
+          }),
+          { max: 500 },
+        )
+        .optional(),
     })
     .optional(),
   challan: v

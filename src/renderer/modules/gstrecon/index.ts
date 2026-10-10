@@ -24,7 +24,7 @@ export const gstreconModule: ModuleDef = {
       section: 'gst',
       label: 'GST Reconciliation',
       screen: 'gstrecon.home',
-      order: 25,
+      order: 24,
       keywords: ['2b', '2a', 'itc', 'match', 'reconcile'],
       description: 'Match GSTR-2B / 2A with purchases and GSTR-1 with sales; follow up with suppliers',
     },

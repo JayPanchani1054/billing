@@ -59,7 +59,7 @@ export function resolveTemplate(doc: Pick<PrintVoucherData, 'defaultTemplate'>, 
   return isTemplate(requested) ? requested : doc.defaultTemplate;
 }
 
-/** Configured paper (F12 › Invoice printing): sheet for Modern / Classic, roll for Compact. */
+/** Configured paper (Invoice Printing (print settings)): sheet for Modern / Classic, roll for Compact. */
 export interface PaperDefaults {
   paperSize?: InvoicePaperSize;
   rollWidth?: ReceiptRollWidth;

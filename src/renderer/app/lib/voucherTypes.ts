@@ -79,6 +79,16 @@ export function voucherChoices(rows: readonly VoucherTypeLike[] | undefined | nu
   return out;
 }
 
+/**
+ * Base types whose PREDEFINED voucher type the company deactivated — their Transactions menu / Go To
+ * entries are hidden (MenuContext.inactiveBaseTypes). Null while unknown (no masters.view, loading):
+ * everything stays shown, as before.
+ */
+export function inactivePredefinedBaseTypes(rows: readonly VoucherTypeLike[] | undefined | null): ReadonlySet<VoucherBaseType> | null {
+  if (!rows || rows.length === 0) return null;
+  return new Set(rows.filter((r) => r.isPredefined && !r.isActive).map((r) => r.baseType));
+}
+
 /** Go To entries for company-defined voucher types (predefined ones come from the Transactions menu). */
 export function customVoucherGotoItems(choices: readonly VoucherChoice[]): GotoItem[] {
   return choices

@@ -83,6 +83,20 @@ export interface AppRuntime {
    * tests that do not exercise it. See core/lib/auditAnchor.ts.
    */
   readonly auditAnchors?: AuditAnchorStore;
+  /**
+   * Backup folders the user approved on THIS installation, per company (app/backupFolders.ts, under
+   * userData). A company's F12 backup folder is written to — by automatic or manual backups, and as a
+   * trusted root — only when it is approved here. Absent (tests, headless use): every configured
+   * folder counts as approved.
+   */
+  readonly backupFolders?: BackupFolderApprovals;
+}
+
+/** Per-installation approvals of company backup folders (see AppRuntime.backupFolders). */
+export interface BackupFolderApprovals {
+  isApproved(companyGuid: string, folder: string): boolean;
+  /** Record that the user picked `folder` for this company on this installation. */
+  approve(companyGuid: string, folder: string, now: Date): void;
 }
 
 /**

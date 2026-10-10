@@ -19,7 +19,7 @@ import { appendAudit } from '../lib/audit.ts';
 import { AppError, toErrorPayload } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
 import type { AppCtx, AppRuntime, Clock, CompanyCtx, OpenCompanyInfo, Session } from './context.ts';
-import { beginCompanyWork, exclusiveJobFor } from './jobs.ts';
+import { beginCompanyWork, BUSY_DETAILS, exclusiveJobFor } from './jobs.ts';
 import type { AnyRoute, RouteAccess, RouteMap } from './route.ts';
 
 /** Snapshot of runtime state the dispatcher needs for one call. */
@@ -136,7 +136,7 @@ export function createDispatcher(routes: RouteMap, getState: () => DispatchState
           if (!session) throw unauthenticated(expired);
           // A long job (import) holds one open transaction on this connection: nothing else may join it.
           const job = exclusiveJobFor(st.db);
-          if (job && !job.allow.has(name)) throw new AppError('CONFLICT', job.message);
+          if (job && !job.allow.has(name)) throw new AppError('CONFLICT', job.message, BUSY_DETAILS);
           if (st.mustChangePassword)
             throw new AppError('UNAUTHENTICATED', 'Please change your password to continue.', { reason: 'must_change_password' });
         } else if (route.access !== 'public' && !session) {

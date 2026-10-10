@@ -22,14 +22,16 @@
  */
 import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
-import type { PosBillView, PosTenderKind, PosTenderView } from '../../../shared/types/pos.ts';
+import type { PosBillView, PosTenderInput, PosTenderKind, PosTenderView, VoucherPosInput } from '../../../shared/types/pos.ts';
 import { POS_TENDER_KIND_LABELS } from '../../../shared/types/pos.ts';
-import type { InstrumentType } from '../../../shared/types/vouchers.ts';
+import type { InstrumentType, VoucherInput } from '../../../shared/types/vouchers.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { rule, validation } from '../../lib/errors.ts';
 import { getFeatures } from '../company/service.ts';
 import type { PostingAdjustContext, VoucherHook, VoucherHookValidateArgs, VoucherHookWriteContext } from '../vouchers/hooks.ts';
+import type { VoucherTypeInfo } from '../vouchers/numbering.ts';
+import type { PostingEnv } from '../vouchers/posting.ts';
 import type { VoucherRow } from '../vouchers/service.ts';
 import { POS_OFF_MESSAGE } from './store.ts';
 
@@ -47,6 +49,19 @@ interface ModeRow {
 
 const rupees = (p: number): string => `₹ ${formatMoney(p)}`;
 
+/**
+ * CGST Rule 46(e): name, address of delivery and state of an UNREGISTERED recipient are required on the
+ * tax invoice when the taxable value is ₹50,000 or more (below that, a walk-in bill may say "Cash").
+ */
+export const RULE_46E_UNREGISTERED_PAISE = 50_000_00;
+/**
+ * Income-tax Act 1961 s.269ST (cash of ₹2,00,000 or more from a person in a day / for one transaction /
+ * one event is prohibited; penalty s.271DA). The Income-tax Act, 2025 (in force from 1-Apr-2026) carries
+ * the same limit — its section number is not relied on here (see README › Legal notes). Checked per
+ * bill only; the per-day aggregate for one person is not tracked.
+ */
+export const CASH_RECEIPT_LIMIT_PAISE = 2_00_000_00;
+
 /** Books filter for pos_bills / pos_payments rows (same as gst_lines). */
 export const POS_BOOKS = `affects_books = 1 AND (is_post_dated = 0 OR date <= :today)`;
 
@@ -58,34 +73,79 @@ function voucherLabelOf(db: Db, id: number): string {
   return v ? `${v.type_name} ${v.number ?? ''} dated ${formatDate(v.date)}`.replace(/\s+/g, ' ') : `voucher #${id}`;
 }
 
-/** Exchange credit a return issued (Σ its exchange tenders, magnitude), in the books. */
-export function exchangeIssued(db: Db, returnId: number, today: string): number {
-  return -(db.value<number>(`SELECT COALESCE(SUM(amount), 0) FROM pos_payments WHERE voucher_id = :id AND kind = 'exchange' AND ${POS_BOOKS}`, { id: returnId, today }) ?? 0);
+/**
+ * Exchange credit a return issued (Σ its exchange tenders, magnitude). Counts the return when it is in
+ * the books (affects_books); a post-dated return can only be used on or after its date (checked by date).
+ */
+export function exchangeIssued(db: Db, returnId: number): number {
+  return -(db.value<number>(`SELECT COALESCE(SUM(amount), 0) FROM pos_payments WHERE voucher_id = :id AND kind = 'exchange' AND affects_books = 1`, { id: returnId }) ?? 0);
 }
 
-/** Exchange credit of a return used on bills (magnitude), in the books, optionally excluding one voucher. */
-export function exchangeUsed(db: Db, returnId: number, today: string, excludeVoucherId: number | null = null): number {
+/**
+ * Exchange credit of a return used on bills (magnitude), optionally excluding one voucher. Every bill in
+ * the books counts — a post-dated bill too, even before its date — so the same credit is never spent twice.
+ */
+export function exchangeUsed(db: Db, returnId: number, excludeVoucherId: number | null = null): number {
   return (
-    db.value<number>(
-      `SELECT COALESCE(SUM(amount), 0) FROM pos_payments WHERE exchange_voucher_id = :id AND voucher_id IS NOT :ex AND ${POS_BOOKS}`,
-      { id: returnId, ex: excludeVoucherId, today },
-    ) ?? 0
+    db.value<number>(`SELECT COALESCE(SUM(amount), 0) FROM pos_payments WHERE exchange_voucher_id = :id AND voucher_id IS NOT :ex AND affects_books = 1`, {
+      id: returnId,
+      ex: excludeVoucherId,
+    }) ?? 0
   );
 }
 
-/** Quantity per item of a POS bill already taken back by POS returns in the books (excluding one voucher). */
-export function returnedQty(db: Db, billId: number, today: string, excludeVoucherId: number | null = null): Map<number, number> {
+/**
+ * Quantity and taxable value per item of a POS bill already taken back by POS returns in the books
+ * (excluding one voucher). A post-dated return counts before its date too: the goods are promised back.
+ */
+export function returnedQty(db: Db, billId: number, excludeVoucherId: number | null = null): Map<number, number> {
   const out = new Map<number, number>();
-  for (const r of db.all<{ item_id: number; qty: number }>(
-    `SELECT ie.item_id, SUM(ABS(COALESCE(ie.billed_qty, ie.qty))) AS qty
+  for (const [itemId, r] of returnedByItem(db, billId, excludeVoucherId)) out.set(itemId, r.qty);
+  return out;
+}
+
+export function returnedByItem(db: Db, billId: number, excludeVoucherId: number | null = null): Map<number, { qty: number; value: number }> {
+  const out = new Map<number, { qty: number; value: number }>();
+  for (const r of db.all<{ item_id: number; qty: number; value: number }>(
+    `SELECT ie.item_id, SUM(ABS(COALESCE(ie.billed_qty, ie.qty))) AS qty, SUM(ie.amount) AS value
        FROM pos_bills b JOIN inventory_entries ie ON ie.voucher_id = b.voucher_id
-      WHERE b.return_of_id = :bill AND b.voucher_id IS NOT :ex AND b.affects_books = 1 AND (b.is_post_dated = 0 OR b.date <= :today)
+      WHERE b.return_of_id = :bill AND b.voucher_id IS NOT :ex AND b.affects_books = 1
       GROUP BY ie.item_id`,
-    { bill: billId, ex: excludeVoucherId, today },
+    { bill: billId, ex: excludeVoucherId },
   )) {
-    out.set(r.item_id, r.qty);
+    out.set(r.item_id, { qty: r.qty, value: r.value });
   }
   return out;
+}
+
+/** Quantity and taxable value per item sold on a voucher. */
+function soldByItem(db: Db, voucherId: number): Map<number, { qty: number; value: number }> {
+  const out = new Map<number, { qty: number; value: number }>();
+  for (const r of db.all<{ item_id: number; qty: number; value: number }>(
+    'SELECT item_id, SUM(ABS(COALESCE(billed_qty, qty))) AS qty, SUM(amount) AS value FROM inventory_entries WHERE voucher_id = :id GROUP BY item_id',
+    { id: voucherId },
+  )) {
+    out.set(r.item_id, { qty: r.qty, value: r.value });
+  }
+  return out;
+}
+
+/**
+ * Round-off slack per return (paise): a bill rounded down and its returns rounded up can together
+ * exceed the bill by up to ₹1 per note; anything more is a refund larger than what was paid.
+ */
+export const RETURN_ROUNDING_SLACK = 100;
+
+/**
+ * Last date a credit note may reduce output tax on a supply (CGST s.34(2) as amended w.e.f.
+ * 1-Oct-2022): 30 November after the end of the financial year of the supply (or the annual return,
+ * if filed earlier — not known here).
+ */
+export function creditNoteGstDeadline(supplyDate: string): string {
+  const y = Number(supplyDate.slice(0, 4));
+  const m = Number(supplyDate.slice(5, 7));
+  const fyEnd = m >= 4 ? y + 1 : y;
+  return `${fyEnd}-11-30`;
 }
 
 const instrumentFor = (kind: PosTenderKind): InstrumentType | null => (kind === 'card' ? 'card' : kind === 'upi' ? 'upi' : null);
@@ -196,7 +256,7 @@ function adjust(ctx: PostingAdjustContext): void {
       ok = false;
       continue;
     }
-    const available = exchangeIssued(db, noteId, env.today) - exchangeUsed(db, noteId, env.today, ctx.voucherId);
+    const available = exchangeIssued(db, noteId) - exchangeUsed(db, noteId, ctx.voucherId);
     if (use.amount > available) {
       ctx.warn(
         'pos',
@@ -251,15 +311,51 @@ function adjust(ctx: PostingAdjustContext): void {
     }
   }
 
+  // Statutory reminders (confirm, never silent): see README › Legal notes.
+  if (isSale) {
+    const taxable = ctx.invoiceLines.reduce((a, l) => a + l.taxableValue, 0);
+    const snap = ctx.input.party;
+    const registered = ((snap?.gstin ?? ctx.party.row.gstin) ?? '').trim() !== '';
+    const named = ctx.party.isCashBank ? (snap?.name ?? '').trim() !== '' : true;
+    const address = ((snap?.address ?? (ctx.party.isCashBank ? null : ctx.party.row.address)) ?? '').trim() !== '';
+    if (!registered && (!named || !address) && taxable >= RULE_46E_UNREGISTERED_PAISE) {
+      ctx.warn(
+        'pos',
+        ctx.party.isCashBank
+          ? `This bill's taxable value is ${rupees(taxable)}. For ₹50,000 or more to an unregistered buyer the invoice must show the buyer's name, address of delivery and state (CGST Rule 46(e)): choose or create the customer (Alt+U) and give the address.`
+          : `This bill's taxable value is ${rupees(taxable)}. For ₹50,000 or more to an unregistered buyer the invoice must show the address of delivery (CGST Rule 46(e)): ${ctx.party.name} has no address — add it to the customer (ledger master).`,
+        'confirm',
+        'partyLedgerId',
+      );
+    }
+    if (cashPaid >= CASH_RECEIPT_LIMIT_PAISE) {
+      ctx.warn(
+        'pos',
+        `${rupees(cashPaid)} is taken in cash on one bill. Receiving ₹2,00,000 or more in cash from a person for one transaction is prohibited by the Income-tax Act (s.269ST of the 1961 Act, carried into the Income-tax Act, 2025) — take the excess by UPI, card or bank.`,
+        'confirm',
+        'posBill.tenders',
+      );
+    }
+  }
+
   // Return: the bill, its customer and what is still returnable.
   let returnOfId: number | null = null;
   if (pb.returnOfId !== undefined) {
     if (isSale) {
       ctx.warn('pos', 'Only a return (credit note) refers to a POS bill.', 'block', 'posBill.returnOfId');
       ok = false;
-    } else if (checkReturn(ctx, pb.returnOfId)) {
+    } else if (checkReturn(ctx, pb.returnOfId, billValue)) {
       returnOfId = pb.returnOfId;
     } else ok = false;
+  }
+  // Alteration of a bill with returns / of a return whose exchange credit was used: what was built on
+  // it must stay true (no more back than sold, no credit spent that the return no longer issues).
+  if (ctx.voucherId !== null) {
+    if (isSale && !checkAlteredBill(ctx, ctx.voucherId, billValue)) ok = false;
+    if (!isSale) {
+      const issuedNow = ctx.isOptional ? 0 : tenders.filter((t) => t.kind === 'exchange').reduce((a, t) => a + t.amount, 0);
+      if (!checkAlteredReturn(ctx, ctx.voucherId, issuedNow)) ok = false;
+    }
   }
   if (!ok) return;
 
@@ -291,12 +387,15 @@ function adjust(ctx: PostingAdjustContext): void {
   ctx.setData(stash);
 }
 
-/** A return's bill: a POS sale in the books, same customer, not later, items on the bill and quantities left. */
-function checkReturn(ctx: PostingAdjustContext, billId: number): boolean {
+/**
+ * A return's bill: a POS sale in the books, same customer, not later, items on the bill, quantities
+ * and value still returnable (a return never refunds more than was charged for the goods).
+ */
+function checkReturn(ctx: PostingAdjustContext, billId: number, returnValue: number): boolean {
   const db = ctx.env.db;
   const path = 'posBill.returnOfId';
-  const bill = db.get<{ party_ledger_id: number | null; date: string; is_cancelled: number; affects_books: number }>(
-    `SELECT v.party_ledger_id, v.date, v.is_cancelled, v.affects_books FROM vouchers v JOIN pos_bills b ON b.voucher_id = v.id
+  const bill = db.get<{ party_ledger_id: number | null; date: string; is_cancelled: number; affects_books: number; bill_value: number }>(
+    `SELECT v.party_ledger_id, v.date, v.is_cancelled, v.affects_books, b.bill_value FROM vouchers v JOIN pos_bills b ON b.voucher_id = v.id
       WHERE v.id = :id AND b.kind = 'sale'`,
     { id: billId },
   );
@@ -317,40 +416,197 @@ function checkReturn(ctx: PostingAdjustContext, billId: number): boolean {
     ctx.warn('pos', `${label} was billed to another party. A return is made to the customer of the bill.`, 'block', 'partyLedgerId');
     return false;
   }
-  const sold = new Map<number, number>();
-  for (const r of db.all<{ item_id: number; qty: number }>(
-    'SELECT item_id, SUM(ABS(COALESCE(billed_qty, qty))) AS qty FROM inventory_entries WHERE voucher_id = :id GROUP BY item_id',
-    { id: billId },
-  )) {
-    sold.set(r.item_id, r.qty);
-  }
-  const already = returnedQty(db, billId, ctx.env.today, ctx.voucherId);
-  const thisNote = new Map<number, { qty: number; index: number }>();
-  (ctx.input.items ?? []).forEach((l, i) => {
+  const sold = soldByItem(db, billId);
+  const already = returnedByItem(db, billId, ctx.voucherId);
+  const items = ctx.input.items ?? [];
+  const thisNote = new Map<number, { qty: number; value: number; lines: number; index: number }>();
+  items.forEach((l, i) => {
     const q = l.billedQty ?? l.qty;
     const prev = thisNote.get(l.itemId);
-    thisNote.set(l.itemId, { qty: (prev?.qty ?? 0) + q, index: prev?.index ?? i });
+    thisNote.set(l.itemId, { qty: (prev?.qty ?? 0) + q, value: prev?.value ?? 0, lines: (prev?.lines ?? 0) + 1, index: prev?.index ?? i });
   });
+  for (const line of ctx.invoiceLines) {
+    if (line.kind !== 'item') continue;
+    const itemId = items[line.index]?.itemId;
+    const mine = itemId !== undefined ? thisNote.get(itemId) : undefined;
+    if (mine) mine.value += line.taxableValue;
+  }
   let ok = true;
   for (const [itemId, mine] of thisNote) {
     const name = ctx.masters.item(itemId).name;
-    const soldQty = sold.get(itemId) ?? 0;
-    if (soldQty === 0) {
+    const s = sold.get(itemId);
+    if (!s || s.qty === 0) {
       ctx.warn('pos', `'${name}' is not on ${label}.`, 'block', `items[${mine.index}].itemId`);
       ok = false;
       continue;
     }
-    const left = soldQty - (already.get(itemId) ?? 0);
+    const back = already.get(itemId) ?? { qty: 0, value: 0 };
+    const left = s.qty - back.qty;
     // Quantities are REAL: compare with a tolerance far below any unit's decimals.
     if (mine.qty - left > 1e-9) {
-      ctx.warn('pos', `Only ${trimQty(Math.max(0, left))} of '${name}' can still be returned on ${label} (sold ${trimQty(soldQty)}).`, 'block', `items[${mine.index}].qty`);
+      ctx.warn('pos', `Only ${trimQty(Math.max(0, left))} of '${name}' can still be returned on ${label} (sold ${trimQty(s.qty)}).`, 'block', `items[${mine.index}].qty`);
+      ok = false;
+      continue;
+    }
+    // Value before tax: at most what the bill charged for that quantity (the whole remainder when all of
+    // it comes back), a paisa of rounding per line allowed.
+    const valueLeft = s.value - back.value;
+    const allowed = Math.abs(mine.qty - left) <= 1e-9 ? valueLeft : Math.round((s.value / s.qty) * mine.qty);
+    if (mine.value > allowed + 2 * mine.lines) {
+      ctx.warn(
+        'pos',
+        `'${name}' is returned at ${rupees(mine.value)} before tax, but ${label} charged ${rupees(Math.max(0, allowed))} for ${trimQty(mine.qty)}. Return it at the bill's rate and discount.`,
+        'block',
+        `items[${mine.index}].rate`,
+      );
       ok = false;
     }
+  }
+  // The whole note: never more than the bill's value still not returned (round-off slack per note).
+  const returnedValue =
+    db.value<number>('SELECT COALESCE(SUM(bill_value), 0) FROM pos_bills WHERE return_of_id = :bill AND voucher_id IS NOT :ex AND affects_books = 1', {
+      bill: billId,
+      ex: ctx.voucherId,
+    }) ?? 0;
+  const valueLeft = bill.bill_value - returnedValue;
+  if (ok && returnValue > valueLeft + RETURN_ROUNDING_SLACK) {
+    ctx.warn(
+      'pos',
+      `This return (${rupees(returnValue)}) is more than what is left of ${label} (${rupees(Math.max(0, valueLeft))} of ${rupees(bill.bill_value)} not yet returned).`,
+      'block',
+      path,
+    );
+    ok = false;
+  }
+  // CGST s.34(2): output tax can be reduced by a credit note only up to 30 November after the year of supply.
+  const deadline = creditNoteGstDeadline(bill.date);
+  if (ok && ctx.date > deadline) {
+    ctx.warn(
+      'pos',
+      `${label} is of an earlier financial year: a credit note dated after ${formatDate(deadline)} cannot reduce the GST paid on it (CGST s.34(2)). Check with your accountant before refunding the tax.`,
+      'confirm',
+      'date',
+    );
   }
   return ok;
 }
 
+/** Bill being altered: its returns (party, date, quantities, value) must still fit the bill. */
+function checkAlteredBill(ctx: PostingAdjustContext, billId: number, billValue: number): boolean {
+  const db = ctx.env.db;
+  const returns = db.all<{ voucher_id: number; date: string; bill_value: number; affects_books: number }>(
+    'SELECT voucher_id, date, bill_value, affects_books FROM pos_bills WHERE return_of_id = :id ORDER BY date, voucher_id',
+    { id: billId },
+  );
+  if (returns.length === 0) return true;
+  const first = returns[0];
+  const firstLabel = voucherLabelOf(db, first.voucher_id);
+  const keep = 'Cancel or delete the return(s) first, or keep what was returned on the bill.';
+  if (ctx.isOptional) {
+    ctx.warn('pos', `Goods of this bill were returned on ${firstLabel}; the bill cannot become optional. ${keep}`, 'block', 'isOptional');
+    return false;
+  }
+  const party = db.value<number | null>('SELECT party_ledger_id FROM vouchers WHERE id = :id', { id: billId }) ?? null;
+  if ((ctx.party?.id ?? null) !== party) {
+    ctx.warn('pos', `Goods of this bill were returned on ${firstLabel}, made to the bill's customer: the customer cannot change. ${keep}`, 'block', 'partyLedgerId');
+    return false;
+  }
+  if (ctx.date > first.date) {
+    ctx.warn('pos', `Goods of this bill were returned on ${firstLabel}: the bill cannot be dated after its return. ${keep}`, 'block', 'date');
+    return false;
+  }
+  const back = returnedByItem(db, billId);
+  const now = new Map<number, { qty: number; index: number }>();
+  (ctx.input.items ?? []).forEach((l, i) => {
+    const prev = now.get(l.itemId);
+    now.set(l.itemId, { qty: (prev?.qty ?? 0) + (l.billedQty ?? l.qty), index: prev?.index ?? i });
+  });
+  let ok = true;
+  for (const [itemId, r] of back) {
+    const onBill = now.get(itemId)?.qty ?? 0;
+    if (r.qty - onBill > 1e-9) {
+      ctx.warn(
+        'pos',
+        `${trimQty(r.qty)} of '${ctx.masters.item(itemId).name}' came back on the returns of this bill; the bill cannot sell less (${trimQty(onBill)}). ${keep}`,
+        'block',
+        now.has(itemId) ? `items[${now.get(itemId)?.index ?? 0}].qty` : 'items',
+      );
+      ok = false;
+    }
+  }
+  const inBooks = returns.filter((r) => r.affects_books === 1);
+  const returnedValue = inBooks.reduce((a, r) => a + r.bill_value, 0);
+  if (ok && billValue + RETURN_ROUNDING_SLACK * inBooks.length < returnedValue) {
+    ctx.warn('pos', `The returns of this bill total ${rupees(returnedValue)}; the bill cannot be reduced to ${rupees(billValue)}. ${keep}`, 'block', 'items');
+    ok = false;
+  }
+  return ok;
+}
+
+/** Return being altered: exchange credit already used on bills must still be issued, and not later than its use. */
+function checkAlteredReturn(ctx: PostingAdjustContext, returnId: number, issuedNow: number): boolean {
+  const db = ctx.env.db;
+  const use = db.get<{ voucher_id: number; date: string }>(
+    'SELECT voucher_id, date FROM pos_payments WHERE exchange_voucher_id = :id AND affects_books = 1 ORDER BY date, voucher_id LIMIT 1',
+    { id: returnId },
+  );
+  if (!use) return true;
+  const used = exchangeUsed(db, returnId);
+  const label = voucherLabelOf(db, use.voucher_id);
+  const fix = 'Cancel or alter the bill(s) that used it first.';
+  if (issuedNow < used) {
+    ctx.warn('pos', `${rupees(used)} of this return's exchange credit was used (first on ${label}); it cannot issue less (${rupees(issuedNow)}). ${fix}`, 'block', 'posBill.tenders');
+    return false;
+  }
+  if (ctx.date > use.date) {
+    ctx.warn('pos', `The exchange credit of this return was used on ${label}: the return cannot be dated after it. ${fix}`, 'block', 'date');
+    return false;
+  }
+  return true;
+}
+
 const trimQty = (q: number): string => String(Math.round(q * 1000) / 1000);
+
+/**
+ * The POS block of a saved bill / return as it was saved (tenders, cash tendered, return of, counter).
+ * Null when the voucher is not a POS bill.
+ */
+export function storedPosBill(db: Db, voucherId: number): VoucherPosInput | null {
+  const b = db.get<{ cash_tendered: number | null; return_of_id: number | null; counter: string | null }>(
+    'SELECT cash_tendered, return_of_id, counter FROM pos_bills WHERE voucher_id = :id',
+    { id: voucherId },
+  );
+  if (!b) return null;
+  const tenders: PosTenderInput[] = db
+    .all<{ mode_id: number; amount: number; reference: string | null; exchange_voucher_id: number | null }>(
+      'SELECT mode_id, amount, reference, exchange_voucher_id FROM pos_payments WHERE voucher_id = :id ORDER BY line_no',
+      { id: voucherId },
+    )
+    .map((t) => ({
+      modeId: t.mode_id,
+      amount: Math.abs(t.amount),
+      ...(t.reference !== null ? { reference: t.reference } : {}),
+      ...(t.exchange_voucher_id !== null ? { exchangeVoucherId: t.exchange_voucher_id } : {}),
+    }));
+  return {
+    tenders,
+    ...(b.cash_tendered !== null ? { cashTendered: b.cash_tendered } : {}),
+    ...(b.return_of_id !== null ? { returnOfId: b.return_of_id } : {}),
+    ...(b.counter !== null ? { counter: b.counter } : {}),
+  };
+}
+
+/**
+ * Alteration made without the POS block (voucher entry screen, API, a return opened in Credit Note
+ * alteration): the bill keeps its tenders and its link to the bill it returns — they are re-checked
+ * against the altered voucher like on the counter — instead of silently losing them (which would drop
+ * the bill from the POS summary and a return from the quantities already taken back).
+ */
+function compose(env: PostingEnv, input: VoucherInput, _vt: VoucherTypeInfo, voucherId: number | null): VoucherInput | undefined {
+  if (voucherId === null || input.posBill) return undefined;
+  const stored = storedPosBill(env.db, voucherId);
+  return stored ? { ...input, posBill: stored } : undefined;
+}
 
 function validate(ctx: CompanyCtx, args: VoucherHookValidateArgs): void {
   const { input, existing } = args;
@@ -361,7 +617,7 @@ function validate(ctx: CompanyCtx, args: VoucherHookValidateArgs): void {
       throw validation([
         {
           path: 'posBill',
-          message: 'This is a POS bill paid by tenders. Alter it on the POS counter (it keeps the tenders), or enter the payment details again there.',
+          message: 'This is a POS bill paid by tenders: alter it on the POS counter, which keeps the tenders (F11 › POS invoicing must be on).',
         },
       ]);
     }
@@ -420,7 +676,7 @@ function preview(data: unknown): { posBill?: PosBillView } {
   return data ? { posBill: data as PosBillView } : {};
 }
 
-export const posVoucherHook: VoucherHook = { name: 'pos', adjust, validate, write, clear, beforeRemove, preview };
+export const posVoucherHook: VoucherHook = { name: 'pos', compose, adjust, validate, write, clear, beforeRemove, preview };
 
 /** Tender label for print / registers: 'UPI (Ref 4521)'. */
 export function tenderLabel(name: string, kind: PosTenderKind, reference: string | null): string {

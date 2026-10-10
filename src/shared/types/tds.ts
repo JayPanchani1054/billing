@@ -224,6 +224,12 @@ export interface TdsVoucherLine {
   payableLedgerName: string;
   /** Explanation for the accountant ("Aggregate ₹1,20,000 crossed ₹1,00,000 …"). */
   note: string;
+  /**
+   * (additive, final wave) The bill this line belongs to: on a debit note (TDS) / credit note (TCS) the
+   * bill whose tax it reverses in proportion (the line's amounts are then negative); on a TDS journal for
+   * a bill booked gross, the bill the tax was deducted on. Absent otherwise.
+   */
+  billVoucherId?: number | null;
 }
 
 /** `VoucherPreview.tds` */

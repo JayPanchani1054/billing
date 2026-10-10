@@ -654,7 +654,7 @@ export function ConfigHintsDialog({ ctx, onClose }: ConfigHintsDialogProps) {
           <Button
             onClick={() => {
               onClose();
-              nav.push('company.config');
+              nav.push('company.config', { tab: 'guards' }); // the warnings (guards) this dialog lists
             }}
           >
             Company configuration

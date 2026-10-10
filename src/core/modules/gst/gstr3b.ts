@@ -54,6 +54,7 @@ import { monthPeriodKey, parsePeriodKey, quarterPeriodKey } from './period.ts';
 import { setOff } from './setoff.ts';
 import { bookAdjustmentFingerprints, bookAdjustments, isZeroTax } from './bookAdjustments.ts';
 import { amendmentCorrections, amendmentsFingerprint } from './filings.ts';
+import { gstr3bChangeCorrections, gstr3bChangesFingerprint } from './filed3b.ts';
 
 // ───────────────────────────── Adjustments ─────────────────────────────
 
@@ -167,7 +168,7 @@ const ITC_AVAILABLE: ReadonlyArray<{ ty: Gstr3bItcType; row: string; label: stri
 
 const HEAD_LABELS: Readonly<Record<TaxHead, string>> = { igst: 'Integrated tax', cgst: 'Central tax', sgst: 'State/UT tax', cess: 'Cess' };
 
-interface Accumulators {
+export interface Accumulators {
   supplies: Record<Gstr3bSupplyRow['key'], TaxValue>;
   outwardRcm: TaxValue;
   inter: { unregistered: Map<string, Gstr3bInterStateRow>; composition: Map<string, Gstr3bInterStateRow>; uin: Map<string, Gstr3bInterStateRow> };
@@ -183,7 +184,7 @@ function addInter(map: Map<string, Gstr3bInterStateRow>, pos: string, l: GstDocL
   map.set(pos, r);
 }
 
-function accumulate(docs: readonly GstDoc[]): Accumulators {
+export function accumulate(docs: readonly GstDoc[]): Accumulators {
   const a: Accumulators = {
     supplies: { osup_det: zeroTV(), osup_zero: zeroTV(), osup_nil_exmp: zeroTV(), isup_rev: zeroTV(), osup_nongst: zeroTV(), eco_sup: zeroTV(), eco_reg_sup: zeroTV() },
     outwardRcm: zeroTV(),
@@ -356,7 +357,7 @@ function periodFingerprints(db: Db, chain: readonly PeriodWithKey[], today: stri
   const adjustments = new Map(
     db.all<{ p: string; data: string }>(`SELECT return_period AS p, data FROM gst_adjustments WHERE form = 'gstr3b'`).map((r) => [r.p, r.data]),
   );
-  const amendments = amendmentsFingerprint(db);
+  const amendments = `${amendmentsFingerprint(db)}|${gstr3bChangesFingerprint(db)}`;
   return chain.map((p) => {
     let f = `a${adjustments.get(p.key) ?? ''}|m${amendments}|`;
     for (let d = p.from; d <= p.to; d = addMonths(d, 1)) f += `${d.slice(0, 7)}=${months.get(d.slice(0, 7)) ?? ''}|`;
@@ -451,6 +452,13 @@ export function computeGstr3b(
   const corr = amendmentCorrections(db, period.from, period.to);
   addTV(a.supplies.osup_det, corr.det);
   addTV(a.supplies.osup_zero, corr.zero);
+  // Changes after GSTR-3B was filed (filed3b.ts): a filed period keeps its figures; the change is
+  // reported in the first period after it that is not filed.
+  const c3 = gstr3bChangeCorrections(db, period.from, period.to);
+  addTV(a.supplies.osup_det, c3.det);
+  addTV(a.supplies.osup_zero, c3.zero);
+  addTV(a.supplies.isup_rev, c3.rcm);
+  for (const ty of ['IMPG', 'IMPS', 'ISRC', 'OTH'] as const) addTax(a.itc[ty], c3.itc[ty]);
   const adj = period.key ? readAdjustments(db, period.key) : { values: emptyAdjustments(), updatedAt: null };
   const v = adj.values;
   const notes: string[] = [];
@@ -481,9 +489,11 @@ export function computeGstr3b(
   addTax(rul, a.blocked);
   addTax(rul, v.itcReversalRules);
   addTax(rul, book.reversalRules);
+  addTax(rul, c3.rul);
   const oth = zeroTax();
   addTax(oth, v.itcReversalOthers);
   addTax(oth, book.reversalOthers);
+  addTax(oth, c3.oth);
   const reversed: Gstr3bItcRow[] = [
     cleanTax({ ty: 'RUL', row: '4(B)(1)', label: 'As per rules 38, 42 & 43 of CGST Rules and section 17(5)', source: 'both', ...rul }),
     cleanTax({ ty: 'OTH', row: '4(B)(2)', label: 'Others', source: isZeroTax(book.reversalOthers) ? 'manual' : 'both', ...oth }),
@@ -494,6 +504,7 @@ export function computeGstr3b(
   const reclaimed = zeroTax();
   addTax(reclaimed, v.itcReclaimed);
   addTax(reclaimed, book.reclaimed);
+  addTax(reclaimed, c3.reclaimed);
   const ineligible: Gstr3bItcRow[] = [
     cleanTax({ ty: 'RUL', row: '4(D)(1)', label: 'ITC reclaimed which was reversed under Table 4(B)(2) in an earlier tax period', source: isZeroTax(book.reclaimed) ? 'manual' : 'both', ...reclaimed }),
     cleanTax({ ty: 'OTH', row: '4(D)(2)', label: 'Ineligible ITC under section 16(4) & ITC restricted due to PoS rules', source: 'manual', ...v.itcIneligibleOthers }),
@@ -576,6 +587,12 @@ export function computeGstr3b(
   if (!isZeroTax(book.billOfEntry)) notes.push('4(A)(1) uses the IGST paid on the bills of entry, not the tax worked out on the import invoices.');
   if (corr.det.taxable !== 0 || corr.det.igst !== 0 || corr.det.cgst !== 0 || corr.zero.taxable !== 0 || corr.zero.igst !== 0) {
     notes.push('Includes GSTR-1 amendments: documents of a filed period that were changed are reported in the period of amendment; a filed period keeps its filed figures.');
+  }
+  if (c3.reported > 0) {
+    notes.push(
+      `Includes ${c3.reported} change(s) to vouchers of earlier periods whose GSTR-3B was already filed (GST › Changes after GSTR-3B filing): ` +
+        'more credit is in 4(A), less credit is reversed in 4(B)(2), tax changes are in 3.1. The filed periods keep their filed figures.',
+    );
   }
   if (company.registration === 'composition') notes.push('Composition taxpayers file CMP-08, not GSTR-3B. Reverse-charge tax shown here is payable through CMP-08.');
   notes.push('3.1.1 (supplies through e-commerce operators u/s 9(5)) is not recorded in the books and is shown as zero.');

@@ -89,6 +89,13 @@ describe('key conventions across modules', () => {
     assert.ok(multi.some((a) => a.file === 'banking/SummaryScreen.tsx' && a.label === "'Create bank ledger'"), 'Bank Overview: Alt+C creates a bank ledger');
   });
 
+  test('Alt+H never means anything but edit history (Party Outstanding shows settled bills with Alt+F1)', () => {
+    const altH = all.filter((a) => a.keys.includes('alt+h'));
+    assert.deepEqual(altH.filter((a) => !/history|History/.test(a.label)).map(show), []);
+    const party = all.filter((a) => a.file === 'outstanding/PartyScreen.tsx');
+    assert.equal(party.find((a) => /settled bills/.test(a.label))?.keys[0], 'alt+f1');
+  });
+
   test('Alt+F1 is detailed / condensed, never "Today" (Day Book uses Alt+T)', () => {
     const altF1 = all.filter((a) => a.keys.includes('alt+f1'));
     assert.ok(altF1.length >= 5);

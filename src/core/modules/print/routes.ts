@@ -12,7 +12,7 @@ import { logShare, shareContext } from './share.ts';
 
 const text = (max: number) => v.string({ max }).optional();
 
-/** Preview-only overrides of F12 › Invoice printing (never saved by these routes). */
+/** Preview-only overrides of Invoice Printing (print settings) (never saved by these routes). */
 export const OverridesSchema = v.object({
   printAfterSave: v.boolean().optional(),
   template: v.enum(PRINT_TEMPLATES).optional(),

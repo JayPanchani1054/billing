@@ -41,6 +41,11 @@ export interface MenuContext {
   features?: Partial<CompanyFeatures> | null;
   /** (additive) The company's GST registration type (items with `gstRegistrations` are filtered by it; unknown → shown). */
   gstRegistration?: 'regular' | 'composition' | 'unregistered' | null;
+  /**
+   * (additive) Base types whose predefined voucher type the company deactivated (items with
+   * `voucherBaseType` among them are hidden; unknown → shown). See lib/voucherTypes.ts.
+   */
+  inactiveBaseTypes?: ReadonlySet<string> | null;
 }
 
 export interface CollectedMenuItem extends MenuItem {
@@ -90,6 +95,7 @@ export function isAllowed(
     feature?: keyof CompanyFeatures;
     anyFeature?: ReadonlyArray<keyof CompanyFeatures>;
     gstRegistrations?: ReadonlyArray<'regular' | 'composition' | 'unregistered'>;
+    voucherBaseType?: string;
   },
   ctx: MenuContext,
 ): boolean {
@@ -101,6 +107,8 @@ export function isAllowed(
   if (req.anyFeature && req.anyFeature.length > 0 && feats && req.anyFeature.every((f) => feats[f] === false)) return false;
   // (additive) Composition / regular-only items (CMP-08 vs GSTR-1 …), when the registration is known.
   if (req.gstRegistrations && ctx.gstRegistration && !req.gstRegistrations.includes(ctx.gstRegistration)) return false;
+  // (additive) A predefined voucher type the company deactivated (Masters › Voucher Types).
+  if (req.voucherBaseType && ctx.inactiveBaseTypes && ctx.inactiveBaseTypes.has(req.voucherBaseType)) return false;
   return true;
 }
 

@@ -51,6 +51,15 @@ server, no internet connection required.
   by-products), godowns marked "our stock with a job worker" or "a principal's stock with us" (kept out
   of your closing stock), Material Out / In challans, job work orders, pending job work with the
   one-year / three-year return dates of CGST s.143, and ITC-04 tables as CSV / Excel (not the portal JSON).
+- **POS / counter billing** (F11 › POS invoicing) — a counter screen built for speed: barcode / item
+  code / alias scan-to-add (`3*code` for three; the same item again adds to its line), price-level
+  rates by quantity, line discount, MRP and the "You save" amount, a large live total; walk-in by default
+  or a customer found / created by mobile number; split payment across cash, card, UPI and other modes
+  with cash handed over and change, posted as **one** sales voucher (an unpaid part stays on the
+  customer's account); hold / recall bills; receipt printing to the roll printer (silently once one is
+  chosen on the computer); returns and exchanges (never more back, in quantity or value, than was sold)
+  as credit notes (refund, exchange credit for the next bill, or credit to the account); a day-end summary
+  by tender, cashier and counter with a cash tally.
 - **Sales documents & planning** — quotations and proforma invoices (own numbering, validity, status,
   one-key conversion to a sales order or invoice), recurring vouchers (rent, retainers, EMIs) reviewed
   and posted from a due list, Sales / Purchase Bills Pending for unbilled challans, order pre-close,

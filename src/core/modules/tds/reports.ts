@@ -64,6 +64,38 @@ interface TaxLine {
   status: string;
   nonResident: boolean;
   forNonResidents: boolean;
+  voucherId?: number;
+  /** Debit / credit note reversal (negative) or gross-bill journal: the bill (tds_lines.bill_voucher_id). */
+  billVoucherId?: number | null;
+}
+
+/**
+ * A reversal on a debit / credit note (negative line carrying its bill) nets into the deduction on that
+ * bill (same section), never below zero, and is then dropped: the bill's tax to deposit / report is the
+ * net. A reversal whose bill is not among `lines` (e.g. reported in an earlier quarter) is dropped.
+ */
+export function netReversals<T extends TaxLine & { base?: Paise; assessable?: Paise }>(lines: readonly T[]): T[] {
+  const out = lines.map((l) => ({ ...l }));
+  const reversals = out.filter((l) => l.amount < 0 && l.billVoucherId !== undefined && l.billVoucherId !== null);
+  if (reversals.length === 0) return out;
+  for (const r of reversals) {
+    let tax = -r.amount;
+    let base = r.base !== undefined ? -r.base : 0;
+    for (const l of out) {
+      if (tax <= 0) break;
+      if (l.amount <= 0 || l.voucherId !== r.billVoucherId || l.section !== r.section || l.kind !== r.kind) continue;
+      const take = Math.min(tax, l.amount);
+      l.amount -= take;
+      tax -= take;
+      if (l.base !== undefined && base > 0) {
+        const b = Math.min(base, l.base);
+        l.base -= b;
+        if (l.assessable !== undefined) l.assessable = Math.max(0, l.assessable - b);
+        base -= b;
+      }
+    }
+  }
+  return out.filter((l) => !(l.amount < 0 && l.billVoucherId !== undefined && l.billVoucherId !== null));
 }
 
 interface LineRec extends TaxLine {
@@ -173,11 +205,12 @@ function loadLines(db: Db, p: { kind?: TdsKind; from?: string; to: string; today
       status: string;
       note: string | null;
       cert_number: string | null;
+      bill_voucher_id: number | null;
     }>(
       `SELECT tl.id, tl.voucher_id, v.number, vt.name AS type_name, v.base_type, tl.date, tl.kind, tl.nature_id, n.name AS nature_name,
               tl.section, n.for_non_residents AS for_nr, tl.party_ledger_id, l.name AS party_name, tl.deductee_type, tl.pan, tl.pan_status,
               tl.non_resident, tl.assessable, tl.catch_up, tl.advance_adjusted, tl.base, tl.rate, tl.computed, tl.amount, tl.overridden, tl.reason, tl.status,
-              tl.note, d.cert_number
+              tl.note, d.cert_number, tl.bill_voucher_id
          FROM tds_lines tl
          JOIN vouchers v ON v.id = tl.voucher_id
          JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -218,6 +251,7 @@ function loadLines(db: Db, p: { kind?: TdsKind; from?: string; to: string; today
       status: r.status,
       note: r.note,
       certNumber: r.status === 'certificate' ? r.cert_number : null,
+      billVoucherId: r.bill_voucher_id,
     }));
 }
 
@@ -302,17 +336,23 @@ const monthStart = (iso: string): string => `${iso.slice(0, 7)}-01`;
  * report, the clearing and the statements need. Below-threshold lines (most of them) never leave SQLite.
  */
 function loadTaxLines(db: Db, p: { kind: TdsKind; to: string; today: string }): TaxLine[] {
+  return netReversals(loadTaxLinesRaw(db, p));
+}
+
+function loadTaxLinesRaw(db: Db, p: { kind: TdsKind; to: string; today: string }): TaxLine[] {
   return db
-    .all<{ id: number; date: string; kind: TdsKind; section: string; amount: number; status: string; non_resident: number; for_nr: number }>(
-      `SELECT tl.id, tl.date, tl.kind, tl.section, tl.amount, tl.status, tl.non_resident, n.for_non_residents AS for_nr
+    .all<{ id: number; voucher_id: number; bill_voucher_id: number | null; date: string; kind: TdsKind; section: string; amount: number; status: string; non_resident: number; for_nr: number }>(
+      `SELECT tl.id, tl.voucher_id, tl.bill_voucher_id, tl.date, tl.kind, tl.section, tl.amount, tl.status, tl.non_resident, n.for_non_residents AS for_nr
          FROM tds_lines tl JOIN tds_natures n ON n.id = tl.nature_id
-        WHERE tl.kind = :kind AND tl.date <= :to AND (tl.amount > 0 OR tl.status = 'certificate')
+        WHERE tl.kind = :kind AND tl.date <= :to AND (tl.amount > 0 OR tl.status = 'certificate' OR (tl.amount < 0 AND tl.bill_voucher_id IS NOT NULL))
           AND tl.affects_books = 1 AND (tl.is_post_dated = 0 OR tl.date <= :today)
         ORDER BY tl.date, tl.voucher_id, tl.line_no`,
       p,
     )
     .map((r) => ({
       id: r.id,
+      voucherId: r.voucher_id,
+      billVoucherId: r.bill_voucher_id,
       date: r.date,
       kind: r.kind,
       section: r.section,
@@ -690,7 +730,7 @@ const REASON_NO_PAN = 'C';
 export function returnData(db: Db, p: { form: TdsForm; fyStart: number; quarter: Quarter; today: string; asOf: string }): TdsReturnData {
   const range = quarterRange(p.fyStart, p.quarter);
   const kind: TdsKind = p.form === '27EQ' ? 'tcs' : 'tds';
-  const all = loadLines(db, { kind, from: range.from, to: range.to, today: p.today }).filter((l) => formOf(l) === p.form);
+  const all = netReversals(loadLines(db, { kind, from: range.from, to: range.to, today: p.today }).filter((l) => formOf(l) === p.form));
   const challansAll = loadChallans(db, { kind, depositTo: '9999-12-31', today: p.today, periodFrom: range.from.slice(0, 7) });
   const cleared = clearDeductions(all, challansAll);
   const months = new Set([0, 1, 2].map((i) => {

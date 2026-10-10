@@ -7,16 +7,18 @@
  */
 import type { PosHeldBillSaveInput, PosRegisterInput, PosSettingsInput, PosSummaryInput, PosTenderModeSaveInput } from '../../../shared/types/pos.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
+import { notFound } from '../../lib/errors.ts';
 import { v } from '../../lib/validate.ts';
 import { discardHeldBill, holdBill, listHeldBills, recallHeldBill } from './held.ts';
-import { createCustomer, findCustomers, lookupItem } from './lookup.ts';
+import { createCustomer, findCustomers, loadPosItem, lookupItem } from './lookup.ts';
 import { posRegister, posSummary } from './reports.ts';
-import { openExchangeCredits, returnContext } from './returns.ts';
+import { openExchangeCredits, returnContext, voucherPos } from './returns.ts';
 import {
   CustomerCreateSchema,
   CustomerFindSchema,
   ExchangeCreditsSchema,
   HeldSaveSchema,
+  ItemGetSchema,
   ItemLookupSchema,
   PosSettingsSchema,
   RegisterSchema,
@@ -76,6 +78,18 @@ export const posRoutes = {
     transactional: false,
     handler: (ctx, input) => lookupItem(ctx.db, input, ctx.clock.today()),
   }),
+  /** One item with its counter price, slabs, MRP and stock (recalling a held bill, picking by name). */
+  'pos.item.get': companyRoute({
+    access: 'vouchers.view',
+    input: ItemGetSchema,
+    transactional: false,
+    handler: (ctx, input) => {
+      assertPosEnabled(ctx.db);
+      const item = loadPosItem(ctx.db, input.itemId, 'name', { date: input.date, today: ctx.clock.today(), priceLevelId: input.priceLevelId, godownId: input.godownId });
+      if (!item) throw notFound('Stock item', input.itemId);
+      return item;
+    },
+  }),
   'pos.customer.find': companyRoute({
     access: 'vouchers.view',
     input: CustomerFindSchema,
@@ -121,6 +135,13 @@ export const posRoutes = {
     input: ExchangeCreditsSchema,
     transactional: false,
     handler: (ctx, input) => openExchangeCredits(ctx.db, ctx.clock.today(), { partyLedgerId: input.partyLedgerId }),
+  }),
+  /** The POS side of a saved voucher (tenders, change, return of) — null for other vouchers (voucher view panel). */
+  'pos.voucher': companyRoute({
+    access: 'vouchers.view',
+    input: IdSchema,
+    transactional: false,
+    handler: (ctx, input) => voucherPos(ctx.db, input.id),
   }),
   /** Day-end POS summary: by tender, user and counter; returns, credit, exchange, cash. */
   'pos.summary': companyRoute({

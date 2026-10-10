@@ -20,7 +20,7 @@ import { qrsOf, useDocumentQrs, usePrintActions, usePrinterChoice } from './useP
 
 export interface PrintVoucherParams {
   id: number;
-  /** 1–3 or a list of copies; default F12 › Invoice printing › Copies. */
+  /** 1–3 or a list of copies; default Invoice Printing (print settings) › Copies. */
   copies?: number | PrintCopy[];
   template?: InvoiceTemplate;
   pageSize?: PrintPageSize;

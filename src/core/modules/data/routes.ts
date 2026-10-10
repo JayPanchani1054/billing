@@ -9,11 +9,13 @@ import type { FieldIssue } from '../../../shared/api.ts';
 import {
   IMPORT_KINDS,
   MASTER_EXPORT_KINDS,
+  type BackupApproveFolderInput,
   type BackupAutoInput,
   type BackupAutoResult,
   type BackupCreateInput,
   type BackupCreateResult,
   type BackupFileInfo,
+  type BackupFolderStatus,
   type BackupInspectInput,
   type BackupListInput,
   type BackupListResult,
@@ -47,7 +49,7 @@ import { VOUCHER_BASE_TYPES } from '../../../shared/constants.ts';
 import { appRoute, companyRoute, type RouteMap } from '../../api/route.ts';
 import { customSchema } from '../../lib/schemas.ts';
 import { v, type Schema } from '../../lib/validate.ts';
-import { autoBackup, configuredBackupFolder, createBackup, inspectBackupFile, listBackups, restoreBackup, verifyBackup } from './backup.ts';
+import { approveBackupFolder, approvedBackupFolder, autoBackup, backupFolderStatus, createBackup, inspectBackupFile, listBackups, restoreBackup, verifyBackup } from './backup.ts';
 import { assertNoCompanyOpen, requirePermission } from './common.ts';
 import { exportMasters, exportVouchers } from './exportData.ts';
 import { auditReportOutput, exportTable } from './exportTable.ts';
@@ -71,6 +73,8 @@ export const BackupCreateInputSchema = v.object({
 }) as Schema<BackupCreateInput>;
 
 export const BackupListInputSchema = v.object({ folder: path('backup folder').optional() }) as Schema<BackupListInput>;
+
+export const BackupApproveFolderInputSchema = v.object({ folder: path('backup folder') }) as Schema<BackupApproveFolderInput>;
 
 export const BackupVerifyInputSchema = v.object({ path: path('backup file'), password: secret().optional() }) as Schema<BackupVerifyInput>;
 
@@ -233,7 +237,7 @@ export const dataRoutes = {
     transactional: false,
     input: BackupVerifyInputSchema,
     handler: (ctx, input): Promise<BackupVerifyResult> =>
-      verifyBackup({ app: ctx.app, trusted: [configuredBackupFolder(ctx.db)] }, input.path, input.password),
+      verifyBackup({ app: ctx.app, trusted: [approvedBackupFolder(ctx)] }, input.path, input.password),
   }),
   'data.backup.auto': companyRoute({
     access: 'authenticated', // a company-wide F12 policy: runs for whoever opens / closes the company
@@ -241,12 +245,25 @@ export const dataRoutes = {
     input: BackupAutoInputSchema,
     handler: (ctx, input): Promise<BackupAutoResult> => autoBackup(ctx, input),
   }),
+  // The F12 backup folder approved on this computer (a folder that came with a restored backup or a
+  // copied company is used only after the user confirms it — backup.ts approvedBackupFolder).
+  'data.backup.folderStatus': companyRoute({
+    access: 'authenticated',
+    transactional: false,
+    input: v.none(),
+    handler: (ctx): BackupFolderStatus => backupFolderStatus(ctx),
+  }),
+  'data.backup.approveFolder': companyRoute({
+    access: 'company.manage', // same right as changing the folder in F12
+    input: BackupApproveFolderInputSchema,
+    handler: (ctx, input): BackupFolderStatus => approveBackupFolder(ctx, input),
+  }),
   'data.backup.restore': companyRoute({
     access: 'data.restore',
     transactional: false,
     input: BackupRestoreInputSchema,
     handler: (ctx, input): Promise<BackupRestoreResult> =>
-      restoreBackup({ app: ctx.app, clock: ctx.clock, session: ctx.session, openCompanyId: ctx.company.id, trusted: [configuredBackupFolder(ctx.db)] }, input),
+      restoreBackup({ app: ctx.app, clock: ctx.clock, session: ctx.session, openCompanyId: ctx.company.id, trusted: [approvedBackupFolder(ctx)] }, input),
   }),
   // Public (no login) routes below accept only backup files picked in the file dialog this session, or
   // files inside the data folder (core/lib/paths.ts) — never an arbitrary or UNC path.

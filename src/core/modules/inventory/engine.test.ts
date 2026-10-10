@@ -248,7 +248,7 @@ describe('query plans stay index-friendly with ANALYZE statistics', () => {
       assert.doesNotMatch(one, /ANY\(item_id\)/, 'never a skip-scan over every item id');
       const all = plan(VALUATION_MOVEMENT_SQL.all, { to: TODAY, today: TODAY, main: t.ids.mainGodownId });
       assert.match(all, /SCAN ie\b/);
-      const soh = plan(STOCK_BY_ITEM_SOME_SQL, { asOf: TODAY, today: TODAY, main: t.ids.mainGodownId, gf: 0, gids: '[]', exclude: null, ids });
+      const soh = plan(STOCK_BY_ITEM_SOME_SQL, { asOf: TODAY, today: TODAY, main: t.ids.mainGodownId, gf: 0, gids: '[]', pw: '[]', exclude: null, ids });
       assert.match(soh, /idx_ie_item_date \(item_id=\?/);
       // and the figures are unchanged by the statistics
       const everyItem = stockByItem(t.db, { asOf: TODAY });

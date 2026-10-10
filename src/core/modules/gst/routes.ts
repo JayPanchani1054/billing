@@ -3,6 +3,8 @@
  * GST state needs gst.file. Report routes are transactional: false (read-only; file exports write
  * their audit entry in their own small transaction). See README.md for inputs and outputs.
  */
+import { listGstr3bChanges } from './filed3b.ts';
+import { postRule37, rule37Report } from './rule37.ts';
 import type {
   EinvoiceGeneratedResult,
   EinvoiceImportResult,
@@ -29,6 +31,8 @@ import type {
   ElectronicCashLedger,
   ElectronicCreditLedger,
   GstAmendmentRow,
+  Gstr3bChangeRow,
+  Rule37Result,
   GstChallanRow,
   GstFiling,
   GstSetoffResult,
@@ -377,6 +381,39 @@ export const gstRoutes = {
       gstCompany(ctx);
       return listAmendments(ctx.db, { amendPeriod: input.period, voucherId: input.voucherId });
     },
+  }),
+
+  // Changes to vouchers of periods whose GSTR-3B is filed (filed3b.ts): reported in the next GSTR-3B.
+  'gst.gstr3b.changes': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: v.object({ period: v.string({ max: 20 }).optional(), voucherId: v.id().optional() }),
+    handler: (ctx, input): Gstr3bChangeRow[] => {
+      gstCompany(ctx);
+      return listGstr3bChanges(ctx.db, { reportPeriod: input.period, voucherId: input.voucherId });
+    },
+  }),
+
+  // Rule 37: purchases not paid within 180 days (rule37.ts).
+  'gst.rule37.report': companyRoute({
+    access: 'gst.view',
+    transactional: false,
+    input: v.object({ asOf: v.date(), partyLedgerId: v.id().optional() }),
+    handler: (ctx, input): Rule37Result => {
+      const company = gstCompany(ctx);
+      return rule37Report(ctx.db, company, ctx.clock.today(), input);
+    },
+  }),
+  'gst.rule37.post': companyRoute({
+    access: 'gst.file',
+    input: v.object({
+      asOf: v.date(),
+      date: v.date(),
+      kind: v.enum(['reversal', 'reclaim'] as const),
+      voucherIds: v.array(v.id(), { max: 5000 }).optional(),
+      narration: v.string({ max: 500 }).optional(),
+    }),
+    handler: (ctx, input): VoucherSaveResult => postRule37(ctx, gstCompany(ctx), input),
   }),
 
   // ───────────── Set-off, challans, electronic ledgers ─────────────

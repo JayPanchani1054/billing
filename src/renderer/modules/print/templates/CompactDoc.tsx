@@ -7,6 +7,7 @@
  */
 import { addressLines, compactLineInfo, dateText, money, mrpText, pctText, qtyText, rateText, rupees, showMrp, totalRows, voucherSides } from '../lib/layout.ts';
 import { safeImage, Stamp, taxabilityShort, type DocProps } from './parts.tsx';
+import { PosPrintBlock } from '../../pos/PrintBlock.tsx';
 
 export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
   const upi = safeImage(qrs.upi);
@@ -178,6 +179,9 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
           </tbody>
         </table>
       ) : null}
+
+      {/* (pos group) How a POS bill was paid: tenders, cash tendered, change, on account. */}
+      <PosPrintBlock doc={doc} compact />
 
       {doc.gst.showTax && doc.taxByRate.length > 0 ? (
         <>

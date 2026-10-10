@@ -6,7 +6,7 @@
 import { ATTACHMENT_ENTITY_TYPES, MAX_ATTACHMENT_BYTES } from '../../../shared/attachments.ts';
 import { companyRoute, type RouteMap } from '../../api/route.ts';
 import { v } from '../../lib/validate.ts';
-import { addAttachment, attachmentRegister, countAttachments, listAttachments, readAttachment, removeAttachment } from './service.ts';
+import { addAttachment, attachmentRegister, countAttachments, listAttachments, readAttachment, removeAttachment, sweepUnusedFiles, unusedFiles } from './service.ts';
 
 const ENTITY = v.enum(ATTACHMENT_ENTITY_TYPES);
 
@@ -48,6 +48,20 @@ export const attachmentsRoutes = {
     transactional: false,
     input: v.object({ id: v.id() }),
     handler: (ctx, { id }) => removeAttachment(ctx, id),
+  }),
+  // Stored files no attachment refers to (an attach that could not finish), and their removal.
+  'attachments.unused': companyRoute({
+    access: 'attachments.remove',
+    transactional: false,
+    input: v.object({}),
+    handler: (ctx) => unusedFiles(ctx),
+  }),
+  // Own transaction for the edit-log entry: files are deleted outside any transaction.
+  'attachments.sweep': companyRoute({
+    access: 'attachments.remove',
+    transactional: false,
+    input: v.object({}),
+    handler: (ctx) => sweepUnusedFiles(ctx),
   }),
   'attachments.register': companyRoute({
     access: 'authenticated',

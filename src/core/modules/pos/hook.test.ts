@@ -116,6 +116,25 @@ describe('POS bill: rules', () => {
     rejects(() => saveBill(k, bill(k, basket(k), { tenders: [tender(k.M.upi, 22_300)], cashTendered: 30_000 })), 'BUSINESS_RULE', /no cash tender/);
   });
 
+  it('statutory reminders: an unnamed walk-in bill of ₹50,000+ (Rule 46(e)) and ₹2 lakh+ in cash (s.269ST)', () => {
+    const k = posKit();
+    // 500 soaps × ₹100 = ₹50,000 taxable → Rule 46(e) reminder; paid by UPI (no cash warning).
+    const big = bill(k, [line(k.I.soap, 500, 100)], { tenders: [tender(k.M.upi, 5_900_000)] });
+    k.t.db.run('UPDATE stock_openings SET qty = 5000 WHERE item_id = :i', { i: k.I.soap });
+    rejects(() => saveVoucher(k.t.ctx, big), 'BUSINESS_RULE', /CGST Rule 46\(e\)/);
+    // Named on the bill: no reminder.
+    assert.equal(saveBill(k, { ...big, party: { name: 'Mohan Lal', address: 'Shop 4, Main Road, Pune', stateCode: '27' } }).totals.grandTotal, 5_900_000);
+    // ₹2,36,000 in cash on one bill (2,000 × ₹100 + 18 %) → s.269ST reminder.
+    const cash = bill(k, [line(k.I.soap, 2_000, 100)], { tenders: [tender(k.M.cash, 23_600_000)] }, { partyLedgerId: k.L.customer });
+    rejects(() => saveVoucher(k.t.ctx, cash), 'BUSINESS_RULE', /s\.269ST/);
+    // Review: an unregistered customer with no address on record needs the address of delivery too.
+    rejects(() => saveVoucher(k.t.ctx, cash), 'BUSINESS_RULE', /Ramesh Kumar has no address/);
+    assert.ok(saveBill(k, cash).id > 0); // confirmed
+    k.t.db.run(`UPDATE ledgers SET address = 'Flat 2, MG Road, Pune' WHERE id = :id`, { id: k.L.customer });
+    const p = previewVoucher(k.t.ctx, bill(k, [line(k.I.soap, 500, 100)], { tenders: [tender(k.M.upi, 5_900_000)] }, { partyLedgerId: k.L.customer }));
+    assert.equal(p.warnings.some((w) => /Rule 46\(e\)/.test(w.message)), false);
+  });
+
   it('only POS voucher types take tenders on a sale', () => {
     const k = posKit();
     rejects(() => saveBill(k, bill(k, basket(k), { tenders: [tender(k.M.cash, 22_300)] }, { voucherTypeId: k.t.ids.voucherTypes.sales })), 'BUSINESS_RULE', /not a POS voucher type/);
@@ -134,11 +153,22 @@ describe('POS bill: rules', () => {
     rejects(() => saveBill(k, bill(k, basket(k), { tenders: [tender(k.M.cash, 22_300)] })), 'VALIDATION', /POS invoicing is turned off/);
   });
 
-  it('a saved POS bill cannot lose its tenders by an alteration made elsewhere; on the counter it alters normally', () => {
+  it('a saved POS bill keeps its tenders when altered elsewhere (re-checked); on the counter it alters normally', () => {
     const k = posKit();
-    const r = saveBill(k, bill(k, [line(k.I.soap, 1, 100)], { tenders: [tender(k.M.upi, 11_800)] }));
+    const r = saveBill(k, bill(k, [line(k.I.soap, 1, 100)], { tenders: [tender(k.M.upi, 11_800, { reference: 'U1' })], counter: 'Till 2' }));
     const { posBill: _drop, ...plain } = bill(k, [line(k.I.soap, 1, 100)], { tenders: [] });
-    rejects(() => saveVoucher(k.t.ctx, { ...plain, id: r.id, acknowledgeWarnings: true }), 'VALIDATION', /Alter it on the POS counter/);
+    // Regression: an alteration without the POS block used to be refused (paid bill) or to drop the
+    // bill's POS rows (credit bill) — and the counter's own alteration preview (sent without the block)
+    // threw, so an altered bill never showed its total. Now the stored tenders come back, checked again.
+    const pv = previewVoucher(k.t.ctx, { ...plain, id: r.id });
+    assert.equal(pv.totals.grandTotal, 11_800);
+    assert.equal(pv.posBill?.paid, 11_800);
+    saveVoucher(k.t.ctx, { ...plain, id: r.id, narration: 'typo fixed', acknowledgeWarnings: true });
+    assert.deepEqual(entries(k, r.id), { Sales: -10_000, 'Output CGST': -900, 'Output SGST/UTGST': -900, 'HDFC Current A/c': 11_800 });
+    assert.deepEqual(k.t.db.get('SELECT paid, counter FROM pos_bills WHERE voucher_id = :id', { id: r.id }), { paid: 11_800, counter: 'Till 2' });
+    assert.equal(k.t.db.value('SELECT reference FROM pos_payments WHERE voucher_id = :id', { id: r.id }), 'U1');
+    // Changing the goods there leaves the walk-in bill part unpaid: refused with the counter's message.
+    rejects(() => saveVoucher(k.t.ctx, { ...plain, items: [line(k.I.soap, 2, 100)], id: r.id, acknowledgeWarnings: true }), 'BUSINESS_RULE', /not paid/);
     // Altered with its tenders (2 soaps now, half UPI half cash): rows rebuilt.
     const r2 = saveBill(k, { ...bill(k, [line(k.I.soap, 2, 100)], { tenders: [tender(k.M.upi, 11_800), tender(k.M.cash, 11_800)] }), id: r.id });
     assert.equal(r2.id, r.id);
@@ -245,5 +275,121 @@ describe('POS returns and exchange', () => {
     const k = posKit();
     const b = sold(k);
     rejects(() => saveBill(k, { ...ret(k, b.id, 1, []), partyLedgerId: k.L.customer }), 'BUSINESS_RULE', /billed to another party/);
+  });
+});
+
+describe('POS review regressions: what was built on a bill stays true', () => {
+  const soldTwo = (k: PosKit) => saveBill(k, bill(k, [line(k.I.soap, 2, 100)], { tenders: [tender(k.M.cash, 23_600)] }));
+  const retInput = (k: PosKit, billId: number, items: ReturnType<typeof line>[], tenders: ReturnType<typeof tender>[], extra = {}) => ({
+    voucherTypeId: k.returnType,
+    date: k.t.today,
+    mode: 'item_invoice' as const,
+    partyLedgerId: k.L.cash,
+    originalInvoiceNo: k.t.db.value<string>('SELECT number FROM vouchers WHERE id = :id', { id: billId }) ?? undefined,
+    originalInvoiceDate: k.t.today,
+    noteReason: 'Sales return',
+    items,
+    posBill: { tenders, returnOfId: billId },
+    ...extra,
+  });
+
+  it('a bill with returns cannot sell less than came back, change customer, move after the return or become optional', () => {
+    const k = posKit();
+    const b = soldTwo(k);
+    saveBill(k, retInput(k, b.id, [line(k.I.soap, 2, 100)], [tender(k.M.cash, 23_600)]));
+    // Regression: the bill used to be altered down to 1 soap while 2 had been refunded.
+    rejects(() => saveBill(k, { ...bill(k, [line(k.I.soap, 1, 100)], { tenders: [tender(k.M.cash, 11_800)] }), id: b.id }), 'BUSINESS_RULE', /came back on the returns of this bill/);
+    rejects(
+      () => saveBill(k, { ...bill(k, [line(k.I.soap, 2, 100)], { tenders: [tender(k.M.cash, 23_600)] }, { partyLedgerId: k.L.customer }), id: b.id }),
+      'BUSINESS_RULE',
+      /customer cannot change/,
+    );
+    rejects(() => saveBill(k, { ...bill(k, [line(k.I.soap, 2, 100)], { tenders: [tender(k.M.cash, 23_600)] }, { date: '2026-04-16' }), id: b.id }), 'BUSINESS_RULE', /cannot be dated after its return/);
+    rejects(() => saveBill(k, { ...bill(k, [line(k.I.soap, 2, 100)], { tenders: [tender(k.M.cash, 23_600)] }, { isOptional: true }), id: b.id }), 'BUSINESS_RULE', /cannot become optional/);
+    // The bill cannot be cheapened below what was refunded either (2 soaps at ₹50 = 11,800 < 23,600 refunded).
+    rejects(() => saveBill(k, { ...bill(k, [line(k.I.soap, 2, 50)], { tenders: [tender(k.M.cash, 11_800)] }), id: b.id }), 'BUSINESS_RULE', /returns of this bill total ₹ 236\.00/);
+    // Adding goods is fine (3 soaps: 35,400).
+    saveBill(k, { ...bill(k, [line(k.I.soap, 3, 100)], { tenders: [tender(k.M.cash, 35_400)] }), id: b.id });
+    assert.equal(trialSum(k), 0);
+  });
+
+  it('a return whose exchange credit was used cannot issue less, or be dated after its use', () => {
+    const k = posKit();
+    const b = soldTwo(k);
+    const r = saveBill(k, retInput(k, b.id, [line(k.I.soap, 2, 100)], [tender(k.M.exchange, 23_600)]));
+    saveBill(k, bill(k, [line(k.I.soap, 2, 100)], { tenders: [tender(k.M.exchange, 23_600, { exchangeVoucherId: r.id })] }));
+    // Regression: the return used to be altered to 1 soap refunded in cash, leaving ₹236 of credit spent
+    // that was never issued (POS Exchange Credit with a debit balance).
+    rejects(() => saveBill(k, { ...retInput(k, b.id, [line(k.I.soap, 1, 100)], [tender(k.M.cash, 11_800)]), id: r.id }), 'BUSINESS_RULE', /cannot issue less/);
+    rejects(
+      () => saveBill(k, { ...retInput(k, b.id, [line(k.I.soap, 2, 100)], [tender(k.M.exchange, 23_600)], { date: '2026-04-16' }), id: r.id }),
+      'BUSINESS_RULE',
+      /cannot be dated after it/,
+    );
+    rejects(() => saveBill(k, { ...retInput(k, b.id, [line(k.I.soap, 2, 100)], [tender(k.M.exchange, 23_600)], { isOptional: true }), id: r.id }), 'BUSINESS_RULE', /cannot issue less/);
+    assert.equal(k.t.db.value('SELECT SUM(amount) FROM ledger_entries WHERE ledger_id = :l AND affects_books = 1', { l: k.L.exchange }), 0);
+  });
+
+  it('a return never refunds more than the bill charged for the goods', () => {
+    const k = posKit();
+    // Pen ₹10 + 18 % = 11.80 → 12.00 after round-off.
+    const b = saveBill(k, bill(k, [line(k.I.pen, 1, 10)], { tenders: [tender(k.M.cash, 1_200)] }));
+    // Regression: a return at ₹1,000 a pen used to refund ₹1,180 in cash against a ₹12 bill.
+    rejects(() => saveBill(k, retInput(k, b.id, [line(k.I.pen, 1, 1000)], [tender(k.M.cash, 118_000)])), 'BUSINESS_RULE', /charged ₹ 10\.00 for 1/);
+    const ok = saveBill(k, retInput(k, b.id, [line(k.I.pen, 1, 10)], [tender(k.M.cash, 1_200)]));
+    assert.equal(k.t.db.value('SELECT bill_value FROM pos_bills WHERE voucher_id = :id', { id: ok.id }), 1_200);
+  });
+
+  it('partial returns share the bill value, with a rupee of round-off slack per note', () => {
+    const k = posKit();
+    // 3 pens: 3,000 + 540 GST = 3,540 → 35.00 (rounded down 0.40).
+    const b = saveBill(k, bill(k, [line(k.I.pen, 3, 10)], { tenders: [tender(k.M.cash, 3_500)] }));
+    // Each return of one pen is 11.80 → 12.00: 12 + 12 + 12 = 36 > 35, within ₹1 of slack per note.
+    for (let i = 0; i < 3; i++) saveBill(k, retInput(k, b.id, [line(k.I.pen, 1, 10)], [tender(k.M.cash, 1_200)]));
+    assert.equal(k.t.db.value('SELECT COUNT(*) FROM pos_bills WHERE return_of_id = :id', { id: b.id }), 3);
+    assert.equal(trialSum(k), 0);
+  });
+
+  it('a return altered as a credit note elsewhere keeps its bill: returned quantities still count', () => {
+    const k = posKit();
+    const b = soldTwo(k);
+    const r = saveBill(k, retInput(k, b.id, [line(k.I.soap, 1, 100)], [tender(k.M.cash, 11_800)]));
+    const { posBill: _p, ...plain } = retInput(k, b.id, [line(k.I.soap, 1, 100)], []);
+    saveVoucher(k.t.ctx, { ...plain, id: r.id, narration: 'note added', acknowledgeWarnings: true });
+    assert.equal(k.t.db.value('SELECT return_of_id FROM pos_bills WHERE voucher_id = :id', { id: r.id }), b.id);
+    // Only one soap is left to return.
+    rejects(() => saveBill(k, retInput(k, b.id, [line(k.I.soap, 2, 100)], [tender(k.M.cash, 23_600)])), 'BUSINESS_RULE', /Only 1 of 'Bath Soap 100g'/);
+  });
+
+  it('post-dated returns and bills count at once: no second return of the same goods, no second use of a credit', () => {
+    const k = posKit();
+    const b = soldTwo(k);
+    // A post-dated return (20-Apr) of both soaps: before its date it already counts.
+    saveBill(k, retInput(k, b.id, [line(k.I.soap, 2, 100)], [tender(k.M.cash, 23_600)], { date: '2026-04-20', isPostDated: true }));
+    rejects(() => saveBill(k, retInput(k, b.id, [line(k.I.soap, 1, 100)], [tender(k.M.cash, 11_800)])), 'BUSINESS_RULE', /Only 0 of 'Bath Soap 100g'/);
+    // Exchange credit spent on a post-dated bill cannot be spent again today.
+    const b2 = soldTwo(k);
+    const r2 = saveBill(k, retInput(k, b2.id, [line(k.I.soap, 1, 100)], [tender(k.M.exchange, 11_800)]));
+    saveBill(k, bill(k, [line(k.I.soap, 1, 100)], { tenders: [tender(k.M.exchange, 11_800, { exchangeVoucherId: r2.id })] }, { date: '2026-04-25', isPostDated: true }));
+    rejects(
+      () => saveBill(k, bill(k, [line(k.I.soap, 1, 100)], { tenders: [tender(k.M.exchange, 11_800, { exchangeVoucherId: r2.id })] })),
+      'BUSINESS_RULE',
+      /has ₹ 0\.00 of exchange credit left/,
+    );
+  });
+
+  it('CGST s.34(2): a return after 30 November following the year of sale is flagged (confirm)', () => {
+    const k = posKit({ today: '2027-12-05', booksFrom: '2026-04-01' });
+    const b = saveBill(k, bill(k, [line(k.I.soap, 1, 100)], { tenders: [tender(k.M.cash, 11_800)] }, { date: '2026-04-15' }));
+    const p = previewVoucher(k.t.ctx, retInput(k, b.id, [line(k.I.soap, 1, 100)], [tender(k.M.cash, 11_800)]));
+    const w = p.warnings.find((x) => x.code === 'pos' && /34\(2\)/.test(x.message));
+    assert.ok(w, JSON.stringify(p.warnings));
+    assert.equal(w.blocking, false);
+    assert.match(w.message, /30-Nov-2027|30 Nov 2027|30\/11\/2027/);
+    // Within the limit: no reminder.
+    const k2 = posKit({ today: '2027-11-30', booksFrom: '2026-04-01' });
+    const b2 = saveBill(k2, bill(k2, [line(k2.I.soap, 1, 100)], { tenders: [tender(k2.M.cash, 11_800)] }, { date: '2026-04-15' }));
+    const p2 = previewVoucher(k2.t.ctx, retInput(k2, b2.id, [line(k2.I.soap, 1, 100)], [tender(k2.M.cash, 11_800)]));
+    assert.equal(p2.warnings.some((x) => /34\(2\)/.test(x.message)), false);
   });
 });

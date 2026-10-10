@@ -373,6 +373,11 @@ export interface AuditEntityHistoryInput {
   entityId: number;
   /** Optional: restrict to entries of this record guid (ids of deleted records can be reused). */
   entityGuid?: string;
+  /**
+   * (additive) Records without a guid (users, roles): only the CURRENT holder of the id — entries from
+   * its latest 'create' on. A deleted role's id can be reused by a new role; its older entries are left out.
+   */
+  currentOnly?: boolean;
 }
 
 export interface AuditHistoryVersion extends AuditListRow {

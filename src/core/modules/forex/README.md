@@ -41,7 +41,16 @@ same transaction, so every derived row honours `affects_books` / `is_post_dated`
 
 Bill-wise amounts may be typed in the currency (`billAllocations[].forexAmount`, magnitude); if not,
 they are taken in proportion to the rupees (info warning). A mismatch between bill-wise foreign
-amounts and the line is a blocking warning.
+amounts and the line is a blocking warning — except when another hook (TDS u/s 195) reduced the
+line's rupees and the amounts were typed for the gross: they are then reduced in the same proportion
+(info warning), so the supplier's bill holds the net in both currencies and a payment of that net
+settles it (tds/gaps.test.ts).
+
+**Voucher entry decimals** (renderer): the amount fields of an invoice in a foreign currency hold the
+foreign amount in 10^-d units, d = the currency's decimal places (0, 2, 3 or 4 —
+`VoucherForm.forexDecimals`, `AmountInput decimals`); a loaded invoice is held at 4 decimals and
+rescaled to the currency's (`forexUnit`), so a KWD 12.345 line or a ¥1,250 line reaches the server
+exactly (vouchers/lib/forexDecimals.test.ts).
 
 ## 3. Realised and unrealised differences (AS 11 / Ind AS 21)
 
@@ -130,9 +139,8 @@ every currency needs a closing rate). Renderer pure logic: `src/renderer/modules
 
 ## 8. Known gaps
 
-* Currencies with 3–4 decimals (KWD, BHD…) are stored and converted exactly in the core, but voucher
-  entry's grid keeps amounts of a foreign-currency invoice at 2 decimals (amount fields hold
-  foreign × 100).
+* Voucher entry shows the GST figure under an invoice line of a foreign-currency invoice with a ₹ sign
+  (it is in the currency); the server's preview and the print show the rupees.
 * Item invoices in a foreign currency: stock is valued in rupees at the converted rate (as Tally).
   Inventory reports show rupees only.
 * No automatic reversal of the revaluation journal; no FCMITDA / hedge accounting (§3).
@@ -146,5 +154,5 @@ every currency needs a closing rate). Renderer pure logic: `src/renderer/modules
   currency.
 * Realised differences on settling an advance by an invoice are booked like any other bill (Tally's
   behaviour); Ind AS 21 Appendix B would instead record the invoice at the advance's rate.
-* The TDS + foreign-currency combination (a TDS line on a payment to a foreign party) scales the foreign
-  amount in proportion to the rupees after deduction; it has no dedicated test yet.
+* TDS u/s 195 is computed on the rupee value at the voucher's rate (Rule 26 asks for the SBI TT buying
+  rate on the date of deduction: type that rate on the bill when it differs).

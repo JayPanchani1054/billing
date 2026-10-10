@@ -13,6 +13,8 @@
  *    other attachment uses the same content.
  */
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { Permission } from '../../../shared/constants.ts';
 import { formatDate } from '../../../shared/dates.ts';
 import {
@@ -33,12 +35,15 @@ import type {
   AttachmentRegisterResult,
   AttachmentRegisterRow,
   AttachmentRow,
+  AttachmentSweepResult,
+  AttachmentUnusedFile,
+  AttachmentUnusedResult,
 } from '../../../shared/types/attachments.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { AppError, forbidden, notFound, rule, validation } from '../../lib/errors.ts';
 import { getConfig } from '../company/service.ts';
-import { attachmentsDir, contentProblem, listStored, readStored, removeStored, sha256Hex, verifyStored, writeStored } from './store.ts';
+import { attachmentsDir, contentProblem, listStored, parseStoredName, readStored, removeStored, sha256Hex, verifyStored, writeStored } from './store.ts';
 
 const OWNER_COLUMN: Readonly<Record<AttachmentEntityType, 'voucher_id' | 'ledger_id' | 'stock_item_id'>> = {
   voucher: 'voucher_id',
@@ -304,6 +309,51 @@ export function removeUnusedFiles(ctx: Pick<CompanyCtx, 'db' | 'company' | 'app'
     }
   }
   return removed;
+}
+
+/** Stored files of the company's attachments folder that no attachment row refers to (name order). */
+export function unusedFiles(ctx: CompanyCtx): AttachmentUnusedResult {
+  need(ctx, 'attachments.remove', 'remove unused attachment files');
+  const dir = attachmentsDir(ctx.company.dir);
+  const files: AttachmentUnusedFile[] = [];
+  for (const f of listStored(dir)) {
+    const used = ctx.db.value<number>('SELECT 1 FROM attachments WHERE sha256 = :sha AND ext = :ext LIMIT 1', { sha: f.sha256, ext: f.ext });
+    if (used !== undefined) continue;
+    let bytes = 0;
+    try {
+      bytes = fs.statSync(path.join(dir, f.name)).size;
+    } catch {
+      continue; // gone meanwhile
+    }
+    files.push({ name: f.name, bytes });
+  }
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  return { files, totalBytes: files.reduce((a, f) => a + f.bytes, 0) };
+}
+
+/**
+ * Remove every stored file no attachment refers to (Data › Attachment Register › Alt+U). Needs
+ * attachments.remove; recorded in the edit log (count, size and the files' SHA-256 prefixes) when
+ * anything was removed. Files still referenced are never touched (checked again per file).
+ */
+export function sweepUnusedFiles(ctx: CompanyCtx): AttachmentSweepResult {
+  const before = unusedFiles(ctx);
+  if (before.files.length === 0) return { removed: 0, bytes: 0 };
+  const removed = removeUnusedFiles(ctx, before.files.map((f) => parseStoredName(f.name)).filter((x): x is { sha256: string; ext: string } => x !== null));
+  const after = new Set(unusedFiles(ctx).files.map((f) => f.name));
+  const gone = before.files.filter((f) => !after.has(f.name));
+  const bytes = gone.reduce((a, f) => a + f.bytes, 0);
+  if (removed > 0) {
+    ctx.db.transaction(() => {
+      ctx.audit({
+        action: 'delete',
+        entityType: 'attachment_files',
+        entityLabel: `Unused attachment files removed: ${gone.length} (${formatFileSize(bytes)})`,
+        before: { files: gone.map((f) => ({ name: `${f.name.slice(0, 12)}…${f.name.slice(f.name.lastIndexOf('.'))}`, bytes: f.bytes })) },
+      });
+    });
+  }
+  return { removed: gone.length, bytes };
 }
 
 /**

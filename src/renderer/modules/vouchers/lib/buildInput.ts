@@ -13,13 +13,13 @@ import type {
   VoucherInput,
   VoucherMode,
 } from '../../../../shared/types/vouchers.ts';
-import { blankItem, blankLedger, isBlankItem, isBlankLedger, newForm, normalize, splitForSingle } from './formState.ts';
+import { amountDecimals, blankItem, blankLedger, isBlankItem, isBlankLedger, newForm, normalize, splitForSingle } from './formState.ts';
 import type { ItemRow, LedgerLayout, LedgerRow, VoucherForm } from './formState.ts';
 import type { VoucherTdsInput } from '../../../../shared/types/tds.ts';
 import type { VoucherGstDetailsInput } from '../../../../shared/types/gst-plus.ts';
 import { gstDetailsForBase } from '../../gst/lib/gstplus.ts';
 import { isInvoiceMode, showsParty, singleEntryAccountSide } from './kinds.ts';
-import { decodeForex, encodeForex, forexBills, signedForex } from '../../forex/lib/entry.ts';
+import { decodeForex, encodeForex, forexBills, LOAD_FOREX_DECIMALS, signedForex } from '../../forex/lib/entry.ts';
 
 /** Key used in `ledgerKeys` for the single-entry Account line. */
 export const ACCOUNT_ROW = 'account';
@@ -77,7 +77,7 @@ function itemLine(r: ItemRow, f: VoucherForm): ItemLineInput {
   if (f.forex && isInvoiceMode(f.mode)) {
     line.forexRate = r.rate ?? 0;
     if (r.amount !== null) {
-      line.forexAmount = decodeForex(r.amount);
+      line.forexAmount = decodeForex(r.amount, amountDecimals(f));
       delete line.amount;
     }
     delete line.rateInclusiveOfTax;
@@ -150,7 +150,7 @@ export function buildVoucherInput(f: VoucherForm): BuiltInput {
   // (forex module) Invoice in a foreign currency: currency + rate; party bills carry their foreign amount.
   if (isInvoiceMode(f.mode) && f.forex) {
     input.forex = { ...f.forex };
-    if (input.partyBillAllocations) input.partyBillAllocations = forexBills(input.partyBillAllocations);
+    if (input.partyBillAllocations) input.partyBillAllocations = forexBills(input.partyBillAllocations, amountDecimals(f));
   }
   // Documents module fields (quotation / proforma validity, reversing journal, draft links).
   if ((f.baseType === 'quotation' || f.baseType === 'proforma') && f.validUntil) input.validUntil = f.validUntil;
@@ -186,7 +186,7 @@ export function buildVoucherInput(f: VoucherForm): BuiltInput {
     for (const r of f.ledgers) {
       if (isBlankLedger(r) || r.amount === null) continue;
       const line: LedgerLineInput = { ledgerId: r.ledgerId as number, amount: r.amount };
-      if (f.forex) line.forexAmount = decodeForex(r.amount);
+      if (f.forex) line.forexAmount = decodeForex(r.amount, amountDecimals(f));
       if (txt(r.narration)) line.narration = txt(r.narration);
       if (r.costs && r.costs.length > 0) line.costAllocations = r.costs.map((c) => ({ ...c }));
       const gst = ledgerGstOverride(r);
@@ -269,7 +269,7 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
     altQty: it.altQty ?? null,
     rate: fx ? (it.forexRate ?? it.rate ?? null) : (it.rate ?? null),
     discountPct: it.discountPct ?? null,
-    amount: fx ? (it.forexAmount !== undefined ? encodeForex(it.forexAmount) : null) : (it.amount ?? null),
+    amount: fx ? (it.forexAmount !== undefined ? encodeForex(it.forexAmount, LOAD_FOREX_DECIMALS) : null) : (it.amount ?? null),
     gstRateOverride: it.gstRateOverride ?? null,
     ledgerId: it.ledgerId ?? null,
     description: it.description ?? '',
@@ -280,7 +280,7 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
   let ledgers: LedgerRow[] = (input.ledgers ?? []).map((l) => ({
     ...blankLedger(key('l'), l.amount < 0 ? 'cr' : 'dr'),
     ledgerId: l.ledgerId,
-    amount: fx && l.forexAmount !== undefined ? encodeForex(l.forexAmount) : l.amount,
+    amount: fx && l.forexAmount !== undefined ? encodeForex(l.forexAmount, LOAD_FOREX_DECIMALS) : l.amount,
     narration: l.narration ?? '',
     bills: billsCopy(l.billAllocations),
     forexAmount: !fx && l.forexAmount !== undefined ? l.forexAmount : null,
@@ -324,8 +324,10 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
     narration: input.narration ?? '',
     items,
     ledgers,
-    partyBills: fx ? billsCopy(input.partyBillAllocations?.map((b) => (b.forexAmount !== undefined ? { ...b, amount: encodeForex(b.forexAmount) } : b))) : billsCopy(input.partyBillAllocations),
+    partyBills: fx ? billsCopy(input.partyBillAllocations?.map((b) => (b.forexAmount !== undefined ? { ...b, amount: encodeForex(b.forexAmount, LOAD_FOREX_DECIMALS) } : b))) : billsCopy(input.partyBillAllocations),
     forex: fx ? { ...fx } : null,
+    // Held at 4 decimals (exact for any currency); the entry screen rescales to the currency's ('forexUnit').
+    ...(fx ? { forexDecimals: LOAD_FOREX_DECIMALS } : {}),
     party: input.party ? { ...input.party } : null,
     consignee: input.consignee ? { ...input.consignee } : null,
     dispatch: input.dispatch ? { ...input.dispatch } : null,

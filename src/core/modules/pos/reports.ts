@@ -22,7 +22,7 @@ interface Filter {
  * WHERE clause over `pos_bills b JOIN vouchers v` from constant fragments only (never input text);
  * values are bound parameters. A return counts for a type filter through the bill it came from.
  */
-function filterOf(input: { from: string; to: string; voucherTypeIds?: number[]; userId?: number; counter?: string; kind?: 'sale' | 'return' }, today: string): Filter {
+function filterOf(input: { from: string; to: string; voucherTypeIds?: number[]; userId?: number | null; counter?: string; modeId?: number; kind?: 'sale' | 'return' }, today: string): Filter {
   if (input.from > input.to) throw validation([{ path: 'from', message: 'The period starts after it ends.' }]);
   const parts = ['b.date BETWEEN :from AND :to', 'b.affects_books = 1', '(b.is_post_dated = 0 OR b.date <= :today)'];
   const params: Record<string, string | number> = { from: input.from, to: input.to, today };
@@ -30,9 +30,15 @@ function filterOf(input: { from: string; to: string; voucherTypeIds?: number[]; 
     parts.push(`(CASE WHEN b.kind = 'sale' THEN v.voucher_type_id ELSE (SELECT o.voucher_type_id FROM vouchers o WHERE o.id = b.return_of_id) END) IN (SELECT value FROM json_each(:types))`);
     params.types = JSON.stringify(input.voucherTypeIds);
   }
-  if (input.userId !== undefined) {
+  if (input.userId === null) {
+    parts.push('v.created_by IS NULL');
+  } else if (input.userId !== undefined) {
     parts.push('v.created_by = :user');
     params.user = input.userId;
+  }
+  if (input.modeId !== undefined) {
+    parts.push('EXISTS (SELECT 1 FROM pos_payments pm WHERE pm.voucher_id = b.voucher_id AND pm.mode_id = :mode)');
+    params.mode = input.modeId;
   }
   if (input.counter !== undefined) {
     parts.push(`COALESCE(b.counter, '') = :counter`);
@@ -169,25 +175,26 @@ export function posSummary(db: Db, today: string, input: PosSummaryInput): PosSu
  * GST lines (unregistered) uses the line value.
  */
 function mrpSavings(db: Db, f: Filter): number {
-  let total = 0;
-  for (const r of db.all<{ mrp: number; qty: number; charged: number }>(
-    `SELECT si.mrp AS mrp, ABS(COALESCE(g.qty, 0)) AS qty, g.taxable_value + g.igst + g.cgst + g.sgst + g.cess AS charged
-       FROM pos_bills b JOIN vouchers v ON v.id = b.voucher_id
-       JOIN gst_lines g ON g.voucher_id = b.voucher_id AND g.source = 'item'
-       JOIN stock_items si ON si.id = g.item_id
-      WHERE ${f.where} AND b.kind = 'sale' AND si.mrp > 0 AND g.is_reverse_charge = 0
-     UNION ALL
-     SELECT si.mrp, ABS(COALESCE(ie.billed_qty, ie.qty)), ie.amount
-       FROM pos_bills b JOIN vouchers v ON v.id = b.voucher_id
-       JOIN inventory_entries ie ON ie.voucher_id = b.voucher_id
-       JOIN stock_items si ON si.id = ie.item_id
-      WHERE ${f.where} AND b.kind = 'sale' AND si.mrp > 0
-        AND NOT EXISTS (SELECT 1 FROM gst_lines g2 WHERE g2.voucher_id = b.voucher_id)`,
-    f.params,
-  )) {
-    total += Math.max(0, Math.round(r.mrp * r.qty) - r.charged);
-  }
-  return total;
+  // Summed in SQL (one row back, not one per bill line — a period summary may cover 60k bills).
+  return (
+    db.value<number>(
+      `SELECT COALESCE(SUM(MAX(0, CAST(ROUND(mrp * qty) AS INTEGER) - charged)), 0) FROM (
+         SELECT si.mrp AS mrp, ABS(COALESCE(g.qty, 0)) AS qty, g.taxable_value + g.igst + g.cgst + g.sgst + g.cess AS charged
+           FROM pos_bills b JOIN vouchers v ON v.id = b.voucher_id
+           JOIN gst_lines g ON g.voucher_id = b.voucher_id AND g.source = 'item'
+           JOIN stock_items si ON si.id = g.item_id
+          WHERE ${f.where} AND b.kind = 'sale' AND si.mrp > 0 AND g.is_reverse_charge = 0
+         UNION ALL
+         SELECT si.mrp, ABS(COALESCE(ie.billed_qty, ie.qty)), ie.amount
+           FROM pos_bills b JOIN vouchers v ON v.id = b.voucher_id
+           JOIN inventory_entries ie ON ie.voucher_id = b.voucher_id
+           JOIN stock_items si ON si.id = ie.item_id
+          WHERE ${f.where} AND b.kind = 'sale' AND si.mrp > 0
+            AND NOT EXISTS (SELECT 1 FROM gst_lines g2 WHERE g2.voucher_id = b.voucher_id)
+       )`,
+      f.params,
+    ) ?? 0
+  );
 }
 
 export function posRegister(db: Db, today: string, input: PosRegisterInput): PosRegister {

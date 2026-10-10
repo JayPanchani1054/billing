@@ -122,6 +122,12 @@ added to `connect-src` and `'unsafe-inline'` to `script-src` (React Fast Refresh
   folder the backup file itself was chosen from (local folders only), or is the folder of the company
   being replaced; otherwise it is cleared and the restore's edit-log entry names the folder dropped
   (`backupFolderNotKept`).
+- Beyond restores, the F12 backup folder is written to (and trusted as a root) only when it is
+  **approved for that company on this installation** (`<userData>/backup-folders.json`, kept outside the
+  data folder, company files and backups; `core/app/backupFolders.ts`) or lies in the data folder. A
+  company folder copied from another PC or a shared data folder therefore cannot make automatic backups
+  copy the books to a share nobody picked here: backups go to the default folder and the user is asked
+  to confirm the folder by picking it in the folder dialog (`data.backup.approveFolder`, company.manage).
 
 ### 3.6 Printing and PDF — `src/main/print.ts`
 
@@ -199,6 +205,14 @@ IPC. Security properties:
   installer is then installed and launched on a clean runner (smoke test), and only the separate
   publish job — no checkout, no npm — holds `contents: write` to create the GitHub Release. Release
   builds restore no caches.
+- Release installs run **no dependency install scripts**: `npm ci --ignore-scripts`, then only the
+  scripts reviewed in `scripts/install-scripts.mjs` (esbuild's `node install.js`, run by path from the
+  lockfile-pinned package; fsevents / electron-winstaller skipped as unused on a Windows NSIS build).
+  `--check` runs first and fails the release when the lockfile gains an install script nobody reviewed.
+  So no install script can leave code in `node_modules` that later runs in the signing step.
+  *Residual risk*: build tools themselves (tsc, esbuild, vite, electron-builder) still run before and
+  in the packaging step; a separate signing job that receives only the unsigned output is not
+  implemented (electron-builder signs the app exe inside the NSIS package).
 
 ## 4. Application controls (src/core)
 

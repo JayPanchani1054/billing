@@ -17,7 +17,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import { AppError, notFound, rule, validation } from '../../lib/errors.ts';
 import { ledgerClass } from '../accounts/books.ts';
 import { previewVoucher, saveVoucher } from '../vouchers/service.ts';
-import { effectiveStatus, fmtDate, lineLabel, linkLine, loadLine, money, requireBankLedger, requirePermission, type BankLedger, type LineRow } from './common.ts';
+import { assertBankDateChangeAllowed, effectiveStatus, fmtDate, lineLabel, linkLine, loadLine, money, requireBankLedger, requirePermission, type BankLedger, type LineRow } from './common.ts';
 import { DEFAULT_MATCH_OPTIONS, instrumentFromNarration } from './matcher.ts';
 import { lineCandidates } from './matching.ts';
 
@@ -145,6 +145,7 @@ function saveFromPlan(ctx: CompanyCtx, plan: LinePlan, acknowledgeWarnings: bool
     { v: res.id, l: bank.id, a: line.amount },
   );
   if (entryId === undefined) throw new Error(`createFromLine: bank entry of voucher ${res.id} not found`);
+  assertBankDateChangeAllowed(ctx, null, line.txn_date, () => `Creating a voucher for statement line ${lineLabel(line)}`);
   linkLine(ctx, line, entryId, 'created', null);
   ctx.audit({
     action: 'alter',

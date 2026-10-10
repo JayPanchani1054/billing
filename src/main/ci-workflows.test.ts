@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const workflowDir = path.join(root, '.github/workflows');
@@ -81,6 +81,24 @@ describe('GitHub workflows', () => {
     // The publisher runs no repository code: no checkout, no npm.
     const publish = jobs(release).get('publish') ?? '';
     assert.doesNotMatch(publish, /actions\/checkout@|npm |npx /);
+  });
+
+  it('release: dependency install scripts never run unreviewed (npm ci --ignore-scripts + reviewed list)', async () => {
+    const build = jobs(read('release.yml')).get('build') ?? '';
+    const install = steps(build).find((s) => /npm ci/.test(s)) ?? '';
+    assert.match(install, /npm ci --ignore-scripts/);
+    assert.match(install, /node scripts\/install-scripts\.mjs --check/);
+    assert.match(install, /node scripts\/install-scripts\.mjs --run/);
+    assert.ok(install.indexOf('--check') < install.indexOf('npm ci') && install.indexOf('npm ci') < install.indexOf('--run'));
+    const { unreviewedInstallScripts, REVIEWED_INSTALL_SCRIPTS } = (await import(pathToFileURL(path.join(root, 'scripts/install-scripts.mjs')).href)) as {
+      unreviewedInstallScripts(lock: unknown): string[];
+      REVIEWED_INSTALL_SCRIPTS: Record<string, { action: string }>;
+    };
+    // The committed lockfile has no unreviewed install script; a new one is reported.
+    const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8')) as { packages: Record<string, unknown> };
+    assert.deepEqual(unreviewedInstallScripts(lock), []);
+    assert.deepEqual(unreviewedInstallScripts({ packages: { ...lock.packages, 'node_modules/evil': { version: '1.0.0', hasInstallScript: true } } }), ['node_modules/evil']);
+    assert.equal(REVIEWED_INSTALL_SCRIPTS['node_modules/esbuild']?.action, 'run');
   });
 
   it('release: builds from the lockfile alone — no dependency or build cache another run could have written', () => {

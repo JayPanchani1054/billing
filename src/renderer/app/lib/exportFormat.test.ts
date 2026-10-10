@@ -80,6 +80,20 @@ describe('CSV', () => {
   test('guardFormula', () => {
     for (const s of ['=1+1', '+91 98', '-x', '@SUM', '\tA']) assert.ok(guardFormula(s).startsWith("'"));
     assert.equal(guardFormula('Cash'), 'Cash');
+    // Plain numbers written as text are left alone (negative amounts stay numbers in the spreadsheet).
+    for (const s of ['-12.50', '-1,23,456.00', '+5', '-0']) assert.equal(guardFormula(s), s);
+    for (const s of ['-1+1', '-2+3+cmd|\' /C calc\'!A0', '-', '+91 98765 43210']) assert.ok(guardFormula(s).startsWith("'"));
+  });
+
+  test('text in a numeric column is guarded too; a negative number is written bare', () => {
+    const csv = toCsv({
+      columns: [{ header: 'Name' }, { header: 'Amount', kind: 'amount' }],
+      rows: [['A', '=1+1'], ['B', -1250], ['C', '-12.50']],
+    });
+    const lines = csv.slice(1).split('\r\n');
+    assert.equal(lines[1], "A,'=1+1");
+    assert.equal(lines[2], 'B,-12.50');
+    assert.equal(lines[3], 'C,-12.50');
   });
 });
 

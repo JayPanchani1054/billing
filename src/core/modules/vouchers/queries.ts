@@ -404,7 +404,7 @@ export function listVouchers(db: Db, q: VoucherListInput): VoucherListResult {
 // ───────────────────────────── Entry context ─────────────────────────────
 
 /**
- * Voucher types the company-wide "Print right after saving an invoice" switch (F12 › Invoice printing)
+ * Voucher types the company-wide "Print right after saving an invoice" switch (Invoice Printing (print settings))
  * applies to: documents the company issues to a party. A Journal, Payment, Purchase or Stock Journal
  * prints after saving only when its own voucher type says so.
  */

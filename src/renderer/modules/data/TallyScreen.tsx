@@ -8,7 +8,7 @@ import type { TallyImportResult, TallyIssue, TallyPreviewResult, TallyProgress }
 import { api } from '../../app/api.ts';
 import { useConfirm } from '../../app/confirm.tsx';
 import { formatBytes, formatDate, formatMoney } from '../../app/display.ts';
-import { userMessage } from '../../app/lib/apiErrors.ts';
+import { userMessage, isBusyConflict, retryWhileBusy } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
 import { invalidate } from '../../app/queryClient.ts';
 import { Screen } from '../../app/Screen.tsx';
@@ -43,7 +43,15 @@ export function TallyScreen() {
   const [busy, setBusy] = useState<null | 'file' | 'import'>(null);
   const [progress, setProgress] = useState<TallyProgress | null>(null);
   const [result, setResult] = useState<TallyImportResult | null>(null);
-  const [error, setError] = useState<{ title: string; message: string } | null>(null);
+  // `retry`: refused only because another task holds the company (an Excel import job, …): "Wait and retry".
+  const [error, setError] = useState<{ title: string; message: string; retry?: () => void } | null>(null);
+  const closed = useRef(false);
+  useEffect(() => {
+    closed.current = false;
+    return () => {
+      closed.current = true;
+    };
+  }, []);
 
   const step: Step = result ? 'done' : busy === 'import' ? 'import' : preview ? 'preview' : 'file';
   const options = { masters, vouchers, from: vouchers ? from ?? undefined : undefined, to: vouchers ? to ?? undefined : undefined, onDuplicate };
@@ -101,16 +109,32 @@ export function TallyScreen() {
       confirmLabel: 'Start import',
     });
     if (!ok) return;
+    await startImport(false);
+  };
+
+  /** The import itself (after the confirmation); `wait`: the user chose "Wait and retry". */
+  const startImport = async (wait: boolean) => {
+    if (!file) return;
     setBusy('import');
-    setProgress({ running: true, phase: 'parse', done: 0, total: 0, message: 'Reading the file…' });
+    setProgress({ running: true, phase: 'parse', done: 0, total: 0, message: wait ? 'Waiting for the other task to finish…' : 'Reading the file…' });
     setError(null);
+    const input = { fileName: file.name, bytes: file.bytes, options };
     try {
-      const r = await api('data.tally.import', { fileName: file.name, bytes: file.bytes, options });
+      const call = () => api('data.tally.import', input);
+      const r = wait ? await retryWhileBusy(call, { cancelled: () => closed.current }) : await call();
       invalidate();
       setResult(r);
     } catch (err) {
-      setError({ title: 'The import did not finish', message: userMessage(err) });
-      invalidate();
+      if (isBusyConflict(err)) {
+        setError({
+          title: 'Another task is running in this company',
+          message: `${userMessage(err)} Choose Wait and retry: Bahi ERP tries again every few seconds until it can start.`,
+          retry: () => void startImport(true),
+        });
+      } else {
+        setError({ title: 'The import did not finish', message: userMessage(err) });
+        invalidate();
+      }
     } finally {
       setBusy(null);
       setProgress(null);
@@ -152,7 +176,18 @@ export function TallyScreen() {
       <Stack gap={4}>
         <Steps steps={STEPS} current={step} label="Tally migration steps" />
         {error ? (
-          <Banner tone="danger" title={error.title} onDismiss={() => setError(null)}>
+          <Banner
+            tone={error.retry ? 'warning' : 'danger'}
+            title={error.title}
+            onDismiss={() => setError(null)}
+            action={
+              error.retry ? (
+                <Button size="sm" icon="refresh" onClick={error.retry} disabled={busy !== null}>
+                  Wait and retry
+                </Button>
+              ) : undefined
+            }
+          >
             {error.message}
           </Banner>
         ) : null}

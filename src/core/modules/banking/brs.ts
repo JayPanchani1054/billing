@@ -35,6 +35,7 @@ import {
   paramsFor,
   particularsResolver,
   requireBankLedger,
+  assertBankDateChangeAllowed,
   unlinkLine,
   voucherLabel,
   voucherRef,
@@ -196,6 +197,7 @@ export function setBankDates(ctx: CompanyCtx, input: SetBankDatesInput): SetBank
     // 2-day early tolerance legitimately holds a bank date just before the voucher date.
     if (r.bank_date === e.bankDate) return { input: e, row: r, bank };
     assertEntryInBooks(r, today);
+    assertBankDateChangeAllowed(ctx, r.bank_date, e.bankDate, () => `Changing ${voucherLabel(r)}`);
     if (e.bankDate !== null) {
       const chequeEarlier = r.instrument_date !== null && r.instrument_date < r.date;
       const earliest = chequeEarlier ? (r.instrument_date as string) : r.date;

@@ -133,7 +133,9 @@ the last 3 passwords).
 - `from`/`to` are local calendar dates (inclusive), converted to UTC instants at local midnight.
 - Search matches record label, username, record type and action — not the payloads.
 - `entityHistory` with only `entityId` can mix two records when an id was reused after a delete; pass
-  `entityGuid` (shown on every row) to separate them.
+  `entityGuid` (shown on every row) to separate them. Users and roles have no guid column: pass
+  `currentOnly: true` (the Users and Roles screen does, via `auditHistoryParams`) to start at the id's
+  latest `create` entry, so a role created on a deleted role's id shows only its own history.
 
 ## Requested change in auth/controller (not applied — `core/app/auth.ts` is not this module's file)
 

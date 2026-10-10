@@ -23,6 +23,7 @@ import {
   type DocProps,
 } from './parts.tsx';
 import { ForexPrintBlock } from '../../forex/PrintBlock.tsx';
+import { PosPrintBlock } from '../../pos/PrintBlock.tsx';
 
 export function ModernInvoice({ doc, copyLabel, qrs, pageSize, template }: DocProps) {
   const cols = itemColumns(doc, { pageSize, template });
@@ -50,6 +51,8 @@ export function ModernInvoice({ doc, copyLabel, qrs, pageSize, template }: DocPr
       <TaxSummary doc={doc} cols={cols} byHsn={byHsn} />
       {/* (forex group) Export / import invoice in a foreign currency: amounts in it with the rate. */}
       <ForexPrintBlock doc={doc} />
+      {/* (pos group) POS bill / return: tenders, cash tendered, change, on account. */}
+      <PosPrintBlock doc={doc} />
       <EInvoiceBlock doc={doc} qr={qrs.einvoice} />
       <footer className="bp-foot">
         <div className="bp-foot-left">

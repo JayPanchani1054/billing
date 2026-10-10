@@ -83,6 +83,18 @@ the entry's bank date is the line's date: clearing the date, or moving it to ano
 (`unmatchedLines`). Voucher alteration keeps bank dates/matches for entries whose ledger and amount are unchanged
 (vouchers service); delete/cancel unmatch.
 
+**Period lock (follow-up).** A bank date on or before `config.lockedUpTo` belongs to a closed
+reconciliation. Every path that changes a bank date — `setBankDates` (set / move / clear), `match`,
+`unmatch`, `createVoucher(s)` (the new entry's bank date), `statement.deleteBatch { unmatch: true }`
+(clears the dates) — calls `common.ts assertBankDateChangeAllowed(old, new)`: when the old **or** the new
+date is in the locked period the user needs `period.lock` (Owners always) — the right to unlock, change
+and re-lock — else `LOCKED` ("Books are locked up to …"), nothing changed. A cheque of a locked month
+clearing in an open month (old none, new open) is allowed. `autoMatch` for a user without `period.lock`
+leaves the statement lines dated in the locked period out (they stay unmatched). The voucher service
+applies the same rule (`vouchers/service.ts assertLockedBankDatesKept`) when deleting, cancelling or
+altering a voucher of the open period would clear a bank date in the locked period (a cheque dated
+before the voucher, cleared before the lock date). Tests: `periodLock.test.ts`.
+
 ## 3. Statement import
 
 1. **File**: `.xlsx` (zip signature), CSV/TSV/semicolon/pipe text (delimiter sniffed, alternatives tried when no
@@ -190,7 +202,9 @@ dated …"). Typical catch: a line unmatched after "voucher created", then creat
   register, Alt+T post-dated cheques, Alt+C create a bank ledger (`accounts.ledger.form { groupCode: 'BANK_ACCOUNTS' }`,
   also from the "No bank accounts yet" empty state).
 - **Match Bank Statement** (`banking.match`): Ctrl+1…4 tabs, Alt+M auto-match, Alt+V / Alt+B create vouchers,
-  Alt+I ignore, Alt+U unmatch, **Alt+D delete the chosen imported statement** (`banking.statement.deleteBatch`):
+  Alt+I ignore, Alt+U unmatch, Alt+C in a line's ledger picker creates a ledger with its group preselected
+  (`lib/matchReview.ts newLedgerGroupFor`: contra → Bank Accounts, bank interest credited → Indirect Incomes, other deposit → Sundry Debtors, bank charges /
+  fees → Indirect Expenses, other withdrawals → Sundry Creditors), **Alt+D delete the chosen imported statement** (`banking.statement.deleteBatch`):
   the confirmation names the file, its lines and how many are reconciled, and offers "Also unmatch" when some
   are (`lib/batches.ts`). Lines are de-duplicated per bank, so this is how a statement imported into the wrong
   bank or with the wrong columns is imported again.

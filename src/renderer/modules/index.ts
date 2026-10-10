@@ -20,6 +20,7 @@ import { documentsModule } from './documents/index.ts';
 import { mfgModule } from './mfg/index.ts';
 import { attachmentsModule } from './attachments/index.ts';
 import { forexModule } from './forex/index.ts';
+import { posModule } from './pos/index.ts';
 
 export const modules: ModuleDef[] = [
   companyModule,
@@ -42,4 +43,5 @@ export const modules: ModuleDef[] = [
   mfgModule,
   attachmentsModule,
   forexModule,
+  posModule,
 ];

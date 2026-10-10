@@ -25,6 +25,8 @@ Every screen is `gstOnly`, needs `gst.view`; file exports and manual 3B entries 
 | `gst.advances` | `{ from?, to?, view? }` | Ctrl+1 Table 11 (11A / 11B by POS and rate, vouchers; KPIs incl. the net in 3.1(a)); Ctrl+2 pending advances as on the period end. Alt+C create an advance receipt, Alt+R GSTR-1. GSTR-1's table 11 tile opens this screen |
 | `gst.boe` | `{ from?, to? }` | Bills of entry register; Alt+O reconcile with a GSTR-2B JSON / ZIP (IMPG / IMPGSEZ: matched, mismatch, not in books, not in 2B); Ctrl+1 back to the register; Alt+C create an import purchase |
 | `gst.amendments` | `{ period?, all? }` | GSTR-1 amendments reported in a period (Ctrl+1) or all (Ctrl+2): table (9A B2BA …, 9C, 10, Added), original / amended value, Δ taxable / tax; Enter → voucher |
+| `gst.gstr3b.changes` | `{ period?, all? }` | Vouchers changed (altered / added late / deleted) after their period's GSTR-3B was filed, reported in a period (Ctrl+1) or all (Ctrl+2): Δ tax payable, Δ net ITC; Enter → voucher (`GapsScreens.tsx`, helpers `lib/gaps.ts`) |
+| `gst.rule37` | `{ asOf? }` | Rule 37: purchases unpaid after 180 days as on a date — unpaid, reversed, reverse now / reclaim now; Alt+R post reversal, Alt+L post reclaim (gst.file, confirm dialog with date + narration); Enter → purchase |
 | `gst.filings` | — | Returns marked filed (form, period, date, ARN); Enter opens the return; Alt+U unmark (confirm), Alt+M amendments |
 
 Range screens use the global period (Alt+F2); a caller may pass `{ from, to }` (e.g. GSTR-1 → exceptions)

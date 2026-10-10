@@ -9,6 +9,8 @@
  *   'data.backup.list'            BackupListInput        → BackupListResult         data.backup
  *   'data.backup.verify'          BackupVerifyInput      → BackupVerifyResult       data.backup     (async)
  *   'data.backup.auto'            BackupAutoInput        → BackupAutoResult         authenticated   (async; shell: after open, before close/quit)
+ *   'data.backup.folderStatus'    none                   → BackupFolderStatus       authenticated
+ *   'data.backup.approveFolder'   BackupApproveFolderInput → BackupFolderStatus     company.manage  (folder picked in the dialog)
  *   'data.backup.restore'         BackupRestoreInput     → BackupRestoreResult      data.restore    (async)
  *   'data.backup.restoreFromFile' BackupRestoreInput     → BackupRestoreResult      app scope, public, only with NO company open
  *   'data.backup.inspectFile'     BackupInspectInput     → BackupFileInfo           app scope, public, only with NO company open
@@ -127,6 +129,27 @@ export interface BackupListResult {
   backups: BackupFileInfo[];
   /** Most recent backup recorded for this company (any folder), or null. */
   lastBackupAt: string | null;
+  /**
+   * The F12 backup folder stored in the company when it is NOT approved on this computer (it came with
+   * a restored backup or a company copied from elsewhere): nothing is read from or written to it until
+   * the user confirms it ('data.backup.approveFolder'); `folder` is then the default folder.
+   */
+  unapprovedFolder?: string;
+}
+
+/** 'data.backup.folderStatus' → the F12 backup folder and its approval on this computer. */
+export interface BackupFolderStatus {
+  /** Stored F12 folder, or null (default folder). */
+  folder: string | null;
+  /** False: `folder` must be confirmed on this computer before backups are written to it. */
+  approved: boolean;
+  /** <data folder>/backups/<company id> — used while no approved folder is set. */
+  defaultFolder: string;
+}
+
+/** 'data.backup.approveFolder' — a folder the user just picked in the folder dialog. */
+export interface BackupApproveFolderInput {
+  folder: string;
 }
 
 export interface BackupVerifyInput {
@@ -174,6 +197,11 @@ export interface BackupAutoResult {
   backup?: BackupCreateResult;
   /** User-facing message when reason is 'failed'. */
   error?: string;
+  /**
+   * The F12 backup folder is not approved on this computer, so this backup (if any) went to the default
+   * folder in the data folder. The shell asks the user to confirm or re-pick it.
+   */
+  folderNotApproved?: string;
 }
 
 export interface BackupRestoreInput {

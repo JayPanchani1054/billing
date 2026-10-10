@@ -15,7 +15,7 @@ import {
   roleOfColumn,
   toMapping,
 } from './importMapping.ts';
-import { allowedKinds, buildCreateItems, countTabs, defaultKind, ledgerFitsKind, suggestLedger, tabOf, type LedgerOption } from './matchReview.ts';
+import { allowedKinds, buildCreateItems, countTabs, defaultKind, ledgerFitsKind, newLedgerGroupFor, suggestLedger, tabOf, type LedgerOption } from './matchReview.ts';
 
 describe('import mapping editor', () => {
   const hdfc: StatementMapping = {
@@ -270,5 +270,24 @@ describe('exports', () => {
     assert.equal(d.columns.length, d.rows[0].length);
     assert.deepEqual(d.rows[0].slice(7), ['2026-04-30', 8141000, -59000, 1]);
     assert.equal(d.totals?.length, d.columns.length);
+  });
+});
+
+describe('creating a ledger from a statement line preselects its group', () => {
+  it('contra → Bank Accounts, deposit → Sundry Debtors, bank charges → Indirect Expenses, other withdrawals → Sundry Creditors', () => {
+    assert.equal(newLedgerGroupFor('contra', { description: 'SELF TRANSFER TO OWN A/C' }), 'BANK_ACCOUNTS');
+    assert.equal(newLedgerGroupFor('receipt', { description: 'NEFT CR ACME TRADERS' }), 'SUNDRY_DEBTORS');
+    assert.equal(newLedgerGroupFor('receipt', { description: 'INT.CR. 01-04-26 TO 30-06-26' }), 'INDIRECT_INCOMES');
+    assert.equal(newLedgerGroupFor('receipt', { description: 'SB INTEREST CREDITED' }), 'INDIRECT_INCOMES');
+    // "INTEREST" alone in a customer's narration is not the bank's interest.
+    assert.equal(newLedgerGroupFor('receipt', { description: 'NEFT CR ACME INTERESTING CO' }), 'SUNDRY_DEBTORS');
+    assert.equal(newLedgerGroupFor('payment', { description: 'SMS CHARGES QTR' }), 'INDIRECT_EXPENSES');
+    assert.equal(newLedgerGroupFor('payment', { description: 'IMPS DR SUPREME SUPPLIERS' }), 'SUNDRY_CREDITORS');
+  });
+
+  it('the Match screen passes it to Ledger Creation', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../MatchScreen.tsx', import.meta.url), 'utf8');
+    assert.match(src, /groupCode: newLedgerGroupFor\(draft\.kind, line\)/);
   });
 });

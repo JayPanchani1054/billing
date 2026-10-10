@@ -5,7 +5,7 @@
  * credit taken in goods on a later bill. This file only prepares what the counter shows: the bill's
  * lines with what is still returnable, and the exchange credit still open.
  */
-import type { PosExchangeCredit, PosReturnContext, PosReturnContextInput, PosReturnLine, PosTenderView } from '../../../shared/types/pos.ts';
+import type { PosBillView, PosExchangeCredit, PosReturnContext, PosReturnContextInput, PosReturnLine, PosTenderView } from '../../../shared/types/pos.ts';
 import type { Db } from '../../db/db.ts';
 import { notFound, rule, validation } from '../../lib/errors.ts';
 import { getVoucher } from '../vouchers/queries.ts';
@@ -31,6 +31,26 @@ export function billTenders(db: Db, voucherId: number): PosTenderView[] {
       reference: r.reference,
       exchangeVoucherId: r.exchange_voucher_id,
     }));
+}
+
+/** The POS side of a saved voucher (bill or return), or null for any other voucher. */
+export function voucherPos(db: Db, voucherId: number): PosBillView | null {
+  const b = db.get<{ kind: 'sale' | 'return'; return_of_id: number | null; bill_value: number; paid: number; credit: number; cash_tendered: number | null; change_due: number; counter: string | null }>(
+    'SELECT kind, return_of_id, bill_value, paid, credit, cash_tendered, change_due, counter FROM pos_bills WHERE voucher_id = :id',
+    { id: voucherId },
+  );
+  if (!b) return null;
+  return {
+    kind: b.kind,
+    billValue: b.bill_value,
+    paid: b.paid,
+    credit: b.credit,
+    cashTendered: b.cash_tendered,
+    change: b.change_due,
+    tenders: billTenders(db, voucherId),
+    returnOfId: b.return_of_id,
+    counter: b.counter,
+  };
 }
 
 function findBill(db: Db, input: PosReturnContextInput): number {
@@ -68,7 +88,7 @@ export function returnContext(db: Db, today: string, input: PosReturnContextInpu
     }
   }
   // Quantities already returned are taken off the bill's lines of that item in order.
-  const left = returnedQty(db, billId, today);
+  const left = returnedQty(db, billId);
   const lines: PosReturnLine[] = items.map((it, index) => {
     const m = meta.get(it.itemId);
     const sold = it.billedQty ?? it.qty;
@@ -117,7 +137,7 @@ const EXCHANGE_SQL = (byParty: boolean): string => `
          -(SELECT COALESCE(SUM(p.amount), 0) FROM pos_payments p
             WHERE p.voucher_id = v.id AND p.kind = 'exchange' AND p.affects_books = 1 AND (p.is_post_dated = 0 OR p.date <= :today)) AS issued,
          (SELECT COALESCE(SUM(u.amount), 0) FROM pos_payments u
-            WHERE u.exchange_voucher_id = v.id AND u.affects_books = 1 AND (u.is_post_dated = 0 OR u.date <= :today)) AS used
+            WHERE u.exchange_voucher_id = v.id AND u.affects_books = 1) AS used
     FROM pos_bills b JOIN vouchers v ON v.id = b.voucher_id
    WHERE b.kind = 'return' AND b.affects_books = 1 AND (b.is_post_dated = 0 OR b.date <= :today)
      ${byParty ? 'AND v.party_ledger_id = :party' : ''}

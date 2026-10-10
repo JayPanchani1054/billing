@@ -83,6 +83,28 @@ describe('writeXlsx → readXlsx round trip', () => {
     assert.deepEqual(readXlsx(bytes).sheets[0].rows, payloads.map((p) => [p]));
   });
 
+  it('marks formula-like text cells (and headers) with quotePrefix; plain text and numbers are unmarked', () => {
+    const bytes = writeXlsx({
+      sheets: [{ name: 'S', columns: [{ header: '=Head' }, { header: 'Amt', kind: 'amount' }], rows: [['=1+1', -12.5], ['Cash', '-1250.50'], ['-2+3', 5]] }],
+    });
+    const sheetXml = part(bytes, 'xl/worksheets/sheet1.xml');
+    const cellXfs = findAll(parseXml(part(bytes, 'xl/styles.xml')), (e) => e.name === 'cellXfs')[0];
+    assert.ok(cellXfs);
+    const xfs = findAll(cellXfs, (e) => e.name === 'xf');
+    const quoted = (ref: string): boolean => {
+      const c = findAll(parseXml(sheetXml), (e) => e.name === 'c' && e.attrs.r === ref)[0];
+      assert.ok(c, ref);
+      return xfs[Number(c.attrs.s ?? 0)].attrs.quotePrefix === '1';
+    };
+    assert.equal(quoted('A1'), true, 'header =Head');
+    assert.equal(quoted('A2'), true, '=1+1');
+    assert.equal(quoted('A4'), true, '-2+3');
+    assert.equal(quoted('A3'), false, 'Cash');
+    assert.equal(quoted('B1'), false, 'Amt');
+    // Negative amounts stay numbers (given as a number or as plain-number text); values read back unchanged.
+    assert.deepEqual(readXlsx(bytes).sheets[0].rows, [['=Head', 'Amt'], ['=1+1', -12.5], ['Cash', -1250.5], ['-2+3', 5]]);
+  });
+
   it('keeps numbers forced to text as text (GSTIN-like codes, leading zeros)', () => {
     const bytes = writeXlsx({
       sheets: [{ name: 'S', columns: [{ header: 'PIN', kind: 'text' }], rows: [['007'], [400001], [{ v: 12.5, kind: 'text' }]] }],

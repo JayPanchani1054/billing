@@ -6,7 +6,8 @@
  *
  * Keys (one meaning everywhere): Alt+C attach a file (native file dialog), Enter / Alt+O open (a copy,
  * in the program Windows uses for it), Alt+K save a copy, Alt+D remove, Alt+M open what the file is
- * attached to, Alt+E export / Alt+P print the list. Alt+F opens the attachments from the voucher view
+ * attached to, Alt+E export / Alt+P print the list; on the register Alt+U removes stored files nothing
+ * refers to ('attachments.unused' / 'attachments.sweep', attachments.remove, edit log). Alt+F opens the attachments from the voucher view
  * (VoucherAttachmentsPanel) and from the ledger / stock item forms (AttachmentsRailAction).
  *
  * The renderer never handles a path: the file dialog returns bytes, which go to 'attachments.add';
@@ -228,6 +229,32 @@ const KIND_OPTIONS: ReadonlyArray<{ value: 'all' | AttachmentEntityType; label: 
 export function AttachmentRegisterScreen() {
   const nav = useNav();
   const cmd = useAttachmentCommands();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const canRemove = useCan('attachments.remove');
+  const sweep = useApiMutation('attachments.sweep', { invalidates: ATTACHMENTS_INVALIDATES });
+  /** Alt+U: stored files no attachment refers to (left by an attach that could not finish) — list, confirm, remove. */
+  const removeUnused = async (): Promise<void> => {
+    if (sweep.pending) return;
+    try {
+      const unused = await api('attachments.unused', {});
+      if (unused.files.length === 0) {
+        toast.success('No unused files', { message: 'Every stored file is attached to a voucher or master.' });
+        return;
+      }
+      const ok = await confirm({
+        title: `Remove ${unused.files.length} unused file(s)?`,
+        message: `${formatFileSize(unused.totalBytes)} in the attachments folder is not attached to anything (an attach that could not finish). Attached files are never touched. The removal is kept in the edit log.`,
+        confirmLabel: 'Remove',
+        tone: 'danger',
+      });
+      if (!ok) return;
+      const r = await sweep.mutate({});
+      toast.success(`${r.removed} unused file(s) removed`, { message: `${formatFileSize(r.bytes)} freed.` });
+    } catch (err) {
+      toast.error('Could not remove the unused files', { message: userMessage(err) });
+    }
+  };
   const [kind, setKind] = useState<'all' | AttachmentEntityType>('all');
   const [search, setSearch] = useState('');
   const term = useDebouncedValue(search.trim(), 250);
@@ -262,7 +289,7 @@ export function AttachmentRegisterScreen() {
       refreshing={q.refreshing}
       error={q.error}
       onRetry={q.refetch}
-      hint="Enter Open the voucher / master · Alt+O Open file · Alt+K Save a copy · Ctrl+F Search"
+      hint="Enter Open the voucher / master · Alt+O Open file · Alt+K Save a copy · Ctrl+F Search · Alt+U Remove unused files"
       filters={
         <Inline gap={3}>
           <SegmentedControl aria-label="Attached to" options={KIND_OPTIONS} value={kind} onChange={setKind} size="sm" />
@@ -274,6 +301,7 @@ export function AttachmentRegisterScreen() {
         { key: 'Alt+K', label: 'Save a copy', icon: 'download', onClick: () => current && void cmd.saveCopy(current), disabled: !current || cmd.busy, group: 'file' },
         { key: 'Alt+M', label: 'Open the voucher / master', icon: 'external', onClick: () => current && openOwner(current), disabled: !current, group: 'go' },
         { key: 'Ctrl+F', label: 'Search', icon: 'search', onClick: () => document.querySelector<HTMLInputElement>('[aria-label="Search attachments"]')?.focus(), group: 'go' },
+        { key: 'Alt+U', label: 'Remove unused files', icon: 'trash', onClick: () => void removeUnused(), hidden: !canRemove, disabled: sweep.pending, group: 'danger' },
       ]}
       exportDef={() => {
         const e = registerExport(rows);

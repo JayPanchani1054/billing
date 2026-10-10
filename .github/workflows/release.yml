@@ -6,7 +6,10 @@ name: Release
 # Secret hygiene (docs/BUILD.md §7, docs/SECURITY.md):
 #   - The build job has a READ-ONLY token, and checkout does not persist it in .git/config.
 #   - Dependencies are installed (and typecheck/tests run) with NO secrets in the environment, so no
-#     npm lifecycle script can read the signing certificate or its password.
+#     npm lifecycle script can read the signing certificate or its password. They are installed with
+#     `npm ci --ignore-scripts`: no dependency install script runs on this machine at all (one could leave
+#     code in node_modules that runs later, in the signing step); the few the build needs are reviewed in
+#     scripts/install-scripts.mjs and run explicitly, and an unreviewed new one fails the release.
 #   - The certificate reaches only the single packaging step, which runs the already-installed
 #     electron-builder (`npx --no`: nothing is downloaded or installed at that point).
 #   - Only the publish job can write to the repository; it checks out nothing and runs no npm code —
@@ -57,7 +60,9 @@ jobs:
         shell: bash
         run: |
           node scripts/lockfile-sync.mjs || { echo "::error::A release needs a package-lock.json that matches package.json. Run Actions > Lockfile on the branch, then tag the resulting commit."; exit 1; }
-          npm ci --no-audit --no-fund
+          node scripts/install-scripts.mjs --check || { echo "::error::A dependency has an install script that is not reviewed (scripts/install-scripts.mjs)."; exit 1; }
+          npm ci --ignore-scripts --no-audit --no-fund
+          node scripts/install-scripts.mjs --run
 
       - name: Typecheck
         run: npm run typecheck

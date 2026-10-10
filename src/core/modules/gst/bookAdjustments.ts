@@ -34,12 +34,14 @@ export function emptyBookAdjustments(): Gstr3bBookAdjustments {
 
 export const isZeroTax = (t: TaxAmounts): boolean => t.igst === 0 && t.cgst === 0 && t.sgst === 0 && t.cess === 0;
 
-export function bookAdjustments(db: Db, from: string, to: string, today: string): Gstr3bBookAdjustments {
+/** `voucherId` (optional): one voucher's rows only (its GSTR-3B effect, filed3b.ts). */
+export function bookAdjustments(db: Db, from: string, to: string, today: string, voucherId?: number): Gstr3bBookAdjustments {
   const out = emptyBookAdjustments();
-  const params = { from, to, today };
+  const params = voucherId === undefined ? { from, to, today } : { from, to, today, vid: voucherId };
+  const one = (alias: string): string => (voucherId === undefined ? '' : `AND ${alias}.voucher_id = :vid`);
   for (const r of db.all<{ kind: string; taxable: number; igst: number; cgst: number; sgst: number; cess: number }>(
     `SELECT kind, SUM(taxable_value) AS taxable, SUM(igst) AS igst, SUM(cgst) AS cgst, SUM(sgst) AS sgst, SUM(cess) AS cess
-       FROM gst_advance_lines a WHERE a.date >= :from AND a.date <= :to AND ${BOOKS_FILTER('a')} GROUP BY kind`,
+       FROM gst_advance_lines a WHERE a.date >= :from AND a.date <= :to AND ${BOOKS_FILTER('a')} ${one('a')} GROUP BY kind`,
     params,
   )) {
     const s = r.kind === 'received' ? 1 : -1;
@@ -52,7 +54,7 @@ export function bookAdjustments(db: Db, from: string, to: string, today: string)
   for (const r of db.all<{ nature: string; head: TaxHead; amount: number; taxable: number }>(
     `SELECT nature, head, SUM(amount) AS amount, SUM(taxable_value) AS taxable
        FROM gst_stat_lines s
-      WHERE s.date >= :from AND s.date <= :to AND ${BOOKS_FILTER('s')}
+      WHERE s.date >= :from AND s.date <= :to AND ${BOOKS_FILTER('s')} ${one('s')}
         AND s.nature NOT IN ('cash_deposit', 'cash_utilised', 'itc_utilised')
       GROUP BY nature, head`,
     params,
@@ -75,7 +77,7 @@ export function bookAdjustments(db: Db, from: string, to: string, today: string)
             COALESCE(SUM((SELECT COALESCE(SUM(g.cess), 0) FROM gst_lines g WHERE g.voucher_id = b.voucher_id AND g.taxability = 'taxable'
                           AND (g.itc_eligibility IS NULL OR g.itc_eligibility <> 'ineligible' OR b.itc_claimed = 0))), 0) AS lc
        FROM gst_bill_of_entry b
-      WHERE b.date >= :from AND b.date <= :to AND ${BOOKS_FILTER('b')}
+      WHERE b.date >= :from AND b.date <= :to AND ${BOOKS_FILTER('b')} ${one('b')}
       GROUP BY b.itc_claimed`,
     params,
   )) {

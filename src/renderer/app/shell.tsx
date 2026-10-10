@@ -99,6 +99,8 @@ export function ShellProvider({ children }: { children?: ReactNode }) {
         invalidate('dashboard');
         toast.success(n.title, { message: n.message, id: 'auto-backup' });
       } else {
+        // A backup may still have been written (to the default folder, when the F12 folder needs confirming).
+        invalidate('data.backup');
         toast.warning(n.title, {
           message: n.message,
           id: 'auto-backup',

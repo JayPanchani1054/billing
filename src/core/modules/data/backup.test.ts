@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import type { ApiResult } from '../../../shared/api.ts';
 import type { CompanyListItem, CreateCompanyInput, OpenResult } from '../../../shared/types/app.ts';
-import type { BackupCreateResult, BackupListResult, BackupRestoreResult, BackupVerifyResult } from '../../../shared/types/data.ts';
+import type { BackupAutoResult, BackupCreateResult, BackupFolderStatus, BackupListResult, BackupRestoreResult, BackupVerifyResult } from '../../../shared/types/data.ts';
 import { appRoutes } from '../../app/routes.ts';
 import { fixedClock, type FixedClock } from '../../app/clock.ts';
 import { createRuntimeWithRoutes } from '../../app/runtime-core.ts';
@@ -572,6 +572,77 @@ describe('backup paths: only what the user picked in a dialog (main’s authoriz
     chosenFiles.add(copy);
     assert.equal((await call<BackupVerifyResult>('data.backup.verifyFile', { path: copy })).ok, true);
     assert.equal((await call<BackupVerifyResult>('data.backup.verifyFile', { path: own.path })).ok, true, 'data folder');
+  });
+
+  it('an F12 folder not approved on THIS installation (shared data folder, copied company) is never written to until the user confirms it', async () => {
+    const opened = await call<OpenResult>('app.company.create', { name: 'Moved Co', stateCode: '27', gstRegistrationType: 'regular', gstin: makeGstin('27'), booksFrom: '2026-04-01' });
+    const companyId = opened.company?.id as string;
+    const usb = path.join(root, 'usb-backups');
+    fs.mkdirSync(usb);
+    chosenFolders.add(usb);
+    await call('company.config.save', { backup: { folder: usb, auto: true } });
+    assert.deepEqual(await call<BackupFolderStatus>('data.backup.folderStatus'), { folder: usb, approved: true, defaultFolder: path.join(root, 'data', 'backups', companyId) });
+    await call('app.company.close');
+    await rt.shutdown();
+
+    // Another installation opens the same data folder (a fresh userData: nothing approved there).
+    chosenFolders.clear();
+    rt = createRuntimeWithRoutes(
+      {
+        userDataDir: path.join(root, 'userData-other-pc'),
+        defaultDataDir: path.join(root, 'data'),
+        appVersion: '1.2.3',
+        clock: fixedClock('2026-10-05'),
+        consoleLog: false,
+        authorizePath: (p, use) => (use === 'read-file' && chosenFiles.has(p)) || inside(p),
+      },
+      { ...appRoutes, ...companyRoutes, ...dataRoutes },
+    );
+    await call('app.company.open', { id: companyId });
+    const defaultFolder = path.join(root, 'data', 'backups', companyId);
+    assert.deepEqual(await call<BackupFolderStatus>('data.backup.folderStatus'), { folder: usb, approved: false, defaultFolder });
+    // Automatic backup: written to the default folder, and the shell is told to ask about the folder.
+    const auto = await call<BackupAutoResult>('data.backup.auto', { trigger: 'close' });
+    assert.equal(auto.reason, 'created');
+    assert.equal(auto.folderNotApproved, usb);
+    assert.equal(path.dirname(auto.backup?.path ?? ''), defaultFolder);
+    assert.deepEqual(fs.readdirSync(usb), [], 'nothing written to the unapproved folder');
+    // No backup due (one was just taken): the user is still told about the folder on opening.
+    const again = await call<BackupAutoResult>('data.backup.auto', { trigger: 'open' });
+    assert.deepEqual([again.ran, again.reason, again.folderNotApproved], [false, 'recent', usb]);
+    // Manual backup and the Backup screen list use the default folder too; the folder is no trusted root.
+    const manual = await call<BackupCreateResult>('data.backup.create', {});
+    assert.equal(path.dirname(manual.path), defaultFolder);
+    const listed = await call<BackupListResult>('data.backup.list', {});
+    assert.equal(listed.folder, defaultFolder);
+    assert.equal(listed.unapprovedFolder, usb);
+    assert.equal(await code('data.backup.list', { folder: usb }), 'FORBIDDEN');
+    assert.equal(await code('data.backup.create', { folder: path.join(usb, 'sub') }), 'FORBIDDEN');
+    // Saving other F12 settings is not refused and does not approve the folder.
+    await call('company.config.save', { backup: { folder: usb, keepLast: 5 } });
+    assert.equal((await call<BackupFolderStatus>('data.backup.folderStatus')).approved, false);
+    // Confirming needs the folder picked in the dialog; the stored value alone is not enough.
+    assert.equal(await code('data.backup.approveFolder', { folder: usb }), 'FORBIDDEN');
+    chosenFolders.add(usb);
+    assert.equal((await call<BackupFolderStatus>('data.backup.approveFolder', { folder: usb })).approved, true);
+    chosenFolders.clear();
+    const after = await call<BackupCreateResult>('data.backup.create', {});
+    assert.equal(path.dirname(after.path), usb);
+    assert.equal((await call<BackupListResult>('data.backup.list', {})).unapprovedFolder, undefined);
+    // Recorded outside the data folder, for this installation only.
+    assert.ok(fs.existsSync(path.join(root, 'userData-other-pc', 'backup-folders.json')));
+    assert.ok(!fs.readdirSync(path.join(root, 'data')).some((n) => n.includes('backup-folders')));
+  });
+
+  it('confirming a different folder makes it the F12 folder (audited)', async () => {
+    await call('app.company.create', { name: 'Swap Co', stateCode: '27', gstRegistrationType: 'regular', gstin: makeGstin('27'), booksFrom: '2026-04-01' });
+    const other = path.join(root, 'other');
+    fs.mkdirSync(other);
+    chosenFolders.add(other);
+    const st = await call<BackupFolderStatus>('data.backup.approveFolder', { folder: other });
+    assert.deepEqual([st.folder, st.approved], [other, true]);
+    const cfg = await call<{ backup: { folder: string | null } }>('company.config.get');
+    assert.equal(cfg.backup.folder, other);
   });
 
   it('a restored backup cannot bring its own F12 backup folder: cleared unless this installation vouches for it', async () => {

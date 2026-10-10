@@ -52,6 +52,12 @@ module's hook (`vouchers/hooks.ts`) calls `hook.ts`:
 3. **write / clear** — the derived rows, in the same transaction; cancel / delete / optional / alter keep
    them in step (tests in `journal.test.ts`).
 
+Altering a classed journal **without** its `stockJournal` block (the plain Stock Journal screen, used when
+the mfg screen cannot be opened — e.g. the feature was turned off) is refused with a field error on
+`stockJournal` that names the screen to use (and, when off, the F11 feature to turn on): saving it as a
+plain stock journal would silently drop its production / job work details (final wave, `gaps.test.ts`).
+A plain stock journal (no details) is altered on the plain screen as before.
+
 ### Costing (one rule, `shared/mfg/costing.ts`)
 
 ```
@@ -150,7 +156,9 @@ edit log, all through the dispatcher), `shared/mfg/costing.test.ts` (costing rul
 ITC-04 periods), `review.test.ts` (adversarial review regressions: a principal's goods processed into
 our own godown, ordinary vouchers touching a principal's godown, job worker attribution of a direct
 purchase, s.143 date kept across a job-worker-to-job-worker move and 5B, 5A job worker's challan no. and
-unique row keys, optional / reference read back, Production Register with several journals).
+unique row keys, optional / reference read back, Production Register with several journals), `gaps.test.ts`
+(final wave: a principal's goods out of our quantities and batches; a classed journal altered without its
+details is refused).
 
 ## Known gaps
 
@@ -161,10 +169,13 @@ unique row keys, optional / reference read back, Production Register with severa
   stored in the company.
 - No multi-level BOM explosion (sub-assemblies are made with their own Manufacturing Journal first).
 - The Material Out print lists both sides of the stock journal (from our godown / to the job worker's).
-- Whole-company quantity queries outside the valuation engine (`inventory/stock.ts › stockByItem`: item
-  list closing quantity, reorder status, dashboard low stock) still count a principal's goods lying in
-  `party_with_us` godowns; values, the Stock Summary and the Balance Sheet exclude them.
+- (Resolved, final wave.) Whole-company quantities outside the valuation engine (`inventory/stock.ts`:
+  `stockByItem`, `stockOnHand`, `batchesFor` without a godown — item list closing quantity, reorder
+  status, dashboard low stock) now leave a principal's goods in `party_with_us` godowns out, like the
+  values; asking for that godown still shows them (`gaps.test.ts`).
 - ITC-04 lists moulds / dies / jigs / fixtures / tools under "Inputs" in table 4's goods-type column
   (the form has Inputs / Capital goods only) — UNCERTAIN; check with your adviser.
-- A classed voucher altered from the generic stock journal grid (when the mfg screen cannot be opened,
-  e.g. the feature was turned off) is saved without its `stockJournal` block and loses its derived rows.
+- (Resolved, final wave.) A classed voucher can no longer be altered from the generic stock journal grid
+  (it would lose its derived rows): the save is refused with directions (see "Voucher types and posting").
+- (Resolved, final wave.) Duplicating a classed journal from the general voucher screen
+  (`vouchers.duplicate`) now clears each challan line's return-date extension, like the mfg screen.

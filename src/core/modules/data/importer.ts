@@ -35,7 +35,7 @@ import { parseCsv } from '../../lib/csv.ts';
 import { AppError } from '../../lib/errors.ts';
 import { decodeText, FileFormatError } from '../../lib/text.ts';
 import { readXlsx, writeXlsx, type XlsxCell, type XlsxKind } from '../../lib/xlsx.ts';
-import { runExclusiveJob } from '../../api/jobs.ts';
+import { BUSY_DETAILS, runExclusiveJob } from '../../api/jobs.ts';
 import { hasPermission, requirePermission, yieldToEventLoop } from './common.ts';
 import { APPLIERS, type ApplyOutcome, type ImportRecord, type ParsedRow, type Typed } from './importApply.ts';
 import { headerIndex, headerKey, KIND_SPECS, type ColumnSpec, type KindSpec } from './importSpecs.ts';
@@ -448,7 +448,7 @@ const ALLOWED_DURING_IMPORT: ReadonlySet<string> = new Set(['data.import.progres
  */
 async function withImportJob<T>(ctx: CompanyCtx, job: (ictx: CompanyCtx, abortIf: () => void) => Promise<T>): Promise<T> {
   const key = jobKey(ctx);
-  if (RUNNING.has(key)) throw new AppError('CONFLICT', 'An import is already running for this company. Wait for it to finish.');
+  if (RUNNING.has(key)) throw new AppError('CONFLICT', 'An import is already running for this company. Wait for it to finish.', BUSY_DETAILS);
   RUNNING.add(key);
   try {
     const abortIf = (): void => {

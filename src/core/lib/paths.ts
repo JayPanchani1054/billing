@@ -61,3 +61,12 @@ export function authorizeUserPath(app: Pick<AppRuntime, 'dataDir' | 'authorizePa
   app.log('warn', 'Refused a path the user did not choose', { use, unc: isUncOrDevicePath(text) });
   throw new AppError('FORBIDDEN', `Choose the ${opts.what} with the Browse button.`);
 }
+
+/**
+ * Is `folder` (a company's F12 backup folder) approved for that company on this installation
+ * (AppRuntime.backupFolders)? Without an approvals store (tests, headless use) every folder counts.
+ */
+export function isBackupFolderApproved(app: Pick<AppRuntime, 'backupFolders'>, companyGuid: string | null | undefined, folder: string): boolean {
+  if (!app.backupFolders) return true;
+  return typeof companyGuid === 'string' && companyGuid !== '' && app.backupFolders.isApproved(companyGuid, folder);
+}

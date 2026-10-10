@@ -347,9 +347,11 @@ export interface PosSummaryInput {
   to: string;
   /** Limit to these POS Sales types (and returns of their bills); default all. */
   voucherTypeIds?: number[];
-  /** Bills entered by this user only. */
-  userId?: number;
+  /** Bills entered by this user only (null: bills entered without a login, e.g. the owner of a company without security). */
+  userId?: number | null;
   counter?: string;
+  /** Bills / returns with a tender of this mode only (drill-down from the by-tender view). */
+  modeId?: number;
 }
 
 export interface PosSummaryTenderRow {
@@ -416,8 +418,11 @@ export interface PosRegisterInput {
   from: string;
   to: string;
   voucherTypeIds?: number[];
-  userId?: number;
+  /** See PosSummaryInput.userId (null: entered without a login). */
+  userId?: number | null;
   counter?: string;
+  /** Only bills / returns with a tender of this mode. */
+  modeId?: number;
   kind?: 'sale' | 'return';
   search?: string;
   limit?: number;

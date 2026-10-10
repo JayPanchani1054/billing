@@ -77,6 +77,11 @@ export interface MenuItem {
   gstRegistrations?: ReadonlyArray<'regular' | 'composition' | 'unregistered'>;
   /** One plain-language line shown as a tooltip on the Gateway and under the label in Go To. */
   description?: string;
+  /**
+   * (additive) A voucher-entry item for this predefined voucher type: hidden when the company has
+   * deactivated that predefined type (Masters › Voucher Types; MenuContext.inactiveBaseTypes).
+   */
+  voucherBaseType?: VoucherBaseType;
 }
 
 export interface ModuleDef {

@@ -120,6 +120,15 @@ export function unmarkFiled(ctx: CompanyCtx, form: GstFilingForm, period: string
       );
     }
   }
+  if (form === 'gstr3b') {
+    const used = ctx.db.value<number>('SELECT COUNT(*) FROM gst_3b_changes WHERE original_period = :p', { p: period }) ?? 0;
+    if (used > 0) {
+      throw rule(
+        `${used} change(s) were recorded because GSTR-3B for ${before.periodLabel} is filed (GST › Changes after GSTR-3B filing). Unmarking it would leave them pointing at a return that is not filed. ` +
+          'Keep it marked, or review those changes first.',
+      );
+    }
+  }
   ctx.db.run('DELETE FROM gst_return_filings WHERE form = :form AND return_period = :p', { form, p: period });
   ctx.audit({ action: 'delete', entityType: 'gst_filing', entityLabel: `${form.toUpperCase()} ${before.periodLabel} filing mark removed`, before });
 }

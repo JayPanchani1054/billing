@@ -105,7 +105,9 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+1', label: 'Bills', onClick: () => setSection('bills'), group: 'view', disabled: shown === 'bills' },
     { key: 'Ctrl+2', label: 'On account entries', onClick: () => setSection('onAccount'), group: 'view', disabled: section === 'onAccount' || !billWise },
-    { key: 'Alt+H', label: includeSettled ? 'Hide settled bills' : 'Show settled bills', icon: 'eye', onClick: () => setIncludeSettled((x) => !x), group: 'view' },
+    // Alt+F1 (detailed / condensed): settled bills are the detailed view. Alt+H is reserved for edit
+    // history in every module (CONVENTION_SHORTCUTS); the TDS reports toggle settled lines the same way.
+    { key: 'Alt+F1', label: includeSettled ? 'Hide settled bills' : 'Show settled bills', icon: 'eye', onClick: () => setIncludeSettled((x) => !x), group: 'view' },
     {
       key: 'Alt+N',
       label: fifo ? 'Show as one On Account line' : 'Break down FIFO',

@@ -228,7 +228,8 @@ export const DRILL = {
   profile: (): DrillTarget => ({ screen: 'company.profile' }),
   invoicePrinting: (): DrillTarget => ({ screen: 'print.settings' }),
   backupSettings: (): DrillTarget => ({ screen: 'company.config', params: { tab: 'backup' } }),
-  newLedger: (): DrillTarget => ({ screen: 'accounts.ledger.form', params: {} }),
+  /** Ledger Creation under a group (reserved code, e.g. 'SUNDRY_DEBTORS'); Alt+C-style "Under" stays editable. */
+  newLedger: (groupCode?: 'SUNDRY_DEBTORS' | 'SUNDRY_CREDITORS' | 'BANK_ACCOUNTS'): DrillTarget => ({ screen: 'accounts.ledger.form', params: groupCode ? { groupCode } : {} }),
   newItem: (): DrillTarget => ({ screen: 'inventory.item.form', params: {} }),
   tally: (): DrillTarget => ({ screen: 'data.tally' }),
 } as const;
@@ -494,7 +495,7 @@ export function startSteps(o: StartStepsInput): StartStep[] {
     );
   }
   if (o.createMasters) {
-    add({ id: 'ledgers', title: 'Add your customers, suppliers and bank', body: 'Enter opening balances so dues and bank balances start right.', action: 'Create ledger', target: DRILL.newLedger() }, f?.hasOwnLedgers);
+    add({ id: 'ledgers', title: 'Add your customers, suppliers and bank', body: 'Enter opening balances so dues and bank balances start right.', action: 'Create ledger', target: DRILL.newLedger('SUNDRY_DEBTORS') }, f?.hasOwnLedgers);
     if (o.inventory) add({ id: 'items', title: 'Add the items you sell', body: 'With GST rate, HSN and opening stock.', action: 'Create stock item', target: DRILL.newItem() }, f?.hasItems);
   }
   if (o.createVouchers) {
@@ -533,6 +534,14 @@ export function startCardMode(steps: readonly StartStep[], o: { hidden: boolean;
   const p = startProgress(steps);
   if (p.total === 0) return o.hasVouchers ? null : 'steps'; // only optional steps (Tally migration)
   return p.complete ? null : 'steps';
+}
+
+/**
+ * "Show Get started" (dashboard rail Alt+S, Gateway panel button): offered when the user hid the card
+ * and it would show again — undoing Hide. Nothing to offer when every step is done anyway.
+ */
+export function canShowStartCard(steps: readonly StartStep[], o: { hidden: boolean; hasVouchers: boolean }): boolean {
+  return o.hidden && startCardMode(steps, { hidden: false, hasVouchers: o.hasVouchers }) !== null;
 }
 
 /** Per-company "Get started" preferences kept in the browser (localStorage). */

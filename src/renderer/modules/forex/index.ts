@@ -28,7 +28,7 @@ export const forexModule: ModuleDef = {
   ],
   menu: [
     { section: 'masters', label: 'Multi-currency Settings', screen: 'forex.settings', order: 19, feature: FX, description: 'Exchange gain / loss ledgers and the revaluation rate' },
-    { section: 'masters', label: 'Opening Balance in Currency', screen: 'forex.opening', order: 20, feature: FX, description: 'Opening balance and opening bills of a ledger kept in a foreign currency' },
+    { section: 'masters', label: 'Opening Balance in Currency', screen: 'forex.opening', order: 19.5, feature: FX, description: 'Opening balance and opening bills of a ledger kept in a foreign currency' },
     { section: 'reports', label: 'Forex Outstanding', screen: 'forex.outstanding', order: 50, feature: FX, description: 'Bills in foreign currencies with booked and closing rates' },
     { section: 'reports', label: 'Ledger in Foreign Currency', screen: 'forex.ledger', order: 51, feature: FX, description: 'A party or bank kept in a foreign currency, in both currencies' },
     { section: 'reports', label: 'Forex Revaluation', screen: 'forex.revaluation', order: 52, feature: FX, description: 'Unrealised exchange gain / loss at the closing rate; post the adjustment journal' },

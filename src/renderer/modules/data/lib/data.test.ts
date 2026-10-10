@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CompanyListItem } from '../../../../shared/types/app.ts';
@@ -287,5 +288,26 @@ describe('restore wizard steps', () => {
     assert.match(restoreChoiceProblem({ mode: 'replace', target, ownerPassword: '' }) ?? '', /owner password/);
     assert.equal(restoreChoiceProblem({ mode: 'replace', target, ownerPassword: 'x' }), null);
     assert.match(restoreChoiceProblem({ mode: 'replace', target: { ...target, disabledReason: 'Open now' }, ownerPassword: 'x' }) ?? '', /cannot be replaced/);
+  });
+});
+
+describe('busy company: Excel / Tally import offer "Wait and retry" (follow-up)', () => {
+  const read = (f: string) => fs.readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
+  it('ImportScreen: preview and import retry while busy; the banner offers the button', () => {
+    const src = read('ImportScreen.tsx');
+    assert.match(src, /isBusyConflict\(err\)\) setError\(\{ title: 'Another task is running in this company', message: busyText\(err\), retry: \(\) => void runPreview\(f, k, update, true\) \}\)/);
+    assert.match(src, /retry: \(\) => void runCommit\(true\)/);
+    assert.match(src, /retryWhileBusy\(fn, \{ cancelled: \(\) => closed\.current \}\)/);
+    assert.match(src, /Wait and retry/);
+  });
+  it('TallyScreen: the import retries while busy', () => {
+    const src = read('TallyScreen.tsx');
+    assert.match(src, /retry: \(\) => void startImport\(true\)/);
+    assert.match(src, /retryWhileBusy\(call, \{ cancelled: \(\) => closed\.current \}\)/);
+  });
+  it('BackupScreen: an F12 folder not approved on this computer is confirmed through the folder dialog', () => {
+    const src = read('BackupScreen.tsx');
+    assert.match(src, /native\('dialog\.chooseFolder', \{ title: 'Confirm the backup folder', defaultPath: unapproved \}\)/);
+    assert.match(src, /approve\.mutate\(\{ folder: picked\.path \}\)/);
   });
 });

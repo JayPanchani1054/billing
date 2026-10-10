@@ -147,7 +147,7 @@ by rate; totals; MRP and "You saved" when shown.
 ## MRP (print group)
 
 The item master's MRP (`stock_items.mrp`, paise per unit, inclusive of all taxes) is on each line
-(`PrintLine.mrp`). F12 › Invoice printing › *Show MRP* (or the voucher type's *MRP column*, which
+(`PrintLine.mrp`). Invoice Printing (print settings) › *Show MRP* (or the voucher type's *MRP column*, which
 wins) prints an **MRP** column with "MRP inclusive of all taxes" on outward sales documents (sales
 invoices and outward notes, quotations, proforma invoices, sales orders, delivery challans), and on
 invoices **"You saved ₹…"** =
@@ -195,3 +195,7 @@ and then the native action, which renders the PDF from the same preview HTML:
   each line / charge in the currency, the rate, GST and the total in both currencies and the total in
   words in the currency (`PrintVoucherData.forex`, built by forex/print.ts; rendered by the Modern,
   Classic and Voucher templates). The Compact (thermal) template does not print it.
+- A POS bill / return (pos module) carries `PrintVoucherData.pos` (built by pos/print.ts): the tenders
+  with references, on account, cash tendered and change, counter and cashier — the "Paid by" block of
+  the Compact, Modern and Classic templates (`renderer/modules/pos/PrintBlock.tsx`). A bill paid in full
+  at the counter has no "Scan to pay" UPI QR; one partly on account asks for the balance only.

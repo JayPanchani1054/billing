@@ -11,6 +11,7 @@ import { showInFolder } from '../../app/export.ts';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
+import { unapprovedFolderText } from '../../app/lib/autoBackup.ts';
 import { useNav } from '../../app/nav.tsx';
 import { Screen } from '../../app/Screen.tsx';
 import { useCan, useCompany, useCompanyConfig } from '../../app/state.tsx';
@@ -41,6 +42,24 @@ export function BackupScreen() {
   const current = backups.find((b) => b.path === selected) ?? backups[0] ?? null;
   const dirty = password !== '' || note.trim() !== '';
   const fresh = backupFreshness(list.data?.lastBackupAt ?? null, new Date());
+
+  // The F12 folder came from another computer / a restored backup: confirm it here (picked again in the
+  // folder dialog — the stored path alone is never trusted), or pick another one.
+  const canManage = useCan('company.manage');
+  const approve = useApiMutation('data.backup.approveFolder', { invalidates: ['data.backup', 'company'] });
+  const unapproved = folder === undefined ? (list.data?.unapprovedFolder ?? null) : null;
+  const confirmFolder = async () => {
+    if (!unapproved || approve.pending) return;
+    try {
+      const picked = await native('dialog.chooseFolder', { title: 'Confirm the backup folder', defaultPath: unapproved });
+      if (!picked) return;
+      const r = await approve.mutate({ folder: picked.path });
+      toast.success('Backup folder confirmed', { message: `Backups of this company go to ${r.folder ?? picked.path}.` });
+      void list.refetch();
+    } catch (err) {
+      toast.error('The backup folder was not confirmed', { message: userMessage(err) });
+    }
+  };
 
   const chooseFolder = async () => {
     try {
@@ -154,6 +173,22 @@ export function BackupScreen() {
       ]}
     >
       <Stack gap={5}>
+        {unapproved ? (
+          <Banner
+            tone="warning"
+            title="Confirm the backup folder"
+            action={
+              canManage ? (
+                <Button size="sm" icon="folder" loading={approve.pending} onClick={() => void confirmFolder()}>
+                  Confirm folder…
+                </Button>
+              ) : undefined
+            }
+          >
+            {unapprovedFolderText(unapproved)}
+            {canManage ? ' Choose Confirm folder and pick it (or another folder) in the dialog.' : ' Ask a user who can change the company configuration to confirm it.'}
+          </Banner>
+        ) : null}
         {list.data ? (
           <Banner tone={fresh.tone} title={fresh.title}>
             {autoText} {config ? 'Change this in Backup settings (Alt+S).' : null}

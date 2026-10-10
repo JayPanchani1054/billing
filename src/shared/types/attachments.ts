@@ -81,3 +81,21 @@ export interface AttachmentRegisterResult {
   total: number;
   totalBytes: number;
 }
+
+/** 'attachments.unused' — stored files no attachment refers to any more (left by an attach that could not finish). */
+export interface AttachmentUnusedFile {
+  /** Stored name (<sha256>.<ext>). */
+  name: string;
+  bytes: number;
+}
+
+export interface AttachmentUnusedResult {
+  files: AttachmentUnusedFile[];
+  totalBytes: number;
+}
+
+/** 'attachments.sweep' — removes those files (attachments.remove; recorded in the edit log). */
+export interface AttachmentSweepResult {
+  removed: number;
+  bytes: number;
+}

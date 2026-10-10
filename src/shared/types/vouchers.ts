@@ -686,7 +686,7 @@ export interface VoucherEntryContext {
   features: CompanyFeatures;
   /**
    * printAfterSave: open the print preview and send it to the printer after saving a new voucher —
-   * the voucher type's own switch, or F12 › Invoice printing for sales, credit/debit notes and
+   * the voucher type's own switch, or Invoice Printing (print settings) for sales, credit/debit notes and
    * delivery notes (vouchers/queries.ts INVOICE_PRINT_TYPES).
    */
   config: Pick<CompanyConfig, 'roundOff' | 'guards' | 'lockedUpTo' | 'gst'> & { printAfterSave: boolean };

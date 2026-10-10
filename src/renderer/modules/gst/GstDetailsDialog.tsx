@@ -134,7 +134,13 @@ export function GstDetailsDialog({ baseType, outward, date, partyLedgerId, value
       };
     }
     if (kinds.includes('adjustment') && nature) {
-      out.adjustment = { nature, ...(adjPeriod.trim() ? { period: adjPeriod.trim() } : {}), ...(nature === 'rcm_liability' && rcmTaxable ? { taxableValue: rcmTaxable } : {}) };
+      out.adjustment = {
+        nature,
+        ...(adjPeriod.trim() ? { period: adjPeriod.trim() } : {}),
+        ...(nature === 'rcm_liability' && rcmTaxable ? { taxableValue: rcmTaxable } : {}),
+        // A Rule 37 reversal / reclaim posted from GST › Rule 37 keeps its invoices (gst_rule37_links).
+        ...(v.adjustment?.rule37 && v.adjustment.nature === nature ? { rule37: v.adjustment.rule37 } : {}),
+      };
     }
     return Object.keys(out).length > 0 ? out : null;
   };

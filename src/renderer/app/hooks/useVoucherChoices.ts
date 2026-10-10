@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import { voucherChoices } from '../lib/voucherTypes.ts';
+import { inactivePredefinedBaseTypes, voucherChoices } from '../lib/voucherTypes.ts';
 import type { VoucherChoice } from '../lib/voucherTypes.ts';
+import type { VoucherBaseType } from '../../../shared/constants.ts';
 import { useAppState } from '../state.tsx';
 import { useApiQuery } from './useApiQuery.ts';
 
@@ -14,4 +15,15 @@ export function useVoucherChoices(): VoucherChoice[] {
   const q = useApiQuery('accounts.voucherType.list', {}, { enabled: app.can('masters.view'), staleTime: 60_000 });
   const rows = q.data?.rows;
   return useMemo(() => voucherChoices(rows), [rows]);
+}
+
+/**
+ * Base types whose predefined voucher type the company deactivated (Gateway Transactions menu and Go
+ * To hide them). Same cache entry as useVoucherChoices; null while unknown (everything shown).
+ */
+export function useInactiveBaseTypes(): ReadonlySet<VoucherBaseType> | null {
+  const app = useAppState();
+  const q = useApiQuery('accounts.voucherType.list', {}, { enabled: app.company !== null && app.can('masters.view'), staleTime: 60_000 });
+  const rows = q.data?.rows;
+  return useMemo(() => inactivePredefinedBaseTypes(rows), [rows]);
 }

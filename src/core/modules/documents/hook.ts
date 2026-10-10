@@ -5,7 +5,9 @@
  * voucher's own save transaction. Registered when the module is imported (routes.ts).
  *
  * Conversion and recurring links are made on CREATE only; an alter never adds, moves or removes them
- * (a link disappears only with the voucher at either end, via ON DELETE CASCADE).
+ * (a link disappears only with the voucher at either end, via ON DELETE CASCADE). An alteration is
+ * still re-checked against its links: the converted voucher may not move before its quotation, nor the
+ * quotation after the voucher it was converted into.
  */
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import { formatDate } from '../../../shared/dates.ts';
@@ -40,7 +42,29 @@ function validate(ctx: CompanyCtx, a: VoucherHookValidateArgs): void {
       throw fieldIssue('applicableUpto', `"Applicable up to" (${formatDate(input.applicableUpto)}) is before the journal date (${formatDate(input.date)}). Choose a date on or after it.`);
     }
   }
-  if (a.existing) return; // links are made on create only
+  if (a.existing) {
+    // Links are made on create only, but an alteration must keep their order of dates: a converted
+    // voucher is never dated before the quotation / proforma it converts (nor that document after it).
+    const id = a.existing.id;
+    const src = db.get<{ id: number; date: string }>(
+      `SELECT v.id, v.date FROM document_links k JOIN vouchers v ON v.id = k.source_voucher_id WHERE k.target_voucher_id = :id ORDER BY v.date DESC LIMIT 1`,
+      { id },
+    );
+    if (src && input.date < src.date) {
+      const ref = voucherRef(db, src.id);
+      throw fieldIssue('date', `This voucher converts ${ref ? refLabel(ref) : 'a quotation'} dated ${formatDate(src.date)}; it cannot be dated before it.`);
+    }
+    const target = db.get<{ id: number; date: string }>(
+      `SELECT v.id, v.date FROM document_links k JOIN vouchers v ON v.id = k.target_voucher_id
+        WHERE k.source_voucher_id = :id AND v.is_cancelled = 0 ORDER BY v.date LIMIT 1`,
+      { id },
+    );
+    if (target && input.date > target.date) {
+      const ref = voucherRef(db, target.id);
+      throw fieldIssue('date', `This document was converted into ${ref ? refLabel(ref) : 'another voucher'} dated ${formatDate(target.date)}; it cannot be dated after it.`);
+    }
+    return;
+  }
 
   if (input.convertedFromId !== undefined) {
     const src = db.get<{ id: number; base_type: string; date: string; is_cancelled: number }>(

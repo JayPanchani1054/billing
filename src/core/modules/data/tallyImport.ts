@@ -54,6 +54,7 @@ import type { BillAllocationInput, InstrumentType, ItemLineInput, LedgerLineInpu
 import type { CompanyCtx } from '../../api/context.ts';
 import { aliasOwner, extraAliasMap, type AliasKind } from '../../lib/masterAliases.ts';
 import type { Db } from '../../db/db.ts';
+import { BUSY_DETAILS } from '../../api/jobs.ts';
 import { AppError, validation } from '../../lib/errors.ts';
 import type { FieldIssue } from '../../../shared/api.ts';
 import type { ledgerClass } from '../accounts/books.ts';
@@ -1468,6 +1469,20 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     if (!movesStock) {
       run.add({ severity: 'warning', code: 'inventory_ignored', message: `Stock lines in a ${v.vchType} voucher are not imported (only the accounting entries).`, object: `VOUCHER ${voucherLabel(v)}` });
     } else {
+      // A Debit Note to a customer (supplementary invoice / upward price revision, CGST s.34(3)) is
+      // value-only, exactly as when it is entered here (vouchers/posting.ts › valueOnlyItemLines): its
+      // item lines keep their value and GST but never move stock, so the stock summary, the Balance
+      // Sheet's closing stock and a later alteration of the imported voucher all agree. Tally reduces
+      // stock for such a note; the import log says so for each voucher affected.
+      const valueOnlyNote = base === 'debit_note' && partyId !== null && env.ledgerById.get(partyId)?.cls.isDebtor === true;
+      if (valueOnlyNote && env.features.inventory && v.inventory.some((l) => { const it = env.items.get(key(l.item)); return it !== undefined && !it.isService; })) {
+        run.add({
+          severity: 'info',
+          code: 'debit_note_value_only',
+          message: 'Debit Note to a customer: its stock lines are imported for value and GST only and do not reduce stock (a price revision; goods going out are entered as a Sales invoice). Tally reduces stock for such a note, so the closing stock may differ from Tally by these quantities.',
+          object: `VOUCHER ${voucherLabel(v)}`,
+        });
+      }
       for (const line of v.inventory) {
         const item = env.items.get(key(line.item));
         if (!item) throw new SkipVoucher('unknown_item', `Stock item "${line.item}" does not exist.`);
@@ -1488,7 +1503,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
           const godownId = s.alloc?.godown ? (env.godowns.get(key(s.alloc.godown)) ?? env.mainGodown) : env.mainGodown;
           const trackingRef = s.alloc?.trackingNo ?? null;
           const rate = rateUsable ? (line.rate as number) : s.qty !== 0 ? Math.round((s.amount / 100 / s.qty) * 1e6) / 1e6 : 0;
-          const stockMoves = !ORDERS.has(base) && !optional && env.features.inventory && !item.isService && !(INVOICE_TRACKED.has(base) && trackingRef !== null);
+          const stockMoves = !valueOnlyNote && !ORDERS.has(base) && !optional && env.features.inventory && !item.isService && !(INVOICE_TRACKED.has(base) && trackingRef !== null);
           inv.push({
             item,
             godownId,
@@ -1935,7 +1950,7 @@ export async function importTally(ctx: CompanyCtx, input: TallyImportInput): Pro
   }
   if (opts.from && opts.to && opts.to < opts.from) throw validation([{ path: 'options.to', message: 'The end date is before the start date' }]);
   const lockKey = ctx.company.dbPath + '|' + ctx.company.id;
-  if (RUNNING.has(lockKey)) throw new AppError('CONFLICT', 'A Tally import is already running for this company. Wait for it to finish.');
+  if (RUNNING.has(lockKey)) throw new AppError('CONFLICT', 'A Tally import is already running for this company. Wait for it to finish.', BUSY_DETAILS);
   RUNNING.add(lockKey);
   const started = Date.now();
   const issues: TallyIssue[] = [];

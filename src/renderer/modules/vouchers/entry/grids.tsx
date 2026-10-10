@@ -12,7 +12,7 @@
 import { createContext, memo, useContext } from 'react';
 import type { Dispatch, ReactNode } from 'react';
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
-import { formatMoney, formatPercent } from '../../../../shared/format.ts';
+import { formatIndianNumber, formatMoney, formatPercent } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import type { LedgerDetail, LedgerPickerRow } from '../../../../shared/types/accounts.ts';
 import type { GodownDto, ItemPickerRow } from '../../../../shared/types/inventory.ts';
@@ -54,6 +54,11 @@ export interface GridEnv {
   onQtyCommitted: (rowKey: string, qty: number | null) => void;
   openRowDialog: (kind: RowDialogKind, rowKey: string) => void;
   deleteRow: (section: 'items' | 'ledgers', rowKey: string) => void;
+  /**
+   * (forex) Decimal places of the amount fields — an invoice in a foreign currency holds its amounts in
+   * 10^-d units of that currency (VoucherForm.forexDecimals); default 2 (paise).
+   */
+  amountDecimals?: number;
 }
 
 export const GridEnvContext = createContext<GridEnv | null>(null);
@@ -163,7 +168,8 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
   const item = row.itemId === null ? undefined : env.itemById.get(row.itemId);
   const decimals = item?.unitDecimals ?? 3;
   const patch = (p: Partial<Omit<ItemRow, 'key'>>) => env.dispatch({ type: 'item', key: k, patch: p });
-  const value = itemLineValue(row);
+  const dp = env.amountDecimals ?? 2;
+  const value = itemLineValue(row, dp);
   const cell = (c: ItemColumn): ReactNode => {
     switch (c) {
       case 'item':
@@ -271,6 +277,7 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
             aria-label={`Amount, line ${index + 1}`}
             aria-describedby={described('amount')}
             size="sm"
+            decimals={dp}
             value={value || null}
             invalid={!!err('amount')}
             onChange={(a) => {
@@ -278,7 +285,7 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
               // Tally: typing the amount re-derives the rate from the quantity.
               const q = row.billedQty ?? row.qty ?? 0;
               const d = row.discountPct ?? 0;
-              const rate = a !== null && q > 0 && d < 100 ? Math.round((a / 100 / q / (1 - d / 100)) * 10_000) / 10_000 : row.rate;
+              const rate = a !== null && q > 0 && d < 100 ? Math.round((a / 10 ** dp / q / (1 - d / 100)) * 10_000) / 10_000 : row.rate;
               patch({ amount: a, rate });
             }}
           />
@@ -502,6 +509,7 @@ const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind
               aria-label={`Amount, line ${index + 1}`}
               aria-describedby={described('amount')}
               size="sm"
+              decimals={amountKind === 'invoice' ? (env.amountDecimals ?? 2) : 2}
               allowNegative={amountKind === 'invoice'}
               value={row.amount}
               invalid={!!err('amount')}
@@ -590,11 +598,11 @@ const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind
 });
 
 /** A footer row: label spanning the leading columns, then a value under the amount column. */
-export function TotalRow({ label, value, span, trailing = 1, tone }: { label: ReactNode; value: Paise | ReactNode; span: number; trailing?: number; tone?: 'strong' | 'muted' }) {
+export function TotalRow({ label, value, span, trailing = 1, tone, decimals = 2 }: { label: ReactNode; value: Paise | ReactNode; span: number; trailing?: number; tone?: 'strong' | 'muted'; decimals?: number }) {
   return (
     <tr className={tone ? `bx-vch-total is-${tone}` : 'bx-vch-total'}>
       <td colSpan={span}>{label}</td>
-      <td className="is-num bx-num">{typeof value === 'number' ? formatMoney(value) : value}</td>
+      <td className="is-num bx-num">{typeof value === 'number' ? (decimals === 2 ? formatMoney(value) : formatIndianNumber(value / 10 ** decimals, decimals)) : value}</td>
       {trailing > 0 ? <td colSpan={trailing} /> : null}
     </tr>
   );

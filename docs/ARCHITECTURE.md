@@ -154,6 +154,13 @@ export const accountsRoutes = {
 - **Audit:** every create/alter/delete/cancel of a master, voucher, user or setting calls
   `ctx.audit({ action, entityType, entityId, entityGuid, entityLabel, before, after })` inside the same transaction.
 - **Period lock:** voucher create/alter/delete must reject dates `<= config.lockedUpTo` with `LOCKED`.
+  Bank dates too (banking `common.ts assertBankDateChangeAllowed`): setting, moving or clearing a bank
+  date whose old or new value is in the locked period needs `period.lock` (Owners always), else `LOCKED`
+  — including a voucher delete / cancel / alter that would clear one (`vouchers/service.ts`).
+- **Busy company:** a `CONFLICT` that only means "another long task holds the company" (an exclusive
+  import job, or another async task in flight) carries `details { reason: 'busy', retryable: true }`
+  (`api/jobs.ts BUSY_DETAILS`); the renderer offers "Wait and retry" (`app/lib/apiErrors.ts`
+  `isBusyConflict` / `retryWhileBusy`).
 - Lists accept `{ search?, limit?, offset? }` where relevant and return `{ rows, total }` for paging.
 
 ### Contexts (`core/api/context.ts`)
@@ -191,7 +198,8 @@ Use `:name` placeholders with an object. Always parameterise — **never interpo
   removes it. Both are audited.
 - Stock: sales/delivery note/rejection out/debit note(with items, to a supplier) = outward; purchase/receipt note/rejection in/
   credit note(with items) = inward. An invoice line tracked against a delivery/receipt note does not move stock again.
-  A debit note to a customer (price revision, CGST s.34(3)) is value-only: its item lines never move stock.
+  A debit note to a customer (price revision, CGST s.34(3)) is value-only: its item lines never move stock
+  — also when imported from Tally (the import log lists each such note; Tally itself moves stock).
 - Closing stock (integrated inventory): valued by item costing method (default weighted average) and shown in
   P&L and Balance Sheet (Current Assets › Stock-in-Hand).
 
@@ -257,6 +265,10 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
 - File system access only via main-process dialogs; renderer never supplies arbitrary paths to read/write
   without a user-chosen dialog result token. Core routes that take a path authorise it with
   `core/lib/paths.ts` (data folder, configured backup folder, or a dialog choice; UNC refused otherwise).
+  The configured (F12) backup folder counts — for writing, listing and as a trusted root — only when it
+  is approved for that company on this installation (`AppRuntime.backupFolders`, `<userData>`
+  `backup-folders.json`) or lies in the data folder; otherwise backups use the default folder until the
+  user confirms it in the folder dialog (`data.backup.approveFolder`).
 - Passwords: `scrypt` (N=2^15, r=8, p=1, 16-byte salt) with constant-time compare; lockout after 5 failures
   for 5 minutes; optional session idle timeout.
 - Edit log: append-only (`audit_log` triggers) and SHA-256 hash-chained; verifiable from the UI. Its latest
@@ -264,6 +276,12 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   truncated log is detected — see docs/SECURITY.md §4.1 for what is and is not detected. Imports audit every record.
 - Backups: AES-256-GCM with scrypt-derived key when a password is given; integrity-checked on restore.
 - Logs never contain passwords, full GSTIN/PAN lists or voucher payloads.
+- **CSV / Excel formula injection** (OWASP): one rule for every export, `src/shared/csvSafe.ts` — a text
+  cell starting with `= + - @ TAB CR` is prefixed with `'` unless it is exactly a plain number
+  ("-1250.50", "-1,23,456.00" stay numbers). Core `lib/csv.ts` `toCsv` applies it by default (TDS return
+  CSVs, ITC-04 / CMP-08 / GSTR-4 files, e-payment files, edit log, reconciliation, data exports), as do
+  `data.export.table` and the renderer's `exportFormat.ts`; in `.xlsx` (`lib/xlsx.ts`) text is never a
+  formula and such cells also get the `quotePrefix` style. Never hand-build CSV text.
 
 ## 9. Testing
 
@@ -321,6 +339,10 @@ migrations **190–193** (block 190–199). Details: `src/core/modules/documents
 - **Permissions**: no new permission — quotations / recurring use `vouchers.*`, pre-close
   `vouchers.alter` (+ `vouchers.backdate`, period lock), scenarios / budgets `masters.*`, bills pending
   `reports.view`, budget variance `reports.financial`. Every mutation is audited.
+- **Final wave**: an alteration is re-checked against its conversion link (a converted voucher never
+  dated before its quotation / proforma, nor the quotation after it); budget-variance cost-centre
+  actuals follow the scenario (`reports/scenario.ts › scenarioCostCentreAdjust`) — memorandum vouchers
+  and reversing journals therefore store their cost-centre split (`affects_books = 0`).
 
 ## TDS / TCS module (`tds`) — deduction, payables, challans, quarterly return data
 
@@ -357,6 +379,13 @@ Core `src/core/modules/tds` (README there: tables, posting, legal assumptions), 
   nature for advances); voucher view panel; Gateway notice for overdue deposits / statements.
 - **Statement files**: CSV with every RPU deductee / challan field under plain headings — not the FVU
   file, not the RPU column order (documented in the module README).
+- **Final wave** (migration 240 `tds_lines.bill_voucher_id`): a debit note (TDS) / credit note (TCS) in
+  an invoice mode against a bill with tax reverses it in proportion (negative line carrying the bill,
+  netted into the bill's deduction by the outstanding report and the statement — `netReversals`); a
+  Journal `Dr party / Cr TDS Payable` with nothing applicable is the deduction on the bill its
+  bill-wise "Against" names (in every report); 194T only for a `firm` deductor category; s.195 on a
+  foreign-currency bill nets the supplier's bill in both currencies (forex hook rescales bill-wise
+  amounts typed for the gross).
 
 ## Manufacturing & job work module (`mfg`) — BOM, Manufacturing Journal, Material In / Out, ITC-04
 
@@ -404,6 +433,10 @@ BOM explosion, s.143 / rule 45 as effective-dated data). Migration **210** (bloc
   job worker's challan) when entered. A Manufacturing Journal consuming a principal's goods puts its
   outputs in that principal's godown (own godown refused); other vouchers touching a `party_with_us`
   godown get a confirm-level `mfg` warning.
+- **Final wave**: without a godown filter, `inventory/stock.ts` (`stockByItem`, `stockOnHand`,
+  `batchesFor`) gives our stock — `party_with_us` godowns left out (item list, reorder status,
+  dashboard low stock, order positions); altering a classed journal without its `stockJournal` block
+  (plain Stock Journal screen) is refused with directions instead of dropping its details.
 
 ## GST plus (`gst` module) — composition returns, set-off & challans, electronic ledgers, advances, bills of entry, amendments
 
@@ -437,6 +470,20 @@ eledgers.ts, boeRecon.ts, composition.ts, statLedgers.ts, schemas.ts), `src/rend
   outward document of a filed GSTR-1 period logs `gst_amendments` (original vs amended snapshot) reported
   in the next unfiled period — never a filed one (9A / 9C / 10, JSON `b2ba` / `cdnra`); the filed period keeps its figures in
   GSTR-1 totals and GSTR-3B; deleting / cancelling such a document is refused (`beforeRemove`).
+- **Filed GSTR-3B** (final wave, `filed3b.ts`, migration 240 `gst_3b_changes`): altering / adding /
+  deleting a voucher with a GSTR-3B effect in a period whose 3B is marked filed asks to confirm (alter /
+  add) and is logged (before / after effect, `accumulate` + `bookAdjustments(…, voucherId)`); the
+  change is reported in the first later unfiled 3B (3.1, more credit in 4(A), less credit in 4(B)(2)),
+  the filed period keeps its figures (`gstr3bChangeCorrections` in `computeGstr3b`); outward documents of
+  a filed GSTR-1 period stay with the GSTR-1 amendments. Route `gst.gstr3b.changes`, screen
+  `gst.gstr3b.changes`.
+- **Rule 37** (final wave, `rule37.ts`, `gst_rule37_links`): `gst.rule37.report` (purchases unpaid after
+  180 days, from their own bill's bill-wise balance; credit due / reversed / to reverse / to reclaim)
+  and `gst.rule37.post` (gst.file: one stat-adjustment Journal `itc_reversal_r37` / `itc_reclaim` with
+  `adjustment.rule37[]`); screen `gst.rule37`.
+- **Set-off and "credit not in the books"** (final wave): the set-off journal credits the Input tax
+  ledgers only with what they hold (`bookInputCredit`); the rest of the credit utilised goes to the
+  system ledger `GST_CREDIT_OUTSIDE` "GST Credit Not in Books".
 - **Composition**: effective-dated, editable rate master `gst_composition_rates` (seeded Rule 7 rates);
   CMP-08 (quarter) and GSTR-4 (FY) from the books; their files are Bahi's documented JSON / CSV (the
   portal offers no CMP-08 upload; the GSTR-4 offline-tool schema is not reproduced).
@@ -490,6 +537,9 @@ Core `src/core/modules/forex` (README there: model, posting, legal assumptions),
   Ledger in Foreign Currency, Forex Revaluation (Ctrl+A posts the journal), Opening Balance in
   Currency, Multi-currency Settings (Masters / Reports menus + Go To); voucher view panel (Alt+Y);
   links from Ledger Vouchers (Alt+R) and Party Outstanding (Alt+Y).
+- **Entry decimals** (final wave): in a foreign-currency invoice the form's amount fields hold the foreign
+  amount in 10^-d units, d = the currency's decimal places (0 / 2 / 3 / 4; `VoucherForm.forexDecimals`,
+  `AmountInput decimals`, the 'forexUnit' rescale; loaded invoices start at 4 decimals).
 - **Print**: `PrintVoucherData.forex` (core `forex/print.ts`); Modern / Classic / Voucher templates
   print lines, charges, GST and total in the currency next to the rupees, the rate and the total in
   words in the currency (`ForexPrintBlock`).
@@ -586,7 +636,8 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   XML that is really a web page / Office document is refused. Backups embed the files in the snapshot (`attachment_blobs`) so the `.bahibak` checksums
   and encryption cover them; restore unpacks them; `data.verify` › `attachments` checks presence + hash.
   UI: `attachments.manage`, `attachments.register` (Reports menu, Go To), Alt+F from the voucher view
-  (voucher panel) and the ledger / stock item forms.
+  (voucher panel) and the ledger / stock item forms. `attachments.unused` / `attachments.sweep`
+  (attachments.remove; one edit-log entry) remove stored files nothing refers to (register › Alt+U).
 - **Numbering tokens** — `src/shared/numbering.ts` (shared by core and the voucher-type form):
   {FY} {FYYYYY} {YY} {MM} {MMM} in prefix / suffix, expanded with the voucher date at allocation;
   dated prefix / suffix rows ("Applicable from"); GST documents (sales, credit / debit note of a GST
@@ -598,3 +649,50 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   aliases within the kind (ledgers also against groups); `aliases: string[]` on ledger / item save;
   searched by every ledger / item picker, Go To and lists; Excel import / export (the "Alias" column,
   `;`-separated) and the Tally import (`NAME.LIST`) / export carry them all.
+
+## POS / counter billing (`pos`) — scan, split tender, change, hold / recall, returns, day-end
+
+Core `src/core/modules/pos` (README there: posting, checks, routes, legal notes), renderer
+`src/renderer/modules/pos`, DTOs `src/shared/types/pos.ts`. Migration **180** (block 180–189),
+additive only: `pos_tender_modes`, derived `pos_bills` / `pos_payments`, `pos_held_bills`, indexes on
+`stock_items.barcode` / `part_no`.
+
+- **Gating**: F11 `features.pos` (needs Maintain stock). Off → menus / Go To hide the screens, routes
+  refuse (BUSINESS_RULE) except `pos.context`, a `posBill` on a voucher is a VALIDATION error. Turning it
+  on creates (audited, once) the voucher types **POS Sales** (Sales, `config.posInvoice`, series `POS/`,
+  Compact + MRP) and **POS Return** (Credit Note, `PR/`), the Cash tender and the system ledger **POS
+  Exchange Credit** (Current Liabilities, `reserved_code POS_EXCHANGE`) with its exchange-credit mode.
+  `VoucherTypeConfig.posInvoice` (extend-only, sales types; fixed once used) marks more POS types.
+- **Posting**: a POS bill is an ordinary Sales voucher (a return a Credit Note) saved by
+  `vouchers.save` with `VoucherInput.posBill` `{ tenders: [{ modeId, amount, reference?,
+  exchangeVoucherId? }], cashTendered?, returnOfId?, counter? }`. The pos voucher hook (`adjust`, last
+  static hook) debits (return: credits) each tender's ledger in the SAME voucher and reduces the party
+  entry by the same total — Σ = 0, GST / stock / numbering unchanged; the unpaid part stays on the party
+  with the usual bill-wise reference; a walk-in cash / bank party must be paid in full. `write` / `clear`
+  rebuild `pos_bills` / `pos_payments` (date, affects_books, is_post_dated). Exchange credit issued by a
+  return is used on later bills (checked against what is left); `beforeRemove` refuses to remove a bill
+  with returns or a return whose credit was used. A return is capped by quantity AND value (per item:
+  the bill's taxable value for that quantity; per note: the bill value not yet returned + ₹1 round-off
+  slack). Alteration keeps what was built on a voucher true: a bill with returns cannot sell less than
+  came back, change customer, move after its return or become optional; a return whose exchange credit
+  was used cannot issue less or move after its use. `compose` re-attaches the saved POS block when a
+  POS bill / return is altered without one (voucher entry, API), so tenders and the return link are
+  re-checked instead of being lost. Post-dated returns / bills count at once for returnable quantity and
+  used exchange credit. Confirm-level reminders: CGST Rule 46(e) (unregistered buyer, ≥ ₹50,000 taxable,
+  without name / address of delivery), the cash-receipt limit (≥ ₹2,00,000 cash on one bill) and CGST
+  s.34(2) (a return after 30 November following the year of the sale). Extension used (additive):
+  `PostingAdjustContext.addEntry({ …, instrument? })` (card / UPI instrument on bank lines).
+- **Routes** `pos.*`: context, settings get/save, tenderMode list/save/delete, item lookup/get, customer
+  find/create, held list/save/recall/discard, return.context, exchange.open, voucher, summary, register.
+  Existing permissions only (vouchers.* to bill / hold, masters.create for customers, company.manage
+  for settings / tender modes, reports.view for the summary); every write audited.
+- **UI**: Transactions › POS Counter / POS Return / Exchange, Reports › POS Day-end Summary, Masters ›
+  POS Settings (all in Go To). Counter keys: scan box Enter (add / pay), ↑ ↓ + −, Ctrl+A payment, Alt+U
+  customer, Alt+Q line, Ctrl+D remove line, Alt+F find item, Alt+O hold, Alt+L held bills, Alt+Z clear,
+  Alt+P reprint, Alt+V view, Alt+T return, Alt+B summary, Alt+S settings. `vouchers.entry` hands POS
+  types over to `pos.counter`; day-end summary rows drill (Enter) into the bills of that tender /
+  cashier / counter (`pos.register` filters `modeId`, `userId` incl. null = no login, `counter`); voucher
+  view panel (tenders, Alt+T return); print `PrintVoucherData.pos`
+  ("Paid by", tendered, change) on Compact / Modern / Classic; receipts print off screen to the roll
+  printer chosen on the computer (silent when chosen).
+

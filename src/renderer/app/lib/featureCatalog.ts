@@ -49,6 +49,14 @@ export const FEATURE_CATALOG: readonly FeatureInfo[] = [
   { key: 'discountColumn', group: 'inventory', label: 'Discount column on invoices', description: 'Show a discount % column on invoice lines.' },
   { key: 'manufacturing', group: 'inventory', requires: 'inventory', label: 'Bill of materials and manufacturing', description: 'Keep bills of materials for the goods you make and record production in a Manufacturing Journal that works out the cost of the finished goods.' },
   { key: 'jobWork', group: 'inventory', requires: 'multipleGodowns', label: 'Job work', description: 'Send material to job workers or process material for principals: job work orders, Material Out / In challans, pending job work with the one-year / three-year return limits, and ITC-04.' },
+  {
+    key: 'pos',
+    group: 'inventory',
+    requires: 'inventory',
+    label: 'POS invoicing (counter billing)',
+    description:
+      'Bill customers at the counter: scan barcodes, take payment in cash, card, UPI or several modes on one bill with the change worked out, hold and recall bills, print a thermal receipt with MRP, and see a day-end summary. Turning it on creates the POS Sales and POS Return voucher types.',
+  },
   // Taxation
   { key: 'gst', group: 'taxation', label: 'GST', description: 'Charge and track GST on sales and purchases, and prepare GST returns. Turning it on creates the GST tax ledgers.' },
   { key: 'einvoice', group: 'taxation', requires: 'gst', label: 'e-Invoicing', description: 'Prepare e-invoice (IRN) data, needed once your turnover crosses the e-invoicing limit.' },

@@ -16,6 +16,7 @@ import { native } from '../../app/bridge.ts';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
+import { sameFolder, unapprovedFolderText } from '../../app/lib/autoBackup.ts';
 import { useNav } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
 import { ReadOnlyNotice, Screen } from '../../app/Screen.tsx';
@@ -103,10 +104,22 @@ function ConfigForm({ saved, tab, setTab }: { saved: CompanyConfig; tab: ConfigT
 
   const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => void submit() });
 
+  // A stored folder not approved on this computer (restored backup, copied company): picking the SAME
+  // folder again confirms it at once ('data.backup.approveFolder'); another folder is saved as usual.
+  const folderStatus = useApiQuery('data.backup.folderStatus', {});
+  const approveFolder = useApiMutation('data.backup.approveFolder', { invalidates: ['data.backup'] });
+  const unapprovedFolder = folderStatus.data && !folderStatus.data.approved && folderStatus.data.folder && saved.backup.folder && sameFolder(folderStatus.data.folder, saved.backup.folder) ? folderStatus.data.folder : null;
+
   const chooseBackupFolder = async () => {
     try {
       const picked = await native('dialog.chooseFolder', { title: 'Choose a backup folder', defaultPath: c.backup.folder ?? undefined });
-      if (picked) patch('backup', { folder: picked.path });
+      if (!picked) return;
+      if (unapprovedFolder && sameFolder(picked.path, unapprovedFolder) && sameFolder(c.backup.folder ?? '', unapprovedFolder)) {
+        await approveFolder.mutate({ folder: picked.path });
+        toast.success('Backup folder confirmed', { message: `Backups go to ${picked.path}.` });
+        return;
+      }
+      patch('backup', { folder: picked.path });
     } catch (err) {
       toast.error('Could not choose the folder', { message: userMessage(err) });
     }
@@ -262,6 +275,11 @@ function ConfigForm({ saved, tab, setTab }: { saved: CompanyConfig; tab: ConfigT
 
   const backupTab = (
     <Stack gap={4}>
+      {unapprovedFolder ? (
+        <Banner tone="warning" title="Confirm the backup folder">
+          {unapprovedFolderText(unapprovedFolder)} {canEdit ? 'Choose… and pick it again to confirm it, choose another folder, or use the default.' : 'Ask a user who can change the configuration to confirm it.'}
+        </Banner>
+      ) : null}
       <FieldGroup legend="Automatic backups" columns={2}>
         <Switch
           label="Back up automatically once a day (when the company is opened or closed)"

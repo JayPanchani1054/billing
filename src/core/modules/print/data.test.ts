@@ -317,7 +317,7 @@ describe('print.voucherData — sales invoices', () => {
     k.t.close();
   });
 
-  it('bank details and UPI QR link from F12 › Invoice printing', () => {
+  it('bank details and UPI QR link from Invoice Printing (print settings)', () => {
     const k = setupKit();
     saveConfig(k.t.ctx, { invoice: { showUpiQr: true, upiId: 'shop@okhdfcbank', bankLedgerId: k.L.bank, terms: 'Goods once sold will not be taken back.' } });
     const d = buildPrintDataFor(k.t.ctx, sale(k));

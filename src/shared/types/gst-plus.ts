@@ -103,6 +103,20 @@ export interface GstStatAdjustmentInput {
   period?: string;
   /** Reverse charge: taxable value for 3.1(d). */
   taxableValue?: Paise;
+  /**
+   * Rule 37 (nature itc_reversal_r37) or a Rule 37(4) reclaim (nature itc_reclaim): the purchase invoices
+   * the credit is reversed / reclaimed for and how much per head (final wave; gst_rule37_links). Their
+   * per-head sums must equal the Input tax ledgers' lines of the journal.
+   */
+  rule37?: Rule37LinkInput[];
+}
+
+export interface Rule37LinkInput {
+  purchaseVoucherId: number;
+  igst?: Paise;
+  cgst?: Paise;
+  sgst?: Paise;
+  cess?: Paise;
 }
 
 export interface GstChallanInput {
@@ -153,6 +167,12 @@ export const GST_PLUS_LEDGERS = {
   GST_PENALTY: { name: 'GST Penalty and Other Dues', group: 'INDIRECT_EXPENSES' },
   COMPOSITION_TAX: { name: 'Composition Tax (GST)', group: 'INDIRECT_EXPENSES' },
   ITC_REVERSED: { name: 'ITC Reversed (GST)', group: 'INDIRECT_EXPENSES' },
+  /**
+   * Credit on the portal's electronic credit ledger that the books do not hold (GSTR-3B entry "credit not
+   * in the books", e.g. the balance when the books started). The set-off credits the part of the credit
+   * utilised that the Input tax ledgers do not hold here, never the Input ledgers (final wave).
+   */
+  GST_CREDIT_OUTSIDE: { name: 'GST Credit Not in Books', group: 'LOANS_ADVANCES_ASSET' },
 } as const;
 export type GstPlusLedgerCode = keyof typeof GST_PLUS_LEDGERS;
 
@@ -575,4 +595,102 @@ export interface GstTextFile {
   format: 'json' | 'csv';
   content: string;
   warnings: string[];
+}
+
+// ───────────────────────────── Rule 37: 180-day payment check (final wave) ─────────────────────────────
+
+/**
+ * 'gst.rule37.report' — purchase invoices (B2B, ITC taken) not paid within 180 days of the invoice date
+ * (CGST s.16(2) second proviso, Rule 37): the credit proportionate to the unpaid amount is reversed in
+ * GSTR-3B 4(B)(2) of the period following the one in which the 180 days end, with interest u/s 50;
+ * it is reclaimed (Rule 37(4), 4(A)(5) + 4(D)(1)) once paid.
+ */
+export interface Rule37Input {
+  asOf: string;
+  partyLedgerId?: number;
+}
+
+export interface Rule37Row {
+  voucherId: number;
+  number: string | null;
+  date: string;
+  /** Supplier's invoice number (reference). */
+  referenceNo: string | null;
+  partyLedgerId: number;
+  partyName: string;
+  /** Invoice date + 180 days. */
+  deadline: string;
+  /** Return period whose GSTR-3B carries the reversal (the one after the period in which the 180 days end). */
+  reportPeriod: string;
+  reportPeriodLabel: string;
+  /** Invoice value (the supplier's bill) and the part still unpaid on the as-of date. */
+  value: Paise;
+  unpaid: Paise;
+  /** Credit taken on the invoice (eligible, forward charge). */
+  itc: TaxAmounts;
+  /** Credit to stand reversed for the unpaid part: itc × unpaid ÷ value. */
+  due: TaxAmounts;
+  /** Already reversed under Rule 37 for this invoice, net of reclaims. */
+  reversed: TaxAmounts;
+  /** Reverse now (due − reversed, when positive). */
+  toReverse: TaxAmounts;
+  /** Reclaim now (reversed − due, when positive: paid after the reversal). */
+  toReclaim: TaxAmounts;
+}
+
+export interface Rule37Result {
+  asOf: string;
+  rows: Rule37Row[];
+  totals: { toReverse: TaxAmounts; toReclaim: TaxAmounts; unpaid: Paise };
+  /** Purchases of suppliers without bill-wise details (payment cannot be traced; check them by hand). */
+  notBillWise: Array<{ voucherId: number; number: string | null; date: string; partyName: string }>;
+  notes: string[];
+}
+
+/** 'gst.rule37.post' — posts the reversal (or reclaim) journal for the rows of the report through the stat-adjustment mechanism. */
+export interface Rule37PostInput {
+  asOf: string;
+  date: string;
+  kind: 'reversal' | 'reclaim';
+  /** Limit to these purchase vouchers (default: every row with something to reverse / reclaim). */
+  voucherIds?: number[];
+  narration?: string;
+}
+
+// ───────────────────────────── Changes after GSTR-3B is filed (final wave) ─────────────────────────────
+
+/** A voucher's effect on GSTR-3B (one snapshot), per row group. */
+export interface Gstr3bEffect {
+  voucherId: number;
+  label: string;
+  date: string;
+  /** 3.1(a) / 3.1(b) (outward taxable, incl. advances), 3.1(d) (inward reverse charge). */
+  det: TaxValue;
+  zero: TaxValue;
+  rcm: TaxValue;
+  /** 4(A)(1)–(5) by type (IMPG / IMPS / ISRC / OTH). */
+  itc: Record<'IMPG' | 'IMPS' | 'ISRC' | 'OTH', TaxAmounts>;
+  /** 4(B)(1) (rules 38/42/43, s.17(5) incl. blocked credit), 4(B)(2) (others, incl. Rule 37). */
+  rul: TaxAmounts;
+  oth: TaxAmounts;
+  /** 4(D)(1) reclaimed (also in 4(A)(5)). */
+  reclaimed: TaxAmounts;
+}
+
+export interface Gstr3bChangeRow {
+  id: number;
+  voucherId: number | null;
+  kind: 'altered' | 'added' | 'removed';
+  label: string;
+  docDate: string;
+  /** Filed GSTR-3B period the voucher belonged to. */
+  originalPeriod: string;
+  /** Period whose GSTR-3B reports the change. */
+  reportPeriod: string;
+  original: Gstr3bEffect | null;
+  amended: Gstr3bEffect | null;
+  /** Net change of the tax payable (3.1 + reverse charge) and of the net ITC (4(C)) per head. */
+  liabilityDelta: TaxAmounts;
+  itcDelta: TaxAmounts;
+  updatedAt: string;
 }

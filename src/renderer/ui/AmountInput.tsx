@@ -29,6 +29,11 @@ export interface AmountInputProps extends Omit<TextInputProps, 'value' | 'defaul
   max?: Paise;
   onCommit?: (value: Paise | null) => void;
   onValidationChange?: (error: string | null) => void;
+  /**
+   * Decimal places of the unit (default 2 = paise). With another value the integer `value` is in
+   * 10^-decimals units of the amount — e.g. 3 for a Kuwaiti dinar amount held in fils (forex voucher entry).
+   */
+  decimals?: number;
 }
 
 /**
@@ -51,6 +56,7 @@ export function AmountInput({
   onValidationChange,
   onKeyDown,
   trailing,
+  decimals = 2,
   ...rest
 }: AmountInputProps) {
   const errId = useId();
@@ -73,9 +79,9 @@ export function AmountInput({
 
   const draft = useDraftField<Paise | null>({
     value,
-    format: (v) => formatAmountText(v, { blankZero, absolute: drcr }),
+    format: (v) => formatAmountText(v, { blankZero, absolute: drcr, decimals }),
     parse: (t) => {
-      const r = parseAmountText(t);
+      const r = parseAmountText(t, decimals);
       if (!r.ok) return r;
       if (r.paise === null) return { ok: true, value: null };
       if (drcr) {
@@ -100,8 +106,8 @@ export function AmountInput({
     validate: (v) => {
       if (v === null) return null;
       const magnitude = drcr ? Math.abs(v) : v;
-      if (min !== undefined && magnitude < min) return `Amount must be at least ${formatAmountText(min)}`;
-      if (max !== undefined && magnitude > max) return `Amount must not exceed ${formatAmountText(max)}`;
+      if (min !== undefined && magnitude < min) return `Amount must be at least ${formatAmountText(min, { decimals })}`;
+      if (max !== undefined && magnitude > max) return `Amount must not exceed ${formatAmountText(max, { decimals })}`;
       return null;
     },
     onCommit,

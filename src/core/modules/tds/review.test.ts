@@ -9,9 +9,9 @@ import type { VoucherSaveResult } from '../../../shared/types/vouchers.ts';
 import { previewVoucher } from '../vouchers/service.ts';
 import { vouchersRoutes } from '../vouchers/routes.ts';
 import { computeTds } from './engine.ts';
-import { getLedgerDetails, listLedgerDetails, listNatures, saveLedgerDetails, saveNature, getNature } from './masters.ts';
+import { getLedgerDetails, listLedgerDetails, listNatures, saveLedgerDetails, saveNature, getNature, saveSettings } from './masters.ts';
 import { tdsRoutes } from './routes.ts';
-import { TdsStore } from './store.ts';
+import { getTdsSettings, TdsStore } from './store.ts';
 import { entries, journal, purchase, save, setupTds, tdsLines, type TdsKit } from './testkit.ts';
 
 const R = { ...vouchersRoutes, ...tdsRoutes };
@@ -99,6 +99,8 @@ describe('tds review: posting', () => {
 
   it('194T: a partner’s capital account marked as a deductee is found (was "no party")', () => {
     const k = setupTds();
+    // 194T is deducted by a firm (final wave: other deductors do not deduct under it).
+    saveSettings(k.t.ctx, { ...getTdsSettings(k.t.db), deductorCategory: 'firm' });
     const n194T = k.t.db.value<number>(`SELECT id FROM tds_natures WHERE section = '194T'`) as number;
     const cap = k.t.addLedger({ name: 'Partner A Capital', group: 'CAPITAL_ACCOUNT', pan: 'ABCPA1111A' });
     const rem = k.t.addLedger({ name: 'Partner Remuneration', group: 'INDIRECT_EXPENSES' });

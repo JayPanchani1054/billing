@@ -35,6 +35,7 @@ import {
   plural,
   salesSpark,
   signedKpi,
+  canShowStartCard,
   startCardMode,
   startPrefsKey,
   startProgress,
@@ -652,12 +653,19 @@ function loadStartPrefs(companyId: string): StartPrefs {
   }
 }
 
+/**
+ * Every mounted useStartSteps (the card, the rail's "Show Get started") takes the new preferences after
+ * a change — passed along, not re-read, so Hide / Show still work for this session when storage is blocked.
+ */
+const startPrefsListeners = new Set<(companyId: string, prefs: StartPrefs) => void>();
+
 function saveStartPrefs(companyId: string, prefs: StartPrefs): void {
   try {
     window.localStorage.setItem(startPrefsKey(companyId), JSON.stringify(prefs));
   } catch {
     // not remembered (storage blocked)
   }
+  for (const l of [...startPrefsListeners]) l(companyId, prefs);
 }
 
 /**
@@ -668,6 +676,9 @@ export function useStartSteps(s: DashboardSummary | undefined): {
   steps: StartStep[];
   mode: 'steps' | 'empty' | null;
   hide: () => void;
+  /** Undo Hide (offered only when `canShow`). */
+  show: () => void;
+  canShow: boolean;
   tick: (id: string, on: boolean) => void;
 } {
   const drill = useDrill();
@@ -678,13 +689,22 @@ export function useStartSteps(s: DashboardSummary | undefined): {
   const createVouchers = useCan('vouchers.create');
   const importData = useCan('data.import');
   const [prefs, setPrefs] = useState<StartPrefs>(() => loadStartPrefs(companyId));
-  useEffect(() => setPrefs(loadStartPrefs(companyId)), [companyId]);
-  const update = (next: (p: StartPrefs) => StartPrefs) =>
-    setPrefs((p) => {
-      const v = next(p);
-      saveStartPrefs(companyId, v);
-      return v;
-    });
+  useEffect(() => {
+    setPrefs(loadStartPrefs(companyId));
+    const reload = (changed: string, next: StartPrefs) => {
+      if (changed === companyId) setPrefs(next);
+    };
+    startPrefsListeners.add(reload);
+    return () => {
+      startPrefsListeners.delete(reload);
+    };
+  }, [companyId]);
+  // Saved (and every other mounted copy notified) outside the state updater: updaters must stay pure.
+  const update = (next: (p: StartPrefs) => StartPrefs) => {
+    const v = next(prefs);
+    setPrefs(v);
+    saveStartPrefs(companyId, v);
+  };
   const steps = startSteps({
     manageCompany,
     createMasters,
@@ -700,6 +720,8 @@ export function useStartSteps(s: DashboardSummary | undefined): {
     steps,
     mode: s ? startCardMode(steps, { hidden: prefs.hidden, hasVouchers: s.hasVouchers }) : null,
     hide: () => update((p) => ({ ...p, hidden: true })),
+    show: () => update((p) => ({ ...p, hidden: false })),
+    canShow: s ? canShowStartCard(steps, { hidden: prefs.hidden, hasVouchers: s.hasVouchers }) : false,
     tick: (id, on) => update((p) => toggleTicked(p, id, on)),
   };
 }

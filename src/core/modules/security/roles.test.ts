@@ -110,6 +110,22 @@ describe('security roles', () => {
     t.close();
   });
 
+  it('edit history of a role shows only the current holder of a reused id (currentOnly)', async () => {
+    const t = createTestCompany({ security: true });
+    const old = await t.callOk<SecurityRole>(R, 'security.role.save', { name: 'Temp', permissions: ['reports.view'] });
+    await t.callOk(R, 'security.role.save', { id: old.id, name: 'Temp 2', permissions: ['reports.view'] });
+    await t.callOk(R, 'security.role.delete', { id: old.id });
+    // SQLite reuses the highest deleted rowid (no AUTOINCREMENT): the new role gets the same id.
+    const fresh = await t.callOk<SecurityRole>(R, 'security.role.save', { name: 'Billing', permissions: ['vouchers.view'] });
+    assert.equal(fresh.id, old.id);
+    type H = { versions: Array<{ action: string; entityLabel: string | null }> };
+    const all = await t.callOk<H>(R, 'security.audit.entityHistory', { entityType: 'role', entityId: fresh.id });
+    assert.deepEqual(all.versions.map((v) => v.action), ['create', 'alter', 'delete', 'create'], 'without the flag: every entry of the id');
+    const current = await t.callOk<H>(R, 'security.audit.entityHistory', { entityType: 'role', entityId: fresh.id, currentOnly: true });
+    assert.deepEqual(current.versions.map((v) => `${v.action}:${v.entityLabel}`), ['create:Billing']);
+    t.close();
+  });
+
   it('a security manager who is not an Owner cannot grant permissions they do not hold', async () => {
     const t = createTestCompany({ security: true });
     const admin = t.sessionAs({ permissions: ['security.manage', 'vouchers.view', 'vouchers.create'] });

@@ -31,6 +31,9 @@ import {
   particularsResolver,
   requireBankLedger,
   unlinkLine,
+  assertBankDateChangeAllowed,
+  canChangeLockedBankDates,
+  lockedBankDate,
   voucherLabel,
   voucherRef,
   type EntryRow,
@@ -119,11 +122,14 @@ export function autoMatch(ctx: CompanyCtx, input: AutoMatchInput): AutoMatchResu
   const bank = requireBankLedger(db, input.ledgerId, 'Bank reconciliation');
   const dryRun = input.apply === false;
   if (!dryRun) healOrphanLines(db, bank.id);
-  const lineRows = db.all<LineRow>(
+  let lineRows = db.all<LineRow>(
     `${LINE_SELECT} WHERE s.ledger_id = :l AND ${UNMATCHED_SQL} ${input.batchId !== undefined ? 'AND s.batch_id = :b' : ''}
       ORDER BY s.txn_date, s.batch_id, s.seq, s.id`,
     input.batchId !== undefined ? { l: bank.id, b: input.batchId } : { l: bank.id },
   );
+  // Lines dated in the locked period would set bank dates there: left for a user who may lock and
+  // unlock the books (they stay unmatched; see common.ts assertBankDateChangeAllowed).
+  if (!canChangeLockedBankDates(ctx)) lineRows = lineRows.filter((l) => lockedBankDate(ctx, l.txn_date) === null);
   if (lineRows.length === 0) return { applied: [], suggestions: [], considered: 0, withoutCandidates: 0, dryRun };
   const minDate = addDays(lineRows[0].txn_date, -(CHEQUE_WINDOW_DAYS + 1));
   const entryRows = openEntries(db, bank.id, today, minDate);
@@ -234,6 +240,7 @@ export function matchLine(ctx: CompanyCtx, lineId: number, ledgerEntryId: number
         'A payment cannot clear before it is made — check the voucher date.',
     );
   }
+  assertBankDateChangeAllowed(ctx, entry.bank_date, line.txn_date, () => `Matching ${voucherLabel(entry)} with statement line ${lineLabel(line)}`);
   const { entries } = toMatchEntries(db, [entry]);
   const scored = scorePair(toMatchLine(line), { ...entries[0], bankDate: null }, { ...DEFAULT_MATCH_OPTIONS, dateWindowDays: CHEQUE_WINDOW_DAYS });
   linkLine(ctx, line, entry.entry_id, 'manual', scored?.score ?? null);
@@ -253,6 +260,7 @@ export function unmatchLine(ctx: CompanyCtx, lineId: number): StatementLineView 
   const line = loadLine(db, lineId);
   const status = effectiveStatus(line);
   if (status !== 'matched' && status !== 'created') throw rule(`Statement line ${lineLabel(line)} is not matched with any voucher.`);
+  assertBankDateChangeAllowed(ctx, line.e_bank_date, null, () => `Unmatching statement line ${lineLabel(line)}`);
   unlinkLine(db, line);
   ctx.audit({
     action: 'alter',

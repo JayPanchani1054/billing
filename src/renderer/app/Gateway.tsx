@@ -11,6 +11,7 @@ import { buildGateway, splitAccelerator } from './lib/menu.ts';
 import type { BuiltMenuItem } from './lib/menu.ts';
 import { ScreenErrorBoundary, useModules, useNav, useScreenTitle, useStatusHint } from './nav.tsx';
 import { useShell } from './shell.tsx';
+import { useInactiveBaseTypes } from './hooks/useVoucherChoices.ts';
 import { useAppState } from './state.tsx';
 import { formatDate } from '../../shared/dates.ts';
 import { useWorkingDate } from './working.tsx';
@@ -26,9 +27,10 @@ export function GatewayScreen() {
   useScreenTitle('Gateway');
   useStatusHint('↑↓ Move · Enter Open · Highlighted letter opens · Ctrl+G Go To');
 
+  const inactiveBaseTypes = useInactiveBaseTypes();
   const sections = useMemo(
-    () => buildGateway(modules, { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null, gstRegistration: app.company?.gstRegistration ?? null }),
-    [modules, app.can, app.company],
+    () => buildGateway(modules, { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null, gstRegistration: app.company?.gstRegistration ?? null, inactiveBaseTypes }),
+    [modules, app.can, app.company, inactiveBaseTypes],
   );
   const items = useMemo(() => sections.flatMap((s) => s.items), [sections]);
 

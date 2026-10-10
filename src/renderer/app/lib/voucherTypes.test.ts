@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { PREDEFINED_VOUCHER_TYPES } from '../../../shared/constants.ts';
-import { customVoucherGotoItems, parseVoucherCommand, voucherChoices, voucherCommand } from './voucherTypes.ts';
+import { customVoucherGotoItems, inactivePredefinedBaseTypes, parseVoucherCommand, voucherChoices, voucherCommand } from './voucherTypes.ts';
+import { filterMenu } from './menu.ts';
+import { voucherMenuEntries } from '../../modules/vouchers/lib/menu.ts';
+import { VOUCHER_FEATURE } from './shortcuts.ts';
 import type { VoucherTypeLike } from './voucherTypes.ts';
 
 const predefined = (baseType: VoucherTypeLike['baseType'], id: number, isActive = true): VoucherTypeLike => {
@@ -52,5 +55,30 @@ describe('voucherChoices (F10)', () => {
     assert.equal(parseVoucherCommand('voucher:nonsense'), null);
     assert.equal(parseVoucherCommand('voucher-type:sales:0'), null);
     assert.equal(parseVoucherCommand('date'), null);
+  });
+});
+
+describe('Transactions menu hides predefined voucher types the company deactivated', () => {
+  test('inactivePredefinedBaseTypes: only predefined inactive rows; unknown list → null (all shown)', () => {
+    assert.equal(inactivePredefinedBaseTypes(undefined), null);
+    assert.equal(inactivePredefinedBaseTypes([]), null);
+    const set = inactivePredefinedBaseTypes([predefined('sales', 1), predefined('sales_order', 2, false), custom(40, 'Memo - Old', 'memorandum', false)]);
+    assert.deepEqual([...(set ?? [])], ['sales_order']);
+  });
+
+  test('filterMenu drops an entry item whose predefined type is inactive, keeps the rest', () => {
+    const items = voucherMenuEntries(VOUCHER_FEATURE).map((e) => ({ section: 'transactions' as const, label: e.label, screen: 'vouchers.entry', params: { baseType: e.baseType }, voucherBaseType: e.baseType }));
+    const ctx = { can: () => true, gstEnabled: true, features: null };
+    const inactive = inactivePredefinedBaseTypes([predefined('sales', 1), predefined('sales_order', 2, false), predefined('memorandum', 3, false)]);
+    const shown = filterMenu(items, { ...ctx, inactiveBaseTypes: inactive }).map((i) => i.params.baseType);
+    assert.ok(shown.includes('sales'));
+    assert.ok(!shown.includes('sales_order'));
+    assert.ok(!shown.includes('memorandum'));
+    assert.equal(filterMenu(items, { ...ctx, inactiveBaseTypes: null }).length, items.length, 'unknown → everything shown');
+  });
+
+  test('the vouchers module marks every entry item with its base type', async () => {
+    const src = (await import('node:fs')).readFileSync(new URL('../../modules/vouchers/index.ts', import.meta.url), 'utf8');
+    assert.match(src, /voucherBaseType: e\.baseType/);
   });
 });

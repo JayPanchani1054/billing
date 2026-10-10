@@ -99,3 +99,41 @@ export function scenarioAdjust(
   if (s.includeTypeIds.length > 0) add(1, db.all(PROVISIONAL_SQL(some), { ...base, types: JSON.stringify(s.includeTypeIds) }));
   return { dropBooks: !s.includeActuals, delta };
 }
+
+// ───────────────────────────── Cost centres ─────────────────────────────
+
+const CENTRE_COLUMNS = `SELECT SUM(CASE WHEN ca.date >= :from THEN ca.amount ELSE 0 END) AS net, SUM(ca.amount) AS closing
+     FROM cost_allocations ca JOIN vouchers v ON v.id = ca.voucher_id
+    WHERE ca.cost_centre_id IN (SELECT value FROM json_each(:centres)) AND ca.date <= :to`;
+
+const CENTRE_EXCLUDED_SQL = `${CENTRE_COLUMNS}
+      AND v.voucher_type_id IN (SELECT value FROM json_each(:types)) AND ${BOOKS_FILTER('ca')}`;
+
+const CENTRE_PROVISIONAL_SQL = `${CENTRE_COLUMNS}
+      AND v.voucher_type_id IN (SELECT value FROM json_each(:types)) AND v.is_cancelled = 0 AND ca.affects_books = 0
+      AND (ca.is_post_dated = 0 OR ca.date <= :today)
+      AND (v.base_type = 'memorandum' OR v.is_optional = 1
+           OR (v.base_type = 'reversing_journal' AND (v.applicable_upto IS NULL OR v.applicable_upto >= :to)))`;
+
+/**
+ * Cost-centre figures (cost allocations of `centreIds`) to ADD to the books figures for the scenario —
+ * the same rule as scenarioAdjust: minus the excluded types' vouchers, plus the included provisional
+ * vouchers; `dropBooks` when actuals are not included (budget variance, documents/budgets.ts).
+ * `net` = allocations dated from `from` to `to`, `closing` = all up to `to`.
+ */
+export function scenarioCostCentreAdjust(
+  db: Db,
+  s: ScenarioDef,
+  q: { centreIds: readonly number[]; from: string; to: string; today: string },
+): { dropBooks: boolean; net: number; closing: number } {
+  const base = { centres: JSON.stringify(q.centreIds), from: q.from, to: q.to, today: q.today };
+  let net = 0;
+  let closing = 0;
+  const add = (sign: 1 | -1, r: { net: number | null; closing: number | null } | undefined): void => {
+    net += sign * (r?.net ?? 0);
+    closing += sign * (r?.closing ?? 0);
+  };
+  if (s.includeActuals && s.excludeTypeIds.length > 0) add(-1, db.get(CENTRE_EXCLUDED_SQL, { ...base, types: JSON.stringify(s.excludeTypeIds) }));
+  if (s.includeTypeIds.length > 0) add(1, db.get(CENTRE_PROVISIONAL_SQL, { ...base, types: JSON.stringify(s.includeTypeIds) }));
+  return { dropBooks: !s.includeActuals, net, closing };
+}

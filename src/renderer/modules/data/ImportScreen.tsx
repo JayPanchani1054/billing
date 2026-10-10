@@ -2,13 +2,13 @@
  * 'data.import' — Excel/CSV import wizard: 1 choose what to import → 2 template & file → 3 check every
  * row (nothing is saved yet) and choose options → 4 result. Params: { kind?: ImportKind }.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { IMPORT_KINDS, type ImportCommitResult, type ImportKind, type ImportKindInfo, type ImportPreviewResult, type ImportRowResult } from '../../../shared/types/data.ts';
 import { api } from '../../app/api.ts';
 import { useConfirm } from '../../app/confirm.tsx';
 import { formatBytes } from '../../app/display.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
-import { userMessage, errorDetailsText } from '../../app/lib/apiErrors.ts';
+import { userMessage, errorDetailsText, isBusyConflict, retryWhileBusy } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
 import { invalidate } from '../../app/queryClient.ts';
 import type { ScreenProps } from '../../app/registry.ts';
@@ -65,7 +65,31 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
   const [filter, setFilter] = useState<RowFilter>('all');
   const [result, setResult] = useState<ImportCommitResult | null>(null);
   const [busy, setBusy] = useState<null | 'template' | 'file' | 'preview' | 'commit'>(null);
-  const [error, setError] = useState<{ title: string; message: string; details?: string } | null>(null);
+  /**
+   * `retry`: the request was refused only because another task holds the company (the automatic backup
+   * right after login, an export, a Tally import) — the banner offers "Wait and retry", which repeats
+   * it until that task finishes (apiErrors.ts retryWhileBusy).
+   */
+  const [error, setError] = useState<{ title: string; message: string; details?: string; retry?: () => void } | null>(null);
+  const [waiting, setWaiting] = useState(false);
+  const closed = useRef(false);
+  useEffect(() => {
+    closed.current = false;
+    return () => {
+      closed.current = true;
+    };
+  }, []);
+  const busyText = (err: unknown) => `${userMessage(err)} Choose Wait and retry: Bahi ERP tries again every few seconds until it can start.`;
+  /** Run `fn`, waiting while another task holds the company (only when the user chose "Wait and retry"). */
+  const attempt = async <T,>(fn: () => Promise<T>, wait: boolean): Promise<T> => {
+    if (!wait) return fn();
+    setWaiting(true);
+    try {
+      return await retryWhileBusy(fn, { cancelled: () => closed.current });
+    } finally {
+      setWaiting(false);
+    }
+  };
 
   const info: ImportKindInfo | null = kindsQ.data?.find((k) => k.kind === kind) ?? null;
   const kindCursor: ImportKind | null = isKind(cursor) ? cursor : (kindsQ.data?.[0]?.kind ?? null);
@@ -73,16 +97,17 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
   const opts = { skipInvalid, updateExisting, acknowledgeWarnings };
   const blocked = preview ? commitBlockReason(preview, opts) : null;
 
-  const runPreview = async (f: ChosenFile, k: ImportKind, update: boolean) => {
+  const runPreview = async (f: ChosenFile, k: ImportKind, update: boolean, wait = false) => {
     setBusy('preview');
     setError(null);
     try {
-      const p = await api('data.import.preview', { kind: k, fileName: f.name, bytes: f.bytes, options: { updateExisting: update } });
+      const p = await attempt(() => api('data.import.preview', { kind: k, fileName: f.name, bytes: f.bytes, options: { updateExisting: update } }), wait);
       setPreview(p);
       setFilter(p.summary.error + p.summary.warning > 0 ? 'problems' : 'all');
     } catch (err) {
       setPreview(null);
-      setError({ title: 'The file could not be read', message: userMessage(err) });
+      if (isBusyConflict(err)) setError({ title: 'Another task is running in this company', message: busyText(err), retry: () => void runPreview(f, k, update, true) });
+      else setError({ title: 'The file could not be read', message: userMessage(err) });
     } finally {
       setBusy(null);
     }
@@ -137,14 +162,22 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
       confirmLabel: 'Import',
     });
     if (!ok) return;
+    await runCommit(false);
+  };
+
+  /** The import itself (after the confirmation); `wait`: the user chose "Wait and retry". */
+  const runCommit = async (wait: boolean) => {
+    if (!preview || !file || !kind) return;
     setBusy('commit');
     setError(null);
+    const input = { kind, fileName: file.name, bytes: file.bytes, options: { skipInvalid, updateExisting, acknowledgeWarnings } };
     try {
-      const r = await api('data.import.commit', { kind, fileName: file.name, bytes: file.bytes, options: { skipInvalid, updateExisting, acknowledgeWarnings } });
-      for (const prefix of invalidatesFor(kind)) invalidate(prefix);
+      const r = await attempt(() => api('data.import.commit', input), wait);
+      for (const prefix of invalidatesFor(input.kind)) invalidate(prefix);
       setResult(r);
     } catch (err) {
-      setError({ title: 'Nothing was imported', message: userMessage(err), details: errorDetailsText(err) || undefined });
+      if (isBusyConflict(err)) setError({ title: 'Nothing was imported yet', message: busyText(err), retry: () => void runCommit(true) });
+      else setError({ title: 'Nothing was imported', message: userMessage(err), details: errorDetailsText(err) || undefined });
     } finally {
       setBusy(null);
     }
@@ -204,9 +237,25 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
       <Stack gap={4}>
         <Steps steps={STEPS} current={step} label="Import steps" />
         {error ? (
-          <Banner tone="danger" title={error.title} onDismiss={() => setError(null)}>
+          <Banner
+            tone={error.retry ? 'warning' : 'danger'}
+            title={error.title}
+            onDismiss={() => setError(null)}
+            action={
+              error.retry ? (
+                <Button size="sm" icon="refresh" onClick={error.retry} disabled={busy !== null}>
+                  Wait and retry
+                </Button>
+              ) : undefined
+            }
+          >
             {error.message}
             {error.details ? <pre className="bx-data-messages">{error.details}</pre> : null}
+          </Banner>
+        ) : null}
+        {waiting ? (
+          <Banner tone="info" title="Waiting for the other task to finish…">
+            The import starts by itself as soon as the company is free (Bahi ERP checks every 2 seconds, for up to 2 minutes).
           </Banner>
         ) : null}
 

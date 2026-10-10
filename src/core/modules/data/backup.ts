@@ -27,6 +27,7 @@ import {
   type BackupCreateInput,
   type BackupCreateResult,
   type BackupFileInfo,
+  type BackupFolderStatus,
   type BackupListResult,
   type BackupManifest,
   type BackupRestoreInput,
@@ -46,7 +47,7 @@ import { auditHead } from '../../lib/auditAnchor.ts';
 import { randomToken } from '../../lib/crypto.ts';
 import { AppError, notFound, validation } from '../../lib/errors.ts';
 import { ensureDir, exists, probeWritable } from '../../lib/fsutil.ts';
-import { authorizeUserPath, isUncOrDevicePath, isWithin } from '../../lib/paths.ts';
+import { authorizeUserPath, isBackupFolderApproved, isUncOrDevicePath, isWithin } from '../../lib/paths.ts';
 import { getConfig, readSetting, writeSetting } from '../company/service.ts';
 import { localStamp, safeFileNamePart } from './common.ts';
 import { describeBlobs, embedAttachmentsInSnapshot, inspectAttachmentBlobs, unpackAttachmentBlobs, type EmbedResult } from '../attachments/backup.ts';
@@ -57,24 +58,45 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ───────────────────────────── Folders & history ─────────────────────────────
 
-/** The F12 backup folder when one is configured (authorised when it was saved), else null. */
+/** The F12 backup folder stored in the company file (approved here or not), else null. */
 export function configuredBackupFolder(db: Db): string | null {
   const configured = getConfig(db).backup.folder;
   return configured && path.isAbsolute(configured) ? path.resolve(configured) : null;
 }
 
-/** F12 backup folder, else <data folder>/backups/<company id>. */
+/**
+ * The F12 backup folder when it is approved for this company on THIS installation (picked by the user
+ * here — AppRuntime.backupFolders), else null. Only an approved folder is written to, listed by
+ * default or trusted as a root: a folder that came with a restored backup, a company folder copied
+ * from another computer or a shared data folder must be confirmed first (F12 › Backup).
+ */
+export function approvedBackupFolder(ctx: Pick<CompanyCtx, 'db' | 'app'>): string | null {
+  const configured = configuredBackupFolder(ctx.db);
+  if (configured === null) return null;
+  // A folder inside the data folder is this installation's own.
+  if (isWithin(ctx.app.dataDir, configured)) return configured;
+  const guid = ctx.db.value<string>('SELECT guid FROM company WHERE id = 1');
+  return isBackupFolderApproved(ctx.app, guid, configured) ? configured : null;
+}
+
+/** The configured F12 folder when it still needs confirming on this installation, else null. */
+export function unapprovedBackupFolder(ctx: Pick<CompanyCtx, 'db' | 'app'>): string | null {
+  const configured = configuredBackupFolder(ctx.db);
+  return configured !== null && approvedBackupFolder(ctx) === null ? configured : null;
+}
+
+/** Approved F12 backup folder, else <data folder>/backups/<company id>. */
 export function defaultBackupFolder(ctx: Pick<CompanyCtx, 'db' | 'app' | 'company'>): string {
-  return configuredBackupFolder(ctx.db) ?? path.join(ctx.app.dataDir, 'backups', ctx.company.id);
+  return approvedBackupFolder(ctx) ?? path.join(ctx.app.dataDir, 'backups', ctx.company.id);
 }
 
 /**
  * The default folder, or a renderer-supplied one that the user picked in a dialog this session (or that
- * lies in the data folder / the configured backup folder) — see core/lib/paths.ts.
+ * lies in the data folder / the approved backup folder) — see core/lib/paths.ts.
  */
 function resolveFolder(ctx: Pick<CompanyCtx, 'db' | 'app' | 'company'>, folder: string | undefined, use: PathUse): string {
   if (folder === undefined) return defaultBackupFolder(ctx);
-  return authorizeUserPath(ctx.app, folder, use, { field: 'folder', what: 'backup folder', trusted: [configuredBackupFolder(ctx.db)] });
+  return authorizeUserPath(ctx.app, folder, use, { field: 'folder', what: 'backup folder', trusted: [approvedBackupFolder(ctx)] });
 }
 
 function hasHistoryTable(db: Db): boolean {
@@ -387,7 +409,50 @@ export function listBackups(ctx: CompanyCtx, folderInput: string | undefined): B
   const backups = scanFolder(folder, { companyId: ctx.company.id, companyGuid: facts.guid }).sort(
     (a, b) => (b.manifest?.createdAt ?? b.modifiedAt).localeCompare(a.manifest?.createdAt ?? a.modifiedAt) || a.fileName.localeCompare(b.fileName),
   );
-  return { folder, backups, lastBackupAt: lastBackupAt(ctx.db) };
+  const unapproved = unapprovedBackupFolder(ctx);
+  return { folder, backups, lastBackupAt: lastBackupAt(ctx.db), ...(unapproved !== null ? { unapprovedFolder: unapproved } : {}) };
+}
+
+/** F12 backup folder and whether it is approved on this installation (`data.backup.folderStatus`). */
+export function backupFolderStatus(ctx: CompanyCtx): BackupFolderStatus {
+  const configured = configuredBackupFolder(ctx.db);
+  return {
+    folder: configured,
+    approved: configured === null || approvedBackupFolder(ctx) !== null,
+    defaultFolder: path.join(ctx.app.dataDir, 'backups', ctx.company.id),
+  };
+}
+
+/**
+ * Confirm the company's backup folder on this installation (`data.backup.approveFolder`): the folder
+ * must be one the user picked in the folder dialog this session (or lie in the data folder) — never
+ * the stored value alone. When it differs from the stored F12 folder it becomes the F12 folder
+ * (audited like an F12 change); either way it is approved for this company here.
+ */
+export function approveBackupFolder(ctx: CompanyCtx, input: { folder: string }): BackupFolderStatus {
+  const folder = authorizeUserPath(ctx.app, input.folder, 'write-dir', { field: 'folder', what: 'backup folder' });
+  const problem = probeWritable(folder);
+  if (problem) throw validation([{ path: 'folder', message: `Bahi ERP cannot write to ${folder} (${problem}). Choose another folder or reconnect the drive.` }]);
+  const stored = readSetting(ctx.db, 'config');
+  const current = configuredBackupFolder(ctx.db);
+  const guid = companyFacts(ctx.db).guid;
+  const wasApproved = current !== null && approvedBackupFolder(ctx) !== null;
+  // Same folder (case-insensitive on Windows): isWithin both ways.
+  const changed = current === null || !isWithin(current, folder) || !isWithin(folder, current);
+  if (changed) {
+    const before = stored && typeof stored === 'object' ? (stored as Record<string, unknown>) : {};
+    const backup = before.backup && typeof before.backup === 'object' ? (before.backup as Record<string, unknown>) : {};
+    writeSetting(ctx.db, 'config', { ...before, backup: { ...backup, folder } }, ctx.clock.now());
+  }
+  ctx.app.backupFolders?.approve(guid, folder, ctx.clock.now());
+  ctx.audit({
+    action: 'settings',
+    entityType: 'company_config',
+    entityLabel: 'Backup folder approved on this computer',
+    before: { backupFolder: current, approved: wasApproved },
+    after: { backupFolder: folder, approved: true },
+  });
+  return backupFolderStatus(ctx);
 }
 
 /** Where a backup file may be read from: the app (data folder + dialog choices) plus trusted roots. */
@@ -604,21 +669,27 @@ async function runAutoBackup(ctx: CompanyCtx, input: BackupAutoInput): Promise<B
   const cfg = getConfig(ctx.db).backup;
   const last = lastBackupAt(ctx.db);
   if (!cfg.auto) return { ran: false, reason: 'disabled', lastBackupAt: last };
+  // A configured folder not yet approved on this installation is never written to: the backup goes to
+  // the default folder in the data folder and the shell asks the user to confirm or re-pick the folder —
+  // also when no backup is due now (so the user hears of it on every opening, not only once a day).
+  const unapproved = unapprovedBackupFolder(ctx);
+  const ask = unapproved !== null ? { folderNotApproved: unapproved } : {};
   const nowMs = ctx.clock.now().getTime();
   if (last !== null) {
     const age = nowMs - Date.parse(last);
-    if (Number.isFinite(age) && age < DAY_MS) return { ran: false, reason: 'recent', lastBackupAt: last };
+    if (Number.isFinite(age) && age < DAY_MS) return { ran: false, reason: 'recent', lastBackupAt: last, ...ask };
   } else if (input.trigger === 'open') {
     const created = ctx.db.value<string>('SELECT created_at FROM company WHERE id = 1');
     const age = typeof created === 'string' ? nowMs - Date.parse(created) : Number.NaN;
-    if (Number.isFinite(age) && age < DAY_MS) return { ran: false, reason: 'new', lastBackupAt: null };
+    if (Number.isFinite(age) && age < DAY_MS) return { ran: false, reason: 'new', lastBackupAt: null, ...ask };
   }
+  if (unapproved !== null) ctx.app.log('warn', 'Automatic backup: the configured backup folder is not approved on this computer; using the default folder', { company: ctx.company.id });
   try {
     const backup = await createBackup(ctx, {}, 'auto');
-    return { ran: true, reason: 'created', lastBackupAt: backup.createdAt, backup };
+    return { ran: true, reason: 'created', lastBackupAt: backup.createdAt, backup, ...ask };
   } catch (err) {
     ctx.app.log('warn', 'Automatic backup failed', { company: ctx.company.id, error: err });
-    return { ran: false, reason: 'failed', lastBackupAt: last, error: err instanceof AppError ? err.message : 'The automatic backup could not be written.' };
+    return { ran: false, reason: 'failed', lastBackupAt: last, error: err instanceof AppError ? err.message : 'The automatic backup could not be written.', ...ask };
   }
 }
 
