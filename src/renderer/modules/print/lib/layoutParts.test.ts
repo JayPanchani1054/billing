@@ -360,7 +360,7 @@ describe('session memory and overrides', () => {
 
   it('every id the editor can write at print level validates at print level', () => {
     for (const p of PRINT_PARTS) {
-      if (p.locked || ('legacy' in p && p.legacy)) continue;
+      if (('locked' in p && p.locked) || ('legacy' in p && p.legacy)) continue;
       assert.ok(isPrintPartId(p.id));
       assert.deepEqual(validatePrintLayout({ hide: [p.id] }, 'print').issues, [], p.id);
     }
