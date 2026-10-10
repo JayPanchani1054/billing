@@ -7,6 +7,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # @types/node must not run ahead of the Node the code runs on: Node 22 for tests/tooling and
+      # Node 24 inside Electron 44. Newer majors would type-check APIs that do not exist at runtime.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       build-tooling:
         patterns: ['electron', 'electron-builder', '@electron/*', 'esbuild', 'vite', '@vitejs/*', 'typescript', '@playwright/test']
