@@ -9,6 +9,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import { financialYear } from '../../../shared/dates.ts';
+import type { NumberingTextRow } from '../../../shared/numbering.ts';
 import type { NumberingMethod, NumberingRestart, VoucherNumbering, VoucherTypeConfig, VoucherTypeDetail, VoucherTypeRow, VoucherTypeSaveInput } from '../../../shared/types/accounts.ts';
 import { api } from '../../app/api.ts';
 import { useConfirm } from '../../app/confirm.tsx';
@@ -27,9 +28,12 @@ import {
   Button,
   Checkbox,
   DataTable,
+  DateInput,
   EmptyState,
   Field,
   FieldGroup,
+  IconButton,
+  Inline,
   NumberInput,
   Select,
   Stack,
@@ -206,6 +210,8 @@ const EMPTY_CONFIG: VtDraft['config'] = {
   invoiceMode: null,
   defaultGodownId: null,
   printTemplate: null,
+  stockJournalClass: null,
+  showMrp: null,
 };
 
 function draftOf(vt: VoucherTypeDetail | null, parent: VoucherTypeRow | null): VtDraft {
@@ -283,7 +289,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
   const check = baseType ? checkNumbering(baseType, d.numbering, company.gstEnabled) : { errors: [], warnings: [] };
   const clash = baseType && company.gstEnabled ? seriesClashWarning(seriesClashes(types, original?.id ?? null, baseType, d.numbering), d.numbering) : null;
   const warnings = clash ? [...check.warnings, clash] : check.warnings;
-  const preview = numberingPreview(d.numbering);
+  const preview = numberingPreview(d.numbering, workingDate, fyStartMonth);
   const next = useApiQuery('vouchers.nextNumber', { voucherTypeId: original?.id ?? 0, date: workingDate }, { enabled: original !== null && d.numbering.method !== 'none' });
   const side = baseType ? defaultLedgerSide(baseType) : null;
   const godowns = useApiQuery('inventory.godown.list', {}, { enabled: company.features.inventory && company.features.multipleGodowns && baseType !== null && movesStock(baseType) });
@@ -475,10 +481,10 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
             )}
             {automatic ? (
               <>
-                <Field label="Prefix" optional error={numErr.prefix} hint="Fixed text before the number, e.g. INV/ or 26-27/.">
+                <Field label="Prefix" optional error={numErr.prefix} hint="Text before the number, e.g. INV/{FY}/ gives INV/26-27/. Tokens: {FY} {FYYYYY} {YY} {MM} {MMM}.">
                   <TextInput value={d.numbering.prefix ?? ''} onChange={(e) => setNum('prefix', e.target.value || null)} readOnly={readOnly} maxLength={16} mono />
                 </Field>
-                <Field label="Suffix" optional error={numErr.suffix} hint="Fixed text after the number.">
+                <Field label="Suffix" optional error={numErr.suffix} hint="Text after the number; tokens work here too, e.g. /{FY}.">
                   <TextInput value={d.numbering.suffix ?? ''} onChange={(e) => setNum('suffix', e.target.value || null)} readOnly={readOnly} maxLength={16} mono />
                 </Field>
                 <Field label="Starting number" error={numErr.start}>
@@ -490,6 +496,33 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
               </>
             ) : null}
           </FieldGroup>
+
+          {automatic ? (
+            <FieldGroup legend="Prefix / suffix from a date" description="A row replaces the prefix or suffix for vouchers dated on or after its date, e.g. a new series from 1-Apr. Numbers already given never change.">
+              <DatedTextRows
+                kind="prefix"
+                rows={d.numbering.prefixRows ?? []}
+                onChange={(rows) => {
+                  setNum('prefixRows', rows);
+                  setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('numbering.prefixRows'))));
+                }}
+                errors={errors}
+                readOnly={readOnly}
+                referenceDate={workingDate}
+              />
+              <DatedTextRows
+                kind="suffix"
+                rows={d.numbering.suffixRows ?? []}
+                onChange={(rows) => {
+                  setNum('suffixRows', rows);
+                  setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('numbering.suffixRows'))));
+                }}
+                errors={errors}
+                readOnly={readOnly}
+                referenceDate={workingDate}
+              />
+            </FieldGroup>
+          ) : null}
 
           {d.numbering.method !== 'none' ? (
             <div className="bx-acc-preview" role="status" aria-live="polite" aria-label="Numbering preview">
@@ -511,7 +544,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
             </div>
           ) : null}
           {check.errors.length > 0 ? (
-            <Banner tone="danger" title="This numbering cannot be used for GST documents">
+            <Banner tone="danger" title={gstDoc && company.gstEnabled ? 'This numbering cannot be used for GST documents' : 'Fix the numbering'}>
               <ul>
                 {check.errors.map((x) => (
                   <li key={x.path + x.message}>{x.message}</li>
@@ -561,6 +594,21 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
                   />
                 </Field>
               ) : null}
+              {baseType === 'stock_journal' && (company.features.manufacturing || company.features.jobWork || d.config.stockJournalClass) ? (
+                <Field label="Use as" error={cfgErr.stockJournalClass} hint="Manufacturing Journal: build finished goods from a bill of materials. Material Out / In: job work challans.">
+                  <Select
+                    value={d.config.stockJournalClass ?? ''}
+                    onChange={(v) => setCfg('stockJournalClass', v === 'manufacturing' || v === 'material_out' || v === 'material_in' ? v : null)}
+                    disabled={readOnly || predefined || (original?.voucherCount ?? 0) > 0}
+                    options={[
+                      { value: '', label: 'Stock Journal' },
+                      { value: 'manufacturing', label: 'Manufacturing Journal' },
+                      { value: 'material_out', label: 'Material Out (job work)' },
+                      { value: 'material_in', label: 'Material In (job work)' },
+                    ]}
+                  />
+                </Field>
+              ) : null}
               {godownOptions.length > 0 ? (
                 <Field label="Default godown" optional error={cfgErr.defaultGodownId}>
                   <Select value={d.config.defaultGodownId === null || d.config.defaultGodownId === undefined ? '' : String(d.config.defaultGodownId)} onChange={(v) => setCfg('defaultGodownId', v === '' ? null : Number(v))} disabled={readOnly} placeholder="None" options={godownOptions} />
@@ -586,11 +634,23 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
                     { value: '', label: 'As set in Invoice Printing' },
                     { value: 'modern', label: 'Modern' },
                     { value: 'classic', label: 'Classic' },
-                    { value: 'compact', label: 'Compact 80 mm' },
+                    { value: 'compact', label: 'Compact receipt (thermal roll)' },
                   ]}
                 />
               </Field>
-              <span />
+              {/* print group: MRP column on this type's documents. */}
+              <Field label="MRP column" error={cfgErr.showMrp} hint="Prints the items' MRP (and 'You saved' on receipts).">
+                <Select
+                  value={d.config.showMrp === true ? 'yes' : d.config.showMrp === false ? 'no' : ''}
+                  onChange={(v) => setCfg('showMrp', v === 'yes' ? true : v === 'no' ? false : null)}
+                  disabled={readOnly}
+                  options={[
+                    { value: '', label: 'As set in Invoice Printing' },
+                    { value: 'yes', label: 'Print MRP' },
+                    { value: 'no', label: 'Do not print MRP' },
+                  ]}
+                />
+              </Field>
               <Field label="Declaration" optional error={cfgErr.declaration}>
                 <TextArea value={d.config.declaration ?? ''} onChange={(e) => setCfg('declaration', e.target.value)} readOnly={readOnly} rows={2} autoGrow maxRows={5} maxLength={2000} placeholder="We declare that this invoice shows the actual price of the goods described…" />
               </Field>
@@ -611,4 +671,52 @@ function withoutKey(e: Record<string, string>, k: string): Record<string, string
   const copy = { ...e };
   delete copy[k];
   return copy;
+}
+
+/**
+ * Dated prefix (or suffix) rows of the numbering (dataplus): each row = applicable-from date + text.
+ * Keyboard: Enter moves through the date and text fields (form Enter-advance); the buttons add / remove.
+ */
+function DatedTextRows({
+  kind,
+  rows,
+  onChange,
+  errors,
+  readOnly,
+  referenceDate,
+}: {
+  kind: 'prefix' | 'suffix';
+  rows: readonly NumberingTextRow[];
+  onChange: (rows: NumberingTextRow[]) => void;
+  errors: Record<string, string>;
+  readOnly: boolean;
+  referenceDate: string;
+}) {
+  const label = kind === 'prefix' ? 'Prefix' : 'Suffix';
+  const errOf = (i: number, field: 'applicableFrom' | 'text'): string | undefined => errors[`numbering.${kind}Rows[${i}].${field}`];
+  const edit = (i: number, patch: Partial<NumberingTextRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  return (
+    <Stack gap={2}>
+      {rows.map((r, i) => (
+        <Inline key={`${kind}-${i}`} gap={2} align="end">
+          <Field label={`${label} from`} error={errOf(i, 'applicableFrom')}>
+            <DateInput value={r.applicableFrom || null} onChange={(v) => edit(i, { applicableFrom: v ?? '' })} referenceDate={referenceDate} readOnly={readOnly} aria-label={`${label} row ${i + 1}: applicable from`} />
+          </Field>
+          <Field label={label} optional error={errOf(i, 'text')}>
+            <TextInput value={r.text ?? ''} onChange={(e) => edit(i, { text: e.target.value || null })} readOnly={readOnly} maxLength={16} mono aria-label={`${label} row ${i + 1}: text`} placeholder="(none)" />
+          </Field>
+          {readOnly ? null : (
+            <IconButton icon="trash" variant="ghost" aria-label={`Remove ${kind} row ${i + 1}`} onClick={() => onChange(rows.filter((_, k) => k !== i))} />
+          )}
+        </Inline>
+      ))}
+      {readOnly ? null : (
+        <div>
+          <Button variant="secondary" size="sm" icon="plus" onClick={() => onChange([...rows, { applicableFrom: referenceDate, text: null }])}>
+            Add dated {kind}
+          </Button>
+        </div>
+      )}
+    </Stack>
+  );
 }

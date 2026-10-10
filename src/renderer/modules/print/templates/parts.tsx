@@ -12,11 +12,13 @@ import {
   headerRefs,
   money,
   moneyOrBlank,
+  mrpText,
   partyIds,
   pctText,
   qtyText,
   rateText,
   rupees,
+  showMrp,
   taxabilityText,
   totalRows,
   type ItemColumns,
@@ -139,7 +141,7 @@ export function ItemsTable({ doc, cols }: { doc: PrintVoucherData; cols: ItemCol
   const lines = doc.lines;
   const t = doc.totals;
   // Footer: 'Total' under # / Description / HSN, the quantity, blanks under Rate / Disc. / GST, then amounts.
-  const lead = 2 + (cols.hsn ? 1 : 0);
+  const lead = 2 + (cols.hsn ? 1 : 0) + (cols.mrp ? 1 : 0);
   const mid = (cols.rate ? 1 : 0) + (cols.discount ? 1 : 0) + (showGstRate ? 1 : 0);
   return (
     <table className="bp-items">
@@ -148,6 +150,7 @@ export function ItemsTable({ doc, cols }: { doc: PrintVoucherData; cols: ItemCol
           <th className="bp-sl">#</th>
           <th>Description</th>
           {cols.hsn ? <th>HSN/SAC</th> : null}
+          {cols.mrp ? <th className="bp-num">MRP*</th> : null}
           {cols.qty ? <th className="bp-num">Qty</th> : null}
           {cols.rate ? <th className="bp-num">Rate</th> : null}
           {cols.discount ? <th className="bp-num">Disc.</th> : null}
@@ -172,6 +175,7 @@ export function ItemsTable({ doc, cols }: { doc: PrintVoucherData; cols: ItemCol
               {l.reverseCharge && l.tax !== 0 ? <span className="bp-sub">Tax payable on reverse charge</span> : null}
             </td>
             {cols.hsn ? <td>{l.hsnSac ?? ''}</td> : null}
+            {cols.mrp ? <td className="bp-num">{mrpText(l)}</td> : null}
             {cols.qty ? <td className="bp-num">{l.qty === null ? '' : `${qtyText(l.qty, l.qtyDecimals)} ${l.unit ?? ''}`.trim()}</td> : null}
             {cols.rate ? <td className="bp-num">{rateText(l.rate)}</td> : null}
             {cols.discount ? <td className="bp-num">{l.discountPct ? pctText(l.discountPct) : moneyOrBlank(l.discount)}</td> : null}
@@ -246,8 +250,32 @@ export function TotalsTable({ doc }: { doc: PrintVoucherData }) {
             </td>
           </tr>
         ) : null}
+        <MrpRows doc={doc} />
       </tbody>
     </table>
+  );
+}
+
+/** (print group) Under the totals: what the buyer saved against MRP, and the MRP footnote. */
+export function MrpRows({ doc, colSpan = 2 }: { doc: PrintVoucherData; colSpan?: number }) {
+  if (!showMrp(doc) || !doc.mrpSummary) return null;
+  const saved = doc.mrpSummary.savings;
+  return (
+    <>
+      {saved > 0 ? (
+        <tr>
+          <td className="bp-strong">You saved</td>
+          <td className="bp-num bp-strong" colSpan={colSpan - 1}>
+            {rupees(saved)}
+          </td>
+        </tr>
+      ) : null}
+      <tr>
+        <td className="bp-small" colSpan={colSpan}>
+          * MRP per unit, inclusive of all taxes
+        </td>
+      </tr>
+    </>
   );
 }
 

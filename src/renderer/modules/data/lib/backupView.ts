@@ -87,6 +87,7 @@ const CHECK_LABELS: Readonly<Record<BackupCheck['name'], string>> = {
   schema: 'Opens in this version',
   company: 'Company',
   edit_log: 'Edit log intact',
+  attachments: 'Attached files',
 };
 
 export function checkLabel(name: BackupCheck['name']): string {

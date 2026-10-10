@@ -26,6 +26,8 @@ import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { AmountInput, Badge, Banner, Button, Panel, Stack, useEnterAdvance, useToast } from '../../ui/index.ts';
 import { FileResultDialog, GstHelp, PeriodSelect, saveJsonFile, useReturnPeriod, WideTable } from './components.tsx';
 import type { FileResult } from './components.tsx';
+import { MarkFiledDialog, useFiling } from './plusComponents.tsx';
+import { taxSum } from './lib/gstplus.ts';
 import {
   ADJUSTMENT_FIELDS,
   changedCellCount,
@@ -60,6 +62,9 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const q = useApiQuery('gst.gstr3b.summary', { period: rp.key ?? '' }, { enabled: rp.key !== null, keepPrevious: true });
   const save = useApiMutation('gst.gstr3b.saveAdjustments');
+  const filing = useFiling('gstr3b', rp.key);
+  const [marking, setMarking] = useState(false);
+  const composition = rp.periods?.registration === 'composition';
   // The summary returned by a save, shown until the refetched query catches up (no flicker of "dirty").
   const [saved, setSaved] = useState<Gstr3bSummary | null>(null);
   useEffect(() => setSaved(null), [q.data]);
@@ -162,6 +167,17 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
     },
     { key: 'Alt+X', label: 'GST exceptions', icon: 'alert', onClick: () => shown && nav.push('gst.exceptions', { from: shown.period.from, to: shown.period.to }), disabled: !shown, group: 'go' },
     { key: 'Alt+R', label: 'GSTR-1', icon: 'gst', onClick: () => rp.key && nav.push('gst.gstr1', { period: rp.key }), disabled: !rp.key, group: 'go' },
+    // GST plus: set-off / challan / filing status.
+    { key: 'Alt+S', label: 'GST set-off', icon: 'gst', onClick: () => rp.key && nav.push('gst.setoff', { period: rp.key }), disabled: !rp.key || dirty, hint: dirty ? 'Save your entries first (Ctrl+A)' : 'Use the credit, record the challan, post the set-off', group: 'go' },
+    {
+      key: 'Alt+F',
+      label: filing.filing ? 'Filed' : 'Mark filed',
+      icon: 'check',
+      onClick: () => setMarking(true),
+      disabled: !shown || !canFile || dirty || filing.filing !== null || composition,
+      hint: filing.filing ? `Filed on ${filing.filing.filedOn}` : 'After filing on the portal',
+      group: 'file',
+    },
   ];
 
   return (
@@ -177,8 +193,24 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
         refreshing={q.refreshing || busy || save.pending}
         error={rp.error ?? q.error}
         onRetry={() => (rp.error ? rp.refetch() : void q.refetch())}
-        hint="Enter Next field · Ctrl+A Save entries · Alt+J JSON · Alt+P Print · Alt+F2 Period · Esc Back"
+        hint="Enter Next field · Ctrl+A Save entries · Alt+J JSON · Alt+S Set-off · Alt+F Mark filed · Alt+P Print · Alt+F2 Period · Esc Back"
       >
+        {composition ? (
+          <Banner tone="info" title="Composition taxpayers file CMP-08, not GSTR-3B">
+            Reverse-charge tax shown here is paid through CMP-08 — open GST › CMP-08.
+          </Banner>
+        ) : null}
+        {filing.filing ? (
+          <Banner tone="success" inline>
+            Marked filed on {filing.filing.filedOn}
+            {filing.filing.arn ? ` (ARN ${filing.filing.arn})` : ''}.
+          </Banner>
+        ) : null}
+        {shown?.bookAdjustments && hasBookAdjustments(shown.bookAdjustments) ? (
+          <Banner tone="info" inline>
+            Included from the books: {bookAdjustmentsText(shown.bookAdjustments)}.
+          </Banner>
+        ) : null}
         {rp.periods && rp.periods.periods.length === 0 ? (
           <Banner tone="info" title="No return periods yet">
             Return periods start from the date your books begin. Record a sale or purchase to see it here.
@@ -198,8 +230,38 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
         ) : null}
       </ReportScreen>
       <FileResultDialog result={result} onClose={() => setResult(null)} />
+      {marking && shown && rp.key ? (
+        <MarkFiledDialog
+          form="gstr3b"
+          period={rp.key}
+          periodLabel={shown.period.label}
+          onClose={(done) => {
+            setMarking(false);
+            if (done) filing.refetch();
+          }}
+        />
+      ) : null}
     </>
   );
+}
+
+/** Any GST entry of the books other than invoices (advances, stat journals, bills of entry) in this return. */
+function hasBookAdjustments(b: NonNullable<Gstr3bSummary['bookAdjustments']>): boolean {
+  return [b.advances, b.rcmLiability, b.rcmCredit, b.reversalRules, b.reversalOthers, b.reclaimed, b.billOfEntry].some((t) => taxSum(t) !== 0);
+}
+
+function bookAdjustmentsText(b: NonNullable<Gstr3bSummary['bookAdjustments']>): string {
+  const parts: string[] = [];
+  const add = (label: string, v: number) => {
+    if (v !== 0) parts.push(`${label} ${formatMoney(v)}`);
+  };
+  add('tax on advances (net 11A − 11B) in 3.1(a)', taxSum(b.advances));
+  add('reverse-charge journals in 3.1(d)', taxSum(b.rcmLiability));
+  add('ITC reversed under Rules 38 / 42 / 43 / s.17(5) in 4(B)(1)', taxSum(b.reversalRules));
+  add('other ITC reversals (Rules 37 / 37A) in 4(B)(2)', taxSum(b.reversalOthers));
+  add('ITC reclaimed in 4(D)(1)', taxSum(b.reclaimed));
+  add('bill-of-entry IGST adjustment in 4(A)(1)', taxSum(b.billOfEntry));
+  return parts.join('; ');
 }
 
 // ───────────────────────────── Form ─────────────────────────────

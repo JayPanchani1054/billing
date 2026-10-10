@@ -41,6 +41,14 @@ Stock-in-Hand ledgers are ordinary asset ledgers.
 `pre` = entries before `cf`, `before` = entries in `[cf, from)`, `dr` / `cr` = debits / credits in
 `[from, to]`.
 
+**Scenarios** (documents module masters; `scenario.ts`): `loadReportEnv(db, today, { scenarioId })` loads a
+scenario and `ledgerSums` adds its per-ledger deltas — provisional vouchers of the included voucher types
+(memorandum; optional; reversing journals while `to` ≤ their `applicable_upto`) plus, when actuals are
+included, minus the regular vouchers of excluded types; without actuals the books sums are dropped. The
+Trial Balance, P&L, Balance Sheet and Group Summary routes take `scenarioId`; everything built on
+`ledgerSums` (snapshot, P&L, Balance Sheet balancing) follows. Stock values are not affected. The
+renderer's scenario picker (Alt+S) and budget column (Alt+B) are `renderer/modules/reports/overlay.tsx`.
+
 ### Year-end treatment (Tally semantics) — `buildSnapshot`
 
 Notation: `ob` = a ledger's opening balance (at the books beginning), `L` = Σ `ob` of all ledgers,

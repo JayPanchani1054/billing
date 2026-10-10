@@ -6,7 +6,7 @@ Voucher entry, Day Book, voucher view and the generic voucher list. Core API: `s
 
 | id | params | what |
 |---|---|---|
-| `vouchers.entry` | `{ baseType? \| voucherTypeId?, id?, duplicateOf?, date?, partyId? }` | Create (by base type or voucher type), alter (`id`), or create pre-filled from another voucher (`duplicateOf`). A cancelled voucher, one whose e-invoice (IRN) is generated, or a user without `vouchers.alter`, is redirected to `vouchers.view`; a user without `vouchers.create` gets an explanation instead of an empty form. |
+| `vouchers.entry` | `{ baseType? \| voucherTypeId?, id?, duplicateOf?, date?, partyId? }` | Create (by base type or voucher type), alter (`id`), or create pre-filled from another voucher (`duplicateOf`). A cancelled voucher, one whose e-invoice (IRN) is generated, or a user without `vouchers.alter`, is redirected to `vouchers.view`; a user without `vouchers.create` gets an explanation instead of an empty form. A stock journal type with a class (`config.stockJournalClass`: Manufacturing Journal, Material In / Out) is handed over to `mfg.journal.entry` with the same params when the user may open it (mfg module). |
 | `vouchers.daybook` | `{ from?, to? }` | Day Book. Defaults to the working date and follows F2 until a range is picked. Keys (also `vouchers.list`): Enter / Alt+A alter, Alt+Enter view, **Ctrl+P print the highlighted voucher** (Alt+P prints the Day Book itself), Alt+2 duplicate, Alt+D delete; Day Book: Alt+T today, Alt+F2 period. |
 | `vouchers.view` | `{ id }` | Read-only voucher: header, party, items, Dr/Cr entries with bills / cost centres / bank details, GST by rate, e-invoice / e-way bill, cancellation, audit stamps. |
 | `vouchers.list` | `{ from?, to?, voucherTypeIds?, baseTypes?, partyLedgerId?, ledgerId?, search?, includeOptional?, includeCancelled?, onlyPostDated?, title? }` | Generic register for drill-downs (party, ledger, type, period). Defaults to the global period. |
@@ -28,6 +28,7 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 | Ctrl+I | More details: buyer snapshot, consignee, dispatch & e-way bill, order, export, effective date |
 | Alt+T | Fill lines from open delivery / receipt notes or orders (`vouchers.trackingRefs`) |
 | Alt+B | Bill-wise details (the focused ledger line, else the invoice party) |
+| Alt+J | GST details (gst module `GstDetailsDialog`, GST companies only): receipt — advance against a future supply; payment — refund of an advance / GST challan; sales or debit note to a customer — advances adjusted; purchase — bill of entry; journal — stat adjustment. Kept on alteration (`VoucherForm.gstDetails`, `buildInput.ts`), filtered to what the base type carries (`gstDetailsForBase`); a badge shows the summary |
 | Alt+O / Alt+K | Cost centres / bank instrument of the focused line (Alt+K on the Account in single entry) |
 | Ctrl+B | Balance it (puts the Dr/Cr difference on the last line) |
 | Ctrl+D / Alt+N, Ctrl+N | Delete line / insert line above |
@@ -61,4 +62,4 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 - The sales/purchase ledger of an item line is the voucher type's default (no per-line ledger column; a saved line's own ledger is kept on alteration).
 - Live totals assume rates exclusive of tax unless the line says otherwise: the item picker does not deliver the item master's "rate inclusive of tax" flag. `vouchers.preview` reports the server figure ("The books will record …") when it differs.
 - Checks shown from the last `vouchers.preview` stay until the voucher looks complete again (they are not cleared while a line is half-typed).
-- Multi-currency and TDS/TCS computation are not offered (the engine does not support them).
+- Multi-currency is not offered (the engine does not support it). TDS/TCS: the side column shows the tds module's panel (`modules/tds/EntryPanel.tsx`) for purchase / journal / payment (TDS) and sales (TCS) when F11 turns them on; Alt+U changes an amount (with a reason) or picks the nature for an advance.

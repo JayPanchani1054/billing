@@ -3,11 +3,14 @@
  * sample invoice when there is none yet). The ONLY editor of company config.invoice: F12 › Invoices
  * shows a read-only summary and opens this screen (Alt+I). Saves `{ invoice }` alone through
  * 'company.config.save' (needs Company › Manage), so it never overwrites F12's other sections.
+ * Also the paper (sheet for Modern / Classic, receipt roll for Compact), the MRP column and the
+ * e-mail / WhatsApp share texts (`config.share`, saved together with `invoice`).
  * Ctrl+A saves, Alt+P prints the preview. The bank select lists 'print.bankLedgers' (active ledgers
  * under Bank Accounts and its sub-groups); a blank UPI ID uses the chosen bank ledger's UPI ID.
  */
 import { useMemo, useRef, useState } from 'react';
-import type { InvoiceTemplate } from '../../../shared/settings.ts';
+import type { CompanyConfig, InvoicePaperSize, InvoiceTemplate, ReceiptRollWidth } from '../../../shared/settings.ts';
+import { fillShareTemplate, shareTemplateErrors } from '../../../shared/shareText.ts';
 import type { InvoicePrintOptions, PrintCopy } from '../../../shared/types/print.ts';
 import { PRINT_COPIES } from '../../../shared/types/print.ts';
 import {
@@ -38,15 +41,30 @@ import {
   useToast,
 } from '../../ui/index.ts';
 import { PreviewPane } from './components.tsx';
-import { pageSizeFor, resolveCopies, toggleCopy } from './lib/layout.ts';
+import { PAGE_SIZE_LABELS, pageSizeFor, resolveCopies, toggleCopy } from './lib/layout.ts';
 import { bankSelectOptions, normaliseOptions, previewOverrides, sameOptions, settingsErrors, type SettingsErrors } from './lib/screenState.ts';
 import { qrsOf, useDocumentQrs, usePrintActions } from './usePrinting.ts';
 
 const TEMPLATE_OPTIONS: ReadonlyArray<{ value: InvoiceTemplate; label: string }> = [
   { value: 'modern', label: 'Modern' },
   { value: 'classic', label: 'Classic' },
-  { value: 'compact', label: 'Compact 80 mm' },
+  { value: 'compact', label: 'Compact receipt' },
 ];
+
+const PAPER_OPTIONS: ReadonlyArray<{ value: InvoicePaperSize; label: string }> = (['A4', 'A5', 'A5-landscape', 'Letter', 'Legal'] as const).map((v) => ({
+  value: v,
+  label: PAGE_SIZE_LABELS[v],
+}));
+
+const ROLL_OPTIONS: ReadonlyArray<{ value: ReceiptRollWidth; label: string }> = [
+  { value: '80mm', label: '80 mm' },
+  { value: '58mm', label: '58 mm' },
+];
+
+type ShareTexts = CompanyConfig['share'];
+
+/** Example values for the share text preview. */
+const SHARE_EXAMPLE = { document: 'Tax Invoice', number: 'INV/12', date: '09-Oct-2026', amount: '1,180.00', party: 'Sharma Traders', period: '' } as const;
 
 const COPY_TEXT: Readonly<Record<PrintCopy, string>> = {
   original: 'Original (for recipient)',
@@ -57,19 +75,22 @@ const COPY_TEXT: Readonly<Record<PrintCopy, string>> = {
 export function PrintSettingsScreen() {
   const q = useApiQuery('company.config.get', {});
   if (!q.data) return <Screen title="Invoice Printing" icon="print" loading={q.loading} error={q.error} onRetry={() => void q.refetch()} />;
-  return <SettingsForm key={JSON.stringify(q.data.invoice)} saved={q.data.invoice} />;
+  return <SettingsForm key={JSON.stringify([q.data.invoice, q.data.share])} saved={q.data.invoice} savedShare={q.data.share} />;
 }
 
-function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
+function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; savedShare: ShareTexts }) {
   const toast = useToast();
   const canEdit = useCan('company.manage');
   const readOnly = !canEdit;
   const [draft, setDraft] = useState<InvoicePrintOptions>(saved);
+  const [share, setShare] = useState<ShareTexts>(savedShare);
+  const shareDirty = JSON.stringify(share) !== JSON.stringify(savedShare);
+  const shareErrs = shareTemplateErrors(share);
   const [showErrors, setShowErrors] = useState(false);
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const save = useApiMutation('company.config.save', { invalidates: ['print', 'vouchers'] });
-  const dirty = !sameOptions(normaliseOptions(draft), normaliseOptions(saved));
+  const dirty = !sameOptions(normaliseOptions(draft), normaliseOptions(saved)) || shareDirty;
   const banks = useApiQuery('print.bankLedgers', {});
   const bankOptions = useMemo(() => bankSelectOptions(banks.data, draft.bankLedgerId), [banks.data, draft.bankLedgerId]);
   const chosenBank = banks.data?.find((b) => b.ledgerId === draft.bankLedgerId) ?? null;
@@ -84,12 +105,12 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
   const submit = async (): Promise<void> => {
     if (readOnly || !dirty || save.pending) return;
     const errs = settingsErrors(draft, chosenBank?.upiId ?? null);
-    if (Object.keys(errs).length > 0) {
+    if (Object.keys(errs).length > 0 || Object.keys(shareErrs).length > 0) {
       setShowErrors(true);
       return;
     }
     try {
-      await save.mutate({ invoice: normaliseOptions(draft) });
+      await save.mutate({ invoice: normaliseOptions(draft), share: { emailSubject: share.emailSubject.trim(), emailBody: share.emailBody, whatsappText: share.whatsappText.trim() } });
       setServerErrors({});
       toast.success('Invoice print settings saved');
     } catch (err) {
@@ -117,7 +138,7 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
   const docs = useMemo(() => (doc ? [doc] : undefined), [doc]);
   const { qrs, ready } = useDocumentQrs(docs);
   const template = draft.template;
-  const pageSize = pageSizeFor(template);
+  const pageSize = pageSizeFor(template, undefined, draft);
   const copies = doc ? resolveCopies(doc) : (['original'] as PrintCopy[]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const printing = usePrintActions(rootRef, { docs: docs ?? [], pageSize, documents: 1, ready });
@@ -143,8 +164,14 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
             {readOnly ? <ReadOnlyNotice /> : null}
             {saveError ? <Banner tone="danger" title="Could not save">{saveError}</Banner> : null}
             <FieldGroup legend="Layout">
-              <Field label="Template" hint="Classic is the boxed Tally-style invoice; Compact prints on 80 mm receipt rolls.">
+              <Field label="Template" hint="Classic is the boxed Tally-style invoice; Compact prints on thermal receipt rolls.">
                 <SegmentedControl aria-label="Template" options={TEMPLATE_OPTIONS} value={draft.template} disabled={readOnly} onChange={(t) => patch({ template: t })} />
+              </Field>
+              <Field label="Paper" hint="For the Modern and Classic templates (each print preview can still change it).">
+                <Select<InvoicePaperSize> value={draft.paperSize} options={PAPER_OPTIONS} disabled={readOnly} onChange={(v) => patch({ paperSize: v })} />
+              </Field>
+              <Field label="Receipt roll" hint="For the Compact template: 80 mm or 58 mm thermal paper. The receipt is as long as its contents.">
+                <SegmentedControl aria-label="Receipt roll width" options={ROLL_OPTIONS} value={draft.rollWidth} disabled={readOnly} onChange={(v) => patch({ rollWidth: v })} />
               </Field>
               <Field label="Copies" error={errorOf('copies')} hint="Each copy prints on its own page with its label.">
                 <Stack gap={1}>
@@ -156,6 +183,12 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
               <Switch label="Print right after saving an invoice (sales, credit / debit note, delivery note)" checked={draft.printAfterSave} disabled={readOnly} onChange={(v) => patch({ printAfterSave: v })} />
               <Switch label="HSN/SAC-wise tax summary" checked={draft.showHsnSummary} disabled={readOnly} onChange={(v) => patch({ showHsnSummary: v })} />
               <Switch label="Tax columns on every item line" checked={draft.itemwiseTax} disabled={readOnly} onChange={(v) => patch({ itemwiseTax: v })} />
+              <Switch
+                label="MRP column for items that have an MRP (receipts also show “You saved”)"
+                checked={draft.showMrp}
+                disabled={readOnly}
+                onChange={(v) => patch({ showMrp: v })}
+              />
             </FieldGroup>
 
             <FieldGroup legend="Payment details" description="Printed on sales invoices so customers know how to pay.">
@@ -193,6 +226,21 @@ function SettingsForm({ saved }: { saved: InvoicePrintOptions }) {
               </Field>
               <Field label="Terms & conditions" error={errorOf('terms')} optional>
                 <TextArea value={draft.terms} readOnly={readOnly} rows={3} autoGrow maxRows={10} maxLength={4000} placeholder="e.g. Goods once sold will not be taken back. Subject to Pune jurisdiction." onChange={(e) => patch({ terms: e.target.value })} />
+              </Field>
+            </FieldGroup>
+
+            <FieldGroup
+              legend="Sharing by e-mail and WhatsApp"
+              description="Used by Share (Alt+W) on invoices, vouchers and statements. Placeholders: {document} {number} {date} {amount} {party} {company} {period}."
+            >
+              <Field label="E-mail subject" error={showErrors ? shareErrs.emailSubject : undefined} hint={`e.g. ${fillShareTemplate(share.emailSubject, { ...SHARE_EXAMPLE, company: doc?.company.displayName ?? 'Your company' })}`}>
+                <TextInput value={share.emailSubject} readOnly={readOnly} maxLength={200} onChange={(e) => setShare((x) => ({ ...x, emailSubject: e.target.value }))} />
+              </Field>
+              <Field label="E-mail text" error={showErrors ? shareErrs.emailBody : undefined} hint="Ctrl+Enter moves to the next field.">
+                <TextArea value={share.emailBody} readOnly={readOnly} rows={5} autoGrow maxRows={12} maxLength={4000} onChange={(e) => setShare((x) => ({ ...x, emailBody: e.target.value }))} />
+              </Field>
+              <Field label="WhatsApp message" error={showErrors ? shareErrs.whatsappText : undefined} hint="Keep it short: the PDF carries the details.">
+                <TextArea value={share.whatsappText} readOnly={readOnly} rows={3} autoGrow maxRows={6} maxLength={1000} onChange={(e) => setShare((x) => ({ ...x, whatsappText: e.target.value }))} />
               </Field>
             </FieldGroup>
           </Stack>

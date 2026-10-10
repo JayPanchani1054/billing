@@ -2,7 +2,11 @@
 
 This module turns the GST rows written by the posting engine into returns and compliance files:
 GSTR-1 (summary, drill-down, JSON), GSTR-3B (summary, manual entries, JSON), GSTR-9 (annual summary),
-GST registers, HSN summary, ITC and exceptions, and e-invoice / e-way bill bulk files.
+GST registers, HSN summary, ITC and exceptions, and e-invoice / e-way bill bulk files. The "GST plus"
+part (§11–§17) adds what a voucher's GST details carry and what is posted from returns: advances
+(Table 11), bills of entry, stat adjustments (ITC reversal / reclaim, reverse charge), GST set-off with
+challans and the electronic cash / credit ledgers, return filing status with the GSTR-1 amendments log,
+and the composition returns CMP-08 / GSTR-4.
 
 **Single source of truth.** Every figure comes from `gst_lines` (values and tax as on the document) and
 the `vouchers` header (nature, place of supply, party snapshot, numbers, IRN / e-way bill fields).
@@ -24,6 +28,16 @@ rupees. Dates are `YYYY-MM-DD`.
 | `einvoice.ts` / `address.ts` | IRP schema 1.1 payload, validation, bulk JSON, response import, IRN cancel |
 | `ewaybill.ts` | e-way bill pending list, bulk JSON, recording the EWB number |
 | `gstr9.ts` | Annual summary |
+| `hook.ts` | Voucher hook (vouchers/hooks.ts): validates / posts / derives `VoucherInput.gstDetails`; amendments of filed GSTR-1 documents; refuses deleting a filed document |
+| `advances.ts` | Tax on advances, pending advances, Table 11A / 11B (`gst_advance_lines`) |
+| `bookAdjustments.ts` | Advances, stat journals and bills of entry as they reach GSTR-3B (3.1(a), 3.1(d), 4(A)(1)/(3)/(5), 4(B)(1)/(2), 4(D)(1)) |
+| `filings.ts` | Return filing status, document snapshots, amendments log (9A / 9C / 10 / added), corrections of filed periods |
+| `setoffPost.ts` | Set-off for a period (GSTR-3B 6.1 or CMP-08) posted as a journal; GST challans (PMT-06) |
+| `eledgers.ts` | Electronic cash ledger (major × minor head) and electronic credit ledger from the books |
+| `boeRecon.ts` | Bills of entry register and reconciliation with GSTR-2B IMPG / IMPGSEZ |
+| `composition.ts` | Composition rate master, CMP-08, GSTR-4, their CSV / JSON (Bahi format) |
+| `statLedgers.ts` | GST plus system ledgers (created on demand, `reserved_code`) and the duty ledger map |
+| `schemas.ts` | Input schema of `VoucherInput.gstDetails` |
 | `testkit.ts` | Test helpers: direct SQL inserts + the April-2026 dataset (tests only) |
 | `gstr1.golden.json` | Reviewed GSTR-1 JSON of the dataset (snapshot test) |
 
@@ -31,6 +45,12 @@ Migration `090_gst.ts` adds:
 - `gst_adjustments (form, return_period, data JSON, updated_at, updated_by)`: manual GSTR-3B entries;
 - `gst_doc_events (voucher_id, kind einvoice|ewaybill, action, ref_no, detail JSON, ts, user)`: the e-invoice / e-way bill trail (the voucher row keeps the current state);
 - an index on `gst_lines(date, affects_books, voucher_id)`.
+
+Migration `200_gstplus.ts` (global version 200; the gstplus block is 200–209) adds the derived tables
+`gst_advance_lines`, `gst_bill_of_entry`, `gst_stat_lines`, `gst_challans` (rebuilt by the voucher hook
+inside the voucher's transaction, carrying date / affects_books / is_post_dated, cascading on delete) and
+the masters / logs `gst_return_filings`, `gst_amendments`, `gst_composition_rates` (seeded) and
+`gst_settings`. Additive only.
 
 ---
 
@@ -68,6 +88,25 @@ JSON exports need a month or a quarter (not a range).
 | `gst.ewaybill.update` | **file** | `EwayUpdateInput { voucherId, ewayBillNo (12 digits), date, validUpto? }` | `GstDocStatusResult` — audited |
 | `gst.docEvents` | view | `{ voucherId }` | `GstDocEvent[]` (e-invoice / e-way bill trail) |
 | `gst.gstr9.summary` | view | `{ fy: '2026-27' }` | `Gstr9Summary` (caption "Prepared from books — verify before filing") |
+| `gst.advances.pending` | view | `{ asOf?, partyLedgerId? }` | `PendingAdvance[]` — advances not yet adjusted / refunded |
+| `gst.advances.register` | view | `{ from, to }` | `Gstr1AdvancesSummary` (11A received, 11B adjusted / refunded, vouchers, net) |
+| `gst.filing.list` | view | `{ form? }` | `GstFiling[]` |
+| `gst.filing.mark` | **file** | `{ form, period, filedOn, arn? }` | `GstFiling` — snapshot of the summary as filed; audited. GSTR-1 / 3B for regular, CMP-08 / GSTR-4 for composition only |
+| `gst.filing.unmark` | **file** | `{ form, period }` | refused while amendments point at a filed GSTR-1; audited |
+| `gst.amendments.list` | view | `{ period?, voucherId? }` | `GstAmendmentRow[]` |
+| `gst.setoff.compute` | view | `{ period, penalty?, others? }` | `GstSetoffResult` (credit utilisation, cash per major × minor head, available in the cash ledger, to deposit, challans, posted journal) |
+| `gst.setoff.post` | **file** | `{ period, date, penalty?, others?, narration? }` | `VoucherSaveResult` — one Journal (CONFLICT when already posted for the period) |
+| `gst.challan.post` | **file** | `{ date, bankLedgerId, cpin, cin?, brn?, challanDate?, bankName?, mode?, period?, heads[], narration? }` | `VoucherSaveResult` — one Payment voucher |
+| `gst.challan.list` | view | `{ from, to }` | `GstChallanRow[]` |
+| `gst.ledger.cash` / `gst.ledger.credit` | view | `{ from, to }` | `ElectronicCashLedger` / `ElectronicCreditLedger` |
+| `gst.boe.list` | view | `{ from, to }` | `BoeRow[]` |
+| `gst.boe.reconcile` | view | `{ from, to, fileName, bytes }` (GSTR-2B JSON / ZIP) | `BoeReconResult` (read-only; nothing stored) |
+| `gst.cmp08.summary` | view | `{ period: '2026-27-Q1' }` | `Cmp08Summary` |
+| `gst.cmp08.saveInterest` | **file** | `{ period, interest }` | `Cmp08Summary` — audited, period-lock aware |
+| `gst.cmp08.export` / `gst.gstr4.export` | **file** | `{ period \| fy, format: 'json' \| 'csv' }` | `GstTextFile` (Bahi's documented format) — audited as an export |
+| `gst.gstr4.summary` | view | `{ fy }` | `Gstr4Summary` |
+| `gst.composition.settings` | view | – | `CompositionSettings` (category + rate master) |
+| `gst.composition.saveCategory` / `saveRate` / `deleteRate` | **file** | category / rate row / `{ id }` | `CompositionSettings` — audited |
 
 Errors: `VALIDATION` (bad period / dates / fields), `BUSINESS_RULE` (GST off, nothing exportable — the
 rejected vouchers with reasons are in `details.rejected`), `FORBIDDEN`, `LOCKED` (3B entries of a locked
@@ -409,19 +448,201 @@ outward taxable value and tax, net ITC and cash. Labelled "Prepared from books �
 
 ## 10. Known limitations
 
-- Amendment tables, advances (table 11 / 4F), e-commerce operator supplies (3.1.1, GSTR-1 table 14/15)
-  and ISD are not derived from the books (manual entries / portal).
-- Purchases from an SEZ unit: the bill of entry for SEZ goods (IGST paid at customs) is entered as a
-  journal (Dr Input IGST / Cr Bank or the customs duty ledger), as for any import of goods; the 3B
-  4(A)(1) figure comes from the purchase's `gst_lines`, so book the BOE journal for the same amount.
+- E-commerce operator supplies (3.1.1, GSTR-1 table 14/15), ISD, amendments of advances (11A(2) /
+  11B(2)) and of B2C small supplies by POS (table 10 is listed, but enter it on the portal by POS and
+  rate) are not derived. Advances (GSTR-1 11, GSTR-9 4F), amendments 9A / 9C, bills of entry, stat
+  adjustments and set-off are derived (§11–§16).
+- Invoice Management System (IMS: accept / reject / pending per inward document) actions are not
+  imported or exported (gstrecon matches GSTR-2A / 2B only).
 - Quarterly filers: the quarterly GSTR-1 file contains the whole quarter; invoices already uploaded
   through IFF must not be uploaded again.
-- The electronic credit ledger is reconstructed from the books (credit brought forward, above); it
-  can only be topped up manually (`creditLedgerBalance` ≥ 0). If the portal shows less credit than the
-  books (e.g. a return filed with different figures), the difference cannot be entered as a reduction.
-- e-Invoice signing / IRP API calls and e-way bill API calls are not made (offline JSON only); the PIN ↔
-  state consistency the IRP checks is not validated locally.
+- The electronic credit ledger is reconstructed from the books (credit brought forward, above; §14 for
+  the per-head report); the 3B manual top-up stays ≥ 0. If the portal shows less credit than the books,
+  pass a reversal journal (§13) rather than a negative manual entry.
+- e-Invoice signing / IRP API calls and e-way bill API calls are not made (offline JSON only — §17);
+  the PIN ↔ state consistency the IRP checks is not validated locally.
+- Composition: Table 7 of GSTR-4 (TDS / TCS credit) is not kept; GSTR-4 / CMP-08 files are Bahi's own
+  documented JSON / CSV, not the portal's offline-tool schema (§15).
 - Purchases: e-way bills for inward supplies from unregistered suppliers and purchase returns are not
   listed as pending.
+- Only a filed **GSTR-1** freezes its period (amendments). Altering a purchase or journal of a period
+  whose GSTR-3B is marked filed changes that period's GSTR-3B silently (report the difference in the
+  next 3B by hand); a set-off already posted is not recomputed (alter or delete it and post again).
+- Composition taxpayers: advances are refused (no Table 11); tax on an advance for a composition
+  supplier is not computed — include it in the quarter's CMP-08 turnover yourself where it applies.
+- GSTR-2B import reconciliation (`gst.boe.reconcile`) reads the JSON or the portal's ZIP of JSON parts;
+  the Excel download is not read for IMPG.
 - Performance: the year's documents are read once for GSTR-9 (≈3 s for 24,000 vouchers / 72,000 GST
   lines in the dev container); monthly reports take a fraction of a second.
+
+---
+
+## 11. GST details on vouchers (`hook.ts`, `schemas.ts`)
+
+`VoucherInput.gstDetails` (`VoucherGstDetailsInput`, `src/shared/types/gst-plus.ts`) carries the GST side
+of a voucher that is not an invoice line; voucher entry edits it with **Alt+J** (renderer
+`gst/GstDetailsDialog.tsx`). The gst voucher hook (registered in `vouchers/hooks.ts` STATIC_HOOKS)
+validates it (`warn` with levels info / confirm / block and a field path), adds its ledger entries to the
+posting plan, and rewrites the derived rows in the voucher's own transaction (clear + write, with the
+voucher date / affects_books / is_post_dated — the books filter applies exactly as for `gst_lines`).
+Optional, cancelled and memorandum vouchers keep their rows with `affects_books = 0`, so nothing counts.
+
+| Voucher | Detail | Posting added by the hook | Derived rows → returns |
+|---|---|---|---|
+| Receipt | `advance { supplyType, rate, cessRate?, placeOfSupply?, amount? }` | services: Dr GST on Advances Received / Cr Output tax (amount treated as tax-inclusive) — goods: none (N/N 66/2017-CT) | `gst_advance_lines` 'received' → GSTR-1 11A, 3B 3.1(a) |
+| Sales / debit note to a customer | `advanceAdjustments [{ receiptVoucherId, amount }]` — default: every bill-wise "Against" allocation on an advance bill created by a receipt with GST | Dr Output tax / Cr GST on Advances (proportionate share of the advance's tax) | 'adjusted' → 11B, 3B 3.1(a) net |
+| Payment | `advanceRefund { receiptVoucherId, amount }` (refund voucher, Rule 51) | as above | 'refunded' → 11B |
+| Payment | `challan { cpin, cin?, brn?, challanDate?, bankName?, mode?, period?, heads[] }` | none — the user debits "GST Electronic Cash Ledger" (or `gst.challan.post` builds the voucher) | `gst_challans` + `gst_stat_lines` 'cash_deposit' |
+| Purchase from an overseas supplier / SEZ unit (goods) | `billOfEntry { number, date, portCode?, assessableValue, customsDuty?, igst, cess? }` | regular: Dr Input IGST (+cess) / Cr IGST Payable on Imports (Customs); composition, or goods whose ITC is blocked (lines marked ineligible): the IGST is a cost (Dr the ledger of the goods / asset), `itc_claimed` 0. One bill of entry cannot mix blocked and eligible lines (refused: enter them as separate purchases) | `gst_bill_of_entry` → 3B 4(A)(1) (the BOE figure replaces the tax computed on the invoice; blocked goods are also reversed in 4(B)(1)), GSTR-9 6E (blocked: 7E), `gst.boe.*` |
+| Journal | `adjustment { nature, period?, taxableValue? }` | the lines as entered (validated per nature) | `gst_stat_lines` → 3B 4(B)(1) / 4(B)(2) / 4(A)(5)+4(D)(1) / 3.1(d)+4(A)(3) |
+| Journal | `setoff { period, cash[], credit[] }` | built by `gst.setoff.post` only | 'itc_utilised' / 'cash_utilised' → electronic ledgers, CMP-08 table 4 |
+
+A receipt whose advance is adjusted or refunded cannot be deleted / cancelled while those vouchers
+stand, nor altered so that they no longer fit: made optional, the advance removed (or turned into goods),
+its amount lowered below what they used, or its rate / cess rate / place of supply changed (raising the
+amount or changing the narration is fine). An advance (`amount`) larger than the cash / bank received on
+the receipt is refused. The system ledgers created on demand (GST on Advances Received, IGST Payable on
+Imports, GST Electronic Cash Ledger, Interest / Late Fee / Penalty, Composition Tax) are audited. `vouchers.duplicate` keeps only an advance's rate and a stat-adjustment nature (a challan, a
+set-off, a bill of entry and the advances used belong to the source).
+
+## 12. Advances (`advances.ts`)
+
+Time of supply for services is the earlier of invoice and receipt of payment (s.13 CGST Act), so tax is
+due on an advance; suppliers of goods (other than composition taxpayers) are exempt from tax on
+advances by Notification 66/2017-CT (15-11-2017). `advanceTax(amount, rate, cessRate, inter)` treats the
+amount as inclusive: base = round(amount × 100 / (100 + rate + cess)), tax split CGST = SGST (or
+IGST inter-state) on that base, and taxable = amount − tax so the parts add up to the amount. Place of
+supply: the given state, else the party's, else the company's. Adjustment / refund takes the advance's
+tax proportionately; the use that exhausts the advance takes exactly what is left, so the advance's tax
+is reversed to the paisa. Table 11A / 11B group by POS
+and rate (`supplyKind` INTRA / INTER for the portal's `sply_ty`). Following the GSTR-1 instructions (11A:
+advance "for which invoice has not been issued in the same tax period"; 11B: advance "received in
+earlier tax period" adjusted now), an advance received and adjusted / refunded within the same return
+period is in neither table — only its part still unadjusted at the period end is in 11A (the register's
+`vouchers` list still shows every line, and the tax effect is the same). GSTR-1 JSON `at` / `txpd` use them,
+3B 3.1(a) carries 11A − 11B and GSTR-9 4F the year's 11A − 11B. Composition taxpayers are refused (they pay on turnover via CMP-08).
+
+## 13. Stat adjustments: ITC reversal / reclaim, reverse charge (`hook.ts`, `bookAdjustments.ts`)
+
+Natures (`GST_ADJUSTMENT_NATURES`) and the 3B row each reaches (current GSTR-3B layout):
+
+| Nature | Rule | GSTR-3B | Lines |
+|---|---|---|---|
+| `itc_reversal_r42` / `r43` | Rules 42 / 43 (common inputs / capital goods) | 4(B)(1) | Cr Input tax, Dr expense / asset |
+| `itc_reversal_r38` | Rule 38 (banking company, 50%) | 4(B)(1) | Cr Input tax |
+| `itc_reversal_s17_5` | s.17(5) blocked credit | 4(B)(1) | Cr Input tax |
+| `itc_reversal_r37` | Rule 37 — supplier not paid within 180 days (reclaimable on payment) | 4(B)(2) | Cr Input tax |
+| `itc_reversal_r37a` | Rule 37A — supplier did not file GSTR-3B by 30 Sep following the year | 4(B)(2) | Cr Input tax |
+| `itc_reversal_others` | other temporary reversals | 4(B)(2) | Cr Input tax |
+| `itc_reclaim` | reclaim of a Rule 37 / 37A / temporary reversal | 4(A)(5) and 4(D)(1) | Dr Input tax |
+| `rcm_liability` | reverse charge entered by journal (e.g. import of services) | 3.1(d) (value = `taxableValue`) and 4(A)(3) | Cr "… Payable (Reverse Charge)", Dr Input tax (regular) / an expense (composition) |
+
+The hook refuses Output ledgers in an adjustment, reversals / reclaims for a composition taxpayer and a
+reverse-charge journal without the RCM payable lines; it asks to confirm a journal dated outside the
+chosen period. Interest (s.50) and late fee are entered in GSTR-3B "Your entries" (or CMP-08 interest)
+and paid through the set-off. Rule 37's 180-day test itself is not run automatically: Outstanding ›
+Payables shows the bills; pass the reversal journal for those still unpaid.
+
+## 14. Set-off, challans and electronic ledgers (`setoff.ts`, `setoffPost.ts`, `eledgers.ts`)
+
+`gst.setoff.compute` takes GSTR-3B 6.1 for a regular taxpayer — liability per head (3.1(a)+(b) incl.
+advances and the amendments of filed periods), credit 4(C) plus the balance brought forward, utilised in
+the s.49(5) / Rule 88A order (IGST credit first against IGST, then CGST and SGST in any proportion; CGST
+credit against CGST then IGST, never SGST, and vice versa; cess only against cess) — and adds the cash
+items: reverse-charge tax (always cash, s.49(4)), interest and late fee from the 3B entries, penalty and
+others typed on the screen. For a composition taxpayer it takes CMP-08 (everything in cash). Cash is
+shown per major head (IGST / CGST / SGST-UTGST / cess) × minor head (tax / interest / penalty / fee /
+others), with what the electronic cash ledger already holds and what is still to deposit (once the
+period's set-off is posted, the cash it used still counts as available to it, so nothing is asked twice).
+The set-off can be posted before the challan (the screen warns; the cash ledger shows a negative balance
+until the challan is recorded).
+
+`gst.challan.post` records a PMT-06 challan: one Payment voucher Dr "GST Electronic Cash Ledger" / Cr
+the bank, with CPIN (14 digits), CIN (17 characters, after payment), BRN, date, bank, mode and the
+head-wise amounts. `gst.setoff.post` posts one Journal per period (CONFLICT when it already exists — alter
+or delete that journal to post again):
+
+```
+Dr Output IGST / CGST / SGST / Cess     liability discharged
+Cr Input <head>                         credit utilised (a negative 4(C) is a Dr, paid in cash)
+Dr <head> Payable (Reverse Charge)      reverse-charge tax
+Dr Interest on GST / Late Fee on GST Returns / GST Penalty and Other Dues
+Dr Composition Tax (GST)                CMP-08
+Cr GST Electronic Cash Ledger           total cash utilised (major × minor in gst_stat_lines)
+```
+
+Both go through the vouchers service (numbered, audited, period-lock aware). A journal carrying
+`gstDetails.setoff` is refused if a credit row breaks s.49(5) (CGST → SGST, SGST → CGST, cess ↔ other
+heads) or its cash rows differ from the credit to "GST Electronic Cash Ledger". **Electronic cash ledger**
+(`gst.ledger.cash`): opening / deposited / utilised / closing per major × minor head from challans and
+set-off journals, with the books balance of "GST Electronic Cash Ledger" for comparison. **Electronic
+credit ledger** (`gst.ledger.credit`): per head from the Input tax ledgers — opening (incl. opening
+balances), accrued (debits: purchases, RCM, BOE, reclaims), reversed (credits other than set-off),
+utilised (set-off credits), closing — with every movement listed, signed as on the Input ledgers
+(accrued Dr, reversed / utilised Cr) so the movements add up to closing − opening; the opening is one
+aggregate per ledger. The portal's ledgers are the legal record; the screens say so.
+
+## 15. Composition (`composition.ts`)
+
+The company's registration type (Company › GST details) decides everything: sales are Bills of Supply
+with no tax (vouchers / print: "Composition taxable person, not eligible to collect tax on supplies"),
+supplier tax is a cost, GSTR-1 / 3B / GSTR-9 / ITC / e-invoice are hidden from the GST menu
+(`gstRegistrations` filter) and refuse filing marks; CMP-08 and GSTR-4 are shown instead.
+
+**Rate master** `gst_composition_rates` (effective-dated, editable — GST › Composition Rates), seeded:
+manufacturers 2% (1-7-2017) → 1% (1-1-2018, N/N 3/2018-CT); traders 1% of turnover (1-7-2017) → 1% of
+*taxable* turnover (1-1-2018); restaurants 5%; s.10(2A) service providers 6% (N/N 2/2019-CT(R),
+1-4-2019) — each half CGST, half SGST/UTGST. The turnover basis of the 6% scheme is our reading
+(flagged in the seed comment); notified-goods exclusions (e.g. ice-cream, pan masala, tobacco) are the
+user's responsibility (such dealers cannot opt in). The rate effective on each document's date applies.
+
+**CMP-08** (quarterly, due the 18th of the month after the quarter — Rule 62): table 3 (1) outward
+supplies incl. exempt → composition tax on the tax base; (2) inward supplies attracting reverse charge
+incl. import of services → tax at the normal rates (RCM purchases + `rcm_liability` journals); (3) = 1 +
+2; (4) interest (typed). Table 4 "paid" = the cash utilised by the quarter's set-off journal. **GSTR-4**
+(annual, due 30 April after the year from FY 2021-22): 4A registered non-RCM (by supplier), 4B registered
+RCM (by supplier), 4C unregistered (by rate), 4D import of services (by rate); 5 = CMP-08 per quarter; 6
+rate-wise outward at the composition rate and inward RCM; 8 tax payable and paid. Table 7 (TDS / TCS
+credit) is not kept. **Files:** the portal has no CMP-08 upload and its GSTR-4 offline-tool schema is
+not reproduced (we do not guess it): `gst.cmp08.export` / `gst.gstr4.export` save our own documented
+format — JSON `{ format: 'bahi-cmp08/1' | 'bahi-gstr4/1', gstin, ret_period / fy, table… }` with rupee
+amounts, or CSV with the same rows — to copy into the portal.
+
+## 16. Filing status and GSTR-1 amendments (`filings.ts`)
+
+`gst.filing.mark` records that a return was filed (date not before the period's end nor in the future,
+ARN optional) with a snapshot of its summary. A **filed GSTR-1** period is protected:
+
+- altering one of its outward documents asks to confirm, then logs the original (as filed) and amended
+  snapshot in `gst_amendments`, reported in the **amendment period** — the first later period not filed
+  (normally no later than the working date's period; never a filed one) — as 9A (B2B / B2CL / exports), 9C (CDNR / CDNUR) or 10 (B2C
+  small). The JSON carries the registered-buyer amendments (`b2ba`, `cdnra`, with the original number
+  and date); B2CL / export / CDNUR / B2C-small amendments are listed on screen (GST › GSTR-1
+  Amendments) to enter on the portal;
+- a document dated in the filed period but entered later is logged as *added* and reported in the
+  amendment period with its original date;
+- deleting or cancelling a reported document is refused (issue a credit note, or alter it);
+- the filed period's GSTR-1 totals and GSTR-3B 3.1 keep the figures as filed; the difference flows into
+  the amendment period's 3B (`amendmentCorrections`);
+- `gst.filing.unmark` is refused while amendments point at the period.
+
+## 17. IRP / e-way bill: why there is no direct API call
+
+Generating an IRN or an e-way bill through the NIC / IRP APIs needs API credentials issued to a GSP or
+ASP (or the taxpayer's own API access with a whitelisted IP and client secret) and a live internet
+connection; Bahi is offline-first and does not hold GSP credentials, so it makes no network calls. The
+supported round trip is:
+
+1. **Generate JSON** — e-Invoice (Alt+J) / e-Way Bills (Alt+J): the IRP schema 1.1 bulk file or the
+   e-way bill bulk `billLists` file for the selected vouchers (`gst.einvoice.json`, `gst.ewaybill.json`).
+2. **Upload** on the IRP (einvoice1.gst.gov.in › Bulk Upload, or the offline tool) / the e-way bill
+   portal (ewaybillgst.gov.in › Bulk Generation).
+3. **Download** the response: the IRP's signed JSON / Excel with IRN, Ack no., date and signed QR; the
+   e-way bill numbers.
+4. **Import / record** — e-Invoice › Alt+I imports the IRP response (`gst.einvoice.importResponse`:
+   IRN, ack, signed QR stored on each voucher, printed on the invoice); e-Way Bills › Alt+N records the
+   EWB number, date and validity (`gst.ewaybill.update`). Every step is in the document trail (Alt+H).
+
+IRN cancellation within 24 hours and the 30-day reporting limit for AATO ≥ ₹10 crore are shown on the
+screens; enforcing them is the portal's job. An optional online connector (main process only, opt-in,
+credentials in Electron safeStorage) is the documented next step.

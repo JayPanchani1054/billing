@@ -9,6 +9,7 @@ import {
   headerRefs,
   itemColumns,
   money,
+  mrpText,
   partyBoxLabel,
   partyIds,
   pctText,
@@ -101,8 +102,8 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
   const t = doc.totals;
   // Rule 46(i): the rate of tax per line — Tally's "GST Rate" column next to HSN/SAC.
   const gstCol = doc.gst.showTax;
-  const nCols = 3 + (cols.hsn ? 1 : 0) + (gstCol ? 1 : 0) + (cols.qty ? 1 : 0) + (cols.rate ? 2 : 0) + (cols.discount ? 1 : 0);
-  const descSpan = 2 + (cols.hsn ? 1 : 0) + (gstCol ? 1 : 0);
+  const nCols = 3 + (cols.hsn ? 1 : 0) + (gstCol ? 1 : 0) + (cols.mrp ? 1 : 0) + (cols.qty ? 1 : 0) + (cols.rate ? 2 : 0) + (cols.discount ? 1 : 0);
+  const descSpan = 2 + (cols.hsn ? 1 : 0) + (gstCol ? 1 : 0) + (cols.mrp ? 1 : 0);
   /** Blank cells between the description and the Amount column of a tax / charge row. */
   const gap = nCols - 3;
   const showConsignee = !doc.consigneeSameAsParty && doc.consignee;
@@ -165,6 +166,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
             <th>Description of Goods / Services</th>
             {cols.hsn ? <th>HSN/SAC</th> : null}
             {gstCol ? <th>GST Rate</th> : null}
+            {cols.mrp ? <th>MRP*</th> : null}
             {cols.qty ? <th>Quantity</th> : null}
             {cols.rate ? <th>Rate</th> : null}
             {cols.rate ? <th>per</th> : null}
@@ -184,6 +186,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
               </td>
               {cols.hsn ? <td>{l.hsnSac ?? ''}</td> : null}
               {gstCol ? <td className="bp-num">{l.absorbed ? '' : l.taxability === 'taxable' ? pctText(l.gstRate) : taxabilityText(l.taxability)}</td> : null}
+              {cols.mrp ? <td className="bp-num">{mrpText(l)}</td> : null}
               {cols.qty ? <td className="bp-num bp-strong">{l.qty === null ? '' : `${qtyText(l.qty, l.qtyDecimals)} ${l.unit ?? ''}`.trim()}</td> : null}
               {cols.rate ? <td className="bp-num">{rateText(l.rate)}</td> : null}
               {cols.rate ? <td>{l.qty === null ? '' : (l.unit ?? '')}</td> : null}
@@ -197,6 +200,7 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
               <td className="bp-num bp-strong">{r.label}</td>
               {cols.hsn ? <td /> : null}
               {gstCol ? <td /> : null}
+              {cols.mrp ? <td /> : null}
               {cols.qty ? <td /> : null}
               {cols.rate ? <td className="bp-num">{r.rate}</td> : null}
               {cols.rate ? <td>{r.rate ? '%' : ''}</td> : null}
@@ -238,6 +242,18 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
             {nCols - descSpan - (cols.qty ? 1 : 0) - 1 > 0 ? <td colSpan={nCols - descSpan - (cols.qty ? 1 : 0) - 1} /> : null}
             <td className="bp-num">{rupees(t.grandTotal)}</td>
           </tr>
+          {cols.mrp && doc.mrpSummary ? (
+            <tr>
+              <td colSpan={nCols} className="bp-cell bp-normal bp-small">
+                {doc.mrpSummary.savings > 0 ? (
+                  <>
+                    <b>You saved {rupees(doc.mrpSummary.savings)}</b> on MRP ·{' '}
+                  </>
+                ) : null}
+                * MRP per unit, inclusive of all taxes
+              </td>
+            </tr>
+          ) : null}
           <tr>
             <td colSpan={nCols} className="bp-cell bp-normal">
               <div className="bp-eoe">

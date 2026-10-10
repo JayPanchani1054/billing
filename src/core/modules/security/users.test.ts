@@ -156,7 +156,7 @@ describe('security users: owner and self protections', () => {
 
   it('prevents privilege escalation by a security manager who is not an Owner', async () => {
     const t = createTestCompany({ security: true });
-    const admin = t.sessionAs({ permissions: ['security.manage', 'company.view', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'reports.view', 'gst.view'] });
+    const admin = t.sessionAs({ permissions: ['security.manage', 'company.view', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'reports.view', 'gst.view', 'attachments.add'] });
     await fail(t, 'security.user.save', { username: 'boss2', displayName: 'B', roleId: t.ids.roles.Owner, isActive: true, password: PW }, 'FORBIDDEN', /Only an Owner/, admin);
     await fail(t, 'security.user.save', { username: 'acct', displayName: 'A', roleId: t.ids.roles.Accountant, isActive: true, password: PW }, 'FORBIDDEN', /permissions you hold/, admin);
     // Data Entry's permissions are all held by this admin.

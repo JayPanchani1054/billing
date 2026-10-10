@@ -88,6 +88,7 @@ export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'Alt+E', label: 'Export (Excel / CSV / PDF)', group: 'Lists & reports', global: false, description: 'Needs the Data › Export permission (also for Print)' },
   { keys: 'Alt+P', label: 'Print', group: 'Lists & reports', global: false, description: 'In voucher entry: the voucher being altered, or the one just saved' },
   { keys: 'Ctrl+P', label: 'Print the highlighted voucher (Day Book, voucher lists)', group: 'Lists & reports', global: false },
+  { keys: 'Alt+W', label: 'Share as PDF by e-mail or WhatsApp (invoices, vouchers, statements)', group: 'Lists & reports', global: false, description: 'Needs the Data › Export permission' },
   { keys: 'Y, Ctrl+A', label: 'Yes / confirm', group: 'Dialogs', global: false },
   { keys: 'N, Escape', label: 'No / cancel', group: 'Dialogs', global: false },
 ];

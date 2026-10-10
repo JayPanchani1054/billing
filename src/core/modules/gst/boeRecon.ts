@@ -7,6 +7,7 @@
  *   data.docdata.impg:    [{ refdt, portcode, boenum, boedt, isamd, txval, igst, cess }]
  *   data.docdata.impgsez: [{ ctin, trdnm, boe: [{ refdt, portcode, boenum, boedt, isamd, txval, igst, cess }] }]
  * Matching: port code + BOE number (digits only, leading zeros ignored), then the date; amounts within ₹1.
+ * A ZIP of JSON parts (the portal's download for a large GSTR-2B) is read part by part and merged.
  * The reconciliation is read-only (nothing is stored): re-run it after each 2B download.
  */
 import type { Paise } from '../../../shared/money.ts';
@@ -14,6 +15,7 @@ import type { BoeReconResult, BoeReconRow, BoeRow, PortalBoe } from '../../../sh
 import type { Db } from '../../db/db.ts';
 import { validation } from '../../lib/errors.ts';
 import { decodeText, stripBom } from '../../lib/text.ts';
+import { readZip } from '../../lib/zip.ts';
 import { BOOKS_FILTER } from '../accounts/books.ts';
 import { parsePortalAmount, parsePortalDate } from '../gstrecon/values.ts';
 
@@ -63,11 +65,34 @@ const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v
 
 /** Parse the import sections of a GSTR-2B JSON file. */
 export function parse2bImports(bytes: Uint8Array): { period: string | null; docs: PortalBoe[]; warnings: string[] } {
+  if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) return parse2bZip(bytes);
+  return parse2bJson(bytes);
+}
+
+/** The portal gives a large GSTR-2B as a ZIP of JSON parts: read every part and merge their bills of entry. */
+function parse2bZip(bytes: Uint8Array): { period: string | null; docs: PortalBoe[]; warnings: string[] } {
+  let zip: ReturnType<typeof readZip>;
+  try {
+    zip = readZip(bytes);
+  } catch (err) {
+    throw validation([{ path: 'bytes', message: `The ZIP file could not be read (${err instanceof Error ? err.message : 'damaged file'}). Download GSTR-2B again from the portal.` }]);
+  }
+  const names = zip.list().filter((n) => /\.json$/i.test(n) && !/(^|\/)__MACOSX\//.test(n)).sort();
+  if (names.length === 0) throw validation([{ path: 'bytes', message: 'The ZIP file contains no GSTR-2B JSON file. Download GSTR-2B as JSON from the portal.' }]);
+  const parts = names.map((n) => parse2bJson(zip.read(n)));
+  const docs = parts.flatMap((p) => p.docs);
+  const periods = [...new Set(parts.map((p) => p.period).filter((p): p is string => p !== null))];
+  const warnings = [...new Set(parts.flatMap((p) => p.warnings).filter((w) => !(docs.length > 0 && w.startsWith('The file has no bills of entry'))))];
+  if (periods.length > 1) warnings.push(`The ZIP file mixes return periods (${periods.join(', ')}).`);
+  return { period: periods[0] ?? null, docs, warnings };
+}
+
+function parse2bJson(bytes: Uint8Array): { period: string | null; docs: PortalBoe[]; warnings: string[] } {
   let root: unknown;
   try {
     root = JSON.parse(stripBom(decodeText(bytes).text));
   } catch {
-    throw validation([{ path: 'bytes', message: 'This file is not valid JSON. Download GSTR-2B as JSON from the portal and choose that file.' }]);
+    throw validation([{ path: 'bytes', message: 'This file is not valid JSON. Download GSTR-2B as JSON (or its ZIP) from the portal and choose that file.' }]);
   }
   if (!isObj(root)) throw validation([{ path: 'bytes', message: 'This is not a GSTR-2B JSON file.' }]);
   const data = isObj(root.data) ? root.data : root;

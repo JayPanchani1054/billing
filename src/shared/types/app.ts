@@ -64,6 +64,8 @@ export interface OpenCompanySummary {
   fyStartMonth: number;
   gstEnabled: boolean;
   features: CompanyFeatures;
+  /** (additive) GST registration type (composition taxpayers see CMP-08 / GSTR-4 instead of GSTR-1 / 3B). */
+  gstRegistration?: 'regular' | 'composition' | 'unregistered';
 }
 
 export interface AppState {

@@ -266,14 +266,232 @@ export function varianceExport(rows: readonly BudgetVarianceRow[]): ExportTable 
   };
 }
 
+// ───────────────────────────── Recurring form ─────────────────────────────
+
+/** Day-of-month choices: 1st … 31st, then "Last day of the month" (0). */
+export const DAY_OF_MONTH_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  ...Array.from({ length: 31 }, (_, i) => ({ value: i + 1, label: `${ordinal(i + 1)}${i + 1 >= 29 ? ' (or the month end)' : ''}` })),
+  { value: 0, label: 'Last day of the month' },
+];
+
+export interface ScheduleDraft {
+  frequency: RecurringFrequency;
+  intervalDays: number | null;
+  dayOfMonth: number | null;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+/** First problem of a schedule being edited (the core re-checks), keyed by its field. */
+export function scheduleProblem(s: ScheduleDraft): { field: 'intervalDays' | 'startDate' | 'endDate'; message: string } | null {
+  if (s.frequency === 'every_n_days' && (s.intervalDays === null || !Number.isInteger(s.intervalDays) || s.intervalDays < 1 || s.intervalDays > 366)) {
+    return { field: 'intervalDays', message: 'Enter the number of days between postings (1 to 366).' };
+  }
+  if (!s.startDate) return { field: 'startDate', message: 'Enter the date of the first posting.' };
+  if (s.endDate && s.endDate < s.startDate) return { field: 'endDate', message: 'The end date is before the start date. Choose a later date, or leave it blank.' };
+  return null;
+}
+
+/** The schedule part of 'documents.recurring.save' (day of month only for month-based frequencies). */
+export function scheduleInput(s: ScheduleDraft & { startDate: string }): RecurringSchedule {
+  const out: RecurringSchedule = { frequency: s.frequency, startDate: s.startDate, endDate: s.endDate ?? null };
+  if (s.frequency === 'every_n_days') out.intervalDays = s.intervalDays;
+  else out.dayOfMonth = s.dayOfMonth;
+  return out;
+}
+
 /**
- * Budget figure for a report row on a two-sided statement, made side-natural like the amounts there:
- * the left side of a P&L (expenses) and the right side of a Balance Sheet (assets) are Dr-natural; the
- * other sides Cr-natural. `byKey` values are Dr + / Cr −. null when the row has no budget.
+ * The amount to send with a save: only when the user changed it, the voucher has a single amount and
+ * the new value is positive. `undefined` keeps the template's lines as they are.
  */
-export function sideBudget(byKey: Readonly<Record<string, number>> | null, key: string, drNatural: boolean): number | null {
-  if (!byKey) return null;
-  const v = byKey[key];
-  if (v === undefined) return null;
-  return drNatural ? v : -v;
+export function amountToSend(original: number | null, edited: number | null, overridable: boolean): number | undefined {
+  if (!overridable || edited === null || edited <= 0) return undefined;
+  return edited === original ? undefined : edited;
+}
+
+/** Due rows still ticked for posting (everything is ticked until the user unticks it). */
+export function selectedKeys(rows: readonly RecurringDueRow[], unticked: ReadonlySet<string>): Set<string> {
+  return new Set(rows.filter((r) => !unticked.has(r.key)).map((r) => r.key));
+}
+
+// ───────────────────────────── Bills pending views ─────────────────────────────
+
+export type BillsView = 'lines' | 'party' | 'item';
+
+export interface BillsGroupRow {
+  key: string;
+  name: string;
+  /** Distinct notes with an unbilled balance. */
+  notes: number;
+  lines: number;
+  pendingValue: number;
+  /** Age of the oldest unbilled line (days). */
+  oldestDays: number;
+  /** Pending value by ageing bucket. */
+  buckets: Record<ReturnType<typeof ageBucket>, number>;
+  /** Item view only: pending quantity and unit (one item, one unit). */
+  pendingQty?: number;
+  unit?: string;
+}
+
+export const AGE_BUCKETS: ReadonlyArray<ReturnType<typeof ageBucket>> = ['0–7 days', '8–30 days', '31–90 days', 'Over 90 days'];
+
+/** Bills pending summarised per party or per item (largest pending value first). */
+export function groupBills(rows: readonly BillsPendingRow[], by: 'party' | 'item'): BillsGroupRow[] {
+  const map = new Map<string, BillsGroupRow & { noteIds: Set<number> }>();
+  for (const r of rows) {
+    const key = by === 'party' ? `p:${r.partyLedgerId ?? r.partyName}` : `i:${r.itemId}`;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        key,
+        name: by === 'party' ? r.partyName : r.itemName,
+        notes: 0,
+        lines: 0,
+        pendingValue: 0,
+        oldestDays: 0,
+        buckets: { '0–7 days': 0, '8–30 days': 0, '31–90 days': 0, 'Over 90 days': 0 },
+        noteIds: new Set<number>(),
+        ...(by === 'item' ? { pendingQty: 0, unit: r.unit } : {}),
+      };
+      map.set(key, g);
+    }
+    g.noteIds.add(r.noteId);
+    g.lines += 1;
+    g.pendingValue += r.pendingValue;
+    g.oldestDays = Math.max(g.oldestDays, r.ageDays);
+    g.buckets[ageBucket(r.ageDays)] += r.pendingValue;
+    if (by === 'item') g.pendingQty = Math.round(((g.pendingQty ?? 0) + r.pendingQty) * 1e6) / 1e6;
+  }
+  return [...map.values()]
+    .map(({ noteIds, ...g }) => ({ ...g, notes: noteIds.size }))
+    .sort((a, b) => b.pendingValue - a.pendingValue || a.name.localeCompare(b.name));
+}
+
+export function billsGroupExport(rows: readonly BillsGroupRow[], by: 'party' | 'item', kind: BillsPendingKind): ExportTable {
+  return {
+    columns: [
+      { header: by === 'party' ? BILLS_LABEL[kind].party : 'Item', width: 30 },
+      ...(by === 'item' ? [{ header: 'Pending qty', width: 14 }] : []),
+      { header: 'Notes', kind: 'number', width: 8 },
+      ...AGE_BUCKETS.map((b): ExportColumn => ({ header: b, kind: 'amount', width: 14 })),
+      { header: 'Pending value', kind: 'amount', width: 16 },
+    ],
+    rows: rows.map((g) => [
+      g.name,
+      ...(by === 'item' ? [formatQty(g.pendingQty ?? 0, 3, g.unit)] : []),
+      g.notes,
+      ...AGE_BUCKETS.map((b) => g.buckets[b]),
+      g.pendingValue,
+    ]),
+    totals: [
+      'Total',
+      ...(by === 'item' ? [''] : []),
+      null,
+      ...AGE_BUCKETS.map((b) => rows.reduce((a, g) => a + g.buckets[b], 0)),
+      rows.reduce((a, g) => a + g.pendingValue, 0),
+    ],
+    landscape: true,
+  };
+}
+
+// ───────────────────────────── Scenarios ─────────────────────────────
+
+/** Base types whose vouchers post no ledger entries (they can never change a report). */
+export const NO_LEDGER_BASES: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>([
+  'sales_order',
+  'purchase_order',
+  'delivery_note',
+  'receipt_note',
+  'rejection_in',
+  'rejection_out',
+  'stock_journal',
+  'physical_stock',
+  'quotation',
+  'proforma',
+]);
+
+/** Provisional base types a scenario usually includes (Tally: memorandum, reversing journal, optional). */
+export const PROVISIONAL_BASES: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['memorandum', 'reversing_journal']);
+
+/** First problem of a scenario being edited (mirrors the core rules). */
+export function scenarioProblem(s: { name: string; includeActuals: boolean; include: readonly number[]; exclude: readonly number[] }): { field: 'name' | 'includeTypeIds' | 'excludeTypeIds'; message: string } | null {
+  if (!s.name.trim()) return { field: 'name', message: 'Give the scenario a name (e.g. "Provisional – with provisions").' };
+  if (s.include.some((id) => s.exclude.includes(id))) return { field: 'excludeTypeIds', message: 'A voucher type cannot be both included and excluded.' };
+  if (!s.includeActuals && s.exclude.length > 0) return { field: 'excludeTypeIds', message: 'Excluding voucher types only matters when actuals are included.' };
+  if (!s.includeActuals && s.include.length === 0) return { field: 'includeTypeIds', message: 'Without actuals, include at least one voucher type — otherwise the reports would be empty.' };
+  return null;
+}
+
+/** Toggle an id in a list (keeps order of first selection). */
+export function toggleId(list: readonly number[], id: number): number[] {
+  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+}
+
+// ───────────────────────────── Order pre-close ─────────────────────────────
+
+/** Quantity with only the decimals it needs (up to 3): "3 kg", "2.5 kg", "1.125 kg". */
+export function qtyText(q: number, unit?: string): string {
+  const r = Math.round(q * 1000) / 1000;
+  const dp = Number.isInteger(r) ? 0 : Number.isInteger(r * 10) ? 1 : Number.isInteger(r * 100) ? 2 : 3;
+  return formatQty(r, dp, unit);
+}
+
+export interface PrecloseLine {
+  itemId: number;
+  itemName: string;
+  unit: string;
+  pendingQty: number;
+}
+
+/** Pending quantity per item of one order (an item on several lines is summed), in first-line order. */
+export function precloseLines(rows: ReadonlyArray<{ orderId: number; itemId: number; itemName: string; unit: string; pendingQty: number }>, orderId: number): PrecloseLine[] {
+  const out = new Map<number, PrecloseLine>();
+  for (const r of rows) {
+    if (r.orderId !== orderId || r.pendingQty <= 0) continue;
+    const l = out.get(r.itemId) ?? { itemId: r.itemId, itemName: r.itemName, unit: r.unit, pendingQty: 0 };
+    l.pendingQty = Math.round((l.pendingQty + r.pendingQty) * 1e6) / 1e6;
+    out.set(r.itemId, l);
+  }
+  return [...out.values()];
+}
+
+/**
+ * The items to close: a quantity per item (default: the whole pending balance; 0 / blank = keep it
+ * open). The whole balance is sent without `qty` (the core closes what is pending on the date).
+ * `problem` names the first item asked to close more than is pending.
+ */
+export function precloseItems(lines: readonly PrecloseLine[], qty: Readonly<Record<number, number | null>>): { items: Array<{ itemId: number; qty?: number }>; problem: { itemId: number; message: string } | null } {
+  const items: Array<{ itemId: number; qty?: number }> = [];
+  for (const l of lines) {
+    const q = l.itemId in qty ? qty[l.itemId] : l.pendingQty;
+    if (q === null || q <= 0) continue;
+    if (q > l.pendingQty + 1e-9) return { items, problem: { itemId: l.itemId, message: `Only ${qtyText(l.pendingQty, l.unit)} of ${l.itemName} is pending.` } };
+    items.push(Math.abs(q - l.pendingQty) < 1e-9 ? { itemId: l.itemId } : { itemId: l.itemId, qty: q });
+  }
+  return { items, problem: null };
+}
+
+// ───────────────────────────── Budget variance drill-down ─────────────────────────────
+
+/**
+ * Where Enter on a variance row goes: a ledger → its Ledger Vouchers; a group → its Group Summary
+ * (P&L basis for a net-transactions budget, so the summary's total is the "actual"; Trial-Balance
+ * basis for a closing-balance budget); a cost centre → the Cost Centres report for the period.
+ */
+export function varianceDrill(r: Pick<BudgetVarianceRow, 'kind' | 'refId' | 'basis'>, from: string, to: string, scenarioId: number | null = null): { screen: string; params: Record<string, unknown> } {
+  if (r.kind === 'ledger') return { screen: 'reports.ledger', params: { ledgerId: r.refId, from, to } };
+  // Group Summary follows the scenario the variance was run under (so its total is the "actual" shown);
+  // Ledger Vouchers and cost centres always show the books.
+  if (r.kind === 'group') {
+    return { screen: 'reports.groupSummary', params: { groupId: r.refId, from, to, basis: r.basis === 'net_transactions' ? 'profitLoss' : 'trialBalance', ...(scenarioId !== null ? { scenarioId } : {}) } };
+  }
+  return { screen: 'reports.costCentres', params: { from, to } };
+}
+
+/** Over / under / on budget, in words that do not depend on the Dr/Cr side. */
+export function varianceStatus(r: Pick<BudgetVarianceRow, 'budget' | 'actual' | 'overBudget'>): { label: string; tone: BadgeTone } {
+  if (r.budget === 0) return { label: r.actual === 0 ? 'No budget' : 'Not budgeted', tone: 'neutral' };
+  if (r.actual === r.budget) return { label: 'On budget', tone: 'success' };
+  return r.overBudget ? { label: 'Over budget', tone: 'warning' } : { label: 'Within budget', tone: 'info' };
 }

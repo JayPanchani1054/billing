@@ -1,10 +1,11 @@
 /**
- * 'compact' — 80 mm thermal receipt for retail counters. Works for every layout: invoice lines as
+ * 'compact' — 80 mm / 58 mm thermal receipt for retail counters (no wide tables: item, qty × rate,
+ * amount; tax summary; with the MRP option, each item's MRP and "You saved" against MRP). Works for every layout: invoice lines as
  * "qty × rate = amount", vouchers as Dr/Cr lines, stock documents as quantities. A GST invoice keeps
  * its Rule 46 particulars even on a roll: buyer address / GSTIN / state code, place of supply, HSN and
  * rate per line, the reverse-charge statement, the invoice adjusted by a note, and the signatory.
  */
-import { addressLines, compactLineInfo, dateText, money, pctText, qtyText, rateText, rupees, totalRows, voucherSides } from '../lib/layout.ts';
+import { addressLines, compactLineInfo, dateText, money, mrpText, pctText, qtyText, rateText, rupees, showMrp, totalRows, voucherSides } from '../lib/layout.ts';
 import { safeImage, Stamp, taxabilityShort, type DocProps } from './parts.tsx';
 
 export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
@@ -12,6 +13,7 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
   const einv = safeImage(qrs.einvoice);
   const c = doc.company;
   const sides = doc.layout === 'voucher' ? voucherSides(doc) : null;
+  const mrp = showMrp(doc);
   return (
     <article className="bp-doc bp-compact">
       <Stamp doc={doc} />
@@ -140,6 +142,7 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
                       {l.discountPct ? ` − ${pctText(l.discountPct)}` : ''}
                     </span>
                   ) : null}
+                  {mrp && mrpText(l) ? <span className="bp-sub">MRP {mrpText(l)}*</span> : null}
                 </td>
                 <td className="bp-num">{doc.totals.grandTotal !== 0 || l.amount !== 0 ? money(l.amount) : ''}</td>
               </tr>
@@ -157,6 +160,12 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
                 <td className="bp-num">{r.kind === 'total' ? rupees(r.amount) : money(r.amount)}</td>
               </tr>
             ))}
+            {mrp && doc.mrpSummary && doc.mrpSummary.savings > 0 ? (
+              <tr className="bp-c-saved">
+                <td>You saved</td>
+                <td className="bp-num">{rupees(doc.mrpSummary.savings)}</td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       ) : doc.layout === 'inventory' && doc.totals.grandTotal !== 0 ? (
@@ -212,6 +221,7 @@ export function CompactDoc({ doc, copyLabel, qrs }: DocProps) {
         </div>
       ) : null}
       {doc.totals.reverseChargeTax !== 0 ? <div className="bp-small">Tax payable on reverse charge: {rupees(doc.totals.reverseChargeTax)} (not included above)</div> : null}
+      {mrp ? <div className="bp-small">* MRP per unit, inclusive of all taxes</div> : null}
       {doc.terms ? <div className="bp-small bp-pre">{doc.terms}</div> : null}
       {doc.declaration ? <div className="bp-small bp-pre">{doc.declaration}</div> : null}
       <div className="bp-c-sign">

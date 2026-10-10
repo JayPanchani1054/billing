@@ -6,10 +6,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { StatementLine, TbRow } from '../../../shared/types/reports.ts';
-import { useCompany, useNav, usePeriod } from '../../app/index.ts';
+import { formatDrCr, useCompany, useNav, usePeriod } from '../../app/index.ts';
 import { DataTable, EmptyState } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { paramsPeriod, statementAmountText, tbTotals } from './lib/model.ts';
+import { rowBudget, sideBudget, tbVariance } from './lib/overlay.ts';
+import type { BudgetBasisByKey, BudgetByKey } from './lib/overlay.ts';
 import type { DrillTarget, Range } from './lib/model.ts';
 import { expansionKey, keysUpToLevel, loadExpansion, parentKeys, saveExpansion } from './lib/tree.ts';
 
@@ -113,10 +115,12 @@ export interface TbTableProps {
   autoFocus?: boolean;
   /** Label of the totals row (default 'Grand Total'). */
   totalLabel?: string;
+  /** (additive) Budget column: budget per row key, Dr + / Cr − (overlay.tsx, Alt+B). */
+  budget?: { name: string; byKey: BudgetByKey; basisByKey?: BudgetBasisByKey } | null;
 }
 
 /** Particulars | Opening | Debit | Credit | Closing Dr | Closing Cr, with sticky grand totals. */
-export function TbTable({ rows, expansion, showOpening, showTransactions, onActivate, loading, empty, autoFocus = true, totalLabel = 'Grand Total', ...rest }: TbTableProps) {
+export function TbTable({ rows, expansion, showOpening, showTransactions, onActivate, loading, empty, autoFocus = true, totalLabel = 'Grand Total', budget = null, ...rest }: TbTableProps) {
   const columns = useMemo<Column<TbRow>[]>(
     () => [
       { key: 'name', header: 'Particulars', tree: true, minWidth: 240 },
@@ -125,8 +129,10 @@ export function TbTable({ rows, expansion, showOpening, showTransactions, onActi
       { key: 'credit', header: 'Credit', kind: 'amount', width: 150, blankZero: true, hidden: !showTransactions },
       { key: 'closingDr', header: 'Closing Dr', kind: 'amount', width: 160, blankZero: true, value: (r) => (r.closing > 0 ? r.closing : 0) },
       { key: 'closingCr', header: 'Closing Cr', kind: 'amount', width: 160, blankZero: true, value: (r) => (r.closing < 0 ? -r.closing : 0) },
+      { key: 'budget', header: budget ? `Budget (${budget.name})` : 'Budget', kind: 'drcr', width: 170, hidden: !budget, value: (r) => rowBudget(budget?.byKey, r.key) ?? 0, render: (r) => (rowBudget(budget?.byKey, r.key) === null ? '' : formatDrCr(rowBudget(budget?.byKey, r.key) ?? 0)) },
+      { key: 'variance', header: 'Variance', kind: 'drcr', width: 170, hidden: !budget, value: (r) => tbVariance(budget?.byKey, r, budget?.basisByKey) ?? 0, render: (r) => (tbVariance(budget?.byKey, r, budget?.basisByKey) === null ? '' : formatDrCr(tbVariance(budget?.byKey, r, budget?.basisByKey) ?? 0)) },
     ],
-    [showOpening, showTransactions],
+    [showOpening, showTransactions, budget],
   );
   const footer = useMemo<FooterRow[]>(() => {
     const t = tbTotals(rows);
@@ -167,12 +173,14 @@ export interface StatementSideProps {
   autoFocus?: boolean;
   /** Visible row count to size both sides alike (header + rows + footer). */
   heightRows: number;
+  /** (additive) Budget column (overlay.tsx, Alt+B): side-natural like the amounts (`drNatural`: expenses / assets side). */
+  budget?: { name: string; byKey: BudgetByKey; drNatural: boolean } | null;
 }
 
 const KEY_LINES = new Set(['gross', 'net', 'stock', 'profit_loss', 'difference']);
 
 /** One side of a Tally horizontal statement (Expenses / Income, Liabilities / Assets). */
-export function StatementSide({ title, lines, total, compareTotal, compareLabel, expansion, onActivate, loading, autoFocus, heightRows }: StatementSideProps) {
+export function StatementSide({ title, lines, total, compareTotal, compareLabel, expansion, onActivate, loading, autoFocus, heightRows, budget = null }: StatementSideProps) {
   const columns = useMemo<Column<StatementLine>[]>(
     () => [
       { key: 'name', header: 'Particulars', tree: true, minWidth: 180 },
@@ -192,11 +200,19 @@ export function StatementSide({ title, lines, total, compareTotal, compareLabel,
         hidden: compareLabel === null,
         render: (r) => statementAmountText(r.compare),
       },
+      {
+        key: 'budget',
+        header: budget ? `Budget (${budget.name})` : 'Budget',
+        kind: 'amount',
+        width: 150,
+        hidden: !budget,
+        render: (r) => statementAmountText(sideBudget(budget?.byKey, r.key, budget?.drNatural ?? true)),
+      },
     ],
-    [compareLabel],
+    [compareLabel, budget],
   );
   const footer: FooterRow[] = [
-    { key: 'total', tone: 'total', cells: { name: 'Total', amount: statementAmountText(total), compare: compareTotal === null ? '' : statementAmountText(compareTotal) } },
+    { key: 'total', tone: 'total', cells: { name: 'Total', amount: statementAmountText(total), compare: compareTotal === null ? '' : statementAmountText(compareTotal), budget: '' } },
   ];
   return (
     <section className="bx-rep-side" aria-label={title}>

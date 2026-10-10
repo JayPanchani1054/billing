@@ -180,6 +180,27 @@ describe('recurring vouchers', () => {
     k.t.close();
   });
 
+  it('changing between monthly and every-N-days must start after what was posted (never twice)', () => {
+    const { k, rentVoucher } = rentKit();
+    const tpl = saveTemplate(k.t.ctx, { name: 'Rent', sourceVoucherId: rentVoucher, frequency: 'monthly', dayOfMonth: 5, startDate: '2026-05-05' });
+    k.t.clock.setToday('2026-06-10');
+    postOccurrences(k.t.ctx, { items: [{ templateId: tpl.id, periodKey: '2026-05' }, { templateId: tpl.id, periodKey: '2026-06' }] });
+    // Every 30 days from 5-May would re-key 5-May and 4-Jun ('YYYY-MM-DD') — refused.
+    throwsField(
+      () => saveTemplate(k.t.ctx, { id: tpl.id, name: 'Rent', frequency: 'every_n_days', intervalDays: 30, startDate: '2026-05-05' }),
+      'startDate',
+      /up to 05-Jun-2026/,
+    );
+    // Starting after the last posted occurrence is fine; nothing already posted falls due again.
+    saveTemplate(k.t.ctx, { id: tpl.id, name: 'Rent', frequency: 'every_n_days', intervalDays: 30, startDate: '2026-07-05' });
+    k.t.clock.setToday('2026-07-10');
+    assert.deepEqual(dueOccurrences(k.t.ctx, '2026-07-10').rows.map((r) => r.periodKey), ['2026-07-05']);
+    // Within the month family the keys stay 'YYYY-MM': a changed day never re-opens a posted month.
+    saveTemplate(k.t.ctx, { id: tpl.id, name: 'Rent', frequency: 'monthly', dayOfMonth: 20, startDate: '2026-07-20' });
+    assert.deepEqual(dueOccurrences(k.t.ctx, '2026-07-31').rows.map((r) => r.periodKey), ['2026-07']);
+    k.t.close();
+  });
+
   it('needs vouchers.create to set up and post, vouchers.delete to delete; templates are audited', () => {
     const { k, rentVoucher } = rentKit();
     const viewer = k.t.ctxAs({ permissions: ['vouchers.view'] });

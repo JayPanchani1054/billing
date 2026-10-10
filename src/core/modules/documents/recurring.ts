@@ -8,7 +8,7 @@
  * vouchers due" when the company opens and the dashboard has a card; the user reviews and posts.
  */
 import type { VoucherBaseType } from '../../../shared/constants.ts';
-import { daysInMonth, diffDays, financialYear, formatDate, parts } from '../../../shared/dates.ts';
+import { addDays, daysInMonth, diffDays, financialYear, formatDate, parts } from '../../../shared/dates.ts';
 import { lineAmount, type Paise } from '../../../shared/money.ts';
 import type {
   RecurringDueResult,
@@ -32,13 +32,10 @@ import { loadVoucherType } from '../vouchers/numbering.ts';
 import { loadVoucherRow, previewVoucher, saveVoucher, storedInput } from '../vouchers/service.ts';
 import { fieldIssue, nowIso, refLabel, requirePermission, txt, voucherRef } from './common.ts';
 import { loadSchedule, TEMPLATE_SELECT, toTemplate, type StoredTemplate, type TemplateDbRow } from './recurringStore.ts';
-import { nthOccurrence, occurrenceOf, occurrences, periodLabel, type Occurrence } from './schedule.ts';
+import { nthOccurrence, occurrenceOf, occurrences, periodLabel, scheduleShifts, undoneOccurrences, type Occurrence } from './schedule.ts';
 
 /** Catch-up occurrences listed per template (oldest first); the rest come after these are dealt with. */
 export const MAX_DUE_PER_TEMPLATE = 60;
-/** Occurrences enumerated per template when looking for undone ones. */
-const SCAN_LIMIT = 2000;
-
 const NOT_RECURRING: ReadonlySet<VoucherBaseType> = new Set<VoucherBaseType>(['physical_stock']);
 
 // ───────────────────────────── Template content ─────────────────────────────
@@ -200,13 +197,7 @@ function runsOf(db: Db, templateId: number): Map<string, { status: 'posted' | 's
 }
 
 function nextUndone(t: StoredTemplate, done: ReadonlyMap<string, unknown>): string | null {
-  for (let n = 0; n < SCAN_LIMIT; n++) {
-    const o = nthOccurrence(t, n);
-    if (t.endDate && o.date > t.endDate) return null;
-    if (o.date < t.startDate || done.has(o.periodKey)) continue;
-    return o.date;
-  }
-  return null;
+  return undoneOccurrences(t, done, t.endDate ?? '9999-12-31', 1).list[0]?.date ?? null;
 }
 
 function toRow(db: Db, t: StoredTemplate): RecurringTemplateRow {
@@ -313,6 +304,28 @@ export function saveTemplate(ctx: CompanyCtx, input: RecurringSaveInput): Recurr
   if (!existing && input.sourceVoucherId === undefined) throw fieldIssue('sourceVoucherId', 'Pick the saved voucher the template copies.');
   const clash = db.value<number>('SELECT id FROM recurring_templates WHERE name = :name AND id <> :id', { name, id: input.id ?? 0 });
   if (clash !== undefined) throw fieldIssue('name', `A recurring template named "${name}" already exists. Choose another name.`);
+  // Month-based occurrences are keyed 'YYYY-MM', every-N-days ones 'YYYY-MM-DD'. A change that moves the
+  // occurrences off their grid (another frequency or interval, an every-N-days start that is not a whole
+  // number of intervals away, a quarterly / half-yearly / yearly start in another phase) gives new keys, so
+  // the new schedule must start on or after the occurrence the OLD schedule would have posted next —
+  // otherwise a period already posted (or skipped) would fall due again under its new key (posted twice).
+  if (existing) {
+    const next: RecurringSchedule = { frequency: input.frequency, intervalDays: input.intervalDays ?? null, dayOfMonth: input.dayOfMonth ?? null, startDate: input.startDate, endDate: input.endDate ?? null };
+    if (scheduleShifts(existing, next)) {
+      const last = db.value<string | null>('SELECT MAX(scheduled_date) FROM recurring_runs WHERE template_id = :id', { id: existing.id }) ?? null;
+      if (last !== null) {
+        const after = addDays(last, 1);
+        const oldNext = occurrences({ ...existing, endDate: null }, { fromDate: after, until: '9999-12-31', limit: 1 }).list[0]?.date ?? after;
+        const earliest = oldNext > after ? oldNext : after;
+        if (input.startDate < earliest) {
+          throw fieldIssue(
+            'startDate',
+            `This template has already posted or skipped occurrences up to ${formatDate(last)}, and the new schedule falls on different dates. Start it on or after ${formatDate(earliest)} (the next date of the current schedule) so no period is posted twice.`,
+          );
+        }
+      }
+    }
+  }
 
   let voucherTypeId = existing?.voucherTypeId ?? 0;
   let body: VoucherInput | null = existing?.input ?? null;
@@ -346,7 +359,8 @@ export function saveTemplate(ctx: CompanyCtx, input: RecurringSaveInput): Recurr
     dom: input.frequency === 'every_n_days' ? null : (input.dayOfMonth ?? null),
     start: input.startDate,
     end: input.endDate ?? null,
-    active: input.isActive === false ? 0 : 1,
+    // Omitted on an alter = keep it paused / active as it is (only setActive or an explicit value changes it).
+    active: (input.isActive ?? existing?.isActive ?? true) ? 1 : 0,
     source: sourceId,
     notes: txt(input.notes) ?? null,
     now,
@@ -418,9 +432,7 @@ export function deleteTemplate(ctx: CompanyCtx, id: number): { id: number } {
 
 /** Undone occurrences of one template on or before `asOf` (oldest first). */
 function dueOf(t: StoredTemplate, done: ReadonlyMap<string, unknown>, asOf: string): { list: Occurrence[]; truncated: boolean } {
-  const { list, truncated } = occurrences(t, { until: asOf, limit: SCAN_LIMIT });
-  const open = list.filter((o) => !done.has(o.periodKey));
-  return { list: open.slice(0, MAX_DUE_PER_TEMPLATE), truncated: truncated || open.length > MAX_DUE_PER_TEMPLATE };
+  return undoneOccurrences(t, done, asOf, MAX_DUE_PER_TEMPLATE);
 }
 
 /** 'documents.recurring.due' — every active template's occurrences not yet posted or skipped, up to `asOf`. */

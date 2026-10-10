@@ -32,6 +32,7 @@ import type {
   PrintHsnRow,
   PrintLayout,
   PrintLine,
+  PrintMrpSummary,
   PrintRef,
   PrintTaxRateRow,
   PrintTotals,
@@ -58,8 +59,9 @@ import { loadVoucherType, type VoucherTypeInfo } from '../vouchers/numbering.ts'
 import { buildPosting, type PostingEnv, type PostingPlan } from '../vouchers/posting.ts';
 import { getVoucher, gstLinesView } from '../vouchers/queries.ts';
 import { loadCompanyEssentials, loadVoucherRow, normalizeInput, parseJson, parseMeta, storedInput, modeOfRow, type VoucherRow } from '../vouchers/service.ts';
-import { complianceWarnings } from './compliance.ts';
+import { aboveMrpWarning, complianceWarnings } from './compliance.ts';
 import { baseDirection, copyLabels, documentTitle, isSalesDocument, partyLabels, type CompanyGstStatus } from './titles.ts';
+import { forexPrintBlock } from '../forex/print.ts';
 
 // ───────────────────────────── Shared context (one per request / batch) ─────────────────────────────
 
@@ -71,13 +73,23 @@ export interface PrintEnv {
   config: CompanyConfig;
   posting: PostingEnv;
   masters: Masters;
+  /** (print group) Item MRP per unit in paise (null when the item has none); cached per request. */
+  itemMrp(itemId: number): Paise | null;
 }
 
 export function loadPrintEnv(ctx: CompanyCtx): PrintEnv {
   const { db } = ctx;
   const features = getFeatures(db);
   const config = getConfig(db);
+  const mrps = new Map<number, Paise | null>();
   return {
+    itemMrp(itemId: number): Paise | null {
+      if (!mrps.has(itemId)) {
+        const v = db.value<number | null>('SELECT mrp FROM stock_items WHERE id = :id', { id: itemId });
+        mrps.set(itemId, typeof v === 'number' && v > 0 ? v : null);
+      }
+      return mrps.get(itemId) ?? null;
+    },
     ctx,
     db,
     profile: getCompanyProfile(db),
@@ -202,6 +214,7 @@ export function resolveOptions(env: PrintEnv, vtConfig: Record<string, unknown>,
   if (tpl === 'modern' || tpl === 'classic' || tpl === 'compact') base.template = tpl;
   const bank = vtConfig.bankLedgerId;
   if (typeof bank === 'number' && Number.isInteger(bank) && bank > 0) base.bankLedgerId = bank;
+  if (typeof vtConfig.showMrp === 'boolean') base.showMrp = vtConfig.showMrp;
   base.declaration = str('declaration') ?? base.declaration;
   base.terms = str('terms') ?? base.terms;
   if (!overrides) return base;
@@ -514,6 +527,7 @@ function fromEngine(env: PrintEnv, row: VoucherRow, vt: VoucherTypeInfo, input: 
         qtyDecimals: item.unit_decimals,
         rate: inv?.rate ?? it.rate ?? 0,
         discountPct: it.discountPct ?? 0,
+        mrp: env.itemMrp(it.itemId),
       });
     } else {
       const ll = ledgers[idx];
@@ -641,6 +655,7 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
       absorbed: false,
       reverseCharge: g?.isReverseCharge ?? false,
       section: null,
+      mrp: r ? env.itemMrp(r.item_id) : null,
     });
   };
   for (const g of gst) {
@@ -839,6 +854,7 @@ function inventoryLines(env: PrintEnv, base: VoucherBaseType, input: VoucherInpu
       absorbed: false,
       reverseCharge: false,
       section: base === 'stock_journal' ? (it.isConsumption ? 'consumption' : 'production') : null,
+      mrp: base === 'stock_journal' || base === 'physical_stock' ? null : env.itemMrp(it.itemId),
     } satisfies PrintLine;
   });
 }
@@ -1154,9 +1170,13 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
     copyLabels: copyLabels(title.kind, direction === 'outward', lines.some((l) => l.kind === 'item')),
     options,
     defaultTemplate: options.template,
+    mrpSummary: mrpSummaryOf(lines, options.showMrp, layout, direction === 'outward' && isMrpDocument(title.kind)),
     navigation: navigation(db, row),
     warnings,
   };
+  // (forex group) Foreign-currency amounts, rate and INR equivalents of an export / import document.
+  const forex = forexPrintBlock(db, data);
+  if (forex) data.forex = forex;
   if (cancelled) data.warnings.unshift(`This voucher was cancelled${data.status.cancelReason ? ` (${data.status.cancelReason})` : ''}; it prints marked CANCELLED.`);
   else if (data.status.optional) data.warnings.unshift('This is an optional voucher (not in the books); it prints marked OPTIONAL.');
   data.warnings.push(
@@ -1167,7 +1187,42 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
       einvoice: env.features.einvoice,
     }),
   );
+  if (direction === 'outward' && isMrpDocument(title.kind)) {
+    const mrpIssue = aboveMrpWarning(data);
+    if (mrpIssue) data.warnings.push(mrpIssue);
+  }
   return data;
+}
+
+// ───────────────────────────── MRP (print group) ─────────────────────────────
+
+/** Documents a buyer receives for goods sold, where the MRP is meaningful. */
+export function isMrpDocument(kind: PrintVoucherData['kind']): boolean {
+  return isSalesDocument(kind) || kind === 'sales_order' || kind === 'quotation' || kind === 'proforma_invoice' || kind === 'delivery_challan';
+}
+
+/** Value charged for a line including the GST collected with it (reverse-charge tax is not collected). */
+export function chargedValue(l: PrintLine): Paise {
+  return l.taxableValue + (l.taxPayable ? l.tax : 0);
+}
+
+/**
+ * MRP summary: Σ round(MRP × qty) over item lines with an MRP, and the buyer's saving (per line, MRP value −
+ * value charged incl. GST, never negative). Savings only on invoices (other layouts carry no tax).
+ * null when the document is not a sale or no line has an MRP.
+ */
+export function mrpSummaryOf(lines: readonly PrintLine[], show: boolean, layout: PrintLayout, mrpDoc: boolean): PrintMrpSummary | null {
+  if (!mrpDoc) return null;
+  const withMrp = lines.filter((l) => l.kind === 'item' && !l.absorbed && (l.mrp ?? 0) > 0 && l.qty !== null && l.qty > 0);
+  if (withMrp.length === 0) return null;
+  let mrpValue = 0;
+  let savings = 0;
+  for (const l of withMrp) {
+    const value = Math.round((l.mrp as number) * (l.qty as number));
+    mrpValue += value;
+    if (layout === 'invoice') savings += Math.max(0, value - chargedValue(l));
+  }
+  return { show, mrpValue, savings };
 }
 
 export function buildPrintDataFor(ctx: CompanyCtx, id: number, overrides?: InvoicePrintOverrides): PrintVoucherData {

@@ -5,9 +5,10 @@
 import { formatDate } from '../../../../shared/dates.ts';
 import { formatIndianNumber, formatMoney, formatPercent, formatRate } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
-import type { InvoiceTemplate } from '../../../../shared/settings.ts';
+import type { NativePageSize } from '../../../../shared/bridge.ts';
+import type { InvoicePaperSize, InvoiceTemplate, ReceiptRollWidth } from '../../../../shared/settings.ts';
 import type { PrintAddress, PrintCopy, PrintLine, PrintPageSize, PrintVoucherData } from '../../../../shared/types/print.ts';
-import { PRINT_COPIES } from '../../../../shared/types/print.ts';
+import { PRINT_COPIES, PRINT_PAGE_SIZES } from '../../../../shared/types/print.ts';
 
 // ───────────────────────────── Formatting ─────────────────────────────
 
@@ -27,17 +28,30 @@ export const dateText = (iso: string | null | undefined): string => (iso ? forma
 export const TEMPLATE_LABELS: Readonly<Record<InvoiceTemplate, string>> = {
   modern: 'Modern',
   classic: 'Classic (boxed)',
-  compact: 'Compact receipt (80 mm)',
+  compact: 'Compact receipt (thermal roll)',
 };
 
-export const PAGE_SIZE_LABELS: Readonly<Record<PrintPageSize, string>> = { A4: 'A4', A5: 'A5', '80mm': '80 mm roll' };
+export const PAGE_SIZE_LABELS: Readonly<Record<PrintPageSize, string>> = {
+  A4: 'A4',
+  A5: 'A5',
+  'A5-landscape': 'A5 landscape',
+  Letter: 'Letter',
+  Legal: 'Legal',
+  '80mm': '80 mm roll',
+  '58mm': '58 mm roll',
+};
 
 export function isTemplate(x: unknown): x is InvoiceTemplate {
   return x === 'modern' || x === 'classic' || x === 'compact';
 }
 
 export function isPageSize(x: unknown): x is PrintPageSize {
-  return x === 'A4' || x === 'A5' || x === '80mm';
+  return typeof x === 'string' && (PRINT_PAGE_SIZES as readonly string[]).includes(x);
+}
+
+/** Thermal receipt roll (continuous paper, Compact template). */
+export function isRoll(size: PrintPageSize): size is '80mm' | '58mm' {
+  return size === '80mm' || size === '58mm';
 }
 
 /** Template to use: the requested one when valid, else the document's default. */
@@ -45,26 +59,53 @@ export function resolveTemplate(doc: Pick<PrintVoucherData, 'defaultTemplate'>, 
   return isTemplate(requested) ? requested : doc.defaultTemplate;
 }
 
-/** Page size that goes with a template (compact receipts print on an 80 mm roll). */
-export function pageSizeFor(template: InvoiceTemplate, requested?: unknown): PrintPageSize {
-  if (template === 'compact') return '80mm';
-  if (isPageSize(requested) && requested !== '80mm') return requested;
-  return 'A4';
+/** Configured paper (F12 › Invoice printing): sheet for Modern / Classic, roll for Compact. */
+export interface PaperDefaults {
+  paperSize?: InvoicePaperSize;
+  rollWidth?: ReceiptRollWidth;
 }
 
-/** Template to use when the user picks a page size (80 mm forces the compact receipt). */
+/**
+ * Page size that goes with a template: the compact receipt prints on a roll (the requested roll, else the
+ * configured one, else 80 mm); the other templates on a sheet (requested, else configured, else A4).
+ */
+export function pageSizeFor(template: InvoiceTemplate, requested?: unknown, defaults: PaperDefaults = {}): PrintPageSize {
+  if (template === 'compact') {
+    if (isPageSize(requested) && isRoll(requested)) return requested;
+    return defaults.rollWidth === '58mm' ? '58mm' : '80mm';
+  }
+  if (isPageSize(requested) && !isRoll(requested)) return requested;
+  return defaults.paperSize && isPageSize(defaults.paperSize) ? defaults.paperSize : 'A4';
+}
+
+/** Template to use when the user picks a page size (a roll forces the compact receipt). */
 export function templateForPageSize(current: InvoiceTemplate, size: PrintPageSize, fallback: InvoiceTemplate): InvoiceTemplate {
-  if (size === '80mm') return 'compact';
+  if (isRoll(size)) return 'compact';
   if (current === 'compact') return fallback === 'compact' ? 'modern' : fallback;
   return current;
 }
 
 /**
- * Paper size the main process understands ('print.savePdf' / 'print.toPdf'). An 80 mm receipt is laid
- * out at 80 mm width inside an A4 PDF page (thermal printers take the width from the CSS layout).
+ * Paper as the main process understands it ('print.print' / 'print.savePdf' / 'share.*'): A5 landscape is
+ * A5 + landscape; rolls keep their width and need the receipt's length (rollHeightMm, measured).
  */
-export function nativePageSize(size: PrintPageSize): 'A4' | 'A5' {
-  return size === 'A5' ? 'A5' : 'A4';
+export function nativePageSize(size: PrintPageSize): { pageSize: NativePageSize; landscape: boolean } {
+  if (size === 'A5-landscape') return { pageSize: 'A5', landscape: true };
+  return { pageSize: size, landscape: false };
+}
+
+/** CSS pixels (96 per inch) → millimetres. */
+export const pxToMm = (px: number): number => (px * 25.4) / 96;
+
+/**
+ * Length of roll paper for the printed receipt: the tallest document (each copy prints on its own page,
+ * so the printer's cutter separates them) plus a few millimetres of feed. null for sheets.
+ */
+export function rollHeightMm(size: PrintPageSize, docHeightsPx: readonly number[]): number | null {
+  if (!isRoll(size)) return null;
+  const tallest = docHeightsPx.length > 0 ? Math.max(...docHeightsPx) : 0;
+  if (!(tallest > 0)) return null;
+  return Math.ceil(pxToMm(tallest)) + 4;
 }
 
 /** Copies to print: requested (count 1–3 or list) or the configured copies; always in Original → Triplicate order. */
@@ -180,6 +221,8 @@ export interface ItemColumns {
   qty: boolean;
   rate: boolean;
   discount: boolean;
+  /** (print group) MRP per unit (items with an MRP, when the MRP column is on). */
+  mrp: boolean;
   /** Per-line taxable value + tax columns. */
   lineTax: boolean;
   /** Which tax heads the per-line / summary tables show. */
@@ -191,7 +234,7 @@ export interface ItemColumns {
 
 export function itemColumns(doc: PrintVoucherData, opts: { pageSize: PrintPageSize; template: InvoiceTemplate }): ItemColumns {
   const lines = doc.lines;
-  const narrow = opts.pageSize !== 'A4';
+  const narrow = opts.pageSize !== 'A4' && opts.pageSize !== 'Letter' && opts.pageSize !== 'Legal' && opts.pageSize !== 'A5-landscape';
   const priced = doc.layout !== 'inventory' || lines.some((l) => (l.rate ?? 0) !== 0 || l.amount !== 0);
   const heads = taxHeads(doc);
   return {
@@ -200,12 +243,23 @@ export function itemColumns(doc: PrintVoucherData, opts: { pageSize: PrintPageSi
     qty: lines.some((l) => l.qty !== null),
     rate: priced && lines.some((l) => l.rate !== null),
     discount: lines.some((l) => l.discount !== 0 || l.discountPct !== 0),
+    mrp: showMrp(doc),
     lineTax: doc.layout === 'invoice' && doc.gst.showTax && doc.options.itemwiseTax && !narrow && opts.template !== 'compact',
     igst: heads.igst,
     cgstSgst: heads.cgstSgst,
     cess: heads.cess,
     amount: priced,
   };
+}
+
+/** The MRP column / 'You saved' line is printed (sales documents whose items carry an MRP, option on). */
+export function showMrp(doc: Pick<PrintVoucherData, 'mrpSummary'>): boolean {
+  return doc.mrpSummary?.show === true && doc.mrpSummary.mrpValue > 0;
+}
+
+/** 'MRP ₹599.00' style text of a line's MRP ('' when none). */
+export function mrpText(l: Pick<PrintLine, 'mrp'>): string {
+  return l.mrp && l.mrp > 0 ? formatMoney(l.mrp) : '';
 }
 
 /** Tax heads present on the document (by tax mode, plus any head with an amount). */

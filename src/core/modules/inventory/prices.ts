@@ -24,6 +24,7 @@ import type {
 } from '../../../shared/types/inventory.ts';
 import type { FieldIssue } from '../../../shared/api.ts';
 import type { CompanyCtx } from '../../api/context.ts';
+import { extraAliasLike } from '../../lib/masterAliases.ts';
 import type { Db } from '../../db/db.ts';
 import { notFound, validation } from '../../lib/errors.ts';
 import {
@@ -211,7 +212,7 @@ export function getPriceList(db: Db, input: PriceListGetInput): PriceListDto {
   const groupIds = input.groupId !== undefined ? subtreeIds(db, 'stock_groups', input.groupId) : null;
   const items = db.all<{ id: number; name: string; unit_symbol: string; selling_price: number | null }>(
     `SELECT i.id, i.name, u.symbol AS unit_symbol, i.selling_price FROM stock_items i JOIN units u ON u.id = i.unit_id
-      WHERE (:like IS NULL OR i.name LIKE :like ESCAPE '\\' OR i.alias LIKE :like ESCAPE '\\')
+      WHERE (:like IS NULL OR i.name LIKE :like ESCAPE '\\' OR i.alias LIKE :like ESCAPE '\\' OR ${extraAliasLike('stock_item', 'i.id', 'like')})
         AND (:gf = 0 OR i.group_id IN (SELECT value FROM json_each(:gids)))
       ORDER BY i.name COLLATE NOCASE`,
     { like, gf: groupIds ? 1 : 0, gids: jsonIds(groupIds ?? []) },

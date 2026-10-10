@@ -41,6 +41,7 @@ interface MoveRow {
   amount: number;
   date: string;
   number: string | null;
+  reference_no: string | null;
   base_type: string;
   party_ledger_id: number | null;
   cls: string | null;
@@ -50,6 +51,7 @@ interface MoveRow {
   goods_type: JobWorkGoodsType | null;
   challan_value: number | null;
   extended_to: string | null;
+  source_line_no: number | null;
   source_kind: string | null;
   dest_kind: string | null;
   product_item_id: number | null;
@@ -84,6 +86,8 @@ export interface OutEvent {
   lineNo: number;
   date: string;
   number: string | null;
+  /** The voucher's reference no. (Material In: the job worker's own challan number). */
+  referenceNo: string | null;
   godownId: number;
   itemId: number;
   qty: number;
@@ -103,9 +107,9 @@ const KIND_OF: Readonly<Record<JobWorkDirection, string>> = { out: 'ours_with_pa
 
 const MOVES_SQL = /* sql */ `
   SELECT ie.id, ie.voucher_id, ie.line_no, ie.item_id, ie.godown_id, ie.qty, ie.amount, ie.date,
-         v.number, v.base_type, v.party_ledger_id,
+         v.number, v.reference_no, v.base_type, v.party_ledger_id,
          d.class AS cls, d.job_work_order_id AS order_id, d.process, d.item_id AS product_item_id, d.qty AS product_qty,
-         l.role, l.goods_type, l.challan_value, l.extended_to,
+         l.role, l.goods_type, l.challan_value, l.extended_to, l.source_line_no,
          sg.third_party_kind AS source_kind, dg.third_party_kind AS dest_kind
     FROM inventory_entries ie
     JOIN vouchers v ON v.id = ie.voucher_id
@@ -169,9 +173,15 @@ export function jobWorkFifo(db: Db, today: string, asOf: string, direction: JobW
     lots.push(lot);
     queue(o.godown_id, o.item_id).push(lot);
   }
+  // Who holds the goods: the godown's job worker / principal (a purchase delivered straight to the job
+  // worker, or a sale from his premises, has the supplier / buyer as its party); else, for a Material In /
+  // Out, the voucher's party.
+  const holder = (m: MoveRow): number | null => godownParty.get(m.godown_id) ?? (m.base_type === 'stock_journal' ? m.party_ledger_id : null);
+  /** Out events by voucher line, for goods moved on from one job worker to another. */
+  const outByLine = new Map<string, OutEvent>();
   for (const m of db.all<MoveRow>(MOVES_SQL, { kind, asOf, today })) {
     if (m.qty > EPS) {
-      const lot: Lot = {
+      const base: Lot = {
         key: `m:${m.id}`,
         ieId: m.id,
         voucherId: m.voucher_id,
@@ -180,7 +190,7 @@ export function jobWorkFifo(db: Db, today: string, asOf: string, direction: JobW
         number: m.number,
         godownId: m.godown_id,
         itemId: m.item_id,
-        partyLedgerId: m.party_ledger_id ?? godownParty.get(m.godown_id) ?? null,
+        partyLedgerId: holder(m),
         orderId: m.order_id,
         goodsType: m.goods_type && (JOB_WORK_GOODS_TYPES as readonly string[]).includes(m.goods_type) ? m.goods_type : 'inputs',
         qty: m.qty,
@@ -191,8 +201,38 @@ export function jobWorkFifo(db: Db, today: string, asOf: string, direction: JobW
         baseType: m.base_type,
         isOpening: false,
       };
-      lots.push(lot);
-      queue(m.godown_id, m.item_id).push(lot);
+      // Goods moved on from another job worker keep their ORIGINAL challan and date: the s.143 period
+      // runs from the day the principal first sent them out, not from the onward transfer.
+      const prior = m.source_line_no !== null ? outByLine.get(`${m.voucher_id}|${m.source_line_no}`) : undefined;
+      const parts: Lot[] = [];
+      if (prior && prior.matches.length > 0 && prior.qty > EPS) {
+        const scale = m.qty / prior.qty;
+        let left = m.qty;
+        prior.matches.forEach((mt, k) => {
+          const q = roundQty(Math.min(left, mt.qty * scale));
+          if (q <= EPS) return;
+          left = roundQty(left - q);
+          parts.push({
+            ...base,
+            key: `${base.key}:${k}`,
+            date: mt.lot.date,
+            number: mt.lot.number,
+            orderId: base.orderId ?? mt.lot.orderId,
+            goodsType: mt.lot.goodsType,
+            extendedTo: base.extendedTo ?? mt.lot.extendedTo,
+            qty: q,
+            remaining: q,
+            value: mt.lot.qty > EPS ? roundPaise((mt.lot.value * q) / mt.lot.qty) : 0,
+            fromThirdParty: true,
+            isOpening: mt.lot.isOpening,
+          });
+        });
+        if (left > EPS) parts.push({ ...base, key: `${base.key}:rest`, qty: left, remaining: left, value: roundPaise((base.value * left) / m.qty) });
+      } else parts.push(base);
+      for (const lot of parts) {
+        lots.push(lot);
+        queue(m.godown_id, m.item_id).push(lot);
+      }
     } else if (m.qty < -EPS) {
       const ev: OutEvent = {
         ieId: m.id,
@@ -200,6 +240,7 @@ export function jobWorkFifo(db: Db, today: string, asOf: string, direction: JobW
         lineNo: m.line_no,
         date: m.date,
         number: m.number,
+        referenceNo: m.reference_no,
         godownId: m.godown_id,
         itemId: m.item_id,
         qty: -m.qty,
@@ -207,7 +248,7 @@ export function jobWorkFifo(db: Db, today: string, asOf: string, direction: JobW
         cls: m.cls,
         role: m.role,
         process: m.process,
-        partyLedgerId: m.party_ledger_id ?? godownParty.get(m.godown_id) ?? null,
+        partyLedgerId: holder(m),
         toThirdParty: m.dest_kind === 'ours_with_party' || m.dest_kind === 'party_with_us',
         productItemId: m.product_item_id,
         productQty: m.product_qty,
@@ -223,6 +264,7 @@ export function jobWorkFifo(db: Db, today: string, asOf: string, direction: JobW
         ev.matches.push({ lot, qty: take });
       }
       outs.push(ev);
+      outByLine.set(`${m.voucher_id}|${m.line_no}`, ev);
     }
   }
   return { lots, outs };
@@ -357,6 +399,8 @@ export function itc04(db: Db, today: string, input: Itc04Input): Itc04Result {
       sgstRate: inter ? 0 : rate / 2,
       cessRate: profile?.cessRate ?? 0,
       voucherId: lot.voucherId as number,
+      lineNo: lot.lineNo,
+      key: lot.key,
     });
   }
 
@@ -374,14 +418,17 @@ export function itc04(db: Db, today: string, input: Itc04Input): Itc04Result {
     const p = party(ev.partyLedgerId);
     const product = table === '5A' && ev.role === 'component' && ev.productItemId !== null ? ev.productItemId : null;
     const segments = ev.matches.length > 0 ? ev.matches : [{ lot: null, qty: ev.qty }];
-    for (const seg of segments) {
+    // 5A / 5B: the challan the job worker issued for the goods coming back (the voucher's reference no.)
+    // when it was entered, else our voucher number; 5C: our invoice / delivery note.
+    const docNo = table === '5C' ? ev.number : (ev.referenceNo?.trim() || ev.number);
+    segments.forEach((seg, k) => {
       const orig = seg.lot && !seg.lot.isOpening ? seg.lot : null;
       returned.push({
         table,
         jobWorkerGstin: p.gstin,
         jobWorkerState: p.state,
         jobWorkerName: p.name,
-        docNo: ev.number,
+        docNo,
         docDate: ev.date,
         originalChallanNo: orig?.number ?? null,
         originalChallanDate: orig?.date ?? null,
@@ -394,8 +441,10 @@ export function itc04(db: Db, today: string, input: Itc04Input): Itc04Result {
         lossesQty: 0,
         natureOfJobWork: ev.process,
         voucherId: ev.voucherId,
+        lineNo: ev.lineNo,
+        key: `${ev.ieId}:${k}`,
       });
-    }
+    });
     const unmatched = roundQty(ev.qty - ev.matches.reduce((s, m) => s + m.qty, 0));
     if (unmatched > EPS && ev.matches.length > 0) {
       warnings.push(`${ev.number ?? 'A voucher'} of ${formatDate(ev.date)} takes back more than was sent to the job worker; check the challans.`);

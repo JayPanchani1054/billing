@@ -183,7 +183,8 @@ export function billsPending(db: Db, input: BillsPendingInput): BillsPendingResu
     });
     noteIds.add(p.noteId);
     parties.add(String(p.partyLedgerId ?? p.partyName));
-    if (age > 7) old.add(p.noteId);
+    // Challans only (a rejection awaits a credit / debit note, not an invoice under s.31).
+    if (age > 7 && (p.noteBaseType === 'delivery_note' || p.noteBaseType === 'receipt_note')) old.add(p.noteId);
     pendingValue += value;
   }
   return { kind: input.kind, asOf: input.asOf, rows, totals: { notes: noteIds.size, parties: parties.size, pendingValue, olderThan7Days: old.size } };

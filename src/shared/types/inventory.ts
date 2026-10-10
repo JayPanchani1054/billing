@@ -278,6 +278,8 @@ export interface StockItemListRow {
   id: number;
   name: string;
   alias: string | null;
+  /** Additional aliases after `alias` (dataplus; omitted when there are none). */
+  otherAliases?: string[];
   partNo: string | null;
   barcode: string | null;
   groupId: number | null;
@@ -347,6 +349,9 @@ export interface StockItemDetail {
   guid: string;
   name: string;
   alias: string | null;
+  /** Every alias in order: `alias` (the first) followed by the additional aliases (dataplus; always
+   * filled by the core — optional only so hand-built test details stay valid). */
+  aliases?: string[];
   partNo: string | null;
   barcode: string | null;
   description: string | null;
@@ -402,6 +407,11 @@ export interface StockItemSaveInput extends GstFieldsInput {
   id?: number;
   name?: string;
   alias?: string | null;
+  /**
+   * The complete alias list (dataplus): the first becomes `alias`, the rest are additional aliases.
+   * When given it replaces `alias` and every additional alias; omit it to keep them.
+   */
+  aliases?: string[];
   partNo?: string | null;
   barcode?: string | null;
   description?: string | null;
@@ -461,6 +471,8 @@ export interface ItemPickerRow {
   id: number;
   name: string;
   alias: string | null;
+  /** Additional aliases after `alias` (dataplus; omitted when there are none) — searched by pickers. */
+  otherAliases?: string[];
   partNo: string | null;
   barcode: string | null;
   unitSymbol: string;

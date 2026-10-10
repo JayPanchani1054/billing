@@ -16,7 +16,10 @@ import type {
 import { blankItem, blankLedger, isBlankItem, isBlankLedger, newForm, normalize, splitForSingle } from './formState.ts';
 import type { ItemRow, LedgerLayout, LedgerRow, VoucherForm } from './formState.ts';
 import type { VoucherTdsInput } from '../../../../shared/types/tds.ts';
+import type { VoucherGstDetailsInput } from '../../../../shared/types/gst-plus.ts';
+import { gstDetailsForBase } from '../../gst/lib/gstplus.ts';
 import { isInvoiceMode, showsParty, singleEntryAccountSide } from './kinds.ts';
+import { decodeForex, encodeForex, forexBills, signedForex } from '../../forex/lib/entry.ts';
 
 /** Key used in `ledgerKeys` for the single-entry Account line. */
 export const ACCOUNT_ROW = 'account';
@@ -70,11 +73,25 @@ function itemLine(r: ItemRow, f: VoucherForm): ItemLineInput {
   if (txt(r.orderRef)) line.orderRef = txt(r.orderRef);
   if (f.baseType === 'stock_journal') line.isConsumption = r.isConsumption;
   if (r.rateInclusiveOfTax !== null) line.rateInclusiveOfTax = r.rateInclusiveOfTax;
+  // (forex module) Invoice in a foreign currency: the rate / typed value are in that currency.
+  if (f.forex && isInvoiceMode(f.mode)) {
+    line.forexRate = r.rate ?? 0;
+    if (r.amount !== null) {
+      line.forexAmount = decodeForex(r.amount);
+      delete line.amount;
+    }
+    delete line.rateInclusiveOfTax;
+  }
   return line;
 }
 
 function withAllocations(line: LedgerLineInput, r: LedgerRow): LedgerLineInput {
   if (r.bills && r.bills.length > 0) line.billAllocations = r.bills.map((b) => ({ ...b }));
+  // (forex module) A line of a ledger kept in a foreign currency: its foreign amount, signed like the rupees.
+  if (r.forexAmount !== undefined && r.forexAmount !== null) {
+    line.forexAmount = signedForex(r.forexAmount, line.amount);
+    if (r.exchangeRate !== undefined && r.exchangeRate !== null && line.forexAmount !== 0) line.exchangeRate = r.exchangeRate;
+  }
   if (r.costs && r.costs.length > 0) line.costAllocations = r.costs.map((c) => ({ ...c }));
   if (r.instrument && hasValues(r.instrument)) line.instrument = clean(r.instrument);
   if (txt(r.narration)) line.narration = txt(r.narration);
@@ -130,6 +147,11 @@ export function buildVoucherInput(f: VoucherForm): BuiltInput {
     if (txt(f.noteReason)) input.noteReason = txt(f.noteReason);
   }
   if (isInvoiceMode(f.mode) && f.partyBills && f.partyBills.length > 0) input.partyBillAllocations = f.partyBills.map((b) => ({ ...b }));
+  // (forex module) Invoice in a foreign currency: currency + rate; party bills carry their foreign amount.
+  if (isInvoiceMode(f.mode) && f.forex) {
+    input.forex = { ...f.forex };
+    if (input.partyBillAllocations) input.partyBillAllocations = forexBills(input.partyBillAllocations);
+  }
   // Documents module fields (quotation / proforma validity, reversing journal, draft links).
   if ((f.baseType === 'quotation' || f.baseType === 'proforma') && f.validUntil) input.validUntil = f.validUntil;
   if (f.baseType === 'reversing_journal' && f.applicableUpto) input.applicableUpto = f.applicableUpto;
@@ -140,6 +162,9 @@ export function buildVoucherInput(f: VoucherForm): BuiltInput {
   // TDS/TCS (tds module): sent only when the user chose a nature / override, or the voucher is a challan.
   const tds = tdsOf(f);
   if (tds) input.tds = tds;
+  // GST details (gst module, Alt+J): sent only when a section is filled in.
+  const gstDetails = gstDetailsForBase(f.gstDetails ? cloneGstDetails(f.gstDetails) : undefined, f.baseType);
+  if (gstDetails) input.gstDetails = gstDetails;
 
   const itemKeys: string[] = [];
   const ledgerKeys: string[] = [];
@@ -161,6 +186,7 @@ export function buildVoucherInput(f: VoucherForm): BuiltInput {
     for (const r of f.ledgers) {
       if (isBlankLedger(r) || r.amount === null) continue;
       const line: LedgerLineInput = { ledgerId: r.ledgerId as number, amount: r.amount };
+      if (f.forex) line.forexAmount = decodeForex(r.amount);
       if (txt(r.narration)) line.narration = txt(r.narration);
       if (r.costs && r.costs.length > 0) line.costAllocations = r.costs.map((c) => ({ ...c }));
       const gst = ledgerGstOverride(r);
@@ -229,6 +255,8 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
     seq += 1;
     return `${p}${seq}`;
   };
+  // (forex module) A foreign-currency invoice is shown in its currency (amount fields: foreign × 100).
+  const fx = isInvoiceMode(mode) && input.forex ? input.forex : null;
   const items: ItemRow[] = (input.items ?? []).map((it) => ({
     ...blankItem(key('i'), it.isConsumption === true),
     itemId: it.itemId,
@@ -239,9 +267,9 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
     qty: it.qty,
     billedQty: it.billedQty ?? null,
     altQty: it.altQty ?? null,
-    rate: it.rate ?? null,
+    rate: fx ? (it.forexRate ?? it.rate ?? null) : (it.rate ?? null),
     discountPct: it.discountPct ?? null,
-    amount: it.amount ?? null,
+    amount: fx ? (it.forexAmount !== undefined ? encodeForex(it.forexAmount) : null) : (it.amount ?? null),
     gstRateOverride: it.gstRateOverride ?? null,
     ledgerId: it.ledgerId ?? null,
     description: it.description ?? '',
@@ -252,9 +280,11 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
   let ledgers: LedgerRow[] = (input.ledgers ?? []).map((l) => ({
     ...blankLedger(key('l'), l.amount < 0 ? 'cr' : 'dr'),
     ledgerId: l.ledgerId,
-    amount: l.amount,
+    amount: fx && l.forexAmount !== undefined ? encodeForex(l.forexAmount) : l.amount,
     narration: l.narration ?? '',
     bills: billsCopy(l.billAllocations),
+    forexAmount: !fx && l.forexAmount !== undefined ? l.forexAmount : null,
+    exchangeRate: !fx && l.exchangeRate !== undefined ? l.exchangeRate : null,
     costs: l.costAllocations && l.costAllocations.length > 0 ? l.costAllocations.map((c) => ({ ...c })) : null,
     instrument: l.instrument ? { ...l.instrument } : null,
     gstRate: l.gst?.rate ?? null,
@@ -294,7 +324,8 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
     narration: input.narration ?? '',
     items,
     ledgers,
-    partyBills: billsCopy(input.partyBillAllocations),
+    partyBills: fx ? billsCopy(input.partyBillAllocations?.map((b) => (b.forexAmount !== undefined ? { ...b, amount: encodeForex(b.forexAmount) } : b))) : billsCopy(input.partyBillAllocations),
+    forex: fx ? { ...fx } : null,
     party: input.party ? { ...input.party } : null,
     consignee: input.consignee ? { ...input.consignee } : null,
     dispatch: input.dispatch ? { ...input.dispatch } : null,
@@ -310,10 +341,16 @@ export function formFromInput(input: VoucherInput, o: FormFromInputOptions): Vou
         ? { ...(input.convertedFromId !== undefined ? { convertedFromId: input.convertedFromId } : {}), ...(input.recurring ? { recurring: { ...input.recurring } } : {}) }
         : null,
     tds: input.tds ? cloneTds(input.tds) : null,
+    gstDetails: input.gstDetails ? cloneGstDetails(input.gstDetails) : null,
     touched: false,
     seq,
   };
   return normalize(out);
+}
+
+/** Deep copy of the GST details (plain JSON data: nested objects / arrays only). */
+export function cloneGstDetails(d: VoucherGstDetailsInput): VoucherGstDetailsInput {
+  return JSON.parse(JSON.stringify(d)) as VoucherGstDetailsInput;
 }
 
 function cloneTds(t: VoucherTdsInput): VoucherTdsInput {

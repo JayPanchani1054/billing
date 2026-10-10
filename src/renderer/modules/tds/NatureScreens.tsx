@@ -87,7 +87,7 @@ export function NaturesScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
         width: 160,
         blankZero: true,
         value: (r) => r.current?.thresholdAggregate ?? 0,
-        title: 'Aggregate threshold per party (per month for rent from 1-Apr-2025)',
+        title: () => 'Aggregate threshold per party (per month for rent from 1-Apr-2025)',
       },
       { key: 'from', header: 'Rate from', kind: 'date', width: 110, value: (r) => r.current?.applicableFrom ?? '' },
       { key: 'usage', header: 'Used', kind: 'number', width: 70, value: (r) => r.usage ?? 0 },

@@ -28,6 +28,7 @@ export function emptyBookAdjustments(): Gstr3bBookAdjustments {
     reversalOthers: zeroTax(),
     reclaimed: zeroTax(),
     billOfEntry: zeroTax(),
+    billOfEntryBlocked: zeroTax(),
   };
 }
 
@@ -64,20 +65,26 @@ export function bookAdjustments(db: Db, from: string, to: string, today: string)
       out.rcmLiability.taxable += r.taxable;
     } else if (r.nature === 'rcm_credit') out.rcmCredit[r.head] += r.amount;
   }
-  // Bills of entry: BOE tax − tax on the purchase's own gst_lines (only for purchases claiming ITC).
-  const boe = db.get<{ igst: number; cess: number; li: number; lc: number }>(
-    `SELECT COALESCE(SUM(b.igst), 0) AS igst, COALESCE(SUM(b.cess), 0) AS cess,
+  // Bills of entry: BOE tax − tax on the purchase's own gst_lines. A purchase claiming ITC replaces its
+  // lines' tax in 4(A)(1); blocked goods (itc_claimed 0, lines marked ineligible) are shown in 4(A)(1)
+  // and reversed in 4(B)(1) like other blocked credit — at the BOE amount too.
+  for (const r of db.all<{ itc: number; igst: number; cess: number; li: number; lc: number }>(
+    `SELECT b.itc_claimed AS itc, COALESCE(SUM(b.igst), 0) AS igst, COALESCE(SUM(b.cess), 0) AS cess,
             COALESCE(SUM((SELECT COALESCE(SUM(g.igst), 0) FROM gst_lines g WHERE g.voucher_id = b.voucher_id AND g.taxability = 'taxable'
-                          AND (g.itc_eligibility IS NULL OR g.itc_eligibility <> 'ineligible'))), 0) AS li,
+                          AND (g.itc_eligibility IS NULL OR g.itc_eligibility <> 'ineligible' OR b.itc_claimed = 0))), 0) AS li,
             COALESCE(SUM((SELECT COALESCE(SUM(g.cess), 0) FROM gst_lines g WHERE g.voucher_id = b.voucher_id AND g.taxability = 'taxable'
-                          AND (g.itc_eligibility IS NULL OR g.itc_eligibility <> 'ineligible'))), 0) AS lc
+                          AND (g.itc_eligibility IS NULL OR g.itc_eligibility <> 'ineligible' OR b.itc_claimed = 0))), 0) AS lc
        FROM gst_bill_of_entry b
-      WHERE b.date >= :from AND b.date <= :to AND b.itc_claimed = 1 AND ${BOOKS_FILTER('b')}`,
+      WHERE b.date >= :from AND b.date <= :to AND ${BOOKS_FILTER('b')}
+      GROUP BY b.itc_claimed`,
     params,
-  );
-  if (boe) {
-    out.billOfEntry.igst = boe.igst - boe.li;
-    out.billOfEntry.cess = boe.cess - boe.lc;
+  )) {
+    out.billOfEntry.igst += r.igst - r.li;
+    out.billOfEntry.cess += r.cess - r.lc;
+    if (r.itc === 0) {
+      out.billOfEntryBlocked.igst += r.igst - r.li;
+      out.billOfEntryBlocked.cess += r.cess - r.lc;
+    }
   }
   return out;
 }

@@ -18,6 +18,8 @@ export interface PrintHtmlInput {
   pageSize: PrintPageSize;
   /** Number of physical documents (copies × vouchers); "Page x of y" only makes sense for one. */
   documents: number;
+  /** Rolls: length of the receipt page in mm (layout.ts rollHeightMm); ignored for sheets. */
+  rollHeightMm?: number | null;
 }
 
 const FORBIDDEN: ReadonlyArray<[RegExp, string]> = [
@@ -39,7 +41,7 @@ export function assertPrintableMarkup(markup: string): void {
 /** Full HTML document: doctype, charset, escaped title, inline CSS, the body markup. */
 export function buildPrintHtml(input: PrintHtmlInput): string {
   assertPrintableMarkup(input.body);
-  const css = DOCUMENT_CSS + pageCss(input.pageSize, { pageNumbers: input.documents > 1 ? 'plain' : 'of' });
+  const css = DOCUMENT_CSS + pageCss(input.pageSize, { pageNumbers: input.documents > 1 ? 'plain' : 'of', rollHeightMm: input.rollHeightMm });
   if (/<\/style/i.test(css)) throw new Error('Invalid print stylesheet');
   return [
     '<!doctype html>',

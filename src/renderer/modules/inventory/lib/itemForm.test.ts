@@ -234,3 +234,14 @@ test('a service saves no (hidden) alternate unit and is not checked for one', ()
   const goods = itemSaveInput(itemDraftFromDetail(saved), saved, ctx);
   assert.deepEqual([goods.altUnitId, goods.altConversion], [7, 12]);
 });
+
+test('more aliases (dataplus): the list is sent when it changes, kept otherwise', () => {
+  const saved = detail({ alias: 'MG750', aliases: ['MG750', 'SKU-1'] });
+  const d = itemDraftFromDetail(saved);
+  assert.equal(d.moreAliases, 'SKU-1');
+  assert.equal(itemSaveInput(d, saved, ctx).aliases, undefined);
+  assert.deepEqual(itemSaveInput({ ...d, moreAliases: 'SKU-1\nSKU-2' }, saved, ctx).aliases, ['MG750', 'SKU-1', 'SKU-2']);
+  assert.equal(itemDraftDirty({ ...d, moreAliases: 'SKU-1\n' }, d), false);
+  assert.equal(itemDraftDirty({ ...d, moreAliases: 'SKU-2' }, d), true);
+  assert.match(validateItemDraft({ ...d, moreAliases: saved.name }, saved, ctx).moreAliases ?? '', /same as the name/);
+});

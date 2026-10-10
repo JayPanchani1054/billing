@@ -234,6 +234,22 @@ export interface PlanEntry {
   source: EntrySource;
   /** Set when a voucher hook changed the amount (hooks.ts › adjustEntry): the amount before that. */
   originalAmount?: Paise;
+  /** Foreign-currency side of the entry (forex hook, hooks.ts › setForex); written to ledger_entries by that hook. */
+  forex?: PlanEntryForex;
+  /**
+   * Bill-wise allocations a voucher hook decided for this entry (hooks.ts › setBillAllocations), used
+   * by applyBills instead of the ones typed in the input (same rules and checks apply).
+   */
+  presetBills?: BillAllocationInput[];
+}
+
+/** Foreign-currency side of a plan entry (forex module). */
+export interface PlanEntryForex {
+  currencyId: number;
+  /** Signed like the entry, in the currency's major unit; 0 = INR-only exchange adjustment. */
+  amount: number;
+  /** Rate of exchange the entry was entered at (null for an INR-only adjustment). */
+  rate: number | null;
 }
 
 export interface PlanInventory {
@@ -515,6 +531,12 @@ class PostingBuilder {
           if (delta === 0) return;
           if (entry.originalAmount === undefined) entry.originalAmount = entry.amount;
           entry.amount += delta;
+        },
+        setForex(entry, forex) {
+          entry.forex = forex;
+        },
+        setBillAllocations(entry, allocations) {
+          entry.presetBills = allocations;
         },
         addToInvoiceValue(delta) {
           self.hookTotal += delta;
@@ -818,7 +840,9 @@ class PostingBuilder {
     const outsideTotal = outside.reduce((a, o) => a + o.amount, 0);
     const beforeRound = comp.totals.invoiceValueBeforeRound + outsideTotal;
     const ro = env.config.roundOff;
-    const grand = ro.enabled && ro.unit > 1 ? roundToUnit(beforeRound, ro.unit, ro.method) : beforeRound;
+    // A foreign-currency invoice (forex module, input.forex) is not rounded in rupees: its INR value is
+    // the exact conversion of the document value, which the party owes in the foreign currency.
+    const grand = ro.enabled && ro.unit > 1 && !this.input.forex ? roundToUnit(beforeRound, ro.unit, ro.method) : beforeRound;
     const roundOff = grand - beforeRound;
     let nature = comp.nature;
     if (nature === 'b2cl' || nature === 'b2cs') {
@@ -930,6 +954,7 @@ class PostingBuilder {
         ledgerId: m.ledger?.id ?? (m.kind === 'item' ? (items[m.index].ledgerId ?? defaultLedger) : null),
         taxableValue: computed[j].taxableValue,
         tax: computed[j].tax,
+        itcEligibility: itcOf(m, computed[j]),
       })),
       ...outside.map((o): HookInvoiceLine => ({ kind: 'ledger', index: o.index, ledgerId: o.ledger.id, taxableValue: o.amount, tax: 0 })),
     ];
@@ -1242,6 +1267,9 @@ class PostingBuilder {
       if (base === 'journal') {
         for (const e of this.entries) {
           const L = masters.ledger(e.ledgerId);
+          // An exchange adjustment of a foreign-currency bank account (forex module: forexAmount 0, rupees
+          // only — the revaluation journal) moves no money, so it is a Journal entry.
+          if (L.isCashBank && e.source.kind === 'ledger' && this.input.ledgers?.[e.source.index]?.forexAmount === 0) continue;
           if (L.isCashBank) {
             this.warn(
               'journal_cash_bank',
@@ -1351,11 +1379,12 @@ class PostingBuilder {
       const abs = Math.abs(e.amount);
       const path = e.source.kind === 'party' ? 'partyBillAllocations' : e.source.kind === 'ledger' ? `ledgers[${e.source.index}].billAllocations` : undefined;
       const provided: BillAllocationInput[] | undefined =
-        e.source.kind === 'party'
+        e.presetBills ??
+        (e.source.kind === 'party'
           ? input.partyBillAllocations
           : e.source.kind === 'ledger'
             ? input.ledgers?.[e.source.index]?.billAllocations
-            : undefined;
+            : undefined);
       const creditDaysDefault = L.row.default_credit_days ?? null;
       const dueFor = (days: number | null): string => addDays(this.date, days ?? 0);
 
@@ -1370,13 +1399,16 @@ class PostingBuilder {
           sum += a.amount;
           if (a.amount === 0) continue;
           const days = a.creditDays ?? (a.refType === 'new' ? creditDaysDefault : null);
-          e.bills.push({
+          const bill: PlanBill = {
             refType: a.refType,
             billName: a.refType === 'on_account' ? null : (name ?? null),
             amount: sign * a.amount,
             creditDays: a.refType === 'new' ? days : (a.creditDays ?? null),
             dueDate: a.refType === 'new' ? (txt(a.dueDate) ?? dueFor(days)) : (txt(a.dueDate) ?? null),
-          });
+          };
+          // Forex module: the bill's foreign amount, stored with its sign (written by the forex hook).
+          if (e.forex && a.forexAmount !== undefined) bill.forexAmount = sign * a.forexAmount;
+          e.bills.push(bill);
         }
         // A voucher hook (TDS/TCS) changed the entry: allocations typed for the amount before it are rescaled.
         const typed = e.originalAmount === undefined ? null : Math.abs(e.originalAmount);

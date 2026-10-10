@@ -29,7 +29,7 @@ const SECTION_HELP: Partial<Record<Gstr1TileId, string>> = {
   '7': 'Other consumer sales summarised by place of supply and rate; credit notes are netted here.',
   '8': 'Nil-rated, exempt and non-GST supplies, split by inter / intra-state and registered / unregistered buyers.',
   '9B': 'Credit and debit notes: to registered buyers (CDNR) and to unregistered buyers for B2C large or exports (CDNUR).',
-  '11': 'Tax on advances is not derived from the books — enter it directly on the portal if it applies.',
+  '11': 'Tax on advances received (11A) and adjusted or refunded (11B), from receipts marked as an advance (Alt+J on the receipt).',
   '12': 'HSN/SAC-wise summary of everything reported, split into supplies to registered (B2B) and unregistered (B2C) buyers.',
   '13': 'Number series of invoices and notes issued in the period, with cancelled and missing numbers.',
 };
@@ -110,8 +110,8 @@ function SectionBody({ data, onOpen }: { data: Gstr1SectionResult; onOpen: (r: {
     return (
       <EmptyState
         icon="info"
-        title="Advances are entered on the portal"
-        body="Receipts in the books do not carry a GST rate or place of supply, so table 11 is not prepared here. If you received advances for services, enter the tax on them directly in GSTR-1 on the portal."
+        title="Advances have their own screen"
+        body="Table 11 is prepared from receipts marked as an advance (Alt+J on the receipt) and the invoices or refund vouchers that adjust them. Open GST › Advances (GST) for the rows by place of supply and rate."
       />
     );
   }

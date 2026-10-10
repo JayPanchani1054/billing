@@ -454,6 +454,13 @@ export function validateLedger(f: LedgerFields, bills: OpeningBillInput[], rc: L
   if (f.currencyId !== null && rc.db.value('SELECT 1 FROM currencies WHERE id = :id', { id: f.currencyId }) === undefined) {
     issues.add('currencyId', 'The selected currency does not exist');
   }
+  // (forex group) Entries already kept in the ledger's foreign currency would mix with another one.
+  if (rc.existing && rc.id !== null && rc.existing.currencyId !== f.currencyId) {
+    const kept = rc.db.value<number>('SELECT 1 FROM ledger_entries WHERE ledger_id = :id AND currency_id IS NOT NULL LIMIT 1', { id: rc.id });
+    if (kept !== undefined) {
+      issues.add('currencyId', 'Vouchers already record this ledger in its foreign currency, so its currency cannot be changed. Create a new ledger for the other currency.');
+    }
+  }
   checkLedgerNames(rc.db, f.name, f.alias, rc.id, issues, rc.existing);
 }
 
@@ -704,7 +711,10 @@ export function groupNameClash(db: Db, value: string): { name: string } | undefi
   return db.get<{ name: string }>('SELECT name FROM groups WHERE name = :v OR alias = :v COLLATE NOCASE LIMIT 1', { v: value });
 }
 
-/** A ledger whose name or alias equals `value` (case-insensitive). */
+/** A ledger whose name or alias (first or additional — dataplus) equals `value` (case-insensitive). */
 export function ledgerNameClash(db: Db, value: string): { name: string } | undefined {
-  return db.get<{ name: string }>('SELECT name FROM ledgers WHERE name = :v OR alias = :v COLLATE NOCASE LIMIT 1', { v: value });
+  return (
+    db.get<{ name: string }>('SELECT name FROM ledgers WHERE name = :v OR alias = :v COLLATE NOCASE LIMIT 1', { v: value }) ??
+    db.get<{ name: string }>('SELECT l.name FROM ledger_aliases a JOIN ledgers l ON l.id = a.ledger_id WHERE a.alias = :v COLLATE NOCASE LIMIT 1', { v: value })
+  );
 }

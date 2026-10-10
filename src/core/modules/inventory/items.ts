@@ -39,6 +39,7 @@ import type { FieldIssue } from '../../../shared/api.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { AppError, notFound, rule, validation } from '../../lib/errors.ts';
+import { aliasClashIssues, aliasListIssues, allAliases, extraAliasLike, extraAliasMap, extraAliases, normalizeAliases, writeExtraAliases } from '../../lib/masterAliases.ts';
 import { getConfig, getFeatures } from '../company/service.ts';
 import { itemMfgUses } from '../mfg/usage.ts';
 import {
@@ -164,6 +165,7 @@ export function getItem(db: Db, id: number, asOf: string): StockItemDetail {
     guid: r.guid,
     name: r.name,
     alias: r.alias,
+    aliases: allAliases(r.alias, extraAliases(db, 'stock_item', r.id)),
     partNo: r.part_no,
     barcode: r.barcode,
     description: r.description,
@@ -227,7 +229,7 @@ export function listItems(db: Db, input: StockItemListInput, today: string): Lis
     active: input.activeOnly ? 1 : 0,
   };
   const where = `WHERE (:like IS NULL OR i.name LIKE :like ESCAPE '\\' OR i.alias LIKE :like ESCAPE '\\'
-                        OR i.part_no LIKE :like ESCAPE '\\' OR i.barcode LIKE :like ESCAPE '\\')
+                        OR i.part_no LIKE :like ESCAPE '\\' OR i.barcode LIKE :like ESCAPE '\\' OR ${extraAliasLike('stock_item', 'i.id', 'like')})
                    AND (:gf = 0 OR i.group_id IN (SELECT value FROM json_each(:gids)))
                    AND (:cf = 0 OR i.category_id IN (SELECT value FROM json_each(:cids)))
                    AND (:active = 0 OR i.is_active = 1)`;
@@ -236,6 +238,7 @@ export function listItems(db: Db, input: StockItemListInput, today: string): Lis
   const stock = input.withStock
     ? stockByItem(db, { asOf: input.asOf ?? today, today, itemIds: rows.map((r) => r.id) })
     : null;
+  const otherAliases = extraAliasMap(db, 'stock_item', rows.map((r) => r.id));
   return {
     rows: rows.map((r) => {
       const row: StockItemListRow = {
@@ -260,6 +263,8 @@ export function listItems(db: Db, input: StockItemListInput, today: string): Lis
         mrp: r.mrp,
       };
       if (stock) row.stockQty = stock.get(r.id) ?? 0;
+      const more = otherAliases.get(r.id);
+      if (more) row.otherAliases = more;
       return row;
     }),
     total,
@@ -394,10 +399,24 @@ function saveItemCore(ctx: CompanyCtx, input: StockItemSaveInput): StockItemSave
   const name = (input.name ?? before?.name ?? '').trim();
   if (!name) throw validation([{ path: 'name', message: 'Enter the stock item name' }]);
   assertNameFree(db, 'stock_items', name, id0, 'name', 'Stock item');
-  const alias = patch(cleanText(input.alias), before?.alias ?? null);
-  if (alias !== null) {
-    if (alias.toLowerCase() === name.toLowerCase()) throw validation([{ path: 'alias', message: 'The alias must be different from the name' }]);
-    assertNameFree(db, 'stock_items', alias, id0, 'alias', 'Stock item');
+  // Aliases (dataplus): `aliases` is the complete list (first → the alias column, the rest → stock_item_aliases).
+  let alias: string | null;
+  let extras: string[];
+  if (Array.isArray(input.aliases)) {
+    const list = normalizeAliases(name, input.aliases);
+    alias = list[0] ?? null;
+    extras = list.slice(1);
+  } else {
+    alias = patch(cleanText(input.alias), before?.alias ?? null);
+    if (alias !== null && alias.toLowerCase() === name.toLowerCase()) throw validation([{ path: 'alias', message: 'The alias must be different from the name' }]);
+    const full = normalizeAliases(name, [alias, ...(id0 !== null ? extraAliases(db, 'stock_item', id0) : [])]);
+    alias = full[0] ?? null;
+    extras = full.slice(1);
+  }
+  if (alias !== null) assertNameFree(db, 'stock_items', alias, id0, 'alias', 'Stock item');
+  {
+    const problems = [...aliasListIssues(allAliases(alias, extras)), ...aliasClashIssues(db, 'stock_item', name, allAliases(alias, extras), id0)];
+    if (problems.length > 0) throw validation(problems);
   }
   const partNo = patch(cleanText(input.partNo), before?.partNo ?? null);
   const barcode = patch(cleanText(input.barcode), before?.barcode ?? null);
@@ -603,6 +622,7 @@ function saveItemCore(ctx: CompanyCtx, input: StockItemSaveInput): StockItemSave
     }
   }
   syncGstHistory(db, 'stock_item', id, name, prevGst, gst, input, booksFrom(db));
+  writeExtraAliases(db, 'stock_item', id, extras);
 
   const after = getItem(db, id, today);
   ctx.audit({
@@ -618,9 +638,12 @@ function saveItemCore(ctx: CompanyCtx, input: StockItemSaveInput): StockItemSave
 }
 
 /** Audit snapshot: the master data only (derived fields such as price lists and effective GST left out). */
-export function auditSnapshot(d: StockItemDetail): Omit<StockItemDetail, 'effectiveGst' | 'priceLists' | 'hasTransactions'> {
-  const { effectiveGst: _e, priceLists: _p, hasTransactions: _h, ...rest } = d;
-  return rest;
+export function auditSnapshot(
+  d: StockItemDetail,
+): Omit<StockItemDetail, 'effectiveGst' | 'priceLists' | 'hasTransactions' | 'aliases'> & { otherAliases?: string[] } {
+  const { effectiveGst: _e, priceLists: _p, hasTransactions: _h, aliases = [], ...rest } = d;
+  // Additional aliases only when there are some (images written before dataplus stay comparable).
+  return aliases.length > (d.alias ? 1 : 0) ? { ...rest, otherAliases: aliases.slice(d.alias ? 1 : 0) } : rest;
 }
 
 export function saveItem(ctx: CompanyCtx, input: StockItemSaveInput): StockItemSaveResult {
@@ -674,6 +697,9 @@ export function deleteItem(ctx: CompanyCtx, id: number): DeleteResult {
         'Remove it there first, or mark the item inactive to hide it.',
     );
   }
+  // Attached files (dataplus) are evidence: remove them first (the FK would refuse anyway).
+  const files = countOf(db, 'SELECT COUNT(*) FROM attachments WHERE stock_item_id = :id', { id });
+  if (files > 0) throw rule(`Cannot delete stock item '${before.name}': it has ${files} attached file(s). Remove the attachments first, or mark the item inactive to hide it.`);
   if (before.openings.length > 0) assertOpeningStockUnlocked(db, before.name);
   // Every price-list slab of the item (all levels and dates) goes with it: keep them in the edit log.
   const priceListRows = db.all<{ level: string; applicable_from: string; qty_from: number; qty_to: number | null; rate: number; discount_pct: number }>(
@@ -750,7 +776,8 @@ const PICKER_SQL = /* sql */ `
         LEFT JOIN stock_groups g ON g.id = i.group_id
        WHERE i.is_active = 1
          AND (:like IS NULL OR i.name LIKE :like ESCAPE '\\' OR i.alias LIKE :like ESCAPE '\\'
-              OR i.part_no LIKE :like ESCAPE '\\' OR i.barcode LIKE :like ESCAPE '\\')
+              OR i.part_no LIKE :like ESCAPE '\\' OR i.barcode LIKE :like ESCAPE '\\'
+              OR ${extraAliasLike('stock_item', 'i.id', 'like')})
        ORDER BY rank, i.name COLLATE NOCASE, i.id
        LIMIT :limit)`;
 
@@ -776,6 +803,7 @@ export function itemPicker(db: Db, input: ItemPickerInput, today: string): ItemP
     itemIds: filtered ? tuples.map((r) => r[0]) : undefined,
   });
   const levels = input.priceLevelId !== undefined ? priceLevelRatesForPicker(db, input.priceLevelId, asOf) : null;
+  const otherAliases = extraAliasMap(db, 'stock_item', filtered ? tuples.map((r) => r[0]) : undefined);
   const out: ItemPickerRow[] = new Array(tuples.length);
   for (let k = 0; k < tuples.length; k++) {
     const [id, name, alias, partNo, barcode, groupId, groupName, unitSymbol, unitDecimals, altUnitId, altSymbol, altConversion] = tuples[k];
@@ -790,10 +818,12 @@ export function itemPicker(db: Db, input: ItemPickerInput, today: string): ItemP
       cess_per_unit: r[16],
       hsn_sac: r[17],
     });
+    const more = otherAliases.get(id);
     out[k] = {
       id,
       name,
       alias,
+      ...(more ? { otherAliases: more } : {}),
       partNo,
       barcode,
       unitSymbol,

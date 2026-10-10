@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { GstSetoffResult } from '../../../../shared/types/gst-plus.ts';
 import {
+  amendmentTableLabel,
+  boeFieldErrors,
+  cashLedgerMatrix,
+  filingRoute,
+  gstDetailsForBase,
+  rateFormErrors,
   challanDefaults,
+  cmp08DueDate,
+  compositionDues,
   challanFieldErrors,
   challanGrid,
   cleanGstDetails,
@@ -102,5 +110,75 @@ describe('quarters', () => {
     assert.deepEqual(q.map((x) => x.value), ['2026-27-Q2', '2026-27-Q1']);
     assert.equal(initialQuarter(q, '2026-08-15'), '2026-27-Q1');
     assert.equal(initialQuarter(q, '2026-08-15', '2026-27-Q2'), '2026-27-Q2');
+  });
+});
+
+describe('electronic ledgers, composition rates, bills of entry, filings', () => {
+  it('folds the cash ledger rows into one row per major head', () => {
+    const m = cashLedgerMatrix({
+      rows: [
+        { head: 'cgst', minor: 'tax', opening: 0, deposited: 5_000_00, utilised: 4_000_00, closing: 1_000_00 },
+        { head: 'cgst', minor: 'interest', opening: 0, deposited: 50_00, utilised: 0, closing: 50_00 },
+        { head: 'sgst', minor: 'tax', opening: 0, deposited: 0, utilised: 0, closing: 0 },
+      ],
+    });
+    const cgst = m.find((r) => r.head === 'cgst');
+    // 1,000.00 tax + 50.00 interest = 1,050.00
+    assert.equal(cgst?.total, 1_050_00);
+    assert.equal(cgst?.closing.interest, 50_00);
+    assert.equal(m.length, 4);
+  });
+
+  it('validates the composition rate and bill of entry forms', () => {
+    assert.deepEqual(rateFormErrors({ effectiveFrom: '2026-04-01', rate: 1 }), {});
+    assert.ok(rateFormErrors({ effectiveFrom: '2017-06-30', rate: 1 }).effectiveFrom);
+    assert.ok(rateFormErrors({ effectiveFrom: '2026-04-01', rate: 0 }).rate);
+    assert.deepEqual(boeFieldErrors({ number: '1234567', date: '2026-09-02', portCode: 'INNSA1', assessableValue: 10_00_000_00, igst: 1_80_000_00 }), {});
+    const e = boeFieldErrors({ number: '', date: null, portCode: 'NSA', assessableValue: null, igst: null });
+    assert.deepEqual(Object.keys(e).sort(), ['assessableValue', 'date', 'igst', 'number', 'portCode']);
+  });
+
+  it('keeps only the GST details the base type carries', () => {
+    const d = { advance: { supplyType: 'services' as const, rate: 18 }, adjustment: { nature: 'rcm_liability' as const } };
+    assert.deepEqual(gstDetailsForBase(d, 'receipt'), { advance: d.advance });
+    assert.deepEqual(gstDetailsForBase(d, 'journal'), { adjustment: d.adjustment });
+    assert.equal(gstDetailsForBase(d, 'contra'), undefined);
+  });
+
+  it('labels amendment tables and routes filed returns to their screen', () => {
+    const snap = { section: 'b2b' } as never;
+    assert.equal(amendmentTableLabel({ table: '9A', original: snap, amended: snap }), '9A B2BA');
+    assert.equal(amendmentTableLabel({ table: 'late', original: null, amended: snap }), 'Added');
+    assert.deepEqual(filingRoute({ form: 'cmp08', period: '2026-27-Q1' }), { screen: 'gst.cmp08', params: { period: '2026-27-Q1' } });
+    assert.deepEqual(filingRoute({ form: 'gstr4', period: '2025-26' }), { screen: 'gst.gstr4', params: { fy: '2025-26' } });
+  });
+});
+
+describe('composition due dates', () => {
+  it('CMP-08 is due on the 18th after the quarter; GSTR-4 on 30 April after the year', () => {
+    assert.equal(cmp08DueDate('2026-27-Q1'), '2026-07-18');
+    assert.equal(cmp08DueDate('2026-27-Q3'), '2027-01-18');
+    assert.equal(cmp08DueDate('2026-27-Q4'), '2027-04-18');
+    // 10 Oct 2026: Q2 (Jul–Sep) due 18 Oct, Q3 next; GSTR-4 FY 2025-26 (due 30 Apr 2026) overdue unless filed.
+    const d = compositionDues('2026-10-10', [{ form: 'cmp08', period: '2026-27-Q1' }]);
+    assert.deepEqual(
+      d.map((x) => [x.form, x.period, x.dueDate, x.filed, x.overdue]),
+      [
+        ['cmp08', '2026-27-Q2', '2026-10-18', false, false],
+        ['cmp08', '2026-27-Q3', '2027-01-18', false, false],
+        ['gstr4', '2025-26', '2026-04-30', false, true],
+      ],
+    );
+    // In April the previous quarter is Q4 of the last year.
+    const apr = compositionDues('2027-04-05', [{ form: 'gstr4', period: '2025-26' }, { form: 'gstr4', period: '2026-27' }]);
+    assert.deepEqual(apr.map((x) => x.period), ['2026-27-Q4', '2027-28-Q1']);
+  });
+});
+
+describe('return period typed in the GST details dialog', () => {
+  it('accepts a month or a quarter (empty = the voucher date) and explains anything else', async () => {
+    const { periodKeyError } = await import('./gstplus.ts');
+    for (const ok of ['', '  ', '092026', '122026', '2026-27-Q2']) assert.equal(periodKeyError(ok), undefined, ok);
+    for (const bad of ['132026', '2026-28-Q1', '2026-27-Q5', 'Sep 2026', '92026']) assert.match(periodKeyError(bad) ?? '', /MMYYYY/, bad);
   });
 });

@@ -4,14 +4,14 @@
  * voucher has them.
  */
 import type { PrintLine } from '../../../../shared/types/print.ts';
-import { itemColumns, money, moneyOrBlank, pctText, qtyText, rateText, rupees, type ItemColumns } from '../lib/layout.ts';
+import { itemColumns, money, moneyOrBlank, mrpText, pctText, qtyText, rateText, rupees, type ItemColumns } from '../lib/layout.ts';
 import { CompanyBlock, NotesBlock, Parties, RefsGrid, Signature, Stamp, TitleBlock, type DocProps } from './parts.tsx';
 
 function StockTable({ caption, lines, cols }: { caption?: string; lines: readonly PrintLine[]; cols: ItemColumns }) {
   const qty = lines.reduce((a, l) => a + (l.qty ?? 0), 0);
   const units = new Set(lines.map((l) => l.unit));
   const amount = lines.reduce((a, l) => a + l.amount, 0);
-  const lead = 2 + (cols.hsn ? 1 : 0) + (cols.batch ? 1 : 0);
+  const lead = 2 + (cols.hsn ? 1 : 0) + (cols.batch ? 1 : 0) + (cols.mrp ? 1 : 0);
   const mid = (cols.rate ? 1 : 0) + (cols.discount ? 1 : 0);
   return (
     <>
@@ -23,6 +23,7 @@ function StockTable({ caption, lines, cols }: { caption?: string; lines: readonl
             <th>Description</th>
             {cols.hsn ? <th>HSN/SAC</th> : null}
             {cols.batch ? <th>Batch</th> : null}
+            {cols.mrp ? <th className="bp-num">MRP*</th> : null}
             <th className="bp-num">Quantity</th>
             {cols.rate ? <th className="bp-num">Rate</th> : null}
             {cols.discount ? <th className="bp-num">Disc.</th> : null}
@@ -39,6 +40,7 @@ function StockTable({ caption, lines, cols }: { caption?: string; lines: readonl
               </td>
               {cols.hsn ? <td>{l.hsnSac ?? ''}</td> : null}
               {cols.batch ? <td>{l.batch ?? ''}</td> : null}
+              {cols.mrp ? <td className="bp-num">{mrpText(l)}</td> : null}
               <td className="bp-num">{l.qty === null ? '' : `${qtyText(l.qty, l.qtyDecimals)} ${l.unit ?? ''}`.trim()}</td>
               {cols.rate ? <td className="bp-num">{rateText(l.rate)}</td> : null}
               {cols.discount ? <td className="bp-num">{l.discountPct ? pctText(l.discountPct) : moneyOrBlank(l.discount)}</td> : null}
@@ -82,6 +84,7 @@ export function InventoryDoc({ doc, copyLabel, pageSize, template }: DocProps) {
       ) : (
         <StockTable lines={doc.lines} cols={cols} />
       )}
+      {cols.mrp ? <div className="bp-small bp-pad-v">* MRP per unit, inclusive of all taxes</div> : null}
       {cols.amount && doc.totals.grandTotal !== 0 ? (
         <section className="bp-summary bp-avoid">
           <div className="bp-summary-left">

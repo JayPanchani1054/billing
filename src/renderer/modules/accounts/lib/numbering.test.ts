@@ -105,3 +105,13 @@ describe('a new voucher type gets its own number series', () => {
     assert.equal(seriesClashWarning([], n()), null);
   });
 });
+
+describe('tokens and dated rows in the form preview (dataplus)', () => {
+  it('previews numbers for the working date and measures the longest expansion', () => {
+    const scheme = n({ prefix: 'INV/{FY}/', width: 4, prefixRows: [{ applicableFrom: '2026-10-01', text: '{MMM}/' }] });
+    assert.deepEqual(numberingPreview(scheme, '2026-09-01'), { first: 'INV/26-27/0001', second: 'INV/26-27/0002' });
+    assert.deepEqual(numberingPreview(scheme, '2026-10-05'), { first: 'Oct/0001', second: 'Oct/0002' });
+    assert.equal(numberLength(scheme), 4 + 5 + 1 + 4);
+    assert.equal(checkNumbering('sales', n({ prefix: 'X/{BAD}/' }), true).errors.length, 1);
+  });
+});

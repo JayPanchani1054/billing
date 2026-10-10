@@ -82,7 +82,7 @@ e2e/                   Playwright Electron specs (smoke + first-day flow; CI, do
 ```
 
 Feature modules (same name on both sides): `company security accounts inventory vouchers reports stock
-outstanding gst gstrecon banking data dashboard print`.
+outstanding gst gstrecon banking data dashboard print documents`.
 
 **Ownership rule:** a module's agent edits only its own `src/core/modules/<m>/`, `src/renderer/modules/<m>/`,
 `src/shared/types/<m>.ts`, and its pre-assigned migration file `src/core/db/migrations/<NNN>_<m>.ts`.
@@ -279,3 +279,176 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
 3. Routes are registered in your module's `routes.ts`; screens/menu in your module's `index.ts`.
 4. Mutations are audited, permission-guarded, period-lock aware.
 5. UI follows §7 and uses the design system; every screen reachable from the Gateway or Go To.
+
+## Documents module — quotations, recurring vouchers, bills pending, pre-close, scenarios, budgets
+
+Owner: `src/core/modules/documents`, `src/renderer/modules/documents`, `src/shared/types/documents.ts`,
+migrations **190–193** (block 190–199). Details: `src/core/modules/documents/README.md`.
+
+- **Voucher base types** `quotation` and `proforma` (extend-only in `constants.ts`; also in
+  `NON_ACCOUNTING_BASE_TYPES`). `base_type` has no CHECK in `001_init`, so no table rebuild. They are
+  priced like invoices but post **no ledger entries, no stock, no gst_lines**, have their own number
+  series (never the GST invoice series) and are never in GST returns. Print titles "Quotation" /
+  "Proforma Invoice" (+ "This is not a tax invoice").
+- **Voucher fields** (`VoucherInput`, extend-only): `validUntil` (quotation / proforma), `applicableUpto`
+  (reversing journal), `convertedFromId` and `recurring {templateId, periodKey}` (create only). Checked and
+  stored by the documents **voucher hook** (`vouchers/hooks.ts` extension point, `documents/hook.ts`)
+  inside the voucher's own save transaction; links are made on create only and disappear with either
+  voucher (CASCADE).
+- **Idempotent recurring posting**: `recurring_runs` UNIQUE `(template_id, period_key)` + the hook's check
+  in the save transaction; period key `YYYY-MM` (month-based) or `YYYY-MM-DD` (every N days). Each
+  posting is an ordinary audited `saveVoucher`. Nothing posts without the user reviewing the due list.
+  A template alter that moves the occurrences onto other dates (frequency / interval, an every-N-days
+  start off the N-day grid, a quarterly / half-yearly / yearly start in another phase —
+  `schedule.ts › scheduleShifts`) must start on or after the old schedule's next date, so a period already
+  posted or skipped never falls due again under a new key.
+- **Order closures** (`order_closures`) are subtracted by every pending-order reader (`stock/orders.ts`
+  `orderPositions`, `vouchers/queries.ts` `trackingRefs`) through `documents/closures.ts`, dated as-of.
+- **Scenarios**: reports routes TB / P&L / BS / Group Summary take `scenarioId`; `reports/scenario.ts`
+  adds per-ledger deltas to `ledgerSums` (provisional vouchers of included types: memorandum, optional,
+  reversing journals while `to ≤ applicable_upto`; minus regular vouchers of excluded types; or replaces
+  the books when actuals are not included). The books filter itself is unchanged; ledger vouchers,
+  outstanding, GST and the Day Book always show the books.
+- **Budgets**: lines per group / ledger / cost centre, `net_transactions` (pro-rated by days to the report
+  period) or `closing_balance`; signed paise Dr + / Cr −. `documents.budget.columns` gives the budget per
+  report row key (`g:<id>`, `l:<id>`) and its basis (`basisByKey`) for the TB / P&L / BS budget column
+  (`reports/overlay.tsx`); the TB variance compares a nett budget with Debit − Credit of the period and a
+  closing-balance budget with the closing balance. Variance-report totals count each amount once (lines
+  under a budgeted group, and cost-centre lines beside account lines, are `inTotal: false`).
+- **Renderer extension points** (additive in `app/registry.ts`): `gatewayNotices` (recurring due on
+  company open), `dashboardCards`, `voucherPanels` (links + Alt+V / Alt+O convert, Alt+S status, Alt+R make
+  recurring, Alt+L pre-close on `vouchers.view`). Reports screens: Alt+S scenario, Alt+B budget column.
+- **Permissions**: no new permission — quotations / recurring use `vouchers.*`, pre-close
+  `vouchers.alter` (+ `vouchers.backdate`, period lock), scenarios / budgets `masters.*`, bills pending
+  `reports.view`, budget variance `reports.financial`. Every mutation is audited.
+
+## TDS / TCS module (`tds`) — deduction, payables, challans, quarterly return data
+
+Core `src/core/modules/tds` (README there: tables, posting, legal assumptions), renderer
+`src/renderer/modules/tds`, DTOs `src/shared/types/tds.ts`, pure statutory rules
+`src/shared/tds/rules.ts`. Migrations **160** and **161** (block 160–169; 161 adds
+`tds_lines.advance_adjusted` and a dated seed row).
+
+- **Gating**: F11 `features.tds` (purchase / journal / payment) and `features.tcs` (sales). Off → the
+  voucher hook is a no-op, screens/menus are hidden (`anyFeature`), routes refuse (BUSINESS_RULE).
+- **Masters**: `tds_natures` + effective-dated `tds_nature_rates` (rates by deductee type, no-PAN rate,
+  single / aggregate thresholds per FY or month, whole vs excess, base incl. GST); `tds_ledger_details`
+  (applicable + nature on expense / sales ledgers; deductee type, non-resident, s.197 certificate,
+  deductor TAN on parties). PAN stays in `ledgers.pan`. Duty ledgers `TDS Payable – <section>` /
+  `TCS Payable` (Duties & Taxes) and `TDS Receivable` are created on demand and audited.
+- **Posting**: only through the vouchers hook extension point (`vouchers/hooks.ts`, `tdsVoucherHook`):
+  `prepare` creates duty ledgers, `adjust` computes and posts (Cr payable; party credit / bank credit
+  reduced; TCS adds to the party debit and the invoice value), `write` rebuilds the derived
+  `tds_lines` / `tds_challans` in the voucher's transaction with `date`, `affects_books`,
+  `is_post_dated`; `clear` on alter / cancel / delete. `VoucherInput.tds` = `{ natureId?, overrides?:
+  [{ natureId, amount, reason }], challan? }`; `VoucherPreview.tds` returns the computed lines. A credit
+  typed by hand to the duty ledger is taken as the deduction (never posted twice); a later bill is set
+  off against advances already taxed (`advance_adjusted`); a party whose details say "does not apply"
+  is exempt; parties are debtors / creditors or ledgers given a deductee type (partners, loans).
+- **Rules as data/functions**: deposit due dates (7th; TDS of March 30-Apr), interest s.201(1A) /
+  s.206C(7) (per month or part, calendar months), statement due dates (Rule 31A / 31AA), s.234E fee —
+  `shared/tds/rules.ts`, unit-tested. Rates / thresholds are seeded rows the user edits by adding dated
+  rows (Income-tax Act 2025 references stored as a hint only).
+- **Routes** `tds.*`: settings, natures, ledgers, computation, lines, outstanding, challans, exceptions,
+  voucher, challan.suggest/get/save, return.data/export, statement.save, receivable, 26as.import.
+  Reports are `transactional: false`. Permissions `tds.view` / `tds.manage` / `tds.file`
+  (Accountant all three, Auditor `tds.view`; migration 160 grants them to existing companies' roles).
+- **UI**: Gateway section "TDS / TCS"; voucher entry side panel + Alt+U dialog (override with reason,
+  nature for advances); voucher view panel; Gateway notice for overdue deposits / statements.
+- **Statement files**: CSV with every RPU deductee / challan field under plain headings — not the FVU
+  file, not the RPU column order (documented in the module README).
+
+## Manufacturing & job work module (`mfg`) — BOM, Manufacturing Journal, Material In / Out, ITC-04
+
+Core `src/core/modules/mfg` (README there: schema, costing, job work, legal assumptions), renderer
+`src/renderer/modules/mfg`, DTOs `src/shared/types/mfg.ts`, pure rules `src/shared/mfg/` (costing,
+BOM explosion, s.143 / rule 45 as effective-dated data). Migration **210** (block 210–219).
+
+- **Gating**: F11 `features.manufacturing` (BOM, Manufacturing Journal) and `features.jobWork` (needs
+  Multiple godowns: godown kinds, Material In / Out, orders, pending job work, ITC-04). Turning one on
+  creates the classed voucher types once (`mfg/voucherTypes.ts`); journal routes refuse when off.
+- **Godown ownership**: `godowns.third_party_kind` = `none` | `ours_with_party` (our stock at a job worker —
+  valued, in the Balance Sheet) | `party_with_us` (a principal's stock with us — quantities only, never in
+  valuation or closing stock); `party_ledger_id`. Legacy `is_third_party` godowns migrated to
+  `ours_with_party` (unchanged values).
+- **Voucher types**: stock journal types carry `config.stockJournalClass` = `manufacturing` |
+  `material_out` | `material_in` (Masters › Voucher Types › Use as; fixed once used). They are not new
+  base types — they post as stock journals (no ledger entries; additional costs only add to the value of
+  the finished goods, as in Tally).
+- **Posting**: only through the vouchers hook (`vouchers/hooks.ts`, `mfgVoucherHook`): `compose` turns the
+  `VoucherInput.stockJournal` block into ordinary stock journal item lines (consumption / production),
+  `adjust` adds confirm-level warnings, `write` rebuilds `stock_journal_details` / `_lines` / `_costs` in
+  the voucher transaction (with `date`, `affects_stock`, `is_post_dated`), `clear` on alter / cancel /
+  delete. `VoucherPreview.stockJournal` returns the costing estimate.
+- **Valuation**: `inventory/valuation.ts` reads the per-line costing basis and applies
+  `shared/mfg/costing.ts` while replaying (finished goods = consumption at the costing method as of the
+  voucher date + additional costs − by-products / scrap, split by quantity; transfers keep their cost),
+  so every stock report, the Balance Sheet / P&L closing stock and the Production Register agree, and
+  back-dated vouchers re-value production. `party_with_us` godowns never touch cost states or totals.
+- **Routes** `mfg.*`: bom list/get/revisions/save/delete/cost, journal types/context/get/duplicate,
+  production.register, jobWorkOrder list/get/nextNumber/save/delete, jobWork pending/alerts, itc04
+  periods/report. Reports are `transactional: false`. Existing permissions only (masters.* for BOMs,
+  vouchers.* for orders and journals, reports.view, gst.view); mutations audited (`bom`,
+  `job_work_order`, vouchers as usual).
+- **UI**: `vouchers.entry` hands classed types to `mfg.journal.entry` (BOM explosion, live costing,
+  job work sections by godown kind); Masters › Bills of Materials; Transactions › Manufacturing Journal,
+  Material Out / In, Job Work Orders; Inventory reports › Production Register, Pending Job Work; GST ›
+  ITC-04; Gateway notice + dashboard card for s.143 deadlines; voucher view panel; godown form "Whose
+  stock"; voucher type form "Use as".
+- **ITC-04 output**: CSV / Excel of the form's tables 4 and 5A–5C via the shared export path — not the
+  portal's JSON schema (documented in the module README).
+- **Job work invariants** (review): the job worker / principal of a movement in a third-party godown is
+  the godown's party (a purchase delivered to a job worker, a sale from his premises), else the Material
+  In / Out's party; goods moved on from one job worker to another keep the original challan and date for
+  s.143 (FIFO lots inherit them; ITC-04 5B, not table 4); 5A / 5B carry the voucher's `referenceNo` (the
+  job worker's challan) when entered. A Manufacturing Journal consuming a principal's goods puts its
+  outputs in that principal's godown (own godown refused); other vouchers touching a `party_with_us`
+  godown get a confirm-level `mfg` warning.
+
+## GST plus (`gst` module) — composition returns, set-off & challans, electronic ledgers, advances, bills of entry, amendments
+
+Owner: `src/core/modules/gst` (hook.ts, advances.ts, bookAdjustments.ts, filings.ts, setoffPost.ts,
+eledgers.ts, boeRecon.ts, composition.ts, statLedgers.ts, schemas.ts), `src/renderer/modules/gst`,
+`src/shared/types/gst-plus.ts`, migration **200** (block 200–209). Details:
+`src/core/modules/gst/README.md` §11–§17.
+
+- **Voucher field** `VoucherInput.gstDetails` (extend-only; `VoucherGstDetailsInput`): `advance`
+  (receipt), `advanceAdjustments` (sales / outward debit note; default from bill-wise "Against" on an
+  advance bill), `advanceRefund` / `challan` (payment), `billOfEntry` (purchase of imported goods),
+  `adjustment` (journal: ITC reversal Rules 37 / 37A / 38 / 42 / 43 / s.17(5), reclaim, reverse-charge
+  liability), `setoff` (journal posted by GST Set-off). Validated and posted by the gst **voucher hook**
+  (`vouchers/hooks.ts` STATIC_HOOKS); derived rows `gst_advance_lines`, `gst_bill_of_entry`,
+  `gst_stat_lines`, `gst_challans` are rebuilt in the voucher's own transaction with date /
+  affects_books / is_post_dated (books filter as for `gst_lines`), cascading on delete.
+  `vouchers.duplicate` keeps only an advance's rate and an adjustment nature. A receipt whose advance
+  other vouchers use cannot be altered out from under them (optional / advance removed / amount below
+  what was used / rate or POS changed). Extension used (additive): `HookInvoiceLine.itcEligibility`
+  (vouchers/hooks.ts) so a bill of entry on blocked goods is posted as cost, not credit.
+- **System ledgers** created on demand with a `reserved_code` (`GST_PLUS_LEDGERS`): GST on Advances
+  Received, GST Electronic Cash Ledger, IGST Payable on Imports (Customs), Interest on GST, Late Fee on
+  GST Returns, GST Penalty and Other Dues, Composition Tax (GST), ITC Reversed (GST) — their creation is audited.
+- **Set-off** (`gst.setoff.*`): GSTR-3B 6.1 utilisation (s.49(5) / Rule 88A) or CMP-08 cash, cash per
+  major × minor head (PMT-06 heads); posted as **one Journal** per period (Dr Output / RCM payable /
+  interest / late fee / penalty / composition tax, Cr Input, Cr GST Electronic Cash Ledger) and **GST
+  challans** as Payment vouchers (Dr Electronic Cash Ledger / Cr bank) — both through `saveVoucher`
+  (numbered, audited, period-lock aware). Electronic cash / credit ledgers are reports over those rows
+  and the Input tax ledgers.
+- **Filing status & amendments**: `gst_return_filings` (form + period, ARN, snapshot). Altering an
+  outward document of a filed GSTR-1 period logs `gst_amendments` (original vs amended snapshot) reported
+  in the next unfiled period — never a filed one (9A / 9C / 10, JSON `b2ba` / `cdnra`); the filed period keeps its figures in
+  GSTR-1 totals and GSTR-3B; deleting / cancelling such a document is refused (`beforeRemove`).
+- **Composition**: effective-dated, editable rate master `gst_composition_rates` (seeded Rule 7 rates);
+  CMP-08 (quarter) and GSTR-4 (FY) from the books; their files are Bahi's documented JSON / CSV (the
+  portal offers no CMP-08 upload; the GSTR-4 offline-tool schema is not reproduced).
+- **Renderer**: screens `gst.setoff`, `gst.ledger.cash`, `gst.ledger.credit`, `gst.cmp08`, `gst.gstr4`,
+  `gst.composition`, `gst.advances`, `gst.boe`, `gst.amendments`, `gst.filings` (menu + Go To); voucher
+  entry **Alt+J** GST details (`gst/GstDetailsDialog.tsx`, form field `VoucherForm.gstDetails`, kept on
+  alteration). Shell extension (additive): `MenuItem.gstRegistrations` filters menu / Go To items by the
+  company's registration (`OpenCompanySummary.gstRegistration`, `MenuContext.gstRegistration`) so a
+  composition company sees CMP-08 / GSTR-4 instead of GSTR-1 / 3B. Extension points used:
+  `dashboardCards` (composition due dates), `voucherPanels` (GST details + amendment log on
+  `vouchers.view`).
+- **Permissions**: no new permission — reads `gst.view`; filing marks, set-off / challan posting,
+  CMP-08 interest, composition masters and return files `gst.file`; every mutation audited.
+- **IRP / e-way bill APIs** are not called (no GSP credentials offline): JSON out → portal → response in
+  (README §17).

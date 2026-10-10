@@ -38,7 +38,7 @@ export function PrintDocuments({
   pageSize: PrintPageSize;
   rootRef?: Ref<HTMLDivElement>;
 }) {
-  const size = pageSize === '80mm' ? '80mm' : pageSize.toLowerCase();
+  const size = pageSize.toLowerCase();
   return (
     <div ref={rootRef} className={`bp-docs bp-size-${size}`}>
       {items.flatMap((it) =>

@@ -14,6 +14,7 @@ import type { VoucherBaseType } from '../constants.ts';
 import type { Paise } from '../money.ts';
 import type { CompanyConfig, InvoiceTemplate } from '../settings.ts';
 import type { GstNature, Taxability, TaxMode } from './gst.ts';
+import type { PrintForex } from './forex.ts';
 
 /** Which family of template renders the document. */
 export type PrintLayout = 'invoice' | 'voucher' | 'inventory';
@@ -53,8 +54,14 @@ export type PrintDocKind =
 export type PrintCopy = 'original' | 'duplicate' | 'triplicate';
 export const PRINT_COPIES: readonly PrintCopy[] = ['original', 'duplicate', 'triplicate'];
 
-export type PrintPageSize = 'A4' | 'A5' | '80mm';
-export const PRINT_PAGE_SIZES: readonly PrintPageSize[] = ['A4', 'A5', '80mm'];
+/**
+ * Paper of a printed document: sheets (A5 also landscape) and thermal receipt rolls (continuous: the page
+ * is as long as the receipt). Sheets take the Modern / Classic templates, rolls the Compact receipt.
+ */
+export type PrintPageSize = 'A4' | 'A5' | 'A5-landscape' | 'Letter' | 'Legal' | '80mm' | '58mm';
+export const PRINT_PAGE_SIZES: readonly PrintPageSize[] = ['A4', 'A5', 'A5-landscape', 'Letter', 'Legal', '80mm', '58mm'];
+export const PRINT_SHEET_SIZES: readonly PrintPageSize[] = ['A4', 'A5', 'A5-landscape', 'Letter', 'Legal'];
+export const PRINT_ROLL_SIZES: readonly PrintPageSize[] = ['80mm', '58mm'];
 
 export const PRINT_TEMPLATES: readonly InvoiceTemplate[] = ['modern', 'classic', 'compact'];
 
@@ -135,6 +142,22 @@ export interface PrintLine {
   reverseCharge: boolean;
   /** Stock journal side; null elsewhere. */
   section: 'consumption' | 'production' | null;
+  /**
+   * (print group) Item's MRP per unit in paise (maximum retail price, inclusive of all taxes), when the
+   * item master has one; absent / null otherwise.
+   */
+  mrp?: Paise | null;
+}
+
+/**
+ * (print group) MRP summary of an outward document whose items carry an MRP: Σ MRP × qty and what the
+ * buyer saved against it (Σ per line of MRP value − value charged incl. tax, never negative).
+ */
+export interface PrintMrpSummary {
+  /** The MRP column / 'You saved' line is printed (F12 › Invoice printing › Show MRP, voucher type). */
+  show: boolean;
+  mrpValue: Paise;
+  savings: Paise;
 }
 
 /** Non-GST charge or deduction added after tax (TCS, non-GST discount). Negative = deduction. */
@@ -339,6 +362,10 @@ export interface PrintVoucherData {
   options: InvoicePrintOptions;
   /** Template to start with (voucher type › F12 › layout default). */
   defaultTemplate: InvoiceTemplate;
+  /** (print group) MRP of the items sold; null when no line has an MRP or the document is not a sale. */
+  mrpSummary?: PrintMrpSummary | null;
+  /** (forex group) Foreign-currency amounts, rate and words of an export / import document; absent / null otherwise. */
+  forex?: PrintForex | null;
   /** Previous / next voucher of the same type (date, number order) for Next/Prev in the preview. */
   navigation: { prevId: number | null; nextId: number | null };
   /**
@@ -372,3 +399,40 @@ export interface PrintSampleInput {
 }
 
 export const PRINT_BATCH_MAX = 500;
+
+// ───────────────────────────── Sharing (print group) ─────────────────────────────
+
+/** What is being shared: a voucher (invoice, note, receipt …) or a party's statement of account. */
+export interface ShareSubjectInput {
+  voucherId?: number;
+  statement?: { ledgerId: number; from: string; to: string };
+}
+
+export type ShareChannel = 'email' | 'whatsapp';
+export const SHARE_CHANNELS: readonly ShareChannel[] = ['email', 'whatsapp'];
+
+/** 'print.share.context' → recipient and texts, pre-filled from the party ledger and F12 › Sharing. */
+export interface ShareContext {
+  kind: 'voucher' | 'statement';
+  /** 'Tax Invoice INV/12' / 'Statement of Account — Sharma Traders'. */
+  label: string;
+  partyLedgerId: number | null;
+  partyName: string | null;
+  /** Party ledger e-mail (null when none or invalid). */
+  email: string | null;
+  /** Party mobile, 10 digits (Mobile, else a Phone that is a mobile number); null when none. */
+  mobile: string | null;
+  subject: string;
+  body: string;
+  whatsappText: string;
+  /** Suggested PDF file name without extension. */
+  fileName: string;
+}
+
+/** 'print.share.log' — the edit-log entry written before main sends the file. */
+export interface ShareLogInput extends ShareSubjectInput {
+  channel: ShareChannel;
+  /** Recipient as typed (e-mail address(es) or mobile). */
+  to?: string;
+  fileName: string;
+}

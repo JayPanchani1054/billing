@@ -21,10 +21,24 @@ describe('printable HTML document', () => {
     assert.doesNotMatch(buildPrintHtml({ title: 't', body: '<div></div>', pageSize: 'A5', documents: 3 }), /counter\(pages\)/);
     assert.match(buildPrintHtml({ title: 't', body: '<div></div>', pageSize: 'A5', documents: 3 }), /size: A5 portrait/);
     assert.doesNotMatch(pageCss('80mm', { pageNumbers: 'of' }), /counter/);
-    assert.match(pageCss('80mm', { pageNumbers: 'of' }), /size: 80mm 297mm/);
-    // The receipt keeps its 72 mm printable width on any sheet (thermal roll or an A4 PDF page).
-    assert.match(pageCss('80mm', { pageNumbers: 'none' }), /\.bp-docs\.bp-size-80mm \.bp-doc \{ width: 72mm; max-width: 100%; margin: 0 auto; \}/);
+    assert.match(pageCss('80mm', { pageNumbers: 'of' }), /size: 80mm 297mm; margin: 0;/, 'unmeasured roll: an A4 length');
     assert.doesNotMatch(pageCss('A4', { pageNumbers: 'of' }), /72mm/);
+  });
+
+  it('rolls are continuous: the page is the roll width by the measured receipt length, edge to edge', () => {
+    const html = buildPrintHtml({ title: 't', body: '<div></div>', pageSize: '80mm', documents: 1, rollHeightMm: 143.2 });
+    assert.match(html, /@page \{ size: 80mm 144mm; margin: 0; \}/);
+    // 80 mm roll: 72 mm printable (4 mm padding each side); 58 mm roll: 48 mm (5 mm each side).
+    assert.match(html, /\.bp-docs\.bp-size-80mm \.bp-doc \{ width: 80mm; max-width: 100%; padding: 3mm 4mm; margin: 0; \}/);
+    assert.match(pageCss('58mm', { pageNumbers: 'of', rollHeightMm: 90 }), /size: 58mm 90mm; margin: 0;[\s\S]*width: 58mm;[\s\S]*padding: 2mm 5mm/);
+  });
+
+  it('sheets: A5 landscape, Letter and Legal use their own @page size', () => {
+    assert.match(pageCss('A5-landscape', { pageNumbers: 'of' }), /size: A5 landscape;/);
+    assert.match(pageCss('Letter', { pageNumbers: 'of' }), /size: letter portrait;/);
+    assert.match(pageCss('Legal', { pageNumbers: 'plain' }), /size: legal portrait;/);
+    assert.match(previewCss('A5-landscape'), /width: 210mm; min-height: 148mm/);
+    assert.match(previewCss('58mm'), /width: 58mm;/);
   });
 
   it('rejects scripts, handlers, frames and external resources — but not harmless text', () => {

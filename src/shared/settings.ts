@@ -69,6 +69,10 @@ export const DEFAULT_FEATURES: CompanyFeatures = {
 export type RoundOffMethod = 'nearest' | 'up' | 'down';
 export type GuardPolicy = 'allow' | 'warn' | 'block';
 export type InvoiceTemplate = 'classic' | 'modern' | 'compact';
+/** (print group) Paper of the Modern / Classic templates. */
+export type InvoicePaperSize = 'A4' | 'A5' | 'A5-landscape' | 'Letter' | 'Legal';
+/** (print group) Thermal receipt roll of the Compact template. */
+export type ReceiptRollWidth = '80mm' | '58mm';
 
 export interface CompanyConfig {
   roundOff: { enabled: boolean; method: RoundOffMethod; /** paise, 100 = nearest rupee */ unit: number };
@@ -86,7 +90,18 @@ export interface CompanyConfig {
     signatoryLabel: string;
     /** Print item-wise tax columns (CGST/SGST/IGST) on the invoice. */
     itemwiseTax: boolean;
+    /** (print group) Paper for the Modern / Classic templates. */
+    paperSize: InvoicePaperSize;
+    /** (print group) Receipt roll width for the Compact template. */
+    rollWidth: ReceiptRollWidth;
+    /** (print group) MRP column for items with an MRP (+ "You saved" on receipts) on sales documents. */
+    showMrp: boolean;
   };
+  /**
+   * (print group) Texts used when sharing a document (e-mail / WhatsApp). Placeholders: {document}
+   * {number} {date} {amount} {party} {company} {period}.
+   */
+  share: { emailSubject: string; emailBody: string; whatsappText: string };
   gst: {
     lutNumber: string;
     lutValidFrom: string | null;
@@ -127,6 +142,15 @@ export const DEFAULT_CONFIG: CompanyConfig = {
     terms: '',
     signatoryLabel: 'Authorised Signatory',
     itemwiseTax: false,
+    paperSize: 'A4',
+    rollWidth: '80mm',
+    showMrp: false,
+  },
+  share: {
+    emailSubject: '{document} {number} dated {date} — {company}',
+    emailBody:
+      'Dear {party},\n\nPlease find attached {document} {number} dated {date} for ₹ {amount}.\n\nThank you for your business.\n\nRegards,\n{company}',
+    whatsappText: 'Dear {party}, please find {document} {number} dated {date} for ₹ {amount} from {company}. The PDF is attached.',
   },
   gst: {
     lutNumber: '',

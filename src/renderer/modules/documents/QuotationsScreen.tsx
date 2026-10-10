@@ -12,7 +12,7 @@
 import { useMemo, useState } from 'react';
 import { formatMoney } from '../../../shared/format.ts';
 import type { DocumentBaseType, DocumentDecision, DocumentRow, DocumentStatus } from '../../../shared/types/documents.ts';
-import { DialogScreen, ReportScreen, useApiMutation, useApiQuery, useCan, useFeatures, useNav, usePeriod, userMessage, useShell } from '../../app/index.ts';
+import { DialogScreen, ReportScreen, useApiMutation, useApiQuery, useCan, useFeatures, useNav, usePeriod, userMessage, useShell, useWorkingDate } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, Banner, Button, DataTable, EmptyState, Field, RadioGroup, SegmentedControl, Stack, TextArea, useHotkeys, useToast } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
@@ -34,6 +34,7 @@ export interface QuotationsParams {
 
 export function QuotationsScreen({ params }: ScreenProps<QuotationsParams>) {
   const { from, to } = usePeriod();
+  const { date: workingDate } = useWorkingDate();
   const nav = useNav();
   const shell = useShell();
   const features = useFeatures();
@@ -97,7 +98,7 @@ export function QuotationsScreen({ params }: ScreenProps<QuotationsParams>) {
 
   const avail = shell.voucherAvailability(base);
   const convertible = current !== null && canConvert(current.status) && canCreate;
-  const convert = (target: 'sales' | 'sales_order') => current && nav.push('vouchers.entry', { draft: { sourceId: current.id, targetBaseType: target } });
+  const convert = (target: 'sales' | 'sales_order') => current && nav.push('vouchers.entry', { draft: { sourceId: current.id, targetBaseType: target, date: workingDate } });
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+1', label: 'Quotations', icon: 'file', onClick: () => setBase('quotation'), disabled: base === 'quotation', group: 'view' },
     { key: 'Ctrl+2', label: 'Proforma invoices', icon: 'invoice', onClick: () => setBase('proforma'), disabled: base === 'proforma', group: 'view' },

@@ -43,14 +43,24 @@ describe('journal form', () => {
     const withMaterial = { ...f0, rows: [blankRow('transfer', { itemId: 8, itemName: 'Die', qty: 1 })] };
     const f = applyBom(withMaterial, BOM, 25, 42);
     assert.equal(f.bomId, 7);
+    // Material In: the job worker consumed the components at their godown — never the BOM's default godown.
     assert.deepEqual(
       f.rows.map((r) => [r.role, r.itemName, r.qty, r.godownId]),
       [
         ['product', 'Chair', 25, null],
         ['scrap', 'Scrap', 12.5, null],
-        ['component', 'Steel', 125, 42],
-        ['component', 'Paint', 10, 9],
+        ['component', 'Steel', 125, null],
+        ['component', 'Paint', 10, null],
         ['transfer', 'Die', 1, null],
+      ],
+    );
+    // Manufacturing Journal: the BOM line's godown, else the one given.
+    const m = applyBom(emptyForm('manufacturing', 4, '2026-05-10'), BOM, 25, 42);
+    assert.deepEqual(
+      m.rows.filter((r) => r.role === 'component').map((r) => [r.itemName, r.godownId]),
+      [
+        ['Steel', 42],
+        ['Paint', 9],
       ],
     );
   });
@@ -103,6 +113,34 @@ describe('journal form', () => {
     };
     const f = fromDetail(d);
     assert.deepEqual([f.number, f.bomId, f.rows[0].itemName, f.rows[0].unit, f.costs[0].pct, f.costs[0].label], ['3', 7, 'Chair', 'Nos', 5, 'OH']);
+  });
+
+  test('altering keeps an optional / post-dated journal so and keeps the job worker’s challan no.', () => {
+    const d: MfgJournalDetail = {
+      id: 9,
+      voucherTypeId: 6,
+      class: 'material_in',
+      date: '2026-06-15',
+      number: '4',
+      partyLedgerId: 2,
+      narration: null,
+      isOptional: true,
+      isPostDated: true,
+      referenceNo: 'RF/77',
+      updatedAt: 'u',
+      bomName: null,
+      orderNumber: null,
+      items: [{ id: 1, name: 'Steel', unit: 'Kg', decimals: 3 }],
+      ledgers: [],
+      block: { thirdPartyGodownId: 4, lines: [{ role: 'transfer', itemId: 1, qty: 15 }] },
+    };
+    const { input } = toVoucherInput(fromDetail(d), { id: 9, updatedAt: 'u', number: '4' });
+    // Without the flag the core would apply the type's default and make the voucher regular.
+    assert.deepEqual([input.isOptional, input.isPostDated, input.referenceNo], [true, true, 'RF/77']);
+    const regular = toVoucherInput({ ...fromDetail(d), isOptional: false, isPostDated: false }, { id: 9, updatedAt: 'u', number: '4' }).input;
+    assert.deepEqual([regular.isOptional, regular.isPostDated], [false, undefined], 'Ctrl+L back to regular is sent');
+    const fresh = toVoucherInput({ ...emptyForm('manufacturing', 5, '2026-05-10'), referenceNo: 'x' }).input;
+    assert.deepEqual([fresh.isOptional, fresh.referenceNo], [undefined, undefined], 'a new journal takes the type default; no reference on a Manufacturing Journal');
   });
 });
 

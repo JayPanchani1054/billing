@@ -80,6 +80,47 @@ function firstIndexOnOrAfter(s: RecurringSchedule, date: string): number {
   return Math.max(0, Math.floor(months / step) - 1);
 }
 
+/**
+ * Would replacing schedule `a` by `b` change which occurrences exist (and so their period keys)? True when
+ * the frequency changes, for every-N-days when the interval changes or the start moves by other than a
+ * whole number of intervals, and for quarterly / half-yearly / yearly when the start month moves by other
+ * than a whole number of steps (a change of phase). A new day of the month or a new start / end on the
+ * same grid keeps the keys ('YYYY-MM' months, or the same dates) — nothing already posted can fall due again.
+ */
+export function scheduleShifts(a: RecurringSchedule, b: RecurringSchedule): boolean {
+  if (a.frequency !== b.frequency) return true;
+  if (a.frequency === 'every_n_days') {
+    const ia = Math.max(1, Math.trunc(a.intervalDays ?? 1));
+    const ib = Math.max(1, Math.trunc(b.intervalDays ?? 1));
+    return ia !== ib || diffDays(a.startDate, b.startDate) % ia !== 0;
+  }
+  const step = MONTHS[a.frequency];
+  if (step === 1) return false;
+  const pa = parts(a.startDate);
+  const pb = parts(b.startDate);
+  return (pa.y * 12 + pa.m - (pb.y * 12 + pb.m)) % step !== 0;
+}
+
+/**
+ * Occurrences on or before `until` that are not in `done`, oldest first, at most `max` (`truncated` when
+ * more exist). Walks the schedule in windows from the start, so a long run of dealt-with occurrences
+ * (a daily template over years) never hides the ones after it.
+ */
+export function undoneOccurrences(s: RecurringSchedule, done: { has(key: string): boolean }, until: string, max: number): { list: Occurrence[]; truncated: boolean } {
+  const out: Occurrence[] = [];
+  let fromDate: string | undefined;
+  for (;;) {
+    const { list, truncated } = occurrences(s, { until, ...(fromDate !== undefined ? { fromDate } : {}), limit: 500 });
+    for (const o of list) {
+      if (done.has(o.periodKey)) continue;
+      if (out.length >= max) return { list: out, truncated: true };
+      out.push(o);
+    }
+    if (!truncated || list.length === 0) return { list: out, truncated: false };
+    fromDate = addDays(list[list.length - 1].date, 1);
+  }
+}
+
 /** Readable period label for narration placeholders: 'Oct 2026' (month-based) or the date (every N days). */
 export function periodLabel(o: Occurrence): string {
   if (o.periodKey.length === 7) {

@@ -70,6 +70,11 @@ export interface MenuItem {
   feature?: keyof CompanyFeatures;
   /** (additive) Requires at least one of these features to be on (e.g. ['tds', 'tcs']). */
   anyFeature?: ReadonlyArray<keyof CompanyFeatures>;
+  /**
+   * (additive) Shown only for these GST registration types of the company (e.g. ['composition'] for
+   * CMP-08, ['regular'] for GSTR-1). The screen itself stays openable (it explains itself).
+   */
+  gstRegistrations?: ReadonlyArray<'regular' | 'composition' | 'unregistered'>;
   /** One plain-language line shown as a tooltip on the Gateway and under the label in Go To. */
   description?: string;
 }

@@ -77,7 +77,7 @@ export const ItemCombo = memo(function ItemCombo(props: ItemComboProps) {
       getKey={(r) => String(r.id)}
       getLabel={(r) => r.name}
       getAlias={(r) => r.alias}
-      getKeywords={(r) => [r.partNo ?? '', r.barcode ?? '', r.gst?.hsnSac ?? '', r.groupName ?? '']}
+      getKeywords={(r) => [r.partNo ?? '', r.barcode ?? '', r.gst?.hsnSac ?? '', r.groupName ?? '', ...(r.otherAliases ?? [])]}
       rightMeta={showStock ? (r) => (r.isService ? <span className="bx-muted">Service</span> : <span className="bx-num">{formatQty(r.stockQty, r.unitDecimals, r.unitSymbol)}</span>) : undefined}
       value={selected}
       onChange={(r) => onChange(r?.id ?? null, r)}

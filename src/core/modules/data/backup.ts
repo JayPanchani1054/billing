@@ -49,6 +49,7 @@ import { ensureDir, exists, probeWritable } from '../../lib/fsutil.ts';
 import { authorizeUserPath, isUncOrDevicePath, isWithin } from '../../lib/paths.ts';
 import { getConfig, readSetting, writeSetting } from '../company/service.ts';
 import { localStamp, safeFileNamePart } from './common.ts';
+import { describeBlobs, embedAttachmentsInSnapshot, inspectAttachmentBlobs, unpackAttachmentBlobs, type EmbedResult } from '../attachments/backup.ts';
 import { BackupFileError, checkPayloadDigest, extractPayload, readContainerInfo, writeContainer, type ContainerInfo } from './container.ts';
 
 export const BACKUP_PASSWORD_MIN = 8;
@@ -210,8 +211,11 @@ export async function createBackup(ctx: CompanyCtx, input: BackupCreateInput, ki
   ensureDir(workDir);
   const snapshot = path.join(workDir, `.backup-${randomToken(6)}.db`);
   let written: { manifest: BackupManifest; sizeBytes: number };
+  let attached: EmbedResult;
   try {
     await snapshotDatabase(ctx, snapshot);
+    // Attached files travel inside the snapshot (attachment_blobs), covered by its checksums / encryption.
+    attached = embedAttachmentsInSnapshot(snapshot, ctx.company.dir);
     const auditHead = snapshotAuditHead(ctx, snapshot, facts.guid, createdAt);
     written = await writeContainer({
       dbPath: snapshot,
@@ -273,13 +277,32 @@ export async function createBackup(ctx: CompanyCtx, input: BackupCreateInput, ki
       entityId: 1,
       entityGuid: facts.guid,
       entityLabel: path.basename(target),
-      after: { file: path.basename(target), folder, sizeBytes: written.sizeBytes, encrypted: Boolean(password), kind, note, removed: removed.length },
+      after: {
+        file: path.basename(target),
+        folder,
+        sizeBytes: written.sizeBytes,
+        encrypted: Boolean(password),
+        kind,
+        note,
+        removed: removed.length,
+        ...(attached.files > 0 || attached.missing.length > 0 ? { attachments: attached.files, attachmentsMissing: attached.missing.length } : {}),
+      },
     });
   });
   // No file name: it carries the company name, and business data stays out of the app log (§8).
   ctx.app.log('info', 'Backup written', { company: ctx.company.id, bytes: written.sizeBytes, kind });
 
-  return { path: target, fileName: path.basename(target), folder, sizeBytes: written.sizeBytes, createdAt, encrypted: Boolean(password), removed };
+  if (attached.missing.length > 0) ctx.app.log('warn', 'Backup written without some attached files (missing or changed)', { company: ctx.company.id, count: attached.missing.length });
+  return {
+    path: target,
+    fileName: path.basename(target),
+    folder,
+    sizeBytes: written.sizeBytes,
+    createdAt,
+    encrypted: Boolean(password),
+    removed,
+    ...(attached.files > 0 || attached.missing.length > 0 ? { attachments: { files: attached.files, missing: attached.missing.slice(0, 50) } } : {}),
+  };
 }
 
 /** "Keep last N": delete older backups of THIS company (same id and guid) in `folder`. */
@@ -540,6 +563,14 @@ export async function verifyBackup(access: BackupFileAccess, rawPath: string, pa
     if (intact && facts.name !== null) {
       const log = backupEditLogCheck(access.app, out, m);
       checks.push({ name: 'edit_log', ok: log.ok, message: log.message });
+      // Attached files carried in the backup (dataplus): present and unchanged.
+      const blobDb = new Db(out, { readOnly: true });
+      try {
+        const blobs = inspectAttachmentBlobs(blobDb);
+        if (blobs && (blobs.files > 0 || blobs.referenced > 0)) checks.push({ name: 'attachments', ...describeBlobs(blobs) });
+      } finally {
+        blobDb.close();
+      }
     }
     return result(m, { companyName: facts.name ?? m.companyName, schemaVersion: facts.schemaVersion, supported, counts: facts.counts });
   });
@@ -718,6 +749,7 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
   await checkPayloadDigest(file, info);
   return withWorkDir(env.app.dataDir, async (dir) => {
     const extracted = path.join(dir, COMPANY_DB_FILE);
+    const restoredFiles = path.join(dir, 'attachments');
     await extractPayload(file, info, input.password, extracted);
     const facts = inspectDatabase(extracted, false);
     if (!(facts.integrity.length === 1 && facts.integrity[0] === 'ok')) {
@@ -773,11 +805,16 @@ export async function restoreBackup(env: RestoreEnv, input: BackupRestoreInput):
         env.session,
         env.clock.now(),
       );
+      // Attached files carried in the backup go to the restored company's attachments folder.
+      unpackAttachmentBlobs(db, restoredFiles);
     } finally {
       db.close();
     }
 
-    const installed = await controllerFor(env.app).installCompanyDatabase(extracted, input.mode === 'replace' ? { replaceId: input.replaceId } : {});
+    const installed = await controllerFor(env.app).installCompanyDatabase(extracted, {
+      ...(input.mode === 'replace' ? { replaceId: input.replaceId } : {}),
+      attachmentsDir: restoredFiles,
+    });
     env.app.log('info', 'Backup restored', { company: installed.company.id, mode: input.mode });
     return { company: installed.company, replacedTo: installed.replacedTo, restoredFrom: file, manifest: m };
   });

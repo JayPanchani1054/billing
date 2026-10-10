@@ -253,6 +253,8 @@ export const PERMISSIONS = [
   'tds.view',                // TDS/TCS reports (computation, outstanding, challans, return data)
   'tds.manage',              // TDS/TCS natures, ledger TDS details, setup, statement status, 26AS import
   'tds.file',                // export quarterly statement data (26Q/27Q/27EQ)
+  'attachments.add',         // attach files to vouchers, ledgers and stock items (dataplus)
+  'attachments.remove',      // remove attached files (dataplus)
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -266,7 +268,7 @@ export const SYSTEM_ROLES: ReadonlyArray<{ name: string; description: string; pe
   {
     name: 'Data Entry',
     description: 'Create masters and vouchers; view basic reports',
-    permissions: ['company.view', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'reports.view', 'gst.view'],
+    permissions: ['company.view', 'masters.view', 'masters.create', 'vouchers.view', 'vouchers.create', 'reports.view', 'gst.view', 'attachments.add'],
   },
   {
     name: 'Auditor',

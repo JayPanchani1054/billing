@@ -21,6 +21,8 @@ import type {
   VoucherMode,
 } from '../../../../shared/types/vouchers.ts';
 import type { VoucherTdsInput } from '../../../../shared/types/tds.ts';
+import type { VoucherGstDetailsInput } from '../../../../shared/types/gst-plus.ts';
+import type { VoucherForexInput } from '../../../../shared/types/forex.ts';
 import { singleEntryAccountSide } from './kinds.ts';
 
 export type Side = 'dr' | 'cr';
@@ -81,6 +83,13 @@ export interface LedgerRow {
   hsnSac: string;
   /** Other GST override fields of a saved line (taxability, cess, supply kind) — no column; kept for alteration. */
   gstExtra: Omit<LedgerLineGstInput, 'rate' | 'hsnSac'> | null;
+  /**
+   * (forex module) Ledger mode, ledger kept in a foreign currency: the amount in that currency (same sign
+   * convention as `amount`; 0 = an exchange adjustment in rupees only) and its rate of exchange. `amount`
+   * then holds the rupees (forex × rate), set by the forex dialog (Alt+Y).
+   */
+  forexAmount?: number | null;
+  exchangeRate?: number | null;
 }
 
 /** Links a new voucher carries from a documents-module draft (conversion of a quotation, a recurring occurrence). */
@@ -133,6 +142,14 @@ export interface VoucherForm {
   docLinks: DocLinks | null;
   /** TDS/TCS (tds module): nature for an advance, overrides with reasons, challan details; null = automatic. */
   tds: VoucherTdsInput | null;
+  /** GST details (gst module, Alt+J): advance, advance adjustment / refund, bill of entry, stat adjustment, challan; null = none. */
+  gstDetails: VoucherGstDetailsInput | null;
+  /**
+   * (forex module) Invoice in a foreign currency (party kept in that currency): document currency + rate.
+   * While set, the item rates, line amounts and party bill amounts on the form are in that currency
+   * (amount fields hold the foreign amount × 100, like paise); the server converts to rupees.
+   */
+  forex?: VoucherForexInput | null;
   /** Anything typed since load / reset (Esc asks before discarding). */
   touched: boolean;
   /** Key counter. */
@@ -236,6 +253,7 @@ export function newForm(o: NewFormOptions): VoucherForm {
     applicableUpto: null,
     docLinks: null,
     tds: null,
+    gstDetails: null,
     touched: false,
     seq: 0,
   };

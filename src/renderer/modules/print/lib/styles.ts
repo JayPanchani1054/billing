@@ -135,6 +135,7 @@ export const DOCUMENT_CSS = `
 .bp-compact .bp-qr { width: 30mm; height: 30mm; margin: 3pt auto; }
 .bp-compact .bp-c-sign { margin-top: 6pt; text-align: right; }
 .bp-compact .bp-c-sign-space { height: 8mm; }
+.bp-compact .bp-c-saved td { font-weight: 700; padding-top: 2pt; }
 
 /* ── Smaller paper ── */
 .bp-size-a5 { font-size: 7.6pt; }
@@ -142,10 +143,19 @@ export const DOCUMENT_CSS = `
 .bp-size-a5 .bp-title { font-size: 12pt; }
 .bp-size-a5 .bp-refs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .bp-size-a5 .bp-sign-space { height: 11mm; }
+.bp-size-a5-landscape { font-size: 8pt; }
+.bp-size-a5-landscape .bp-co-name { font-size: 12pt; }
+.bp-size-a5-landscape .bp-title { font-size: 12.5pt; }
+.bp-size-a5-landscape .bp-sign-space { height: 11mm; }
 .bp-size-80mm { font-size: 8pt; }
+.bp-size-58mm { font-size: 7pt; }
+.bp-size-58mm .bp-compact { font-size: 7pt; }
+.bp-size-58mm .bp-compact .bp-c-name { font-size: 9.5pt; }
+.bp-size-58mm .bp-compact .bp-c-title { font-size: 8pt; }
+.bp-size-58mm .bp-compact .bp-qr { width: 26mm; height: 26mm; }
 `;
 
-/** In-app preview chrome: each copy drawn as a sheet of paper at its real width. */
+/** In-app preview chrome: each copy drawn as a sheet of paper (or a strip of roll) at its real width. */
 export function previewCss(size: PrintPageSize): string {
   const page = PAGE[size];
   return `
@@ -156,23 +166,51 @@ export function previewCss(size: PrintPageSize): string {
 `;
 }
 
-const PAGE: Record<PrintPageSize, { width: string; minHeight: string; margin: string; css: string }> = {
-  A4: { width: '210mm', minHeight: '297mm', margin: '10mm 10mm 12mm', css: 'A4 portrait' },
-  A5: { width: '148mm', minHeight: '210mm', margin: '7mm 7mm 9mm', css: 'A5 portrait' },
-  '80mm': { width: '80mm', minHeight: '60mm', margin: '3mm 4mm', css: '80mm 297mm' },
+interface PageGeometry {
+  width: string;
+  minHeight: string;
+  /** Sheets: @page margin. Rolls: padding inside the receipt (the roll page has no margin). */
+  margin: string;
+  /** @page size for sheets; rolls get '<width> <measured length>'. */
+  css: string;
+  roll: boolean;
+}
+
+/**
+ * Paper geometry. Rolls: 80 mm paper prints 72 mm wide (576 dots at 203 dpi), 58 mm paper 48 mm
+ * (384 dots) — the receipt's side padding keeps the text inside the printable width.
+ */
+const PAGE: Record<PrintPageSize, PageGeometry> = {
+  A4: { width: '210mm', minHeight: '297mm', margin: '10mm 10mm 12mm', css: 'A4 portrait', roll: false },
+  A5: { width: '148mm', minHeight: '210mm', margin: '7mm 7mm 9mm', css: 'A5 portrait', roll: false },
+  'A5-landscape': { width: '210mm', minHeight: '148mm', margin: '7mm 8mm 8mm', css: 'A5 landscape', roll: false },
+  Letter: { width: '215.9mm', minHeight: '279.4mm', margin: '10mm 10mm 12mm', css: 'letter portrait', roll: false },
+  Legal: { width: '215.9mm', minHeight: '355.6mm', margin: '10mm 10mm 12mm', css: 'legal portrait', roll: false },
+  '80mm': { width: '80mm', minHeight: '60mm', margin: '3mm 4mm', css: '80mm', roll: true },
+  '58mm': { width: '58mm', minHeight: '50mm', margin: '2mm 5mm', css: '58mm', roll: true },
 };
 
-/** @page rules and body reset for the printed HTML document. */
-export function pageCss(size: PrintPageSize, opts: { pageNumbers: 'of' | 'plain' | 'none' }): string {
+/**
+ * @page rules and body reset for the printed HTML document. A roll is one page per receipt, as long as
+ * the tallest receipt (`rollHeightMm`, measured from the preview; 297 mm when unknown), printed edge to
+ * edge with the receipt's own padding.
+ */
+export function pageCss(size: PrintPageSize, opts: { pageNumbers: 'of' | 'plain' | 'none'; rollHeightMm?: number | null }): string {
   const page = PAGE[size];
+  if (page.roll) {
+    const h = opts.rollHeightMm && opts.rollHeightMm > 0 ? Math.ceil(opts.rollHeightMm) : 297;
+    return `
+@page { size: ${page.css} ${h}mm; margin: 0; }
+html, body { margin: 0; padding: 0; background: ${PAPER}; }
+.bp-docs.bp-size-${size} .bp-doc { width: ${page.width}; max-width: 100%; padding: ${page.margin}; margin: 0; }
+`;
+  }
   const counter =
-    opts.pageNumbers === 'none' || size === '80mm'
+    opts.pageNumbers === 'none'
       ? ''
       : `@bottom-right { content: "Page " counter(page)${opts.pageNumbers === 'of' ? ' " of " counter(pages)' : ''}; font: 7pt "Segoe UI", system-ui, sans-serif; color: ${mix(55)}; }`;
-  // A receipt keeps its 72 mm printable width even when the printer (or a PDF) uses a wider sheet.
-  const roll = size === '80mm' ? '.bp-docs.bp-size-80mm .bp-doc { width: 72mm; max-width: 100%; margin: 0 auto; }\n' : '';
   return `
 @page { size: ${page.css}; margin: ${page.margin}; ${counter} }
 html, body { margin: 0; padding: 0; background: ${PAPER}; }
-${roll}`;
+`;
 }

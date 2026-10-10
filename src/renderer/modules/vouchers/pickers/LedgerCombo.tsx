@@ -120,7 +120,7 @@ export const LedgerCombo = memo(function LedgerCombo(props: LedgerComboProps) {
       getKey={(l) => String(l.id)}
       getLabel={(l) => l.name}
       getAlias={(l) => l.alias}
-      getKeywords={(l) => [l.gstin ?? '', l.groupName]}
+      getKeywords={(l) => [l.gstin ?? '', l.groupName, ...(l.otherAliases ?? [])]}
       groupBy={(l) => l.groupName}
       rightMeta={showBalance ? (l) => <span className="bx-num">{formatDrCr(l.balance) || '—'}</span> : undefined}
       value={selected}

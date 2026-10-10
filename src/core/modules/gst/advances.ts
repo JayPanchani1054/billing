@@ -215,7 +215,11 @@ function aggregate(rows: readonly LineRow[], companyState: string): Table11Row[]
   return [...by.values()].sort((a, b) => a.pos.localeCompare(b.pos) || a.rate - b.rate);
 }
 
-/** GSTR-1 Table 11A / 11B for a date range (books filter). */
+/**
+ * GSTR-1 Table 11A / 11B for a date range (books filter). An advance received and adjusted / refunded
+ * within the same range is left out of both tables (only its unadjusted part is in 11A); `vouchers`
+ * still lists every advance line of the range.
+ */
 export function table11(db: Db, from: string, to: string, today: string, companyState: string): Gstr1AdvancesSummary {
   const rows = db.all<LineRow>(
     `SELECT a.voucher_id, a.receipt_voucher_id, a.kind, a.pos, a.rate, a.gross, a.taxable_value, a.igst, a.cgst, a.sgst, a.cess, a.date,
@@ -227,8 +231,31 @@ export function table11(db: Db, from: string, to: string, today: string, company
       ORDER BY a.date, a.voucher_id, a.id`,
     { from, to, today },
   );
-  const received = aggregate(rows.filter((r) => r.kind === 'received'), companyState);
-  const adjusted = aggregate(rows.filter((r) => r.kind !== 'received'), companyState);
+  // GSTR-1 instructions: 11A(1) is an advance received in the period "for which invoice has not been
+  // issued in the same tax period", and 11B(1) adjusts advances "received in earlier tax period". An
+  // advance received and adjusted / refunded in the same period is therefore in neither table — only
+  // the part still unadjusted at the end of the period goes to 11A (the tax effect is the same).
+  const receivedHere = new Map<number, LineRow>();
+  for (const r of rows) if (r.kind === 'received') receivedHere.set(r.voucher_id, { ...r });
+  const adjustedRows: LineRow[] = [];
+  for (const r of rows) {
+    if (r.kind === 'received') continue;
+    const own = r.receipt_voucher_id !== null ? receivedHere.get(r.receipt_voucher_id) : undefined;
+    if (!own) {
+      adjustedRows.push(r);
+      continue;
+    }
+    own.gross -= r.gross;
+    own.taxable_value -= r.taxable_value;
+    own.igst -= r.igst;
+    own.cgst -= r.cgst;
+    own.sgst -= r.sgst;
+    own.cess -= r.cess;
+  }
+  const received = aggregate([...receivedHere.values()].filter((r) => r.gross !== 0 || r.taxable_value !== 0), companyState).filter(
+    (t) => t.gross !== 0 || t.taxable !== 0 || t.igst !== 0 || t.cgst !== 0 || t.sgst !== 0 || t.cess !== 0,
+  );
+  const adjusted = aggregate(adjustedRows, companyState);
   const net = zeroTV();
   for (const r of received) addTV(net, r);
   for (const r of adjusted) addTV(net, r, -1);

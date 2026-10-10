@@ -38,7 +38,7 @@ All routes are company scope. Types are in `shared/types/vouchers.ts`.
 | `vouchers.list` | vouchers.view | `VoucherListInput { from, to, voucherTypeIds?, baseTypes?, partyLedgerId?, ledgerId?, search?, includeOptional? (true), includeCancelled? (true), onlyPostDated?, sort? ('date_asc'), limit? (≤1000, default 200), offset? }` | `{ rows: VoucherListRow[], total, sums: { amount } }`. `search` matches number, reference no., narration, party name (case-insensitive, literal) or an exact amount ('1,180.00' = `total_amount`). |
 | `vouchers.delete` | vouchers.delete (+ vouchers.backdate when dated before today) | `{ id, reason?, expectedUpdatedAt? }` | `{ id, number }` |
 | `vouchers.cancel` | vouchers.alter (+ vouchers.backdate when dated before today) | `{ id, reason, expectedUpdatedAt? }` | `{ id, number, updatedAt }` |
-| `vouchers.duplicate` | vouchers.view | `{ id }` | `VoucherInput` with no id or number, dated today. Bill allocations, tracking/order refs, the original invoice no./date of a note and (purchase) supplier invoice no./date are removed. |
+| `vouchers.duplicate` | vouchers.view | `{ id }` | `VoucherInput` with no id or number, dated today. Bill allocations, tracking/order refs, the original invoice no./date of a note and (purchase) supplier invoice no./date are removed; of the GST details only an advance's rate and a stat-adjustment nature are kept (a challan, set-off, bill of entry and advances used belong to the source). |
 | `vouchers.nextNumber` | vouchers.view | `{ voucherTypeId, date }` | `string` (`''` for manual / none) |
 | `vouchers.setOptional` | vouchers.alter | `{ id, optional, acknowledgeWarnings?, expectedUpdatedAt? }` | `VoucherSaveResult` (a full alter: guards run when becoming regular) |
 | `vouchers.trackingRefs` | vouchers.view | `{ partyLedgerId, kind: 'delivery' \| 'receipt' \| 'sales_order' \| 'purchase_order', excludeVoucherId? }` | `TrackingDoc[]`: open notes/orders with lines and `pendingQty` |
@@ -113,7 +113,7 @@ Every warning has a `level` (§8): `info` never stops a save, `confirm` needs `a
   - For item lines the tax is also added to the `inventory_entries.amount` (stock is carried at cost).
 - **Unregistered company:** the engine computes no tax at all. Enter purchases at their tax-inclusive amount.
 - **Import of goods** — and **goods from an SEZ unit** (supplier registration `sez`, nature `inward_sez`; SEZ Act s.30 / SEZ Rules r.47–48: SEZ goods cleared into the DTA are imports):
-  - IGST is computed and stored in `gst_lines` (nature `import_goods` / `inward_sez`, supply type goods) but **not posted**: it is paid at customs on the bill of entry, which is entered separately as a journal: Dr Input IGST / Cr Bank (or the customs duty ledger). GSTR-3B reports it in 4(A)(1) IMPG, GSTR-9 in 6E; GSTR-2B shows it under IMPGSEZ, so the GST reconciliation does not expect it in B2B.
+  - IGST is computed and stored in `gst_lines` (nature `import_goods` / `inward_sez`, supply type goods) but **not posted**: it is paid at customs on the bill of entry, which is entered on the purchase itself as its GST details (Alt+J › bill of entry: the gst voucher hook posts Dr Input IGST / Cr "IGST Payable on Imports (Customs)" — gst/README.md §11). GSTR-3B reports it in 4(A)(1) IMPG, GSTR-9 in 6E; GSTR-2B shows it under IMPG / IMPGSEZ (GST › Bills of Entry reconciles them), so the GST reconciliation does not expect it in B2B.
   - The party gets the taxable value only. A tax-inclusive rate is ignored (warning).
   - **Services from an SEZ unit** are an ordinary inter-state B2B supply: IGST charged on the invoice and payable to the supplier (Dr Input IGST), 3B 4(A)(5).
 - **Exports / SEZ:**
@@ -347,8 +347,9 @@ Guards are skipped for optional vouchers. The voucher being altered is always ex
 ## 9. Known gaps
 
 - Ledger-mode GST entries produce no `gst_lines` (the `gst_ledger_lines` warning needs confirmation). GST must be entered in invoice mode to reach the returns.
-- Import of goods: IGST is not posted (no customs/IGST-paid ledger is reserved); record the bill of entry as a journal.
-- TDS/TCS computation is not automatic. A TCS/TDS ledger can be added as a non-GST line.
+- Import of goods: IGST is posted from the bill of entry entered as the purchase's GST details (Alt+J), not from the invoice lines (gst/README.md §11).
+- GST details (`VoucherInput.gstDetails`: advance / its adjustment or refund, bill of entry, GST challan, stat adjustment, set-off) are validated, posted and derived by the gst module through the same voucher hook (`gst/hook.ts`, derived `gst_advance_lines`, `gst_bill_of_entry`, `gst_stat_lines`, `gst_challans`); a document of a filed GSTR-1 period is logged as an amendment when altered and cannot be deleted or cancelled — see src/core/modules/gst/README.md §11, §16.
+- TDS/TCS is computed and posted by the tds module through the voucher hook (`hooks.ts`, `VoucherInput.tds`, derived `tds_lines` / `tds_challans`) when F11 › TDS / TCS is on — see src/core/modules/tds/README.md. With them off, a TCS/TDS ledger can still be added as a non-GST line.
 - Multi-currency (`forex_amount`, `exchange_rate`) is not handled.
 - Negative-stock checks are only as of the voucher date (per item + godown, and per batch for batch lines). Later-dated vouchers are not re-checked.
 - Bill names typed by the user are taken as given: a `new` reference reusing a pending bill's name is netted with it (`duplicate_bill_ref`, confirm).
@@ -358,7 +359,7 @@ Guards are skipped for optional vouchers. The voucher being altered is always ex
 - Stock valuation (closing stock) is the stock/reports modules' job. `inventory_entries.amount` is the input to it.
 - Physical stock stores **counted − book** as at its save. A voucher entered later but dated before it changes the book quantity, so the count no longer equals the closing quantity (Tally resets to the count). Re-save the physical stock voucher after such entries.
 - `include_in_assessable = 'services'` is not apportioned (only `'goods'`); such a ledger is treated by rules 3–4.
-- Optional vouchers take the next number of their type's series (as in Tally). GSTR-1 Table 13 leaves such a number out of the range (neither issued nor cancelled) and raises `optional_in_series` so it is regularised or deleted before filing; a separate voucher type for optional / pro-forma documents avoids the question.
+- Optional vouchers take the next number of their type's series (as in Tally). GSTR-1 Table 13 leaves such a number out of the range (neither issued nor cancelled) and raises `optional_in_series` so it is regularised or deleted before filing; a separate voucher type for optional / pro-forma documents avoids the question. For quotations and proforma invoices use the **Quotation** / **Proforma Invoice** voucher types (documents module, base types `quotation` / `proforma`): their own series, no books, conversion into an order or invoice.
 - An item-mode Credit Note always brings the goods back (a sales return); a price reduction on goods the customer keeps is entered in accounting_invoice mode (§3).
 - Debit Notes to customers saved before value-only lines were introduced keep their stock movement until re-saved.
 - GST reconciliation (`gst_portal_docs.match_status`) is not reset when a matched voucher is deleted or cancelled (the FK clears `matched_voucher_id`); the gstrecon module re-matches.

@@ -31,6 +31,7 @@ import {
   type TdsForm,
 } from '../../../shared/tds/rules.ts';
 import type {
+  DeducteeType,
   TdsChallanRegister,
   TdsChallanRow,
   TdsComputationResult,
@@ -46,13 +47,26 @@ import type {
   TdsKind,
 } from '../../../shared/types/tds.ts';
 import type { Db } from '../../db/db.ts';
+import { rateFor } from './engine.ts';
 import { getTdsSettings, payableLedgerName, rateFromRow, TdsStore } from './store.ts';
 
 const inr = (p: Paise): string => formatMoney(p, { symbol: true });
 
 // ───────────────────────────── Loading + FIFO clearing ─────────────────────────────
 
-interface LineRec {
+/** What clearing, statements and the outstanding report need of a line. */
+interface TaxLine {
+  id: number;
+  date: string;
+  kind: TdsKind;
+  section: string;
+  amount: Paise;
+  status: string;
+  nonResident: boolean;
+  forNonResidents: boolean;
+}
+
+interface LineRec extends TaxLine {
   id: number;
   voucherId: number;
   number: string | null;
@@ -72,6 +86,7 @@ interface LineRec {
   nonResident: boolean;
   assessable: Paise;
   catchUp: Paise;
+  advanceAdjusted: Paise;
   base: Paise;
   rate: number;
   computed: Paise;
@@ -148,6 +163,7 @@ function loadLines(db: Db, p: { kind?: TdsKind; from?: string; to: string; today
       non_resident: number;
       assessable: number;
       catch_up: number;
+      advance_adjusted: number;
       base: number;
       rate: number;
       computed: number;
@@ -160,7 +176,7 @@ function loadLines(db: Db, p: { kind?: TdsKind; from?: string; to: string; today
     }>(
       `SELECT tl.id, tl.voucher_id, v.number, vt.name AS type_name, v.base_type, tl.date, tl.kind, tl.nature_id, n.name AS nature_name,
               tl.section, n.for_non_residents AS for_nr, tl.party_ledger_id, l.name AS party_name, tl.deductee_type, tl.pan, tl.pan_status,
-              tl.non_resident, tl.assessable, tl.catch_up, tl.base, tl.rate, tl.computed, tl.amount, tl.overridden, tl.reason, tl.status,
+              tl.non_resident, tl.assessable, tl.catch_up, tl.advance_adjusted, tl.base, tl.rate, tl.computed, tl.amount, tl.overridden, tl.reason, tl.status,
               tl.note, d.cert_number
          FROM tds_lines tl
          JOIN vouchers v ON v.id = tl.voucher_id
@@ -192,6 +208,7 @@ function loadLines(db: Db, p: { kind?: TdsKind; from?: string; to: string; today
       nonResident: r.non_resident === 1,
       assessable: r.assessable,
       catchUp: r.catch_up,
+      advanceAdjusted: r.advance_adjusted,
       base: r.base,
       rate: r.rate,
       computed: r.computed,
@@ -204,12 +221,16 @@ function loadLines(db: Db, p: { kind?: TdsKind; from?: string; to: string; today
     }));
 }
 
-function loadChallans(db: Db, p: { kind?: TdsKind; depositFrom?: string; depositTo: string; today: string }): ChallanRec[] {
+function loadChallans(db: Db, p: { kind?: TdsKind; depositFrom?: string; depositTo: string; today: string; periodFrom?: string }): ChallanRec[] {
   const where = ['c.affects_books = 1 AND (c.is_post_dated = 0 OR c.date <= :today)', 'c.deposit_date <= :to'];
   const params: Record<string, string> = { to: p.depositTo, today: p.today };
   if (p.depositFrom) {
     where.push('c.deposit_date >= :from');
     params.from = p.depositFrom;
+  }
+  if (p.periodFrom) {
+    where.push('c.period >= :periodFrom');
+    params.periodFrom = p.periodFrom;
   }
   if (p.kind) {
     where.push('c.kind = :kind');
@@ -269,8 +290,41 @@ function loadChallans(db: Db, p: { kind?: TdsKind; depositFrom?: string; deposit
 
 const keyOf = (kind: TdsKind, section: string, period: string): string => `${kind}|${section}|${period}`;
 
+/**
+ * First day of the month of `iso`. Clearing pools are per kind + section + MONTH, so the deductions and
+ * challans of earlier months never change how a later month is cleared: a report about a period loads
+ * from the start of its first month instead of the whole history (fast on years of vouchers).
+ */
+const monthStart = (iso: string): string => `${iso.slice(0, 7)}-01`;
+
+/**
+ * Lines that carry tax (or a lower / nil certificate) up to `to` — the few columns the outstanding
+ * report, the clearing and the statements need. Below-threshold lines (most of them) never leave SQLite.
+ */
+function loadTaxLines(db: Db, p: { kind: TdsKind; to: string; today: string }): TaxLine[] {
+  return db
+    .all<{ id: number; date: string; kind: TdsKind; section: string; amount: number; status: string; non_resident: number; for_nr: number }>(
+      `SELECT tl.id, tl.date, tl.kind, tl.section, tl.amount, tl.status, tl.non_resident, n.for_non_residents AS for_nr
+         FROM tds_lines tl JOIN tds_natures n ON n.id = tl.nature_id
+        WHERE tl.kind = :kind AND tl.date <= :to AND (tl.amount > 0 OR tl.status = 'certificate')
+          AND tl.affects_books = 1 AND (tl.is_post_dated = 0 OR tl.date <= :today)
+        ORDER BY tl.date, tl.voucher_id, tl.line_no`,
+      p,
+    )
+    .map((r) => ({
+      id: r.id,
+      date: r.date,
+      kind: r.kind,
+      section: r.section,
+      amount: r.amount,
+      status: r.status,
+      nonResident: r.non_resident === 1,
+      forNonResidents: r.for_nr === 1,
+    }));
+}
+
 /** FIFO clearing of deductions by the challans of the same kind + section + month. */
-export function clearDeductions(lines: readonly LineRec[], challans: readonly ChallanRec[]): Cleared {
+export function clearDeductions(lines: readonly TaxLine[], challans: readonly ChallanRec[]): Cleared {
   const byLine = new Map<number, Portion[]>();
   const used = new Map<number, Paise>();
   const pools = new Map<string, Array<{ c: ChallanRec; left: Paise }>>();
@@ -310,8 +364,8 @@ export function formOf(l: { kind: TdsKind; nonResident: boolean; forNonResidents
 // ───────────────────────────── Computation ─────────────────────────────
 
 export function computation(db: Db, p: { from: string; to: string; kind?: TdsKind; today: string }): TdsComputationResult {
-  const all = loadLines(db, { kind: p.kind, to: p.to, today: p.today });
-  const cleared = clearDeductions(all, loadChallans(db, { kind: p.kind, depositTo: p.to, today: p.today }));
+  const all = loadLines(db, { kind: p.kind, from: monthStart(p.from), to: p.to, today: p.today });
+  const cleared = clearDeductions(all, loadChallans(db, { kind: p.kind, depositTo: p.to, today: p.today, periodFrom: p.from.slice(0, 7) }));
   const groups = new Map<string, TdsComputationRow>();
   for (const l of all) {
     if (l.date < p.from) continue;
@@ -367,10 +421,11 @@ export function computation(db: Db, p: { from: string; to: string; kind?: TdsKin
 
 export function lineRows(
   db: Db,
-  p: { from: string; to: string; kind?: TdsKind; today: string; partyLedgerId?: number; natureId?: number; section?: string; period?: string },
+  p: { from: string; to: string; kind?: TdsKind; today: string; partyLedgerId?: number; natureId?: number; section?: string; period?: string; voucherId?: number; depositTo?: string },
 ): TdsLineRow[] {
-  const all = loadLines(db, { kind: p.kind, to: p.to, today: p.today });
-  const cleared = clearDeductions(all, loadChallans(db, { kind: p.kind, depositTo: p.to, today: p.today }));
+  const all = loadLines(db, { kind: p.kind, from: monthStart(p.from), to: p.to, today: p.today });
+  // Deposits count up to the period end (as in the computation), or to `depositTo` (voucher view: today).
+  const cleared = clearDeductions(all, loadChallans(db, { kind: p.kind, depositTo: p.depositTo ?? p.to, today: p.today, periodFrom: p.from.slice(0, 7) }));
   return all
     .filter(
       (l) =>
@@ -378,7 +433,8 @@ export function lineRows(
         (p.partyLedgerId === undefined || l.partyLedgerId === p.partyLedgerId) &&
         (p.natureId === undefined || l.natureId === p.natureId) &&
         (p.section === undefined || l.section === p.section) &&
-        (p.period === undefined || l.date.slice(0, 7) === p.period),
+        (p.period === undefined || l.date.slice(0, 7) === p.period) &&
+        (p.voucherId === undefined || l.voucherId === p.voucherId),
     )
     .map((l) => {
       const paid = paidOf(cleared, l.id);
@@ -397,6 +453,7 @@ export function lineRows(
         panStatus: l.panStatus as TdsLineRow['panStatus'],
         assessable: l.assessable,
         catchUp: l.catchUp,
+        advanceAdjusted: l.advanceAdjusted,
         base: l.base,
         rate: l.rate,
         computed: l.computed,
@@ -415,7 +472,7 @@ export function lineRows(
 // ───────────────────────────── Outstanding ─────────────────────────────
 
 export function outstanding(db: Db, p: { asOf: string; kind: TdsKind; today: string; includeSettled?: boolean }): TdsOutstandingResult {
-  const lines = loadLines(db, { kind: p.kind, to: p.asOf, today: p.today });
+  const lines = loadTaxLines(db, { kind: p.kind, to: p.asOf, today: p.today });
   const challans = loadChallans(db, { kind: p.kind, depositTo: p.asOf, today: p.today });
   const cleared = clearDeductions(lines, challans);
   const groups = new Map<string, TdsOutstandingRow>();
@@ -491,13 +548,19 @@ export function outstanding(db: Db, p: { asOf: string; kind: TdsKind; today: str
   return { asOf: p.asOf, kind: p.kind, rows, statements, totals };
 }
 
-function statementRows(db: Db, lines: readonly LineRec[], asOf: string): TdsStatementRow[] {
+function statementRows(db: Db, lines: readonly TaxLine[], asOf: string): TdsStatementRow[] {
   const groups = new Map<string, { form: TdsForm; fyStart: number; quarter: Quarter; tax: Paise; count: number }>();
+  const quarterKey = new Map<string, { fyStart: number; quarter: Quarter }>();
   for (const l of lines) {
     if (l.amount <= 0 && l.status !== 'certificate') continue;
     const form = formOf(l);
-    const fyStart = taxYearOf(l.date).startYear;
-    const quarter = quarterOf(l.date);
+    const month = l.date.slice(0, 7);
+    let fq = quarterKey.get(month);
+    if (!fq) {
+      fq = { fyStart: taxYearOf(l.date).startYear, quarter: quarterOf(l.date) };
+      quarterKey.set(month, fq);
+    }
+    const { fyStart, quarter } = fq;
     const k = `${form}|${fyStart}|${quarter}`;
     const g = groups.get(k) ?? { form, fyStart, quarter, tax: 0, count: 0 };
     g.tax += l.amount;
@@ -541,8 +604,11 @@ function statementRows(db: Db, lines: readonly LineRec[], asOf: string): TdsStat
 
 export function challanRegister(db: Db, p: { from: string; to: string; kind?: TdsKind; today: string }): TdsChallanRegister {
   const challans = loadChallans(db, { kind: p.kind, depositTo: p.to, today: p.today });
-  const lines = loadLines(db, { kind: p.kind, to: '9999-12-31', today: p.today });
-  const cleared = clearDeductions(lines, challans);
+  // Only the months the listed challans pay for matter to their clearing.
+  const shown = challans.filter((c) => c.depositDate >= p.from);
+  const firstPeriod = shown.reduce<string | null>((a, c) => (a === null || c.period < a ? c.period : a), null);
+  const lines = firstPeriod === null ? [] : loadLines(db, { kind: p.kind, from: `${firstPeriod}-01`, to: '9999-12-31', today: p.today });
+  const cleared = clearDeductions(lines, firstPeriod === null ? [] : challans.filter((c) => c.period >= firstPeriod));
   const rows: TdsChallanRow[] = challans
     .filter((c) => c.depositDate >= p.from)
     .map((c) => {
@@ -624,8 +690,8 @@ const REASON_NO_PAN = 'C';
 export function returnData(db: Db, p: { form: TdsForm; fyStart: number; quarter: Quarter; today: string; asOf: string }): TdsReturnData {
   const range = quarterRange(p.fyStart, p.quarter);
   const kind: TdsKind = p.form === '27EQ' ? 'tcs' : 'tds';
-  const all = loadLines(db, { kind, to: range.to, today: p.today }).filter((l) => formOf(l) === p.form);
-  const challansAll = loadChallans(db, { kind, depositTo: '9999-12-31', today: p.today });
+  const all = loadLines(db, { kind, from: range.from, to: range.to, today: p.today }).filter((l) => formOf(l) === p.form);
+  const challansAll = loadChallans(db, { kind, depositTo: '9999-12-31', today: p.today, periodFrom: range.from.slice(0, 7) });
   const cleared = clearDeductions(all, challansAll);
   const months = new Set([0, 1, 2].map((i) => {
     const [y, m] = range.from.split('-').map(Number);
@@ -744,7 +810,8 @@ function challanFitsForm(c: ChallanRec, lines: readonly LineRec[], form: TdsForm
 // ───────────────────────────── Exceptions ─────────────────────────────
 
 export function exceptions(db: Db, p: { from: string; to: string; kind?: TdsKind; asOf: string; today: string }): TdsExceptionRow[] {
-  const all = loadLines(db, { kind: p.kind, to: p.to, today: p.today });
+  // Thresholds aggregate per income-tax year (or month): lines from the start of the year of `from` suffice.
+  const all = loadLines(db, { kind: p.kind, from: taxYearOf(p.from).start, to: p.to, today: p.today });
   const out: TdsExceptionRow[] = [];
   const push = (l: LineRec, type: TdsExceptionRow['type'], severity: TdsExceptionRow['severity'], message: string, shortfall = 0, interest = 0): void => {
     out.push({
@@ -805,8 +872,7 @@ export function exceptions(db: Db, p: { from: string; to: string; kind?: TdsKind
     const caught = list.reduce((a, l) => a + l.catchUp, 0);
     const left = below - caught;
     if (total > rr.threshold_aggregate && left > 0) {
-      const rate = rateFromRow(rr);
-      const r = last.panStatus === 'valid' ? (last.deducteeType === 'individual' ? rate.rateIndividual : last.deducteeType === 'company' ? rate.rateCompany : rate.rateOthers) : rate.rateNoPan;
+      const r = rateFor(rateFromRow(rr), last.deducteeType as DeducteeType, last.panStatus === 'valid');
       const shortfall = taxOn(left, r, settings.roundToRupee);
       const first = list.find((l) => l.status === 'below_threshold') ?? last;
       const i = nonDeductionInterest(shortfall, last.date, p.asOf);
@@ -821,4 +887,24 @@ export function exceptions(db: Db, p: { from: string; to: string; kind?: TdsKind
     }
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key));
+}
+
+// ───────────────────────────── One voucher ─────────────────────────────
+
+/**
+ * TDS/TCS of one voucher (voucher view panel): its lines with what has been deposited against them,
+ * and the challan it carries. Lines of a voucher outside the books (optional, cancelled, post-dated
+ * not yet due) are not in tds_lines' books view, so they come back empty.
+ */
+export function voucherTds(db: Db, p: { voucherId: number; today: string }): { lines: TdsLineRow[]; challan: TdsChallanRow | null } {
+  const date = db.value<string>('SELECT date FROM vouchers WHERE id = :id', { id: p.voucherId });
+  if (date === undefined) return { lines: [], challan: null };
+  const lines = lineRows(db, { from: date, to: date, today: p.today, voucherId: p.voucherId, depositTo: '9999-12-31' });
+  const challanId = db.value<number>('SELECT id FROM tds_challans WHERE voucher_id = :id', { id: p.voucherId });
+  let challan: TdsChallanRow | null = null;
+  if (challanId !== undefined) {
+    const deposit = db.value<string>('SELECT deposit_date FROM tds_challans WHERE id = :id', { id: challanId }) ?? date;
+    challan = challanRegister(db, { from: deposit, to: deposit, today: p.today }).rows.find((r) => r.id === challanId) ?? null;
+  }
+  return { lines, challan };
 }

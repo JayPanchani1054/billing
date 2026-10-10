@@ -7,6 +7,8 @@ export interface GotoItemRow {
   id: number;
   name: string;
   alias?: string | null;
+  /** Additional aliases (dataplus). */
+  otherAliases?: string[];
   partNo?: string | null;
   barcode?: string | null;
   groupName?: string | null;
@@ -57,7 +59,7 @@ export function itemGotoResults(
       label: r.name,
       group: 'Stock Items',
       description: itemGotoDescription(r, formatQty),
-      keywords: [r.alias ?? '', r.partNo ?? '', r.barcode ?? ''].filter((k) => k.trim() !== ''),
+      keywords: [r.alias ?? '', r.partNo ?? '', r.barcode ?? '', ...(r.otherAliases ?? [])].filter((k) => k.trim() !== ''),
       screen: target.screen,
       params: target.params,
       ...(target.screen !== ITEM_FORM ? { fallback: { screen: ITEM_FORM, params: { id: r.id } } } : {}),

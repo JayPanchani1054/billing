@@ -18,7 +18,7 @@ import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { Db } from '../../db/db.ts';
 import { validation } from '../../lib/errors.ts';
-import type { VoucherHook } from '../vouchers/hooks.ts';
+import type { PostingAdjustContext, VoucherHook } from '../vouchers/hooks.ts';
 import { composeJournal, type ComposedJournal } from './journal.ts';
 import { stockJournalClassOf } from './voucherTypes.ts';
 
@@ -34,6 +34,29 @@ export function clearJournalRows(db: Db, voucherId: number): void {
   db.run('DELETE FROM stock_journal_lines WHERE voucher_id = :id', { id: voucherId });
   db.run('DELETE FROM stock_journal_costs WHERE voucher_id = :id', { id: voucherId });
   db.run('DELETE FROM stock_journal_details WHERE voucher_id = :id', { id: voucherId });
+}
+
+/**
+ * Any other voucher moving stock into / out of a godown that holds a PRINCIPAL's goods (job work):
+ * those movements are never valued (inventory/valuation.ts), so e.g. a purchase delivered there would
+ * leave the Balance Sheet stock short. Confirm-level; Material In / Out are the vouchers for such goods.
+ * Cheap: one query only when an item line names a godown.
+ */
+function warnPrincipalGodown(ctx: PostingAdjustContext): void {
+  if (ctx.baseType === 'sales_order' || ctx.baseType === 'purchase_order' || ctx.baseType === 'memorandum') return;
+  const ids = [...new Set((ctx.input.items ?? []).map((l) => l.godownId).filter((g): g is number => typeof g === 'number'))];
+  if (ids.length === 0) return;
+  const name = ctx.env.db.value<string>(
+    `SELECT name FROM godowns WHERE third_party_kind = 'party_with_us' AND id IN (SELECT value FROM json_each(:ids)) ORDER BY name LIMIT 1`,
+    { ids: JSON.stringify(ids) },
+  );
+  if (name === undefined) return;
+  ctx.warn(
+    'mfg',
+    `${name} holds a principal's goods for job work: stock this ${ctx.voucherType.name} moves there is never valued and is not in your closing stock. Use Material In / Material Out for the principal's goods, or choose one of your own godowns.`,
+    'confirm',
+    'items',
+  );
 }
 
 export const mfgVoucherHook: VoucherHook = {
@@ -63,7 +86,10 @@ export const mfgVoucherHook: VoucherHook = {
 
   adjust(ctx) {
     const journal = composed.get(ctx.input);
-    if (!journal) return;
+    if (!journal) {
+      warnPrincipalGodown(ctx);
+      return;
+    }
     const { db } = ctx.env;
     const block = ctx.input.stockJournal;
     const third = journal.thirdParty;

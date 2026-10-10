@@ -1,19 +1,22 @@
 /**
- * 'print.voucher' {id, copies?, template?, pageSize?, autoPrint?} — print preview of one voucher:
- * template (Modern / Classic / Compact), paper (A4 / A5 / 80 mm), copies (Original / Duplicate /
- * Triplicate), Print (Alt+P), Save as PDF (Alt+E), previous / next voucher of the same type (PgUp /
- * PgDn), open the voucher (Alt+V).
+ * 'print.voucher' {id, copies?, template?, pageSize?, autoPrint?, share?} — print preview of one voucher:
+ * template (Modern / Classic / Compact), paper (A4 / A5 / A5 landscape / Letter / Legal / 80 mm and
+ * 58 mm rolls), printer for direct printing, copies (Original / Duplicate / Triplicate), Print (Alt+P),
+ * Save as PDF (Alt+E), Share by e-mail / WhatsApp (Alt+W; `share` opens it at once), previous / next
+ * voucher of the same type (PgUp / PgDn), open the voucher (Alt+V).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InvoiceTemplate } from '../../../shared/settings.ts';
-import type { PrintCopy, PrintPageSize } from '../../../shared/types/print.ts';
-import { PRINT_COPIES } from '../../../shared/types/print.ts';
-import { Screen, useApiQuery, useNav, type ScreenProps } from '../../app/index.ts';
+import type { PrintCopy, PrintPageSize, ShareChannel } from '../../../shared/types/print.ts';
+import { PRINT_COPIES, PRINT_PAGE_SIZES } from '../../../shared/types/print.ts';
+import { EXPORT_DENIED_HINT_TEXT } from './lib/share.ts';
+import { Screen, useApiQuery, useCan, useNav, type ScreenProps } from '../../app/index.ts';
 import { Badge, EmptyState, Inline, Stack } from '../../ui/index.ts';
 import { PreviewPane, PrintControls, WarningsBanner } from './components.tsx';
-import { pageSizeFor, resolveCopies, resolveTemplate, templateForPageSize, toggleCopy } from './lib/layout.ts';
+import { ShareDialog } from './ShareDialog.tsx';
+import { isRoll, pageSizeFor, resolveCopies, resolveTemplate, templateForPageSize, toggleCopy } from './lib/layout.ts';
 import { cycle } from './lib/screenState.ts';
-import { qrsOf, useDocumentQrs, usePrintActions } from './usePrinting.ts';
+import { qrsOf, useDocumentQrs, usePrintActions, usePrinterChoice } from './usePrinting.ts';
 
 export interface PrintVoucherParams {
   id: number;
@@ -23,10 +26,12 @@ export interface PrintVoucherParams {
   pageSize?: PrintPageSize;
   /** Send to the printer as soon as the preview is ready (print after saving a voucher). */
   autoPrint?: boolean;
+  /** Open the Share dialog once the document is ready (Share from the voucher view): a channel or true. */
+  share?: ShareChannel | true;
 }
 
 const TEMPLATES: readonly InvoiceTemplate[] = ['modern', 'classic', 'compact'];
-const SIZES: readonly PrintPageSize[] = ['A4', 'A5', '80mm'];
+const SIZES: readonly PrintPageSize[] = PRINT_PAGE_SIZES;
 
 export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) {
   const nav = useNav();
@@ -39,12 +44,19 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
   const [copiesChoice, setCopiesChoice] = useState<number | PrintCopy[] | undefined>(params.copies);
 
   const template = doc ? resolveTemplate(doc, templateChoice) : (templateChoice ?? 'modern');
-  const pageSize = pageSizeFor(template, sizeChoice);
+  const pageSize = pageSizeFor(template, sizeChoice, doc?.options);
+  const printer = usePrinterChoice(isRoll(pageSize) ? 'roll' : 'sheet');
   const copies = useMemo(() => (doc ? resolveCopies(doc, copiesChoice) : (['original'] as PrintCopy[])), [doc, copiesChoice]);
   const docs = useMemo(() => (doc ? [doc] : undefined), [doc]);
   const { qrs, ready } = useDocumentQrs(docs);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const actions = usePrintActions(rootRef, { docs: docs ?? [], pageSize, documents: copies.length, ready: ready && !q.isPrevious });
+  const actions = usePrintActions(rootRef, {
+    docs: docs ?? [],
+    pageSize,
+    documents: copies.length,
+    ready: ready && !q.isPrevious,
+    deviceName: printer.printer || undefined,
+  });
 
   // Print after save: once, when the document and its QR codes are ready.
   const autoPrinted = useRef(false);
@@ -56,8 +68,8 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
 
   const setTemplate = (t: InvoiceTemplate): void => {
     setTemplateChoice(t);
-    if (t === 'compact') setSizeChoice('80mm');
-    else if (sizeChoice === '80mm') setSizeChoice('A4');
+    // The compact receipt goes on the configured roll; the others back on the configured sheet.
+    if (t === 'compact' ? sizeChoice !== undefined && !isRoll(sizeChoice) : sizeChoice !== undefined && isRoll(sizeChoice)) setSizeChoice(undefined);
   };
   const setPageSize = (s: PrintPageSize): void => {
     setSizeChoice(s);
@@ -67,6 +79,16 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
   const go = (target: number | null): void => {
     if (target !== null) setId(target);
   };
+
+  // Share (Alt+W): opened from here, or at once when the screen was opened to share.
+  const canExport = useCan('data.export');
+  const [sharing, setSharing] = useState<ShareChannel | true | null>(null);
+  const autoShared = useRef(false);
+  useEffect(() => {
+    if (!params.share || autoShared.current || !doc || !ready || q.isPrevious) return;
+    autoShared.current = true;
+    if (canExport) setSharing(params.share);
+  }, [params.share, doc, ready, q.isPrevious, canExport]);
 
   const prevId = doc && !q.isPrevious ? doc.navigation.prevId : null;
   const nextId = doc && !q.isPrevious ? doc.navigation.nextId : null;
@@ -88,10 +110,18 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Alt+P Print · Alt+E Save PDF · PgUp/PgDn Previous/Next Voucher · Alt+T Template · Alt+S Paper · Ctrl+1/2/3 Copies · Esc Back"
+      hint="Alt+P Print · Alt+E Save PDF · Alt+W Share · PgUp/PgDn Previous/Next Voucher · Alt+T Template · Alt+S Paper · Ctrl+1/2/3 Copies · Esc Back"
       actions={[
         { key: 'Alt+P', label: 'Print', icon: 'print', primary: true, onClick: () => void actions.print(), disabled: !doc || actions.busy !== null, hint: 'Opens the printer dialog' },
         { key: 'Alt+E', label: 'Save as PDF', icon: 'download', onClick: () => void actions.savePdf(), disabled: !doc || actions.busy !== null },
+        {
+          key: 'Alt+W',
+          label: 'Share (e-mail / WhatsApp)',
+          icon: 'mail',
+          onClick: () => setSharing(true),
+          disabled: !doc || !ready || !canExport,
+          hint: canExport ? 'Sends the PDF by e-mail or WhatsApp' : EXPORT_DENIED_HINT_TEXT,
+        },
         { key: 'PageUp', label: 'Previous voucher', icon: 'chevron-left', onClick: () => go(prevId), disabled: prevId === null, group: 'nav' },
         { key: 'PageDown', label: 'Next voucher', icon: 'chevron-right', onClick: () => go(nextId), disabled: nextId === null, group: 'nav' },
         { key: 'Alt+V', label: 'Open voucher', icon: 'eye', onClick: () => nav.push('vouchers.view', { id }), disabled: !doc, group: 'nav' },
@@ -114,6 +144,7 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
             copies={copies}
             onCopies={setCopiesChoice}
             copyLabels={doc.copyLabels}
+            printer={printer}
           />
           <WarningsBanner warnings={doc.warnings} />
           <PreviewPane
@@ -124,6 +155,9 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
             preparing={!ready}
             label={`Print preview of ${doc.title} ${doc.number ?? ''}`.trim()}
           />
+          {sharing !== null ? (
+            <ShareDialog subject={{ voucherId: doc.id }} render={actions.render} onClose={() => setSharing(null)} channel={sharing === true ? undefined : sharing} />
+          ) : null}
         </Stack>
       ) : null}
     </Screen>

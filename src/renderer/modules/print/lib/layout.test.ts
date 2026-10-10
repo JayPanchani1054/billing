@@ -19,6 +19,10 @@ import {
   resolveTemplate,
   taxabilityText,
   templateForPageSize,
+  isRoll,
+  rollHeightMm,
+  showMrp,
+  mrpText,
   toggleCopy,
   totalRows,
   voucherSides,
@@ -37,8 +41,36 @@ describe('templates, paper and copies', () => {
     assert.equal(templateForPageSize('modern', '80mm', 'classic'), 'compact');
     assert.equal(templateForPageSize('compact', 'A4', 'classic'), 'classic');
     assert.equal(templateForPageSize('compact', 'A5', 'compact'), 'modern');
-    assert.equal(nativePageSize('A5'), 'A5');
-    assert.equal(nativePageSize('80mm'), 'A4');
+    assert.deepEqual(nativePageSize('A5'), { pageSize: 'A5', landscape: false });
+    assert.deepEqual(nativePageSize('A5-landscape'), { pageSize: 'A5', landscape: true });
+    assert.deepEqual(nativePageSize('80mm'), { pageSize: '80mm', landscape: false });
+    assert.deepEqual(nativePageSize('Legal'), { pageSize: 'Legal', landscape: false });
+  });
+
+  it('rolls and configured paper', () => {
+    assert.equal(pageSizeFor('compact', '58mm'), '58mm');
+    assert.equal(pageSizeFor('compact', undefined, { rollWidth: '58mm' }), '58mm');
+    assert.equal(pageSizeFor('compact', 'A5', { rollWidth: '80mm' }), '80mm');
+    assert.equal(pageSizeFor('modern', undefined, { paperSize: 'A5-landscape' }), 'A5-landscape');
+    assert.equal(pageSizeFor('classic', 'Legal', { paperSize: 'A5' }), 'Legal');
+    assert.equal(pageSizeFor('modern', '58mm', { paperSize: 'Letter' }), 'Letter');
+    assert.equal(templateForPageSize('classic', '58mm', 'modern'), 'compact');
+    assert.equal(isRoll('58mm'), true);
+    assert.equal(isRoll('A5-landscape'), false);
+    // 480 px at 96 px per inch = 5 in = 127 mm → 127 + 4 mm feed; the tallest copy decides; sheets need no length.
+    assert.equal(rollHeightMm('80mm', [200, 480]), 131);
+    assert.equal(rollHeightMm('80mm', []), null);
+    assert.equal(rollHeightMm('A4', [500]), null);
+  });
+
+  it('MRP column and text', () => {
+    const doc = sampleDoc({ mrpSummary: { show: true, mrpValue: 599_00, savings: 68_00 }, lines: [line({ mrp: 599_00 })] });
+    assert.equal(itemColumns(doc, { pageSize: 'A4', template: 'modern' }).mrp, true);
+    assert.equal(showMrp(doc), true);
+    assert.equal(mrpText(doc.lines[0]), '599.00');
+    assert.equal(showMrp(sampleDoc({ mrpSummary: { show: false, mrpValue: 599_00, savings: 0 } })), false, 'option off');
+    assert.equal(showMrp(sampleDoc({ mrpSummary: null })), false);
+    assert.equal(mrpText(line({ mrp: null })), '');
   });
 
   it('copies: configured, a count, or a list — always in order, never empty', () => {
@@ -110,7 +142,7 @@ describe('columns and totals', () => {
   it('item columns follow the data and the options', () => {
     const doc = sampleDoc();
     const cols = itemColumns(doc, { pageSize: 'A4', template: 'modern' });
-    assert.deepEqual(cols, { hsn: true, batch: false, qty: true, rate: true, discount: true, lineTax: false, igst: false, cgstSgst: true, cess: false, amount: true });
+    assert.deepEqual(cols, { hsn: true, batch: false, qty: true, rate: true, discount: true, mrp: false, lineTax: false, igst: false, cgstSgst: true, cess: false, amount: true });
     const lineTax = sampleDoc({ options: { ...doc.options, itemwiseTax: true } });
     assert.equal(itemColumns(lineTax, { pageSize: 'A4', template: 'modern' }).lineTax, true);
     assert.equal(itemColumns(lineTax, { pageSize: 'A5', template: 'modern' }).lineTax, false, 'no per-line tax on A5');

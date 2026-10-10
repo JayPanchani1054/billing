@@ -16,6 +16,7 @@ import { v, type Schema } from '../../lib/validate.ts';
 import { VoucherTdsInputSchema } from '../tds/schemas.ts';
 import { VoucherGstDetailsSchema } from '../gst/schemas.ts';
 import { StockJournalExtSchema } from '../mfg/schemas.ts';
+import { VoucherForexSchema, forexAmountSchema, forexMagnitudeSchema, rateSchema } from '../forex/schemas.ts';
 import { pendingBills } from './bills.ts';
 import { entryContext, getVoucher, listVouchers, MAX_LIST_LIMIT, partyContext, trackingRefs } from './queries.ts';
 import {
@@ -37,6 +38,8 @@ const BillAllocationSchema = v.object({
   amount: v.paise({ min: 0 }),
   creditDays: v.int({ min: 0, max: 3650 }).optional(),
   dueDate: v.date().optional(),
+  // Forex module: the bill's foreign amount (magnitude) on a foreign-currency ledger.
+  forexAmount: forexMagnitudeSchema.optional(),
 });
 
 const CostAllocationSchema = v.object({ costCentreId: v.id(), amount: v.paise({ min: 0 }) });
@@ -65,6 +68,9 @@ const LedgerLineSchema = v.object({
   costAllocations: v.array(CostAllocationSchema, { max: 500 }).optional(),
   instrument: InstrumentSchema.optional(),
   gst: LedgerGstSchema.optional(),
+  // Forex module: amount in the ledger's / document's foreign currency and (ledger mode) the line's rate.
+  forexAmount: forexAmountSchema.optional(),
+  exchangeRate: rateSchema.optional(),
 });
 
 const ItemLineSchema = v.object({
@@ -86,6 +92,9 @@ const ItemLineSchema = v.object({
   trackingRef: optText(100),
   orderRef: optText(100),
   isConsumption: v.boolean().optional(),
+  // Forex module: rate / value override in the document currency (foreign-currency invoice).
+  forexRate: forexMagnitudeSchema.optional(),
+  forexAmount: forexMagnitudeSchema.optional(),
 });
 
 const PartySchema = v.object({
@@ -176,6 +185,8 @@ export const VoucherInputSchema = v.object({
   gstDetails: VoucherGstDetailsSchema.optional(),
   // Manufacturing Journal / Material In / Out: item lines derived from it (mfg module's voucher hook).
   stockJournal: StockJournalExtSchema.optional(),
+  // Document currency + rate of exchange (forex module's voucher hook, F11 › Multiple currencies).
+  forex: VoucherForexSchema.optional(),
 }) as unknown as Schema<VoucherInput>;
 
 const ListSchema = v.object({

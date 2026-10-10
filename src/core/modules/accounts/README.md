@@ -169,6 +169,8 @@ key-level patch (null removes a key, unknown keys written by other modules are k
 validated: `defaultLedgerId` under Sales Accounts (sales-side types) / Purchase Accounts (purchase-side), not
 allowed for other types; `defaultPartyLedgerId` a party or cash/bank ledger; `bankLedgerId` a bank ledger;
 `invoiceMode` only for invoices; `defaultGodownId` exists; referenced ledgers must be active.
+`stockJournalClass` (mfg module: `manufacturing` / `material_out` / `material_in`) only on stock journal
+types, and fixed once vouchers of the type exist (renderer: Voucher Type form › Use as).
 
 **Cost centres.** Parent in the same category (a new centre under a parent takes the parent's category when
 none is given); no cycles; changing category moves the sub-tree (an audit row per moved sub-centre); delete only

@@ -407,7 +407,7 @@ export class CompanyStore {
    *    (never deleted) and the restored data takes over the same id.
    * Older schemas are upgraded the next time the company is opened (with the usual safety copy).
    */
-  install(sourceDbPath: string, opts: { replaceId?: string } = {}): InstallResult {
+  install(sourceDbPath: string, opts: { replaceId?: string; attachmentsDir?: string } = {}): InstallResult {
     const { name } = this.inspectDatabaseFile(sourceDbPath);
     const replace = opts.replaceId !== undefined ? this.paths(opts.replaceId) : null;
     if (replace) {
@@ -429,6 +429,14 @@ export class CompanyStore {
         src = null;
       }
       ensureDir(path.join(staging, 'attachments'));
+      // Attached files restored from a backup (dataplus): only content-addressed '<sha256>.<ext>' files.
+      if (opts.attachmentsDir && exists(opts.attachmentsDir)) {
+        for (const name of fs.readdirSync(opts.attachmentsDir)) {
+          if (!/^[0-9a-f]{64}\.[a-z0-9]{1,8}$/.test(name)) continue;
+          const from = path.join(opts.attachmentsDir, name);
+          if (fs.statSync(from).isFile()) fs.copyFileSync(from, path.join(staging, 'attachments', name));
+        }
+      }
       const check = new Db(stagedDb, { readOnly: true });
       try {
         if (check.value<string>('PRAGMA quick_check') !== 'ok') throw new AppError('CONFLICT', 'The restored copy failed its integrity check.');

@@ -2,7 +2,7 @@
  * TDS/TCS renderer logic — pure (tested in model.test.ts): labels, choices, form checks, export
  * tables and the override editing of a voucher's `tds` input.
  */
-import { formatDate, formatMonth } from '../../../../shared/dates.ts';
+import { addDays, formatDate, formatMonth } from '../../../../shared/dates.ts';
 import { formatMoney } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import { PAN_RE, quarterOf, TAN_RE, taxYearOf, type Quarter, type TdsForm } from '../../../../shared/tds/rules.ts';
@@ -13,7 +13,10 @@ import type {
   TdsComputationResult,
   TdsExceptionRow,
   TdsKind,
+  TdsLedgerDetails,
+  TdsLedgerSaveInput,
   TdsLineStatus,
+  TdsNature,
   TdsNatureRate,
   TdsOutstandingResult,
   TdsReceivableResult,
@@ -226,7 +229,7 @@ function compact(t: VoucherTdsInput): VoucherTdsInput | null {
 }
 
 /** One-line summary of a computed line for the entry panel. */
-export function lineSummary(l: TdsVoucherLine): string {
+export function lineSummary(l: Pick<TdsVoucherLine, 'kind' | 'section' | 'status' | 'amount' | 'rate' | 'base'>): string {
   const what = `${KIND_LABEL[l.kind]} u/s ${l.section}`;
   if (l.status === 'no_party') return `${what}: no party`;
   if (l.amount === 0) return `${what}: nil — ${STATUS_LABEL[l.status].toLowerCase()}`;
@@ -382,3 +385,239 @@ export const RECEIVABLE_STATUS: Readonly<Record<TdsReceivableResult['rows'][numb
   books_only: 'Only in books',
   form26as_only: 'Only in 26AS',
 };
+
+// ───────────────────────────── Ledger TDS details ─────────────────────────────
+
+/** Editable TDS/TCS details of one ledger (tds.ledger.form). */
+export interface LedgerDraft {
+  role: TdsLedgerDetails['role'];
+  applicable: boolean;
+  natureId: number | null;
+  deducteeType: DeducteeType | null;
+  nonResident: boolean;
+  pan: string;
+  hasCertificate: boolean;
+  certNumber: string;
+  certRate: number | null;
+  certFrom: string | null;
+  certTo: string | null;
+  certLimit: Paise | null;
+  certNatureId: number | null;
+  deductorTan: string;
+}
+
+export function ledgerDraftOf(d: TdsLedgerDetails): LedgerDraft {
+  const c = d.certificate;
+  return {
+    role: d.role,
+    applicable: d.applicable,
+    natureId: d.natureId,
+    deducteeType: d.deducteeType,
+    nonResident: d.nonResident,
+    pan: d.pan ?? '',
+    hasCertificate: c !== null,
+    certNumber: c?.number ?? '',
+    certRate: c?.rate ?? null,
+    certFrom: c?.validFrom ?? null,
+    certTo: c?.validTo ?? null,
+    certLimit: c?.limit ?? null,
+    certNatureId: c?.natureId ?? null,
+    deductorTan: d.deductorTan ?? '',
+  };
+}
+
+/** Field errors of the ledger details form, keyed like the core's issue paths. */
+export function ledgerErrors(d: LedgerDraft): Record<string, string> {
+  const e: Record<string, string> = {};
+  if (d.role === 'party') {
+    const p = panError(d.pan);
+    if (p) e.pan = p;
+    if (d.hasCertificate) {
+      if (!d.certNumber.trim()) e['certificate.number'] = 'Enter the certificate number (from TRACES).';
+      if (d.certRate === null) e['certificate.rate'] = 'Enter the rate on the certificate (0 for nil deduction).';
+      if (!d.certFrom) e['certificate.validFrom'] = 'Enter the date the certificate is valid from.';
+      if (!d.certTo) e['certificate.validTo'] = 'Enter the date the certificate is valid to.';
+      else if (d.certFrom && d.certTo < d.certFrom) e['certificate.validTo'] = 'The certificate ends before it starts.';
+    }
+    const t = tanError(d.deductorTan);
+    if (t) e.deductorTan = t;
+  } else if (d.applicable && d.natureId === null) {
+    e.natureId = d.role === 'income' ? 'Choose the nature of goods so TCS can be worked out on sales.' : 'Choose the nature of payment so TDS can be worked out.';
+  }
+  return e;
+}
+
+export function ledgerSaveInput(ledgerId: number, d: LedgerDraft): TdsLedgerSaveInput {
+  if (d.role !== 'party') return { ledgerId, applicable: d.applicable, natureId: d.applicable ? d.natureId : null };
+  const out: TdsLedgerSaveInput = {
+    ledgerId,
+    applicable: d.applicable,
+    natureId: d.natureId,
+    deducteeType: d.deducteeType,
+    nonResident: d.nonResident,
+    pan: d.pan.trim().toUpperCase() || null,
+    deductorTan: d.deductorTan.trim().toUpperCase() || null,
+    certificate: null,
+  };
+  if (d.hasCertificate && d.certFrom && d.certTo) {
+    out.certificate = {
+      number: d.certNumber.trim(),
+      rate: d.certRate ?? 0,
+      validFrom: d.certFrom,
+      validTo: d.certTo,
+      limit: d.certLimit && d.certLimit > 0 ? d.certLimit : null,
+      natureId: d.certNatureId,
+    };
+  }
+  return out;
+}
+
+/**
+ * Nature choices of the ledger details form: the natures of the kind the ledger takes (expense → TDS,
+ * sales → TCS, party → either) whose feature is on, active ones only — an inactive nature stays listed
+ * only while the ledger still uses it (`keep`), so a saved choice never shows blank.
+ */
+export function natureOptionsFor(
+  natures: readonly Pick<TdsNature, 'id' | 'kind' | 'section' | 'name' | 'isActive'>[],
+  role: TdsLedgerDetails['role'] | undefined,
+  f: Pick<CompanyFeatures, 'tds' | 'tcs'> | null | undefined,
+  keep: ReadonlyArray<number | null>,
+): Array<{ value: string; label: string }> {
+  const kindWanted = role === 'income' ? 'tcs' : role === 'expense' ? 'tds' : null;
+  return natures
+    .filter((n) => kindWanted === null || n.kind === kindWanted)
+    .filter((n) => (n.kind === 'tds' ? !!f?.tds : !!f?.tcs))
+    .filter((n) => n.isActive || keep.includes(n.id))
+    .map((n) => ({ value: String(n.id), label: `${n.kind === 'tcs' ? 'TCS ' : ''}${n.section} — ${n.name}${n.isActive ? '' : ' (inactive)'}` }));
+}
+
+/** Earliest filing date of a quarterly statement: the day after the quarter ends (the core refuses earlier). */
+export function earliestFilingDate(quarterEnd: string): string {
+  return addDays(quarterEnd, 1);
+}
+
+export const ROLE_LABEL: Readonly<Record<TdsLedgerDetails['role'], string>> = {
+  party: 'Parties (deductees)',
+  expense: 'Expenses & assets',
+  income: 'Sales & income',
+};
+
+// ───────────────────────────── Quarterly statement ─────────────────────────────
+
+export const QUARTER_LABEL: Readonly<Record<Quarter, string>> = { 1: 'Q1 Apr–Jun', 2: 'Q2 Jul–Sep', 3: 'Q3 Oct–Dec', 4: 'Q4 Jan–Mar' };
+
+/** Short status line of a statement for the return screen header. */
+export function statementStatusText(d: Pick<TdsReturnData, 'dueDate' | 'filedOn' | 'tokenNo' | 'lateFee' | 'daysLate'>): string {
+  const due = `due ${formatDate(d.dueDate)}`;
+  if (d.filedOn) {
+    const token = d.tokenNo ? `, token ${d.tokenNo}` : '';
+    return d.daysLate > 0 ? `Filed on ${formatDate(d.filedOn)}${token} — ${d.daysLate} day(s) late, fee u/s 234E ${money(d.lateFee)}` : `Filed on ${formatDate(d.filedOn)}${token} (${due})`;
+  }
+  return d.daysLate > 0 ? `Not filed — ${d.daysLate} day(s) past the due date, fee u/s 234E so far ${money(d.lateFee)}` : `Not filed yet (${due})`;
+}
+
+export function returnChallansExport(d: TdsReturnData): ExportTable {
+  return {
+    columns: [
+      { header: 'Sr.', kind: 'number', width: 5 },
+      { header: 'Section', width: 9 },
+      { header: 'Month', width: 9 },
+      { header: 'BSR code', width: 9 },
+      { header: 'Deposited', kind: 'date' },
+      { header: 'Challan no.', width: 9 },
+      { header: 'Tax', kind: 'amount' },
+      { header: 'Interest', kind: 'amount' },
+      { header: 'Fee', kind: 'amount' },
+      { header: 'Others', kind: 'amount' },
+      { header: 'Total', kind: 'amount' },
+      { header: 'Allocated', kind: 'amount' },
+    ],
+    rows: d.challans.map((c) => [c.sr, c.section, c.period, c.bsrCode, c.depositDate, c.challanNo, c.tax + c.surcharge + c.cess, c.interest, c.fee, c.others, c.total, c.allocated]),
+    totals: ['Total', null, null, null, null, null, null, null, null, null, d.totals.challanTotal, null],
+    landscape: true,
+  };
+}
+
+export const EXCEPTION_LABEL: Readonly<Record<TdsExceptionRow['type'], string>> = {
+  no_party: 'No party',
+  no_pan: 'No PAN',
+  invalid_pan: 'Invalid PAN',
+  below_threshold_deducted: 'Deducted below threshold',
+  not_deducted: 'Not deducted',
+  short_deducted: 'Short deducted',
+  threshold_not_deducted: 'Threshold crossed, not deducted',
+};
+
+// ───────────────────────────── Voucher entry: override dialog ─────────────────────────────
+
+/** One editable line of the "TDS / TCS on this voucher" dialog. */
+export interface OverrideEdit {
+  natureId: number;
+  /** Computed by the server (before any override). */
+  computed: Paise;
+  /** Amount the user wants (null = blank → treated as the computed amount). */
+  amount: Paise | null;
+  reason: string;
+}
+
+export function overrideEditsOf(lines: readonly TdsVoucherLine[], cur: VoucherTdsInput | null | undefined): OverrideEdit[] {
+  return lines.map((l) => {
+    const o = cur?.overrides?.find((x) => x.natureId === l.natureId);
+    return { natureId: l.natureId, computed: l.computed, amount: o ? o.amount : l.computed, reason: o?.reason ?? '' };
+  });
+}
+
+/** Errors by natureId: a changed amount needs a reason (it is audited and shown in the exceptions). */
+export function overrideErrors(edits: readonly OverrideEdit[]): Record<number, string> {
+  const e: Record<number, string> = {};
+  for (const x of edits) {
+    const amount = x.amount ?? x.computed;
+    if (amount < 0) e[x.natureId] = 'The amount cannot be negative.';
+    else if (amount !== x.computed && !x.reason.trim()) e[x.natureId] = 'Say why the amount differs from the computed one.';
+  }
+  return e;
+}
+
+/**
+ * The voucher's `tds` input after the dialog: an amount equal to the computed one drops the override
+ * (automatic again); overrides of natures no longer on the voucher are kept untouched.
+ */
+export function applyOverrideEdits(cur: VoucherTdsInput | null | undefined, edits: readonly OverrideEdit[], natureId: number | null | undefined): VoucherTdsInput | null {
+  let next: VoucherTdsInput | null = cur ? { ...cur } : null;
+  for (const x of edits) {
+    const amount = x.amount ?? x.computed;
+    next = withOverride(next, x.natureId, amount === x.computed ? null : amount, x.reason);
+  }
+  if (natureId !== undefined) next = withNature(next, natureId);
+  return next;
+}
+
+// ───────────────────────────── Gateway notice ─────────────────────────────
+
+/**
+ * What the Gateway notice says about one kind's outstanding (null = nothing to say): overdue
+ * deposits first, then deposits due within `soonDays`, then overdue quarterly statements.
+ */
+export function dueNoticeText(d: Pick<TdsOutstandingResult, 'kind' | 'rows' | 'statements' | 'asOf'>, soonDays = 7): { tone: 'danger' | 'warning'; text: string } | null {
+  const k = KIND_LABEL[d.kind];
+  const overdue = d.rows.filter((r) => r.status === 'overdue');
+  if (overdue.length > 0) {
+    const amount = overdue.reduce((a, r) => a + r.balance, 0);
+    const interest = overdue.reduce((a, r) => a + Math.max(0, r.interest - r.interestPaid), 0);
+    return { tone: 'danger', text: `${k} of ${money(amount)} is overdue (${overdue.length} month/section). Interest so far ${money(interest)} — deposit it with a challan.` };
+  }
+  const limit = addDays(d.asOf, soonDays);
+  const soon = d.rows.filter((r) => r.status === 'due' && r.dueDate <= limit);
+  if (soon.length > 0) {
+    const amount = soon.reduce((a, r) => a + r.balance, 0);
+    const first = soon.reduce((a, r) => (r.dueDate < a ? r.dueDate : a), soon[0].dueDate);
+    return { tone: 'warning', text: `${k} of ${money(amount)} is due by ${formatDate(first)}.` };
+  }
+  const late = d.statements.filter((s) => s.status === 'overdue');
+  if (late.length > 0) {
+    const s = late[0];
+    return { tone: 'danger', text: `Form ${s.form} for ${s.label} was due on ${formatDate(s.dueDate)} and is not marked filed (late fee u/s 234E so far ${money(late.reduce((a, x) => a + x.lateFee, 0))}).` };
+  }
+  return null;
+}
+

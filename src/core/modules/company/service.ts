@@ -29,6 +29,7 @@ import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { ensureGstLedgers } from '../../db/seed.ts';
 import { ensureMfgVoucherTypes } from '../mfg/voucherTypes.ts';
+import { ensureForexLedger } from '../forex/store.ts';
 import { AppError, forbidden, notFound, rule, validation } from '../../lib/errors.ts';
 import { authorizeUserPath } from '../../lib/paths.ts';
 import { normalizeCompanyIdentity } from './validation.ts';
@@ -288,6 +289,8 @@ function applyFeatures(ctx: CompanyCtx, current: CompanyFeatures, patch: Company
   if ((next.manufacturing && !current.manufacturing) || (next.jobWork && !current.jobWork)) {
     ensureMfgVoucherTypes(db, now.toISOString(), { manufacturing: next.manufacturing, jobWork: next.jobWork });
   }
+  // Forex Gain/Loss system ledger (forex module), when Multiple currencies is switched on.
+  if (next.multiCurrency && !current.multiCurrency) ensureForexLedger(db, now.toISOString(), ctx.audit);
   if (next.security !== current.security) {
     if (!ctx.session.isOwner && !ctx.session.permissions.has('security.manage'))
       throw new AppError('FORBIDDEN', 'Only a user who can manage security may turn security on or off');
@@ -393,5 +396,6 @@ export function getOpenCompanySummary(db: Db, companyId: string): OpenCompanySum
     fyStartMonth: p.fyStartMonth,
     gstEnabled: features.gst,
     features,
+    gstRegistration: p.gstRegistrationType,
   };
 }

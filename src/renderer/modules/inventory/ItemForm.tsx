@@ -71,6 +71,7 @@ import { netRate, qtyText } from './lib/slabs.ts';
 import { altUnitText } from './lib/units.ts';
 import { openingCellId, OpeningStockGrid } from './OpeningStockGrid.tsx';
 import { StockCategoryPicker, StockGroupPicker, UnitPicker } from './pickers.tsx';
+import { AttachmentsRailAction } from '../attachments/AttachmentsScreens.tsx';
 import './inventory.css';
 
 export interface ItemFormParams {
@@ -88,6 +89,7 @@ const OPEN_ID = 'inv-item-open-';
 const FIELD_ORDER = [
   'name',
   'alias',
+  'moreAliases',
   'partNo',
   'barcode',
   'description',
@@ -431,6 +433,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
       }
     >
       <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Stock item">
+        <AttachmentsRailAction entityType="stock_item" entityId={saved?.id ?? null} label={saved?.name} />
         <Stack gap={4}>
           {readOnly ? (
             <Banner tone="info" inline title="View only">
@@ -452,6 +455,27 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
                 </Field>
                 <Field label="Alias" optional htmlFor={`${ID}alias`} error={errors.alias} hint="Another name to find it by (short name, local name).">
                   <TextInput id={`${ID}alias`} value={d.alias} onChange={(e) => set('alias', e.target.value)} maxLength={200} autoComplete="off" readOnly={readOnly} />
+                </Field>
+                <Field
+                  label="More aliases"
+                  optional
+                  htmlFor={`${ID}moreAliases`}
+                  error={errors.moreAliases ?? Object.entries(errors).find(([k, v]) => k.startsWith('aliases') && v)?.[1]}
+                  hint="One per line: supplier's code, old code, local-language name… Found in every search. Ctrl+Enter moves on."
+                >
+                  <TextArea
+                    id={`${ID}moreAliases`}
+                    value={d.moreAliases}
+                    onChange={(e) => {
+                      set('moreAliases', e.target.value);
+                      if (Object.keys(errors).some((k) => k.startsWith('aliases'))) setErrors((x) => Object.fromEntries(Object.entries(x).filter(([k]) => !k.startsWith('aliases'))));
+                    }}
+                    maxLength={4000}
+                    rows={1}
+                    autoGrow
+                    maxRows={6}
+                    readOnly={readOnly}
+                  />
                 </Field>
                 <Field label="Part number" optional htmlFor={`${ID}partNo`} error={errors.partNo}>
                   <TextInput id={`${ID}partNo`} value={d.partNo} onChange={(e) => set('partNo', e.target.value)} maxLength={100} autoComplete="off" readOnly={readOnly} />

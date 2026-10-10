@@ -5,7 +5,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Permission } from '../../../shared/constants.ts';
-import { formatDate } from '../../../shared/dates.ts';
+import { addDays, diffDays, formatDate } from '../../../shared/dates.ts';
 import { formatQty } from '../../../shared/format.ts';
 import type { CompanyRegistrationType } from '../../../shared/types/gst.ts';
 import type {
@@ -1067,6 +1067,17 @@ export function duplicateVoucher(ctx: CompanyCtx, id: number): VoucherInput {
   // A copy is a new document: not a conversion of the source's quotation, not a recurring occurrence.
   delete out.convertedFromId;
   delete out.recurring;
+  // Validity (quotation / proforma) and "applicable up to" (reversing journal) keep their length from the
+  // new date: a 15-day offer copied today is valid for 15 days from today (documents module).
+  if (out.validUntil) out.validUntil = addDays(out.date, Math.max(0, diffDays(row.date, out.validUntil)));
+  if (out.applicableUpto) out.applicableUpto = addDays(out.date, Math.max(0, diffDays(row.date, out.applicableUpto)));
+  // GST details (gst module): a challan (one CPIN), a set-off, a bill of entry and the advances adjusted /
+  // refunded belong to the source only; an advance's rate and a stat-adjustment nature are kept.
+  if (out.gstDetails) {
+    const { advance, adjustment } = out.gstDetails;
+    if (advance || adjustment) out.gstDetails = { ...(advance ? { advance: { ...advance } } : {}), ...(adjustment ? { adjustment: { ...adjustment } } : {}) };
+    else delete out.gstDetails;
+  }
   if (out.ledgers) {
     out.ledgers = out.ledgers.map((l): LedgerLineInput => {
       const copy = { ...l };

@@ -289,6 +289,8 @@ export interface Gstr3bBookAdjustments {
   reclaimed: TaxAmounts;
   /** 4(A)(1): IGST / cess per bills of entry minus that computed on the purchases. */
   billOfEntry: TaxAmounts;
+  /** Part of `billOfEntry` for blocked goods (no ITC): also added to the 4(B)(1) reversal. */
+  billOfEntryBlocked: TaxAmounts;
 }
 
 // ───────────────────────────── Set-off & electronic ledgers ─────────────────────────────
@@ -405,6 +407,7 @@ export interface CreditLedgerTxn {
   date: string;
   kind: 'accrued' | 'reversed' | 'utilised';
   description: string;
+  /** Signed effect on the credit balance (as on the Input tax ledgers: accrued Dr +, reversed / utilised Cr −). */
   igst: Paise;
   cgst: Paise;
   sgst: Paise;

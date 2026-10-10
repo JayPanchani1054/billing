@@ -27,7 +27,7 @@ export function GatewayScreen() {
   useStatusHint('↑↓ Move · Enter Open · Highlighted letter opens · Ctrl+G Go To');
 
   const sections = useMemo(
-    () => buildGateway(modules, { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null }),
+    () => buildGateway(modules, { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null, gstRegistration: app.company?.gstRegistration ?? null }),
     [modules, app.can, app.company],
   );
   const items = useMemo(() => sections.flatMap((s) => s.items), [sections]);

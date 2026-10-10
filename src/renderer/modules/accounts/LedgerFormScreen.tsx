@@ -56,6 +56,7 @@ import { defaultOpeningSide, ledgerSections } from './lib/ledgerSections.ts';
 import { remapBillErrors } from './lib/openingBills.ts';
 import { OpeningBillsGrid } from './OpeningBillsGrid.tsx';
 import { GroupPicker, useGroups } from './pickers.tsx';
+import { AttachmentsRailAction } from '../attachments/AttachmentsScreens.tsx';
 
 export interface LedgerFormParams {
   id?: number;
@@ -384,6 +385,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
       }
     >
       <div ref={formBox}>
+      <AttachmentsRailAction entityType="ledger" entityId={original?.id ?? null} label={original?.name} />
       <div ref={formRef}>
         <Stack gap={6}>
           {readOnly ? <ReadOnlyNotice what="ledgers" /> : null}
@@ -394,6 +396,26 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
             </Field>
             <Field label="Alias" optional error={err('alias')} hint="Another name to find it by (short name, code).">
               <TextInput value={d.alias} onChange={(e) => set('alias', e.target.value)} readOnly={readOnly} maxLength={200} />
+            </Field>
+            <Field
+              label="More aliases"
+              optional
+              error={err('moreAliases') ?? Object.entries(errors).find(([k]) => k.startsWith('aliases'))?.[1]}
+              hint="One per line: local-language name, old code, supplier's code… Found in every search. Ctrl+Enter moves on."
+            >
+              <TextArea
+                value={d.moreAliases}
+                onChange={(e) => {
+                  set('moreAliases', e.target.value);
+                  setServerErrors((x) => (Object.keys(x).some((k) => k.startsWith('aliases')) ? Object.fromEntries(Object.entries(x).filter(([k]) => !k.startsWith('aliases'))) : x));
+                }}
+                readOnly={readOnly}
+                rows={1}
+                autoGrow
+                maxRows={6}
+                maxLength={4000}
+                aria-label="More aliases, one per line"
+              />
             </Field>
             <Field
               label="Under"
@@ -691,6 +713,14 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
                   {d.tdsApplicable ? (
                     <Field label="TDS section" optional error={err('tdsSection')} hint="e.g. 194C contractors, 194J professional fees.">
                       <TextInput value={d.tdsSection} onChange={(e) => set('tdsSection', e.target.value.toUpperCase().slice(0, 20))} readOnly={readOnly} mono />
+                    </Field>
+                  ) : null}
+                  {/* tds module: the deduction itself uses the ledger's TDS / TCS details (nature, deductee type, PAN, certificate). */}
+                  {original ? (
+                    <Field label="TDS / TCS details" hint="Nature of payment, deductee type, PAN and lower-deduction certificate used to work out TDS on vouchers.">
+                      <Button size="sm" icon="percent" onClick={() => nav.push('tds.ledger.form', { ledgerId: original.id })}>
+                        Open TDS / TCS details
+                      </Button>
                     </Field>
                   ) : null}
                 </>

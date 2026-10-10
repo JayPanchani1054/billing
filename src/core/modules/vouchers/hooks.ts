@@ -35,6 +35,7 @@
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { Paise } from '../../../shared/money.ts';
 import type {
+  BillAllocationInput,
   LedgerEntryRole,
   VoucherInput,
   VoucherMode,
@@ -47,9 +48,11 @@ import type { Db } from '../../db/db.ts';
 import { tdsVoucherHook } from '../tds/hook.ts';
 import { gstVoucherHook } from '../gst/hook.ts';
 import { mfgVoucherHook } from '../mfg/hook.ts';
+import { chequeVoucherHook } from '../cheques/hook.ts';
+import { forexVoucherHook } from '../forex/hook.ts';
 import type { LedgerInfo, Masters } from './masters.ts';
 import type { VoucherTypeInfo } from './numbering.ts';
-import type { PlanEntry, PostingEnv, PostingPlan } from './posting.ts';
+import type { PlanEntry, PlanEntryForex, PostingEnv, PostingPlan } from './posting.ts';
 import type { VoucherRow } from './service.ts';
 
 // ───────────────────────────── validate / afterSave ─────────────────────────────
@@ -84,6 +87,11 @@ export interface HookInvoiceLine {
   taxableValue: Paise;
   /** GST on the line (all heads incl. cess). */
   tax: Paise;
+  /**
+   * Inward computed lines: ITC eligibility as posted ('inputs' | 'capital_goods' | 'input_services' |
+   * 'ineligible'; always 'ineligible' for a company that takes no credit); null/absent otherwise.
+   */
+  itcEligibility?: string | null;
 }
 
 export interface PostingAdjustContext {
@@ -117,6 +125,14 @@ export interface PostingAdjustContext {
   adjustEntry(entry: PlanEntry, delta: Paise): void;
   /** Add to the voucher's invoice value (vouchers.total_amount), e.g. TCS collected on a sale. */
   addToInvoiceValue(delta: Paise): void;
+  /** Record the foreign-currency side of an entry (forex module); bill allocations then keep their forexAmount. */
+  setForex(entry: PlanEntry, forex: PlanEntryForex): void;
+  /**
+   * Decide an entry's bill-wise allocations (magnitudes, like BillAllocationInput) instead of the ones
+   * typed — e.g. the forex hook carries a settled bill at the INR it was booked at. applyBills checks
+   * them exactly like typed allocations (names, pending bills, sum = |entry amount|).
+   */
+  setBillAllocations(entry: PlanEntry, allocations: BillAllocationInput[]): void;
   warn(code: VoucherWarningCode, message: string, level?: VoucherWarningLevel, path?: string): void;
   /** Data handed to write() and preview() of this hook. */
   setData(data: unknown): void;
@@ -155,7 +171,7 @@ export interface VoucherHook {
 }
 
 /** Always-on hooks (run first, in this order). Extend-only. */
-const STATIC_HOOKS: readonly VoucherHook[] = [tdsVoucherHook, gstVoucherHook, mfgVoucherHook];
+const STATIC_HOOKS: readonly VoucherHook[] = [tdsVoucherHook, gstVoucherHook, mfgVoucherHook, forexVoucherHook, chequeVoucherHook];
 const registered: VoucherHook[] = [];
 
 /** Register a hook (idempotent per hook object). */

@@ -22,6 +22,8 @@ export interface GroupSummaryParams {
   to?: string;
   view?: 'summary' | 'vouchers';
   basis?: GroupSummaryBasis;
+  /** (additive) Scenario carried from a Trial Balance / P&L / Balance Sheet drill-down (documents module). */
+  scenarioId?: number;
 }
 
 type View = 'summary' | 'vouchers';
@@ -37,7 +39,7 @@ export function GroupSummaryScreen({ params }: ScreenProps<GroupSummaryParams>) 
   const requestedBasis: GroupSummaryBasis = params?.basis === 'profitLoss' ? 'profitLoss' : 'trialBalance';
   const summary = useApiQuery(
     'reports.groupSummary',
-    { groupId: groupId ?? 0, from: p.from, to: p.to, showZero, basis: requestedBasis },
+    { groupId: groupId ?? 0, from: p.from, to: p.to, showZero, basis: requestedBasis, ...(typeof params?.scenarioId === 'number' ? { scenarioId: params.scenarioId } : {}) },
     { keepPrevious: true, enabled: groupId !== null },
   );
   // The server falls back to the Trial-Balance basis for asset/liability groups.
@@ -88,7 +90,11 @@ export function GroupSummaryScreen({ params }: ScreenProps<GroupSummaryParams>) 
   return (
     <ReportScreen
       title={title}
-      subtitle={summary.data ? `${summary.data.group.path.join(' › ')}${basis === 'profitLoss' ? ' · as in the Profit & Loss A/c (this period only)' : ''}` : undefined}
+      subtitle={
+        summary.data
+          ? `${summary.data.group.path.join(' › ')}${basis === 'profitLoss' ? ' · as in the Profit & Loss A/c (this period only)' : ''}${typeof params?.scenarioId === 'number' ? ' · under the scenario of the report you came from (group vouchers show the books)' : ''}`
+          : undefined
+      }
       period={p.period}
       loading={q.loading}
       refreshing={q.refreshing}

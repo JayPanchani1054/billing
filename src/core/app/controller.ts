@@ -682,7 +682,7 @@ export class AppController {
    * the caller should ask the user to close it first. Usable from a `transactional: false` company
    * route via controllerFor(ctx.app).
    */
-  installCompanyDatabase(sourceDbPath: string, opts: { replaceId?: string } = {}): Promise<InstallCompanyResult> {
+  installCompanyDatabase(sourceDbPath: string, opts: { replaceId?: string; attachmentsDir?: string } = {}): Promise<InstallCompanyResult> {
     return this.exclusive(() => {
       if (!path.isAbsolute(sourceDbPath)) throw validation([{ path: 'file', message: 'A full file path is required' }]);
       if (opts.replaceId !== undefined && this.open?.opened.id === opts.replaceId)

@@ -8,7 +8,7 @@
  *      created by a receipt with GST)
  *   Payment  + advanceRefund    Dr Output tax / Cr GST on Advances (refund voucher)   → 'refunded'
  *   Purchase + billOfEntry      Dr Input IGST (+Cess) / Cr IGST Payable on Imports    → gst_bill_of_entry
- *                               (composition company: the IGST is a cost — Dr the purchase ledger)
+ *                               (composition company or blocked goods: the IGST is a cost — Dr the purchase ledger)
  *   Journal  + adjustment       lines as entered (Cr Input = reversal, Dr Input = reclaim,
  *                               Cr RCM payable [+ Dr Input] = reverse-charge liability) → gst_stat_lines
  *   Payment  + challan          lines as entered (Dr GST Electronic Cash Ledger / Cr Bank) → gst_challans + gst_stat_lines 'cash_deposit'
@@ -128,7 +128,41 @@ function adjust(ctx: PostingAdjustContext): void {
   if (gstOn && OUTWARD_BASES.has(ctx.baseType) && ctx.outward && env.company.gstRegistrationType === 'regular') {
     if (amendmentCheck(ctx, data)) used = true;
   }
+  if (ctx.baseType === 'receipt' && ctx.voucherId !== null) guardUsedAdvance(ctx, data);
   if (used) ctx.setData(data);
+}
+
+/**
+ * Altering an advance receipt that other vouchers already adjust or refund: those vouchers reversed its
+ * tax at its rate, place of supply and amount, so the receipt must keep them (else "GST on Advances
+ * Received" is left with a balance and Table 11B exceeds 11A). Change or delete the adjusting vouchers first.
+ */
+function guardUsedAdvance(ctx: PostingAdjustContext, data: HookData): void {
+  const db = ctx.env.db;
+  const used = db.get<{ n: number; gross: number }>(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(gross), 0) AS gross FROM gst_advance_lines
+      WHERE receipt_voucher_id = :id AND voucher_id <> :id AND kind IN ('adjusted', 'refunded')`,
+    { id: ctx.voucherId },
+  );
+  if (!used || used.n === 0) return;
+  const before = db.get<{ pos: string; rate: number; cess_rate: number; igst: number }>(
+    `SELECT pos, rate, cess_rate, igst FROM gst_advance_lines WHERE voucher_id = :id AND kind = 'received'`,
+    { id: ctx.voucherId },
+  );
+  const now = data.advances.find((a) => a.kind === 'received');
+  const users = `${used.n} voucher(s) already adjust or refund ${money(used.gross)} of this advance`;
+  const path = 'gstDetails.advance';
+  if (ctx.isOptional || !now) {
+    ctx.warn('gst_stat', `${users}. Keep it a regular receipt with the advance details, or alter those vouchers first to drop the adjustment.`, 'block', path);
+    return;
+  }
+  if (now.gross < used.gross) {
+    ctx.warn('gst_stat', `${users}: the advance cannot be reduced to ${money(now.gross)}. Alter those vouchers first.`, 'block', `${path}.amount`);
+    return;
+  }
+  if (before && (before.rate !== now.rate || before.cess_rate !== now.cessRate || before.pos !== now.pos || (before.igst !== 0) !== (now.igst !== 0))) {
+    ctx.warn('gst_stat', `${users} at ${before.rate}% for state ${before.pos}: the rate and place of supply cannot change now. Alter those vouchers first.`, 'block', path);
+  }
 }
 
 function companyState(ctx: PostingAdjustContext): string {
@@ -145,7 +179,12 @@ function advanceReceived(ctx: PostingAdjustContext, a: NonNullable<VoucherGstDet
     ctx.party ??
     ctx.entries.map((e) => ctx.masters.ledger(e.ledgerId)).find((l, i) => ctx.entries[i].amount < 0 && (l.isDebtor || l.isCreditor)) ??
     null;
-  const gross = a.amount ?? ctx.entries.filter((e) => e.amount > 0 && ctx.masters.ledger(e.ledgerId).isCashBank).reduce((s, e) => s + e.amount, 0);
+  const received = ctx.entries.filter((e) => e.amount > 0 && ctx.masters.ledger(e.ledgerId).isCashBank).reduce((s, e) => s + e.amount, 0);
+  const gross = a.amount ?? received;
+  if (a.amount !== undefined && received > 0 && a.amount > received) {
+    ctx.warn('gst_stat', `The advance (${money(a.amount)}) is more than the amount received on this voucher (${money(received)}). Tax is payable only on what was received.`, 'block', 'gstDetails.advance.amount');
+    return;
+  }
   if (gross <= 0) {
     ctx.warn('gst_stat', 'Enter the amount received from the customer (debit Cash or Bank) before marking it as an advance.', 'block', 'gstDetails.advance');
     return;
@@ -269,8 +308,22 @@ function billOfEntry(ctx: PostingAdjustContext, b: NonNullable<VoucherGstDetails
       'gstDetails.billOfEntry.igst',
     );
   }
-  const itc = env.company.gstRegistrationType === 'regular';
-  data.boe = { no: b.number.trim(), date: b.date, port: b.portCode?.trim().toUpperCase() || null, assessable: b.assessableValue, duty: b.customsDuty ?? 0, igst: b.igst, cess, itc };
+  // ITC on the IGST paid at customs follows the goods: none for a composition taxpayer, none when the
+  // purchase lines are blocked (s.17(5) / marked ineligible). A bill of entry is one document, so its
+  // lines must agree — enter blocked goods on a purchase of their own.
+  const taxed = ctx.invoiceLines.filter((l) => l.tax !== 0);
+  const blockedLines = taxed.filter((l) => l.itcEligibility === 'ineligible').length;
+  if (env.company.gstRegistrationType === 'regular' && blockedLines > 0 && blockedLines < taxed.length) {
+    ctx.warn(
+      'gst_stat',
+      'Some lines of this import carry input tax credit and some are blocked (ineligible). Enter the blocked goods on a separate purchase with their own bill of entry details.',
+      'block',
+      'gstDetails.billOfEntry',
+    );
+    return;
+  }
+  const itc = env.company.gstRegistrationType === 'regular' && (taxed.length === 0 || blockedLines === 0);
+  data.boe ={ no: b.number.trim(), date: b.date, port: b.portCode?.trim().toUpperCase() || null, assessable: b.assessableValue, duty: b.customsDuty ?? 0, igst: b.igst, cess, itc };
   const total = b.igst + cess;
   if (total === 0) return;
   let credit = b.creditLedgerId ?? statLedgerId(env.db, 'CUSTOMS_IGST');
@@ -295,13 +348,15 @@ function billOfEntry(ctx: PostingAdjustContext, b: NonNullable<VoucherGstDetails
     if (b.igst > 0 && input.igst !== undefined) ctx.addEntry({ ledgerId: input.igst, amount: b.igst, role: 'tax', narration: `IGST on bill of entry ${b.number}` });
     if (cess > 0 && input.cess !== undefined) ctx.addEntry({ ledgerId: input.cess, amount: cess, role: 'tax', narration: `Cess on bill of entry ${b.number}` });
   } else {
-    // Composition taxpayers cannot take credit: the IGST paid is part of the cost of the goods.
-    const purchase = ctx.entries.find((e) => e.role === 'purchase');
-    if (!purchase) {
-      ctx.warn('gst_stat', 'No purchase ledger on this voucher to carry the IGST paid at customs as cost.', 'block', 'gstDetails.billOfEntry');
+    // No credit (composition taxpayer, or blocked goods): the IGST paid is part of the cost of the goods.
+    // Charged to the ledger of the (first) taxed line — the purchase or the asset bought — else a purchase line.
+    const lineLedger = taxed.find((l) => l.ledgerId !== null)?.ledgerId ?? null;
+    const target = (lineLedger !== null ? ctx.entries.find((e) => e.ledgerId === lineLedger && e.amount > 0) : undefined) ?? ctx.entries.find((e) => e.role === 'purchase');
+    if (!target) {
+      ctx.warn('gst_stat', 'No purchase or asset ledger on this voucher to carry the IGST paid at customs as cost.', 'block', 'gstDetails.billOfEntry');
       return;
     }
-    ctx.addEntry({ ledgerId: purchase.ledgerId, amount: total, role: 'purchase', narration: `IGST on bill of entry ${b.number} (no credit: composition)` });
+    ctx.addEntry({ ledgerId: target.ledgerId, amount: total, role: target.role, narration: `IGST on bill of entry ${b.number} (no input tax credit)` });
   }
   ctx.addEntry({ ledgerId: credit, amount: -total, role: 'other', narration: `IGST paid at customs, bill of entry ${b.number}` });
 }
@@ -447,6 +502,13 @@ function challan(ctx: PostingAdjustContext, c: NonNullable<VoucherGstDetailsInpu
   for (const r of heads) data.stat.push({ nature: 'cash_deposit', period: c.period ?? null, head: r.head, minor: r.minor, amount: r.amount, taxableValue: 0 });
 }
 
+const LEGAL_SETOFF: Readonly<Record<TaxHead, readonly TaxHead[]>> = {
+  igst: ['igst', 'cgst', 'sgst'],
+  cgst: ['cgst', 'igst'],
+  sgst: ['sgst', 'igst'],
+  cess: ['cess'],
+};
+
 function setoff(ctx: PostingAdjustContext, s: NonNullable<VoucherGstDetailsInput['setoff']>, data: HookData): void {
   const ecl = statLedgerId(ctx.env.db, 'GST_CASH_LEDGER');
   const cash = cashRows(s.cash);
@@ -454,6 +516,12 @@ function setoff(ctx: PostingAdjustContext, s: NonNullable<VoucherGstDetailsInput
   const utilised = -sumOnLedger(ctx, ecl);
   if (ecl !== undefined && utilised !== total) {
     ctx.warn('gst_stat', `The set-off uses ${money(total)} of cash but the journal credits "GST Electronic Cash Ledger" with ${money(utilised)}. Post the set-off again from GST › Set-off.`, 'block', 'gstDetails.setoff');
+    return;
+  }
+  // s.49(5) / Rule 88A: CGST credit never pays SGST (and vice versa); cess credit pays only cess.
+  const bad = s.credit.find((r) => r.amount > 0 && !LEGAL_SETOFF[r.from].includes(r.to));
+  if (bad) {
+    ctx.warn('gst_stat', `${bad.from.toUpperCase()} credit cannot be used to pay ${bad.to.toUpperCase()} (section 49(5)). Post the set-off again from GST › Set-off.`, 'block', 'gstDetails.setoff');
     return;
   }
   for (const r of cash) data.stat.push({ nature: 'cash_utilised', period: s.period, head: r.head, minor: r.minor, amount: r.amount, taxableValue: 0 });
@@ -532,10 +600,10 @@ function prepare(ctx: CompanyCtx, args: { env: PostingEnv; input: VoucherInput }
   const g = input.gstDetails;
   const ts = ctx.clock.now().toISOString();
   const db = env.db;
-  if (g?.advance || g?.advanceRefund || (g?.advanceAdjustments?.length ?? 0) > 0) ensureStatLedger(db, 'GST_ADVANCE', ts);
-  else if ((input.partyBillAllocations?.length ?? 0) > 0 && db.value(`SELECT 1 FROM gst_advance_lines LIMIT 1`) !== undefined) ensureStatLedger(db, 'GST_ADVANCE', ts);
-  if (g?.billOfEntry && g.billOfEntry.creditLedgerId === undefined) ensureStatLedger(db, 'CUSTOMS_IGST', ts);
-  if (g?.challan || g?.setoff) ensureStatLedger(db, 'GST_CASH_LEDGER', ts);
+  if (g?.advance || g?.advanceRefund || (g?.advanceAdjustments?.length ?? 0) > 0) ensureStatLedger(db, 'GST_ADVANCE', ts, (e) => ctx.audit(e));
+  else if ((input.partyBillAllocations?.length ?? 0) > 0 && db.value(`SELECT 1 FROM gst_advance_lines LIMIT 1`) !== undefined) ensureStatLedger(db, 'GST_ADVANCE', ts, (e) => ctx.audit(e));
+  if (g?.billOfEntry && g.billOfEntry.creditLedgerId === undefined) ensureStatLedger(db, 'CUSTOMS_IGST', ts, (e) => ctx.audit(e));
+  if (g?.challan || g?.setoff) ensureStatLedger(db, 'GST_CASH_LEDGER', ts, (e) => ctx.audit(e));
 }
 
 function write(w: VoucherHookWriteContext): void {

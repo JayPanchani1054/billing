@@ -12,6 +12,7 @@ import type { CostingMethod, StockItemSaveInput, StockOpeningInput } from '../..
 import type { BillAllocationInput, ItemLineInput, LedgerLineInput, VoucherInput } from '../../../shared/types/vouchers.ts';
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
+import { idByNameOrAlias, splitAliasCell } from '../../lib/masterAliases.ts';
 import { AppError } from '../../lib/errors.ts';
 import { loadGroupTree } from '../accounts/books.ts';
 import { saveCostCategory, saveCostCentre } from '../accounts/costCentres.ts';
@@ -80,10 +81,19 @@ const first = <T>(rows: ParsedRow[], get: (r: ParsedRow) => T | undefined): T | 
 
 /** Id of a named master (name or alias, case-insensitive). Table names are constants, never user input. */
 export function findByName(db: Db, table: 'groups' | 'ledgers' | 'stock_items' | 'stock_groups' | 'stock_categories' | 'godowns' | 'cost_centres', name: string): number | null {
+  // Ledgers and stock items may have several aliases (dataplus).
+  if (table === 'ledgers' || table === 'stock_items') return idByNameOrAlias(db, table === 'ledgers' ? 'ledger' : 'stock_item', name) ?? null;
   const id = db.value<number>(`SELECT id FROM ${table} WHERE name = :n COLLATE NOCASE ORDER BY id LIMIT 1`, { n: name.trim() });
   if (id !== undefined) return id;
   const byAlias = db.value<number>(`SELECT id FROM ${table} WHERE alias = :n COLLATE NOCASE ORDER BY id LIMIT 1`, { n: name.trim() });
   return byAlias ?? null;
+}
+
+/** The Alias cell of a ledger / stock item row: several aliases separated by ';' (dataplus). */
+function aliasesOfCell(cell: string | undefined): Pick<LedgerSaveInput, 'alias' | 'aliases'> {
+  if (cell === undefined) return {};
+  const list = splitAliasCell(cell);
+  return list.length > 1 ? { aliases: list } : { alias: list[0] ?? null };
 }
 
 const isPrimary = (s: string | undefined): boolean => s === undefined || /^primary$/i.test(s.trim());
@@ -221,7 +231,7 @@ function ledgerFields(ctx: CompanyCtx, row: ParsedRow, gid: number | null, messa
   const set = <K extends keyof LedgerSaveInput>(k: K, v: LedgerSaveInput[K] | undefined): void => {
     if (v !== undefined) input[k] = v;
   };
-  set('alias', str(row, 'alias'));
+  Object.assign(input, aliasesOfCell(str(row, 'alias')));
   const ob = num(row, 'openingBalance');
   if (ob !== undefined) input.openingBalance = signedOpening(db, ob, str(row, 'openingDrCr'), gid, messages, 'Opening balance');
   set('billWise', bool(row, 'billWise'));
@@ -395,7 +405,7 @@ const applyStockItem: Applier = (ctx, rec, opts) => {
   const db = ctx.db;
   const name = (str(row, 'name') ?? fail('Name is required')) as string;
   const messages: string[] = [];
-  const input: StockItemSaveInput = { alias: str(row, 'alias'), partNo: str(row, 'partNo'), barcode: str(row, 'barcode'), description: str(row, 'description'), ...gstFieldsFor(row) };
+  const input: StockItemSaveInput = { ...aliasesOfCell(str(row, 'alias')), partNo: str(row, 'partNo'), barcode: str(row, 'barcode'), description: str(row, 'description'), ...gstFieldsFor(row) };
   const parentName = str(row, 'parent');
   if (parentName !== undefined && !isPrimary(parentName)) {
     const gid = findByName(db, 'stock_groups', parentName);

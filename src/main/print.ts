@@ -12,25 +12,38 @@ import { BrowserWindow, session } from 'electron';
 import type { Session } from 'electron';
 import { PRINT_PARTITION, PRINT_SCHEME } from './config.ts';
 import { log } from './log.ts';
+import { marginsFor, pdfPageOptions, printPageOptions, type PageSpec } from './printPage.ts';
 
 export type PageSize = 'A4' | 'A5' | 'Letter' | 'Legal';
 export type PdfMargins = 'default' | 'none' | 'minimum';
 
 export interface PdfOptions {
-  pageSize: PageSize;
-  landscape: boolean;
+  /** Named sheet (with orientation) or a continuous receipt roll (printPage.ts). */
+  page: PageSpec;
   margins: PdfMargins;
 }
 
 export interface PrintOptions {
   silent: boolean;
-  landscape: boolean;
   copies: number;
+  page: PageSpec;
+  /** Sheets only: 'none' for documents positioned to the millimetre (cheques on A4). Default 'default'. */
+  margins?: 'default' | 'none';
+  /** OS printer name (from printers()); omitted: the system default / the dialog's choice. */
+  deviceName?: string;
+}
+
+export interface PrinterSummary {
+  name: string;
+  displayName: string;
+  description: string;
 }
 
 export interface PrintService {
   toPdf(html: string, options: PdfOptions): Promise<Uint8Array>;
   print(html: string, options: PrintOptions, parent: BrowserWindow | null): Promise<boolean>;
+  /** Printers installed on this computer (for direct printing to a receipt printer). */
+  printers(parent: BrowserWindow | null): Promise<PrinterSummary[]>;
 }
 
 const PRINT_CSP = [
@@ -174,27 +187,31 @@ export function createPrintService(): PrintService {
   return {
     toPdf(html, options) {
       return withDocument(html, null, PDF_TIMEOUT_MS, async (win) => {
+        const page = pdfPageOptions(options.page);
         const pdf = await win.webContents.printToPDF({
-          pageSize: options.pageSize,
-          landscape: options.landscape,
+          pageSize: page.pageSize,
+          landscape: page.landscape,
           printBackground: true,
-          margins: PDF_MARGINS[options.margins],
+          margins: PDF_MARGINS[marginsFor(options.page, options.margins)],
         });
         return new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.byteLength);
       });
     },
 
     print(html, options, parent) {
+      const page = printPageOptions(options.page);
+      const edgeToEdge = marginsFor(options.page, options.margins ?? 'default') === 'none';
       return withDocument(html, parent, PRINT_TIMEOUT_MS, (win) =>
         new Promise<boolean>((resolve, reject) => {
           win.webContents.print(
             {
               silent: options.silent,
               printBackground: true,
-              landscape: options.landscape,
+              landscape: page.landscape,
               copies: options.copies,
-              pageSize: 'A4',
-              margins: { marginType: 'default' },
+              pageSize: page.pageSize,
+              margins: { marginType: edgeToEdge ? 'none' : 'default' },
+              ...(options.deviceName ? { deviceName: options.deviceName } : {}),
             },
             (success, failureReason) => {
               if (success) resolve(true);
@@ -204,6 +221,14 @@ export function createPrintService(): PrintService {
           );
         }),
       );
+    },
+
+    async printers(parent) {
+      // Any live webContents can list printers; the app window is always there when the renderer asks.
+      const contents = parent && !parent.isDestroyed() ? parent.webContents : null;
+      if (!contents) return [];
+      const list = await contents.getPrintersAsync();
+      return list.map((p) => ({ name: p.name, displayName: p.displayName || p.name, description: p.description ?? '' }));
     },
   };
 }

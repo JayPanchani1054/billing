@@ -18,7 +18,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FieldIssue } from '../../../shared/api.ts';
 import { PREDEFINED_VOUCHER_TYPES, type VoucherBaseType } from '../../../shared/constants.ts';
-import { formatIndianNumber } from '../../../shared/format.ts';
+import { checkNumberingScheme, numberingRowProblems, type NumberingTextRow } from '../../../shared/numbering.ts';
 import type {
   DeleteResult,
   ListResult,
@@ -88,13 +88,34 @@ export function parseVoucherTypeConfig(json: string | null | undefined): Voucher
   }
 }
 
-const numberingOf = (r: VtDbRow): VoucherNumbering => ({
+/** Dated prefix / suffix rows of every voucher type (dataplus) — attached by `toRow`. */
+type RowsByType = Map<number, { prefix: NumberingTextRow[]; suffix: NumberingTextRow[] }>;
+
+function numberingRowsByType(db: Db, id?: number): RowsByType {
+  const out: RowsByType = new Map();
+  const rows = db.all<{ vt: number; kind: 'prefix' | 'suffix'; applicable_from: string; text: string | null }>(
+    `SELECT voucher_type_id AS vt, kind, applicable_from, text FROM voucher_type_numbering_rows
+      ${id === undefined ? '' : 'WHERE voucher_type_id = :id'} ORDER BY voucher_type_id, applicable_from`,
+    id === undefined ? {} : { id },
+  );
+  for (const r of rows) {
+    let e = out.get(r.vt);
+    if (!e) out.set(r.vt, (e = { prefix: [], suffix: [] }));
+    (r.kind === 'prefix' ? e.prefix : e.suffix).push({ applicableFrom: r.applicable_from, text: r.text });
+  }
+  return out;
+}
+
+const numberingOf = (r: VtDbRow, rows?: RowsByType): VoucherNumbering => ({
   method: r.numbering_method,
   prefix: r.numbering_prefix,
   suffix: r.numbering_suffix,
   start: r.numbering_start,
   width: r.numbering_width,
   restart: r.numbering_restart,
+  // Keys only when there are dated rows (existing DTOs and edit-log images stay as they were).
+  ...(rows?.get(r.id)?.prefix.length ? { prefixRows: rows.get(r.id)?.prefix } : {}),
+  ...(rows?.get(r.id)?.suffix.length ? { suffixRows: rows.get(r.id)?.suffix } : {}),
 });
 
 function hotkeyOf(r: VtDbRow): string | null {
@@ -102,7 +123,7 @@ function hotkeyOf(r: VtDbRow): string | null {
   return PREDEFINED_VOUCHER_TYPES.find((p) => p.baseType === r.base_type)?.hotkey ?? null;
 }
 
-function toRow(r: VtDbRow): VoucherTypeRow {
+function toRow(r: VtDbRow, rows?: RowsByType): VoucherTypeRow {
   return {
     id: r.id,
     guid: r.guid,
@@ -115,15 +136,16 @@ function toRow(r: VtDbRow): VoucherTypeRow {
     isPredefined: r.is_predefined === 1,
     isActive: r.is_active === 1,
     hotkey: hotkeyOf(r),
-    numbering: numberingOf(r),
+    numbering: numberingOf(r, rows),
     voucherCount: r.voucher_count,
   };
 }
 
-function toDetail(r: VtDbRow, gstEnabled: boolean): VoucherTypeDetail {
-  const check = checkNumbering(r.base_type, numberingOf(r), gstEnabled);
+function toDetail(r: VtDbRow, gstEnabled: boolean, db?: Db): VoucherTypeDetail {
+  const rows = db ? numberingRowsByType(db, r.id) : undefined;
+  const check = checkNumbering(r.base_type, numberingOf(r, rows), gstEnabled);
   return {
-    ...toRow(r),
+    ...toRow(r, rows),
     preventDuplicates: r.prevent_duplicates === 1,
     useEffectiveDate: r.use_effective_date === 1,
     allowZeroValue: r.allow_zero_value === 1,
@@ -144,6 +166,7 @@ const sortRows = (a: VtDbRow, b: VtDbRow): number =>
 
 export function listVoucherTypes(db: Db, input: { search?: string; activeOnly?: boolean } = {}): ListResult<VoucherTypeRow> {
   const term = input.search?.trim().toLowerCase();
+  const numberingRows = numberingRowsByType(db);
   const rows = db
     .all<VtDbRow>(VT_SELECT)
     .sort(sortRows)
@@ -152,7 +175,7 @@ export function listVoucherTypes(db: Db, input: { search?: string; activeOnly?: 
         (!input.activeOnly || r.is_active === 1) &&
         (!term || r.name.toLowerCase().includes(term) || (r.alias ?? '').toLowerCase().includes(term) || (r.abbreviation ?? '').toLowerCase().includes(term)),
     )
-    .map(toRow);
+    .map((r) => toRow(r, numberingRows));
   return { rows, total: rows.length };
 }
 
@@ -163,7 +186,7 @@ function loadVt(db: Db, id: number): VtDbRow | undefined {
 export function getVoucherType(db: Db, id: number): VoucherTypeDetail {
   const r = loadVt(db, id);
   if (!r) throw notFound('Voucher type', id);
-  return toDetail(r, getFeatures(db).gst);
+  return toDetail(r, getFeatures(db).gst, db);
 }
 
 // ───────────────────────────── Numbering rules ─────────────────────────────
@@ -173,56 +196,8 @@ export function getVoucherType(db: Db, id: number): VoucherTypeDetail {
  * problems are errors (paths under 'numbering.'); otherwise they are warnings.
  */
 export function checkNumbering(baseType: VoucherBaseType, n: VoucherNumbering, gstEnabled: boolean): { errors: FieldIssue[]; warnings: string[] } {
-  const gstDoc = GST_DOCUMENT_BASE_TYPES.includes(baseType);
-  const strict = gstDoc && gstEnabled;
-  const errors: FieldIssue[] = [];
-  const warnings: string[] = [];
-  const flag = (path: string, message: string): void => {
-    if (strict) errors.push({ path, message });
-    else warnings.push(message);
-  };
-  const prefix = n.prefix ?? '';
-  const suffix = n.suffix ?? '';
-  for (const [path, label, text] of [
-    ['numbering.prefix', 'prefix', prefix],
-    ['numbering.suffix', 'suffix', suffix],
-  ] as const) {
-    const bad = [...new Set(text.replace(/[A-Za-z0-9/-]/g, ''))];
-    if (bad.length > 0) {
-      const shown = bad.map((c) => (c === ' ' ? 'a space' : `'${c}'`)).join(', ');
-      flag(path, `The ${label} contains ${shown}. GST invoice numbers may contain only letters, digits, '/' and '-'.`);
-    }
-  }
-  if (n.method === 'automatic' || n.method === 'automatic_override') {
-    const room = GST_DOC_NUMBER_MAX_LENGTH - prefix.length - suffix.length;
-    const digits = Math.max(n.width, String(n.start).length);
-    if (digits > room) {
-      flag(
-        'numbering.prefix',
-        `Voucher numbers would be ${prefix.length + digits + suffix.length} characters long (prefix ${prefix.length} + number ${digits} + suffix ${suffix.length}). ` +
-          'GST invoice numbers can have at most 16 characters: shorten the prefix or suffix, or reduce the zero padding.',
-      );
-    } else if (gstDoc && room < 6) {
-      warnings.push(
-        `Voucher numbers will be longer than 16 characters after no. ${formatIndianNumber(10 ** room - 1, 0)}. GST invoice numbers can have at most 16 characters; consider a shorter prefix or suffix.`,
-      );
-    }
-  }
-  if (gstDoc && gstEnabled) {
-    // The prefix/suffix is fixed text (no month token), so a monthly restart issues INV1 again every month:
-    // duplicate invoice numbers in the same financial year, which GSTR-1 rejects (CGST Rule 46(b)).
-    if (n.restart === 'monthly' && n.method !== 'manual' && n.method !== 'none') {
-      errors.push({
-        path: 'numbering.restart',
-        message:
-          'Numbers would restart every month with the same prefix, so invoice numbers would repeat within the financial year. ' +
-          'GST requires a number to be unique for the whole financial year: restart yearly (or never).',
-      });
-    }
-    if (n.method === 'manual') warnings.push('Manual numbering: make sure every number is unique within the financial year (GST requirement).');
-    if (n.method === 'none') errors.push({ path: 'numbering.method', message: 'GST invoices, credit notes and debit notes must carry a serial number: choose automatic or manual numbering.' });
-  }
-  return { errors, warnings };
+  // Shared with the voucher-type form (src/shared/numbering.ts): tokens and dated rows included (dataplus).
+  return checkNumberingScheme(baseType, n, gstEnabled);
 }
 
 // ───────────────────────────── Config rules ─────────────────────────────
@@ -381,6 +356,22 @@ function writeVoucherType(ctx: CompanyCtx, input: VoucherTypeSaveInput): number 
     if (p.width !== undefined) n.width = p.width;
     if (p.restart !== undefined) n.restart = p.restart;
   }
+  // Dated prefix / suffix rows (dataplus): given → replace that kind; else keep (create: none).
+  const storedRows = row ? numberingRowsByType(db, row.id).get(row.id) : undefined;
+  n.prefixRows = input.numbering?.prefixRows
+    ? input.numbering.prefixRows.map((r) => ({ applicableFrom: r.applicableFrom, text: r.text === null || r.text === '' ? null : r.text })).sort((a, b) => a.applicableFrom.localeCompare(b.applicableFrom))
+    : (storedRows?.prefix ?? []);
+  n.suffixRows = input.numbering?.suffixRows
+    ? input.numbering.suffixRows.map((r) => ({ applicableFrom: r.applicableFrom, text: r.text === null || r.text === '' ? null : r.text })).sort((a, b) => a.applicableFrom.localeCompare(b.applicableFrom))
+    : (storedRows?.suffix ?? []);
+  {
+    const booksFrom = db.value<string>('SELECT books_from FROM company WHERE id = 1') ?? undefined;
+    const typed = (kind: 'prefix' | 'suffix'): NumberingTextRow[] => (kind === 'prefix' ? input.numbering?.prefixRows : input.numbering?.suffixRows) ?? [];
+    for (const kind of ['prefix', 'suffix'] as const) {
+      if (!(kind === 'prefix' ? input.numbering?.prefixRows : input.numbering?.suffixRows)) continue;
+      for (const i of numberingRowProblems(kind, typed(kind), booksFrom)) if (!issues.has(i.path)) issues.add(i.path, i.message);
+    }
+  }
   if (!Number.isSafeInteger(n.start) || n.start < 1) issues.add('numbering.start', 'Starting number must be 1 or more');
   if (!Number.isSafeInteger(n.width) || n.width < 0 || n.width > 9) issues.add('numbering.width', 'Zero padding must be between 0 and 9 digits');
   if ((n.prefix ?? '').length > GST_DOC_NUMBER_MAX_LENGTH) issues.add('numbering.prefix', 'Prefix can have at most 16 characters');
@@ -388,6 +379,23 @@ function writeVoucherType(ctx: CompanyCtx, input: VoucherTypeSaveInput): number 
   for (const e of checkNumbering(baseType, n, gstEnabled).errors) if (!issues.has(e.path)) issues.add(e.path, e.message);
 
   // Config.
+  const writeNumberingRows = (id: number): void => {
+    for (const [kind, list, given] of [
+      ['prefix', n.prefixRows ?? [], input.numbering?.prefixRows !== undefined],
+      ['suffix', n.suffixRows ?? [], input.numbering?.suffixRows !== undefined],
+    ] as const) {
+      if (!given) continue;
+      db.run('DELETE FROM voucher_type_numbering_rows WHERE voucher_type_id = :id AND kind = :kind', { id, kind });
+      for (const r of list) {
+        db.run('INSERT INTO voucher_type_numbering_rows (voucher_type_id, kind, applicable_from, text) VALUES (:id, :kind, :from, :text)', {
+          id,
+          kind,
+          from: r.applicableFrom,
+          text: r.text,
+        });
+      }
+    }
+  };
   const baseConfig = row ? parseVoucherTypeConfig(row.config) : parent ? parseVoucherTypeConfig(parent.config) : {};
   const baseChanged = row !== undefined && baseType !== row.base_type;
   // A sales ledger default makes no sense once the type becomes a purchase type (and vice versa).
@@ -432,7 +440,7 @@ function writeVoucherType(ctx: CompanyCtx, input: VoucherTypeSaveInput): number 
     ts: ctx.clock.now().toISOString(),
   };
 
-  const before = row ? toDetail(row, gstEnabled) : undefined;
+  const before = row ? toDetail(row, gstEnabled, db) : undefined;
   let id: number;
   let guid: string;
   if (!row) {
@@ -476,12 +484,13 @@ function writeVoucherType(ctx: CompanyCtx, input: VoucherTypeSaveInput): number 
           entityId: c.id,
           entityGuid: c.guid,
           entityLabel: `${c.name} (follows '${name ?? row.name}')`,
-          before: toDetail(c, gstEnabled),
+          before: toDetail(c, gstEnabled, db),
           after: getVoucherType(db, c.id),
         });
       }
     }
   }
+  writeNumberingRows(id);
   ctx.audit({
     action: row ? 'alter' : 'create',
     entityType: 'voucher_type',
@@ -518,7 +527,7 @@ export function deleteVoucherType(ctx: CompanyCtx, id: number): DeleteResult {
     if (children.length > 0) {
       throw rule(`Voucher type '${row.name}' has types based on it (${children.map((c) => `'${c.name}'`).join(', ')}). Delete or change those first.`);
     }
-    const before = toDetail(row, getFeatures(db).gst);
+    const before = toDetail(row, getFeatures(db).gst, db);
     db.run('DELETE FROM voucher_counters WHERE voucher_type_id = :id', { id });
     db.run('DELETE FROM voucher_types WHERE id = :id', { id });
     ctx.audit({ action: 'delete', entityType: 'voucher_type', entityId: id, entityGuid: row.guid, entityLabel: row.name, before });

@@ -27,6 +27,7 @@ describe('TDS end to end (runtime.dispatch)', () => {
   let bank = 0;
   let purchaseType = 0;
   let billId = 0;
+  let challanId = 0;
 
   before(() => {
     e = startRuntime('2026-05-20');
@@ -113,14 +114,26 @@ describe('TDS end to end (runtime.dispatch)', () => {
     assert.deepEqual({ bal: o.rows[0].balance, due: o.rows[0].dueDate, status: o.rows[0].status, int: o.rows[0].interest }, { bal: P(800), due: '2026-05-07', status: 'overdue', int: P(24) });
     const sug = await e.call<{ unpaid: number; interest: number }>('tds.challan.suggest', { kind: 'tds', section: '194C', period: '2026-04', depositDate: '2026-05-20' });
     assert.deepEqual(sug, { ...sug, unpaid: P(800), interest: P(24) });
-    await e.call('tds.challan.save', {
+    challanId = (await e.call<{ id: number }>('tds.challan.save', {
       date: '2026-05-20',
       bankLedgerId: bank,
       challan: { kind: 'tds', section: '194C', period: '2026-04', bsrCode: '0510001', challanNo: '00042', depositDate: '2026-05-20', tax: sug.unpaid, interest: sug.interest },
-    });
+    })).id;
     const after = await e.call<TdsOutstandingResult>('tds.outstanding', { asOf: '2026-05-20', kind: 'tds' });
     assert.equal(after.rows.length, 0);
     assert.equal(after.totals.balance, 0);
+  });
+
+  it('the voucher view panel data: the bill line is deposited; the challan cleared it; the ledger master mirrors the nature', async () => {
+    const bill = await e.call<{ lines: Array<{ section: string; amount: number; deposited: number; balance: number }>; challan: unknown }>('tds.voucher', { voucherId: billId });
+    assert.deepEqual(bill.lines.map((l) => [l.section, l.amount, l.deposited, l.balance]), [['194C', P(800), P(800), 0]]);
+    assert.equal(bill.challan, null);
+    const ch = await e.call<{ lines: unknown[]; challan: { challanNo: string; cleared: number; interest: number; late: boolean } | null }>('tds.voucher', { voucherId: challanId });
+    assert.deepEqual(ch.lines, []);
+    // Deposited 20-May for April: due 7-May, so late.
+    assert.deepEqual(ch.challan && { no: ch.challan.challanNo, cleared: ch.challan.cleared, int: ch.challan.interest, late: ch.challan.late }, { no: '00042', cleared: P(800), int: P(24), late: true });
+    const led = await e.call<{ tdsApplicable: boolean; tdsSection: string | null }>('accounts.ledger.get', { id: expense });
+    assert.deepEqual({ a: led.tdsApplicable, s: led.tdsSection }, { a: true, s: '194C' });
   });
 
   it('26Q Q1 data links the deduction to the challan; the CSV export works; the books balance', async () => {

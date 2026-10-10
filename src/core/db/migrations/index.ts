@@ -22,12 +22,18 @@ import { migration130 } from './130_dashboard.ts';
 import { migration140 } from './140_print.ts';
 import { migration150 } from './150_indexes.ts';
 import { migration160 } from './160_tds.ts';
+import { migration161 } from './161_tds_advances.ts';
+import { migration170 } from './170_cheques.ts';
 import { migration190 } from './190_documents.ts';
 import { migration191 } from './191_recurring.ts';
 import { migration192 } from './192_order_closures.ts';
 import { migration193 } from './193_budgets.ts';
 import { migration200 } from './200_gstplus.ts';
 import { migration210 } from './210_mfg.ts';
+import { migration220 } from './220_aliases.ts';
+import { migration221 } from './221_numbering_rows.ts';
+import { migration222 } from './222_attachments.ts';
+import { migration230 } from './230_forex.ts';
 
 export interface Migration {
   version: number;
@@ -53,10 +59,16 @@ export const migrations: readonly Migration[] = [
   migration140,
   migration150,
   migration160,
+  migration161,
+  migration170,
   migration190,
   migration191,
   migration192,
   migration193,
   migration200,
   migration210,
+  migration220,
+  migration221,
+  migration222,
+  migration230,
 ];

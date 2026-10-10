@@ -59,6 +59,18 @@ export const CompanyConfigInputSchema = v.object({
       terms: v.string({ max: 4000 }).optional(),
       signatoryLabel: v.string({ max: 100 }).optional(),
       itemwiseTax: v.boolean().optional(),
+      // print group: paper, receipt roll, MRP column.
+      paperSize: v.enum(['A4', 'A5', 'A5-landscape', 'Letter', 'Legal'] as const).optional(),
+      rollWidth: v.enum(['80mm', '58mm'] as const).optional(),
+      showMrp: v.boolean().optional(),
+    })
+    .optional(),
+  // print group: e-mail / WhatsApp share texts (placeholders {document} {number} {date} {amount} {party} {company} {period}).
+  share: v
+    .object({
+      emailSubject: v.string({ max: 200 }).refine((s) => (/[\r\n]/.test(s) ? 'The e-mail subject must be a single line' : null)).optional(),
+      emailBody: v.string({ max: 4000 }).optional(),
+      whatsappText: v.string({ max: 1000 }).optional(),
     })
     .optional(),
   gst: v

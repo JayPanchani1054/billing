@@ -6,7 +6,7 @@
  * Pure — tested in numbering.test.ts.
  */
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
-import { formatIndianNumber } from '../../../../shared/format.ts';
+import { checkNumberingScheme, expandedMaxLength, formatSchemeNumber } from '../../../../shared/numbering.ts';
 import type { NumberingMethod, NumberingRestart, VoucherNumbering, VoucherTypeRow } from '../../../../shared/types/accounts.ts';
 
 /** GST documents whose numbers go to GSTR-1 (same list as the core). */
@@ -26,19 +26,25 @@ export const RESTART_OPTIONS: ReadonlyArray<{ value: NumberingRestart; label: st
   { value: 'never', label: 'Never' },
 ];
 
-export function formatNumber(n: Pick<VoucherNumbering, 'prefix' | 'suffix' | 'width'>, seq: number): string {
+/**
+ * A number of the scheme. With a voucher `date` the tokens ({FY} {MM} …) and the dated prefix /
+ * suffix rows in force on that date are applied (dataplus, src/shared/numbering.ts); without one the
+ * prefix / suffix are shown as typed.
+ */
+export function formatNumber(n: Pick<VoucherNumbering, 'prefix' | 'suffix' | 'width' | 'prefixRows' | 'suffixRows'>, seq: number, date?: string, fyStartMonth = 4): string {
+  if (date !== undefined) return formatSchemeNumber(n, seq, date, fyStartMonth);
   const body = n.width > 0 ? String(seq).padStart(n.width, '0') : String(seq);
   return `${n.prefix ?? ''}${body}${n.suffix ?? ''}`;
 }
 
 /**
- * Numbers shown in the live preview: the first two numbers of a numbering period.
- * null for manual numbering or no numbering (nothing is generated).
+ * Numbers shown in the live preview: the first two numbers of a numbering period, for a voucher
+ * dated `date` (tokens expanded). null for manual numbering or no numbering (nothing is generated).
  */
-export function numberingPreview(n: VoucherNumbering): { first: string; second: string } | null {
+export function numberingPreview(n: VoucherNumbering, date?: string, fyStartMonth = 4): { first: string; second: string } | null {
   if (n.method === 'none' || n.method === 'manual') return null;
   const start = Math.max(1, Math.floor(n.start || 1));
-  return { first: formatNumber(n, start), second: formatNumber(n, start + 1) };
+  return { first: formatNumber(n, start, date, fyStartMonth), second: formatNumber(n, start + 1, date, fyStartMonth) };
 }
 
 /** Plain-English description of when the numbers start again. */
@@ -54,64 +60,18 @@ export function badCharacters(text: string): string[] {
 }
 
 export interface NumberingIssue {
-  /** Field path as the server reports it ('numbering.prefix' …). */
-  path: 'numbering.prefix' | 'numbering.suffix' | 'numbering.restart' | 'numbering.method' | 'numbering';
+  /** Field path as the server reports it ('numbering.prefix', 'numbering.prefixRows[0].text' …). */
+  path: string;
   message: string;
 }
 
 /**
- * Same rules as the core: for sales / credit note / debit note of a GST company these are errors
- * (the save would be refused); otherwise warnings.
+ * Same rules as the core (one implementation: src/shared/numbering.ts › checkNumberingScheme): for
+ * sales / credit note / debit note of a GST company these are errors (the save would be refused);
+ * otherwise warnings. Tokens and dated prefix / suffix rows are checked at their longest expansion.
  */
 export function checkNumbering(baseType: VoucherBaseType, n: VoucherNumbering, gstEnabled: boolean): { errors: NumberingIssue[]; warnings: string[] } {
-  const gstDoc = GST_DOCUMENT_BASE_TYPES.includes(baseType);
-  const strict = gstDoc && gstEnabled;
-  const errors: NumberingIssue[] = [];
-  const warnings: string[] = [];
-  const flag = (path: NumberingIssue['path'], message: string): void => {
-    if (strict) errors.push({ path, message });
-    else warnings.push(message);
-  };
-  const prefix = n.prefix ?? '';
-  const suffix = n.suffix ?? '';
-  for (const [path, label, text] of [
-    ['numbering.prefix', 'prefix', prefix],
-    ['numbering.suffix', 'suffix', suffix],
-  ] as const) {
-    const bad = badCharacters(text);
-    if (bad.length > 0) {
-      const shown = bad.map((c) => (c === ' ' ? 'a space' : `'${c}'`)).join(', ');
-      flag(path, `The ${label} contains ${shown}. GST invoice numbers may contain only letters, digits, '/' and '-'.`);
-    }
-  }
-  if (n.method === 'automatic' || n.method === 'automatic_override') {
-    const room = GST_DOC_NUMBER_MAX_LENGTH - prefix.length - suffix.length;
-    const digits = Math.max(n.width, String(n.start).length);
-    if (digits > room) {
-      flag(
-        'numbering.prefix',
-        `Voucher numbers would be ${prefix.length + digits + suffix.length} characters long (prefix ${prefix.length} + number ${digits} + suffix ${suffix.length}). ` +
-          'GST invoice numbers can have at most 16 characters: shorten the prefix or suffix, or reduce the zero padding.',
-      );
-    } else if (gstDoc && room < 6) {
-      warnings.push(
-        `Voucher numbers will be longer than 16 characters after no. ${formatIndianNumber(10 ** room - 1, 0)}. GST invoice numbers can have at most 16 characters; consider a shorter prefix or suffix.`,
-      );
-    }
-  }
-  if (gstDoc && gstEnabled) {
-    if (n.restart === 'monthly' && n.method !== 'manual' && n.method !== 'none') {
-      errors.push({
-        path: 'numbering.restart',
-        message:
-          'Numbers would restart every month with the same prefix, so invoice numbers would repeat within the financial year. ' +
-          'GST requires a number to be unique for the whole financial year: restart yearly (or never).',
-      });
-    }
-    if (n.method === 'manual') warnings.push('Manual numbering: make sure every number is unique within the financial year (GST requirement).');
-    if (n.method === 'none') errors.push({ path: 'numbering.method', message: 'GST invoices, credit notes and debit notes must carry a serial number: choose automatic or manual numbering.' });
-  }
-  return { errors, warnings };
+  return checkNumberingScheme(baseType, n, gstEnabled);
 }
 
 const DEFAULT_NUMBERING: VoucherNumbering = { method: 'automatic', prefix: null, suffix: null, start: 1, width: 0, restart: 'yearly' };
@@ -167,7 +127,8 @@ export function seriesClashWarning(names: readonly string[], n: VoucherNumbering
 /** Length of the longest number for a width/start (for the "12 of 16 characters" meter). */
 export function numberLength(n: VoucherNumbering): number {
   const digits = Math.max(n.width, String(Math.max(1, n.start)).length);
-  return (n.prefix ?? '').length + digits + (n.suffix ?? '').length;
+  const longest = (base: string | null, rows: VoucherNumbering['prefixRows']): number => Math.max(expandedMaxLength(base), ...(rows ?? []).map((r) => expandedMaxLength(r.text)));
+  return longest(n.prefix, n.prefixRows) + digits + longest(n.suffix, n.suffixRows);
 }
 
 /** Ledger side a voucher type's default ledger must be on (null = not applicable). Mirrors the core. */

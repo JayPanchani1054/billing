@@ -24,7 +24,7 @@ import {
   saveStatementStatus,
 } from './masters.ts';
 import { import26as, receivable } from './receivable.ts';
-import { challanRegister, computation, exceptions, lineRows, outstanding, returnData } from './reports.ts';
+import { challanRegister, computation, exceptions, lineRows, outstanding, returnData, voucherTds } from './reports.ts';
 import { challanCsv, deducteeCsv, returnFileName } from './returnCsv.ts';
 import { LedgerTdsSaveSchema, NatureSaveSchema, PERIOD, SettingsSchema, VoucherTdsChallanSchema } from './schemas.ts';
 import { ensureReceivableLedger, getTdsSettings } from './store.ts';
@@ -80,7 +80,10 @@ export const tdsRoutes = {
     access: 'tds.view',
     transactional: false,
     input: v.object({ id: v.id(), asOf: v.date().optional() }),
-    handler: (ctx, input) => getNature(ctx.db, input.id, input.asOf ?? ctx.clock.today()),
+    handler: (ctx, input) => {
+      assertTdsEnabled(ctx);
+      return getNature(ctx.db, input.id, input.asOf ?? ctx.clock.today());
+    },
   }),
   'tds.natures.save': companyRoute({
     access: 'tds.manage',
@@ -93,7 +96,10 @@ export const tdsRoutes = {
   'tds.natures.delete': companyRoute({
     access: 'tds.manage',
     input: v.object({ id: v.id() }),
-    handler: (ctx, input) => deleteNature(ctx, input.id),
+    handler: (ctx, input) => {
+      assertTdsEnabled(ctx);
+      return deleteNature(ctx, input.id);
+    },
   }),
 
   // ───────────── Ledger TDS details ─────────────
@@ -114,7 +120,10 @@ export const tdsRoutes = {
     access: 'tds.view',
     transactional: false,
     input: v.object({ ledgerId: v.id() }),
-    handler: (ctx, input) => getLedgerDetails(ctx.db, input.ledgerId),
+    handler: (ctx, input) => {
+      assertTdsEnabled(ctx);
+      return getLedgerDetails(ctx.db, input.ledgerId);
+    },
   }),
   'tds.ledgers.save': companyRoute({
     access: 'tds.manage',
@@ -157,6 +166,17 @@ export const tdsRoutes = {
     handler: (ctx, input) => {
       assertTdsEnabled(ctx, input.kind);
       return lineRows(ctx.db, { ...input, today: ctx.clock.today() });
+    },
+  }),
+  // Voucher view panel: shown for any voucher, so it answers (empty) instead of refusing when TDS/TCS is off.
+  'tds.voucher': companyRoute({
+    access: 'vouchers.view',
+    transactional: false,
+    input: v.strictObject({ voucherId: v.id() }),
+    handler: (ctx, input) => {
+      const f = getFeatures(ctx.db);
+      if (!f.tds && !f.tcs) return { lines: [], challan: null };
+      return voucherTds(ctx.db, { voucherId: input.voucherId, today: ctx.clock.today() });
     },
   }),
   'tds.outstanding': companyRoute({
@@ -209,6 +229,7 @@ export const tdsRoutes = {
     transactional: false,
     input: v.object({ voucherId: v.id() }),
     handler: (ctx, input) => {
+      assertTdsEnabled(ctx);
       const row = loadVoucherRow(ctx.db, input.voucherId);
       const meta = row ? parseMeta(row.meta) : null;
       const c = meta?.input?.tds?.challan;

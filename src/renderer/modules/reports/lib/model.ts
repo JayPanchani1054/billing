@@ -2,6 +2,7 @@
  * Pure presentation logic for the reports screens: drill-down targets, periods, amount text,
  * Tally horizontal-statement pairing and export tables. Tested in model.test.ts.
  */
+import { sideBudget, type BudgetByKey } from './overlay.ts';
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { addDays, daysInMonth, endOfMonth, financialYear, formatMonth, parts } from '../../../../shared/dates.ts';
 import { formatIndianNumber, formatMoney, formatPercent } from '../../../../shared/format.ts';
@@ -170,20 +171,31 @@ export interface StatementSection {
 }
 
 /** Export of a horizontal statement: Particulars | Amount [| Compare] for each side, pairs of rows. */
-export function statementExport(sides: { left: string; right: string }, sections: readonly StatementSection[], compareLabel: string | null): ExportTable {
+export function statementExport(
+  sides: { left: string; right: string },
+  sections: readonly StatementSection[],
+  compareLabel: string | null,
+  /** (additive) Budget column per side (lib/overlay.ts): `leftDrNatural` true for a P&L (expenses left), false for a Balance Sheet. */
+  budget?: { byKey: BudgetByKey; leftDrNatural: boolean; name: string } | null,
+): ExportTable {
   const withCmp = compareLabel !== null;
+  const withBud = !!budget;
   const half = (label: string) => [
     { header: label, kind: 'text' as const, width: 34 },
     { header: 'Amount', kind: 'amount' as const, width: 16 },
     ...(withCmp ? [{ header: compareLabel ?? '', kind: 'amount' as const, width: 16 }] : []),
+    ...(withBud ? [{ header: `Budget (${budget?.name ?? ''})`, kind: 'amount' as const, width: 16 }] : []),
   ];
-  const cells = (l: StatementLine | null): Array<string | number | null> =>
-    l ? [indentLabel(l.name, l.level), l.amount, ...(withCmp ? [l.compare] : [])] : ['', null, ...(withCmp ? [null] : [])];
+  const cells = (l: StatementLine | null, left: boolean): Array<string | number | null> =>
+    l
+      ? [indentLabel(l.name, l.level), l.amount, ...(withCmp ? [l.compare] : []), ...(withBud ? [sideBudget(budget?.byKey, l.key, left === budget?.leftDrNatural)] : [])]
+      : ['', null, ...(withCmp ? [null] : []), ...(withBud ? [null] : [])];
   const rows: Array<Array<string | number | null>> = [];
+  const pad = withBud ? [null] : [];
   for (const s of sections) {
-    if (s.caption) rows.push([s.caption, null, ...(withCmp ? [null] : []), '', null, ...(withCmp ? [null] : [])]);
-    for (const [l, r] of pairLines(s.left, s.right)) rows.push([...cells(l), ...cells(r)]);
-    rows.push(['Total', s.total, ...(withCmp ? [s.compareTotal] : []), 'Total', s.total, ...(withCmp ? [s.compareTotal] : [])]);
+    if (s.caption) rows.push([s.caption, null, ...(withCmp ? [null] : []), ...pad, '', null, ...(withCmp ? [null] : []), ...pad]);
+    for (const [l, r] of pairLines(s.left, s.right)) rows.push([...cells(l, true), ...cells(r, false)]);
+    rows.push(['Total', s.total, ...(withCmp ? [s.compareTotal] : []), ...pad, 'Total', s.total, ...(withCmp ? [s.compareTotal] : []), ...pad]);
   }
   return { columns: [...half(sides.left), ...half(sides.right)], rows, landscape: true };
 }

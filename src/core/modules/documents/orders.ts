@@ -99,7 +99,10 @@ export function precloseOrder(ctx: CompanyCtx, input: OrderPrecloseInput): { ord
   if (wanted.length === 0) throw rule(`${label(order)} has no pending balance to close as of ${formatDate(date)}.`);
   const now = nowIso(ctx);
   const added: Array<{ itemId: number; item: string; qty: number }> = [];
+  const listed = new Set<number>();
   wanted.forEach((w, i) => {
+    if (listed.has(w.itemId)) throw fieldIssue(`items[${i}].itemId`, `${itemName(w.itemId)} is listed twice. Enter one quantity per item.`);
+    listed.add(w.itemId);
     if (already.has(w.itemId)) throw fieldIssue(`items[${i}].itemId`, `${itemName(w.itemId)} of this order is already pre-closed. Reopen it first to change the quantity.`);
     const pending = pendingByItem.get(w.itemId);
     if (pending === undefined) throw fieldIssue(`items[${i}].itemId`, `${itemName(w.itemId)} is not on ${label(order)}.`);
@@ -111,12 +114,17 @@ export function precloseOrder(ctx: CompanyCtx, input: OrderPrecloseInput): { ord
       const dp = Math.max(0, Math.min(6, u?.dp ?? 0));
       throw fieldIssue(`items[${i}].qty`, `Only ${formatQty(pending, dp, u?.symbol)} of ${itemName(w.itemId)} is pending; you cannot close ${formatQty(qty, dp, u?.symbol)}.`);
     }
-    db.run(
-      `INSERT INTO order_closures (voucher_id, item_id, closed_qty, date, reason, created_at, created_by)
-       VALUES (:v, :item, :qty, :date, :reason, :now, :by)`,
-      { v: order.id, item: w.itemId, qty, date, reason, now, by: ctx.session.userId },
-    );
     added.push({ itemId: w.itemId, item: itemName(w.itemId), qty });
+  });
+  // Every item checked first: a refused line leaves nothing half-closed (also when called outside a route transaction).
+  db.transaction(() => {
+    for (const a of added) {
+      db.run(
+        `INSERT INTO order_closures (voucher_id, item_id, closed_qty, date, reason, created_at, created_by)
+         VALUES (:v, :item, :qty, :date, :reason, :now, :by)`,
+        { v: order.id, item: a.itemId, qty: a.qty, date, reason, now, by: ctx.session.userId },
+      );
+    }
   });
   ctx.audit({
     action: 'alter',

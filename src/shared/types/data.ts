@@ -95,6 +95,11 @@ export interface BackupCreateResult {
   encrypted: boolean;
   /** Older backups of this company removed by the "keep last N" rule. */
   removed: string[];
+  /**
+   * Attached files carried in the backup (dataplus; omitted when the company has none). `missing`
+   * names attachments whose stored file was missing or changed and is therefore not in the backup.
+   */
+  attachments?: { files: number; missing: string[] };
 }
 
 export interface BackupListInput {
@@ -129,7 +134,7 @@ export interface BackupVerifyInput {
 }
 
 export interface BackupCheck {
-  name: 'container' | 'checksum' | 'password' | 'decompress' | 'database_checksum' | 'integrity' | 'schema' | 'company' | 'edit_log';
+  name: 'container' | 'checksum' | 'password' | 'decompress' | 'database_checksum' | 'integrity' | 'schema' | 'company' | 'edit_log' | 'attachments';
   /** null = could not be checked (e.g. password not given). */
   ok: boolean | null;
   message: string;

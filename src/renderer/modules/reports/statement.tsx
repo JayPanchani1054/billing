@@ -8,6 +8,7 @@ import { Stack } from '../../ui/index.ts';
 import { StatementSide, useTreeExpansion } from './components.tsx';
 import type { TreeExpansion } from './components.tsx';
 import { visibleRows } from './lib/tree.ts';
+import type { BudgetByKey } from './lib/overlay.ts';
 
 export interface BlockData {
   left: readonly StatementLine[];
@@ -45,9 +46,11 @@ export interface StatementBlockViewProps {
   onActivate: (line: StatementLine) => void;
   loading?: boolean;
   autoFocus?: boolean;
+  /** (additive) Budget column on both sides (overlay.tsx): `leftDrNatural` true for a P&L (expenses left), false for a Balance Sheet. */
+  budget?: { name: string; byKey: BudgetByKey; leftDrNatural: boolean } | null;
 }
 
-export function StatementBlockView({ caption, leftTitle, rightTitle, block, expansion, compareLabel, onActivate, loading, autoFocus }: StatementBlockViewProps) {
+export function StatementBlockView({ caption, leftTitle, rightTitle, block, expansion, compareLabel, onActivate, loading, autoFocus, budget = null }: StatementBlockViewProps) {
   const heightRows = useMemo(
     () => Math.max(visibleRows(block.left, expansion.left.expandedKeys).length, visibleRows(block.right, expansion.right.expandedKeys).length),
     [block, expansion.left.expandedKeys, expansion.right.expandedKeys],
@@ -62,6 +65,7 @@ export function StatementBlockView({ caption, leftTitle, rightTitle, block, expa
           total={block.total}
           compareTotal={block.compareTotal}
           compareLabel={compareLabel}
+          budget={budget ? { name: budget.name, byKey: budget.byKey, drNatural: budget.leftDrNatural } : null}
           expansion={expansion.left}
           onActivate={onActivate}
           loading={loading}
@@ -74,6 +78,7 @@ export function StatementBlockView({ caption, leftTitle, rightTitle, block, expa
           total={block.total}
           compareTotal={block.compareTotal}
           compareLabel={compareLabel}
+          budget={budget ? { name: budget.name, byKey: budget.byKey, drNatural: !budget.leftDrNatural } : null}
           expansion={expansion.right}
           onActivate={onActivate}
           loading={loading}

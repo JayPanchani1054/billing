@@ -25,6 +25,7 @@ import { randomUUID } from 'node:crypto';
 import { diffDays, formatDate } from '../../../shared/dates.ts';
 import type { Paise } from '../../../shared/money.ts';
 import type {
+  BudgetBasis,
   BudgetColumnsResult,
   BudgetDetail,
   BudgetLineInput,
@@ -250,6 +251,28 @@ export function budgetVariance(ctx: CompanyCtx, input: BudgetVarianceInput): Bud
     return { net: r?.net ?? 0, closing: r?.closing ?? 0 };
   };
 
+  // A line inside another line's figure is shown but not added to the totals again (each amount once).
+  const budgetedGroups = new Set(lines.filter((l) => l.group_id !== null).map((l) => l.group_id as number));
+  const budgetedCentres = new Set(lines.filter((l) => l.cost_centre_id !== null).map((l) => l.cost_centre_id as number));
+  const hasAccountLines = lines.some((l) => l.cost_centre_id === null);
+  const centreParent = new Map<number, number | null>(
+    budgetedCentres.size > 0 ? db.all<{ id: number; parent_id: number | null }>('SELECT id, parent_id FROM cost_centres').map((c) => [c.id, c.parent_id]) : [],
+  );
+  const underBudgetedCentre = (cid: number): boolean => {
+    const seen = new Set<number>();
+    for (let p = centreParent.get(cid) ?? null; p !== null && !seen.has(p); p = centreParent.get(p) ?? null) {
+      if (budgetedCentres.has(p)) return true;
+      seen.add(p);
+    }
+    return false;
+  };
+  const inTotal = (l: LineDbRow): boolean => {
+    if (l.cost_centre_id !== null) return !hasAccountLines && !underBudgetedCentre(l.cost_centre_id);
+    const groupId = l.group_id ?? env.ledgerById.get(l.ledger_id as number)?.groupId;
+    const chain = groupId !== undefined ? (tree.byId.get(groupId)?.chainIds ?? []) : [];
+    return !chain.some((gid) => budgetedGroups.has(gid) && gid !== l.group_id);
+  };
+
   const rows: BudgetVarianceRow[] = [];
   const totals = { budget: 0, actual: 0, variance: 0 };
   for (const l of lines) {
@@ -276,7 +299,9 @@ export function budgetVariance(ctx: CompanyCtx, input: BudgetVarianceInput): Bud
       variance,
       variancePct: budget !== 0 ? Math.round((variance / Math.abs(budget)) * 10_000) / 100 : null,
       overBudget: budget !== 0 && Math.sign(actual) === Math.sign(budget) && Math.abs(actual) > Math.abs(budget),
+      inTotal: inTotal(l),
     });
+    if (!inTotal(l)) continue;
     totals.budget += budget;
     totals.actual += actual;
     totals.variance += variance;
@@ -297,35 +322,44 @@ export function budgetColumns(ctx: CompanyCtx, input: { budgetId: number; from: 
   const share = proRataShare({ from: b.from_date, to: b.to_date }, input.from, input.to);
   const lines = loadLines(db, b.id);
   const byKey: Record<string, Paise> = {};
+  const basisByKey: Record<string, BudgetBasis | 'mixed'> = {};
   const ledgerBudget = new Map<number, Paise>();
-  const groupExplicit = new Map<number, Paise>();
+  const ledgerBasis = new Map<number, BudgetBasis>();
+  const groupExplicit = new Map<number, { v: Paise; basis: BudgetBasis }>();
   for (const l of lines) {
     const v = periodBudget(l.amount, l.basis, share);
     if (l.ledger_id !== null) {
       ledgerBudget.set(l.ledger_id, v);
+      ledgerBasis.set(l.ledger_id, l.basis);
       byKey[`l:${l.ledger_id}`] = v;
-    } else if (l.group_id !== null) groupExplicit.set(l.group_id, v);
+      basisByKey[`l:${l.ledger_id}`] = l.basis;
+    } else if (l.group_id !== null) groupExplicit.set(l.group_id, { v, basis: l.basis });
   }
+  const merge = (a: BudgetBasis | 'mixed' | undefined, b: BudgetBasis | 'mixed'): BudgetBasis | 'mixed' => (a === undefined || a === b ? b : 'mixed');
   const tree = loadGroupTree(db);
-  const direct = new Map<number, Paise>();
+  const direct = new Map<number, { v: Paise; basis: BudgetBasis | 'mixed' }>();
   for (const r of db.all<{ id: number; group_id: number }>('SELECT id, group_id FROM ledgers')) {
     const v = ledgerBudget.get(r.id);
-    if (v !== undefined) direct.set(r.group_id, (direct.get(r.group_id) ?? 0) + v);
+    if (v === undefined) continue;
+    const d = direct.get(r.group_id);
+    direct.set(r.group_id, { v: (d?.v ?? 0) + v, basis: merge(d?.basis, ledgerBasis.get(r.id) as BudgetBasis) });
   }
-  const value = (gid: number): Paise | undefined => {
+  const value = (gid: number): { v: Paise; basis: BudgetBasis | 'mixed' } | undefined => {
     const own = groupExplicit.get(gid);
     if (own !== undefined) return own;
     const node = tree.byId.get(gid);
-    let sum: Paise | undefined = direct.get(gid);
+    let sum = direct.get(gid);
     for (const c of node?.childIds ?? []) {
       const cv = value(c);
-      if (cv !== undefined) sum = (sum ?? 0) + cv;
+      if (cv !== undefined) sum = { v: (sum?.v ?? 0) + cv.v, basis: merge(sum?.basis, cv.basis) };
     }
     return sum;
   };
   for (const id of tree.order) {
     const v = value(id);
-    if (v !== undefined) byKey[`g:${id}`] = v;
+    if (v === undefined) continue;
+    byKey[`g:${id}`] = v.v;
+    basisByKey[`g:${id}`] = v.basis;
   }
-  return { budgetId: b.id, name: b.name, byKey, proRata: Math.round(share * 10_000) / 10_000 };
+  return { budgetId: b.id, name: b.name, byKey, basisByKey, proRata: Math.round(share * 10_000) / 10_000 };
 }

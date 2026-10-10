@@ -17,9 +17,12 @@ import { bankingRoutes } from '../modules/banking/routes.ts';
 import { dataRoutes } from '../modules/data/routes.ts';
 import { dashboardRoutes } from '../modules/dashboard/routes.ts';
 import { printRoutes } from '../modules/print/routes.ts';
+import { chequesRoutes } from '../modules/cheques/routes.ts';
 import { tdsRoutes } from '../modules/tds/routes.ts';
 import { documentsRoutes } from '../modules/documents/routes.ts';
 import { mfgRoutes } from '../modules/mfg/routes.ts';
+import { forexRoutes } from '../modules/forex/routes.ts';
+import { attachmentsRoutes } from '../modules/attachments/routes.ts';
 
 export const routes = {
   ...appRoutes,
@@ -37,9 +40,12 @@ export const routes = {
   ...dataRoutes,
   ...dashboardRoutes,
   ...printRoutes,
+  ...chequesRoutes,
   ...tdsRoutes,
   ...documentsRoutes,
   ...mfgRoutes,
+  ...forexRoutes,
+  ...attachmentsRoutes,
 };
 
 export type ApiRoutes = typeof routes;

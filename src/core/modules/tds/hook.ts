@@ -11,13 +11,17 @@
  *   - `input.tds.natureId` without applicable lines: payment (advance) → the party's Dr amount; journal
  *     → the party's Cr amount; purchase → the invoice's taxable value.
  *   - Deductee: the invoice party; in ledger mode the one party line (Sundry Creditors / Debtors or a
- *     ledger with a deductee type) on the credit side (payment: debit side).
+ *     ledger with a deductee type — partner's capital, loan) on the credit side (payment: debit side).
+ *     A party is never an expense line itself; a party marked "does not apply" is exempt.
+ *   - Advances: a later bill / journal credit is set off against advances of the party under the nature
+ *     on which tax was deducted (tds_lines.advance_adjusted); the single limit is tested on the whole bill.
  *   - Posting: Cr 'TDS Payable – <section>' and the deductee gets that much less: purchase / journal →
  *     the party's credit is reduced; payment → the cash/bank credit is reduced (the party is debited
  *     with the gross). Bill-wise allocations typed for the gross are rescaled to the net.
  * TCS (F11 › TCS on): sales invoices (item / accounting mode). Lines whose sales ledger has a TCS
  * nature; Dr party += TCS, Cr 'TCS Payable'; the invoice value includes the TCS.
- * Overrides: `input.tds.overrides` (amount + reason) replace the computed amount per nature.
+ * Overrides: `input.tds.overrides` (amount + reason) replace the computed amount per nature; a credit the
+ * user typed to the duty ledger is taken as the amount (never posted twice).
  * Challan: `input.tds.challan` on a payment is checked against the voucher and stored in tds_challans.
  */
 import type { VoucherBaseType } from '../../../shared/constants.ts';
@@ -65,6 +69,7 @@ interface Bucket {
 function adjust(ctx: PostingAdjustContext): void {
   const w = wants(ctx.env.features, ctx.baseType, ctx.mode);
   const challan = ctx.input.tds?.challan ?? null;
+  if (ctx.voucherId !== null && (!w.tds || !w.tcs)) warnTurnedOff(ctx, w);
   if (!w.tds && !w.tcs && !challan) return;
   const store = new TdsStore(ctx.env.db);
   const lines: TdsVoucherLine[] = [];
@@ -72,6 +77,25 @@ function adjust(ctx: PostingAdjustContext): void {
   if (w.tcs) lines.push(...computeKind(ctx, store, 'tcs'));
   if (challan) checkChallan(ctx, store, challan);
   if (lines.length > 0 || challan) ctx.setData({ lines, challan } satisfies TdsHookData);
+}
+
+/**
+ * Altering a voucher that carries TDS / TCS while that feature is now off in F11 would drop the tax
+ * silently (the hook computes nothing): ask first. One indexed lookup, only on alter.
+ */
+function warnTurnedOff(ctx: PostingAdjustContext, w: { tds: boolean; tcs: boolean }): void {
+  for (const r of ctx.env.db.all<{ kind: TdsKind; amount: number }>(
+    'SELECT kind, SUM(amount) AS amount FROM tds_lines WHERE voucher_id = :id GROUP BY kind',
+    { id: ctx.voucherId },
+  )) {
+    if (r.amount <= 0 || w[r.kind]) continue;
+    const K = r.kind.toUpperCase();
+    ctx.warn(
+      'tds',
+      `This voucher carries ${K} of ${inr(r.amount)}, but ${K} is now turned off (F11): saving it removes the ${K} from the voucher and the ${K} reports. Turn ${K} on again to keep it.`,
+      'confirm',
+    );
+  }
 }
 
 function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind): TdsVoucherLine[] {
@@ -95,6 +119,9 @@ function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind):
     if (ledgerId === null) return null;
     const d = store.detail(ledgerId);
     if (!d || d.applicable !== 1 || d.payable_kind !== null) return null;
+    // A party's details (deductee, default nature) never make the party itself an expense line: a
+    // transfer between two parties is not a payment for work or services.
+    if (isPartyRole(m.ledger(ledgerId), d)) return null;
     const id = d.nature_id ?? fallbackNature ?? tdsIn.natureId ?? null;
     if (id === null) {
       ctx.warn('tds', `${m.ledger(ledgerId).name} is marked ${kind.toUpperCase()} applicable but has no nature of ${kind === 'tds' ? 'payment' : 'goods'}. Set it in TDS/TCS › Ledger details.`, 'info', path);
@@ -132,14 +159,33 @@ function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind):
       add(n.id, Math.abs(deductee.entry.amount), 0, 'tds');
     }
   }
-  if (buckets.size === 0) return [];
+  // Tax the user credited to the duty ledger by hand on this voucher: it IS the deduction (posting it
+  // again would deduct twice). Payable ledger id → amount credited.
+  const manual = manualPayableCredits(ctx, store, kind);
+  const manualUsed = new Set<number>();
+  if (buckets.size === 0) {
+    warnUnmatchedManual(ctx, kind, manual, manualUsed);
+    return [];
+  }
 
   if (!deductee.ledger) {
     ctx.warn('tds', deductee.problem ?? `No party to ${kind === 'tds' ? 'deduct TDS from' : 'collect TCS from'}.`, deductee.ambiguous ? 'confirm' : 'info');
   }
+  // A party marked "TDS / TCS does not apply" (TDS/TCS › Ledger details: s.196, a s.194C(6)
+  // declaration, a buyer exempt from TCS …): nothing is computed on its vouchers.
+  const partyDetail = deductee.ledger ? store.detail(deductee.ledger.id) : null;
+  if (deductee.ledger && partyDetail && partyDetail.applicable !== 1) {
+    ctx.warn(
+      'tds',
+      `${deductee.ledger.name} is marked "${kind.toUpperCase()} does not apply" in its TDS/TCS details: nothing was ${kind === 'tds' ? 'deducted' : 'collected'}.`,
+      'info',
+    );
+    return [];
+  }
   const d: Deductee | null = deductee.ledger ? store.deductee(deductee.ledger.id) : null;
   const settings = store.settings();
   const out: TdsVoucherLine[] = [];
+  const manualLines = new Set<TdsVoucherLine>();
 
   for (const b of buckets.values()) {
     const nature = store.nature(b.natureId) as NatureRow;
@@ -176,6 +222,8 @@ function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind):
       note: '',
     };
     if (!d) {
+      // The missing party is already reported; a hand-typed duty line is not "unmatched" on top of it.
+      if (payableId !== null) manualUsed.add(payableId);
       line.note = 'No deductee: nothing was deducted.';
       out.push(line);
       continue;
@@ -192,13 +240,24 @@ function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind):
       self: ctx.voucherId ?? 0,
       today: ctx.env.today,
     });
+    // A bill / journal credit for which the party was paid an advance under this nature: the advance
+    // was counted (and taxed when liable) when it was paid, so only the rest is taken in now.
+    let advanceAdjusted = 0;
+    if (kind === 'tds' && ctx.baseType !== 'payment' && assessable > 0) {
+      const open = advanceOpen(ctx.env.db, { party: d.ledgerId, nature: nature.id, to: ctx.date, self: ctx.voucherId ?? 0, today: ctx.env.today });
+      advanceAdjusted = Math.min(assessable, open);
+    }
+    const netAssessable = assessable - advanceAdjusted;
+    line.assessable = netAssessable;
+    line.advanceAdjusted = advanceAdjusted;
     const cert = d.certificate && d.certificate.from <= ctx.date && ctx.date <= d.certificate.to && (d.certificate.natureId === null || d.certificate.natureId === nature.id) ? d.certificate : null;
     const certUsed = cert ? certificateUsed(ctx.env.db, d.ledgerId, cert.from, cert.to, ctx.voucherId ?? 0, ctx.env.today) : 0;
     const res = computeTds({
       rate,
       deducteeType: d.type,
       panOk: d.panStatus === 'valid',
-      assessable,
+      assessable: netAssessable,
+      singleBase: assessable,
       prior: prior.prior,
       priorUndeducted: prior.undeducted,
       certificate: cert ? { number: cert.number, rate: cert.rate, remaining: cert.limit === null ? null : Math.max(0, cert.limit - certUsed) } : null,
@@ -206,22 +265,32 @@ function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind):
       verb: kind === 'tds' ? 'deduct' : 'collect',
     });
     Object.assign(line, { catchUp: res.catchUp, base: res.base, rate: res.rate, computed: res.amount, amount: res.amount, status: res.status, note: res.note });
+    if (advanceAdjusted > 0) {
+      line.note = `${inr(advanceAdjusted)} of this ${inr(assessable)} is set off against the advance paid earlier under ${nature.section} (counted when it was paid). ${line.note}`;
+    }
     if (d.typeAssumed && res.liable) {
       line.note += ` Deductee type not set on ${d.name}: taken as ${d.type}.`;
     }
-    const ov = tdsIn.overrides?.find((o) => o.natureId === nature.id);
+    const manualAmount = payableId !== null && !manualUsed.has(payableId) ? manual.get(payableId) : undefined;
+    if (payableId !== null && manualAmount !== undefined) manualUsed.add(payableId);
+    const ov =
+      manualAmount !== undefined
+        ? { amount: manualAmount, reason: `Entered by hand on the voucher (${payableLedgerName(kind, nature.section)})` }
+        : tdsIn.overrides?.find((o) => o.natureId === nature.id);
     if (ov) {
       line.overridden = ov.amount !== res.amount;
       line.reason = ov.reason.trim();
       line.amount = ov.amount;
       if (ov.amount === 0) line.status = res.liable ? 'overridden_nil' : 'below_threshold';
       else {
-        if (line.base === 0) line.base = assessable;
+        if (line.base === 0) line.base = netAssessable;
         if (line.status === 'below_threshold') line.status = 'deducted';
         if (line.overridden && line.base > 0) line.rate = Math.round((ov.amount / line.base) * 100 * 10_000) / 10_000;
       }
       if (line.overridden) line.note += ` Changed from ${inr(res.amount)} to ${inr(ov.amount)}: ${line.reason}`;
+      else if (manualAmount !== undefined) line.note += ` Entered by hand on the voucher.`;
     }
+    if (manualAmount !== undefined) manualLines.add(line);
     if (d.panStatus !== 'valid' && line.amount > 0) {
       ctx.warn('tds', `${d.name} has ${d.panStatus === 'missing' ? 'no PAN' : `an invalid PAN (${d.pan ?? ''})`}: ${kind.toUpperCase()} u/s ${nature.section} at the higher rate ${line.rate}%.`, 'info', 'partyLedgerId');
     }
@@ -233,8 +302,40 @@ function computeKind(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind):
       if (n && n.kind === kind) ctx.warn('tds', `${n.section} ${n.name}: nothing on this voucher is subject to it, so its override was ignored.`, 'info');
     }
   }
-  postLines(ctx, kind, out, deductee);
+  warnUnmatchedManual(ctx, kind, manual, manualUsed);
+  postLines(ctx, kind, out.filter((l) => !manualLines.has(l)), deductee);
   return out;
+}
+
+/** Party-role ledger: a debtor / creditor, or any ledger whose TDS details give it a deductee type. */
+function isPartyRole(L: LedgerInfo, d: { deductee_type: string | null } | null): boolean {
+  if (L.isDebtor || L.isCreditor) return true;
+  return (d?.deductee_type ?? null) !== null && L.nature !== 'expenses' && L.nature !== 'income';
+}
+
+/** Credits typed by the user (not posted by a hook) to this kind's duty ledgers: ledger id → amount. */
+function manualPayableCredits(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind): Map<number, Paise> {
+  const out = new Map<number, Paise>();
+  store.preloadDetails(ctx.entries.map((e) => e.ledgerId));
+  for (const e of ctx.entries) {
+    if (e.source.kind === 'hook' || e.amount >= 0) continue;
+    const det = store.detail(e.ledgerId);
+    if (!det || det.payable_kind !== kind) continue;
+    out.set(e.ledgerId, (out.get(e.ledgerId) ?? 0) - e.amount);
+  }
+  return out;
+}
+
+/** A hand-typed credit to a duty ledger with nothing computed for it would be missing from the TDS reports. */
+function warnUnmatchedManual(ctx: PostingAdjustContext, kind: TdsKind, manual: ReadonlyMap<number, Paise>, used: ReadonlySet<number>): void {
+  for (const [ledgerId, amount] of manual) {
+    if (used.has(ledgerId)) continue;
+    ctx.warn(
+      'tds',
+      `${ctx.masters.ledger(ledgerId).name} is credited with ${inr(amount)} by hand, but nothing on this voucher is ${kind.toUpperCase()}-applicable, so the ${kind.toUpperCase()} reports and the quarterly statement will not show it. Choose the nature (Alt+U) or mark the expense ledger ${kind.toUpperCase()}-applicable.`,
+      'confirm',
+    );
+  }
 }
 
 interface DeducteePick {
@@ -263,8 +364,9 @@ function findDeductee(ctx: PostingAdjustContext, store: TdsStore, kind: TdsKind)
     if (L.isCashBank || L.isGstDuty) return false;
     const det = store.detail(L.id);
     if (det?.payable_kind) return false;
-    if (det?.applicable === 1 && !L.isDebtor && !L.isCreditor) return false;
-    return L.isDebtor || L.isCreditor || (det?.deductee_type ?? null) !== null;
+    // Debtors / creditors, and ledgers given a deductee type (a partner's capital account for 194T,
+    // an unsecured loan for 194A) — whether or not they also carry a default nature.
+    return isPartyRole(L, det);
   });
   const ids = [...new Set(cands.map((e) => e.ledgerId))];
   if (ids.length === 1) {
@@ -347,6 +449,25 @@ function certificateUsed(db: Db, party: number, from: string, to: string, self: 
   );
 }
 
+/**
+ * Advances paid to the party under the nature on which tax was deducted (TDS lines of Payment vouchers
+ * dated up to `to`, with tax or under a certificate) not yet set off by bills / journal credits (any
+ * date — an advance is set off once), books filter. An advance below the threshold (nothing deducted)
+ * is not set off: the bill is taxed in full when it is liable.
+ */
+function advanceOpen(db: Db, p: { party: number; nature: number; to: string; self: number; today: string }): Paise {
+  const r = db.get<{ paid: number; used: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN v.base_type = 'payment' AND tl.date <= :to AND (tl.amount > 0 OR tl.status = 'certificate')
+                              THEN tl.assessable ELSE 0 END), 0) AS paid,
+            COALESCE(SUM(CASE WHEN v.base_type <> 'payment' THEN tl.advance_adjusted ELSE 0 END), 0) AS used
+       FROM tds_lines tl JOIN vouchers v ON v.id = tl.voucher_id
+      WHERE tl.party_ledger_id = :party AND tl.nature_id = :nature AND tl.kind = 'tds' AND tl.voucher_id <> :self
+        AND tl.affects_books = 1 AND (tl.is_post_dated = 0 OR tl.date <= :today)`,
+    p,
+  );
+  return Math.max(0, (r?.paid ?? 0) - (r?.used ?? 0));
+}
+
 function checkChallan(ctx: PostingAdjustContext, store: TdsStore, c: VoucherTdsChallanInput): void {
   if (ctx.baseType !== 'payment' || ctx.mode !== 'ledger') {
     ctx.warn('tds', 'Challan details belong on a Payment voucher (TDS/TCS › Challan).', 'block', 'tds');
@@ -360,6 +481,21 @@ function checkChallan(ctx: PostingAdjustContext, store: TdsStore, c: VoucherTdsC
     ctx.warn(
       'tds',
       `The challan deposits ${inr(deposited)} of ${c.kind.toUpperCase()} u/s ${c.section}, but this voucher debits ${name} with ${inr(dr)}. Make them equal.`,
+      'confirm',
+      'tds',
+    );
+  }
+  // BSR code + deposit date + challan serial number is the challan identification number (CIN): the
+  // same challan recorded twice would clear the month twice in the reports and the statement.
+  const dup = ctx.env.db.get<{ number: string | null; date: string }>(
+    `SELECT v.number, v.date FROM tds_challans c JOIN vouchers v ON v.id = c.voucher_id
+      WHERE c.bsr_code = :bsr AND c.challan_no = :no AND c.deposit_date = :deposit AND c.voucher_id <> :self LIMIT 1`,
+    { bsr: c.bsrCode, no: c.challanNo, deposit: c.depositDate, self: ctx.voucherId ?? 0 },
+  );
+  if (dup) {
+    ctx.warn(
+      'tds',
+      `Challan ${c.challanNo} (BSR ${c.bsrCode}, deposited ${c.depositDate}) is already recorded on Payment ${dup.number ?? ''} of ${dup.date}. A challan is recorded once.`,
       'confirm',
       'tds',
     );
@@ -419,10 +555,11 @@ export const tdsVoucherHook: VoucherHook = {
       w.db.run(
         `INSERT INTO tds_lines (voucher_id, line_no, kind, nature_id, section, party_ledger_id, deductee_type, pan, pan_status, non_resident,
                 assessable, catch_up, base, rate, computed, amount, overridden, reason, status, payable_ledger_id, note, date,
-                affects_books, is_post_dated)
+                affects_books, is_post_dated, advance_adjusted)
          VALUES (:vid, :lineNo, :kind, :natureId, :section, :party, :type, :pan, :panStatus,
                  COALESCE((SELECT non_resident FROM tds_ledger_details WHERE ledger_id = :party), 0),
-                 :assessable, :catchUp, :base, :rate, :computed, :amount, :overridden, :reason, :status, :payable, :note, :date, :books, :pdc)`,
+                 :assessable, :catchUp, :base, :rate, :computed, :amount, :overridden, :reason, :status, :payable, :note, :date, :books, :pdc,
+                 :advance)`,
         {
           vid: w.voucherId,
           lineNo: i + 1,
@@ -447,6 +584,7 @@ export const tdsVoucherHook: VoucherHook = {
           date: w.date,
           books,
           pdc,
+          advance: l.advanceAdjusted ?? 0,
         },
       );
     });

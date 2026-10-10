@@ -327,3 +327,31 @@ describe('what a GST change does to the dated rate history', () => {
     assert.equal(gstHistoryEffect({ ...base, name: 'Sales 12%' }, sec, orig), 'none');
   });
 });
+
+describe('more aliases (dataplus)', () => {
+  it('create sends the complete list only when there are more aliases', () => {
+    const d = { ...emptyLedgerDraft('Acme Traders', DEBTORS), alias: 'ACME' };
+    assert.equal(buildSaveInput(d, sectionsFor(DEBTORS), null).input.aliases, undefined);
+    const more = { ...d, moreAliases: 'C-0042\n\n  अॅक्मे  \nACME' };
+    assert.deepEqual(buildSaveInput(more, sectionsFor(DEBTORS), null).input.aliases, ['ACME', 'C-0042', 'अॅक्मे']);
+  });
+
+  it('alter sends the list when it differs from the saved aliases, and nothing when unchanged', () => {
+    const original = detail({ alias: 'ACME', aliases: ['ACME', 'C-0042'] });
+    const d = draftFromDetail(original);
+    assert.equal(d.moreAliases, 'C-0042');
+    const same = buildSaveInput(d, sectionsFor(DEBTORS), original);
+    assert.equal(same.unchanged, true);
+    assert.equal(same.input.aliases, undefined);
+    const cleared = buildSaveInput({ ...d, moreAliases: '' }, sectionsFor(DEBTORS), original);
+    assert.deepEqual(cleared.input.aliases, ['ACME']);
+    assert.equal(cleared.unchanged, false);
+  });
+
+  it('flags a line equal to the name or repeated lines', () => {
+    const d = { ...emptyLedgerDraft('Acme Traders', DEBTORS), alias: 'ACME', moreAliases: 'acme traders' };
+    assert.match(validateLedgerDraft(d, { sections: sectionsFor(DEBTORS), booksFrom: '2026-04-01', final: true }).moreAliases ?? '', /same as the name/);
+    const rep = { ...d, moreAliases: 'X1\nx1' };
+    assert.match(validateLedgerDraft(rep, { sections: sectionsFor(DEBTORS), booksFrom: '2026-04-01', final: true }).moreAliases ?? '', /twice/);
+  });
+});

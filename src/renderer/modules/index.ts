@@ -14,6 +14,10 @@ import { bankingModule } from './banking/index.ts';
 import { dataModule } from './data/index.ts';
 import { dashboardModule } from './dashboard/index.ts';
 import { printModule } from './print/index.ts';
+import { tdsModule } from './tds/index.ts';
+import { documentsModule } from './documents/index.ts';
+import { mfgModule } from './mfg/index.ts';
+import { attachmentsModule } from './attachments/index.ts';
 
 export const modules: ModuleDef[] = [
   companyModule,
@@ -30,4 +34,8 @@ export const modules: ModuleDef[] = [
   dataModule,
   dashboardModule,
   printModule,
+  tdsModule,
+  documentsModule,
+  mfgModule,
+  attachmentsModule,
 ];

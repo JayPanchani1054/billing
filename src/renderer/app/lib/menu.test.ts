@@ -58,6 +58,18 @@ describe('collect/filter/sort', () => {
     assert.deepEqual(labels({ can: only('reports.view'), gstEnabled: false, features: { inventory: false } }), ['Groups', 'Chart of Accounts', 'Day Book']);
   });
 
+  test('gstRegistrations shows an item only for that registration type (unknown → shown)', () => {
+    const items = [
+      { section: 'gst' as const, label: 'GSTR-1', screen: 'gst.gstr1', gstRegistrations: ['regular' as const] },
+      { section: 'gst' as const, label: 'CMP-08', screen: 'gst.cmp08', gstRegistrations: ['composition' as const] },
+      { section: 'gst' as const, label: 'GST Set-off', screen: 'gst.setoff' },
+    ];
+    const labels = (gstRegistration: 'regular' | 'composition' | null) => filterMenu(items, { can: all, gstEnabled: true, gstRegistration }).map((i) => i.label);
+    assert.deepEqual(labels('regular'), ['GSTR-1', 'GST Set-off']);
+    assert.deepEqual(labels('composition'), ['CMP-08', 'GST Set-off']);
+    assert.deepEqual(labels(null), ['GSTR-1', 'CMP-08', 'GST Set-off']);
+  });
+
   test('sortMenu orders by section, order, then label', () => {
     const sorted = sortMenu(collectMenu(modules)).map((i) => i.label);
     assert.deepEqual(sorted, ['Chart of Accounts', 'Ledgers', 'Groups', 'Balance Sheet', 'Day Book', 'Stock Summary', 'GSTR-1']);

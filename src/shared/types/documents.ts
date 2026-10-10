@@ -288,6 +288,7 @@ export interface BillsPendingResult {
   kind: BillsPendingKind;
   asOf: string;
   rows: BillsPendingRow[];
+  /** olderThan7Days: delivery / receipt notes (not rejections) with a line unbilled for more than 7 days. */
   totals: { notes: number; parties: number; pendingValue: Paise; olderThan7Days: number };
 }
 
@@ -411,6 +412,12 @@ export interface BudgetVarianceRow {
   variancePct: number | null;
   /** Actual beyond the budget on the budget's own side (spent / earned more than budgeted). */
   overBudget: boolean;
+  /**
+   * (additive) Counted in `totals`: false for a line already inside another line's figure — a ledger or
+   * group under a budgeted group, a cost centre under a budgeted centre — and for cost-centre lines when
+   * the budget also has group / ledger lines (cost centres split the same ledger amounts).
+   */
+  inTotal?: boolean;
 }
 
 export interface BudgetVarianceResult {
@@ -420,6 +427,7 @@ export interface BudgetVarianceResult {
   /** Share of the budget period the report covers (1 = whole period). */
   proRata: number;
   rows: BudgetVarianceRow[];
+  /** Σ of the rows with `inTotal` (each amount counted once). */
   totals: { budget: Paise; actual: Paise; variance: Paise };
 }
 
@@ -435,6 +443,11 @@ export interface BudgetColumnsResult {
   name: string;
   /** Dr + / Cr − per row key; groups without a line of their own roll up their ledgers and sub-groups. */
   byKey: Record<string, Paise>;
+  /**
+   * (additive) Basis of each `byKey` entry: what the budget is compared with — the period's nett
+   * transactions (Dr − Cr) or the closing balance; 'mixed' for a group rolling up lines of both bases.
+   */
+  basisByKey?: Record<string, BudgetBasis | 'mixed'>;
   proRata: number;
 }
 

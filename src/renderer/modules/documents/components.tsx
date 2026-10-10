@@ -16,7 +16,7 @@ import type { ScreenActionItem, VoucherPanelProps } from '../../app/index.ts';
 import { Badge, Banner, Button, Card, DataTable, Inline, KeyValueList, Stack, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import type { OrderClosureRow } from '../../../shared/types/documents.ts';
-import { canConvert, DOCUMENTS_INVALIDATES, noticeStorageKey, STATUS_META } from './lib/model.ts';
+import { canConvert, DOCUMENTS_INVALIDATES, noticeStorageKey, qtyText, STATUS_META } from './lib/model.ts';
 
 function readFlag(key: string): boolean {
   try {
@@ -112,6 +112,7 @@ const refText = (r: VoucherRef): string => `${r.voucherTypeName} ${r.number ?? '
 
 export function VoucherDocumentsPanel({ voucherId, baseType, isCancelled, isOptional, updatedAt }: VoucherPanelProps) {
   const nav = useNav();
+  const { date: workingDate } = useWorkingDate();
   const toast = useToast();
   const features = useFeatures();
   const canCreate = useCan('vouchers.create');
@@ -130,7 +131,7 @@ export function VoucherDocumentsPanel({ voucherId, baseType, isCancelled, isOpti
   const isDoc = baseType === 'quotation' || baseType === 'proforma';
   const isOrder = baseType === 'sales_order' || baseType === 'purchase_order';
   const convertible = !!l?.document && canConvert(l.document.status) && canCreate;
-  const convert = (target: 'sales' | 'sales_order') => nav.push('vouchers.entry', { draft: { sourceId: voucherId, targetBaseType: target } });
+  const convert = (target: 'sales' | 'sales_order') => nav.push('vouchers.entry', { draft: { sourceId: voucherId, targetBaseType: target, date: workingDate } });
 
   const actions: ScreenActionItem[] = [
     { key: 'Alt+V', label: 'Convert to Sales Invoice', icon: 'invoice', onClick: () => convert('sales'), hidden: !isDoc || isCancelled, disabled: !convertible, hint: l?.document && !convertible ? `This document is ${STATUS_META[l.document.status].label.toLowerCase()}.` : undefined, group: 'documents' },
@@ -146,13 +147,13 @@ export function VoucherDocumentsPanel({ voucherId, baseType, isCancelled, isOpti
     },
     { key: 'Alt+S', label: 'Accept / reject', icon: 'check-circle', onClick: () => nav.push('documents.quotation.status', { id: voucherId }), hidden: !isDoc || isCancelled || !canAlter, group: 'documents' },
     { key: 'Alt+R', label: 'Make recurring', icon: 'refresh', onClick: () => nav.push('documents.recurring.form', { sourceVoucherId: voucherId }), hidden: isCancelled || !canCreate || baseType === 'physical_stock', group: 'documents' },
-    { key: 'Alt+L', label: 'Pre-close order', icon: 'x-circle', onClick: () => nav.push('documents.order.preclose', { orderId: voucherId }), hidden: !isOrder || isCancelled || isOptional || !canAlter, group: 'documents' },
+    { key: 'Alt+L', label: 'Pre-close order', icon: 'x-circle', onClick: () => nav.push('documents.order.preclose', { orderId: voucherId, kind: baseType === 'purchase_order' ? 'purchase' : 'sales' }), hidden: !isOrder || isCancelled || isOptional || !canAlter, group: 'documents' },
   ];
   useScreenActions(actions);
 
   const closureColumns: Column<OrderClosureRow>[] = [
     { key: 'itemName', header: 'Item', minWidth: 160 },
-    { key: 'closedQty', header: 'Closed qty', width: 120, align: 'right', value: (r) => r.closedQty, render: (r) => <span className="bx-num">{`${r.closedQty} ${r.unit}`}</span> },
+    { key: 'closedQty', header: 'Closed qty', width: 120, align: 'right', value: (r) => r.closedQty, render: (r) => <span className="bx-num">{qtyText(r.closedQty, r.unit)}</span> },
     { key: 'date', header: 'Closed on', kind: 'date', width: 110 },
     { key: 'reason', header: 'Reason', minWidth: 200 },
     { key: 'createdBy', header: 'By', width: 120, value: (r) => r.createdBy ?? '' },

@@ -148,17 +148,17 @@ export function amendmentPeriod(db: Db, company: GstCompany, docDate: string, to
   const quarterly = company.config.gst.filingFrequency === 'quarterly';
   const step = quarterly ? 3 : 1;
   const keyOf = (d: string): string => (quarterly ? quarterPeriodKey(d) : monthPeriodKey(d));
-  const last = keyOf(today);
-  const lastRef = parsePeriodKey(last);
-  let d = addMonths(`${docDate.slice(0, 7)}-01`, step);
+  // Normally that is at most the working date's period; when even that one is already marked filed
+  // (e.g. filed on the last day of the period), the next period after it — never a filed one.
+  let d = addMonths(`${(quarterly ? (parsePeriodKey(keyOf(docDate))?.from ?? docDate) : docDate).slice(0, 7)}-01`, step);
   for (let i = 0; i < 240; i++) {
     const key = keyOf(d);
     const ref = parsePeriodKey(key);
-    if (!ref || (lastRef && ref.from > lastRef.from)) break;
+    if (!ref) break;
     if (filedGstr1Period(db, ref.from) === null) return key;
     d = addMonths(d, step);
   }
-  return last;
+  return keyOf(today);
 }
 
 // ───────────────────────────── Snapshots ─────────────────────────────

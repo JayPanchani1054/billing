@@ -39,6 +39,8 @@ export interface MenuContext {
   can: (permission: Permission) => boolean;
   gstEnabled: boolean;
   features?: Partial<CompanyFeatures> | null;
+  /** (additive) The company's GST registration type (items with `gstRegistrations` are filtered by it; unknown → shown). */
+  gstRegistration?: 'regular' | 'composition' | 'unregistered' | null;
 }
 
 export interface CollectedMenuItem extends MenuItem {
@@ -82,7 +84,13 @@ export function collectMenu(modules: readonly ModuleDef[]): CollectedMenuItem[] 
 
 /** Is an item (or a screen) allowed for this user/company? */
 export function isAllowed(
-  req: { access?: Permission; gstOnly?: boolean; feature?: keyof CompanyFeatures; anyFeature?: ReadonlyArray<keyof CompanyFeatures> },
+  req: {
+    access?: Permission;
+    gstOnly?: boolean;
+    feature?: keyof CompanyFeatures;
+    anyFeature?: ReadonlyArray<keyof CompanyFeatures>;
+    gstRegistrations?: ReadonlyArray<'regular' | 'composition' | 'unregistered'>;
+  },
   ctx: MenuContext,
 ): boolean {
   if (req.access && !ctx.can(req.access)) return false;
@@ -91,6 +99,8 @@ export function isAllowed(
   // (additive) At least one of these features must be on (e.g. TDS or TCS).
   const feats = ctx.features;
   if (req.anyFeature && req.anyFeature.length > 0 && feats && req.anyFeature.every((f) => feats[f] === false)) return false;
+  // (additive) Composition / regular-only items (CMP-08 vs GSTR-1 …), when the registration is known.
+  if (req.gstRegistrations && ctx.gstRegistration && !req.gstRegistrations.includes(ctx.gstRegistration)) return false;
   return true;
 }
 

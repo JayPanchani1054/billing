@@ -45,6 +45,7 @@ test('voucher-type print overrides point to Invoice Printing (the one editor) an
   assert.match(src, /Overrides the bank chosen in Invoice Printing/);
   assert.match(src, /label="Template" error=\{cfgErr\.printTemplate\}/);
   assert.match(src, /\{ value: '', label: 'As set in Invoice Printing' \}/);
-  assert.match(src, /\{ value: 'compact', label: 'Compact 80 mm' \}/);
+  assert.match(src, /\{ value: 'compact', label: 'Compact receipt \(thermal roll\)' \}/);
+  assert.match(src, /label="MRP column" error=\{cfgErr\.showMrp\}/);
   assert.match(src, /label="Terms & conditions"/);
 });

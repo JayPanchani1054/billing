@@ -3,6 +3,7 @@
  * API DTOs, client-side checks (the core re-validates everything) and the plain-language texts the
  * form shows (costing methods, taxability, HSN hint).
  */
+import { aliasLines, formAliasList, moreAliasesProblem, moreAliasesText, sameAliasList } from '../../../../shared/aliases.ts';
 import type { CostingMethod, StockItemDetail, StockItemSaveInput, Taxability } from '../../../../shared/types/inventory.ts';
 import { formatDate } from '../../../../shared/dates.ts';
 import { formatMoney, formatPercent } from '../../../../shared/format.ts';
@@ -16,6 +17,8 @@ export interface ItemDraft extends GstDraft {
   // Basic
   name: string;
   alias: string;
+  /** Additional aliases, one per line (dataplus). */
+  moreAliases: string;
   partNo: string;
   barcode: string;
   description: string;
@@ -48,6 +51,7 @@ export function emptyItemDraft(init: { name?: string; groupId?: number | null } 
   return {
     name: init.name ?? '',
     alias: '',
+    moreAliases: '',
     partNo: '',
     barcode: '',
     description: '',
@@ -78,6 +82,7 @@ export function itemDraftFromDetail(d: StockItemDetail): ItemDraft {
   return {
     name: d.name,
     alias: d.alias ?? '',
+    moreAliases: moreAliasesText(d.aliases, d.alias),
     partNo: d.partNo ?? '',
     barcode: d.barcode ?? '',
     description: d.description ?? '',
@@ -131,6 +136,7 @@ export function itemDraftDirty(draft: ItemDraft, base: ItemDraft): boolean {
       .map((o) => [o.godownId, o.batchName.trim(), o.mfgDate, o.expiryDate, o.qty, o.rate, o.valueOverridden ? o.value : null]),
     name: d.name.trim(),
     alias: d.alias.trim(),
+    moreAliases: aliasLines(d.moreAliases).join('\n'),
     partNo: d.partNo.trim(),
     barcode: d.barcode.trim(),
     description: d.description.trim(),
@@ -164,6 +170,10 @@ export function validateItemDraft(d: ItemDraft, saved: StockItemDetail | null, c
   const e: ItemErrors = {};
   if (!d.name.trim()) e.name = 'Enter the stock item name';
   if (d.alias.trim() && d.alias.trim().toLowerCase() === d.name.trim().toLowerCase()) e.alias = 'The alias must be different from the name';
+  {
+    const more = moreAliasesProblem(d.name, d.alias, d.moreAliases);
+    if (more) e.moreAliases = more;
+  }
   if (d.unitId === null) e.unitId = 'Choose the unit of measure (e.g. Nos, Kg)';
   // A service keeps no stock: the alternate unit is hidden for it and saved as none (itemSaveInput).
   if (d.altUnitId !== null && !d.isService) {
@@ -313,6 +323,12 @@ export function itemSaveInput(d: ItemDraft, saved: StockItemDetail | null, ctx: 
     useExpiry: d.isService || !d.maintainBatches ? false : d.useExpiry,
   };
   if (saved) input.id = saved.id;
+  {
+    // Additional aliases (dataplus): the complete list goes when there are more lines or it changed.
+    const list = formAliasList(d.alias, d.moreAliases);
+    const before = saved ? (saved.aliases ?? (saved.alias ? [saved.alias] : [])) : [];
+    if (saved ? !sameAliasList(list, before) : aliasLines(d.moreAliases).length > 0) input.aliases = list;
+  }
   if (d.unitId !== null) input.unitId = d.unitId;
   if (ctx.gstEnabled) Object.assign(input, gstSaveFields(d, saved));
   if (d.isService) {

@@ -72,6 +72,7 @@ import { electronicCashLedger, electronicCreditLedger } from './eledgers.ts';
 import { listAmendments, listFilings, markFiled, unmarkFiled } from './filings.ts';
 import { computeSetoff, listChallans, postChallan, postSetoff } from './setoffPost.ts';
 import { listBillsOfEntry, reconcileBoe } from './boeRecon.ts';
+import { ReturnPeriodKeySchema } from './schemas.ts';
 
 /** The open company's GST profile; refuses companies without GST. */
 export function gstCompany(ctx: CompanyCtx): GstCompany {
@@ -409,7 +410,7 @@ export const gstRoutes = {
       challanDate: v.date().optional(),
       bankName: v.string({ max: 100 }).optional(),
       mode: v.enum(['epayment', 'neft_rtgs', 'otc'] as const).optional(),
-      period: v.string({ max: 20 }).optional(),
+      period: ReturnPeriodKeySchema.optional(),
       heads: v.array(v.object({ head: v.enum(TAX_HEADS), minor: v.enum(CASH_MINOR_HEADS), amount: v.paise({ min: 0 }) }), { min: 1, max: 20 }),
       narration: v.string({ max: 500 }).optional(),
     }),

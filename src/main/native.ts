@@ -21,12 +21,15 @@ import type { ApiResult } from '../shared/api.ts';
 import type { FileFilter, NativeAction, NativeActions } from '../shared/bridge.ts';
 import { AppError, toErrorPayload } from '../core/lib/errors.ts';
 import type { Runtime } from '../core/app/runtime.ts';
+import { checkOpenCopy, writeOpenCopy } from './attachments.ts';
 import { openExternalUrl, parseExternalUrl } from './external.ts';
 import { isPathInside, PathSet, sanitizeFileName, writeFileAtomic } from './files.ts';
 import { rememberChosenFile, rememberChosenFolder } from './user-choices.ts';
 import { describeError, log } from './log.ts';
 import { isThemeMode } from './prefs.ts';
-import type { PageSize, PdfMargins, PrintService } from './print.ts';
+import type { PdfMargins, PrintService } from './print.ts';
+import { NATIVE_PAGE_SIZES, resolvePageSpec, validPrinterName, type PageSpec } from './printPage.ts';
+import { buildDraftEml, freeFileName, indianMobileForWhatsapp, mailtoUrl, MAX_SHARE_URL, parseRecipients, sharedExportsDir, whatsappUrl } from './share.ts';
 import type { WindowManager } from './window.ts';
 
 export const MAX_OPEN_BYTES = 100 * 1024 * 1024;
@@ -122,7 +125,28 @@ function optAbsolutePath(o: Record<string, unknown>, key: string): string | unde
   return path.resolve(v);
 }
 
-const PAGE_SIZES: readonly PageSize[] = ['A4', 'A5', 'Letter', 'Legal'];
+/** Paper requested by the renderer: named sheet (+ orientation) or a receipt roll of a measured length. */
+function pageSpec(o: Record<string, unknown>): PageSpec {
+  const size = optEnum(o, 'pageSize', NATIVE_PAGE_SIZES);
+  const h = o.rollHeightMm;
+  if (h !== undefined && h !== null && (typeof h !== 'number' || !Number.isFinite(h))) throw invalid('Invalid receipt length.');
+  try {
+    const custom = o.customPageMm;
+    const customMm = custom !== null && typeof custom === 'object' && !Array.isArray(custom) ? (custom as { width: unknown; height: unknown }) : undefined;
+    return resolvePageSpec(size, optBool(o, 'landscape'), (h ?? undefined) as number | undefined, customMm);
+  } catch (err) {
+    throw invalid(err instanceof Error ? err.message : 'Invalid paper size.');
+  }
+}
+
+/** Share texts: bounded, no NUL. Line breaks are allowed in bodies, never in subjects (header). */
+function shareText(o: Record<string, unknown>, key: string, max: number, singleLine: boolean): string {
+  const v = o[key];
+  if (typeof v !== 'string' || v.length > max || v.includes('\0')) throw invalid(`Invalid ${key}.`);
+  // eslint-disable-next-line no-control-regex
+  if (singleLine && /[\u0000-\u001f\u007f]/.test(v)) throw invalid(`The ${key} must be a single line.`);
+  return v;
+}
 const PDF_MARGINS: readonly PdfMargins[] = ['default', 'none', 'minimum'];
 const THEMES = ['system', 'light', 'dark'] as const;
 
@@ -198,6 +222,25 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
       throw fileError(err, 'save');
     }
     remember(target, false);
+  }
+
+  /**
+   * <data>/companies/<open company>/exports/shared, created on demand. Chosen here from the core's own
+   * state — the renderer never names the folder (§8).
+   */
+  async function sharedFolder(): Promise<string> {
+    const res = await deps.runtime.dispatch('app.state', {});
+    const state = res.ok ? (res.data as { company?: { id?: unknown } | null } | null) : null;
+    const id = state?.company && typeof state.company.id === 'string' ? state.company.id : null;
+    if (!id) throw new AppError('NO_COMPANY', 'Open a company before sharing documents.');
+    const dir = sharedExportsDir(deps.runtime.app.dataDir, id);
+    if (!dir) throw new AppError('INTERNAL', 'The company folder could not be found. Details have been written to the application log.');
+    try {
+      await fsp.mkdir(dir, { recursive: true });
+    } catch (err) {
+      throw fileError(err, 'save');
+    }
+    return dir;
   }
 
   const handlers: HandlerMap = {
@@ -290,8 +333,7 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
     async 'print.toPdf'(payload) {
       const o = record(payload);
       const bytes = await deps.print.toPdf(html(o), {
-        pageSize: optEnum(o, 'pageSize', PAGE_SIZES) ?? 'A4',
-        landscape: optBool(o, 'landscape') ?? false,
+        page: pageSpec(o),
         margins: optEnum(o, 'margins', PDF_MARGINS) ?? 'default',
       });
       return { bytes: standaloneBytes(bytes) };
@@ -300,13 +342,12 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
     async 'print.savePdf'(payload, ctx) {
       const o = record(payload);
       const source = html(o);
-      const pageSize = optEnum(o, 'pageSize', PAGE_SIZES) ?? 'A4';
-      const landscape = optBool(o, 'landscape') ?? false;
+      const page = pageSpec(o);
       let name = sanitizeFileName(text(o, 'defaultName', 255), 'document');
       if (!name.toLowerCase().endsWith('.pdf')) name += '.pdf';
       const target = await askSavePath(ctx, 'Save as PDF', name, [{ name: 'PDF document', extensions: ['pdf'] }]);
       if (!target) return null;
-      const bytes = await deps.print.toPdf(source, { pageSize, landscape, margins: 'default' });
+      const bytes = await deps.print.toPdf(source, { page, margins: 'default' });
       await saveTo(target, bytes);
       return { path: target };
     },
@@ -317,12 +358,104 @@ export function createNativeHandler(deps: NativeDeps): NativeHandler {
       if (copiesRaw !== undefined && (typeof copiesRaw !== 'number' || !Number.isInteger(copiesRaw) || copiesRaw < 1 || copiesRaw > 99)) {
         throw invalid('Copies must be between 1 and 99.');
       }
+      const source = html(o);
+      const page = pageSpec(o);
+      const deviceName = optText(o, 'deviceName', 256);
+      if (deviceName !== undefined) {
+        // Only a printer the OS lists right now (the renderer got the name from 'print.printers').
+        if (!validPrinterName(deviceName)) throw invalid('Invalid printer.');
+        const known = await deps.print.printers(ctx.window);
+        if (!known.some((p) => p.name === deviceName)) {
+          throw new AppError('NOT_FOUND', `The printer “${deviceName}” is not installed on this computer any more. Choose another printer.`);
+        }
+      }
       const printed = await deps.print.print(
-        html(o),
-        { silent: optBool(o, 'silent') ?? false, landscape: optBool(o, 'landscape') ?? false, copies: (copiesRaw as number | undefined) ?? 1 },
+        source,
+        {
+          silent: optBool(o, 'silent') ?? false,
+          copies: (copiesRaw as number | undefined) ?? 1,
+          page,
+          margins: optEnum(o, 'margins', ['default', 'none'] as const) ?? 'default',
+          ...(deviceName ? { deviceName } : {}),
+        },
         ctx.window,
       );
       return { printed };
+    },
+
+    async 'print.printers'(_payload, ctx) {
+      return deps.print.printers(ctx.window);
+    },
+
+    async 'share.email'(payload, ctx) {
+      const o = record(payload);
+      const source = html(o);
+      const page = pageSpec(o);
+      const to = parseRecipients(optText(o, 'to', 2000));
+      if (!to) throw invalid('Check the e-mail address: enter one address (or several separated by commas), e.g. accounts@example.com.');
+      const subject = shareText(o, 'subject', 300, true);
+      const body = shareText(o, 'body', 20_000, false);
+      const wanted = text(o, 'fileName', 255);
+      const shared = await sharedFolder();
+      const bytes = await deps.print.toPdf(source, { page, margins: 'default' });
+      const pdfName = await freeFileName(shared, wanted, '.pdf');
+      const pdfPath = path.join(shared, pdfName);
+      const emlPath = path.join(shared, await freeFileName(shared, pdfName.slice(0, -4), '.eml'));
+      if (!isPathInside(shared, pdfPath) || !isPathInside(shared, emlPath)) throw invalid('Invalid file name.');
+      await saveTo(pdfPath, bytes);
+      await saveTo(emlPath, buildDraftEml({ to, subject, body, attachment: { fileName: pdfName, contentType: 'application/pdf', bytes }, date: new Date() }));
+      let opened: 'draft' | 'mailto' | 'none' = 'none';
+      // The .eml was written by main into the company's exports folder (checked above): safe to hand to the OS.
+      const failure = await shell.openPath(emlPath);
+      if (failure === '') opened = 'draft';
+      else {
+        log('warn', 'No program opened the e-mail draft; falling back to mailto:', { reason: failure });
+        const url = parseExternalUrl(mailtoUrl(to, subject, body));
+        if (url && (await openExternalUrl(url, ctx.window, { confirm: false }))) opened = 'mailto';
+        shell.showItemInFolder(pdfPath);
+      }
+      return { pdfPath, emlPath, opened };
+    },
+
+    async 'share.whatsapp'(payload, ctx) {
+      const o = record(payload);
+      const source = html(o);
+      const page = pageSpec(o);
+      const rawMobile = (optText(o, 'mobile', 32) ?? '').trim();
+      const mobile = rawMobile ? indianMobileForWhatsapp(rawMobile) : null;
+      if (rawMobile && !mobile) {
+        throw invalid('Enter a 10-digit Indian mobile number (starting with 6, 7, 8 or 9) for WhatsApp, or leave it blank to choose the contact in WhatsApp.');
+      }
+      const message = shareText(o, 'text', 2000, false);
+      const url = parseExternalUrl(whatsappUrl(mobile, message));
+      if (!url || url.href.length > MAX_SHARE_URL) throw invalid('The WhatsApp message is too long. Shorten it (a few lines are enough — the PDF carries the details).');
+      const wanted = text(o, 'fileName', 255);
+      const shared = await sharedFolder();
+      const bytes = await deps.print.toPdf(source, { page, margins: 'default' });
+      const pdfPath = path.join(shared, await freeFileName(shared, wanted, '.pdf'));
+      if (!isPathInside(shared, pdfPath)) throw invalid('Invalid file name.');
+      await saveTo(pdfPath, bytes);
+      // https links are confirmed by the user (external.ts) — the host shown is wa.me.
+      const opened = await openExternalUrl(url, ctx.window, { confirm: true });
+      shell.showItemInFolder(pdfPath);
+      return { pdfPath, opened };
+    },
+
+    async 'attachment.openCopy'(payload) {
+      // (dataplus) Bytes from 'attachments.read', re-checked here; the copy goes to a fresh temp folder.
+      const { fileName, bytes } = checkOpenCopy(payload);
+      let file: string;
+      try {
+        file = writeOpenCopy(app.getPath('temp'), fileName, bytes);
+      } catch (err) {
+        throw fileError(err, 'save');
+      }
+      const problem = await shell.openPath(file);
+      if (problem) {
+        log('warn', 'An attached file could not be opened', { reason: problem });
+        throw new AppError('BUSINESS_RULE', `Windows has no program to open “${fileName}”. Use “Save a copy” and open it from there.`);
+      }
+      return { opened: true };
     },
 
     async 'shell.openExternal'(payload, ctx) {

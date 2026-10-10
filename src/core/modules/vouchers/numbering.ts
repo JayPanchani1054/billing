@@ -3,7 +3,9 @@
  *
  *  - Series per voucher type; counters in voucher_counters keyed by the restart period:
  *    yearly → FY label ('2026-27'), monthly → 'YYYY-MM', never → 'all'.
- *  - Display number = prefix + zero-padded sequence (numbering_width) + suffix.
+ *  - Display number = prefix + zero-padded sequence (numbering_width) + suffix. Prefix / suffix may hold
+ *    the tokens {FY} {FYYYYY} {YY} {MM} {MMM} and dated rows (voucher_type_numbering_rows) replace them
+ *    from a date (dataplus; src/shared/numbering.ts) — all expanded with the voucher date.
  *  - automatic: the next free sequence (numbers already used in the period are skipped).
  *  - automatic_override: as automatic, but the user may type a number (the counter is not consumed).
  *  - manual: the user types the number (required); unique within the period when prevent_duplicates.
@@ -12,6 +14,7 @@
  */
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import { endOfMonth, financialYear, monthKey, startOfMonth } from '../../../shared/dates.ts';
+import { formatSchemeNumber, parseSchemeSeq, type NumberingTextRow } from '../../../shared/numbering.ts';
 import type { NumberingMethod, NumberingRestart, VoucherTypeView } from '../../../shared/types/vouchers.ts';
 import type { Db } from '../../db/db.ts';
 import { conflict, notFound, validation, type AppError } from '../../lib/errors.ts';
@@ -53,9 +56,22 @@ function parseConfig(raw: string | null): Record<string, unknown> {
   }
 }
 
+/** Dated prefix / suffix rows of a voucher type, oldest first (dataplus, migration 221). */
+export function loadNumberingRows(db: Db, voucherTypeId: number): { prefix: NumberingTextRow[]; suffix: NumberingTextRow[] } {
+  const out = { prefix: [] as NumberingTextRow[], suffix: [] as NumberingTextRow[] };
+  for (const r of db.all<{ kind: 'prefix' | 'suffix'; applicable_from: string; text: string | null }>(
+    'SELECT kind, applicable_from, text FROM voucher_type_numbering_rows WHERE voucher_type_id = :id ORDER BY applicable_from',
+    { id: voucherTypeId },
+  )) {
+    (r.kind === 'prefix' ? out.prefix : out.suffix).push({ applicableFrom: r.applicable_from, text: r.text });
+  }
+  return out;
+}
+
 export function loadVoucherType(db: Db, id: number): VoucherTypeInfo {
   const r = db.get<VoucherTypeRow>('SELECT * FROM voucher_types WHERE id = :id', { id });
   if (!r) throw notFound('Voucher type', id);
+  const rows = loadNumberingRows(db, id);
   return {
     id: r.id,
     name: r.name,
@@ -68,6 +84,8 @@ export function loadVoucherType(db: Db, id: number): VoucherTypeInfo {
     numberingStart: Number.isSafeInteger(r.numbering_start) && r.numbering_start > 0 ? r.numbering_start : 1,
     numberingWidth: Math.max(0, Math.min(12, r.numbering_width | 0)),
     numberingRestart: RESTARTS.includes(r.numbering_restart as NumberingRestart) ? (r.numbering_restart as NumberingRestart) : 'yearly',
+    numberingPrefixRows: rows.prefix,
+    numberingSuffixRows: rows.suffix,
     preventDuplicates: r.prevent_duplicates === 1,
     useEffectiveDate: r.use_effective_date === 1,
     allowZeroValue: r.allow_zero_value === 1,
@@ -92,20 +110,33 @@ export function periodRange(vt: VoucherTypeInfo, date: string, fyStartMonth: num
   return { from: fy.start, to: fy.end };
 }
 
-export function formatVoucherNumber(vt: VoucherTypeInfo, seq: number): string {
-  const body = vt.numberingWidth > 0 ? String(seq).padStart(vt.numberingWidth, '0') : String(seq);
-  return `${vt.numberingPrefix ?? ''}${body}${vt.numberingSuffix ?? ''}`;
+const schemeOf = (vt: VoucherTypeInfo) => ({
+  prefix: vt.numberingPrefix,
+  suffix: vt.numberingSuffix,
+  width: vt.numberingWidth,
+  prefixRows: vt.numberingPrefixRows,
+  suffixRows: vt.numberingSuffixRows,
+});
+
+/**
+ * The number for sequence `seq` of a voucher dated `date` (tokens and dated rows resolved for that
+ * date). Without a date (legacy callers) the base prefix / suffix are used with today's tokens.
+ */
+export function formatVoucherNumber(vt: VoucherTypeInfo, seq: number, date?: string, fyStartMonth = 4): string {
+  if (date === undefined) {
+    const body = vt.numberingWidth > 0 ? String(seq).padStart(vt.numberingWidth, '0') : String(seq);
+    return `${vt.numberingPrefix ?? ''}${body}${vt.numberingSuffix ?? ''}`;
+  }
+  return formatSchemeNumber(schemeOf(vt), seq, date, fyStartMonth);
 }
 
-/** Numeric part of a number typed in this type's format ('INV/0012/26' → 12), else null. */
-export function parseVoucherSeq(vt: VoucherTypeInfo, number: string): number | null {
-  const prefix = vt.numberingPrefix ?? '';
-  const suffix = vt.numberingSuffix ?? '';
-  if (!number.startsWith(prefix) || !number.endsWith(suffix) || number.length <= prefix.length + suffix.length) return null;
-  const body = number.slice(prefix.length, number.length - suffix.length);
-  if (!/^\d{1,15}$/.test(body)) return null;
-  const n = Number(body);
-  return Number.isSafeInteger(n) ? n : null;
+/**
+ * Numeric part of a number typed in this type's format ('INV/0012/26' → 12), else null. With the
+ * voucher date the prefix / suffix in force on that date (tokens expanded) is matched.
+ */
+export function parseVoucherSeq(vt: VoucherTypeInfo, number: string, date?: string, fyStartMonth = 4): number | null {
+  if (date !== undefined) return parseSchemeSeq(schemeOf(vt), number, date, fyStartMonth);
+  return parseSchemeSeq({ prefix: vt.numberingPrefix, suffix: vt.numberingSuffix }, number, '2000-01-01', fyStartMonth);
 }
 
 /**
@@ -131,7 +162,7 @@ function nextFree(db: Db, vt: VoucherTypeInfo, date: string, fyStartMonth: numbe
   const last = db.value<number>('SELECT last_number FROM voucher_counters WHERE voucher_type_id = :vt AND period_key = :key', { vt: vt.id, key });
   let seq = Math.max(last ?? 0, vt.numberingStart - 1) + 1;
   for (let i = 0; i < MAX_SKIP; i++, seq++) {
-    const number = formatVoucherNumber(vt, seq);
+    const number = formatVoucherNumber(vt, seq, date, fyStartMonth);
     if (!numberTaken(db, vt, number, date, fyStartMonth, null)) return { number, seq };
   }
   throw conflict(`Could not find a free voucher number for ${vt.name}`);
@@ -197,7 +228,7 @@ export function decideNumber(
     const userChanged = typed !== undefined && typed !== existing.number;
     if (userChanged && (vt.numberingMethod === 'manual' || vt.numberingMethod === 'automatic_override')) {
       check(typed);
-      return { number: typed, seq: parseVoucherSeq(vt, typed), consume: false };
+      return { number: typed, seq: parseVoucherSeq(vt, typed, args.date, args.fyStartMonth), consume: false };
     }
     if (vt.numberingMethod === 'manual' && !existing.number && !typed) throw required(`Enter the ${vt.name} number.`);
     // Moving the voucher into another numbering period keeps its number — unless that period already uses it.
@@ -216,13 +247,13 @@ export function decideNumber(
   if (vt.numberingMethod === 'manual') {
     if (!typed) throw required(`Enter the ${vt.name} number (this voucher type is numbered manually).`);
     check(typed);
-    return { number: typed, seq: parseVoucherSeq(vt, typed), consume: false };
+    return { number: typed, seq: parseVoucherSeq(vt, typed, args.date, args.fyStartMonth), consume: false };
   }
   if (vt.numberingMethod === 'automatic_override' && typed !== undefined) {
     const next = previewNextNumber(db, vt, args.date, args.fyStartMonth);
     if (typed !== next) {
       check(typed);
-      return { number: typed, seq: parseVoucherSeq(vt, typed), consume: false };
+      return { number: typed, seq: parseVoucherSeq(vt, typed, args.date, args.fyStartMonth), consume: false };
     }
   }
   const next = nextFree(db, vt, args.date, args.fyStartMonth);

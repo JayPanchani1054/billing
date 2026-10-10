@@ -17,6 +17,8 @@
  *   opening_difference   Σ ledger openings + opening stock = 0 (else "Difference in opening balances")
  *   audit_chain          the edit log's SHA-256 hash chain is unbroken
  *   duplicate_numbers    no voucher number used twice in a voucher type's numbering period
+ *   attachments          every attached file is in the company's attachments folder and matches its
+ *                        SHA-256 (dataplus); files no attachment uses are mentioned, not counted
  */
 import { ACCOUNTING_BASE_TYPES } from '../../../shared/constants.ts';
 import { formatDate } from '../../../shared/dates.ts';
@@ -25,6 +27,7 @@ import type { DataVerifyCheck, DataVerifyResult } from '../../../shared/types/da
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { verifyAuditChain } from '../../lib/audit.ts';
+import { checkAttachmentFiles } from '../attachments/backup.ts';
 import { loadVoucherType, periodKey } from '../vouchers/numbering.ts';
 import { requirePermission } from './common.ts';
 
@@ -329,6 +332,13 @@ function duplicateNumbers(db: Db): DataVerifyCheck {
 }
 
 /** Run every check. Read-only; safe on a live company. */
+function attachmentFiles(ctx: CompanyCtx): DataVerifyCheck {
+  const { problems, unused } = checkAttachmentFiles(ctx.db, ctx.company.dir);
+  const c = check('attachments', 'Attached files are present and unchanged', problems);
+  if (unused > 0) c.details.push(`(${unused} stored file(s) are no longer attached to anything — left by deleted vouchers; they are not in backups.)`);
+  return c;
+}
+
 export function verifyData(ctx: CompanyCtx): DataVerifyResult {
   requirePermission(ctx, 'data.backup');
   const db = ctx.db;
@@ -346,6 +356,7 @@ export function verifyData(ctx: CompanyCtx): DataVerifyResult {
     openingDifference(db),
     auditChain(db),
     duplicateNumbers(db),
+    attachmentFiles(ctx),
   ];
   return { ok: checks.every((c) => c.ok), checkedAt: ctx.clock.now().toISOString(), checks };
 }

@@ -35,6 +35,7 @@ import type { RegistrationType, SupplyKind, Taxability } from '../../../shared/t
 import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { AppError, notFound, rule } from '../../lib/errors.ts';
+import { aliasClashIssues, aliasListIssues, allAliases, extraAliasLike, extraAliasMap, extraAliases, normalizeAliases, writeExtraAliases } from '../../lib/masterAliases.ts';
 import type { CompanyFeatures } from '../../../shared/settings.ts';
 import { getConfig, getFeatures } from '../company/service.ts';
 import { BOOKS_FILTER, classFromChain, closingBalances, groupChain, ledgerBalance, ledgerClassNames, loadGroupTree, type GroupTree } from './books.ts';
@@ -43,6 +44,7 @@ import {
   LEDGER_COLUMNS,
   defaultLedgerFields,
   fieldsFromRow,
+  groupNameClash,
   mergeLedgerInput,
   rowParams,
   validateLedger,
@@ -90,6 +92,12 @@ function loadGstHistory(db: Db, ledgerId: number): GstRateHistoryRow[] {
     }));
 }
 
+/** Additional aliases for the audit image (key present only when there are some, so older images are unchanged). */
+function extraAliasSnapshot(db: Db, id: number): { otherAliases?: string[] } {
+  const extras = extraAliases(db, 'ledger', id);
+  return extras.length > 0 ? { otherAliases: extras } : {};
+}
+
 /** Stable before/after image for the audit log (no computed balances). */
 export function ledgerSnapshot(db: Db, id: number): Record<string, unknown> | null {
   const row = loadLedgerRow(db, id);
@@ -99,6 +107,7 @@ export function ledgerSnapshot(db: Db, id: number): Record<string, unknown> | nu
     guid: row.guid,
     reservedCode: row.reserved_code,
     ...fieldsFromRow(row),
+    ...extraAliasSnapshot(db, id),
     openingBills: loadBills(db, id).map(({ id: _id, ...b }) => b),
     gstRateHistory: loadGstHistory(db, id).map(({ id: _id, ...h }) => h),
   };
@@ -113,6 +122,7 @@ export function getLedger(db: Db, id: number, today: string, tree: GroupTree = l
     id: row.id,
     guid: row.guid,
     ...fieldsFromRow(row),
+    aliases: allAliases(row.alias, extraAliases(db, 'ledger', row.id)),
     groupName: g?.name ?? '',
     groupPath: g?.path ?? [],
     primaryGroupCode: g?.primaryCode ?? null,
@@ -329,6 +339,15 @@ function saveLedgerTx(ctx: CompanyCtx, input: LedgerSaveInput, sc: SaveContext):
   const existing = row ? fieldsFromRow(row) : null;
   const { fields, provided } = mergeLedgerInput(input, existing ?? defaultLedgerFields());
   if (!row) applyCreateDefaults(fields, provided, sc);
+  // Aliases (dataplus): `aliases` is the complete list (first → the alias column, the rest → ledger_aliases).
+  const aliasesGiven = Array.isArray(input.aliases);
+  let extras: string[] = row ? extraAliases(db, 'ledger', row.id) : [];
+  if (aliasesGiven) {
+    const list = normalizeAliases(fields.name ?? '', input.aliases as string[]);
+    fields.alias = list[0] ?? null;
+    extras = list.slice(1);
+    provided.add('alias');
+  }
 
   const billsProvided = Array.isArray(input.openingBills);
   const bills: OpeningBillInput[] = billsProvided
@@ -363,6 +382,23 @@ function saveLedgerTx(ctx: CompanyCtx, input: LedgerSaveInput, sc: SaveContext):
         'To stop charging GST from a date, set the taxability (Exempt, Nil-rated or Non-GST) from that date instead.',
     );
   }
+  {
+    // Re-normalise against the (possibly new) name: the alias column stays the first alias.
+    const full = normalizeAliases(fields.name, [fields.alias, ...extras]);
+    fields.alias = full[0] ?? null;
+    extras = full.slice(1);
+  }
+  if (!issues.has('name') && !issues.has('alias')) {
+    const full = allAliases(fields.alias, extras);
+    for (const i of [...aliasListIssues(full), ...aliasClashIssues(db, 'ledger', fields.name, full, row ? row.id : null)]) {
+      if (!issues.has(i.path)) issues.add(i.path, i.message);
+    }
+    // Ledgers and groups share one name space (as in Tally): an additional alias may not be a group's name or alias.
+    extras.forEach((a, k) => {
+      const g = groupNameClash(db, a);
+      if (g) issues.add(`aliases[${k + 1}]`, `'${a}' is already ${g.name.toLowerCase() === a.toLowerCase() ? 'the name' : 'an alias'} of the group '${g.name}'. Choose a different alias.`);
+    });
+  }
   issues.throwIfAny();
   assertOpeningUnlocked(sc, fields, existing, billsProvided ? bills : null, row ? loadBills(db, row.id) : []);
 
@@ -388,6 +424,7 @@ function saveLedgerTx(ctx: CompanyCtx, input: LedgerSaveInput, sc: SaveContext):
     }
   }
   writeGstHistory(db, id, existing, fields, provided, input.applicableFrom, sc.company.booksFrom);
+  writeExtraAliases(db, 'ledger', id, extras);
 
   ctx.audit({
     action: row ? 'alter' : 'create',
@@ -479,6 +516,7 @@ const KNOWN_LEDGER_REFS: ReadonlySet<string> = new Set([
   'vouchers.party_ledger_id',
   'bank_statement_lines.ledger_id',
   'opening_bills.ledger_id',
+  'ledger_aliases.ledger_id', // dataplus: additional aliases go with the ledger (CASCADE)
 ]);
 const SQL_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -739,7 +777,7 @@ export function listLedgers(db: Db, input: LedgerListInput, today: string): List
   }
   const term = input.search?.trim();
   if (term) {
-    where.push(`(l.name LIKE :q ESCAPE '\\' OR l.alias LIKE :q ESCAPE '\\' OR l.gstin LIKE :q ESCAPE '\\')`);
+    where.push(`(l.name LIKE :q ESCAPE '\\' OR l.alias LIKE :q ESCAPE '\\' OR l.gstin LIKE :q ESCAPE '\\' OR ${extraAliasLike('ledger', 'l.id', 'q')})`);
     params.q = likePattern(term);
   }
   if (input.activeOnly) where.push('l.is_active = 1');
@@ -757,6 +795,7 @@ export function listLedgers(db: Db, input: LedgerListInput, today: string): List
   const balances = input.withBalance
     ? closingBalances(db, { asOf: input.asOf ?? today, today, ledgerIds: rows.map((r) => r.id) })
     : null;
+  const otherAliases = extraAliasMap(db, 'ledger', rows.map((r) => r.id));
 
   return {
     total,
@@ -779,6 +818,8 @@ export function listLedgers(db: Db, input: LedgerListInput, today: string): List
         isActive: r.is_active === 1,
       };
       if (balances) out.closingBalance = balances.get(r.id) ?? 0;
+      const more = otherAliases.get(r.id);
+      if (more) out.otherAliases = more;
       return out;
     }),
   };
@@ -819,12 +860,15 @@ export function ledgerPicker(db: Db, input: LedgerPickerInput, today: string): L
       ORDER BY l.name`,
     params,
   );
+  const otherAliases = extraAliasMap(db, 'ledger');
   return rows.map((r) => {
     const g = tree.byId.get(r.group_id);
+    const more = otherAliases.get(r.id);
     return {
       id: r.id,
       name: r.name,
       alias: r.alias,
+      ...(more ? { otherAliases: more } : {}),
       groupId: r.group_id,
       groupName: g?.name ?? '',
       classes: g ? g.classNames.slice() : [],

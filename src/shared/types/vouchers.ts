@@ -5,6 +5,7 @@
  * Conventions: money is integer paise; ledger amounts are signed (Debit +, Credit −) unless a field
  * says "magnitude"; quantities are in the item's base unit; dates are 'YYYY-MM-DD'.
  */
+import type { NumberingTextRow } from '../numbering.ts';
 import type { GstDutyHead, VoucherBaseType } from '../constants.ts';
 import type { Paise } from '../money.ts';
 import type { CompanyConfig, CompanyFeatures } from '../settings.ts';
@@ -12,6 +13,7 @@ import type { GstNature, InvoiceComputation, RegistrationType, SupplyKind, Taxab
 import type { TdsVoucherPreview, VoucherTdsInput } from './tds.ts';
 import type { VoucherGstDetailsInput } from './gst-plus.ts';
 import type { StockJournalCostPreview, StockJournalExtInput } from './mfg.ts';
+import type { ForexVoucherPreview, VoucherForexInput } from './forex.ts';
 
 // ───────────────────────────── Enumerations ─────────────────────────────
 
@@ -82,7 +84,11 @@ export type VoucherWarningCode =
   /** A document of a GSTR-1 period already filed (reported as an amendment). */
   | 'gst_amendment'
   /** Manufacturing Journal / Material In / Out checks (mfg module voucher hook). */
-  | 'mfg';
+  | 'mfg'
+  /** Cheque leaf checks: already issued / cancelled / spoilt, not in a cheque book (cheques module voucher hook). */
+  | 'cheque'
+  /** Foreign-currency checks and realised exchange differences (forex module voucher hook). */
+  | 'forex';
 
 export interface VoucherWarning {
   code: VoucherWarningCode;
@@ -107,6 +113,12 @@ export interface BillAllocationInput {
   creditDays?: number;
   /** Defaults to voucher date + creditDays (new refs). */
   dueDate?: string;
+  /**
+   * Foreign-currency ledgers (forex module): positive magnitude in the ledger's currency. When given on
+   * an entry kept in a foreign currency, `amount` is derived by the engine (bills settled are carried at
+   * the INR they were booked at; the difference is the realised exchange gain / loss).
+   */
+  forexAmount?: number;
 }
 
 export interface CostAllocationInput {
@@ -146,6 +158,14 @@ export interface LedgerLineInput {
   instrument?: InstrumentInput;
   /** Invoice modes: override the ledger's GST profile for this line. */
   gst?: LedgerLineGstInput;
+  /**
+   * Forex module: the amount in the ledger's foreign currency (ledger mode: signed like `amount`;
+   * invoice modes: in the document currency, + / − like `amount`). `amount` is then derived
+   * (forexAmount × rate). 0 on a foreign-currency ledger = an INR-only exchange adjustment.
+   */
+  forexAmount?: number;
+  /** Forex module, ledger mode: this line's rate of exchange (default VoucherInput.forex.rate). */
+  exchangeRate?: number;
 }
 
 export interface ItemLineInput {
@@ -181,6 +201,10 @@ export interface ItemLineInput {
   orderRef?: string;
   /** Stock journal: consumption (source) side. */
   isConsumption?: boolean;
+  /** Forex module (invoice in a foreign currency): rate per unit in the document currency; `rate` is derived. */
+  forexRate?: number;
+  /** Forex module: line value override in the document currency (instead of qty × forexRate). */
+  forexAmount?: number;
 }
 
 /** Buyer/supplier snapshot overrides (otherwise taken from the party ledger). */
@@ -286,6 +310,8 @@ export interface VoucherInput {
   gstDetails?: VoucherGstDetailsInput;
   /** Manufacturing Journal / Material Out / Material In (mfg module hook): the journal as entered; its item lines are derived from it. */
   stockJournal?: StockJournalExtInput;
+  /** Forex module (F11 › Multiple currencies): document currency + rate of exchange (see VoucherForexInput). */
+  forex?: VoucherForexInput;
 }
 
 /** One occurrence of a recurring-voucher template (documents module): `periodKey` 'YYYY-MM' or 'YYYY-MM-DD'. */
@@ -316,6 +342,8 @@ export interface BillAllocationView {
   amount: Paise;
   creditDays: number | null;
   dueDate: string | null;
+  /** Forex module: the bill's amount in the ledger's foreign currency (signed like `amount`). */
+  forexAmount?: number;
 }
 
 export interface CostAllocationView {
@@ -408,6 +436,8 @@ export interface VoucherPreview {
   tds?: TdsVoucherPreview;
   /** Manufacturing / job work journal: costing estimate at entry time (mfg module). */
   stockJournal?: StockJournalCostPreview;
+  /** Foreign-currency amounts, rates and realised exchange differences (forex module). */
+  forex?: ForexVoucherPreview;
 }
 
 export interface VoucherSaveResult {
@@ -617,6 +647,9 @@ export interface VoucherTypeView {
   numberingStart: number;
   numberingWidth: number;
   numberingRestart: NumberingRestart;
+  /** Dated prefix / suffix rows (dataplus; empty when none). */
+  numberingPrefixRows?: NumberingTextRow[];
+  numberingSuffixRows?: NumberingTextRow[];
   preventDuplicates: boolean;
   useEffectiveDate: boolean;
   allowZeroValue: boolean;

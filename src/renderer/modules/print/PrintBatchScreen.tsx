@@ -8,14 +8,14 @@
 import { useMemo, useRef, useState } from 'react';
 import type { InvoiceTemplate } from '../../../shared/settings.ts';
 import type { PrintCopy, PrintPageSize } from '../../../shared/types/print.ts';
-import { PRINT_BATCH_MAX, PRINT_COPIES } from '../../../shared/types/print.ts';
+import { PRINT_BATCH_MAX, PRINT_COPIES, PRINT_PAGE_SIZES } from '../../../shared/types/print.ts';
 import type { VoucherListRow } from '../../../shared/types/vouchers.ts';
 import { Screen, useApiQuery, useNav, usePeriod, type ScreenProps } from '../../app/index.ts';
 import { Badge, Button, Checkbox, DataTable, EmptyState, Inline, Select, Stack, type Column } from '../../ui/index.ts';
 import { PreviewPane, PrintControls, WarningsBanner } from './components.tsx';
-import { pageSizeFor, resolveCopies, templateForPageSize, toggleCopy } from './lib/layout.ts';
+import { isRoll, pageSizeFor, resolveCopies, templateForPageSize, toggleCopy } from './lib/layout.ts';
 import { BATCH_KINDS, batchKind, cycle, orderedSelection, toggleAll, toggleId } from './lib/screenState.ts';
-import { qrsOf, useDocumentQrs, usePrintActions } from './usePrinting.ts';
+import { qrsOf, useDocumentQrs, usePrintActions, usePrinterChoice } from './usePrinting.ts';
 
 export interface PrintBatchParams {
   ids?: number[];
@@ -28,7 +28,7 @@ export function PrintBatchScreen({ params }: ScreenProps<PrintBatchParams>) {
 }
 
 const TEMPLATES: readonly InvoiceTemplate[] = ['modern', 'classic', 'compact'];
-const SIZES: readonly PrintPageSize[] = ['A4', 'A5', '80mm'];
+const SIZES: readonly PrintPageSize[] = PRINT_PAGE_SIZES;
 
 function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate?: InvoiceTemplate }) {
   const q = useApiQuery('print.batchData', { ids });
@@ -38,18 +38,18 @@ function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate
   const [copiesChoice, setCopiesChoice] = useState<PrintCopy[] | undefined>();
   const first = docs?.[0];
   const template = templateChoice ?? first?.defaultTemplate ?? 'modern';
-  const pageSize = pageSizeFor(template, sizeChoice);
+  const pageSize = pageSizeFor(template, sizeChoice, first?.options);
+  const printer = usePrinterChoice(isRoll(pageSize) ? 'roll' : 'sheet');
   const { qrs, ready } = useDocumentQrs(docs);
   const items = useMemo(() => (docs ?? []).map((doc) => ({ doc, copies: resolveCopies(doc, copiesChoice), qrs: qrsOf(qrs, doc.id) })), [docs, copiesChoice, qrs]);
   const pages = items.reduce((a, it) => a + it.copies.length, 0);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const actions = usePrintActions(rootRef, { docs: docs ?? [], pageSize, documents: pages, ready });
+  const actions = usePrintActions(rootRef, { docs: docs ?? [], pageSize, documents: pages, ready, deviceName: printer.printer || undefined });
   const shownCopies = copiesChoice ?? (first ? resolveCopies(first) : ['original' as PrintCopy]);
 
   const setTemplate = (t: InvoiceTemplate): void => {
     setTemplateChoice(t);
-    if (t === 'compact') setSizeChoice('80mm');
-    else if (sizeChoice === '80mm') setSizeChoice('A4');
+    if (t === 'compact' ? sizeChoice !== undefined && !isRoll(sizeChoice) : sizeChoice !== undefined && isRoll(sizeChoice)) setSizeChoice(undefined);
   };
   const setPageSize = (s: PrintPageSize): void => {
     setSizeChoice(s);
@@ -96,6 +96,7 @@ function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate
             copies={shownCopies}
             onCopies={setCopiesChoice}
             copyLabels={{ original: 'Original', duplicate: 'Duplicate', triplicate: 'Triplicate' }}
+            printer={printer}
           />
           <WarningsBanner warnings={warnings} />
           <PreviewPane items={items} template={template} pageSize={pageSize} rootRef={rootRef} preparing={!ready} label="Print preview of the selected vouchers" />

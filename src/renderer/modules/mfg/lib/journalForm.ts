@@ -57,6 +57,12 @@ export interface JournalForm {
   bomId: number | null;
   process: string;
   narration: string;
+  /** The job worker's / principal's own challan number (Material In / Out; ITC-04 table 5A). */
+  referenceNo: string;
+  /** Optional voucher (Ctrl+L): kept on alteration, never silently made regular. */
+  isOptional: boolean;
+  /** Post-dated (Ctrl+T). */
+  isPostDated: boolean;
   rows: JournalRow[];
   costs: CostRow[];
 }
@@ -122,6 +128,9 @@ export function emptyForm(cls: StockJournalClass, voucherTypeId: number, date: s
     bomId: null,
     process: '',
     narration: '',
+    referenceNo: '',
+    isOptional: false,
+    isPostDated: false,
     rows: cls === 'manufacturing' ? [blankRow('product'), blankRow('component')] : [],
     costs: [],
   };
@@ -140,7 +149,8 @@ export const isFilled = (r: JournalRow): boolean => r.itemId !== null && r.qty !
 
 /**
  * Replace the components / by-products / scrap with the BOM's lines for `qty` of the product, keeping
- * the product row (its quantity) and any material rows. Component godowns: the BOM's, else `componentGodownId`.
+ * the product row (its quantity) and any material rows. Component godowns: the BOM's, else `componentGodownId`
+ * (Material In: none — consumed at the job worker's godown).
  */
 export function applyBom(form: JournalForm, bom: BomDetail, qty: number, componentGodownId: number | null): JournalForm {
   const product = form.rows.find((r) => r.role === 'product') ?? blankRow('product');
@@ -153,7 +163,9 @@ export function applyBom(form: JournalForm, bom: BomDetail, qty: number, compone
       unit: e.line.unit,
       decimals: e.line.unitDecimals,
       qty: e.qty,
-      godownId: e.line.godownId ?? (e.line.kind === 'component' ? componentGodownId : null),
+      // Material In: components are consumed at the job worker's godown (the core's default), never at
+      // the BOM's own default godown.
+      godownId: e.line.kind === 'component' && form.cls === 'material_in' ? null : (e.line.godownId ?? (e.line.kind === 'component' ? componentGodownId : null)),
       valueBasis: e.line.valueBasis ?? 'nil',
       valueRate: e.line.valueRate,
       valuePct: e.line.valuePct,
@@ -216,6 +228,11 @@ export function toVoucherInput(form: JournalForm, alter?: { id: number; updatedA
   if (form.partyLedgerId !== null) input.partyLedgerId = form.partyLedgerId;
   if (form.narration.trim()) input.narration = form.narration.trim();
   if (form.number.trim()) input.number = form.number.trim();
+  if (form.cls !== 'manufacturing' && form.referenceNo.trim()) input.referenceNo = form.referenceNo.trim();
+  // Sent on alteration (and when set): a missing flag falls back to the voucher type's default, which
+  // would turn an optional journal into a regular one when it is altered.
+  if (form.isOptional || alter) input.isOptional = form.isOptional;
+  if (form.isPostDated) input.isPostDated = true;
   if (alter) {
     input.id = alter.id;
     if (alter.updatedAt) input.expectedUpdatedAt = alter.updatedAt;
@@ -237,6 +254,9 @@ export function fromDetail(d: MfgJournalDetail): JournalForm {
     bomId: d.block.bomId ?? null,
     process: d.block.process ?? '',
     narration: d.narration ?? '',
+    referenceNo: d.referenceNo ?? '',
+    isOptional: d.isOptional,
+    isPostDated: d.isPostDated === true,
     rows: d.block.lines.map((l) => {
       const it = items.get(l.itemId);
       return blankRow(l.role, {
@@ -284,7 +304,7 @@ export function mapErrors(
     const cost = /^stockJournal\.additionalCosts\[(\d+)\]/.exec(path) ?? /^stockJournal\.additionalCosts\.(\d+)/.exec(path);
     if (line && built.lineKeys[Number(line[1])]) rows.set(built.lineKeys[Number(line[1])], msg);
     else if (cost && built.costKeys[Number(cost[1])]) costs.set(built.costKeys[Number(cost[1])], msg);
-    else if (/^(partyLedgerId|date|number|voucherTypeId)$/.test(path)) fields[path] = msg;
+    else if (/^(partyLedgerId|date|number|voucherTypeId|referenceNo)$/.test(path)) fields[path] = msg;
     else if (/^stockJournal\.(thirdPartyGodownId|jobWorkOrderId|bomId)$/.test(path)) fields[path.slice('stockJournal.'.length)] = msg;
     else general.push(msg);
   }
@@ -297,3 +317,58 @@ export const CLASS_TITLES: Readonly<Record<StockJournalClass, string>> = {
   material_out: 'Material Out',
   material_in: 'Material In',
 };
+
+/** The voucher type to open: the one asked for, else the first active type of the class, else the first one. */
+export function pickType<T extends { id: number; class: StockJournalClass; isActive: boolean }>(types: readonly T[], want: { voucherTypeId?: number; cls?: StockJournalClass }): T | null {
+  if (want.voucherTypeId !== undefined) return types.find((t) => t.id === want.voucherTypeId) ?? null;
+  const cls = want.cls ?? 'manufacturing';
+  return types.find((t) => t.class === cls && t.isActive) ?? types.find((t) => t.class === cls) ?? null;
+}
+
+/** Roles of the editable sections of a journal, in screen order (one trailing blank row each). */
+export function sectionRoles(sections: JournalSections): Array<{ id: 'outputs' | 'components' | 'material'; roles: readonly StockJournalRole[]; newRole: StockJournalRole }> {
+  const out: Array<{ id: 'outputs' | 'components' | 'material'; roles: readonly StockJournalRole[]; newRole: StockJournalRole }> = [];
+  if (sections.products) out.push({ id: 'outputs', roles: ['by_product', 'scrap'], newRole: 'scrap' });
+  if (sections.components) out.push({ id: 'components', roles: ['component'], newRole: 'component' });
+  if (sections.material) out.push({ id: 'material', roles: [sections.material], newRole: sections.material });
+  return out;
+}
+
+const isBlank = (r: JournalRow): boolean => r.itemId === null && (r.qty === null || r.qty === 0);
+
+/**
+ * Keep exactly one blank row at the end of every section (Tally-style: type on the empty line to add
+ * one), one product row for journals that make goods, and drop rows of roles the journal no longer has.
+ */
+export function withTrailingBlanks(form: JournalForm, sections: JournalSections): JournalForm {
+  const groups = sectionRoles(sections);
+  const product = sections.products ? (form.rows.find((r) => r.role === 'product') ?? blankRow('product')) : null;
+  const rows: JournalRow[] = product ? [product] : [];
+  for (const g of groups) {
+    const filled = form.rows.filter((r) => g.roles.includes(r.role) && !isBlank(r));
+    const blanks = form.rows.filter((r) => g.roles.includes(r.role) && isBlank(r));
+    rows.push(...filled, blanks[blanks.length - 1] ?? blankRow(g.newRole));
+  }
+  const sameRows = rows.length === form.rows.length && rows.every((r, i) => r === form.rows[i]);
+  let costs: CostRow[] = [];
+  if (sections.costs) {
+    const filled = form.costs.filter((c) => !isBlankCost(c));
+    costs = [...filled, form.costs.filter(isBlankCost).pop() ?? blankCost()];
+  }
+  const sameCosts = costs.length === form.costs.length && costs.every((c, i) => c === form.costs[i]);
+  if (sameRows && sameCosts) return form;
+  return { ...form, rows: sameRows ? form.rows : rows, costs: sameCosts ? form.costs : costs };
+}
+
+const isBlankCost = (c: CostRow): boolean => c.ledgerId === null && c.label.trim() === '' && !(c.amount ?? 0) && !(c.pct ?? 0);
+
+/** Estimated value per row key from a preview (`lineValues[i]` belongs to `lineKeys[i]`). */
+export function lineValuesByKey(lineValues: ReadonlyArray<Paise | null> | undefined, lineKeys: readonly string[]): Map<string, Paise> {
+  const out = new Map<string, Paise>();
+  if (!lineValues) return out;
+  lineKeys.forEach((k, i) => {
+    const v = lineValues[i];
+    if (typeof v === 'number') out.set(k, v);
+  });
+  return out;
+}

@@ -63,7 +63,7 @@ export function listNatures(db: Db, opts: { kind?: TdsKind; asOf?: string; inclu
     byNature.set(r.nature_id, l);
   }
   return natures
-    .filter((n) => opts.includeInactive !== false || n.is_active === 1)
+    .filter((n) => opts.includeInactive === true || n.is_active === 1)
     .map((n) => toNature(n, byNature.get(n.id) ?? [], opts.asOf ?? null, usage.get(n.id) ?? 0));
 }
 
@@ -198,7 +198,9 @@ function detailOf(L: LedgerInfo, role: TdsLedgerDetails['role'], d: LedgerDetail
     ledgerName: L.name,
     groupName,
     role,
-    applicable: d?.applicable === 1,
+    // A party without TDS details is a deductee by default (the hook deducts from it); only a saved
+    // "does not apply" exempts it.
+    applicable: d ? d.applicable === 1 : role === 'party',
     natureId: d?.nature_id ?? null,
     deducteeType: d?.deductee_type ?? null,
     nonResident: d?.non_resident === 1,
@@ -252,7 +254,8 @@ export function saveLedgerDetails(ctx: CompanyCtx, input: TdsLedgerSaveInput): T
   const { db } = ctx;
   const before = getLedgerDetails(db, input.ledgerId);
   const issues: Array<{ path: string; message: string }> = [];
-  const pan = normalizePan(input.pan ?? before.pan);
+  // undefined = keep; null / '' = clear (a PAN typed in error must be removable).
+  const pan = normalizePan(input.pan === undefined ? before.pan : input.pan);
   if (before.role === 'party' && pan && panStatus(pan) !== 'valid') {
     issues.push({ path: 'pan', message: `${pan} is not a valid PAN: 5 letters, 4 digits and a letter (e.g. AAAPA1234A), the 4th letter being the holder's status (P, C, H, F, …).` });
   }
@@ -270,7 +273,7 @@ export function saveLedgerDetails(ctx: CompanyCtx, input: TdsLedgerSaveInput): T
   if (cert) {
     if (cert.validTo < cert.validFrom) issues.push({ path: 'certificate.validTo', message: 'The certificate ends before it starts.' });
   }
-  const tan = (input.deductorTan ?? before.deductorTan ?? '').trim().toUpperCase();
+  const tan = ((input.deductorTan === undefined ? before.deductorTan : input.deductorTan) ?? '').trim().toUpperCase();
   if (tan && !TAN_RE.test(tan)) issues.push({ path: 'deductorTan', message: `${tan} is not a valid TAN (4 letters, 5 digits, 1 letter, e.g. MUMA12345B).` });
   if (issues.length > 0) throw validation(issues);
 
@@ -302,6 +305,15 @@ export function saveLedgerDetails(ctx: CompanyCtx, input: TdsLedgerSaveInput): T
       now,
     },
   );
+  // Keep the ledger master's own "TDS applicable / TDS section" fields (Ledger form › Other settings)
+  // in step, so the master shows what the deduction uses.
+  const section = natureId !== null ? (db.value<string>('SELECT section FROM tds_natures WHERE id = :id', { id: natureId }) ?? null) : null;
+  db.run('UPDATE ledgers SET tds_applicable = :applicable, tds_section = :section, updated_at = :now WHERE id = :id', {
+    applicable: input.applicable ? 1 : 0,
+    section: input.applicable ? section : null,
+    now,
+    id: input.ledgerId,
+  });
   const after = getLedgerDetails(db, input.ledgerId);
   const guid = db.value<string>('SELECT guid FROM ledgers WHERE id = :id', { id: input.ledgerId }) ?? '';
   ctx.audit({

@@ -88,7 +88,7 @@ export const KIND_SPECS: Record<ImportKind, KindSpec> = {
         required: true,
         aliases: ['group', 'parent', 'group name', 'under group'],
       }),
-      c('alias', 'Alias', 'text', 'Optional alternative name.', [null, null]),
+      c('alias', 'Alias', 'text', "Optional alternative name(s); separate several aliases with ';'.", [null, null]),
       c('openingBalance', 'Opening Balance', 'amount', 'Opening balance in rupees as at the books beginning date (a negative amount means Cr).', [25000, 150000], {
         aliases: ['opening', 'opening bal', 'op balance', 'op bal', 'opening amount'],
       }),
@@ -211,7 +211,7 @@ export const KIND_SPECS: Record<ImportKind, KindSpec> = {
       c('parent', 'Under', 'text', 'Stock group (blank for none).', ['Kitchen Appliances', null], { aliases: ['stock group', 'group'] }),
       c('category', 'Category', 'text', 'Stock category (optional).', [null, null], { aliases: ['stock category'] }),
       c('unit', 'Unit', 'text', 'Base unit symbol, e.g. Nos, Kg (must exist).', ['Nos', 'Nos'], { required: true, aliases: ['uom', 'units', 'base unit', 'unit of measure'] }),
-      c('alias', 'Alias', 'text', 'Optional alternative name.', [null, null]),
+      c('alias', 'Alias', 'text', "Optional alternative name(s); separate several aliases with ';'.", [null, null]),
       c('partNo', 'Part No', 'text', 'Part number.', ['MX-750', null], { aliases: ['part number', 'sku', 'item code'] }),
       c('barcode', 'Barcode', 'text', 'Barcode / EAN.', [null, null], { aliases: ['ean'] }),
       c('description', 'Description', 'text', 'Description printed on invoices.', [null, null]),

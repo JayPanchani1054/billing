@@ -23,6 +23,8 @@ import type { Column, FooterRow } from '../../ui/index.ts';
 import { OverdueBadge, PartyPicker, VGap, printedOn, useDocumentOutput, usePartyOptions } from './components.tsx';
 import { refTypeLabel, statementExport, statementPeriod } from './lib/model.ts';
 import { buildStatementHtml, pdfName } from './lib/printHtml.ts';
+// print group: Share (Alt+W) by e-mail / WhatsApp.
+import { ShareDialog } from '../print/ShareDialog.tsx';
 
 export interface StatementParams {
   ledgerId?: number;
@@ -42,6 +44,7 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
   const [ledgerId, setLedgerId] = useState<number | null>(typeof p.ledgerId === 'number' ? p.ledgerId : null);
   const [section, setSection] = useState<Section>('transactions');
   const [exportOpen, setExportOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const pickerRef = useRef<HTMLInputElement | null>(null);
   const parties = usePartyOptions(period.to);
   const out = useDocumentOutput();
@@ -135,6 +138,7 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
     { key: 'Alt+L', label: 'Ledger', icon: 'ledger', onClick: () => ledgerId !== null && nav.push('reports.ledger', { ledgerId, from: period.from, to: period.to }), disabled: ledgerId === null, group: 'party' },
     { key: 'Alt+R', label: 'Reminder letter', icon: 'mail', onClick: () => ledgerId !== null && nav.push('outstanding.reminders', { ledgerId }), hidden: !s || s.closingBalance <= 0, group: 'party' },
     { key: 'Alt+E', label: 'Export', icon: 'export', onClick: () => setExportOpen(true), disabled: !s || !canExport, group: 'output', hint: canExport ? undefined : EXPORT_DENIED_HINT },
+    { key: 'Alt+W', label: 'Share (e-mail / WhatsApp)', icon: 'mail', onClick: () => setSharing(true), disabled: !s || !canExport, group: 'output', hint: canExport ? 'Sends the statement as a PDF' : EXPORT_DENIED_HINT },
     {
       key: 'Alt+P',
       label: 'Print',
@@ -162,7 +166,7 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
         error={q.error}
         onRetry={() => void q.refetch()}
         actions={actions}
-        hint="Alt+N Party · Alt+F2 Period · Alt+P Print · Alt+E Export (PDF / Excel) · Enter Open voucher · Esc Back"
+        hint="Alt+N Party · Alt+F2 Period · Alt+P Print · Alt+E Export (PDF / Excel) · Alt+W Share · Enter Open voucher · Esc Back"
         filters={
           <Inline gap={2}>
             <div style={{ width: 300 }}>
@@ -253,6 +257,16 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
         )}
       </ReportScreen>
       {exportOpen ? <ExportDialog title="Statement of Account" onClose={() => setExportOpen(false)} onPick={(f) => void exportAs(f)} /> : null}
+      {sharing && s ? (
+        <ShareDialog
+          subject={{ statement: { ledgerId: s.party.ledgerId, from: s.from, to: s.to } }}
+          render={() => {
+            const h = html();
+            return h ? { html: h, pageSize: 'A4', landscape: false, fileName: pdfName('Statement', s.party.name, s.from, s.to) } : null;
+          }}
+          onClose={() => setSharing(false)}
+        />
+      ) : null}
     </>
   );
 }

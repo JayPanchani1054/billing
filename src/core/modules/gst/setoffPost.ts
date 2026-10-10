@@ -210,7 +210,10 @@ function plan(db: Db, company: GstCompany, period: ReturnPeriodRef & { key: stri
     }
     if (TAX_HEADS.some((h) => s.payment.broughtForward[h] !== 0)) notes.push('Credit brought forward from the previous period (per the books) is included in the credit available.');
   }
-  const available = cashBalances(db, today, today);
+  // Cash available for THIS return: once its set-off is posted, the cash that set-off used still counts
+  // as available to it (otherwise the screen would ask for the same deposit again).
+  const posted = postedFor(db, period.key, today);
+  const available = cashBalances(db, today, today, posted?.voucherId);
   const cash: SetoffCashRow[] = TAX_HEADS.map((h) => {
     const penalty = take(extras.penalty, h);
     const others = take(extras.others, h);
@@ -240,7 +243,7 @@ function plan(db: Db, company: GstCompany, period: ReturnPeriodRef & { key: stri
     cash,
     cashTotal: cash.reduce((s, r) => s + r.total, 0),
     toDepositTotal: cash.reduce((s, r) => s + r.toDeposit, 0),
-    posted: postedFor(db, period.key, today),
+    posted,
     challans: listChallans(db, { period: period.key }, today),
     notes,
   };
@@ -276,7 +279,7 @@ export function postSetoff(
     );
   }
   const ts = ctx.clock.now().toISOString();
-  const ecl = ensureStatLedger(db, 'GST_CASH_LEDGER', ts);
+  const ecl = ensureStatLedger(db, 'GST_CASH_LEDGER', ts, (e) => ctx.audit(e));
   const duty = dutyLedgers(db);
   const lines: LedgerLineInput[] = [];
   const add = (ledgerId: number | undefined, amount: Paise, what: string): void => {
@@ -285,7 +288,7 @@ export function postSetoff(
     lines.push({ ledgerId, amount });
   };
   if (r.composition) {
-    add(ensureStatLedger(db, 'COMPOSITION_TAX', ts), p.compositionTax, 'Composition Tax');
+    add(ensureStatLedger(db, 'COMPOSITION_TAX', ts, (e) => ctx.audit(e)), p.compositionTax, 'Composition Tax');
   } else {
     for (const h of TAX_HEADS) add(duty.output[h], p.outputPart[h], `Output ${h.toUpperCase()}`);
     for (const h of TAX_HEADS) add(duty.input[h], p.excessReversal[h], `Input ${h.toUpperCase()}`);
@@ -293,9 +296,9 @@ export function postSetoff(
   }
   for (const h of TAX_HEADS) add(duty.rcm[h], r.rcm[h], `${h.toUpperCase()} Payable (Reverse Charge)`);
   const sumMinor = (k: 'interest' | 'fee' | 'penalty' | 'others'): Paise => r.cash.reduce((s, c) => s + c[k], 0);
-  if (sumMinor('interest') > 0) add(ensureStatLedger(db, 'GST_INTEREST', ts), sumMinor('interest'), 'Interest on GST');
-  if (sumMinor('fee') > 0) add(ensureStatLedger(db, 'GST_LATE_FEE', ts), sumMinor('fee'), 'Late Fee');
-  if (sumMinor('penalty') + sumMinor('others') > 0) add(ensureStatLedger(db, 'GST_PENALTY', ts), sumMinor('penalty') + sumMinor('others'), 'GST Penalty');
+  if (sumMinor('interest') > 0) add(ensureStatLedger(db, 'GST_INTEREST', ts, (e) => ctx.audit(e)), sumMinor('interest'), 'Interest on GST');
+  if (sumMinor('fee') > 0) add(ensureStatLedger(db, 'GST_LATE_FEE', ts, (e) => ctx.audit(e)), sumMinor('fee'), 'Late Fee');
+  if (sumMinor('penalty') + sumMinor('others') > 0) add(ensureStatLedger(db, 'GST_PENALTY', ts, (e) => ctx.audit(e)), sumMinor('penalty') + sumMinor('others'), 'GST Penalty');
   const cashRows: CashHeadAmount[] = [];
   for (const c of r.cash) for (const m of CASH_MINOR_HEADS) if (c[m] > 0) cashRows.push({ head: c.head, minor: m, amount: c[m] });
   add(ecl, -r.cashTotal, 'GST Electronic Cash Ledger');
@@ -334,7 +337,7 @@ export function postChallan(ctx: CompanyCtx, input: ChallanPostInput): VoucherSa
     { id: input.bankLedgerId },
   );
   if (!bank) throw validation([{ path: 'bankLedgerId', message: 'Select the bank (or cash) ledger the challan was paid from.' }]);
-  const ecl = ensureStatLedger(db, 'GST_CASH_LEDGER', ctx.clock.now().toISOString());
+  const ecl = ensureStatLedger(db, 'GST_CASH_LEDGER', ctx.clock.now().toISOString(), (e) => ctx.audit(e));
   return saveVoucher(ctx, {
     voucherTypeId: journalTypeId(db, 'payment'),
     date: input.date,

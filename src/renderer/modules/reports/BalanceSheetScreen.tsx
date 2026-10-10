@@ -13,6 +13,8 @@ import { Banner, EmptyState, Stack } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
 import { balanceSheetCompareDate, drillForRow, statementAmountText, statementExport, yearStartFor } from './lib/model.ts';
 import { StatementBlockView, useBlockExpansion, visibleBlock } from './statement.tsx';
+import { withScenario } from './lib/overlay.ts';
+import { useReportOverlay } from './overlay.tsx';
 
 export interface BalanceSheetParams {
   /** Period whose end date is the "as on" date (drill-downs pass both). */
@@ -28,7 +30,13 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
   const [compare, setCompare] = useState(false);
   const asOf = p.to;
   const compareAsOf = compare ? balanceSheetCompareDate(asOf) : undefined;
-  const q = useApiQuery('reports.balanceSheet', { asOf, mode: detailed ? 'detailed' : 'condensed', compareAsOf }, { keepPrevious: true });
+  // Scenario (Alt+S) and budget column (Alt+B) — documents module masters; budgets for the year to date.
+  const overlay = useReportOverlay({ from: yearStartFor(asOf, books.fyStartMonth, books.booksFrom), to: asOf });
+  const q = useApiQuery(
+    'reports.balanceSheet',
+    { asOf, mode: detailed ? 'detailed' : 'condensed', compareAsOf, ...(overlay.scenarioId !== undefined ? { scenarioId: overlay.scenarioId } : {}) },
+    { keepPrevious: true },
+  );
   const d = q.data;
   const block = d ? { left: d.liabilities, right: d.assets, total: d.liabilitiesTotal, compareTotal: d.compareLiabilitiesTotal } : undefined;
   const expansion = useBlockExpansion('bs', block, detailed);
@@ -40,15 +48,17 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
     setDetailed(next);
     for (const e of [expansion.left, expansion.right]) (next ? e.expandAll : e.collapseAll)();
   };
-  const activate = (line: StatementLine): void => drill(drillForRow(line, { from: yearStart, to: asOf }, { yearStart }));
+  const activate = (line: StatementLine): void => drill(withScenario(drillForRow(line, { from: yearStart, to: asOf }, { yearStart }), overlay.scenarioId ?? null));
   const actions: ScreenActionItem[] = [
     { key: 'Alt+F1', label: detailed ? 'Condensed' : 'Detailed', icon: 'layers', onClick: toggleDetailed, group: 'view' },
     { key: 'Alt+C', label: compare ? 'No comparison' : 'Compare last year', icon: 'columns', onClick: () => setCompare(!compare), group: 'view' },
+    ...overlay.actions,
   ];
 
   return (
     <ReportScreen
       title="Balance Sheet"
+      subtitle={overlay.text ?? undefined}
       periodMode="asOn"
       period={p.period}
       loading={q.loading}
@@ -56,10 +66,13 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
       error={q.error}
       onRetry={q.refetch}
       actions={actions}
-      hint="Enter Drill down · →/← Expand/collapse · Tab Other side · Alt+F1 Detailed · Alt+C Compare · Alt+F2 Date"
+      hint="Enter Drill down · →/← Expand/collapse · Tab Other side · Alt+F1 Detailed · Alt+C Compare · Alt+S Scenario · Alt+B Budget · Alt+F2 Date"
       exportDef={() =>
         d && block
-          ? { subtitle: `As on ${formatDate(asOf)}`, ...statementExport({ left: 'Liabilities', right: 'Assets' }, [visibleBlock(block, expansion)], compareLabel) }
+          ? {
+              subtitle: [`As on ${formatDate(asOf)}`, overlay.text].filter(Boolean).join(' · '),
+              ...statementExport({ left: 'Liabilities', right: 'Assets' }, [visibleBlock(block, expansion)], compareLabel, overlay.budget ? { ...overlay.budget, leftDrNatural: false } : null),
+            }
           : { columns: [{ header: 'Particulars' }], rows: [] }
       }
     >
@@ -77,7 +90,16 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
               balance it. Correct the ledger opening balances to clear it.
             </Banner>
           ) : null}
-          <StatementBlockView leftTitle="Liabilities" rightTitle="Assets" block={block} expansion={expansion} compareLabel={compareLabel} onActivate={activate} autoFocus />
+          <StatementBlockView
+            leftTitle="Liabilities"
+            rightTitle="Assets"
+            block={block}
+            expansion={expansion}
+            compareLabel={compareLabel}
+            budget={overlay.budget ? { ...overlay.budget, leftDrNatural: false } : null}
+            onActivate={activate}
+            autoFocus
+          />
           <p className="bx-rep-note">
             Profit &amp; Loss A/c: opening {statementAmountText(d.profitLoss.openingBalance)} + current period {statementAmountText(d.profitLoss.currentPeriod)} (from{' '}
             {formatDate(d.yearStart)}).
@@ -87,6 +109,7 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
       ) : (
         <EmptyState icon="book" title="No balance sheet yet" body="Change the date with Alt+F2." />
       )}
+      {overlay.dialogs}
     </ReportScreen>
   );
 }

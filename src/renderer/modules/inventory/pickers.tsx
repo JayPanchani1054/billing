@@ -144,7 +144,7 @@ export function useItemPicker(options: UseItemPickerOptions = {}): ItemPickerSou
       getKey: (r) => String(r.id),
       getLabel: (r) => r.name,
       getAlias: (r) => r.alias ?? r.partNo ?? undefined,
-      getKeywords: (r) => [r.partNo ?? '', r.barcode ?? '', r.groupName ?? ''].filter(Boolean),
+      getKeywords: (r) => [r.partNo ?? '', r.barcode ?? '', r.groupName ?? '', ...(r.otherAliases ?? [])].filter(Boolean),
       stockText: (r) => (r.isService ? 'Service' : typeof r.stockQty === 'number' ? formatQty(r.stockQty, r.unitDecimals ?? 0, r.unitSymbol) : ''),
       createItem: async (typed) => {
         const created = await nav.pushForResult<CreatedRef>('inventory.item.form', { initialName: typed.trim(), forResult: true });

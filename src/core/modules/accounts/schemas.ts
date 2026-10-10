@@ -88,6 +88,7 @@ export const LedgerSaveInputSchema = v.object({
   id: v.id().optional(),
   name: v.string({ max: 200 }).optional(),
   alias: text(200),
+  aliases: v.array(v.string({ max: 200 }), { max: 50 }).optional(),
   groupId: v.id().optional(),
   isActive: flag(),
   openingBalance: patchNullable(v.paise()),
@@ -228,6 +229,9 @@ export const VoucherTypeSaveInputSchema = v.object({
       start: v.int({ min: 1, max: 999_999_999 }).optional(),
       width: v.int({ min: 0, max: 9 }).optional(),
       restart: v.enum(['yearly', 'monthly', 'never'] as const).optional(),
+      // dataplus: dated prefix / suffix rows (replace all rows of that kind when given).
+      prefixRows: v.array(v.object({ applicableFrom: v.date(), text: v.string({ max: 16 }).nullable() }), { max: 100 }).optional(),
+      suffixRows: v.array(v.object({ applicableFrom: v.date(), text: v.string({ max: 16 }).nullable() }), { max: 100 }).optional(),
     })
     .optional(),
   preventDuplicates: flag(),
@@ -247,6 +251,8 @@ export const VoucherTypeSaveInputSchema = v.object({
       invoiceMode: patchNullable(v.enum(['item', 'accounting'] as const)),
       defaultGodownId: patchNullable(v.id()),
       printTemplate: patchNullable(v.enum(['classic', 'modern', 'compact'] as const)),
+      // print group: MRP column on this type's documents (null = as in Invoice Printing).
+      showMrp: patchNullable(v.boolean()),
       // mfg module: a stock journal type used as Manufacturing Journal / Material Out / Material In.
       stockJournalClass: patchNullable(v.enum(STOCK_JOURNAL_CLASSES)),
     })

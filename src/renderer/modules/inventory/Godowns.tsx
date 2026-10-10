@@ -5,6 +5,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { GodownDto } from '../../../shared/types/inventory.ts';
+import { THIRD_PARTY_KIND_LABELS, THIRD_PARTY_KINDS, type ThirdPartyKind } from '../../../shared/types/mfg.ts';
 import {
   DialogScreen,
   Screen,
@@ -21,9 +22,10 @@ import {
   userMessage,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, Field, FieldGroup, Inline, Stack, Switch, TextArea, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Badge, Banner, Button, Field, FieldGroup, Inline, Select, Stack, Switch, TextArea, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { AcceptKey, FeatureOff, focusFirstError, HistoryButton, HistoryKey, INVENTORY_INVALIDATES, splitApiError, useMasterHistory } from './common.tsx';
+import { LedgerPicker } from '../accounts/pickers.tsx';
 import { DeleteKey } from './Groups.tsx';
 import type { Leveled } from './lib/tree.ts';
 import { descendantIds } from './lib/tree.ts';
@@ -47,6 +49,10 @@ export function GodownListScreen() {
           g.isPredefined ? (
             <Badge size="sm" tone="brand">
               Main location
+            </Badge>
+          ) : g.thirdPartyKind === 'party_with_us' ? (
+            <Badge size="sm" tone="info">
+              Principal's stock
             </Badge>
           ) : g.isThirdParty ? (
             <Badge size="sm" tone="warning">
@@ -78,7 +84,7 @@ export function GodownListScreen() {
       onRetry={() => void q.refetch()}
       columns={columns}
       exportColumns={[{ header: 'Name' }, { header: 'Alias' }, { header: 'Under' }, { header: 'Type' }, { header: 'Address' }]}
-      exportRow={(g) => [g.name, g.alias ?? '', g.parentName ?? 'Primary', g.isPredefined ? 'Main location' : g.isThirdParty ? 'Third party' : 'Own', g.address ?? '']}
+      exportRow={(g) => [g.name, g.alias ?? '', g.parentName ?? 'Primary', g.isPredefined ? 'Main location' : g.thirdPartyKind !== 'none' ? THIRD_PARTY_KIND_LABELS[g.thirdPartyKind] : g.isThirdParty ? 'Third party' : 'Own', g.address ?? '']}
       formScreen="inventory.godown.form"
       onDelete={async (g) => {
         await del.mutate({ id: g.id });
@@ -123,6 +129,13 @@ export function GodownFormScreen({ params }: ScreenProps<GodownFormParams>) {
 
 const DID = 'inv-godown-';
 
+/** What each job work kind means for stock valuation (shown under the field). */
+const KIND_HINTS: Readonly<Record<ThirdPartyKind, string>> = {
+  none: 'Your own warehouse, shop or factory.',
+  ours_with_party: 'Your goods at a job worker or agent: still your stock, valued and in the Balance Sheet.',
+  party_with_us: "A principal's goods with you for job work: quantities only — never valued or in your closing stock.",
+};
+
 function GodownForm({ title, saved, params, all }: { title: string; saved: GodownDto | null; params: GodownFormParams; all: readonly GodownDto[] }) {
   const nav = useNav();
   const toast = useToast();
@@ -130,6 +143,7 @@ function GodownForm({ title, saved, params, all }: { title: string; saved: Godow
   const canAlter = useCan('masters.alter');
   const canCreate = useCan('masters.create');
   const canDelete = useCan('masters.delete');
+  const features = useFeatures();
   const { forResult, returnResult } = useScreenResult<{ id: number; name: string }>();
   const save = useApiMutation('inventory.godown.save', { invalidates: INVENTORY_INVALIDATES });
   const del = useApiMutation('inventory.godown.delete', { invalidates: INVENTORY_INVALIDATES });
@@ -140,6 +154,9 @@ function GodownForm({ title, saved, params, all }: { title: string; saved: Godow
       parentId: saved ? saved.parentId : typeof params.parentId === 'number' ? params.parentId : null,
       address: saved?.address ?? '',
       isThirdParty: saved?.isThirdParty ?? false,
+      // Job work (mfg): whose stock the godown holds and the job worker / principal it belongs to.
+      thirdPartyKind: (saved?.thirdPartyKind ?? 'none') as ThirdPartyKind,
+      partyLedgerId: saved?.partyLedgerId ?? null,
     }),
     [saved, params.initialName, params.parentId],
   );
@@ -175,13 +192,15 @@ function GodownForm({ title, saved, params, all }: { title: string; saved: Godow
         alias: d.alias.trim() || null,
         parentId: d.parentId,
         address: d.address.trim() || null,
-        isThirdParty: saved?.isPredefined ? false : d.isThirdParty,
+        ...(features.jobWork && !saved?.isPredefined
+          ? { thirdPartyKind: d.thirdPartyKind, partyLedgerId: d.thirdPartyKind === 'none' ? null : d.partyLedgerId }
+          : { isThirdParty: saved?.isPredefined ? false : d.isThirdParty }),
       });
       toast.success(saved ? `Godown “${out.name}” saved` : `Godown “${out.name}” created`);
       if (forResult) returnResult({ id: out.id, name: out.name });
       else nav.pop();
     } catch (err) {
-      const { fields, message } = splitApiError(err, (k) => ['name', 'alias', 'parentId', 'address', 'isThirdParty'].includes(k));
+      const { fields, message } = splitApiError(err, (k) => ['name', 'alias', 'parentId', 'address', 'isThirdParty', 'thirdPartyKind', 'partyLedgerId'].includes(k));
       setErrors(fields);
       setBanner(message);
     }
@@ -251,7 +270,24 @@ function GodownForm({ title, saved, params, all }: { title: string; saved: Godow
           <Field label="Address" optional htmlFor={`${DID}address`} error={errors.address} hint="Ctrl+Enter to move on.">
             <TextArea id={`${DID}address`} value={d.address} onChange={(e) => setD((x) => ({ ...x, address: e.target.value }))} maxLength={1000} rows={2} autoGrow maxRows={5} readOnly={readOnly} />
           </Field>
-          {!saved?.isPredefined ? (
+          {!saved?.isPredefined && features.jobWork ? (
+            <FieldGroup columns={2}>
+              <Field label="Whose stock" htmlFor={`${DID}thirdPartyKind`} error={errors.thirdPartyKind} hint={KIND_HINTS[d.thirdPartyKind]}>
+                <Select<ThirdPartyKind>
+                  id={`${DID}thirdPartyKind`}
+                  value={d.thirdPartyKind}
+                  onChange={(v) => setD((x) => ({ ...x, thirdPartyKind: v, isThirdParty: v === 'ours_with_party' }))}
+                  disabled={readOnly}
+                  options={THIRD_PARTY_KINDS.map((k) => ({ value: k, label: THIRD_PARTY_KIND_LABELS[k] }))}
+                />
+              </Field>
+              {d.thirdPartyKind !== 'none' ? (
+                <Field label={d.thirdPartyKind === 'ours_with_party' ? 'Job worker / agent' : 'Principal'} optional htmlFor={`${DID}partyLedgerId`} error={errors.partyLedgerId}>
+                  <LedgerPicker id={`${DID}partyLedgerId`} classes={['party']} value={d.partyLedgerId} onChange={(pid) => setD((x) => ({ ...x, partyLedgerId: pid }))} readOnly={readOnly} showBalance={false} />
+                </Field>
+              ) : null}
+            </FieldGroup>
+          ) : !saved?.isPredefined ? (
             <Field label="Third-party location" htmlFor={`${DID}isThirdParty`} error={errors.isThirdParty} hint="A job worker's or agent's premises holding your stock.">
               <Switch id={`${DID}isThirdParty`} checked={d.isThirdParty} onChange={(v) => setD((x) => ({ ...x, isThirdParty: v }))} disabled={readOnly} />
             </Field>

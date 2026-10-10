@@ -41,7 +41,7 @@ the Data Entry role holds `reports.view` only).
 | `stock.reorder` | `{ asOf }` | `ReorderStatusResult` — items below reorder level with pending purchase / sales orders and the quantity to order |
 | `stock.negative` | `{ asOf }` | `NegativeStockResult` — items below zero in total or in any godown, with the date they went negative |
 | `stock.batches` | `{ itemId?, asOf, expiringWithinDays? }` | `BatchSummaryResult` — batch balances (FEFO), days to expiry, status `expired / expiring / ok / no_expiry` |
-| `stock.pendingOrders` | `{ kind: 'sales' \| 'purchase', asOf }` | `PendingOrdersResult` — order lines with ordered / fulfilled / pending qty, pending value, due date, days overdue |
+| `stock.pendingOrders` | `{ kind: 'sales' \| 'purchase', asOf }` | `PendingOrdersResult` — order lines with ordered / fulfilled / pending qty, pending value, due date, days overdue; balances pre-closed on or before `asOf` (documents module, `order_closures`) are subtracted and shown as `closedQty` |
 | `stock.profitability` | `{ from, to, groupId? }` | `ProfitabilityResult` — per item sales, returns, net sales, cost of goods sold, gross profit, GP % |
 | `stock.physicalVariance` | `{ from, to }` | `PhysicalVarianceResult` — physical stock lines: counted, book, difference, value at cost |
 

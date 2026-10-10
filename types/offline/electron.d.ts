@@ -200,6 +200,13 @@ export interface WebContentsPrintOptions {
   pageSize?: string | { width: number; height: number };
 }
 
+export interface PrinterInfo {
+  description: string;
+  displayName: string;
+  name: string;
+  options: Record<string, string>;
+}
+
 export interface HandlerDetails {
   url: string;
   frameName: string;
@@ -263,6 +270,7 @@ export interface WebContents extends EventEmitter {
   isLoading(): boolean;
   printToPDF(options: PrintToPDFOptions): Promise<Buffer>;
   print(options?: WebContentsPrintOptions, callback?: (success: boolean, failureReason: string) => void): void;
+  getPrintersAsync(): Promise<PrinterInfo[]>;
   openDevTools(options?: { mode: 'left' | 'right' | 'bottom' | 'undocked' | 'detach'; activate?: boolean }): void;
   closeDevTools(): void;
   isDevToolsOpened(): boolean;

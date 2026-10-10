@@ -15,10 +15,12 @@ import type {
   ElectronicCreditLedger,
   GstAdjustmentNature,
   GstAmendmentRow,
+  GstFiling,
   GstFilingForm,
   GstSetoffResult,
   Gstr1AdvancesSummary,
   Gstr4Summary,
+  PendingAdvance,
   VoucherGstDetailsInput,
 } from '../../../../shared/types/gst-plus.ts';
 import { CASH_MINOR_HEADS, GST_ADJUSTMENT_LABELS } from '../../../../shared/types/gst-plus.ts';
@@ -285,4 +287,201 @@ export function initialQuarter(options: ReadonlyArray<{ value: string }>, workin
   const idx = options.findIndex((o) => o.value === cur);
   if (idx >= 0 && idx + 1 < options.length) return options[idx + 1].value;
   return options[0]?.value ?? null;
+}
+
+// ───────────────────────────── Electronic ledgers ─────────────────────────────
+
+/** Closing balance of the cash ledger as a major × minor grid (one row per major head). */
+export function cashLedgerMatrix(l: Pick<ElectronicCashLedger, 'rows'>): Array<{ head: TaxHead; closing: Record<CashMinorHead, number>; total: number }> {
+  return TAX_HEADS.map((head) => {
+    const closing: Record<CashMinorHead, number> = { tax: 0, interest: 0, penalty: 0, fee: 0, others: 0 };
+    for (const r of l.rows) if (r.head === head) closing[r.minor] += r.closing;
+    return { head, closing, total: CASH_MINOR_HEADS.reduce((s, m) => s + closing[m], 0) };
+  });
+}
+
+/** IGST + CGST + SGST + cess of a ledger transaction. */
+export function txnTotal(t: { igst: number; cgst: number; sgst: number; cess: number }): number {
+  return t.igst + t.cgst + t.sgst + t.cess;
+}
+
+// ───────────────────────────── Composition rate form ─────────────────────────────
+
+/** Inline errors of the composition rate dialog (the core validates again). */
+export function rateFormErrors(f: { effectiveFrom: string | null; rate: number | null }): { effectiveFrom?: string; rate?: string } {
+  const e: { effectiveFrom?: string; rate?: string } = {};
+  if (!f.effectiveFrom) e.effectiveFrom = 'Enter the date from which the rate applies.';
+  else if (f.effectiveFrom < '2017-07-01') e.effectiveFrom = 'GST (and the composition levy) started on 1 July 2017.';
+  if (f.rate === null) e.rate = 'Enter the rate, e.g. 1 for 0.5% CGST + 0.5% SGST.';
+  else if (f.rate <= 0 || f.rate > 28) e.rate = 'The rate must be more than 0% and at most 28%.';
+  return e;
+}
+
+// ───────────────────────────── Filing status / amendments / pending advances / BOE recon ─────────────────────────────
+
+/** Badge text of an amendment row's table. */
+export function amendmentTableLabel(r: Pick<GstAmendmentRow, 'table' | 'original' | 'amended'>): string {
+  if (r.table === 'late') return 'Added';
+  const s = r.amended ?? r.original;
+  const section = s?.section ? ` ${s.section.toUpperCase()}A` : '';
+  return `${r.table}${r.table === '10' ? '' : section}`;
+}
+
+/** Screen that shows a filed return. */
+export function filingRoute(f: Pick<GstFiling, 'form' | 'period'>): { screen: string; params: Record<string, unknown> } {
+  switch (f.form) {
+    case 'gstr1':
+      return { screen: 'gst.gstr1', params: { period: f.period } };
+    case 'gstr3b':
+      return { screen: 'gst.gstr3b', params: { period: f.period } };
+    case 'cmp08':
+      return { screen: 'gst.cmp08', params: { period: f.period } };
+    default:
+      return { screen: 'gst.gstr4', params: { fy: f.period } };
+  }
+}
+
+export function filingsExport(rows: readonly GstFiling[]): ExportBody {
+  return {
+    subtitle: 'Returns marked filed',
+    columns: [{ header: 'Return' }, { header: 'Period' }, { header: 'Filed on', kind: 'date' }, { header: 'ARN' }],
+    rows: rows.map((r) => [FORM_LABELS[r.form], r.periodLabel, r.filedOn, r.arn ?? '']),
+  };
+}
+
+export function pendingAdvancesExport(rows: readonly PendingAdvance[]): ExportBody {
+  return {
+    subtitle: 'Advances received and not yet invoiced or refunded',
+    columns: [{ header: 'Date', kind: 'date' }, { header: 'Receipt no.' }, { header: 'Party' }, { header: 'POS' }, { header: 'Rate' }, { header: 'Advance', kind: 'amount' }, { header: 'Pending', kind: 'amount' }],
+    rows: rows.map((r) => [r.date, r.number ?? '', r.partyName ?? '', r.pos, `${r.rate}%`, r.gross, r.pending]),
+    totals: ['Total', '', '', '', '', rows.reduce((s, r) => s + r.gross, 0), rows.reduce((s, r) => s + r.pending, 0)],
+  };
+}
+
+export function boeReconExport(rows: readonly BoeReconRow[]): ExportBody {
+  return {
+    subtitle: 'Bills of entry in the books vs GSTR-2B (IMPG / IMPGSEZ)',
+    columns: [
+      { header: 'Status' },
+      { header: 'BOE no.' },
+      { header: 'BOE date', kind: 'date' },
+      { header: 'Port' },
+      { header: 'IGST (books)', kind: 'amount' },
+      { header: 'IGST (2B)', kind: 'amount' },
+      { header: 'IGST difference', kind: 'amount' },
+      { header: 'Cess difference', kind: 'amount' },
+      { header: 'Note' },
+    ],
+    rows: rows.map((r) => [BOE_STATUS_LABELS[r.status], r.boeNo, r.boeDate ?? '', r.portCode ?? '', r.books?.igst ?? 0, r.portal?.igst ?? 0, r.igstDiff, r.cessDiff, r.note ?? '']),
+  };
+}
+
+/** Keep only the GST details a voucher of this base type can carry (e.g. after F10 changed the type). */
+export function gstDetailsForBase(d: VoucherGstDetailsInput | undefined, baseType: VoucherBaseType): VoucherGstDetailsInput | undefined {
+  const c = cleanGstDetails(d);
+  if (!c) return undefined;
+  const out: VoucherGstDetailsInput = {};
+  if (baseType === 'receipt' && c.advance) out.advance = c.advance;
+  if (baseType === 'payment') {
+    if (c.advanceRefund) out.advanceRefund = c.advanceRefund;
+    if (c.challan) out.challan = c.challan;
+  }
+  if ((baseType === 'sales' || baseType === 'debit_note') && c.advanceAdjustments) out.advanceAdjustments = c.advanceAdjustments;
+  if (baseType === 'purchase' && c.billOfEntry) out.billOfEntry = c.billOfEntry;
+  if (baseType === 'journal') {
+    if (c.adjustment) out.adjustment = c.adjustment;
+    if (c.setoff) out.setoff = c.setoff;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Return period typed in the GST details dialog (stat adjustment / challan): a month '092026' or a
+ * quarter '2026-27-Q2' whose second year follows the first. Empty is allowed (the voucher date's period).
+ */
+export function periodKeyError(raw: string): string | undefined {
+  const s = raw.trim();
+  if (!s) return undefined;
+  if (/^(0[1-9]|1[0-2])\d{4}$/.test(s)) return undefined;
+  const q = /^(\d{4})-(\d{2})-Q[1-4]$/.exec(s);
+  if (q && String(Number(q[1]) + 1).slice(-2) === q[2]) return undefined;
+  return "Type a month as 092026 (MMYYYY) or a quarter as 2026-27-Q2.";
+}
+
+/** Inline errors of the bill of entry section (the gst voucher hook validates again). */
+export function boeFieldErrors(f: { number: string; date: string | null; portCode: string; assessableValue: number | null; igst: number | null }): {
+  number?: string;
+  date?: string;
+  portCode?: string;
+  assessableValue?: string;
+  igst?: string;
+} {
+  const e: { number?: string; date?: string; portCode?: string; assessableValue?: string; igst?: string } = {};
+  if (!f.number.trim()) e.number = 'Enter the bill of entry number.';
+  else if (!/^[A-Za-z0-9/-]{1,20}$/.test(f.number.trim())) e.number = 'Type the bill of entry number as printed (letters, digits, / or -).';
+  if (!f.date) e.date = 'Enter the bill of entry date.';
+  if (f.portCode.trim() && !/^[A-Za-z0-9]{6}$/.test(f.portCode.trim())) e.portCode = 'A port code has six characters, e.g. INNSA1.';
+  if (f.assessableValue === null || f.assessableValue <= 0) e.assessableValue = 'Enter the assessable value shown on the BOE.';
+  if (f.igst === null || f.igst < 0) e.igst = 'Enter the IGST paid at customs (0 if none).';
+  return e;
+}
+
+// ───────────────────────────── Composition due dates (dashboard card) ─────────────────────────────
+
+export interface CompositionDue {
+  form: 'cmp08' | 'gstr4';
+  /** Quarter key ('2026-27-Q1') or financial year ('2025-26'). */
+  period: string;
+  label: string;
+  dueDate: string;
+  filed: boolean;
+  /** Not filed and the working date is after the due date. */
+  overdue: boolean;
+}
+
+const QUARTER_DUE: ReadonlyArray<{ month: string; nextYear: boolean }> = [
+  { month: '07', nextYear: false },
+  { month: '10', nextYear: false },
+  { month: '01', nextYear: true },
+  { month: '04', nextYear: true },
+];
+
+/** CMP-08 due date (18th of the month after the quarter — Rule 62(1)(i)) of a quarter key. */
+export function cmp08DueDate(quarterKey: string): string | null {
+  const m = /^(\d{4})-\d{2}-Q([1-4])$/.exec(quarterKey);
+  if (!m) return null;
+  const start = Number(m[1]);
+  const d = QUARTER_DUE[Number(m[2]) - 1];
+  return `${d.nextYear ? start + 1 : start}-${d.month}-18`;
+}
+
+/**
+ * What a composition taxpayer has to file around the working date: CMP-08 for the previous quarter
+ * (and the current one, next), and GSTR-4 for the previous financial year (due 30 April, Rule 62(1)(ii)
+ * as amended for FY 2021-22 onwards) until it is marked filed. Due dates are as notified; the government
+ * sometimes extends them — the card says so.
+ */
+export function compositionDues(workingDate: string, filings: ReadonlyArray<{ form: string; period: string }>): CompositionDue[] {
+  const isFiled = (form: string, period: string): boolean => filings.some((f) => f.form === form && f.period === period);
+  const cur = quarterOfMonthKey(`${workingDate.slice(5, 7)}${workingDate.slice(0, 4)}`);
+  if (!cur) return [];
+  const m = /^(\d{4})-\d{2}-Q([1-4])$/.exec(cur);
+  if (!m) return [];
+  const start = Number(m[1]);
+  const q = Number(m[2]);
+  const key = (s: number, n: number): string => `${s}-${String(s + 1).slice(-2)}-Q${n}`;
+  const prev = q === 1 ? key(start - 1, 4) : key(start, q - 1);
+  const out: CompositionDue[] = [];
+  for (const period of [prev, cur]) {
+    const dueDate = cmp08DueDate(period) as string;
+    const filed = isFiled('cmp08', period);
+    if (period === cur && filed) continue;
+    out.push({ form: 'cmp08', period, label: `CMP-08 ${quarterLabel(period)}`, dueDate, filed, overdue: !filed && workingDate > dueDate });
+  }
+  const prevFy = `${start - 1}-${String(start).slice(-2)}`;
+  if (!isFiled('gstr4', prevFy)) {
+    const dueDate = `${start}-04-30`;
+    out.push({ form: 'gstr4', period: prevFy, label: `GSTR-4 FY ${prevFy}`, dueDate, filed: false, overdue: workingDate > dueDate });
+  }
+  return out;
 }

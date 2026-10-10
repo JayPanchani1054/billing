@@ -13,6 +13,7 @@ import { FileResultDialog, GstHelp, IssuesPanel, PeriodSelect, saveJsonFile, use
 import type { FileResult } from './components.tsx';
 import { buildTiles, countText, summaryExport, taxOf } from './lib/gstr1.ts';
 import type { Gstr1Tile } from './lib/gstr1.ts';
+import { MarkFiledDialog } from './plusComponents.tsx';
 
 export interface Gstr1Params {
   period?: string;
@@ -30,6 +31,9 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
   const tiles = useMemo(() => (summary ? buildTiles(summary) : []), [summary]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<FileResult | null>(null);
+  const [marking, setMarking] = useState(false);
+  const composition = rp.periods?.registration === 'composition';
+  const amendCount = summary ? (summary.amendments?.invoices.length ?? 0) + (summary.amendments?.notes.length ?? 0) + (summary.amendments?.b2cs.length ?? 0) + (summary.amendments?.late.length ?? 0) : 0;
 
   const exportJson = async (): Promise<void> => {
     if (!rp.key || busy) return;
@@ -64,7 +68,9 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
   };
 
   const openTile = (t: Gstr1Tile): void => {
-    if (rp.key) nav.push('gst.gstr1.section', { period: rp.key, tile: t.id });
+    // Table 11 (advances) has its own screen with the vouchers and the pending advances.
+    if (t.id === '11' && summary) nav.push('gst.advances', { from: summary.period.from, to: summary.period.to });
+    else if (rp.key) nav.push('gst.gstr1.section', { period: rp.key, tile: t.id });
   };
 
   const errors = summary?.issues.filter((i) => i.severity === 'error').length ?? 0;
@@ -82,6 +88,16 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
     },
     { key: 'Alt+X', label: 'GST exceptions', icon: 'alert', onClick: () => summary && nav.push('gst.exceptions', { from: summary.period.from, to: summary.period.to }), disabled: !summary, group: 'go' },
     { key: 'Alt+B', label: 'GSTR-3B', icon: 'gst', onClick: () => rp.key && nav.push('gst.gstr3b', { period: rp.key }), disabled: !rp.key, group: 'go' },
+    {
+      key: 'Alt+F',
+      label: summary?.filing ? 'Filed' : 'Mark filed',
+      icon: 'check',
+      onClick: () => setMarking(true),
+      disabled: !summary || !canFile || Boolean(summary.filing) || composition,
+      hint: summary?.filing ? `Filed on ${summary.filing.filedOn}` : 'After filing on the portal: later changes are reported as amendments',
+      group: 'file',
+    },
+    { key: 'Alt+M', label: `Amendments${amendCount ? ` (${amendCount})` : ''}`, icon: 'list', onClick: () => rp.key && nav.push('gst.amendments', { period: rp.key }), disabled: !rp.key, group: 'go' },
   ];
 
   return (
@@ -97,8 +113,24 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
         refreshing={q.refreshing || busy}
         error={rp.error ?? q.error}
         onRetry={() => (rp.error ? rp.refetch() : void q.refetch())}
-        hint="Arrows Move · Enter Open table · Alt+J JSON · Alt+E Export · Alt+F2 Period · Esc Back"
+        hint="Arrows Move · Enter Open table · Alt+J JSON · Alt+F Mark filed · Alt+M Amendments · Alt+E Export · Alt+F2 Period · Esc Back"
       >
+        {composition ? (
+          <Banner tone="info" title="Composition taxpayers file CMP-08 and GSTR-4">
+            This company is registered under composition: it does not file GSTR-1. Open GST › CMP-08 for the quarterly statement.
+          </Banner>
+        ) : null}
+        {summary?.filing ? (
+          <Banner tone="success" inline>
+            Filed on {summary.filing.filedOn}
+            {summary.filing.arn ? ` (ARN ${summary.filing.arn})` : ''}. Changes to its documents are reported as amendments in the next GSTR-1 (Alt+M).
+          </Banner>
+        ) : null}
+        {amendCount > 0 ? (
+          <Banner tone="warning" inline>
+            {amendCount} amended or late document(s) of earlier filed periods are reported in this return — Alt+M lists them.
+          </Banner>
+        ) : null}
         {rp.periods && rp.periods.periods.length === 0 ? (
           <Banner tone="info" title="No return periods yet">
             Return periods start from the date your books begin. Record a sale or purchase to see it here.
@@ -108,6 +140,17 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
         ) : null}
       </ReportScreen>
       <FileResultDialog result={result} onClose={() => setResult(null)} />
+      {marking && summary && rp.key ? (
+        <MarkFiledDialog
+          form="gstr1"
+          period={rp.key}
+          periodLabel={summary.period.label}
+          onClose={(done) => {
+            setMarking(false);
+            if (done) void q.refetch();
+          }}
+        />
+      ) : null}
     </>
   );
 }

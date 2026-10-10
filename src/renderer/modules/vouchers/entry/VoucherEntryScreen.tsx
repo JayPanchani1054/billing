@@ -76,12 +76,22 @@ import { clientIssues } from '../lib/validate.ts';
 import { LedgerCombo } from '../pickers/LedgerCombo.tsx';
 import { useGodowns, useItemRows, useLedgerDetails, useLedgerRows, usePriceLevels } from '../pickers/hooks.ts';
 import { BillsDialog } from './BillsDialog.tsx';
+import { GstDetailsDialog } from '../../gst/GstDetailsDialog.tsx';
+import { gstDetailsKinds, gstDetailsSummary } from '../../gst/lib/gstplus.ts';
 import { ConfigHintsDialog, CostDialog, InstrumentDialog, MoreDetailsDialog, ReasonDialog, TrackingDialog, TypeSwitchDialog } from './dialogs.tsx';
 import type { MoreDetailsValue } from './dialogs.tsx';
 import { GridEnvContext, ItemGrid, itemColumns, LedgerGrid, navItemColumns, rowDetailNeeds, TotalRow } from './grids.tsx';
 import type { GridEnv, LedgerColumn, RowDialogKind } from './grids.tsx';
 import { breakupRows, checkItemsOf, ChecksPanel, ErrorBanner, PartyPanel, TotalsPanel } from './panels.tsx';
 import type { CheckItem } from './panels.tsx';
+import { TdsEntryPanel } from '../../tds/EntryPanel.tsx';
+import type { TdsVoucherPreview } from '../../../../shared/types/tds.ts';
+import type { ForexVoucherPreview } from '../../../../shared/types/forex.ts';
+import { formatExchangeRate, formatForex } from '../../../../shared/forex.ts';
+import { ForexEntryPanel } from '../../forex/EntryPanel.tsx';
+import { ForexInvoiceDialog, ForexLineDialog, ForexPartyBillsDialog } from '../../forex/ForexDialogs.tsx';
+import { useForexContext } from '../../forex/hooks.ts';
+import { decodeForex } from '../../forex/lib/entry.ts';
 
 export interface VoucherEntryParams {
   baseType?: VoucherBaseType;
@@ -104,10 +114,12 @@ export interface VoucherDraftParams {
   voucherTypeId?: number;
   templateId?: number;
   periodKey?: string;
+  /** Conversion / billing: the new voucher's date (the opener's working date). Recurring: omit (the occurrence date). */
+  date?: string;
 }
 
-/** Everything a voucher save can change elsewhere. */
-export const VOUCHER_INVALIDATES = ['vouchers', 'reports', 'gst', 'gstrecon', 'outstanding', 'stock', 'banking', 'dashboard', 'accounts', 'inventory', 'print'];
+/** Everything a voucher save can change elsewhere ('documents': quotation status, recurring due list, bills pending). */
+export const VOUCHER_INVALIDATES = ['vouchers', 'reports', 'gst', 'gstrecon', 'outstanding', 'stock', 'banking', 'dashboard', 'accounts', 'inventory', 'print', 'documents', 'tds'];
 
 /** Focus an element by id once it exists (cells appear one render after their row is filled). */
 export function focusId(id: string, attempts = 6): void {
@@ -160,13 +172,28 @@ export function VoucherEntryScreen({ params }: ScreenProps<VoucherEntryParams>) 
     if (detail && readOnly) nav.replace('vouchers.view', { id: detail.id });
   }, [detail, readOnly, nav]);
 
+  // Manufacturing Journal / Material In / Material Out (stock journal types with a class, mfg module) are
+  // entered on 'mfg.journal.entry': hand F10 / Go To / Alt+A over to it when the user may open it.
+  const mfgClass = (ctx0?.voucherType.config as { stockJournalClass?: string | null } | null | undefined)?.stockJournalClass ?? null;
+  const handOver = mfgClass !== null && !readOnly && nav.canOpen('mfg.journal.entry');
+  useEffect(() => {
+    if (!handOver || !type) return;
+    nav.replace('mfg.journal.entry', {
+      voucherTypeId: type.id,
+      ...(params.id !== undefined ? { id: params.id } : {}),
+      ...(params.duplicateOf !== undefined ? { duplicateOf: params.duplicateOf } : {}),
+      ...(params.date !== undefined ? { date: params.date } : {}),
+      ...(params.partyId !== undefined ? { partyId: params.partyId } : {}),
+    });
+  }, [handOver, type, params.id, params.duplicateOf, params.date, params.partyId, nav]);
+
   // A company-defined type opened from F10 / Go To ({ baseType, voucherTypeId }) shows its own name.
   const label = params.baseType && params.voucherTypeId === undefined ? baseTypeLabel(params.baseType) : (type?.name ?? (params.baseType ? baseTypeLabel(params.baseType) : 'Voucher'));
   const title = params.id !== undefined ? `${detail?.voucherType.name ?? label} Alteration` : `${type?.name ?? label} Voucher`;
   const loading = typesQ.loading || waiting || (type !== null && !ctx0);
   const error = typesQ.error ?? (params.id !== undefined ? detailQ.error : null) ?? (params.duplicateOf !== undefined ? dupQ.error : null) ?? (wantsDraft ? draftQ.error : null) ?? ctxQ.error;
 
-  if (error || loading || !types || readOnly) {
+  if (error || loading || !types || readOnly || handOver) {
     return <Screen title={title} icon="invoice" loading={!error} error={error} onRetry={() => void (typesQ.refetch(), detailQ.refetch(), dupQ.refetch(), draftQ.refetch(), ctxQ.refetch())} />;
   }
   if (!type) {
@@ -216,6 +243,9 @@ type Dialog =
   | { kind: 'type' }
   | { kind: 'config' }
   | { kind: 'cancel' }
+  | { kind: 'gst' }
+  /** (forex module) Foreign amount + rate of a ledger line, or (rowKey null) the invoice currency + rate. */
+  | { kind: 'forex'; rowKey: string | null }
   | null;
 
 interface PreviewState {
@@ -225,6 +255,10 @@ interface PreviewState {
   issues: CheckItem[];
   grandTotal: number | null;
   number: string | null;
+  /** TDS/TCS computed by the server (tds module voucher hook). */
+  tds?: TdsVoucherPreview;
+  /** Foreign-currency amounts and realised differences (forex module voucher hook). */
+  forex?: ForexVoucherPreview;
 }
 
 const CTRL_KEYS_SWITCH = PREDEFINED_VOUCHER_TYPES.filter((t) => t.hotkey && t.hotkey !== 'F10');
@@ -296,6 +330,43 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   }, [form.ledgers, form.items, form.mode, ctx.defaultLedgerId]);
   const ledgerDetails = useLedgerDetails(detailIds);
 
+  // ── Foreign currency (forex module; F11 › Multiple currencies) ──
+  const fx = useForexContext();
+  const partyCurrency = isInvoiceMode(form.mode) ? fx.currencyOfLedger(form.partyLedgerId) : undefined;
+  /** Invoice in a foreign currency: its amounts on the form are foreign × 100 (forex/lib/entry.ts). */
+  const docForex = isInvoiceMode(form.mode) ? (form.forex ?? null) : null;
+  const docCurrency = docForex ? fx.currencyById(docForex.currencyId) : undefined;
+  const fxReady = fx.enabled && fx.data !== undefined;
+  useEffect(() => {
+    // The invoice currency follows the party: its currency at the master rate of the date (Alt+Y changes it).
+    if (!fxReady || !isInvoiceMode(form.mode)) return undefined;
+    if (!partyCurrency) {
+      if (form.forex) dispatch({ type: 'patch', patch: { forex: null, partyBills: null } });
+      return undefined;
+    }
+    if (form.forex && form.forex.currencyId === partyCurrency.id) return undefined;
+    let alive = true;
+    api('forex.rate.suggest', { currencyId: partyCurrency.id, date: form.date, baseType }).then(
+      (sg) => {
+        if (!alive) return;
+        if (sg.rate) dispatch({ type: 'patch', patch: { forex: { currencyId: partyCurrency.id, rate: sg.rate, rateType: sg.rateType }, partyBills: null } });
+        else setDialog({ kind: 'forex', rowKey: null });
+      },
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+    // Re-run when the party's currency or the mode changes.
+  }, [fxReady, partyCurrency?.id, form.mode]);
+  useEffect(() => {
+    // A line whose ledger is no longer kept in a foreign currency drops its foreign amount.
+    if (!fxReady) return;
+    for (const r of form.ledgers) {
+      if (r.forexAmount !== undefined && r.forexAmount !== null && !fx.currencyOfLedger(r.ledgerId)) dispatch({ type: 'ledger', key: r.key, patch: { forexAmount: null, exchangeRate: null } });
+    }
+  }, [fxReady, form.ledgers, fx]);
+
   // ── Live totals (shared GST engine) ──
   const itemInfo = useMemo(() => new Map(items.rows.map((r) => [r.id, toClientItemInfo(r)])), [items.rows]);
   const ledgerTax = useMemo(() => new Map([...ledgerDetails].map(([id, d]) => [id, toClientLedgerTax(d)])), [ledgerDetails]);
@@ -314,14 +385,15 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       companyStateCode: ctx.company.stateCode ?? '',
       companyRegistration: ctx.company.gstRegistrationType,
       party: partyTax,
-      roundOff: ctx.config.roundOff,
+      // A foreign-currency invoice is not rounded in rupees (the server does the same).
+      roundOff: docForex ? { ...ctx.config.roundOff, enabled: false } : ctx.config.roundOff,
       items: itemInfo,
       ledgerTax: (id) => ledgerTax.get(id),
       defaultLedgerId: ctx.defaultLedgerId,
     };
     if (ctx.config.gst.b2clThresholdPaise !== 1_00_000_00) e.b2clThresholdPaise = ctx.config.gst.b2clThresholdPaise;
     return e;
-  }, [direction, ctx, partyTax, itemInfo, ledgerTax]);
+  }, [direction, ctx, partyTax, itemInfo, ledgerTax, docForex]);
   const deferred = useDeferredValue(form);
   const linesRef = useRef<ReadonlyMap<string, LineFigures> | null>(null);
   const invoice = useMemo<ClientTotals>(() => {
@@ -383,7 +455,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       api('vouchers.preview', built.input).then(
         (p) => {
           if (!alive) return;
-          setPreview({ form: snapshot, keys: built, warnings: p.warnings, issues: [], grandTotal: p.totals.grandTotal, number: p.number });
+          setPreview({ form: snapshot, keys: built, warnings: p.warnings, issues: [], grandTotal: p.totals.grandTotal, number: p.number, tds: p.tds, forex: p.forex });
           // A fresher server check replaces the warnings of the last save attempt.
           setSaveWarnings(null);
           setChecking(false);
@@ -540,6 +612,16 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     const f = formRef.current;
     const s = sectionOfRow(f, section, rowKey);
     const m = modelOf(s, f, filled ? rowKey : undefined);
+    // (forex module) Leaving the ledger of a line kept in a foreign currency: its amount in that currency
+    // and the rate first (Tally's "$ … @ rate"); the rupees and bill-wise split come from that dialog.
+    if (!billsAsked && dir === 'forward' && section === 'ledgers' && column === 'ledger' && f.mode === 'ledger') {
+      const row = f.ledgers.find((r) => r.key === rowKey);
+      if (row && row.ledgerId !== null && fx.currencyOfLedger(row.ledgerId) && (row.forexAmount === undefined || row.forexAmount === null)) {
+        afterDialog.current = () => move(section, rowKey, 'amount', dir, filled, true);
+        setDialog({ kind: 'forex', rowKey });
+        return;
+      }
+    }
     // Leaving the amount of a bill-wise ledger line in a ledger voucher: allocate bills first (Tally).
     if (!billsAsked && dir === 'forward' && section === 'ledgers' && column === 'amount' && f.mode === 'ledger') {
       const row = f.ledgers.find((r) => r.key === rowKey);
@@ -807,7 +889,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
 
   const summaryText = (): string => {
     const f = formRef.current;
-    if (isInvoiceMode(f.mode)) return `${typeName} for ₹ ${formatMoney(invoice.grandTotal)}${party ? ` to ${party.name}` : ''}.`;
+    if (isInvoiceMode(f.mode)) return `${typeName} for ${docTotalText ?? `₹ ${formatMoney(invoice.grandTotal)}`}${party ? ` to ${party.name}` : ''}.`;
     if (f.mode === 'ledger') return `${typeName}: Dr ₹ ${formatMoney(ledgerTotals.debit)} = Cr ₹ ${formatMoney(ledgerTotals.credit || ledgerTotals.debit)}.`;
     return `${typeName} with ${f.items.filter((r) => !isBlankItem(r)).length} item line(s).`;
   };
@@ -896,6 +978,18 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     if (partyBillsOn) return setDialog({ kind: 'bills', rowKey: null });
     toast.info('No bill-wise details here', { message: 'Bill-wise details apply to parties that keep bills (customers and suppliers) when Bill-wise is on in Features (F11).' });
   };
+  /** Alt+Y: the invoice currency / rate, or the foreign amount of the line the cursor is on (else the first such line). */
+  const openForex = () => {
+    if (isInvoiceMode(form.mode)) {
+      if (partyCurrency) return setDialog({ kind: 'forex', rowKey: null });
+      return toast.info('This invoice is in rupees', { message: 'An invoice is in a foreign currency when its party ledger is kept in one (Ledger › Currency).' });
+    }
+    const c = activeCell();
+    const here = c && c.section === 'ledgers' ? form.ledgers.find((r) => r.key === c.rowKey) : undefined;
+    const row = here && fx.currencyOfLedger(here.ledgerId) ? here : form.ledgers.find((r) => fx.currencyOfLedger(r.ledgerId));
+    if (row && form.mode === 'ledger') return setDialog({ kind: 'forex', rowKey: row.key });
+    toast.info('No foreign-currency line here', { message: 'Choose a ledger kept in a foreign currency (Ledger › Currency) — its amount and rate are asked for.' });
+  };
   const openRowKind = (kind: 'cost' | 'instrument') => {
     const c = activeCell();
     if (c && c.section === 'ledgers') {
@@ -945,6 +1039,10 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     { key: 'Ctrl+I', label: 'More details', icon: 'more', onClick: () => setDialog({ kind: 'more' }), hidden: form.mode === 'ledger', group: 'details' },
     { key: 'Alt+T', label: 'From notes/orders', icon: 'link', onClick: () => setDialog({ kind: 'tracking' }), hidden: !isOrderOrNote || !itemsOn, group: 'details' },
     { key: 'Alt+B', label: 'Bill-wise', icon: 'receipt', onClick: openBills, hidden: !features.billWise, group: 'details' },
+    // GST details (gst module): advance / refund / challan / advance adjustment / bill of entry / stat adjustment.
+    { key: 'Alt+J', label: 'GST details', icon: 'gst', onClick: () => setDialog({ kind: 'gst' }), hidden: !ctx.company.gstEnabled || gstDetailsKinds(baseType, direction === 'outward').length === 0, group: 'details' },
+    // Foreign currency (forex module): invoice currency & rate, or a line's foreign amount & rate.
+    { key: 'Alt+Y', label: docForex ? 'Currency & rate' : 'Foreign amount', icon: 'rupee', onClick: openForex, hidden: !fx.enabled || !(form.mode === 'ledger' || isInvoiceMode(form.mode)), group: 'details' },
     { key: 'Ctrl+L', label: form.isOptional ? 'Make regular' : 'Make optional', icon: 'eye-off', onClick: () => dispatch({ type: 'patch', patch: { isOptional: !form.isOptional } }), group: 'status' },
     { key: 'Ctrl+T', label: form.isPostDated ? 'Not post-dated' : 'Post-dated', icon: 'clock', onClick: () => dispatch({ type: 'patch', patch: { isPostDated: !form.isPostDated } }), group: 'status' },
     { key: 'F12', label: 'Settings', icon: 'settings', onClick: () => setDialog({ kind: 'config' }), group: 'status' },
@@ -1277,12 +1375,20 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     <TotalsPanel title="Totals" rows={[]} total={stockTotals.total} totalLabel={baseType === 'stock_journal' ? 'Value of production' : 'Value of goods'} words={false} notes={[]} serverTotal={null} />
   );
 
-  const partyEffect = isInvoiceMode(form.mode) && postsParty(baseType) ? sign * invoice.grandTotal : 0;
+  // A foreign-currency invoice's form total is in that currency: the party effect uses the rupees of the last check.
+  const partyEffect = isInvoiceMode(form.mode) && postsParty(baseType) ? sign * (docForex ? (serverTotal ?? 0) : invoice.grandTotal) : 0;
+  const docTotalText = docForex && docCurrency ? formatForex(decodeForex(invoice.grandTotal), docCurrency.decimalPlaces, docCurrency.symbol) : null;
   const metaBadges = (
     <>
       <Badge tone="neutral">{MODE_LABEL[form.mode]}</Badge>
       {form.isOptional ? <Badge tone="warning">Optional — not in the books</Badge> : null}
+      {form.gstDetails && gstDetailsSummary(form.gstDetails) ? <Badge tone="brand">GST: {gstDetailsSummary(form.gstDetails)}</Badge> : null}
       {form.isPostDated ? <Badge tone="info">Post-dated</Badge> : null}
+      {docForex && docCurrency ? (
+        <Badge tone="brand">
+          In {docCurrency.isoCode ?? docCurrency.symbol} @ ₹{formatExchangeRate(docForex.rate)}
+        </Badge>
+      ) : null}
       {form.docLinks?.convertedFromId !== undefined ? <Badge tone="brand">Converts a {baseType === 'sales_order' ? 'quotation' : 'quotation / proforma'} — linked on save</Badge> : null}
       {form.docLinks?.recurring ? <Badge tone="brand">Recurring voucher · {form.docLinks.recurring.periodKey}</Badge> : null}
       {isAlter && detail?.irn.status ? <Badge tone="info">e-Invoice: {detail.irn.status}</Badge> : null}
@@ -1322,7 +1428,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         }
         footer={
           <div className="bx-vch-foot">
-            <span className="bx-vch-foot__sum bx-num">{summaryShort(form, invoice.grandTotal, ledgerTotals, stockTotals.total)}</span>
+            <span className="bx-vch-foot__sum bx-num">{docTotalText ? `Total ${docTotalText}` : summaryShort(form, invoice.grandTotal, ledgerTotals, stockTotals.total)}</span>
             <Button onClick={() => void nav.back()}>Back</Button>
             <Button variant="primary" shortcut="Ctrl+A" loading={busy === 'save'} onClick={() => void doSave()}>
               {isAlter ? 'Save changes' : 'Accept'}
@@ -1367,7 +1473,27 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
                 onOpenLedger={party ? () => nav.push('reports.ledger', { ledgerId: party.ledgerId }) : undefined}
               />
             ) : null}
-            {totalsPanel}
+            {docForex ? null : totalsPanel}
+            <ForexEntryPanel
+              relevant={fx.enabled && (docForex !== null || form.ledgers.some((r) => fx.currencyOfLedger(r.ledgerId) !== undefined))}
+              doc={docForex}
+              docCurrency={docCurrency}
+              formTotal={invoice.grandTotal}
+              serverTotal={serverTotal}
+              preview={preview?.form === form ? preview.forex : undefined}
+              currencyOf={(id) => fx.currencyById(id)}
+              checking={checking}
+              onChange={busy === null ? openForex : undefined}
+            />
+            <TdsEntryPanel
+              baseType={baseType}
+              mode={form.mode}
+              value={form.tds}
+              preview={preview?.tds}
+              checking={checking}
+              readOnly={busy !== null}
+              onChange={(tds) => dispatch({ type: 'patch', patch: { tds } })}
+            />
             <ChecksPanel items={checkItems} checking={checking} onFocusPath={onFocusPath} />
             <p className="bx-vch-keys">
               <Kbd keys="Alt+C" /> new master · <Kbd keys="Ctrl+I" /> more details · <Kbd keys="F12" /> settings
@@ -1378,6 +1504,34 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       </Screen>
     </GridEnvContext.Provider>
   );
+
+  /** (forex module) Foreign amount, rate and bill-wise split of a ledger-mode line. */
+  function forexLineDialog(row: LedgerRow, cur: NonNullable<ReturnType<typeof fx.currencyOfLedger>>, done: () => void, cancel: () => void): ReactNode {
+    const accSide = singleEntryAccountSide(baseType);
+    const side: 'dr' | 'cr' = form.layout === 'single' && accSide ? (accSide === 'dr' ? 'cr' : 'dr') : row.amount !== null && row.amount !== 0 ? (row.amount > 0 ? 'dr' : 'cr') : row.side;
+    const lr = row.ledgerId !== null ? ledgers.byId.get(row.ledgerId) : undefined;
+    return (
+      <ForexLineDialog
+        ledgerId={row.ledgerId as number}
+        ledgerName={lr?.name ?? 'Ledger'}
+        currency={cur}
+        side={side}
+        baseType={baseType}
+        date={form.date}
+        excludeVoucherId={voucherId}
+        billWise={row.ledgerId !== null && rowDetailNeeds(gridEnv, row.ledgerId).bills}
+        initial={{ forexAmount: row.forexAmount ?? null, exchangeRate: row.exchangeRate ?? null, amount: row.amount, bills: row.bills }}
+        voucherRate={form.forex && form.forex.currencyId === cur.id ? form.forex.rate : null}
+        suggestedName={form.number || ctx.nextNumber}
+        onAccept={(v) => {
+          const signed = form.layout === 'single' && accSide ? v.amount : side === 'dr' ? v.amount : -v.amount;
+          dispatch({ type: 'ledger', key: row.key, patch: { forexAmount: v.forexAmount, exchangeRate: v.exchangeRate, amount: signed, side, bills: v.bills } });
+          done();
+        }}
+        onClose={cancel}
+      />
+    );
+  }
 
   function renderDialog(): ReactNode {
     if (!dialog) return null;
@@ -1392,7 +1546,69 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       if (then) requestAnimationFrame(then);
     };
     switch (dialog.kind) {
+      case 'forex': {
+        if (dialog.rowKey === null) {
+          if (!partyCurrency) return null;
+          return (
+            <ForexInvoiceDialog
+              currency={partyCurrency}
+              date={form.date}
+              baseType={baseType}
+              value={form.forex ?? null}
+              onAccept={(v) => {
+                dispatch({ type: 'patch', patch: { forex: v } });
+                closeThen();
+              }}
+              onClose={close}
+            />
+          );
+        }
+        const row = form.ledgers.find((r) => r.key === dialog.rowKey);
+        const cur = row ? fx.currencyOfLedger(row.ledgerId) : undefined;
+        if (!row || row.ledgerId === null || !cur) return null;
+        return forexLineDialog(row, cur, closeThen, close);
+      }
+      case 'gst':
+        return (
+          <GstDetailsDialog
+            baseType={baseType}
+            outward={direction === 'outward'}
+            date={form.date}
+            partyLedgerId={form.partyLedgerId ?? party?.ledgerId ?? null}
+            value={form.gstDetails}
+            onApply={(gstDetails) => dispatch({ type: 'patch', patch: { gstDetails } })}
+            onClose={close}
+          />
+        );
       case 'bills': {
+        if (dialog.rowKey === null && party && docForex && docCurrency) {
+          // (forex module) Party bills of an invoice in a foreign currency, in that currency.
+          return (
+            <ForexPartyBillsDialog
+              ledgerId={party.ledgerId}
+              ledgerName={party.name}
+              currency={docCurrency}
+              total={Math.abs(decodeForex(invoice.grandTotal))}
+              side={sign > 0 ? 'dr' : 'cr'}
+              date={form.date}
+              excludeVoucherId={voucherId}
+              initial={form.partyBills}
+              suggestedName={(sign < 0 && baseType === 'purchase' ? form.referenceNo : '') || form.number || ctx.nextNumber}
+              onAccept={(bills) => {
+                dispatch({ type: 'patch', patch: { partyBills: bills } });
+                closeThen();
+              }}
+              onClose={close}
+            />
+          );
+        }
+        if (dialog.rowKey !== null) {
+          const fxRow = form.ledgers.find((r) => r.key === dialog.rowKey);
+          const fxCur = fxRow && form.mode === 'ledger' ? fx.currencyOfLedger(fxRow.ledgerId) : undefined;
+          // (forex module) Bills of a line kept in a foreign currency are split in that currency (an
+          // exchange adjustment in rupees only keeps the rupee bill-wise dialog).
+          if (fxRow && fxCur && fxRow.forexAmount !== 0) return forexLineDialog(fxRow, fxCur, closeThen, close);
+        }
         if (dialog.rowKey === null) {
           if (!party) return null;
           const purchaseSide = sign < 0;

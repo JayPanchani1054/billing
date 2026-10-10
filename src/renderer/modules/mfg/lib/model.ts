@@ -5,7 +5,9 @@
 import { formatDate } from '../../../../shared/dates.ts';
 import { JOB_WORK_GOODS_LABELS, type JobWorkGoodsType, type ReturnStatus } from '../../../../shared/mfg/jobwork.ts';
 import type {
+  BomListRow,
   Itc04Result,
+  JobWorkOrderListRow,
   PendingJobWorkResult,
   ProductionRegisterResult,
   StockJournalClass,
@@ -218,4 +220,53 @@ export function alertText(a: { overdue: number; dueSoon: number; nextDue: string
   if (a.overdue > 0) parts.push(`${a.overdue} challan line${a.overdue === 1 ? ' is' : 's are'} past the return date — GST is payable on them as a supply made on the day they were sent`);
   if (a.dueSoon > 0) parts.push(`${a.dueSoon} due within 30 days${a.nextDue ? ` (first on ${formatDate(a.nextDue)})` : ''}`);
   return `${parts.join('; ')}.`;
+}
+
+export function bomListExport(rows: readonly BomListRow[]): ExportTable {
+  return {
+    title: 'Bills of Materials',
+    columns: [
+      { header: 'Finished item' },
+      { header: 'BOM' },
+      { header: 'For quantity', kind: 'qty', decimals: 3 },
+      { header: 'Unit' },
+      { header: 'Default' },
+      { header: 'Active' },
+      { header: 'Components', kind: 'number' },
+      { header: 'By-products / scrap', kind: 'number' },
+      { header: 'Revision', kind: 'number' },
+    ],
+    rows: rows.map((r) => [r.itemName, r.name, r.outputQty, r.unit, r.isDefault ? 'Yes' : 'No', r.isActive ? 'Yes' : 'No', r.components, r.byProducts, r.revision]),
+  };
+}
+
+export function jobWorkOrdersExport(rows: readonly JobWorkOrderListRow[], direction: 'out' | 'in'): ExportTable {
+  return {
+    title: direction === 'out' ? 'Job Work Out Orders' : 'Job Work In Orders',
+    columns: [
+      { header: 'Date', kind: 'date' },
+      { header: 'Order no.' },
+      { header: direction === 'out' ? 'Job worker' : 'Principal' },
+      { header: 'Item' },
+      { header: 'Ordered', kind: 'qty', decimals: 3 },
+      { header: 'Done', kind: 'qty', decimals: 3 },
+      { header: 'Pending', kind: 'qty', decimals: 3 },
+      { header: 'Unit' },
+      { header: 'Due', kind: 'date' },
+      { header: 'Status' },
+    ],
+    rows: rows.map((r) => [r.date, r.number, r.partyName, r.itemName, r.qty, r.productDoneQty, r.pendingQty, r.unit, r.dueDate, orderStatusText(r)]),
+  };
+}
+
+/** "Open", "Overdue", "Closed". */
+export function orderStatusText(r: Pick<JobWorkOrderListRow, 'status' | 'overdue'>): string {
+  if (r.status === 'closed') return 'Closed';
+  return r.overdue ? 'Overdue' : 'Open';
+}
+
+/** ITC-04 file name stem for the period, e.g. "ITC-04 Apr-2026 to Sep-2026". */
+export function itc04Title(from: string, to: string): string {
+  const m = (iso: string): string => formatDate(iso).slice(3);
+  return `ITC-04 ${m(from)} to ${m(to)}`;
 }

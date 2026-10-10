@@ -278,6 +278,10 @@ export interface MfgJournalDetail {
   partyLedgerId: number | null;
   narration: string | null;
   isOptional: boolean;
+  /** Post-dated voucher (Ctrl+T). */
+  isPostDated?: boolean;
+  /** Reference no.: the job worker's / principal's own challan number (ITC-04 table 5A). */
+  referenceNo?: string | null;
   block: StockJournalExtInput;
   updatedAt: string | null;
   /** Names of the items and ledgers the block refers to (for the entry screen). */
@@ -508,6 +512,10 @@ export interface Itc04SentRow {
   sgstRate: number;
   cessRate: number;
   voucherId: number;
+  /** Line of the voucher (inventory_entries.line_no). */
+  lineNo: number;
+  /** Unique row key (a challan line can be split when it carries goods first sent on several challans). */
+  key: string;
 }
 
 /** Tables 5A / 5B / 5C: goods received back, sent to another job worker, supplied from the job worker's premises. */
@@ -516,7 +524,10 @@ export interface Itc04ReturnRow {
   jobWorkerGstin: string | null;
   jobWorkerState: string | null;
   jobWorkerName: string | null;
-  /** Challan / invoice of the movement (Material In number, sales invoice number …). */
+  /**
+   * 5A / 5B: the job worker's challan for the goods coming back (the Material In's reference no.), else
+   * our voucher number; 5C: our invoice / delivery note number.
+   */
   docNo: string | null;
   docDate: string;
   originalChallanNo: string | null;
@@ -531,6 +542,10 @@ export interface Itc04ReturnRow {
   lossesQty: number;
   natureOfJobWork: string | null;
   voucherId: number;
+  /** Line of the voucher (inventory_entries.line_no). */
+  lineNo: number;
+  /** Unique row key. */
+  key: string;
 }
 
 export interface Itc04Result {

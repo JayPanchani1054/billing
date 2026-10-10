@@ -69,6 +69,16 @@ const ENTRIES: Partial<Record<Permission, Entry>> = {
     label: 'Prepare TDS/TCS statements',
     description: 'Export 26Q, 27Q and 27EQ data and record the filing of quarterly statements.',
   },
+  'attachments.add': {
+    group: 'data',
+    label: 'Attach files',
+    description: 'Attach scanned bills, challans and other documents to vouchers, ledgers and stock items.',
+  },
+  'attachments.remove': {
+    group: 'data',
+    label: 'Remove attachments',
+    description: 'Remove files attached to vouchers and masters (recorded in the edit log).',
+  },
   'banking.reconcile': { group: 'banking', label: 'Reconcile bank accounts', description: 'Bank reconciliation and statement import.' },
   'data.export': { group: 'data', label: 'Export data', description: 'Export reports and records to Excel, CSV, JSON or PDF.' },
   'data.import': { group: 'data', label: 'Import data', description: 'Import masters and vouchers from Excel, CSV or Tally.' },

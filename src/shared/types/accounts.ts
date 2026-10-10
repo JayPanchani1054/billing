@@ -48,6 +48,7 @@
  * "save" creates when `id` is absent and alters when it is present. On alter, an omitted field keeps
  * its current value and `null` clears it (patch semantics); on create, omitted fields take defaults.
  */
+import type { NumberingTextRow } from '../numbering.ts';
 import type { GroupCode, GroupNature, GstDutyHead, GstTaxDirection, LedgerCode, VoucherBaseType } from '../constants.ts';
 import type { Paise } from '../money.ts';
 import type { GstNature, RegistrationType, SupplyKind, Taxability } from './gst.ts';
@@ -227,6 +228,8 @@ export interface LedgerListRow {
   id: number;
   name: string;
   alias: string | null;
+  /** Additional aliases after `alias` (dataplus; omitted when there are none). */
+  otherAliases?: string[];
   groupId: number;
   groupName: string;
   primaryGroupCode: GroupCode | null;
@@ -257,6 +260,8 @@ export interface LedgerPickerRow {
   id: number;
   name: string;
   alias: string | null;
+  /** Additional aliases after `alias` (dataplus; omitted when there are none) — searched by pickers. */
+  otherAliases?: string[];
   groupId: number;
   groupName: string;
   classes: LedgerClassName[];
@@ -363,6 +368,9 @@ export interface LedgerFields {
 export interface LedgerDetail extends LedgerFields {
   id: number;
   guid: string;
+  /** Every alias in order: `alias` (the first) followed by the additional aliases (dataplus; always
+   * filled by the core — optional only so hand-built test details stay valid). */
+  aliases?: string[];
   groupName: string;
   groupPath: string[];
   primaryGroupCode: GroupCode | null;
@@ -389,6 +397,12 @@ export interface LedgerDetail extends LedgerFields {
  */
 export type LedgerSaveInput = { [K in keyof LedgerFields]?: LedgerFields[K] | null } & {
   id?: number;
+  /**
+   * The complete alias list (dataplus): the first becomes `alias`, the rest are additional aliases.
+   * When given it replaces `alias` and every additional alias; omit it to keep them (`alias` alone
+   * changes only the first one). Blanks, duplicates and the ledger's own name are dropped.
+   */
+  aliases?: string[];
   /** Replace the opening bills (omit to keep them). Σ amount must equal the opening balance. */
   openingBills?: OpeningBillInput[];
   /** Accept a GST rate that is not one of the notified slabs (GST_RATES). */
@@ -552,6 +566,13 @@ export interface VoucherNumbering {
   /** Zero padding width (0–9). */
   width: number;
   restart: NumberingRestart;
+  /**
+   * Dated prefix / suffix rows (dataplus): from `applicableFrom` the row's text replaces `prefix` /
+   * `suffix`. Prefix and suffix texts may hold the tokens {FY} {FYYYYY} {YY} {MM} {MMM}
+   * (src/shared/numbering.ts). Given on save → replaces all rows of that kind.
+   */
+  prefixRows?: NumberingTextRow[];
+  suffixRows?: NumberingTextRow[];
 }
 
 export interface VoucherTypeConfig {
@@ -569,6 +590,8 @@ export interface VoucherTypeConfig {
   invoiceMode?: 'item' | 'accounting' | null;
   defaultGodownId?: number | null;
   printTemplate?: 'classic' | 'modern' | 'compact' | null;
+  /** (print group) MRP column on documents of this type: true / false; null/absent = as in Invoice Printing. */
+  showMrp?: boolean | null;
   /** Stock journal types only (mfg module): Manufacturing Journal, Material Out or Material In. */
   stockJournalClass?: 'manufacturing' | 'material_out' | 'material_in' | null;
 }

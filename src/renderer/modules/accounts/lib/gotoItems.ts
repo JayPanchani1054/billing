@@ -16,7 +16,7 @@ export function ledgerGotoItems(rows: readonly LedgerListRow[], hasLedgerReport:
       label: l.name,
       group: 'Ledgers',
       description: [l.groupName, balance, l.isActive ? '' : 'inactive'].filter(Boolean).join(' · '),
-      keywords: [l.alias ?? '', l.gstin ?? ''].filter(Boolean),
+      keywords: [l.alias ?? '', l.gstin ?? '', ...(l.otherAliases ?? [])].filter(Boolean),
       screen: hasLedgerReport ? 'reports.ledger' : 'accounts.ledger.form',
       params: hasLedgerReport ? { ledgerId: l.id } : { id: l.id },
       ...(hasLedgerReport ? { fallback: { screen: 'accounts.ledger.form', params: { id: l.id } } } : {}),

@@ -59,6 +59,7 @@ describe('data.verify', () => {
         'opening_difference',
         'audit_chain',
         'duplicate_numbers',
+        'attachments',
       ],
     );
     assert.equal(r.checkedAt, k.t.clock.now().toISOString());

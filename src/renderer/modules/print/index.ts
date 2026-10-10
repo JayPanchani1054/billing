@@ -4,7 +4,7 @@
  * (shared/types/print.ts); the printed HTML is the serialised preview.
  *
  * Screens:
- *   'print.voucher'  {id, copies?, template?, pageSize?, autoPrint?}  preview + print one voucher
+ *   'print.voucher'  {id, copies?, template?, pageSize?, autoPrint?, share?}  preview + print / share one voucher
  *   'print.batch'    {ids?, template?}                                 pick / print many vouchers
  *   'print.settings' —                                                 Invoice Printing (the only editor of config.invoice;
  *                                                                      F12 › Invoices links here), live preview
@@ -13,13 +13,20 @@ import type { ModuleDef } from '../../app/registry.ts';
 import { PrintBatchScreen } from './PrintBatchScreen.tsx';
 import { PrintSettingsScreen } from './PrintSettingsScreen.tsx';
 import { PrintVoucherScreen } from './PrintVoucherScreen.tsx';
+import { VoucherSharePanel } from './VoucherSharePanel.tsx';
 
 export const printModule: ModuleDef = {
   id: 'print',
   screens: [
-    { id: 'print.voucher', title: 'Print Preview', component: PrintVoucherScreen, access: 'vouchers.view', keywords: ['print', 'invoice', 'pdf'] },
+    { id: 'print.voucher', title: 'Print Preview', component: PrintVoucherScreen, access: 'vouchers.view', keywords: ['print', 'invoice', 'pdf', 'share', 'e-mail', 'whatsapp'] },
     { id: 'print.batch', title: 'Print Vouchers', component: PrintBatchScreen, access: 'vouchers.view', keywords: ['print', 'batch', 'bulk', 'multiple invoices', 'pdf'] },
-    { id: 'print.settings', title: 'Invoice Printing', component: PrintSettingsScreen, access: 'company.view', keywords: ['invoice template', 'print settings', 'bank details', 'upi qr', 'declaration', 'copies'] },
+    {
+      id: 'print.settings',
+      title: 'Invoice Printing',
+      component: PrintSettingsScreen,
+      access: 'company.view',
+      keywords: ['invoice template', 'print settings', 'bank details', 'upi qr', 'declaration', 'copies', 'paper size', 'thermal', 'mrp', 'share', 'e-mail', 'whatsapp'],
+    },
   ],
   menu: [
     {
@@ -35,8 +42,10 @@ export const printModule: ModuleDef = {
       label: 'Invoice Printing',
       screen: 'print.settings',
       order: 35,
-      keywords: ['invoice template', 'print settings', 'upi qr', 'bank details'],
-      description: 'Template, copies, bank details, UPI QR and declaration',
+      keywords: ['invoice template', 'print settings', 'upi qr', 'bank details', 'paper size', 'thermal roll', 'mrp', 'e-mail text', 'whatsapp text'],
+      description: 'Template, paper, copies, bank details, UPI QR, MRP and share texts',
     },
   ],
+  // print group: Alt+W Share on the voucher view.
+  voucherPanels: [VoucherSharePanel],
 };

@@ -6,6 +6,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { GST_PLUS_LEDGERS, type GstPlusLedgerCode } from '../../../shared/types/gst-plus.ts';
+import type { CompanyCtx } from '../../api/context.ts';
 import type { Db } from '../../db/db.ts';
 import { AppError } from '../../lib/errors.ts';
 
@@ -14,8 +15,11 @@ export function statLedgerId(db: Db, code: GstPlusLedgerCode): number | undefine
   return db.value<number>('SELECT id FROM ledgers WHERE reserved_code = :code', { code });
 }
 
-/** Create the ledger when missing (idempotent). Must run inside a write transaction. */
-export function ensureStatLedger(db: Db, code: GstPlusLedgerCode, ts: string): number {
+/**
+ * Create the ledger when missing (idempotent). Must run inside a write transaction. `audit` (the request's
+ * ctx.audit) records the creation — or the adoption of a same-named ledger — in the audit trail.
+ */
+export function ensureStatLedger(db: Db, code: GstPlusLedgerCode, ts: string, audit?: CompanyCtx['audit']): number {
   const existing = statLedgerId(db, code);
   if (existing !== undefined) return existing;
   const spec = GST_PLUS_LEDGERS[code];
@@ -26,6 +30,7 @@ export function ensureStatLedger(db: Db, code: GstPlusLedgerCode, ts: string): n
   });
   if (same && same.group_id === groupId && same.reserved_code === null) {
     db.run('UPDATE ledgers SET reserved_code = :code, is_predefined = 1, updated_at = :ts WHERE id = :id', { code, ts, id: same.id });
+    audit?.({ action: 'alter', entityType: 'ledger', entityId: same.id, entityLabel: spec.name, after: { reservedCode: code, by: 'gst' } });
     return same.id;
   }
   let name: string = spec.name;
@@ -36,11 +41,14 @@ export function ensureStatLedger(db: Db, code: GstPlusLedgerCode, ts: string): n
       break;
     }
   }
-  return db.run(
+  const guid = randomUUID();
+  const id = db.run(
     `INSERT INTO ledgers (guid, name, group_id, reserved_code, is_predefined, gst_applicable, created_at, updated_at)
      VALUES (:guid, :name, :groupId, :code, 1, 'not_applicable', :ts, :ts)`,
-    { guid: randomUUID(), name, groupId, code, ts },
+    { guid, name, groupId, code, ts },
   ).lastInsertRowid;
+  audit?.({ action: 'create', entityType: 'ledger', entityId: id, entityGuid: guid, entityLabel: name, after: { name, group: spec.group, reservedCode: code, createdBy: 'gst' } });
+  return id;
 }
 
 /** Ids of the GST duty ledgers by direction and head (reserved codes OUTPUT_* / INPUT_* / RCM_*). */

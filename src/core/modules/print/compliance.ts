@@ -185,3 +185,25 @@ export function complianceWarnings(
   }
   return out;
 }
+
+/**
+ * (print group) Lines sold above the item's MRP. Selling a pre-packaged commodity to a consumer above
+ * the retail sale price declared on the package is not allowed under the Legal Metrology (Packaged
+ * Commodities) Rules, 2011 — independent of GST. Compared per line: value charged incl. GST against
+ * MRP × quantity, with a one-paisa-per-unit rounding allowance. Only for documents the company issues.
+ */
+export function aboveMrpWarning(doc: Pick<PrintVoucherData, 'lines' | 'status' | 'layout'>): string | null {
+  if (doc.layout !== 'invoice' || doc.status.cancelled || doc.status.optional) return null;
+  const over = doc.lines.filter((l) => {
+    if (l.kind !== 'item' || l.absorbed || !l.mrp || l.mrp <= 0 || l.qty === null || l.qty <= 0) return false;
+    const charged = l.taxableValue + (l.taxPayable ? l.tax : 0);
+    return charged > Math.round(l.mrp * l.qty) + Math.ceil(l.qty);
+  });
+  if (over.length === 0) return null;
+  const names = over.slice(0, 5).map((l) => `${l.sl} (${l.name})`);
+  const more = over.length > 5 ? ` and ${over.length - 5} more` : '';
+  return (
+    `${plural(over.length, 'Line', 'Lines')} ${names.join(', ')}${more} ${plural(over.length, 'is', 'are')} priced above the item's MRP (including GST). ` +
+    'Packaged goods must not be sold above their MRP (Legal Metrology (Packaged Commodities) Rules, 2011): check the rate, or the MRP in the stock item.'
+  );
+}

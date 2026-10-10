@@ -137,6 +137,7 @@ const itemShape = {
   id: v.id().optional(),
   name: v.string({ max: 200 }).optional(),
   alias: text(200),
+  aliases: v.array(v.string({ max: 200 }), { max: 50 }).optional(),
   partNo: text(100),
   barcode: text(100),
   description: text(2000),

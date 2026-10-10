@@ -1,6 +1,7 @@
 /**
  * Order processing and period registers:
- *   'stock.pendingOrders'    { kind?: 'sales' | 'purchase' }  Pending sales / purchase orders as on a date (Alt+S / Alt+U switch)
+ *   'stock.pendingOrders'    { kind?: 'sales' | 'purchase' }  Pending sales / purchase orders as on a date (Alt+S / Alt+U switch);
+ *                            Alt+L pre-closes the highlighted order's balance (documents module); pre-closed qty column
  *   'stock.profitability'    { groupId?, from?, to? }         Item-wise gross profit
  *   'stock.physicalVariance' { from?, to? }                   Physical stock count differences
  * Enter opens the order / physical stock voucher, or the item's stock vouchers.
@@ -27,9 +28,13 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
   const nav = useNav();
   const shell = useShell();
   const canView = useCan('vouchers.view');
+  const canAlter = useCan('vouchers.alter');
   const [kind, setKind] = useState<OrderKind>(params?.kind === 'purchase' ? 'purchase' : 'sales');
   const q = useApiQuery('stock.pendingOrders', { kind, asOf: period.to }, { keepPrevious: true });
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
+  // Highlighted line, for Alt+L Pre-close (documents module dialog 'documents.order.preclose').
+  const [cursor, setCursor] = useState<string | null>(null);
+  const current = rows.find((r) => r.key === cursor) ?? rows[0] ?? null;
   const L = ORDER_KIND_LABEL[kind];
   const base = kind === 'sales' ? 'sales_order' : 'purchase_order';
   const avail = shell.voucherAvailability(base);
@@ -44,6 +49,7 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
       { key: 'itemName', header: 'Item', minWidth: 160 },
       qtyColumn<PendingOrderLine>('orderedQty', 'Ordered', (r) => r.orderedQty, u, { width: 110 }),
       qtyColumn<PendingOrderLine>('fulfilledQty', L.fulfilled, (r) => r.fulfilledQty, u, { width: 110, blankZero: true }),
+      qtyColumn<PendingOrderLine>('closedQty', 'Pre-closed', (r) => r.closedQty ?? 0, u, { width: 110, blankZero: true }),
       qtyColumn<PendingOrderLine>('pendingQty', 'Pending', (r) => r.pendingQty, u, { width: 110 }),
       rateColumn<PendingOrderLine>('rate', 'Rate', (r) => r.rate),
       amountColumn<PendingOrderLine>('pendingValue', 'Pending value', (r) => r.pendingValue, { blankZero: false }),
@@ -72,6 +78,16 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
     { key: 'Ctrl+1', label: 'Sales orders', icon: 'invoice', onClick: () => setKind('sales'), disabled: kind === 'sales', group: 'view' },
     { key: 'Ctrl+2', label: 'Purchase orders', icon: 'cart', onClick: () => setKind('purchase'), disabled: kind === 'purchase', group: 'view' },
     { key: 'Alt+C', label: kind === 'sales' ? 'Create sales order' : 'Create purchase order', icon: 'plus', onClick: () => shell.openVoucher(base), disabled: !avail.ok, hint: avail.reason, group: 'go' },
+    {
+      key: 'Alt+L',
+      label: 'Pre-close order',
+      icon: 'x-circle',
+      onClick: () => current && nav.push('documents.order.preclose', { orderId: current.orderId, kind, itemId: current.itemId }),
+      disabled: !current,
+      hidden: !canAlter || !nav.isRegistered('documents.order.preclose'),
+      hint: 'Close the balance that will not be supplied, with a reason (the order is not altered)',
+      group: 'go',
+    },
   ];
 
   return (
@@ -84,7 +100,7 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
       error={q.error}
       onRetry={q.refetch}
       actions={actions}
-      hint="Enter Open Order · Ctrl+1 Sales · Ctrl+2 Purchase · Alt+C Create Order · Alt+F2 Date · Alt+E Export · Alt+P Print"
+      hint="Enter Open Order · Ctrl+1 Sales · Ctrl+2 Purchase · Alt+C Create Order · Alt+L Pre-close · Alt+F2 Date · Alt+E Export · Alt+P Print"
       filters={<SegmentedControl<OrderKind> aria-label="Order type" size="sm" options={KINDS} value={kind} onChange={setKind} />}
       exportDef={() => pendingOrdersExport(rows, kind, totals?.pendingValue ?? 0)}
     >
@@ -94,6 +110,8 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
         columns={columns}
         rows={rows}
         getRowKey={(r) => r.key}
+        selectedKey={current?.key ?? null}
+        onSelect={(k) => setCursor(k)}
         onRowActivate={(r) => {
           if (canView) nav.push('vouchers.view', { id: r.orderId });
         }}

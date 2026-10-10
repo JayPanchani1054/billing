@@ -21,10 +21,34 @@ server, no internet connection required.
 - **GST built in** — CGST/SGST/UTGST/IGST and cess, place-of-supply rules, reverse charge,
   composition dealers, B2B/B2CL/B2CS/exports/SEZ classification, GSTR-1 and GSTR-3B reports,
   GSTR-2B reconciliation.
+- **GST compliance beyond the returns** — GST set-off in the order the law requires (Rule 88A) posted
+  as a journal, GST challans (CPIN / CIN / BRN) and electronic cash / credit ledgers kept from the
+  books; ITC reversal (Rules 37 / 37A / 42 / 43, s.17(5)), reclaim and reverse-charge stat journals
+  flowing into GSTR-3B; tax on advances for services (GSTR-1 Table 11, refunds); bills of entry for
+  imported goods with a GSTR-2B (IMPG) check; return filing status with GSTR-1 amendments (9A / 9C)
+  instead of silently changing a filed period; CMP-08 and GSTR-4 for composition dealers (our own
+  CSV / JSON — the portal has no CMP-08 upload). e-Invoice and e-way bills work by JSON upload /
+  download on the portal (no direct IRP API). See [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+- **TDS / TCS** (F11) — natures of payment / goods with dated rates and thresholds (seeded for
+  194C/H/I/J/A/Q/R/T, 195, 206C(1) and 206C(1F); editable), deductee details with PAN checks and
+  lower-deduction certificates, automatic deduction on purchases / journals / payments and TCS on
+  sales (override with a reason), challans, outstanding with due dates, interest and s.234E late fee,
+  26Q / 27Q / 27EQ data as CSV (not the FVU file), exceptions, and TDS receivable vs a Form 26AS CSV.
 - **Accounting** — groups and ledgers, bill-wise outstanding, cost centres, bank reconciliation,
   cheque printing, period locking, Trial Balance, P&L, Balance Sheet, Day Book, ledger statements.
 - **Inventory** — stock items, groups, units (UQC), godowns, batches and expiry, order processing,
   delivery/receipt notes, valuation (weighted average by default) integrated into the books.
+- **Manufacturing & job work** (F11) — bills of materials (several per item, by-products and scrap,
+  revision history, cost estimate), a Manufacturing Journal that fills components from the BOM and
+  works out the cost of the finished goods (consumption at your valuation method + labour / overheads −
+  by-products), godowns marked "our stock with a job worker" or "a principal's stock with us" (kept out
+  of your closing stock), Material Out / In challans, job work orders, pending job work with the
+  one-year / three-year return dates of CGST s.143, and ITC-04 tables as CSV / Excel (not the portal JSON).
+- **Sales documents & planning** — quotations and proforma invoices (own numbering, validity, status,
+  one-key conversion to a sales order or invoice), recurring vouchers (rent, retainers, EMIs) reviewed
+  and posted from a due list, Sales / Purchase Bills Pending for unbilled challans, order pre-close,
+  reversing journals with scenarios on the Trial Balance / P&L / Balance Sheet, and budgets with a
+  budget-vs-actual report. See [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 - **Printing & export** — GST invoices with QR codes, PDF, Excel/CSV export of every report.
 - **Security** — optional per-company users and roles, scrypt-hashed passwords with lockout,
   tamper-evident (hash-chained) edit log, encrypted backups. See [docs/SECURITY.md](docs/SECURITY.md).

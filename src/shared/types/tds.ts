@@ -100,7 +100,11 @@ export interface TdsLedgerDetails {
   groupName: string;
   /** 'party' (debtor/creditor/other deductee), 'expense' (expense / fixed asset / purchase), 'income' (sales / income — TCS). */
   role: 'party' | 'expense' | 'income';
-  /** Expense / sales ledger: TDS/TCS applies to amounts posted to it. Party: the party is a deductee. */
+  /**
+   * Expense / sales ledger: TDS/TCS applies to amounts posted to it. Party: TDS is deducted from it /
+   * TCS collected from it — on by default; off marks a party exempt (e.g. s.196, a transporter's
+   * s.194C(6) declaration), and nothing is computed on its vouchers.
+   */
   applicable: boolean;
   /** Expense / sales ledger: its nature; party: default nature. */
   natureId: number | null;
@@ -200,6 +204,11 @@ export interface TdsVoucherLine {
   assessable: Paise;
   /** Earlier credits of the period not yet subjected to deduction, taken in now (threshold crossed). */
   catchUp: Paise;
+  /**
+   * (additive) Part of this credit already covered by an advance paid to the party under the nature
+   * (counted — and taxed when liable — when it was paid); `assessable` is net of it. 0 when none.
+   */
+  advanceAdjusted?: Paise;
   /** Base the tax was computed on (assessable + catch-up, or the excess for 194Q). */
   base: Paise;
   rate: number;
@@ -275,6 +284,8 @@ export interface TdsLineRow {
   panStatus: PanStatus;
   assessable: Paise;
   catchUp: Paise;
+  /** (additive) Part of the credit set off against an earlier advance (see TdsVoucherLine). */
+  advanceAdjusted: Paise;
   base: Paise;
   rate: number;
   computed: Paise;

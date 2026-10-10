@@ -16,6 +16,7 @@ import type { ExportFileResult, ExportMastersInput, ExportVouchersInput, MasterE
 import type { CompanyCtx } from '../../api/context.ts';
 import { Db } from '../../db/db.ts';
 import { neutraliseFormula, toCsv } from '../../lib/csv.ts';
+import { allAliases, extraAliasMap, joinAliasCell } from '../../lib/masterAliases.ts';
 import { randomToken } from '../../lib/crypto.ts';
 import { AppError, validation } from '../../lib/errors.ts';
 import { encodeUtf8WithBom } from '../../lib/text.ts';
@@ -160,6 +161,7 @@ function groupsSheet(db: Db): Sheet {
 }
 
 interface LedgerExportRow {
+  id: number;
   name: string;
   group_name: string;
   alias: string | null;
@@ -195,12 +197,13 @@ function ledgersSheet(db: Db): Sheet {
   const rows = db.all<LedgerExportRow>(
     `SELECT l.*, g.name AS group_name FROM ledgers l JOIN groups g ON g.id = l.group_id ORDER BY l.name COLLATE NOCASE`,
   );
+  const extras = extraAliasMap(db, 'ledger');
   return specSheet(
     'ledgers',
     rows.map((l) => ({
       name: l.name,
       parent: l.group_name,
-      alias: l.alias,
+      alias: joinAliasCell(allAliases(l.alias, extras.get(l.id))),
       openingBalance: l.opening_balance === 0 ? null : Math.abs(l.opening_balance),
       openingDrCr: l.opening_balance === 0 ? null : l.opening_balance > 0 ? 'Dr' : 'Cr',
       billWise: yesNo(l.maintain_bill_wise),
@@ -334,6 +337,7 @@ function stockItemsSheet(db: Db): Sheet {
     list.push(o);
     openings.set(o.item_id, list);
   }
+  const extras = extraAliasMap(db, 'stock_item');
   return specSheet(
     'stock_items',
     items.map((i) => {
@@ -346,7 +350,7 @@ function stockItemsSheet(db: Db): Sheet {
         parent: i.group_name,
         category: i.category_name,
         unit: i.unit,
-        alias: i.alias,
+        alias: joinAliasCell(allAliases(i.alias, extras.get(i.id))),
         partNo: i.part_no,
         barcode: i.barcode,
         description: i.description,

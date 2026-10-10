@@ -23,6 +23,12 @@ export interface ComputeInput {
   panOk: boolean;
   /** This voucher's assessable amount (may be ≤ 0: nothing to deduct). */
   assessable: Paise;
+  /**
+   * Amount the single-transaction limit is tested on, when it differs from `assessable`: a bill whose
+   * part was already taxed as an advance is one sum credited (194C: ₹80,000 bill after a ₹50,000
+   * advance is above ₹30,000) although only the rest is taxed now. Default: `assessable`.
+   */
+  singleBase?: Paise;
   /** Σ assessable of earlier credits of the period (party + nature), any status. */
   prior: Paise;
   /** Earlier credits of the period not yet subjected to deduction (below threshold − caught up). */
@@ -68,11 +74,12 @@ export function computeTds(x: ComputeInput): ComputeResult {
   if (single === null && agg === null) {
     why = 'No threshold.';
   } else {
-    const singleHit = single !== null && x.assessable > single;
+    const singleAmount = x.singleBase ?? x.assessable;
+    const singleHit = single !== null && singleAmount > single;
     const aggHit = agg !== null && total > agg;
     if (!singleHit && !aggHit) {
       const parts: string[] = [];
-      if (single !== null) parts.push(`this amount ${inr(x.assessable)} is within ${inr(single)}`);
+      if (single !== null) parts.push(`this amount ${inr(singleAmount)} is within ${inr(single)}`);
       if (agg !== null) parts.push(`the ${per}'s total ${inr(total)} is within ${inr(agg)}`);
       return { liable: false, base: 0, catchUp: 0, rate, amount: 0, status: 'below_threshold', note: `Below the threshold: ${parts.join(' and ')}.` };
     }
@@ -87,7 +94,7 @@ export function computeTds(x: ComputeInput): ComputeResult {
           ? `The ${per}'s total ${inr(total)} crossed ${inr(agg as number)}: earlier credits of ${inr(catchUp)} below the threshold are taken in now.`
           : `The ${per}'s total ${inr(total)} exceeds ${inr(agg as number)}.`;
     } else {
-      why = `This amount ${inr(x.assessable)} exceeds the single-transaction limit ${inr(single as number)}.`;
+      why = `This amount ${inr(singleAmount)} exceeds the single-transaction limit ${inr(single as number)}.`;
     }
   }
   const cert = x.certificate;

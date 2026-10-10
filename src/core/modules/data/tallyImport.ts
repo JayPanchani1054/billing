@@ -52,6 +52,7 @@ import type { RegistrationType, Taxability } from '../../../shared/types/gst.ts'
 import type { CostingMethod, StockItemSaveInput, StockOpeningInput } from '../../../shared/types/inventory.ts';
 import type { BillAllocationInput, InstrumentType, ItemLineInput, LedgerLineInput, VoucherInput, VoucherMode } from '../../../shared/types/vouchers.ts';
 import type { CompanyCtx } from '../../api/context.ts';
+import { aliasOwner, extraAliasMap, type AliasKind } from '../../lib/masterAliases.ts';
 import type { Db } from '../../db/db.ts';
 import { AppError, validation } from '../../lib/errors.ts';
 import type { FieldIssue } from '../../../shared/api.ts';
@@ -132,8 +133,29 @@ function nameIndex(db: Db, table: 'groups' | 'ledgers' | 'stock_items' | 'stock_
   const rows = db.all<{ id: number; name: string; alias: string | null }>(`SELECT id, name, ${hasAlias ? 'alias' : 'NULL AS alias'} FROM ${table} ORDER BY id`);
   const map = new Map<string, number>();
   for (const r of rows) if (r.alias && !map.has(key(r.alias))) map.set(key(r.alias), r.id);
+  // Additional aliases of ledgers / stock items (dataplus).
+  if (table === 'ledgers' || table === 'stock_items') {
+    for (const [id, list] of extraAliasMap(db, table === 'ledgers' ? 'ledger' : 'stock_item')) for (const a of list) if (!map.has(key(a))) map.set(key(a), id);
+  }
   for (const r of rows) map.set(key(r.name), r.id);
   return map;
+}
+
+/**
+ * Every Tally alias (NAME.LIST) of a ledger / stock item that no other master of the kind uses yet;
+ * the ones in use elsewhere are reported and left out (dataplus: all aliases are kept, not only the first).
+ */
+function importableAliases(run: Run, kind: AliasKind, aliases: readonly string[], selfId: number | null, object: string): string[] {
+  const out: string[] = [];
+  for (const a of aliases) {
+    const owner = aliasOwner(run.db, kind, a, selfId);
+    if (owner) {
+      run.add({ severity: 'warning', code: 'field_dropped', message: `Alias "${a}" is already used by '${owner.name}'; imported without it.`, object });
+      continue;
+    }
+    out.push(a);
+  }
+  return out;
 }
 
 function unitIndex(db: Db): Map<string, number> {
@@ -362,7 +384,11 @@ function saveTolerant<T extends object, R>(run: Run, object: string, input: T, r
     } catch (err) {
       if (!(err instanceof AppError) || err.code !== 'VALIDATION' || !Array.isArray(err.details)) throw err;
       const issues = err.details as FieldIssue[];
-      const fields = issues.map((i) => i.path.split(/[.[]/)[0]).filter((f) => f && f in current && !required.includes(f));
+      const fields = issues
+        .map((i) => i.path.split(/[.[]/)[0])
+        // A clash of the first alias is reported on 'alias' even when the whole list was sent as 'aliases'.
+        .map((f) => (f === 'alias' && !('alias' in current) && 'aliases' in current ? 'aliases' : f))
+        .filter((f) => f && f in current && !required.includes(f));
       if (fields.length === 0 || fields.length < issues.length) throw err;
       for (const f of new Set(fields)) delete current[f];
       for (const i of issues) dropped.push(i.message);
@@ -631,7 +657,9 @@ function ledgerFields(run: Run, l: TLedger, groupId: number): LedgerSaveInput {
     }
   })();
   const input: LedgerSaveInput = { openingBalance: l.opening };
-  if (l.aliases[0]) input.alias = l.aliases[0];
+  const existingId = run.db.value<number>('SELECT id FROM ledgers WHERE name = :n COLLATE NOCASE', { n: l.name }) ?? null;
+  const aliases = importableAliases(run, 'ledger', l.aliases, existingId, `LEDGER ${l.name}`);
+  if (aliases.length > 0) input.aliases = aliases;
   if (cls?.isParty || cls?.isBank) input.billWise = l.billWise;
   if (l.costCentres) input.costCentresApplicable = true;
   if (l.creditDays !== null) input.defaultCreditDays = l.creditDays;
@@ -840,7 +868,10 @@ function importStockItems(run: Run): void {
       }
       const input: StockItemSaveInput = { ...gstFields(it.gst) };
       if (unitId !== undefined) input.unitId = unitId;
-      if (it.aliases[0]) input.alias = it.aliases[0];
+      {
+        const aliases = importableAliases(run, 'stock_item', it.aliases, existing ?? null, object);
+        if (aliases.length > 0) input.aliases = aliases;
+      }
       if (it.description) input.description = it.description;
       if (it.parent) {
         const g = groups.get(key(it.parent));
@@ -1121,6 +1152,10 @@ function loadLedgers(db: Db): { byName: Map<string, LedgerInfo>; byId: Map<numbe
     byId.set(r.id, info);
     if (r.alias && !byName.has(key(r.alias))) byName.set(key(r.alias), info);
   }
+  for (const [id, list] of extraAliasMap(db, 'ledger')) {
+    const info = byId.get(id);
+    if (info) for (const a of list) if (!byName.has(key(a))) byName.set(key(a), info);
+  }
   for (const info of byId.values()) byName.set(key(info.name), info);
   return { byName, byId };
 }
@@ -1131,6 +1166,13 @@ function loadItems(db: Db): Map<string, ItemInfo> {
     'SELECT i.id, i.name, i.alias, u.symbol, u.uqc, i.is_service, u.decimal_places FROM stock_items i JOIN units u ON u.id = i.unit_id ORDER BY i.id',
   );
   for (const r of rows) if (r.alias) map.set(key(r.alias), { id: r.id, name: r.name, unit: r.symbol, uqc: r.uqc, isService: r.is_service === 1, decimals: r.decimal_places });
+  {
+    const byId = new Map(rows.map((r) => [r.id, r] as const));
+    for (const [id, list] of extraAliasMap(db, 'stock_item')) {
+      const r = byId.get(id);
+      if (r) for (const a of list) if (!map.has(key(a))) map.set(key(a), { id: r.id, name: r.name, unit: r.symbol, uqc: r.uqc, isService: r.is_service === 1, decimals: r.decimal_places });
+    }
+  }
   for (const r of rows) map.set(key(r.name), { id: r.id, name: r.name, unit: r.symbol, uqc: r.uqc, isService: r.is_service === 1, decimals: r.decimal_places });
   return map;
 }
@@ -1235,10 +1277,10 @@ function mergeEntries(entries: TEntry[]): TEntry[] {
   return out.filter((e) => e.amount !== 0 || e.bills.length > 0);
 }
 
-function numberSeq(db: Db, typeId: number, num: string | null): number | null {
+function numberSeq(db: Db, typeId: number, num: string | null, date?: string, fyStartMonth?: number): number | null {
   if (!num) return null;
   const vt = loadVoucherType(db, typeId);
-  const seq = parseVoucherSeq(vt, num);
+  const seq = parseVoucherSeq(vt, num, date, fyStartMonth);
   if (seq !== null) return seq;
   const m = /(\d{1,15})(?!.*\d)/.exec(num);
   if (!m) return null;
@@ -1252,7 +1294,7 @@ function numberSeq(db: Db, typeId: number, num: string | null): number | null {
  */
 function advanceCounter(db: Db, vt: VoucherTypeInfo, num: string | null, date: string, fyStartMonth: number): void {
   if (!num || vt.numberingMethod === 'none' || vt.numberingMethod === 'manual') return;
-  const seq = parseVoucherSeq(vt, num);
+  const seq = parseVoucherSeq(vt, num, date, fyStartMonth);
   if (seq === null) return;
   db.run(
     `INSERT INTO voucher_counters (voucher_type_id, period_key, last_number) VALUES (:vt, :key, :seq)
@@ -1575,7 +1617,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
     voucher_type_id: typeId,
     base_type: base,
     number: v.number,
-    number_seq: numberSeq(db, typeId, v.number),
+    number_seq: numberSeq(db, typeId, v.number, v.date ?? undefined, env.company.fyStartMonth),
     date: v.date,
     reference_no: v.reference,
     reference_date: v.referenceDate,

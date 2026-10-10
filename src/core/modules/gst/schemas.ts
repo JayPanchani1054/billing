@@ -6,7 +6,8 @@ import { CASH_MINOR_HEADS, GST_ADJUSTMENT_NATURES } from '../../../shared/types/
 import { TAX_HEADS } from '../../../shared/types/gst-returns.ts';
 import { v } from '../../lib/validate.ts';
 
-const periodKey = v.string({ min: 6, max: 10, pattern: /^((0[1-9]|1[0-2])\d{4}|\d{4}-\d{2}-Q[1-4])$/, patternMessage: "Return period must look like '042026' or '2026-27-Q1'" });
+/** A GST return period key: month '042026' or quarter '2026-27-Q1'. */
+export const ReturnPeriodKeySchema = v.string({ min: 6, max: 10, pattern: /^((0[1-9]|1[0-2])\d{4}|\d{4}-\d{2}-Q[1-4])$/, patternMessage: "Return period must look like '042026' or '2026-27-Q1'" });
 
 const AdvanceRef = v.object({ receiptVoucherId: v.id(), amount: v.paise({ min: 1 }) });
 
@@ -39,7 +40,7 @@ export const VoucherGstDetailsSchema = v.object({
   adjustment: v
     .object({
       nature: v.enum(GST_ADJUSTMENT_NATURES),
-      period: periodKey.optional(),
+      period: ReturnPeriodKeySchema.optional(),
       taxableValue: v.paise({ min: 0 }).optional(),
     })
     .optional(),
@@ -51,13 +52,13 @@ export const VoucherGstDetailsSchema = v.object({
       challanDate: v.date().optional(),
       bankName: v.string({ max: 100 }).optional(),
       mode: v.enum(['epayment', 'neft_rtgs', 'otc'] as const).optional(),
-      period: periodKey.optional(),
+      period: ReturnPeriodKeySchema.optional(),
       heads: v.array(CashHead, { min: 1, max: 20 }),
     })
     .optional(),
   setoff: v
     .object({
-      period: periodKey,
+      period: ReturnPeriodKeySchema,
       cash: v.array(CashHead, { max: 20 }),
       credit: v.array(v.object({ from: v.enum(TAX_HEADS), to: v.enum(TAX_HEADS), amount: v.paise({ min: 0 }) }), { max: 16 }),
     })

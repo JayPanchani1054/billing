@@ -76,7 +76,7 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
     const available = (b: VoucherBaseType) => shell.voucherAvailability(b).ok;
     return buildStaticGotoItems(
       modules,
-      { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null },
+      { can: app.can, gstEnabled: app.company?.gstEnabled ?? false, features: app.company?.features ?? null, gstRegistration: app.company?.gstRegistration ?? null },
       {
         // The vouchers module's Transactions menu already lists every voucher type (filtered by
         // permission and features) — the shell's own commands would show each one twice.

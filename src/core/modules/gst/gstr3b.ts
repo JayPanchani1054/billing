@@ -445,6 +445,7 @@ export function computeGstr3b(
   addTV(a.supplies.isup_rev, book.rcmLiability);
   addTax(a.itc.ISRC, book.rcmCredit);
   addTax(a.itc.IMPG, book.billOfEntry);
+  addTax(a.blocked, book.billOfEntryBlocked); // blocked imports: 4(A)(1) at the BOE amount, reversed in 4(B)(1)
   addTax(a.itc.OTH, book.reclaimed);
   // GSTR-1 amendments: a filed period keeps its filed figures; the change is in the amendment period.
   const corr = amendmentCorrections(db, period.from, period.to);

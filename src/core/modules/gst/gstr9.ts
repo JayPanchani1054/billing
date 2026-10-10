@@ -163,6 +163,7 @@ export function computeGstr9(db: Db, company: GstCompany, fy: string, today: str
   addTV(t.g4, book.rcmLiability);
   addTV(t6.rcmUnreg, { taxable: book.rcmLiability.taxable, ...book.rcmCredit });
   addTV(t6.impg, { taxable: 0, ...book.billOfEntry });
+  addTV(t6.blocked, { taxable: 0, ...book.billOfEntryBlocked });
   const h4 = sum(t.a4, t.b4, t.c4, t.d4, t.e4, f4, t.g4);
   const n4 = minus(sum(h4, t.j4), t.i4);
   const g5 = sum(t.a5, t.b5, t.c5, t.d5, t.e5, t.f5);
@@ -215,7 +216,7 @@ export function computeGstr9(db: Db, company: GstCompany, fy: string, today: str
   ];
 
   const notes = [
-    'Advances (4F), amendments (4K/4L, 5J/5K) and Part V (next-year transactions, tables 10–14) are not derived — complete them on the portal.',
+    'Advances (4F) are 11A − 11B of the year from the books; amendments (4K/4L, 5J/5K) and Part V (next-year transactions, tables 10–14) are not derived — complete them on the portal.',
     'Table 9 adds up the monthly GSTR-3B computations of this app (with the manual entries saved for each month); compare with your electronic ledgers.',
     'Table 8 (ITC as per GSTR-2B) needs the GSTR-2B data: use the GST reconciliation module.',
   ];

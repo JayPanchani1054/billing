@@ -108,20 +108,25 @@ export function electronicCreditLedger(db: Db, from: string, to: string, today: 
   const txs = new Map<number, CreditLedgerTxn>();
   if (headOf.size > 0) {
     const ids = JSON.stringify([...headOf.keys()]);
-    for (const r of db.all<{ ledger_id: number; amount: number; before: number; voucher_id: number; date: string; number: string | null; vt: string; setoff: number; base: string }>(
-      `SELECT le.ledger_id, le.amount, (le.date < :from) AS before, le.voucher_id, le.date, v.number, vt.name AS vt, v.base_type AS base,
+    // Opening: one aggregate per ledger (not every entry since the books began).
+    for (const r of db.all<{ ledger_id: number; amount: number }>(
+      `SELECT le.ledger_id, SUM(le.amount) AS amount FROM ledger_entries le
+        WHERE le.ledger_id IN (SELECT value FROM json_each(:ids)) AND le.date < :from AND ${BOOKS_FILTER('le')}
+        GROUP BY le.ledger_id`,
+      { ids, from, today },
+    )) {
+      (rows.get(headOf.get(r.ledger_id) as TaxHead) as CreditLedgerRow).opening += r.amount;
+    }
+    for (const r of db.all<{ ledger_id: number; amount: number; voucher_id: number; date: string; number: string | null; vt: string; setoff: number }>(
+      `SELECT le.ledger_id, le.amount, le.voucher_id, le.date, v.number, vt.name AS vt,
               EXISTS (SELECT 1 FROM gst_stat_lines s WHERE s.voucher_id = le.voucher_id AND s.nature IN ('itc_utilised', 'cash_utilised')) AS setoff
          FROM ledger_entries le JOIN vouchers v ON v.id = le.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
-        WHERE le.ledger_id IN (SELECT value FROM json_each(:ids)) AND le.date <= :to AND ${BOOKS_FILTER('le')}
+        WHERE le.ledger_id IN (SELECT value FROM json_each(:ids)) AND le.date >= :from AND le.date <= :to AND ${BOOKS_FILTER('le')}
         ORDER BY le.date, le.voucher_id, le.id`,
       { ids, from, to, today },
     )) {
       const h = headOf.get(r.ledger_id) as TaxHead;
       const row = rows.get(h) as CreditLedgerRow;
-      if (r.before) {
-        row.opening += r.amount;
-        continue;
-      }
       let kind: CreditLedgerTxn['kind'];
       if (r.setoff) {
         row.utilised -= r.amount;
@@ -139,7 +144,9 @@ export function electronicCreditLedger(db: Db, from: string, to: string, today: 
         t = { voucherId: r.voucher_id, number: r.number, voucherTypeName: r.vt, date: r.date, kind, description: `${r.vt} ${r.number ?? ''}`.trim(), igst: 0, cgst: 0, sgst: 0, cess: 0 };
         txs.set(key, t);
       }
-      t[h] += kind === 'utilised' ? -r.amount : r.amount;
+      // Signed effect on the credit balance (accrued +, reversed / utilised −), so the column totals
+      // equal closing − opening.
+      t[h] += r.amount;
     }
   }
   for (const r of rows.values()) r.closing = r.opening + r.accrued - r.reversed - r.utilised;

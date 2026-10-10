@@ -268,8 +268,11 @@ no `today`, post-dated vouchers up to `asOf` count.
 
 - Physical stock entries must carry the signed difference; a later back-dated entry before a
   physical stock voucher is not re-absorbed (Tally re-bases on the counted quantity).
-- Third-party godowns are valued like own stock (the single `is_third_party` flag does not say
-  whose stock it is).
+- (Resolved by the mfg module, migration 210.) Godowns now say whose stock they hold
+  (`third_party_kind`): 'ours_with_party' (our goods at a job worker — valued, in the Balance Sheet;
+  existing third-party godowns became this kind, so nothing changed in value) or 'party_with_us'
+  (a principal's goods with us — quantities only, excluded from valuation and closing stock). See
+  `src/core/modules/mfg/README.md`.
 - Value-only inward lines (qty 0, amount > 0) are ignored by the valuation.
 - Average Cost with negative stock: the next inward restarts the average at its own rate, so for
   that item opening + inward − outward can differ from closing by the re-pricing of the shortfall

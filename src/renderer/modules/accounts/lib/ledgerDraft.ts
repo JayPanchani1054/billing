@@ -31,6 +31,7 @@ import {
   validatePincode,
   validateUpiId,
 } from '../../../../shared/validators.ts';
+import { aliasLines, formAliasList, moreAliasesProblem, moreAliasesText, sameAliasList } from '../../../../shared/aliases.ts';
 import { gstinProblem, panProblem } from './gstin.ts';
 import type { LedgerSections } from './ledgerSections.ts';
 import { billDraftFrom, billsForSave, checkBills, sameBills, validateBills } from './openingBills.ts';
@@ -39,6 +40,8 @@ import type { BillDraft } from './openingBills.ts';
 export interface LedgerDraft {
   name: string;
   alias: string;
+  /** Additional aliases, one per line (dataplus). */
+  moreAliases: string;
   groupId: number | null;
   isActive: boolean;
   notes: string;
@@ -96,6 +99,7 @@ export function emptyLedgerDraft(initialName = '', groupId: number | null = null
   return {
     name: initialName,
     alias: '',
+    moreAliases: '',
     groupId,
     isActive: true,
     notes: '',
@@ -155,6 +159,7 @@ export function draftFromDetail(d: LedgerDetail): LedgerDraft {
   return {
     name: d.name,
     alias: s(d.alias),
+    moreAliases: moreAliasesText(d.aliases, d.alias),
     groupId: d.groupId,
     isActive: d.isActive,
     notes: s(d.notes),
@@ -258,6 +263,10 @@ export function validateLedgerDraft(d: LedgerDraft, ctx: ValidateContext): Recor
   if (blank(d.name)) e.name = 'Enter the ledger name';
   else if (d.name.trim().length > 200) e.name = 'Use at most 200 characters';
   if (!blank(d.alias) && d.alias.trim().toLowerCase() === d.name.trim().toLowerCase()) e.alias = 'The alias is the same as the name — leave it blank';
+  {
+    const more = moreAliasesProblem(d.name, d.alias, d.moreAliases);
+    if (more) e.moreAliases = more;
+  }
   if (d.groupId === null) e.groupId = 'Choose the group this ledger belongs under (e.g. Sundry Debtors for a customer)';
 
   if (sec.party) {
@@ -432,6 +441,7 @@ export function buildSaveInput(d: LedgerDraft, sec: LedgerSections, original: Le
     delete input.gstNatureOverride;
     if (bills.input.length > 0) input.openingBills = bills.input;
     if (d.allowNonStandardRate && fields.gstRate !== null && !isStandardRate(fields.gstRate)) input.allowNonStandardRate = true;
+    if (aliasLines(d.moreAliases).length > 0) input.aliases = formAliasList(d.alias, d.moreAliases);
     return { input, billIndexMap: bills.serverIndexMap, unchanged: false };
   }
   const rec: Record<string, unknown> = { id: original.id };
@@ -443,6 +453,11 @@ export function buildSaveInput(d: LedgerDraft, sec: LedgerSections, original: Le
     if (now !== was) rec[k] = now;
   }
   if (!sameBills(bills.input, original.openingBills)) input.openingBills = bills.input;
+  {
+    // Additional aliases (dataplus): the complete list is sent when it differs from the saved one.
+    const list = formAliasList(d.alias, d.moreAliases);
+    if (!sameAliasList(list, original.aliases ?? (original.alias ? [original.alias] : []))) input.aliases = list;
+  }
   if (fields.gstRate !== null && !isStandardRate(fields.gstRate) && d.allowNonStandardRate) input.allowNonStandardRate = true;
   if (d.applicableFrom && historyDateApplies(d, sec, original)) input.applicableFrom = d.applicableFrom;
   const unchanged = Object.keys(rec).length === 1;

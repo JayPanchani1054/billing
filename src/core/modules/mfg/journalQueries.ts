@@ -103,6 +103,8 @@ export function getJournal(ctx: CompanyCtx, id: number): MfgJournalDetail {
     partyLedgerId: row.party_ledger_id,
     narration: row.narration,
     isOptional: row.is_optional === 1,
+    isPostDated: row.is_post_dated === 1,
+    referenceNo: row.reference_no,
     block,
     updatedAt: row.updated_at,
     items: db.all<{ id: number; name: string; unit: string; decimals: number }>(
@@ -126,6 +128,9 @@ export function duplicateJournal(ctx: CompanyCtx, id: number): MfgJournalDetail 
     date: ctx.clock.today(),
     updatedAt: null,
     isOptional: false,
+    isPostDated: false,
+    // The job worker's / principal's challan number belongs to the source voucher only.
+    referenceNo: null,
     block: { ...src.block, lines: src.block.lines.map((l) => ({ ...l, extendedTo: undefined })) },
   };
 }
@@ -201,6 +206,20 @@ export function productionRegister(ctx: CompanyCtx, input: ProductionRegisterInp
     'SELECT voucher_id, basis, value FROM stock_journal_costs WHERE voucher_id IN (SELECT value FROM json_each(:vids)) ORDER BY voucher_id, line_no',
     { vids },
   );
+  // Lines and costs by voucher (one pass each — no per-voucher scan of every line).
+  const linesBy = new Map<number, typeof lines>();
+  for (const l of lines) {
+    if (l.third !== 0) continue;
+    const list = linesBy.get(l.voucher_id);
+    if (list) list.push(l);
+    else linesBy.set(l.voucher_id, [l]);
+  }
+  const costsBy = new Map<number, AdditionalCostTerm[]>();
+  for (const c of costs) {
+    const list = costsBy.get(c.voucher_id) ?? [];
+    list.push({ basis: c.basis, value: Number(c.value) });
+    costsBy.set(c.voucher_id, list);
+  }
   const itemIds = [...new Set(lines.map((l) => l.item_id))];
   // One replay: the cost the engine gave every consumption line of these journals.
   const trace = traceStockMovements(db, { from: input.from, to: input.to, today, itemIds, traceItemIds: itemIds });
@@ -212,14 +231,14 @@ export function productionRegister(ctx: CompanyCtx, input: ProductionRegisterInp
   const rates = currentUnitCosts(db, { itemIds: bomItems, asOf: today, today });
 
   const rows: ProductionRegisterRow[] = details.map((d) => {
-    const own = lines.filter((l) => l.voucher_id === d.voucher_id && l.third === 0);
+    const own = linesBy.get(d.voucher_id) ?? [];
     const terms = new Map<number, ProductionTerm>();
     for (const l of own) if (l.basis) terms.set(l.line_no, { basis: l.basis, pct: l.pct, sourceLineNo: l.source_line_no });
     const res = costJournal({
       consumption: own.filter((l) => l.qty < 0).map((l) => ({ lineNo: l.line_no, qty: -l.qty, cost: trace.values.get(l.id) ?? 0 })),
       production: own.filter((l) => l.qty > 0).map((l) => ({ lineNo: l.line_no, qty: l.qty, amount: Math.abs(Number(l.amount)) })),
       terms,
-      additional: costs.filter((c) => c.voucher_id === d.voucher_id).map((c) => ({ basis: c.basis, value: Number(c.value) })),
+      additional: costsBy.get(d.voucher_id) ?? [],
     });
     const product = own.find((l) => l.role === 'product');
     const productValue = product ? (trace.values.get(product.id) ?? 0) : 0;

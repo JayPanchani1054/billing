@@ -270,6 +270,35 @@ export function composeJournal(
       });
     }
   }
+  // A job worker processing a principal's goods (components in a "Third-party stock with us" godown):
+  // what comes out is the principal's too. Outputs default to that godown, and an output put into one
+  // of our own godowns is refused — it would enter our books at current cost out of nothing.
+  let outputDefault = main;
+  if (cls === 'manufacturing') {
+    const principal = new Set<number>();
+    for (const l of lines) {
+      if (l.role !== 'component' || l.godownId === undefined) continue;
+      if (godowns.get(l.godownId)?.kind === 'party_with_us') principal.add(l.godownId);
+    }
+    if (principal.size > 0) {
+      const only = principal.size === 1 ? (godowns.get([...principal][0]) as GodownInfo) : null;
+      if (only) outputDefault = only.id;
+      lines.forEach((l, i) => {
+        if (l.role !== 'product' && l.role !== 'by_product' && l.role !== 'scrap') return;
+        const name = itemRows.get(l.itemId)?.name ?? 'This item';
+        if (l.godownId === undefined) {
+          if (!only) issues.push({ path: `${P}.lines[${i}].godownId`, message: `${name}: choose the principal's godown it goes into (the components come from more than one principal's godown).` });
+          return;
+        }
+        if (godowns.get(l.godownId)?.kind !== 'party_with_us') {
+          issues.push({
+            path: `${P}.lines[${i}].godownId`,
+            message: `${name}: the components are a principal's goods, so what is made from them is the principal's too. Put it in the principal's godown (marked "Third-party stock with us"), not in your own.`,
+          });
+        }
+      });
+    }
+  }
   if (issues.length > 0) throw validation(issues);
 
   // Derive the item lines.
@@ -308,12 +337,12 @@ export function composeJournal(
         push(i, l, 'component', true, l.godownId ?? (cls === 'material_in' && third ? third.id : main), jw(l));
         break;
       case 'product':
-        push(i, l, 'product', false, l.godownId ?? main, { basis: 'residual' });
+        push(i, l, 'product', false, l.godownId ?? outputDefault, { basis: 'residual' });
         break;
       case 'by_product':
       case 'scrap': {
         const basis = l.valueBasis ?? 'nil';
-        push(i, l, l.role, false, l.godownId ?? main, basis === 'percent' ? { basis: 'percent', pct: l.valuePct ?? 0 } : { basis: 'fixed' });
+        push(i, l, l.role, false, l.godownId ?? outputDefault, basis === 'percent' ? { basis: 'percent', pct: l.valuePct ?? 0 } : { basis: 'fixed' });
         if (basis === 'rate') {
           const it = items[items.length - 1];
           it.rate = l.valueRate ?? 0;
