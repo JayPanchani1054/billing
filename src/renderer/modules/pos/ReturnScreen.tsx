@@ -12,7 +12,7 @@ import { formatMoney, formatQty, formatRate } from '../../../shared/format.ts';
 import type { Paise } from '../../../shared/money.ts';
 import type { PosReturnContext, PosReturnLine } from '../../../shared/types/pos.ts';
 import { api, invalidate, Screen, useApiQuery, useFeatures, useNav, userMessage, useWorkingDate, withConfirmation, type ScreenProps } from '../../app/index.ts';
-import { Banner, Button, DataTable, Field, Inline, KeyValueList, NumberInput, Stack, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
+import { Banner, Button, DataTable, Field, Inline, KeyValueList, NumberInput, Stack, TextInput, useDebouncedValue, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { PosOff, TenderDialog } from './components.tsx';
 import { buildReturnInput, hasPicks, pickAll, pickedValue, pickIssues } from './lib/returns.ts';
@@ -79,6 +79,9 @@ function Returns({ billId }: { billId?: number }) {
     setSaveError(null);
   };
 
+  // Tally: Enter moves from one return quantity to the next and on to the reason; Enter on the reason opens the refund.
+  const linesRef = useEnterAdvance<HTMLElement>({ onComplete: openRefund });
+
   const save = async (): Promise<void> => {
     if (!ctx || !tender || value === null || saving) return;
     if (!summarizeTenders(tender, value, { walkIn: ctx.walkIn, isReturn: true }).ok) return;
@@ -141,7 +144,7 @@ function Returns({ billId }: { billId?: number }) {
       subtitle={ctx ? `${ctx.voucherTypeName} ${ctx.billNumber ?? ''} dated ${formatDate(ctx.billDate)}` : 'Goods coming back from a POS bill'}
       icon="undo"
       dirty={hasPicks(picks)}
-      hint="Enter Find the bill · Ctrl+A Refund · Alt+R Return everything · Alt+V View the bill · Esc Back"
+      hint="Enter Find the bill / next quantity · Ctrl+A Refund · Alt+R Return everything · Alt+V View the bill · Esc Back"
       actions={[
         { key: 'Ctrl+A', label: 'Refund / exchange', icon: 'rupee', primary: true, onClick: openRefund, disabled: !ok },
         { key: 'Alt+R', label: 'Return everything', icon: 'undo', onClick: () => ctx && setPicks(pickAll(ctx)), disabled: !ctx },
@@ -164,7 +167,7 @@ function Returns({ billId }: { billId?: number }) {
         </form>
         {findError ? <Banner tone="danger">{findError}</Banner> : null}
         {ctx ? (
-          <>
+          <Stack gap={3} ref={linesRef}>
             <KeyValueList
               layout="inline"
               columns={3}
@@ -190,7 +193,7 @@ function Returns({ billId }: { billId?: number }) {
                 {w.message}
               </Banner>
             ))}
-          </>
+          </Stack>
         ) : null}
       </Stack>
       {printer.element}
