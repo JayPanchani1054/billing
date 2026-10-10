@@ -15,8 +15,11 @@ import {
   migrateLegacyUserData,
   MIGRATED_FILES,
   SETTINGS_FILES,
+  withLegacyBackupExtension,
   type LegacyMigrationOptions,
 } from './legacyUserData.ts';
+import { LEGACY_BACKUP_EXTENSION } from '../core/lib/legacyNames.ts';
+import { BACKUP_EXTENSION } from '../shared/types/data.ts';
 
 let root: string;
 let opts: LegacyMigrationOptions;
@@ -170,5 +173,20 @@ describe('legacy userData migration', () => {
     write(path.join(legacyDir, 'config.json'), '{"packaged":true}');
     assert.equal(migrateLegacyUserData(dev).status, 'migrated');
     assert.deepEqual(readJson(path.join(dev.userDataDir, 'config.json')), {});
+  });
+});
+
+describe('file-open filters and backups made before the rename', () => {
+  const current = BACKUP_EXTENSION.slice(1);
+  const legacy = LEGACY_BACKUP_EXTENSION.slice(1);
+  it('a filter offering backups also offers the old backup extension (once)', () => {
+    assert.notEqual(current, legacy);
+    assert.deepEqual(withLegacyBackupExtension([current]), [current, legacy]);
+    assert.deepEqual(withLegacyBackupExtension([current, legacy]), [current, legacy]);
+  });
+  it('other filters are left alone', () => {
+    assert.deepEqual(withLegacyBackupExtension(['xml']), ['xml']);
+    assert.deepEqual(withLegacyBackupExtension(['*']), ['*']);
+    assert.deepEqual(withLegacyBackupExtension([legacy]), [legacy]);
   });
 });

@@ -99,9 +99,11 @@ builds before the rename are spelled in exactly two modules and only read, never
 `src/core/lib/legacyNames.ts` (core: backup extension, container and envelope magic, audit-anchor prefix) and
 `src/main/legacyUserData.ts` (shell: the earlier settings folder, migrated once on the first launch). Element
 names fixed by the XML interchange format live as named constants in `src/core/modules/data/xmlFormat.ts`
-and are used through those constants everywhere else, tests included. Code, UI text and docs never name
+(with the values earlier builds stored in `vouchers.meta` of imported vouchers, re-exported by
+`legacyNames.ts`) and are used through those constants everywhere else, tests included. Code, UI text and docs never name
 other accounting products — describe the behaviour instead ("keyboard-first", "your previous accounting
-program").
+program"). `src/core/testing/brand.test.ts` enforces this rule on every file git knows about (file names
+included, and spelled-around variants such as split strings, escapes or base64).
 
 ---
 

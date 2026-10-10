@@ -20,10 +20,9 @@ import type {
 import type { ApiResult } from '../shared/api.ts';
 import type { FileFilter, NativeAction, NativeActions } from '../shared/bridge.ts';
 import { AppError, toErrorPayload } from '../core/lib/errors.ts';
-import { LEGACY_BACKUP_EXTENSION } from '../core/lib/legacyNames.ts';
-import { BACKUP_EXTENSION } from '../shared/types/data.ts';
 import type { Runtime } from '../core/app/runtime.ts';
 import { checkOpenCopy, writeOpenCopy } from './attachments.ts';
+import { withLegacyBackupExtension } from './legacyUserData.ts';
 import { openExternalUrl, parseExternalUrl } from './external.ts';
 import { isPathInside, PathSet, sanitizeFileName, writeFileAtomic } from './files.ts';
 import { rememberChosenFile, rememberChosenFolder } from './user-choices.ts';
@@ -118,13 +117,9 @@ function fileFilters(v: unknown): FileFilter[] | undefined {
       return e;
     });
     // Backups made before the rename carry the legacy extension: offer them wherever backups are picked.
-    if (extensions.includes(BACKUP_EXT) && !extensions.includes(LEGACY_BACKUP_EXT)) extensions.push(LEGACY_BACKUP_EXT);
-    return { name, extensions };
+    return { name, extensions: withLegacyBackupExtension(extensions) };
   });
 }
-
-const BACKUP_EXT = BACKUP_EXTENSION.slice(1);
-const LEGACY_BACKUP_EXT = LEGACY_BACKUP_EXTENSION.slice(1);
 
 function optAbsolutePath(o: Record<string, unknown>, key: string): string | undefined {
   const v = optText(o, key, 1024);

@@ -17,7 +17,7 @@ import { decodeText } from '../../lib/text.ts';
 import { readXlsx } from '../../lib/xlsx.ts';
 import { readZip } from '../../lib/zip.ts';
 import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
-import { entityTypeLabel, localDayStartIso } from './auditlog.ts';
+import { entityTypeLabel, entityTypesMatching, localDayStartIso } from './auditlog.ts';
 import { securityRoutes as R } from './routes.ts';
 
 const HOUR = 3_600_000;
@@ -141,8 +141,16 @@ describe('edit log: XML data entries recorded before the rename', () => {
     assert.deepEqual(r.rows.map((x) => x.entityTypeLabel), ['XML data', 'XML data']);
     // The append-only row keeps what was recorded; only its label is shared.
     assert.equal(t.db.value(`SELECT COUNT(*) FROM audit_log WHERE entity_type = :k`, { k: LEGACY_XML_DATA_KIND }), 1);
-    const f = await t.callOk<{ entityTypes: Array<{ value: string; label: string }> }>(R, 'security.audit.facets', {});
-    assert.deepEqual(f.entityTypes.map((e) => e.label), ['XML data', 'XML data']);
+    // One record type in the filter list (counts added up), and filtering by it finds both rows.
+    const f = await t.callOk<{ entityTypes: Array<{ value: string; label: string; count: number }> }>(R, 'security.audit.facets', {});
+    assert.deepEqual(
+      f.entityTypes.filter((e) => e.label === 'XML data').map((e) => [e.value, e.count]),
+      [['xml_data', 2]],
+    );
+    assert.equal((await list(t, { entityType: 'xml_data' })).total, 2);
+    assert.equal((await list(t, { entityType: LEGACY_XML_DATA_KIND })).total, 1, 'the stored value itself still filters exactly');
+    assert.deepEqual(entityTypesMatching('xml_data'), ['xml_data', LEGACY_XML_DATA_KIND]);
+    assert.deepEqual(entityTypesMatching('voucher'), ['voucher']);
     t.close();
   });
 });

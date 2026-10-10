@@ -91,6 +91,18 @@ const ENTITY_LABELS: Readonly<Record<string, string>> = {
   [LEGACY_XML_DATA_KIND]: 'XML data',
 };
 
+/**
+ * Entity types that builds before the rename recorded under another name → the current name. The
+ * edit log is append-only, so such rows keep the old value; the record-type list shows them under the
+ * current type and filtering by the current type finds them too.
+ */
+const ENTITY_TYPE_RENAMES: Readonly<Record<string, string>> = { [LEGACY_XML_DATA_KIND]: 'xml_data' };
+
+/** The stored entity_type values a record-type filter matches (the type and its pre-rename names). */
+export function entityTypesMatching(type: string): string[] {
+  return [type, ...Object.keys(ENTITY_TYPE_RENAMES).filter((old) => ENTITY_TYPE_RENAMES[old] === type && old !== type)];
+}
+
 /** 'stock_item' → 'Stock item'; unknown types are humanised. */
 export function entityTypeLabel(type: string | null): string {
   if (!type) return '';
@@ -238,8 +250,13 @@ function buildWhere(f: AuditFilter): { where: string; params: Record<string, str
     parts.push(`action IN (${names.join(', ')})`);
   }
   if (f.entityType) {
-    parts.push('entity_type = :entityType');
-    params.entityType = f.entityType;
+    const [current, ...older] = entityTypesMatching(f.entityType);
+    params.entityType = current;
+    const names = older.map((t, i) => {
+      params[`et${i}`] = t;
+      return `:et${i}`;
+    });
+    parts.push(names.length === 0 ? 'entity_type = :entityType' : `entity_type IN (:entityType, ${names.join(', ')})`);
   }
   if (f.entityId !== undefined) {
     parts.push('entity_id = :entityId');
@@ -273,6 +290,14 @@ export function auditFacets(db: Db): AuditFacets {
     .all<{ value: string; count: number }>(
       'SELECT entity_type AS value, COUNT(*) AS count FROM audit_log WHERE entity_type IS NOT NULL GROUP BY entity_type ORDER BY entity_type',
     )
+    .reduce<Array<{ value: string; count: number }>>((out, r) => {
+      // Pre-rename entity types are listed under their current name (one entry, counts added up).
+      const value = ENTITY_TYPE_RENAMES[r.value] ?? r.value;
+      const same = out.find((x) => x.value === value);
+      if (same) same.count += r.count;
+      else out.push({ value, count: r.count });
+      return out;
+    }, [])
     .map((r) => ({ ...r, label: entityTypeLabel(r.value) }))
     .sort((a, b) => a.label.localeCompare(b.label));
   const users = db.all<{ userId: number | null; username: string; count: number }>(

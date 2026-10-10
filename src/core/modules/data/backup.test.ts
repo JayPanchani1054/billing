@@ -173,13 +173,16 @@ describe('backup: files made before the rename', () => {
   });
 
   it('an old-format backup (plain) is listed and verifies; its manifest reads with the current format', async () => {
-    const legacy = toLegacyBackup((await createBackup(t.ctx, { folder: dir })).path);
+    const current = (await createBackup(t.ctx, { folder: dir })).path;
+    const legacy = toLegacyBackup(current);
     assert.equal(fs.readFileSync(legacy).subarray(0, 8).toString('ascii'), LEGACY_BACKUP_MAGIC);
     assert.equal(readContainerInfo(legacy).manifest.format, BACKUP_FORMAT);
     const v = await verifyBackup(t.ctx, legacy, undefined);
     assert.equal(v.ok, true, JSON.stringify(v.checks));
     const listed = listBackups(t.ctx, dir).backups.find((x) => x.fileName === path.basename(legacy));
     assert.ok(listed?.manifest, 'the old backup is listed');
+    const names = listBackups(t.ctx, dir).backups.map((x) => x.fileName);
+    assert.ok(names.includes(path.basename(current)) && names.includes(path.basename(legacy)), 'old and new backups are listed side by side');
   });
 
   it('an old-format encrypted backup verifies with its password (and not without)', async () => {

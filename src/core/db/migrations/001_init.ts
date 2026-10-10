@@ -8,7 +8,12 @@
  *  - Every master/voucher has a stable `guid` (UUID v4) used for import/export and the audit log.
  *  - Child rows of a voucher are rewritten on every save; `date` and `affects_books`
  *    are denormalised onto them so reports never need to join back to `vouchers`.
+ *
+ * Shipped SQL never changes: the import_batches.kind list in its comment names the XML data import's
+ * kind as builds before the rename wrote it (interpolated, so this text stays byte-identical).
  */
+import { LEGACY_XML_DATA_KIND } from '../../lib/legacyNames.ts';
+
 export const migration001 = {
   version: 1,
   name: 'init',
@@ -607,7 +612,7 @@ CREATE INDEX idx_gst_date ON gst_lines(date);
 -- ───────────────────────────── Banking ─────────────────────────────
 CREATE TABLE import_batches (
   id          INTEGER PRIMARY KEY,
-  kind        TEXT NOT NULL,      -- bank_statement|gstr2a|gstr2b|gstr1|masters|vouchers|xml_data
+  kind        TEXT NOT NULL,      -- bank_statement|gstr2a|gstr2b|gstr1|masters|vouchers|${LEGACY_XML_DATA_KIND}
   file_name   TEXT,
   imported_at TEXT NOT NULL,
   user_id     INTEGER,

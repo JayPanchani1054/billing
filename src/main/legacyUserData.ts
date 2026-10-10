@@ -21,6 +21,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { LEGACY_BACKUP_EXTENSION } from '../core/lib/legacyNames.ts';
+import { BACKUP_EXTENSION } from '../shared/types/data.ts';
 
 /** Product name of builds before the rename (their userData and default data folder names). */
 export const LEGACY_PRODUCT_NAME = 'Bahi ERP';
@@ -159,4 +161,14 @@ export function migrateLegacyUserData(opts: LegacyMigrationOptions): LegacyMigra
     }
   }
   return result;
+}
+
+/**
+ * Extensions of a file-open filter: one that offers backups also offers the extension of backups made
+ * before the rename (they are still verified and restored). Other filters are returned unchanged.
+ */
+export function withLegacyBackupExtension(extensions: readonly string[]): string[] {
+  const current = BACKUP_EXTENSION.slice(1);
+  const legacy = LEGACY_BACKUP_EXTENSION.slice(1);
+  return extensions.includes(current) && !extensions.includes(legacy) ? [...extensions, legacy] : [...extensions];
 }
