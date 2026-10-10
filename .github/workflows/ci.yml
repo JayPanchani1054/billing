@@ -66,7 +66,7 @@ jobs:
         run: npm run build
 
       - name: Upload build output
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pevqori-out
           path: out/
@@ -133,7 +133,7 @@ jobs:
           sha256sum *.exe | tee SHA256SUMS.txt
 
       - name: Upload installer
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Pevqori-Windows-Installer
           path: |
@@ -167,7 +167,7 @@ jobs:
 
       - name: Upload smoke evidence
         if: failure()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-smoke-evidence
           path: smoke-evidence/
@@ -277,7 +277,7 @@ jobs:
       # `npx playwright show-trace`) in test-results/ — see e2e/support.ts.
       - name: Upload Playwright report, traces and screenshots
         if: failure()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-${{ matrix.os }}
           path: |
