@@ -3,14 +3,16 @@
  * ledger entries (Dr / Cr) with bills, cost centres and bank details, GST breakup, e-invoice and
  * e-way bill status, cancellation and audit stamps.
  *
- * Keys: Alt+A alter · Alt+P print · Alt+2 duplicate · Alt+X cancel · Alt+D delete · Alt+H history · Esc back.
+ * Keys: Alt+A alter · Alt+P print · Alt+2 duplicate · Alt+X cancel · Alt+D delete · Alt+H history ·
+ * Ctrl+R change the number (2.0: vouchers.renumber + vouchers.alter → 'vouchers.renumber'; the voucher is
+ * re-saved as entered, so its entries are unchanged) · Esc back.
  */
 import { useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney, formatPercent, formatQty, formatRate } from '../../../shared/format.ts';
 import { stateLabel } from '../../../shared/gst/index.ts';
-import type { GstLineView, PreviewInventoryLine, VoucherDetailEntry } from '../../../shared/types/vouchers.ts';
-import { formatDateTime, Screen, useApiMutation, useApiQuery, useCan, useConfirm, useModules, useNav, userMessage } from '../../app/index.ts';
+import type { GstLineView, PreviewInventoryLine, VoucherDetailEntry, VoucherNumberOverride } from '../../../shared/types/vouchers.ts';
+import { ApiError, formatDateTime, isApiError, Screen, useApiMutation, useApiQuery, useCan, useCompany, useConfirm, useModules, useNav, userMessage, withConfirmation } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { amountInWords } from '../../../shared/words.ts';
 import { Badge, Banner, Card, DataTable, KeyValueList, Stack, useToast } from '../../ui/index.ts';
@@ -19,6 +21,9 @@ import { REF_TYPE_LABEL } from './lib/bills.ts';
 import { MODE_LABEL } from './lib/kinds.ts';
 import { INSTRUMENT_LABEL, ReasonDialog } from './entry/dialogs.tsx';
 import { VOUCHER_INVALIDATES } from './entry/VoucherEntryScreen.tsx';
+import { ChangeNumberDialog } from './ChangeNumberDialog.tsx';
+import { changeNumberAvailability, isGstDocType, renumberedText } from './lib/changeNumber.ts';
+import { confirmationRequest } from './lib/errorPaths.ts';
 
 interface EntryRow {
   key: string;
@@ -85,6 +90,15 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   const cancelM = useApiMutation('vouchers.cancel', { invalidates: VOUCHER_INVALIDATES });
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // 2.0: Change number (Ctrl+R) — the type's series (method, format) and the next number for the dialog.
+  const company = useCompany();
+  const canRenumber = useCan('vouchers.renumber');
+  const [renumbering, setRenumbering] = useState(false);
+  const [renumberError, setRenumberError] = useState<string | null>(null);
+  const renumberM = useApiMutation('vouchers.renumber', { invalidates: VOUCHER_INVALIDATES });
+  const typesQ = useApiQuery('accounts.voucherType.list', {}, { staleTime: 60_000, enabled: canRenumber && canAlter });
+  const vType = v ? typesQ.data?.rows.find((t) => t.id === v.voucherType.id) : undefined;
+  const nextQ = useApiQuery('vouchers.nextNumber', { voucherTypeId: v?.voucherType.id ?? 0, date: v?.date ?? '2000-01-01' }, { enabled: renumbering && !!v, staleTime: 0 });
 
   const entries = useMemo<EntryRow[]>(
     () => (v?.entries ?? []).map((e) => ({ key: String(e.id), name: e.ledgerName, detail: entryDetail(e), debit: e.amount > 0 ? e.amount : 0, credit: e.amount < 0 ? -e.amount : 0 })),
@@ -181,8 +195,44 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
     }
   };
 
+  const renumber = async (o: VoucherNumberOverride) => {
+    if (!v) return;
+    setRenumberError(null);
+    try {
+      const out = await withConfirmation(
+        (ack) =>
+          renumberM
+            .mutate({
+              id: v.id,
+              number: o.number,
+              ...(o.reason !== undefined ? { reason: o.reason } : {}),
+              ...(o.continueSeries === true ? { continueSeries: true } : {}),
+              expectedUpdatedAt: v.updatedAt,
+              acknowledgeWarnings: ack || undefined,
+            })
+            .catch((err: unknown) => {
+              // The voucher warnings protocol (e.g. a filed GSTR-1 period) as the shell's confirmation.
+              if (isApiError(err) && err.code === 'BUSINESS_RULE') {
+                const req = confirmationRequest(err.details);
+                if (req) throw new ApiError('BUSINESS_RULE', err.message, { needsConfirmation: true, warnings: req.confirm }, err.route);
+              }
+              throw err;
+            }),
+        { title: 'Please check before saving', confirmLabel: 'Save anyway', cancelLabel: 'Go back' },
+      );
+      if (out === undefined) return;
+      const infos = out.warnings.filter((w) => w.level === 'info').map((w) => w.message);
+      toast.success(renumberedText(v.voucherType.name, v.number, out.number), infos.length > 0 ? { message: infos.join(' ') } : undefined);
+      setRenumbering(false);
+      void q.refetch();
+    } catch (err) {
+      setRenumberError(userMessage(err));
+    }
+  };
+
   const live = !!v && !v.isCancelled;
   const irnGenerated = v?.irn.status === 'generated';
+  const renumberAction = changeNumberAvailability({ where: 'view', canRenumber, canAlter, method: vType?.numbering.method ?? null, isCancelled: v?.isCancelled === true, irnGenerated });
   const actions: ScreenActionItem[] = [
     { key: 'Alt+A', label: 'Alter', icon: 'edit', primary: true, onClick: () => v && nav.push('vouchers.entry', { id: v.id }), hidden: !live || !canAlter, disabled: irnGenerated, hint: irnGenerated ? 'An e-invoice has been generated: cancel it instead of altering.' : undefined },
     { key: 'Alt+P', label: 'Print', icon: 'print', onClick: () => v && nav.push('print.voucher', { id: v.id }), hidden: !v || !nav.isRegistered('print.voucher'), group: 'output' },
@@ -195,6 +245,7 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
       hidden: !v || !canAudit,
       group: 'output',
     },
+    { key: 'Ctrl+R', label: 'Change number', icon: 'hash', onClick: () => setRenumbering(true), hidden: !v || renumberAction.hidden, disabled: renumberAction.disabled, hint: renumberAction.hint, group: 'output' },
     { key: 'Alt+X', label: 'Cancel voucher', icon: 'x-circle', onClick: () => setCancelling(true), hidden: !live || !canAlter, group: 'danger' },
     { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), hidden: !v || !canDelete || irnGenerated, group: 'danger' },
   ];
@@ -321,6 +372,29 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
             </p>
           </div>
         </Stack>
+      ) : null}
+      {renumbering && v ? (
+        <ChangeNumberDialog
+          voucherTypeId={v.voucherType.id}
+          baseType={v.voucherType.baseType}
+          date={v.date}
+          fyStartMonth={company.fyStartMonth}
+          gstDoc={isGstDocType(v.voucherType.baseType, company.gstEnabled)}
+          method={vType?.numbering.method ?? 'automatic'}
+          scheme={vType?.numbering ?? null}
+          current={v.number}
+          nextNumber={nextQ.data ?? ''}
+          excludeId={v.id}
+          partyLedgerId={v.partyLedgerId}
+          mode={v.mode}
+          busy={renumberM.pending}
+          error={renumberError}
+          onAccept={(o) => void renumber(o)}
+          onClose={() => {
+            setRenumbering(false);
+            setRenumberError(null);
+          }}
+        />
       ) : null}
       {cancelling && v ? (
         <ReasonDialog

@@ -308,6 +308,8 @@ With F11 *Maintain stock* on:
 ### 3.3 Voucher types and numbering
 
 *Masters › **Voucher Types*** lists the predefined types (Sales, Purchase, Payment, …) and your own.
+For prefixes, the next number and a yearly restart the simpler *Company › **Invoice Numbering*** screen
+(section 3.4) is enough; the voucher type form keeps every option.
 **Alt+C** creates a type based on the highlighted one — for example *Cash Sales* or *Export Invoice*
 with its own series. A predefined type you deactivate disappears from the Transactions menu and Go To.
 
@@ -332,6 +334,47 @@ In **Numbering** (the preview under the fields shows the next number):
 
 The voucher type also holds its defaults: party, godown, invoice mode, the title, template, MRP
 column, bank details, declaration and terms printed on the document, and whether it prints after saving.
+
+### 3.4 Invoice numbering
+
+*Company › **Invoice Numbering*** (also on Home, in Settings › Invoices & printing and in Go To — type
+"invoice number", "prefix" or "series") is the simple way to set up your number series. It lists every
+series — one per voucher type — with an example number for today, when it starts again, the **next
+number** and how many vouchers it has this period. *Invoices & notes* (sales, credit and debit notes)
+come first; *Other vouchers* are folded away (→ or Enter opens the group).
+
+Highlight a series and press **Enter** (or **Alt+A**) to change it:
+
+- **Prefix / Suffix** — click a code to insert it where the cursor was in the prefix or suffix (at
+  the end of the prefix when you have not been in either): *FY 26-27* (`{FY}`), *2026-27*
+  (`{FYYYYY}`), *YY*, *MM*, *Mon* (`{MMM}`). Example: prefix `INV/` + *FY* + `/`, **Digits** 4 →
+  `INV/26-27/0001`.
+- **Digits** (zeros in front) and **Start at**.
+- **Start again from the first number every financial year** — on by default. Turned off, the numbers
+  keep running across years; for GST invoices and notes Pevqori still checks that a number is used only
+  once in each financial year. After such a change the next number continues after the numbers already
+  used, so the preview shows *the next number is worked out when you save* and the message after saving
+  shows it.
+- **Advanced** — *Start again every month* (for a GST series the month must be part of the number: the
+  **Add month to prefix** button does it, e.g. `INV/{FY}/{MM}/`), and how numbers are given: automatic,
+  automatic but can be typed while entering, typed by hand, or no numbers. *More options* opens the full
+  voucher type (dated prefix / suffix, behaviour, printing).
+- **Next number** — the number the next voucher gets, e.g. 41 to continue from a paper bill book.
+  **Set** applies it at once (Save does too). It cannot go below **Start at**. Lowering it below a number
+  already used asks you to confirm (used numbers are skipped automatically); jumping ahead asks too,
+  because the skipped numbers are never issued (report them in GSTR-1 Table 13). Changing the next number needs the *Change voucher numbers and the next
+  number* permission (Owner and Accountant), and it is recorded in the edit log of the voucher type.
+- The **preview** shows today's number, the first number of the next financial year and the longest
+  number; *Valid GST invoice number* or the problem (more than 16 characters, characters GST does not
+  allow, a monthly restart without the month) is shown before you save. **Gaps** lists the numbers of
+  this financial year that no voucher carries (**Show** lists up to 200).
+
+**Ctrl+A** (or **Ctrl+S**) saves, **Esc** closes (asking first when something was changed). Numbers
+already given never change.
+
+**Create series** (**Alt+C**) adds a series based on the highlighted one — for example *Cash Sales*
+with the prefix `CS/` — as a voucher type of its own. Choose it with **F10** (*Other vouchers…*) when
+entering a voucher. **Alt+H** shows the edit history of the highlighted series.
 
 ## 4. Vouchers
 
@@ -374,7 +417,14 @@ another voucher key (or F10) to switch type; the date is kept.
   price). **Ctrl+H** switches a payment, receipt or contra between **single entry** (one cash / bank
   account at the top) and the **Dr / Cr** layout.
 - **Ctrl+I** opens *More details*: buyer and consignee, dispatch and e-way bill details, order
-  references, export details (shipping bill, port, LUT or with IGST) and the effective date.
+  references, export details (shipping bill, port, LUT or with IGST) and the effective date. On a sales
+  invoice (and the other documents you issue: credit notes, sales orders, delivery notes, quotations)
+  the buyer's **Reference no.**, **Reference date** and **Reverse charge** are on its first tab,
+  *Reference*; once one of them holds a value it also shows in the voucher header. A purchase keeps the
+  *Supplier invoice no. / date* and *Reverse charge* in the header — input credit is matched on them.
+- **Place of supply** shows as a chip such as *Gujarat (24) · intra-state ✎* when Pevqori can work it
+  out from the party (and the consignee). Click it (or Tab to it and press Enter) to choose another
+  state; a party without a state, or an overseas party, shows the list straight away.
 - **Alt+T** fills an invoice from open delivery / receipt notes or orders of the party, so the goods are
   not moved twice and the order shows what is still pending.
 - **Alt+B** opens the **bill-wise** details of the line (or of the invoice party): on a receipt or
@@ -392,7 +442,16 @@ another voucher key (or F10) to switch type; the date is kept.
   TCS (section 7), **Alt+Y** foreign currency (section 11). Files are attached from the saved voucher's
   view with **Alt+F** (section 13.6).
 - **Alt+C** in a picker creates the ledger or item you typed, under the group that fits the place
-  (Sundry Debtors for a customer, Sales Accounts for a sales ledger, …).
+  (Sundry Debtors for a customer, Sales Accounts for a sales ledger, …). In the party field a small
+  **Create customer** (or *Create supplier*) dialog opens: name, GSTIN (a valid GSTIN fills the state
+  and PAN), state, mobile, e-mail and billing address — **Ctrl+A** creates the party and puts it on the
+  invoice. *Full form…* opens the complete ledger form instead.
+- **Ctrl+R** changes the **voucher number** — for example to match a paper bill book. Type the new
+  number: it is checked as you type (a GST invoice number has at most 16 letters, digits, '/' and '-',
+  and must not be used again in the same financial year), add a reason for the edit log and, when the
+  number is in the series' format, tick *Continue the series from here* so the next invoices follow it.
+  The number shows in the *No.* field with a **changed** badge and is used when you save. Needs the
+  *Change voucher numbers and the next number* permission (the Owner and Accountant roles have it).
 - **F12** shows the settings of this voucher type.
 
 Totals, GST and round-off are worked out as you type with the same rules the books use. When you pause
@@ -402,7 +461,12 @@ Warnings marked *confirm* are asked about when you save; *block* ones must be fi
 tab decides which checks warn and which block.
 
 After saving, a message shows the voucher number and amount and the screen is ready for the next voucher
-of the same type, keeping the date. **Alt+P** prints the voucher just saved (or the one being altered).
+of the same type, keeping the date. A **Saved bar** above the new voucher repeats it — *✓ Saved Sales
+INV/26-27/0042 · ₹ 11,800.00* — with **Print** (Alt+P), **Share** (Alt+W, by e-mail or WhatsApp) and,
+after a sales invoice to a customer, **Record payment**: it opens a Receipt with the customer already on
+the first line, so you only type the amount (after a purchase it opens a Payment to the supplier). The
+bar goes away when you start the next voucher or press ×. **Alt+P** prints the voucher just saved (or
+the one being altered) and **Alt+W** shares it.
 
 **Sales invoices in short.** Party (or a cash ledger for cash sales), then items with quantity, rate and
 discount; GST is CGST + SGST within your state and IGST for another state, exports and SEZ, based on the
@@ -431,7 +495,8 @@ duplicates it and **Alt+D** deletes it.
 The read-only view (Alt+Enter, or Enter on any report row that is a voucher) shows the header, party,
 items, Dr / Cr entries with bills, cost centres and bank details, GST by rate, e-invoice / e-way bill
 details and who created and changed it. Its keys: **Alt+A** alter, **Alt+P** print, **Alt+W** share
-(section 12.4), **Alt+2** duplicate, **Alt+X** cancel, **Alt+D** delete, **Alt+H** edit history, plus the
+(section 12.4), **Ctrl+R** change the number, **Alt+2** duplicate, **Alt+X** cancel, **Alt+D** delete,
+**Alt+H** edit history, plus the
 panels other features add (Alt+F attachments, Alt+K print cheque, Alt+T POS return, Alt+U TDS / TCS,
 Alt+Y currency, Alt+V / Alt+O convert a quotation, Alt+S quotation status, Alt+R make recurring, Alt+L
 pre-close an order).
@@ -441,7 +506,13 @@ pre-close an order).
 - **Delete** (Alt+D) removes it. A voucher with attached files, a GST document of a filed GSTR-1 period,
   a POS bill with returns and some other linked vouchers cannot be deleted; the message says why and what
   to do instead.
-- Every create, alter, cancel and delete is recorded in the edit log (Alt+H shows the voucher's history).
+- **Change number** (Ctrl+R, with the *Change voucher numbers* permission) gives a saved voucher another
+  number without opening it for alteration: the same checks as in voucher entry, an optional reason,
+  and — when the GSTR-1 of its period is already filed — the usual *Please check before saving* question
+  (the change is then reported as an amendment). The amounts, GST and stock of the voucher do not
+  change. A cancelled voucher or one with an e-invoice (IRN) keeps its number.
+- Every create, alter, cancel and delete is recorded in the edit log (Alt+H shows the voucher's history;
+  a changed number shows as *Number change* with the old and new number and the reason).
 - Vouchers dated on or before the locked date cannot be created, altered or deleted (section 2).
 
 A voucher whose e-invoice (IRN) has been generated opens read-only: cancel the IRN first (section 6.3).
@@ -1724,7 +1795,8 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 | **F4–F9**, **Ctrl+F8**, **F10** … | Change the voucher type (new vouchers; the date is kept) |
 | **Alt+I** | Item invoice ↔ accounting invoice |
 | **Ctrl+H** | Single entry ↔ Dr / Cr layout (payment, receipt, contra) |
-| **Ctrl+I** | More details (buyer, consignee, dispatch and e-way bill, orders, export, effective date) |
+| **Ctrl+I** | More details (sales-side documents: reference and reverse charge first; buyer, consignee, dispatch and e-way bill, orders, export, effective date) |
+| **Ctrl+R** | Change the voucher number (also in the voucher view; needs *Change voucher numbers*) |
 | **Alt+T** | Fill lines from open delivery / receipt notes or orders |
 | **Alt+B** | Bill-wise details |
 | **Alt+O** / **Alt+K** | Cost centres / bank instrument of the line |
@@ -1733,10 +1805,11 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 | **Alt+Y** | Currency and rate, or a line's foreign amount (section 11) |
 | **Ctrl+B** | Put the Dr / Cr difference on the last line |
 | **Ctrl+D** / **Alt+N**, **Ctrl+N** | Remove / insert a line |
-| **Alt+C** | Create the ledger or item typed in a picker |
+| **Alt+C** | Create the ledger or item typed in a picker (a customer or supplier in a small dialog) |
 | **Ctrl+L** / **Ctrl+T** | Optional / post-dated |
 | **F12** | Voucher type settings |
 | **Alt+P** | Print the voucher being altered, or the one just saved |
+| **Alt+W** | Share (e-mail / WhatsApp) the voucher being altered, or the one just saved |
 | **Alt+D**, **Alt+X**, **Alt+2**, **Alt+H** | (when altering) delete, cancel, duplicate, edit history |
 
 ### 15.4 Keys of particular screens

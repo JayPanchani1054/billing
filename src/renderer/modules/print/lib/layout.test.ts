@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { sampleDoc, line } from './fixtures.ts';
+import { applyPrintLayout, resolvePrintLayout, type PrintPartId, type PrintTextId } from '../../../../shared/printLayout.ts';
 import {
   addressLines,
   classicTaxRows,
@@ -8,6 +9,7 @@ import {
   copyLabel,
   documentTitle,
   headerRefs,
+  headerRefsWithParts,
   itemColumns,
   nativePageSize,
   pageSizeFor,
@@ -142,7 +144,24 @@ describe('columns and totals', () => {
   it('item columns follow the data and the options', () => {
     const doc = sampleDoc();
     const cols = itemColumns(doc, { pageSize: 'A4', template: 'modern' });
-    assert.deepEqual(cols, { hsn: true, batch: false, qty: true, rate: true, discount: true, mrp: false, lineTax: false, igst: false, cgstSgst: true, cess: false, amount: true });
+    assert.deepEqual(cols, {
+      sno: true,
+      hsn: true,
+      batch: false,
+      qty: true,
+      unit: true,
+      rate: true,
+      discount: true,
+      gstRate: true,
+      taxable: true,
+      mrp: false,
+      lineTax: false,
+      igst: false,
+      cgstSgst: true,
+      cess: false,
+      amount: true,
+      lineHeads: { cgst: false, sgst: false, igst: false, cess: false },
+    });
     const lineTax = sampleDoc({ options: { ...doc.options, itemwiseTax: true } });
     assert.equal(itemColumns(lineTax, { pageSize: 'A4', template: 'modern' }).lineTax, true);
     assert.equal(itemColumns(lineTax, { pageSize: 'A5', template: 'modern' }).lineTax, false, 'no per-line tax on A5');
@@ -216,5 +235,86 @@ describe('files and formatting', () => {
     assert.equal(qtyText(1234567, 0), '12,34,567');
     assert.equal(qtyText(12.5, 3), '12.500');
     assert.equal(qtyText(null, 2), '');
+  });
+});
+
+/** The document as a print layout lays it out (hide these parts, replace these texts). */
+function laidOut(doc = sampleDoc(), hide: PrintPartId[] = [], text: Array<{ id: PrintTextId; value: string }> = []) {
+  return applyPrintLayout(doc, resolvePrintLayout({ hide, show: [], text }));
+}
+
+describe('(2.0) print layouts: columns, totals and header references', () => {
+  it('an empty layout changes no column, row or reference', () => {
+    for (const doc of [sampleDoc(), sampleDoc({ options: { ...sampleDoc().options, itemwiseTax: true } }), sampleDoc({ layout: 'inventory' })]) {
+      const plain = laidOut(doc);
+      assert.deepEqual(itemColumns(plain, { pageSize: 'A4', template: 'modern' }), itemColumns(doc, { pageSize: 'A4', template: 'modern' }));
+      assert.deepEqual(totalRows(plain), totalRows(doc));
+      assert.deepEqual(headerRefs(plain), headerRefs(doc));
+    }
+  });
+
+  it('hidden columns are ANDed into the data-driven ones; a column never shows without data', () => {
+    const cols = itemColumns(laidOut(sampleDoc(), ['col.hsn', 'col.discount', 'col.sno', 'col.unit', 'col.gstRate', 'col.batch']), { pageSize: 'A4', template: 'modern' });
+    assert.deepEqual([cols.hsn, cols.discount, cols.sno, cols.unit, cols.gstRate], [false, false, false, false, false]);
+    assert.deepEqual([cols.qty, cols.rate, cols.amount], [true, true, true], 'the others stay');
+    // Showing a column with no data on the document prints nothing (no batch on these lines).
+    assert.equal(itemColumns(laidOut(), { pageSize: 'A4', template: 'modern' }).batch, false);
+    // Hiding the rate column of an unpriced stock document changes nothing (it had no data).
+    const unpriced = sampleDoc({ layout: 'inventory', gst: { ...sampleDoc().gst, showTax: false }, lines: [line({ rate: 0, amount: 0, hsnSac: null })] });
+    assert.equal(itemColumns(laidOut(unpriced, ['col.rate']), { pageSize: 'A4', template: 'modern' }).rate, false);
+  });
+
+  it('per-line tax columns: only on wide paper, only for heads present, each one can be hidden', () => {
+    const doc = sampleDoc({ options: { ...sampleDoc().options, itemwiseTax: true } });
+    const wide = itemColumns(doc, { pageSize: 'A4', template: 'modern' });
+    assert.deepEqual(wide.lineHeads, { cgst: true, sgst: true, igst: false, cess: false });
+    assert.deepEqual(itemColumns(laidOut(doc, ['col.sgst']), { pageSize: 'Letter', template: 'modern' }).lineHeads, { cgst: true, sgst: false, igst: false, cess: false });
+    for (const narrow of ['A5', '80mm', '58mm'] as const) {
+      const c = itemColumns(doc, { pageSize: narrow, template: 'modern' });
+      assert.equal(c.lineTax, false, narrow);
+      assert.deepEqual(c.lineHeads, { cgst: false, sgst: false, igst: false, cess: false }, narrow);
+    }
+    assert.equal(itemColumns(doc, { pageSize: 'A4', template: 'compact' }).lineTax, false, 'never on the receipt');
+    const taxableHidden = itemColumns(laidOut(doc, ['col.taxable']), { pageSize: 'A4', template: 'modern' });
+    assert.deepEqual([taxableHidden.taxable, taxableHidden.amount], [false, true]);
+  });
+
+  it('totals rows: hidden rows are filtered, the grand total is locked, amounts untouched', () => {
+    const doc = sampleDoc({ charges: [{ name: 'TCS', amount: 100 }], totals: { ...sampleDoc().totals, charges: 100, grandTotal: 84500 } });
+    const all = totalRows(doc);
+    assert.deepEqual(
+      all.map((r) => r.part),
+      ['totals.taxable', 'totals.taxHeads', 'totals.taxHeads', 'totals.charges', 'totals.roundOff', 'totals.grand'],
+    );
+    const filtered = totalRows(laidOut(doc, ['totals.taxable', 'totals.taxHeads', 'totals.charges', 'totals.roundOff', 'totals.grand']));
+    assert.deepEqual(filtered.map((r) => [r.label, r.amount]), [['Total', 84500]], 'only the (locked) grand total is left, with its amount');
+    assert.deepEqual(totalRows(laidOut(doc, ['totals.roundOff'])).map((r) => r.label), ['Taxable Value', 'CGST', 'SGST', 'TCS', 'Total']);
+  });
+
+  it('header references carry their part; hidden DTO parts drop out', () => {
+    const doc = sampleDoc({
+      referenceNo: 'PO-9',
+      ewayBill: { number: '321009876543', date: null, validUpto: null },
+      references: [{ label: 'Vehicle No.', value: 'MH12AB1234' }],
+    });
+    assert.deepEqual(
+      headerRefsWithParts(doc).map((r) => [r.label, r.part ?? null]),
+      [
+        ['Invoice No.', 'doc.number'],
+        ['Dated', 'doc.date'],
+        ['Reference No.', 'refs'],
+        ['Place of Supply', 'placeOfSupply'],
+        ['Reverse Charge', null],
+        ['e-Way Bill No.', 'ewayBill'],
+        ['Vehicle No.', 'refs'],
+      ],
+    );
+    assert.deepEqual(headerRefs(laidOut(doc, ['refs', 'ewayBill', 'placeOfSupply', 'doc.number'])).map((r) => r.label), ['Invoice No.', 'Dated', 'Reverse Charge'], 'the number is locked');
+  });
+
+  it('receipt line info honours hidden HSN and GST rate', () => {
+    assert.equal(compactLineInfo(line(), true, { hsn: false }), 'GST 5%');
+    assert.equal(compactLineInfo(line(), true, { gstRate: false }), 'HSN 1006');
+    assert.equal(compactLineInfo(line(), true, { hsn: true, gstRate: true }), 'HSN 1006 · GST 5%');
   });
 });

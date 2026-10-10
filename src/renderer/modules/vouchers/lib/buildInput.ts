@@ -118,6 +118,13 @@ export function buildVoucherInput(f: VoucherForm): BuiltInput {
   if (f.expectedUpdatedAt) input.expectedUpdatedAt = f.expectedUpdatedAt;
   if (f.effectiveDate) input.effectiveDate = f.effectiveDate;
   if (txt(f.number)) input.number = txt(f.number);
+  // 2.0: Change number (Ctrl+R) — an explicit override, never inferred from the typed number.
+  if (f.numberOverride && txt(f.numberOverride.number)) {
+    const o = f.numberOverride;
+    input.numberOverride = { number: (o.number ?? '').trim() };
+    if (txt(o.reason)) input.numberOverride.reason = txt(o.reason);
+    if (o.continueSeries === true) input.numberOverride.continueSeries = true;
+  }
   if (txt(f.referenceNo)) input.referenceNo = txt(f.referenceNo);
   if (f.referenceDate) input.referenceDate = f.referenceDate;
   if (txt(f.narration)) input.narration = txt(f.narration);

@@ -19,6 +19,7 @@ import type {
   OrderDetailsInput,
   PartySnapshotInput,
   VoucherMode,
+  VoucherNumberOverride,
 } from '../../../../shared/types/vouchers.ts';
 import type { VoucherTdsInput } from '../../../../shared/types/tds.ts';
 import type { VoucherGstDetailsInput } from '../../../../shared/types/gst-plus.ts';
@@ -110,6 +111,11 @@ export interface VoucherForm {
   effectiveDate: string | null;
   /** Typed number ('' = automatic / keep the saved number). */
   number: string;
+  /**
+   * 2.0 — Change number (Ctrl+R, needs vouchers.renumber): the number chosen in the Change Number dialog,
+   * sent as VoucherInput.numberOverride with the save (never stored in the voucher; null = none).
+   */
+  numberOverride?: VoucherNumberOverride | null;
   referenceNo: string;
   referenceDate: string | null;
   partyLedgerId: number | null;
@@ -261,6 +267,7 @@ export function newForm(o: NewFormOptions): VoucherForm {
     date: o.date,
     effectiveDate: null,
     number: '',
+    numberOverride: null,
     referenceNo: '',
     referenceDate: null,
     partyLedgerId: o.partyLedgerId ?? null,
@@ -292,6 +299,19 @@ export function newForm(o: NewFormOptions): VoucherForm {
     seq: 0,
   };
   return normalize(base);
+}
+
+/**
+ * A new receipt / payment (Dr/Cr layouts) opened for a party — "Record payment" on the Saved bar,
+ * `vouchers.entry { baseType: 'receipt', partyId }`: the party becomes the first particulars line (the
+ * ledger-mode form has no party field). Other layouts, or a form that already has lines, are unchanged.
+ */
+export function withFirstLedger(f: VoucherForm, ledgerId: number | null | undefined): VoucherForm {
+  if (ledgerId === null || ledgerId === undefined || f.mode !== 'ledger' || f.ledgers.some((r) => !isBlankLedger(r))) return f;
+  const accountSide = singleEntryAccountSide(f.baseType);
+  const side: Side = accountSide === 'dr' ? 'cr' : 'dr';
+  const seq = f.seq + 1;
+  return normalize({ ...f, seq, ledgers: [{ ...blankLedger(`l${seq}`, side), ledgerId }] });
 }
 
 // ───────────────────────────── Normalisation ─────────────────────────────

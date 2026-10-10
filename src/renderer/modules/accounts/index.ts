@@ -1,6 +1,7 @@
 /**
  * Accounts module (accounting masters): chart of accounts, groups, ledgers (single and multiple
- * creation), opening balances, cost centres, currencies and voucher types; the Go To 'ledgers'
+ * creation), opening balances, cost centres, currencies, voucher types and Invoice Numbering (2.0: the
+ * number series of every voucher type on one screen); the Go To 'ledgers'
  * provider; and the reusable LedgerPicker / GroupPicker (see README.md).
  */
 import './accounts.css';
@@ -13,6 +14,7 @@ import { installLedgerGoto } from './goto.ts';
 import { GroupFormScreen, GroupListScreen } from './GroupScreens.tsx';
 import { LedgerFormScreen } from './LedgerFormScreen.tsx';
 import { LedgerListScreen } from './LedgerListScreen.tsx';
+import { NumberingScreen } from './NumberingScreen.tsx';
 import { OpeningBalancesScreen } from './OpeningBalancesScreen.tsx';
 import { VoucherTypeFormScreen, VoucherTypesScreen } from './VoucherTypeScreens.tsx';
 
@@ -35,6 +37,7 @@ export const accountsModule: ModuleDef = {
     { id: 'accounts.voucherTypes', title: 'Voucher Types', component: VoucherTypesScreen, access: 'masters.view', keywords: ['numbering', 'invoice number', 'series', 'prefix'] },
     { id: 'accounts.voucherType.form', title: 'Voucher Type', component: VoucherTypeFormScreen, access: 'masters.view', keywords: ['create voucher type'] },
     { id: 'accounts.openingBalances', title: 'Opening Balances', component: OpeningBalancesScreen, access: 'masters.view', keywords: ['opening trial balance', 'difference in opening balances'] },
+    { id: 'accounts.numbering', title: 'Invoice Numbering', component: NumberingScreen, access: 'masters.view', keywords: ['invoice number', 'series', 'prefix', 'suffix', 'numbering', 'reset', 'next number', 'restart'] },
   ],
   menu: [
     { section: 'masters', label: 'Ledgers', screen: 'accounts.ledger.list', order: 10, keywords: ['party', 'customers', 'suppliers'], description: 'Customers, suppliers, banks, income and expense heads' },
@@ -46,5 +49,6 @@ export const accountsModule: ModuleDef = {
     { section: 'masters', label: 'Multiple Ledgers', screen: 'accounts.ledger.bulk', order: 16, access: 'masters.create', description: 'Create many ledgers in one grid' },
     { section: 'masters', label: 'Cost Centres', screen: 'accounts.costCentres', order: 17, feature: 'costCentres', description: 'Branches, projects or departments to track' },
     { section: 'masters', label: 'Currencies', screen: 'accounts.currencies', order: 18, feature: 'multiCurrency', description: 'Foreign currencies and exchange rates' },
+    { section: 'company', label: 'Invoice Numbering', screen: 'accounts.numbering', order: 36, access: 'masters.view', keywords: ['invoice number', 'series', 'prefix', 'suffix', 'numbering', 'reset'], description: 'Prefix, suffix, next number and yearly restart of your invoice series' },
   ],
 };

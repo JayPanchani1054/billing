@@ -73,6 +73,8 @@ export function usePrintActions(
     ready: boolean;
     /** Print straight to this printer without the dialog (usePrinterChoice); undefined: the OS dialog. */
     deviceName?: string;
+    /** (2.0) false when the print layout hides page numbers (layoutParts.ts pageNumbersShown). */
+    pageNumbers?: boolean;
   },
 ): PrintActions {
   const toast = useToast();
@@ -86,7 +88,14 @@ export function usePrintActions(
     const o = optsRef.current;
     if (!el || o.docs.length === 0 || !o.ready) return null;
     const roll = rollHeightMm(o.pageSize, docHeights(el));
-    const html = buildPrintHtml({ title: documentTitle(o.docs), body: el.outerHTML, pageSize: o.pageSize, documents: o.documents, rollHeightMm: roll });
+    const html = buildPrintHtml({
+      title: documentTitle(o.docs),
+      body: el.outerHTML,
+      pageSize: o.pageSize,
+      documents: o.documents,
+      rollHeightMm: roll,
+      ...(o.pageNumbers === false ? { pageNumbers: false } : {}),
+    });
     const page = nativePageSize(o.pageSize);
     const fileName = o.docs.length === 1 ? pdfFileName(o.docs[0]) : `${documentTitle(o.docs)}.pdf`;
     return { html, pageSize: page.pageSize, landscape: page.landscape, ...(roll !== null ? { rollHeightMm: roll } : {}), fileName };

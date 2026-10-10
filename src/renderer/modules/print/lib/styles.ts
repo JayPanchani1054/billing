@@ -166,6 +166,21 @@ export function previewCss(size: PrintPageSize): string {
 `;
 }
 
+/**
+ * (2.0) Preview-only chrome of the layout editor (Alt+L): printable parts outlined on hover and the selected
+ * part marked. Scoped under `.bp-editing`, a class of the preview container OUTSIDE `.bp-docs`, so neither
+ * the class nor these rules ever reach the printed / PDF / shared HTML. `selected` is a catalogue part id
+ * (checked by the caller); anything else is ignored.
+ */
+export function editingCss(selected: string | null): string {
+  const sel = selected && /^[a-z][A-Za-z.]*$/.test(selected) ? selected : null;
+  return `
+.bp-editing [data-part] { cursor: pointer; }
+.bp-editing [data-part]:hover { outline: 1px dashed var(--brand); outline-offset: 1px; }
+${sel ? `.bp-editing [data-part="${sel}"] { outline: 2px solid var(--brand); outline-offset: 1px; }` : ''}
+`;
+}
+
 interface PageGeometry {
   width: string;
   minHeight: string;

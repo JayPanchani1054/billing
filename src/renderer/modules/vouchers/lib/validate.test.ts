@@ -29,6 +29,8 @@ describe('client checks before saving', () => {
     assert.ok(headerId('referenceNo') in r.cells);
     // An alteration keeps its saved number when the field is left blank.
     assert.equal(headerId('number') in clientIssues({ ...f, id: 5 }, { numberingMethod: 'manual', referenceRequired: false }).cells, false);
+    // 2.0: a number chosen with Change number (Ctrl+R) is the number — nothing to type.
+    assert.equal(headerId('number') in clientIssues({ ...f, numberOverride: { number: 'P-1' } }, { numberingMethod: 'manual', referenceRequired: false }).cells, false);
   });
 
   it('single-entry payment needs the cash/bank account and amounts', () => {

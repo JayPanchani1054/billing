@@ -239,6 +239,36 @@ describe('build/installer.nsh (running app, downgrade guard)', () => {
     assert.match(nsh, /!include "WordFunc\.nsh"/);
   });
 
+  it('the decisions themselves: process scope, Retry/Cancel loop, refusal only for a newer version, /ALLOWDOWNGRADE bypass', () => {
+    const body = (name: string): string => new RegExp(`^!macro ${name}(?: [^\\n]*)?\\n([\\s\\S]*?)^!macroend$`, 'm').exec(nsh)?.[1] ?? '';
+    // electron-builder 26 runs customCheckAppRunning INSTEAD of its own (force-closing) check, in the
+    // installer and the uninstaller: it must be the wait-or-ask logic, not empty.
+    assert.match(body('customCheckAppRunning'), /^\s*!insertmacro _pevqoriWaitForApp\s*$/);
+    // Per-machine installation ($installMode "all"): a copy open under any account counts; per-user: this account's only.
+    const running = body('_pevqoriAppRunning');
+    assert.match(
+      running,
+      /\$\{If\} \$installMode == "all"\n\s*nsExec::Exec `"\$SYSDIR\\cmd\.exe" \/c tasklist \/FI "IMAGENAME eq \$\{APP_EXECUTABLE_FILENAME\}" \/NH \| "\$SYSDIR\\find\.exe" \/I "\$\{APP_EXECUTABLE_FILENAME\}"`\n\s*\$\{Else\}\n\s*nsExec::Exec `"\$SYSDIR\\cmd\.exe" \/c tasklist \/FI "USERNAME eq %USERNAME%" \/FI "IMAGENAME eq \$\{APP_EXECUTABLE_FILENAME\}" \/NH \| "\$SYSDIR\\find\.exe" \/I "\$\{APP_EXECUTABLE_FILENAME\}"`\n\s*\$\{EndIf\}\n\s*Pop \$\{_RESULT\}/,
+    );
+    const wait = body('_pevqoriWaitForApp');
+    assert.match(wait, /!insertmacro _pevqoriAppRunning \$R0\n\s*\$\{If\} \$R0 == 0\n\s*\$\{If\} \$\{Silent\}/, 'acts only when Pevqori runs');
+    // Silent: re-check every second; after 30 s exit code 3.
+    assert.match(wait, /\$\{DoWhile\} \$R0 == 0\n\s*\$\{If\} \$R1 >= 30\n[\s\S]*?SetErrorLevel 3\n\s*Quit\n\s*\$\{EndIf\}\n\s*Sleep 1000\n\s*IntOp \$R1 \$R1 \+ 1\n\s*!insertmacro _pevqoriAppRunning \$R0\n\s*\$\{Loop\}/);
+    // Interactive: Cancel → exit code 3, Retry → check again (the loop ends once Pevqori is closed).
+    assert.match(
+      wait,
+      /\$\{DoWhile\} \$R0 == 0\n\s*\$\{If\} \$\{Cmd\} `MessageBox MB_RETRYCANCEL\|MB_ICONEXCLAMATION "[^"`]+" \/SD IDCANCEL IDCANCEL`\n\s*SetErrorLevel 3\n\s*Quit\n\s*\$\{EndIf\}\n\s*!insertmacro _pevqoriAppRunning \$R0\n\s*\$\{Loop\}/,
+    );
+    const guard = body('_pevqoriDowngradeGuard');
+    assert.match(guard, /\$\{GetOptions\} \$R1 "\/ALLOWDOWNGRADE" \$R2\n\s*\$\{If\} \$\{Errors\}/, 'the guard runs only when /ALLOWDOWNGRADE is absent');
+    assert.match(guard, /\$\{VersionCompare\} \$R2 \$R3 \$R1\n\s*\$\{If\} \$R1 == 1\n/, 'refused only when the installed version is newer (1 = the first is newer)');
+    assert.match(guard, /\$\{If\} \$R0 != ""/, 'no installed version → nothing to compare');
+    const strip = body('_pevqoriStripPre');
+    assert.match(strip, /\$R8 == ""\n\s*\$\{OrIf\} \$R8 == "-"\n\s*\$\{OrIf\} \$R8 == "\+"\n\s*\$\{Break\}/);
+    // The elevated inner instance of an "Anyone who uses this computer" install does not ask again.
+    assert.match(body('customInit'), /\$\{IfNot\} \$\{UAC_IsInnerInstance\}[\s\S]*_pevqoriDowngradeGuard[\s\S]*_pevqoriWaitForApp[\s\S]*\$\{EndIf\}/);
+  });
+
   it('stays warning-free: no Var or Function declarations (unused in one of electron-builder’s two passes)', () => {
     assert.doesNotMatch(nsh, /^\s*(Var|Function)\b/m);
     // The uninstall log note is kept.
@@ -345,6 +375,18 @@ describe('scripts/smoke-installed.ps1 (installer scenarios)', () => {
     assert.match(ps1, /The data folder was deleted by the uninstaller/);
     assert.match(ps1, /was deleted by the uninstaller/);
   });
+
+  it('StrictMode-safe: a function that may return nothing is counted through @() (.Count on $null throws)', () => {
+    assert.match(ps1, /^Set-StrictMode -Version Latest$/m);
+    const counted = [...ps1.matchAll(/(@?)\((Get-[A-Za-z]+)\b[^()]*\)\.Count/g)];
+    assert.ok(counted.length >= 4, `${counted.length} counted calls`);
+    for (const [call, at, fn] of counted) {
+      // Get-UninstallEntries returns its array as ONE object (`return , $found`), so it is never $null.
+      if (fn === 'Get-UninstallEntries') assert.equal(at, '', call);
+      else assert.equal(at, '@', `${call} must be @(${fn} …).Count`);
+    }
+    assert.match(ps1, /function Get-UninstallEntries \{[\s\S]*?return , \$found\n\}/);
+  });
 });
 
 describe('scripts/release-assets.mjs', () => {
@@ -382,6 +424,14 @@ describe('scripts/release-assets.mjs', () => {
     assert.deepEqual(checkReleaseFiles('2.0.1', files()), ['Pevqori-Setup-2.0.1.exe is missing']);
     assert.match(checkReleaseFiles('2.0.0', files({ 'latest.yml': Buffer.from(latest('1.9.0')) })).join('\n'), /latest\.yml version is 1\.9\.0, expected 2\.0\.0/);
     assert.match(checkReleaseFiles('2.0.0', files({ 'latest.yml': Buffer.from(latest('2.0.0', 'AAAA')) })).join('\n'), /sha512 does not match/);
+    // The top-level path / sha512 (what electron-updater reads first) are checked on their own too.
+    const topLevelOnly = (from: string, to: string): Buffer => Buffer.from(latest('2.0.0').replace(new RegExp(`^${from}$`, 'm'), to));
+    assert.deepEqual(checkReleaseFiles('2.0.0', files({ 'latest.yml': topLevelOnly(`sha512: ${sha.replace(/[+/]/g, '\\$&')}`, 'sha512: AAAA') })), [`latest.yml sha512 does not match ${name}`]);
+    assert.deepEqual(checkReleaseFiles('2.0.0', files({ 'latest.yml': topLevelOnly(`path: ${name.replace(/\./g, '\\.')}`, 'path: Other.exe') })), [`latest.yml path is Other.exe, expected ${name}`]);
+    assert.deepEqual(
+      checkReleaseFiles('2.0.0', files({ 'latest.yml': Buffer.from(latest('2.0.0').replace(`  - url: ${name}`, '  - url: Other.exe')) })),
+      [`latest.yml files has no entry for ${name}`],
+    );
     assert.match(checkReleaseFiles('2.0.0', files({ 'latest.yml': Buffer.from(latest('2.0.0', sha, 3)) })).join('\n'), /size is 3/);
     assert.match(checkReleaseFiles('2.0.0', files({ 'latest.yml': null })).join('\n'), /latest\.yml is missing/);
     assert.match(checkReleaseFiles('2.0.0', files({ [`${name}.blockmap`]: null })).join('\n'), /blockmap is missing/);

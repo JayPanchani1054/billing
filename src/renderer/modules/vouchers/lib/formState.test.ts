@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { balanceLast, blankLedger, formReducer, isBlankItem, isBlankLedger, itemLineValue, ledgerDifference, newForm, splitForSingle } from './formState.ts';
+import { balanceLast, blankLedger, formReducer, isBlankItem, isBlankLedger, itemLineValue, ledgerDifference, newForm, splitForSingle, withFirstLedger } from './formState.ts';
 import type { LedgerRow, VoucherForm } from './formState.ts';
 
 const sales = (): VoucherForm => newForm({ voucherTypeId: 5, baseType: 'sales', mode: 'item_invoice', date: '2026-10-05' });
@@ -166,5 +166,31 @@ describe('form reducer — review fixes', () => {
     assert.equal(f.items[0].altQty, null);
     assert.equal(f.items[0].autoRate, null);
     assert.equal(f.ledgers[0].gstExtra, null);
+  });
+});
+
+describe('2.0 Record payment: a receipt / payment opened for a party', () => {
+  it('the party becomes the first particulars line (receipt: credited; payment: debited)', () => {
+    const receipt = withFirstLedger(newForm({ voucherTypeId: 3, baseType: 'receipt', mode: 'ledger', date: '2026-10-05', accountLedgerId: 1 }), 31);
+    const filled = receipt.ledgers.filter((r) => !isBlankLedger(r));
+    assert.equal(filled.length, 1);
+    assert.equal(filled[0].ledgerId, 31);
+    assert.equal(filled[0].side, 'cr');
+    assert.equal(filled[0].amount, null, 'the amount is typed by the user');
+    assert.ok(isBlankLedger(receipt.ledgers[receipt.ledgers.length - 1]), 'a blank row still ends the grid');
+    assert.equal(receipt.touched, false, 'nothing typed yet: Esc does not ask');
+    const payment = withFirstLedger(newForm({ voucherTypeId: 4, baseType: 'payment', mode: 'ledger', date: '2026-10-05' }), 32);
+    assert.equal(payment.ledgers[0].ledgerId, 32);
+    assert.equal(payment.ledgers[0].side, 'dr');
+  });
+
+  it('nothing changes without a party, for invoice layouts, or when lines exist', () => {
+    const r = newForm({ voucherTypeId: 3, baseType: 'receipt', mode: 'ledger', date: '2026-10-05' });
+    assert.equal(withFirstLedger(r, undefined), r);
+    assert.equal(withFirstLedger(r, null), r);
+    const s = sales();
+    assert.equal(withFirstLedger(s, 31), s);
+    const withLine = formReducer(r, { type: 'ledger', key: r.ledgers[0].key, patch: { ledgerId: 9 } });
+    assert.equal(withFirstLedger(withLine, 31), withLine);
   });
 });

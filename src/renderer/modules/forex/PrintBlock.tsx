@@ -1,7 +1,7 @@
 /**
  * Printed foreign-currency block (rendered by the print templates under the item table / voucher
  * entries; nothing when the document has no foreign-currency side). Print classes only (bp-*), so the
- * preview and the printed HTML look the same.
+ * preview and the printed HTML look the same. `data-part="forex"`: the print layout part (2.0 preview editor).
  */
 import type { PrintVoucherData } from '../../../shared/types/print.ts';
 import { forexInvoiceBlock, forexVoucherLines } from './lib/print.ts';
@@ -10,7 +10,7 @@ export function ForexPrintBlock({ doc }: { doc: PrintVoucherData }) {
   const inv = forexInvoiceBlock(doc);
   if (inv) {
     return (
-      <section className="bp-avoid">
+      <section className="bp-avoid" data-part="forex">
         <table className="bp-taxsum">
           <thead>
             <tr>
@@ -59,7 +59,7 @@ export function ForexPrintBlock({ doc }: { doc: PrintVoucherData }) {
   const lines = forexVoucherLines(doc);
   if (lines.length === 0) return null;
   return (
-    <section className="bp-avoid">
+    <section className="bp-avoid" data-part="forex">
       <div className="bp-cap">In foreign currency</div>
       {lines.map((l, i) => (
         <div key={i} className="bp-small">

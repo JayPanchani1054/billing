@@ -15,8 +15,13 @@
  * Alt+I item ↔ accounting invoice, Ctrl+H single ↔ double entry, Ctrl+I more details, Alt+T fill
  * from notes/orders, Alt+B bill-wise, Alt+O cost centres, Alt+K bank details, Ctrl+B balance it,
  * Ctrl+D delete line, Alt+N / Ctrl+N insert line, Ctrl+L optional, Ctrl+T post-dated, F12 settings;
- * Alt+P print (the voucher being altered, or the one just saved here — lib/printing.ts);
+ * Alt+P print (the voucher being altered, or the one just saved here — lib/printing.ts), Alt+W share it,
+ * Ctrl+R change the number (2.0, vouchers.renumber — ChangeNumberDialog.tsx);
  * alteration: Alt+D delete, Alt+X cancel, Alt+2 duplicate, Alt+H edit history.
+ *
+ * 2.0 (lib/disclosure.ts, lib/savedBar.ts): sales-side documents keep Reference no. / date and Reverse
+ * charge in More details until they hold a value; the derived place of supply shows as a chip; after a
+ * voucher is created the Saved bar offers Print, Share and Record payment.
  */
 import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
@@ -62,7 +67,7 @@ import { ACCOUNT_ROW, buildVoucherInput, formFromInput } from '../lib/buildInput
 import type { BuiltInput } from '../lib/buildInput.ts';
 import { cellId, confirmationRequest, headerId, mapFieldErrors, parseCellId, targetOf, warningsByRow, warningsOfDetails } from '../lib/errorPaths.ts';
 import type { KeyMaps } from '../lib/errorPaths.ts';
-import { amountDecimals, formReducer, isBlankItem, isBlankLedger, itemLineValue, itemsOf, newForm } from '../lib/formState.ts';
+import { amountDecimals, formReducer, isBlankItem, isBlankLedger, itemLineValue, itemsOf, newForm, withFirstLedger } from '../lib/formState.ts';
 import type { ItemRow, LedgerRow, VoucherForm } from '../lib/formState.ts';
 import { entrySections, initialFocusId, neighbourSection, nextCell, rowAfterDelete, verticalCell } from '../lib/gridNav.ts';
 import type { EntrySection, GridModel } from '../lib/gridNav.ts';
@@ -73,6 +78,12 @@ import type { ClientTotals, LineFigures, TotalsEnv } from '../lib/totals.ts';
 import { afterSavePrint, entryPrintTarget, savedToastMessage, voucherRefLabel } from '../lib/printing.ts';
 import type { SavedVoucherRef } from '../lib/printing.ts';
 import { clientIssues } from '../lib/validate.ts';
+import { changeNumberAvailability, isGstDocType } from '../lib/changeNumber.ts';
+import { disclosedHasValue, headerDisclosure, placeOfSupplyChip } from '../lib/disclosure.ts';
+import { recordPaymentTarget, SHARE_DENIED_HINT } from '../lib/savedBar.ts';
+import type { SavedBarState } from '../lib/savedBar.ts';
+import { ChangeNumberDialog } from '../ChangeNumberDialog.tsx';
+import { SavedBar } from './SavedBar.tsx';
 import { LedgerCombo } from '../pickers/LedgerCombo.tsx';
 import { useGodowns, useItemRows, useLedgerDetails, useLedgerRows, usePriceLevels } from '../pickers/hooks.ts';
 import { BillsDialog } from './BillsDialog.tsx';
@@ -104,7 +115,7 @@ export interface VoucherEntryParams {
   draft?: VoucherDraftParams;
   /** Voucher date (default: the working date). */
   date?: string;
-  /** Pre-selected party (e.g. from a party's ledger). */
+  /** Pre-selected party (e.g. from a party's ledger); a receipt / payment (Dr/Cr layouts) puts it on the first line ("Record payment"). */
   partyId?: number;
 }
 
@@ -253,6 +264,8 @@ type Dialog =
   | { kind: 'config' }
   | { kind: 'cancel' }
   | { kind: 'gst' }
+  /** 2.0: Change number (Ctrl+R). */
+  | { kind: 'number' }
   /** (forex module) Foreign amount + rate of a ledger line, or (rowKey null) the invoice currency + rate. */
   | { kind: 'forex'; rowKey: string | null }
   | null;
@@ -286,6 +299,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const isAlter = detail !== undefined;
   const typeConfig = (ctx0.voucherType.config ?? {}) as { defaultPartyLedgerId?: number | null; defaultGodownId?: number | null };
   const canAudit = useCan('audit.view');
+  const canRenumber = useCan('vouchers.renumber');
+  const canExport = useCan('data.export');
   /** Party a new voucher starts with: the one passed in, else the voucher type's default (e.g. Cash for "Cash Sales"). */
   const startParty = params.partyId ?? typeConfig.defaultPartyLedgerId ?? null;
 
@@ -293,7 +308,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     if (detail) return formFromInput(detail.input, { baseType, alter: true });
     if (dup) return { ...formFromInput(dup, { baseType, alter: false, date: params.date ?? working.date }), touched: true };
     const side = singleEntryAccountSide(baseType);
-    return newForm({
+    const fresh = newForm({
       voucherTypeId: type.id,
       baseType,
       mode: ctx0.defaultMode,
@@ -302,6 +317,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       partyLedgerId: startParty,
       accountLedgerId: side !== null && baseType !== 'contra' ? ctx0.ledgers.cash : null,
     });
+    // A receipt / payment opened for a party ("Record payment"): the party is the first line.
+    return withFirstLedger(fresh, params.partyId);
   });
   const formRef = useRef(form);
   formRef.current = form;
@@ -432,7 +449,19 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const [cancelError, setCancelError] = useState<string | null>(null);
   /** The voucher last created from this screen: Alt+P prints it (lib/printing.ts). */
   const [lastSaved, setLastSaved] = useState<SavedVoucherRef | null>(null);
+  /** 2.0: the Saved bar above the next (blank) voucher; dropped once it is touched (lib/savedBar.ts). */
+  const [savedBar, setSavedBar] = useState<SavedBarState | null>(null);
+  /** Reference / reverse charge of a sales-side document stay inline once they held a value (lib/disclosure.ts). */
+  const [detailsPinned, setDetailsPinned] = useState(() => disclosedHasValue(form));
+  /** The place-of-supply chip was opened: the select stays for this voucher. */
+  const [posOpen, setPosOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (form.touched && savedBar !== null) setSavedBar(null);
+  }, [form.touched, savedBar]);
+  useEffect(() => {
+    if (!detailsPinned && disclosedHasValue(form)) setDetailsPinned(true);
+  }, [form.referenceNo, form.referenceDate, form.reverseCharge, detailsPinned]);
 
   const typingClearsErrors = useRef(form);
   useEffect(() => {
@@ -881,6 +910,18 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         nav.pop({ id: out.id });
         return;
       }
+      // Record payment needs a customer / supplier (not Cash of a cash sale): the party context knows its kind.
+      const partyId = f.partyLedgerId !== null && showsParty(baseType, f.mode) ? f.partyLedgerId : null;
+      const partyKind = party && party.ledgerId === partyId ? party.kind : null;
+      setSavedBar({
+        ...saved,
+        amount: out.totals.grandTotal,
+        baseType,
+        partyId,
+        partyClasses: partyKind === 'debtor' || partyKind === 'creditor' ? ['party', partyKind] : partyId !== null ? (ledgers.byId.get(partyId)?.classes ?? []) : [],
+      });
+      setDetailsPinned(false);
+      setPosOpen(false);
       dispatch({ type: 'next', date: f.date, isOptional: ctx.voucherType.optionalByDefault, partyLedgerId: startParty });
       if (printNow) {
         nav.push('print.voucher', printNow);
@@ -1038,6 +1079,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   };
 
   // ── Rail actions ──
+  const renumberAction = changeNumberAvailability({ where: 'entry', canRenumber, method: numberingMethod });
   const isOrderOrNote = trackKinds.length > 0 && form.partyLedgerId !== null;
   const printTarget = entryPrintTarget(detail ? detail.id : null, lastSaved);
   const actions: ScreenActionItem[] = [
@@ -1052,9 +1094,27 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       group: 'type',
     },
     { key: 'Ctrl+H', label: form.layout === 'single' ? 'Dr/Cr layout' : 'Single entry', icon: 'list', onClick: toggleLayout, hidden: !canToggleLayout, group: 'type' },
-    { key: 'Ctrl+I', label: 'More details', icon: 'more', onClick: () => setDialog({ kind: 'more' }), hidden: form.mode === 'ledger', group: 'details' },
+    {
+      key: 'Ctrl+I',
+      label: 'More details',
+      icon: 'more',
+      onClick: () => setDialog({ kind: 'more' }),
+      hidden: form.mode === 'ledger',
+      group: 'details',
+      prominent: true,
+    },
     { key: 'Alt+T', label: 'From notes/orders', icon: 'link', onClick: () => setDialog({ kind: 'tracking' }), hidden: !isOrderOrNote || !itemsOn, group: 'details' },
-    { key: 'Alt+B', label: 'Bill-wise', icon: 'receipt', onClick: openBills, hidden: !features.billWise, group: 'details' },
+    {
+      key: 'Alt+B',
+      label: 'Bill-wise',
+      icon: 'receipt',
+      onClick: openBills,
+      hidden: !features.billWise,
+      group: 'details',
+      prominent: true,
+    },
+    // 2.0: Change number (vouchers.renumber): the number of this voucher, checked live, kept in the edit log.
+    { key: 'Ctrl+R', label: 'Change number', icon: 'hash', onClick: () => setDialog({ kind: 'number' }), hidden: renumberAction.hidden, group: 'details' },
     // GST details (gst module): advance / refund / challan / advance adjustment / bill of entry / stat adjustment.
     { key: 'Alt+J', label: 'GST details', icon: 'gst', onClick: () => setDialog({ kind: 'gst' }), hidden: !ctx.company.gstEnabled || gstDetailsKinds(baseType, direction === 'outward').length === 0, group: 'details' },
     // Foreign currency (forex module): invoice currency & rate, or a line's foreign amount & rate.
@@ -1069,6 +1129,17 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       onClick: () => printTarget && nav.push('print.voucher', { id: printTarget.id }),
       hidden: printTarget === null || !nav.isRegistered('print.voucher'),
       hint: !isAlter && printTarget ? 'The voucher you just saved' : undefined,
+      group: 'saved',
+      prominent: true,
+    },
+    {
+      key: 'Alt+W',
+      label: 'Share (e-mail / WhatsApp)',
+      icon: 'mail',
+      onClick: () => printTarget && nav.push('print.voucher', { id: printTarget.id, share: true }),
+      hidden: printTarget === null || !nav.isRegistered('print.voucher'),
+      disabled: !canExport,
+      hint: canExport ? (isAlter ? 'Opens the print preview with the Share dialog' : 'Shares the voucher you just saved') : SHARE_DENIED_HINT,
       group: 'saved',
     },
     { key: 'Alt+2', label: 'Duplicate', icon: 'copy', onClick: () => detail && nav.push('vouchers.entry', { duplicateOf: detail.id }), hidden: !isAlter || !ctx.permissions.canCreate, group: 'saved' },
@@ -1105,15 +1176,38 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   if (form.date > ctx.today && !form.isPostDated && postsToBooks(baseType)) dateHints.push('Future date — press Ctrl+T to mark it post-dated if the money moves later.');
   const numberEditable = numberingMethod === 'manual' || numberingMethod === 'automatic_override';
   const accountRow = form.accountLedgerId !== null ? ledgers.byId.get(form.accountLedgerId) : undefined;
+  /** 2.0: a number chosen with Change number (Ctrl+R) — shown in the No. field with a "changed" badge. */
+  const numberOverride = form.numberOverride ?? null;
+  const disclosure = headerDisclosure({
+    baseType,
+    mode: form.mode,
+    direction,
+    showRef,
+    supplierRef,
+    gstDoc,
+    referenceNo: form.referenceNo,
+    referenceDate: form.referenceDate,
+    reverseCharge: form.reverseCharge,
+    // An error on a disclosed field brings it inline (where it is shown and focused).
+    pinned: detailsPinned || !!cellErrors[headerId('referenceNo')] || !!cellErrors[headerId('referenceDate')],
+  });
+  const posChip = gstDoc && !posOpen ? placeOfSupplyChip({ chosen: form.placeOfSupply, computed: computedPos, interState: invoice.computation ? invoice.computation.interState : null, hasError: !!cellErrors[headerId('placeOfSupply')] }) : null;
 
   const header = (
     <div className="bx-vch-head" ref={setHeaderRef}>
       {numberingMethod !== 'none' ? (
-        <Field label="No." htmlFor={headerId('number')} error={cellErrors[headerId('number')]} required={numberingMethod === 'manual' && !isAlter}>
+        <Field
+          label="No."
+          htmlFor={headerId('number')}
+          error={cellErrors[headerId('number')]}
+          required={numberingMethod === 'manual' && !isAlter && numberOverride === null}
+          labelAction={numberOverride ? <Badge tone="info">changed</Badge> : undefined}
+          hint={numberOverride?.reason ? `Changed: ${numberOverride.reason}` : undefined}
+        >
           <TextInput
             id={headerId('number')}
-            value={form.number}
-            readOnly={!numberEditable}
+            value={numberOverride ? numberOverride.number : form.number}
+            readOnly={!numberEditable || numberOverride !== null}
             maxLength={50}
             placeholder={isAlter ? (detail?.number ?? '') : ctx.nextNumber || (numberingMethod === 'manual' ? 'Type the number' : '')}
             onValueChange={(s) => dispatch({ type: 'patch', patch: { number: s } })}
@@ -1140,7 +1234,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           <DateInput id={headerId('applicableUpto')} value={form.applicableUpto} referenceDate={form.date} minDate={form.date} onChange={(d) => dispatch({ type: 'patch', patch: { applicableUpto: d } })} />
         </Field>
       ) : null}
-      {showRef ? (
+      {disclosure.refInline ? (
         <>
           <Field label={supplierRef ? 'Supplier invoice no.' : 'Reference no.'} htmlFor={headerId('referenceNo')} required={referenceRequired} optional={!referenceRequired} error={cellErrors[headerId('referenceNo')]}>
             <TextInput id={headerId('referenceNo')} value={form.referenceNo} maxLength={50} onValueChange={(s) => dispatch({ type: 'patch', patch: { referenceNo: s } })} />
@@ -1212,7 +1306,24 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           </Field>
         </>
       ) : null}
-      {gstDoc ? (
+      {gstDoc && posChip ? (
+        <Field label="Place of supply" htmlFor={headerId('placeOfSupply')}>
+          <Button
+            id={headerId('placeOfSupply')}
+            size="sm"
+            variant="secondary"
+            iconRight="edit"
+            aria-label={`Place of supply: ${posChip.label} (change)`}
+            title="Worked out from the party and the consignee. Click (or Enter) to choose it yourself."
+            onClick={() => {
+              setPosOpen(true);
+              focusId(headerId('placeOfSupply'));
+            }}
+          >
+            {posChip.label}
+          </Button>
+        </Field>
+      ) : gstDoc ? (
         <Field label="Place of supply" htmlFor={headerId('placeOfSupply')} error={cellErrors[headerId('placeOfSupply')]}>
           <Select
             id={headerId('placeOfSupply')}
@@ -1232,7 +1343,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           />
         </Field>
       ) : null}
-      {gstDoc && direction === 'inward' ? (
+      {disclosure.rcInline ? (
         <Field label="Reverse charge">
           <Switch checked={form.reverseCharge} onChange={(c) => dispatch({ type: 'patch', patch: { reverseCharge: c } })} />
         </Field>
@@ -1456,6 +1567,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         <div className="bx-vch" data-density="compact">
           <div className="bx-vch__main">
             {banner ? <ErrorBanner title={banner.title} messages={banner.messages} onDismiss={() => setBanner(null)} /> : null}
+            {savedBar && !form.touched ? renderSavedBar(savedBar) : null}
             {header}
             <div className="bx-vch-body" onKeyDown={onGridKeyDown}>
               {grids}
@@ -1522,6 +1634,24 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     </GridEnvContext.Provider>
   );
 
+  /** 2.0: "✓ Saved Sales 12 · ₹ … — Print · Share · Record payment · ×" above the next voucher. */
+  function renderSavedBar(bar: SavedBarState): ReactNode {
+    const printable = nav.isRegistered('print.voucher');
+    const pay = recordPaymentTarget(bar);
+    const payOk = pay !== null && shell.voucherAvailability(pay.baseType).ok && nav.canOpen('vouchers.entry');
+    return (
+      <SavedBar
+        bar={bar}
+        onPrint={printable ? () => nav.push('print.voucher', { id: bar.id }) : undefined}
+        onShare={printable ? () => nav.push('print.voucher', { id: bar.id, share: true }) : undefined}
+        shareDisabled={!canExport}
+        shareHint={canExport ? undefined : SHARE_DENIED_HINT}
+        onRecordPayment={pay && payOk ? () => nav.push('vouchers.entry', { baseType: pay.baseType, partyId: pay.partyId }) : undefined}
+        onDismiss={() => setSavedBar(null)}
+      />
+    );
+  }
+
   /** (forex module) Foreign amount, rate and bill-wise split of a ledger-mode line. */
   function forexLineDialog(row: LedgerRow, cur: NonNullable<ReturnType<typeof fx.currencyOfLedger>>, done: () => void, cancel: () => void): ReactNode {
     const accSide = singleEntryAccountSide(baseType);
@@ -1585,6 +1715,37 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         if (!row || row.ledgerId === null || !cur) return null;
         return forexLineDialog(row, cur, closeThen, close);
       }
+      case 'number':
+        return (
+          <ChangeNumberDialog
+            voucherTypeId={type.id}
+            baseType={baseType}
+            date={form.date}
+            fyStartMonth={ctx.company.fyStartMonth}
+            gstDoc={isGstDocType(baseType, ctx.company.gstEnabled)}
+            method={numberingMethod}
+            scheme={type.numbering}
+            current={isAlter ? (detail?.number ?? null) : null}
+            nextNumber={ctx.nextNumber}
+            {...(voucherId !== null ? { excludeId: voucherId } : {})}
+            partyLedgerId={partyShown ? form.partyLedgerId : null}
+            mode={form.mode}
+            initial={form.numberOverride ?? null}
+            onAccept={(o) => {
+              dispatch({ type: 'patch', patch: { numberOverride: o } });
+              close();
+            }}
+            onReset={
+              form.numberOverride
+                ? () => {
+                    dispatch({ type: 'patch', patch: { numberOverride: null } });
+                    close();
+                  }
+                : undefined
+            }
+            onClose={close}
+          />
+        );
       case 'gst':
         return (
           <GstDetailsDialog
@@ -1728,6 +1889,9 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           orderDetails: form.orderDetails,
           exportDetails: form.exportDetails,
           effectiveDate: form.effectiveDate,
+          // 2.0: sales-side documents keep the reference and reverse charge here (lib/disclosure.ts).
+          ...(disclosure.refInMore ? { referenceNo: form.referenceNo, referenceDate: form.referenceDate } : {}),
+          ...(disclosure.rcInMore ? { reverseCharge: form.reverseCharge } : {}),
         };
         return (
           <MoreDetailsDialog
@@ -1736,6 +1900,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
             partyName={party?.name ?? ''}
             showEffectiveDate={ctx.voucherType.useEffectiveDate}
             showExport={direction === 'outward' && isInvoiceMode(form.mode)}
+            showReference={disclosure.refInMore}
+            showReverseCharge={disclosure.rcInMore}
             showEway={features.ewayBill}
             onAccept={(v) => {
               dispatch({ type: 'patch', patch: v });

@@ -235,6 +235,11 @@ export interface MoreDetailsValue {
   orderDetails: OrderDetailsInput | null;
   exportDetails: ExportDetailsInput | null;
   effectiveDate: string | null;
+  /** 2.0: a sales-side document's reference (lib/disclosure.ts) — present only when the tab is shown. */
+  referenceNo?: string;
+  referenceDate?: string | null;
+  /** 2.0: a sales-side GST document's reverse charge — present only when shown. */
+  reverseCharge?: boolean;
 }
 
 export interface MoreDetailsDialogProps {
@@ -243,6 +248,10 @@ export interface MoreDetailsDialogProps {
   partyName: string;
   showEffectiveDate: boolean;
   showExport: boolean;
+  /** 2.0: "Reference" tab (Reference no. / date) — the first tab, opened first. */
+  showReference?: boolean;
+  /** 2.0: reverse charge switch on the Reference tab (GST documents). */
+  showReverseCharge?: boolean;
   showEway: boolean;
   onAccept: (v: MoreDetailsValue) => void;
   onClose: () => void;
@@ -259,9 +268,10 @@ const REG_LABEL: Readonly<Record<RegistrationType, string>> = {
   uin: 'UIN holder',
 } as Record<RegistrationType, string>;
 
-export function MoreDetailsDialog({ value, date, partyName, showEffectiveDate, showExport, showEway, onAccept, onClose }: MoreDetailsDialogProps) {
+export function MoreDetailsDialog({ value, date, partyName, showEffectiveDate, showExport, showReference = false, showReverseCharge = false, showEway, onAccept, onClose }: MoreDetailsDialogProps) {
   const [v, setV] = useState<MoreDetailsValue>(value);
-  const [tab, setTab] = useState('party');
+  const withReference = showReference || showReverseCharge;
+  const [tab, setTab] = useState(withReference ? 'reference' : 'party');
   const states = useMemo(() => stateOptions({ includeForeign: true }), []);
   const stateSelect = (val: string | undefined, on: (s: string) => void, label: string) => (
     <Field label={label} optional>
@@ -282,6 +292,33 @@ export function MoreDetailsDialog({ value, date, partyName, showEffectiveDate, s
   const regOptions = REGISTRATION_TYPES.map((r) => ({ value: r, label: REG_LABEL[r] ?? r }));
 
   const items = [
+    ...(withReference
+      ? [
+          {
+            id: 'reference',
+            label: 'Reference',
+            content: (
+              <FieldGroup columns={2} description="The buyer's reference (purchase order, indent) printed on the document.">
+                {showReference ? (
+                  <>
+                    <Field label="Reference no." optional>
+                      <TextInput value={v.referenceNo ?? ''} maxLength={50} onValueChange={(s) => setV((c) => ({ ...c, referenceNo: s }))} />
+                    </Field>
+                    <Field label="Reference date" optional>
+                      <DateInput value={v.referenceDate ?? null} referenceDate={date} onChange={(d) => setV((c) => ({ ...c, referenceDate: d }))} />
+                    </Field>
+                  </>
+                ) : null}
+                {showReverseCharge ? (
+                  <Field label="Reverse charge" hint="Tax on this supply is paid by the recipient (e.g. goods transport, legal services).">
+                    <Switch checked={v.reverseCharge === true} onChange={(c) => setV((x) => ({ ...x, reverseCharge: c }))} />
+                  </Field>
+                ) : null}
+              </FieldGroup>
+            ),
+          },
+        ]
+      : []),
     {
       id: 'party',
       label: 'Buyer / supplier',

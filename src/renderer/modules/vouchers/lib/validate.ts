@@ -36,7 +36,7 @@ export function clientIssues(f: VoucherForm, env: ClientCheckEnv): ClientIssues 
     first ??= id;
   };
 
-  if (env.numberingMethod === 'manual' && f.number.trim() === '' && f.id === null) add(headerId('number'), 'Enter the voucher number (this voucher type is numbered manually).');
+  if (env.numberingMethod === 'manual' && f.number.trim() === '' && !f.numberOverride && f.id === null) add(headerId('number'), 'Enter the voucher number (this voucher type is numbered manually).');
   if (partyRequired(f.baseType, f.mode) && f.mode !== 'ledger' && f.partyLedgerId === null) add(headerId('party'), 'Choose the party — the customer or supplier this voucher is for.');
   if (env.referenceRequired && f.referenceNo.trim() === '') add(headerId('referenceNo'), "Enter the supplier's invoice number — GST input credit is claimed against it.");
   if (f.mode === 'ledger' && f.layout === 'single' && singleEntryAccountSide(f.baseType) !== null && f.accountLedgerId === null) add(headerId('account'), 'Choose the cash or bank account.');

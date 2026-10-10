@@ -2,13 +2,15 @@
  * Screen pieces shared by the print screens: the paper preview and the template / page size /
  * copies controls.
  */
-import type { Ref } from 'react';
+import type { MouseEvent as ReactMouseEvent, Ref } from 'react';
 import type { InvoiceTemplate } from '../../../shared/settings.ts';
 import type { PrintCopy, PrintCopyLabels, PrintPageSize } from '../../../shared/types/print.ts';
 import { PRINT_COPIES, PRINT_PAGE_SIZES } from '../../../shared/types/print.ts';
+import { isPrintPartId, type PrintPartId } from '../../../shared/printLayout.ts';
 import { Banner, Checkbox, Field, Inline, ScrollArea, SegmentedControl, Select, Spinner } from '../../ui/index.ts';
 import { isRoll, PAGE_SIZE_LABELS, TEMPLATE_LABELS, toggleCopy } from './lib/layout.ts';
-import { DOCUMENT_CSS, previewCss } from './lib/styles.ts';
+import type { LayoutLayers } from './lib/layoutParts.ts';
+import { DOCUMENT_CSS, editingCss, previewCss } from './lib/styles.ts';
 import { PrintDocuments, type PrintItem } from './templates/PrintDocuments.tsx';
 
 const TEMPLATE_OPTIONS: ReadonlyArray<{ value: InvoiceTemplate; label: string }> = [
@@ -92,7 +94,18 @@ export function PrintControls({
   );
 }
 
-/** The documents drawn as sheets of paper. `rootRef` is the element that gets printed. */
+/** (2.0) Click-to-select while the layout editor is open: the clicked part and the selected one. */
+export interface PreviewEditing {
+  selected: PrintPartId | null;
+  onSelect: (id: PrintPartId) => void;
+}
+
+/**
+ * The documents drawn as sheets of paper. `rootRef` is the element that gets printed. `layers`: this
+ * print's layout layer (and the Invoice Printing draft's company layer). `editing`: the layout editor is
+ * open — parts are outlined on hover and a click selects the part's switch; the `.bp-editing` class and its
+ * styles stay on this container, outside the printed `.bp-docs` element.
+ */
 export function PreviewPane({
   items,
   template,
@@ -100,6 +113,9 @@ export function PreviewPane({
   rootRef,
   preparing,
   label = 'Print preview',
+  layers,
+  editing,
+  paneRef,
 }: {
   items: readonly PrintItem[];
   template: InvoiceTemplate;
@@ -107,17 +123,28 @@ export function PreviewPane({
   rootRef: Ref<HTMLDivElement>;
   preparing?: boolean;
   label?: string;
+  layers?: LayoutLayers;
+  editing?: PreviewEditing | null;
+  /** The scrollable preview region (focus returns here from the editor). */
+  paneRef?: Ref<HTMLDivElement>;
 }) {
+  const onClick = editing
+    ? (e: ReactMouseEvent<HTMLDivElement>): void => {
+        const target = e.target instanceof Element ? e.target.closest('[data-part]') : null;
+        const id = target?.getAttribute('data-part');
+        if (isPrintPartId(id)) editing.onSelect(id);
+      }
+    : undefined;
   return (
-    <ScrollArea className="bp-preview" aria-label={label} shadows>
-      <style>{DOCUMENT_CSS + previewCss(pageSize)}</style>
+    <ScrollArea ref={paneRef} className={editing ? 'bp-preview bp-editing' : 'bp-preview'} aria-label={label} shadows onClick={onClick}>
+      <style>{DOCUMENT_CSS + previewCss(pageSize) + (editing ? editingCss(editing.selected) : '')}</style>
       {preparing ? (
         <Inline gap={2}>
           <Spinner size="sm" decorative />
           <span>Preparing QR codes…</span>
         </Inline>
       ) : null}
-      <PrintDocuments items={items} template={template} pageSize={pageSize} rootRef={rootRef} />
+      <PrintDocuments items={items} template={template} pageSize={pageSize} rootRef={rootRef} layers={layers} />
     </ScrollArea>
   );
 }

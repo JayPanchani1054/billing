@@ -199,7 +199,7 @@ function Invoke-SmokeRun([string]$exe, [string]$version) {
   # Chromium's helper processes end just after the main process; an installer started before they are
   # gone would (rightly) find Pevqori running.
   $dir = Split-Path -Parent $exe
-  for ($i = 0; $i -lt 30 -and (Get-PevqoriProcesses $dir).Count -gt 0; $i++) { Start-Sleep -Seconds 1 }
+  for ($i = 0; $i -lt 30 -and @(Get-PevqoriProcesses $dir).Count -gt 0; $i++) { Start-Sleep -Seconds 1 }
   if (-not (Test-Path $logFile)) { throw "No log file was written ($logFile)" }
   $bytes = [System.IO.File]::ReadAllBytes($logFile)
   if ($bytes.Length -lt $offset) { $offset = 0 } # rotated
@@ -222,6 +222,8 @@ function Assert-ExeVersion([string]$exe, [string]$version) {
   }
 }
 
+# Pevqori.exe processes started from $dir. Callers count them as @(Get-PevqoriProcesses …).Count: with no
+# match the call yields $null, and StrictMode does not allow .Count on $null.
 function Get-PevqoriProcesses([string]$dir) {
   $exe = Join-Path $dir 'Pevqori.exe'
   return @(Get-Process -Name 'Pevqori' -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -eq $exe } catch { $false } })
@@ -232,8 +234,9 @@ function Invoke-Uninstall([string]$dir) {
   if (-not (Test-Path $uninstaller)) { return $false }
   $code = Invoke-Installer $uninstaller @('/S', '/currentuser')
   Assert-ExitCode $code 0 'The uninstaller'
-  # The uninstaller copies itself to %TEMP% and returns at once; wait for the program folder to go.
-  for ($i = 0; $i -lt 60 -and (Test-Path (Join-Path $dir 'Pevqori.exe')); $i++) { Start-Sleep -Seconds 1 }
+  # The uninstaller copies itself to %TEMP% and returns at once; wait for the program file and then the
+  # uninstall entry (removed last) to go.
+  for ($i = 0; $i -lt 90 -and ((Test-Path (Join-Path $dir 'Pevqori.exe')) -or (Get-UninstallEntries).Count -gt 0); $i++) { Start-Sleep -Seconds 1 }
   return $true
 }
 
@@ -344,7 +347,7 @@ try {
       Write-Step 'Closing Pevqori through its window (normal quit)'
       $null = $running.CloseMainWindow()
       if (-not $running.WaitForExit(60000)) { throw 'Pevqori did not quit within 60 s of closing its window' }
-      for ($i = 0; $i -lt 30 -and (Get-PevqoriProcesses $installDir).Count -gt 0; $i++) { Start-Sleep -Seconds 1 }
+      for ($i = 0; $i -lt 30 -and @(Get-PevqoriProcesses $installDir).Count -gt 0; $i++) { Start-Sleep -Seconds 1 }
       $running = $null
       Assert-ExitCode (Invoke-Installer $installerPath @('/S', '/currentuser')) $ExitInstalled 'Installing after Pevqori was closed'
       if ((Get-SingleEntry).Location -ne $installDir) { throw 'The retried install did not reuse the program folder' }

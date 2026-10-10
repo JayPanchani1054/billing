@@ -7,8 +7,12 @@
  * e-mail / WhatsApp share texts (`config.share`, saved together with `invoice`).
  * Ctrl+A saves, Alt+P prints the preview. The bank select lists 'print.bankLedgers' (active ledgers
  * under Bank Accounts and its sub-groups); a blank UPI ID uses the chosen bank ledger's UPI ID.
+ * (2.0) "Customize layout…" (Alt+L) opens the print preview's layout editor at company level over this
+ * preview: what it changes is part of the draft (`invoice.layout` and the Invoice Printing options that
+ * own a part or text) and is saved with Ctrl+A like the rest of the form.
  */
 import { useMemo, useRef, useState } from 'react';
+import { emptyPrintLayout, layoutWarnings, resolvePrintLayout, type PrintPartId } from '../../../shared/printLayout.ts';
 import type { CompanyConfig, InvoicePaperSize, InvoiceTemplate, ReceiptRollWidth } from '../../../shared/settings.ts';
 import { fillShareTemplate, shareTemplateErrors } from '../../../shared/shareText.ts';
 import type { InvoicePrintOptions, PrintCopy } from '../../../shared/types/print.ts';
@@ -25,6 +29,7 @@ import {
 } from '../../app/index.ts';
 import {
   Banner,
+  Button,
   Checkbox,
   Field,
   FieldGroup,
@@ -41,6 +46,8 @@ import {
   useToast,
 } from '../../ui/index.ts';
 import { PreviewPane } from './components.tsx';
+import { LayoutEditor } from './LayoutEditor.tsx';
+import { editorModel, LEGACY_FLAGS, LEGACY_TEXTS, resolveDocLayout, setLayerText, setPartShown, type EditorPartRow, type EditorTextRow } from './lib/layoutParts.ts';
 import { PAGE_SIZE_LABELS, pageSizeFor, resolveCopies, toggleCopy } from './lib/layout.ts';
 import { bankSelectOptions, normaliseOptions, previewOverrides, sameOptions, settingsErrors, type SettingsErrors } from './lib/screenState.ts';
 import { qrsOf, useDocumentQrs, usePrintActions } from './usePrinting.ts';
@@ -141,7 +148,43 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
   const pageSize = pageSizeFor(template, undefined, draft);
   const copies = doc ? resolveCopies(doc) : (['original'] as PrintCopy[]);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const printing = usePrintActions(rootRef, { docs: docs ?? [], pageSize, documents: 1, ready });
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  const layout = draft.layout ?? emptyPrintLayout();
+  const previewLayers = useMemo(() => ({ company: layout }), [layout]);
+  const resolved = useMemo(() => (doc ? resolveDocLayout(doc, previewLayers) : null), [doc, previewLayers]);
+  const printing = usePrintActions(rootRef, { docs: docs ?? [], pageSize, documents: 1, ready, pageNumbers: !resolved?.hidden.has('pageNumbers') });
+
+  // ── (2.0) Customize layout (company level): edits the draft; Ctrl+A saves it with the form ──
+  const [customizing, setCustomizing] = useState(false);
+  const [pick, setPick] = useState<{ id: PrintPartId; seq: number } | null>(null);
+  const model = useMemo(() => {
+    if (!doc || !customizing) return null;
+    const options = { ...doc.options };
+    for (const k of LEGACY_FLAGS) (options as Record<string, unknown>)[k] = draft[k];
+    for (const k of LEGACY_TEXTS) (options as Record<string, unknown>)[k] = draft[k];
+    return editorModel({
+      doc,
+      template,
+      pageSize,
+      level: 'company',
+      layers: { company: layout, voucherType: doc.savedLayout?.voucherType ?? emptyPrintLayout(), print: emptyPrintLayout() },
+      options,
+      baseOptions: options,
+      overrides: {},
+      vtConfig: null,
+      vtName: doc.voucherTypeName,
+    });
+  }, [doc, customizing, draft, layout, template, pageSize]);
+  const layoutLines = useMemo(() => (doc && resolved ? layoutWarnings(doc, resolved) : []), [doc, resolved]);
+  const onPart = (row: EditorPartRow, shown: boolean): void => {
+    if (row.flag) patch({ [row.flag]: shown });
+    else patch({ layout: setPartShown(layout, row.id, shown, resolvePrintLayout()) });
+  };
+  const onText = (row: EditorTextRow, value: string | null): void => {
+    if (row.option) patch({ [row.option]: value ?? '' });
+    else patch({ layout: setLayerText(layout, row.id, value) });
+  };
+  const layoutError = Object.entries(serverErrors).find(([k]) => k.startsWith('invoice.layout'));
 
   const formRef = useEnterAdvance<HTMLFormElement>({ onComplete: () => void submit() });
 
@@ -156,8 +199,61 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
         { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || !dirty || save.pending, hidden: readOnly },
         { key: 'Alt+P', label: 'Print preview', icon: 'print', onClick: () => void printing.print(), disabled: !doc || printing.busy !== null },
         { key: 'Alt+E', label: 'Save preview as PDF', icon: 'download', onClick: () => void printing.savePdf(), disabled: !doc || printing.busy !== null },
+        {
+          key: 'Alt+L',
+          label: customizing ? 'Back to the settings' : 'Customize layout…',
+          icon: 'sliders',
+          onClick: () => setCustomizing((c) => !c),
+          disabled: !doc,
+          group: 'layout',
+          hint: 'Show or hide any part and change any text on every document',
+          prominent: true,
+        },
       ]}
     >
+      {layoutError ? (
+        <Banner tone="danger" title="The layout could not be saved">
+          {layoutError[1]}
+        </Banner>
+      ) : null}
+      {customizing && doc && model ? (
+        <Grid columns="minmax(0, 1fr) 360px" gap={4} align="start">
+          <PreviewPane
+            items={[{ doc, copies: copies.slice(0, 1), qrs: qrsOf(qrs, doc.id) }]}
+            template={template}
+            pageSize={pageSize}
+            rootRef={rootRef}
+            paneRef={paneRef}
+            preparing={!ready}
+            label="Preview of the invoice layout"
+            layers={previewLayers}
+            editing={{ selected: pick?.id ?? null, onSelect: (pid) => setPick((p) => ({ id: pid, seq: (p?.seq ?? 0) + 1 })) }}
+          />
+          <LayoutEditor
+            model={model}
+            warnings={layoutLines}
+            onPart={onPart}
+            onText={onText}
+            pick={pick}
+            onEscape={() => paneRef.current?.focus()}
+            readOnly={readOnly}
+            description="Changes apply to every document unless its voucher type says otherwise. Ctrl+A saves them with the settings."
+            footer={
+              <Inline gap={2}>
+                <Button size="sm" variant="primary" icon="save" disabled={readOnly || !dirty || save.pending} onClick={() => void submit()}>
+                  Save
+                </Button>
+                <Button size="sm" disabled={readOnly || (layout.hide.length + layout.show.length + layout.text.length === 0)} onClick={() => patch({ layout: emptyPrintLayout() })}>
+                  Reset layout
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setCustomizing(false)}>
+                  Done
+                </Button>
+              </Inline>
+            }
+          />
+        </Grid>
+      ) : (
       <Grid columns="minmax(320px, 440px) minmax(0, 1fr)" gap={5} align="start">
         <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Invoice print settings">
           <Stack gap={5}>
@@ -252,10 +348,19 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
           </Inline>
           {real.error || sample.error ? <Banner tone="danger" title="Preview unavailable">{userMessage(real.error ?? sample.error)}</Banner> : null}
           {doc ? (
-            <PreviewPane items={[{ doc, copies: copies.slice(0, 1), qrs: qrsOf(qrs, doc.id) }]} template={template} pageSize={pageSize} rootRef={rootRef} preparing={!ready} label="Preview of the invoice layout" />
+            <PreviewPane
+              items={[{ doc, copies: copies.slice(0, 1), qrs: qrsOf(qrs, doc.id) }]}
+              template={template}
+              pageSize={pageSize}
+              rootRef={rootRef}
+              preparing={!ready}
+              label="Preview of the invoice layout"
+              layers={previewLayers}
+            />
           ) : null}
         </Stack>
       </Grid>
+      )}
     </Screen>
   );
 }

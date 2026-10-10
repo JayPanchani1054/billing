@@ -43,6 +43,9 @@ const BOWL = { cx: 236 + GX, cy: 212 + GY, R: 84, r: 84 - STROKE };
 const BOWL_FOOT = { x0: 178 + GX, y0: 212 + 84 - STROKE + GY, x1: 236 + GX, y1: 212 + 84 + GY };
 const LEG = { ax: 206 + GX, ay: 282 + GY, bx: 344 + GX, by: 404 + GY, hw: 18 };
 
+/** x² by multiplication: exact IEEE-754 on every engine (no Math.pow), so the output bytes never vary. */
+const sq = (v) => v * v;
+
 function inRect(x, y, b) {
   return x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1;
 }
@@ -65,7 +68,7 @@ function inCapsule(x, y, c) {
 
 function inBowl(x, y) {
   if (x < BOWL.cx) return false;
-  const d = (x - BOWL.cx) ** 2 + (y - BOWL.cy) ** 2;
+  const d = sq(x - BOWL.cx) + sq(y - BOWL.cy);
   return d <= BOWL.R * BOWL.R && d >= BOWL.r * BOWL.r;
 }
 
@@ -300,7 +303,7 @@ const XH = 10;
 const CAP = 14;
 
 function annulus(x, y, cx, cy, R, r) {
-  const d = (x - cx) ** 2 + (y - cy) ** 2;
+  const d = sq(x - cx) + sq(y - cy);
   return d <= R * R && d >= r * r;
 }
 
@@ -350,7 +353,7 @@ const GLYPHS = {
   },
   i: {
     width: S,
-    inside: (x, y) => box(x, y, 0, 0, S, XH) || (x - S / 2) ** 2 + (y - 12.7) ** 2 <= 1.4 * 1.4,
+    inside: (x, y) => box(x, y, 0, 0, S, XH) || sq(x - S / 2) + sq(y - 12.7) <= 1.4 * 1.4,
   },
 };
 const WORD = 'Pevqori';

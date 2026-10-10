@@ -20,12 +20,16 @@
 ; the installer while Pevqori finishes quitting — then give up with exit code 3. Pevqori is never killed.
 
 !macro _pevqoriAppRunning _RESULT
-  ; ${_RESULT} = 0 when a Pevqori.exe of this user is running (find.exe found it), non-zero otherwise.
-  !ifdef APP_EXECUTABLE_FILENAME
+  ; ${_RESULT} = 0 when Pevqori.exe is running (find.exe found it), non-zero otherwise. A per-user
+  ; installation runs only under this Windows account, so only this account's processes count. A
+  ; per-machine one ($installMode "all", set by electron-builder from the registry before this runs) is
+  ; shared by every account, so a copy open in another user's session (which also locks its files) counts.
+  ; APP_EXECUTABLE_FILENAME (Pevqori.exe) comes from electron-builder's common.nsh.
+  ${If} $installMode == "all"
+    nsExec::Exec `"$SYSDIR\cmd.exe" /c tasklist /FI "IMAGENAME eq ${APP_EXECUTABLE_FILENAME}" /NH | "$SYSDIR\find.exe" /I "${APP_EXECUTABLE_FILENAME}"`
+  ${Else}
     nsExec::Exec `"$SYSDIR\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${APP_EXECUTABLE_FILENAME}" /NH | "$SYSDIR\find.exe" /I "${APP_EXECUTABLE_FILENAME}"`
-  !else
-    nsExec::Exec `"$SYSDIR\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq Pevqori.exe" /NH | "$SYSDIR\find.exe" /I "Pevqori.exe"`
-  !endif
+  ${EndIf}
   Pop ${_RESULT}
 !macroend
 

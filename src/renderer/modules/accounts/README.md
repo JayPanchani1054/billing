@@ -62,8 +62,44 @@ itself), `filter?(row)`, plus the usual input props. `useGroups({ includeCounts?
 | `accounts.costCentres` | — (feature `costCentres`) | Categories + centre tree, dialogs for create/alter, Alt+D (or Ctrl+D) delete |
 | `accounts.currencies` | — (feature `multiCurrency`) | Currencies + exchange rates by date (upsert by date); Alt+D (or Ctrl+D) delete |
 | `accounts.voucherTypes` | — | Voucher types with numbering summary; Alt+C create based on highlighted, Alt+D (or Ctrl+D) delete |
-| `accounts.voucherType.form` | `{ id? \| parentId? \| baseType? }` | Numbering with live preview + GST invoice-number checks (alter: Alt+D delete, Alt+H edit history), behaviour switches, defaults, printing. A new type starts its own series (parent's method/padding/restart, no prefix, from 1 — as the core does) and the form warns when another active type of the same GST document kind issues identical numbers |
+| `accounts.voucherType.form` | `{ id? \| parentId? \| baseType? }` | Numbering with live preview + GST invoice-number checks (alter: Alt+D delete, Alt+H edit history), behaviour switches, defaults, printing. A new type starts its own series (parent's method/padding/restart, no prefix, from 1 — as the core does) and the form warns when another active type of the same GST document kind issues identical numbers. The Numbering group links to Invoice Numbering |
+| `accounts.numbering` | — | **Invoice Numbering** (2.0; Company menu, Home Essentials, Settings hub, Go To): every number series on one screen — see below |
 | `accounts.openingBalances` | — | Dr/Cr totals, difference explained, ledgers with openings (Enter alters). With integrated inventory the opening stock is read from `reports.trialBalance` (as on the books beginning) when the user may view reports, and included in the difference |
+
+### Invoice Numbering (`NumberingScreen.tsx`, 2.0 — SPEC §8.3)
+
+A focused facade over the voucher types' numbering; the Voucher Type form keeps every option.
+
+- **List** (treegrid "Number series"): group rows *Invoices & notes* (GST-numbered base types:
+  sales, credit / debit notes) then *Other vouchers* (collapsed; →/← or Enter on the group row);
+  columns Series · Example (today) · Restarts · Next no. · Vouchers this period. Data:
+  `accounts.voucherType.list` + one `accounts.voucherType.numberingStatus { date }` (staleTime 0 —
+  vouchers saved elsewhere move the next numbers). Enter / **Alt+A** edit · **Alt+C** Create series
+  (based on the highlighted row; the predefined Sales type when a group row is highlighted) · **Alt+H**
+  edit history (`security.audit`, voucher_type) · toolbar button *Voucher Types* (`accounts.voucherTypes`).
+- **Editor** (`SeriesDrawer`, modal drawer, md): prefix / suffix with token chips inserted at the caret
+  the field had when it lost focus (`insertToken`; refused past 16 characters as typed; each chip's
+  accessible name starts with its visible text, e.g. "FY 26-27 (insert {FY})"), Digits (0–9), Start at, the switch
+  "Start again from the first number every financial year" (on ⇒ `yearly`, off ⇒ `never`), Advanced:
+  "Start again every month" (`monthly`) with the one-click month fix (`monthFix`), the method radio,
+  "More options…" → `accounts.voucherType.form { id }` (asks to discard unsaved changes first). Next number (alteration of an automatic series;
+  read-only without `vouchers.renumber`, with the reason) + **Set** (`setNextNumber` alone, when the
+  scheme is unchanged). Preview = `describeScheme` (today, first number of the next FY, longest
+  length) with the next sequence of `previewNextSeq` — the number the core gives after the save (a typed
+  next number; a changed starting number lifts or releases it); after a restart change the counter of
+  the new period is seeded from the numbers already used on save, so the preview says "the next number
+  is worked out when you save" and the saved toast reads the real one (`numberingStatus { ids }`); checks = `checkNumberingScheme` + `seriesClashes`; the FY-uniqueness note for a GST series
+  that never restarts; Gaps of the financial year (`accounts.voucherType.numberGaps`, vouchers.view;
+  **Show** lists ≤ 200). An alteration opens once the series' status is current (not mid-refetch).
+- **Save** (Ctrl+A / Ctrl+S; masters.alter, else view only): `accounts.voucherType.save { id,
+  numbering }` with only the changed keys (`numberingPatch`; dated rows never sent), asking first when
+  the type already has vouchers; then `accounts.voucherType.setNextNumber` when the next number was
+  changed — its confirm warnings (skipped numbers, lowering below a used number) are listed in a
+  "Set the next number?" dialog and resent with `acknowledgeWarnings`. Create series =
+  `accounts.voucherType.save { parentId, name, numbering }` (the parent's method / digits / restart,
+  never its prefix or dated rows); the new type is entered with F10.
+- **Esc** closes the drawer, asking "Discard the changes to this series?" when something changed (the
+  screen is marked dirty meanwhile).
 
 ### Ledger form sections (`lib/ledgerSections.ts`, mirrors the core placement rules)
 
@@ -109,7 +145,10 @@ registered, else `accounts.ledger.form { id }`.
 `lib/groupClass.ts` (client classification = core `classFromChain`), `lib/ledgerSections.ts`,
 `lib/ledgerDraft.ts` (draft ↔ DTO, defaults, validation, patch input), `lib/gstin.ts` (live GSTIN
 autofill + registration rules), `lib/openingBills.ts` (sum check, row validation, index remap),
-`lib/numbering.ts` (preview + GST number checks = core `checkNumbering`), `lib/chartTree.ts`,
+`lib/numbering.ts` (preview + GST number checks = core `checkNumbering`; the GST constants come
+from `shared/numbering.ts`; 2.0: the Invoice Numbering list rows, token chips and caret insert,
+restart switches, month fix, FY-uniqueness note, draft ↔ key-level patch, next-number checks, preview,
+confirm warnings, gaps summary), `lib/chartTree.ts`,
 `lib/ledgerFilters.ts` (chips, opening explanation), `lib/bulkRows.ts`, `lib/gotoItems.ts`.
 
 `lib/coreContract.test.ts` drives the ledger form model and the numbering mirror against the real

@@ -6,7 +6,9 @@
  *   <GroupPicker value={groupId} onChange={(id, row) => …} allowCreate />
  *
  * Both are type-ahead Pickers (ui/Combobox): Enter selects, Tab selects and moves on, Alt+C opens
- * the master form with the typed text (create-and-return) and selects the new master.
+ * the master form with the typed text (create-and-return) and selects the new master. (2.0) A ledger
+ * picker for customers or suppliers (classes ['debtor'] / ['creditor']) opens the quick dialog
+ * (QuickPartyDialog.tsx) instead; its "Full form…" opens the ledger form as before.
  */
 import { useCallback, useMemo, useState } from 'react';
 import type { ReactNode, Ref } from 'react';
@@ -18,6 +20,8 @@ import { useCan } from '../../app/state.tsx';
 import { Picker } from '../../ui/index.ts';
 import type { ControlSize } from '../../ui/index.ts';
 import { groupCodeForClasses } from './lib/groupClass.ts';
+import { quickPartyGroup } from '../vouchers/lib/quickParty.ts';
+import { QuickPartyDialog } from './QuickPartyDialog.tsx';
 
 // ───────────────────────────── Ledgers ─────────────────────────────
 
@@ -106,6 +110,8 @@ export function LedgerPicker(props: LedgerPickerProps) {
   const { rows, byId } = useLedgerPicker(props);
   const createCode = allowCreate ? groupCodeForClasses(props.classes) : null;
   const [created, setCreated] = useState<{ id: number; name: string } | null>(null);
+  const [quickName, setQuickName] = useState<string | null>(null);
+  const quickGroup = quickPartyGroup(createCode);
   const items = useMemo(() => {
     if (!excludeIds || excludeIds.length === 0) return rows;
     const ex = new Set(excludeIds);
@@ -114,6 +120,14 @@ export function LedgerPicker(props: LedgerPickerProps) {
   const selected = value === null ? null : (byId.get(value) ?? (created && created.id === value ? pendingRow(created.id, created.name) : null));
 
   const create = async (typed: string) => {
+    if (quickGroup) {
+      setQuickName(typed.trim());
+      return;
+    }
+    await fullForm(typed);
+  };
+
+  const fullForm = async (typed: string) => {
     const params: Record<string, unknown> = { initialName: typed.trim(), forResult: true };
     // The form resolves the reserved code to the group (lib/groupClass.ts › initialGroupId).
     if (createCode !== null) params.groupCode = createCode;
@@ -123,7 +137,7 @@ export function LedgerPicker(props: LedgerPickerProps) {
     onChange(out.id, byId.get(out.id) ?? null);
   };
 
-  return (
+  const picker = (
     <Picker<LedgerPickerRow>
       ref={ref}
       id={id}
@@ -150,6 +164,26 @@ export function LedgerPicker(props: LedgerPickerProps) {
       size={size}
       emptyText={emptyText ?? (allowCreate ? 'No ledger matches — press Alt+C to create it' : 'No ledger matches')}
     />
+  );
+  if (quickName === null || !quickGroup) return picker;
+  return (
+    <>
+      {picker}
+      <QuickPartyDialog
+        group={quickGroup}
+        initialName={quickName}
+        onCreated={(out) => {
+          setQuickName(null);
+          setCreated(out);
+          onChange(out.id, byId.get(out.id) ?? null);
+        }}
+        onFullForm={(name) => {
+          setQuickName(null);
+          void fullForm(name);
+        }}
+        onClose={() => setQuickName(null)}
+      />
+    </>
   );
 }
 

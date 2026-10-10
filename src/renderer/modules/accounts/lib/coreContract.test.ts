@@ -20,7 +20,8 @@ import { applyGstin, gstinProblem } from './gstin.ts';
 import { applyGroupDefaults, buildSaveInput, draftFromDetail, emptyLedgerDraft, validateLedgerDraft } from './ledgerDraft.ts';
 import type { LedgerDraft } from './ledgerDraft.ts';
 import { ledgerSections } from './ledgerSections.ts';
-import { newTypeNumbering } from './numbering.ts';
+import { numberingStatus, setNextNumber } from '../../../../core/modules/accounts/numbering.ts';
+import { buildSeriesRows, checkNumbering, draftFromNumbering, draftNumbering, monthFix, newSeriesNumbering, newTypeNumbering, nextNumberProblem, numberingPatch, previewNextSeq } from './numbering.ts';
 
 const TODAY = '2026-06-15';
 const t = createTestCompany({ gst: true, stateCode: '27', today: TODAY });
@@ -156,5 +157,107 @@ describe('voucher type numbering ↔ accounts core', () => {
     const created = saveVoucherType(t.ctx, { name: 'Cash Sales', parentId: sales.id });
     assert.deepEqual(created.numbering, newTypeNumbering(parent.numbering));
     assert.equal(created.numbering.prefix, null);
+  });
+});
+
+describe('Invoice Numbering editor ↔ accounts core (2.0)', () => {
+  const salesType = () => {
+    const v = listVoucherTypes(t.db).rows.find((x) => x.isPredefined && x.baseType === 'sales');
+    assert.ok(v);
+    return v;
+  };
+
+  it('an untouched editor sends nothing; an edit sends only its keys and keeps the dated rows', () => {
+    const sales = salesType();
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { prefix: 'INV/', width: 4, restart: 'yearly', prefixRows: [{ applicableFrom: '2027-04-01', text: 'B/{FY}/' }] } });
+    const base = getVoucherType(t.db, sales.id).numbering;
+    assert.equal(numberingPatch(base, draftFromNumbering(base, 1)), null);
+    const d = { ...draftFromNumbering(base, 1), prefix: 'INV/{FY}/', restart: 'never' as const };
+    const patch = numberingPatch(base, d);
+    assert.deepEqual(patch, { prefix: 'INV/{FY}/', restart: 'never' });
+    saveVoucherType(t.ctx, { id: sales.id, numbering: patch ?? {} });
+    const stored = getVoucherType(t.db, sales.id).numbering;
+    assert.deepEqual(stored, draftNumbering(base, d));
+    assert.deepEqual(stored.prefixRows, [{ applicableFrom: '2027-04-01', text: 'B/{FY}/' }]);
+    // Back to a yearly restart for the next cases.
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { restart: 'yearly', prefixRows: [] } });
+  });
+
+  it('the list shows the next number the core gives', () => {
+    const rows = buildSeriesRows(listVoucherTypes(t.db).rows, numberingStatus(t.db, { date: TODAY }), TODAY);
+    const sales = rows.find((r) => r.kind === 'series' && r.type.id === salesType().id);
+    assert.ok(sales && sales.kind === 'series');
+    assert.deepEqual([sales.group, sales.example, sales.next, sales.restarts], ['gst', 'INV/26-27/0001', 'INV/26-27/0001', 'Every financial year']);
+    assert.equal(rows[0].kind === 'group' ? rows[0].label : '', 'Invoices & notes');
+  });
+
+  it('the month fix gives a scheme the core accepts; without it the core refuses a monthly GST restart', () => {
+    const sales = salesType();
+    // INV/{FY}/{MM}/ is 13 characters at most: 3 digits keep the number within GST's 16 (with 4 the
+    // core and the editor both report "17 characters" — the fix cures the restart, not the length).
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { width: 3 } });
+    const base = getVoucherType(t.db, sales.id).numbering;
+    const monthly = draftNumbering(base, { ...draftFromNumbering(base, 1), restart: 'monthly' });
+    const wide = monthFix('sales', { ...monthly, width: 4 }, true);
+    assert.equal(wide, 'INV/{FY}/{MM}/');
+    assert.match(checkNumbering('sales', { ...monthly, width: 4, prefix: wide }, true).errors[0]?.message ?? '', /17 characters/);
+    assert.equal(checkNumbering('sales', monthly, true).errors.length, 1);
+    assert.throws(() => saveVoucherType(t.ctx, { id: sales.id, numbering: { restart: 'monthly' } }), AppError);
+    const prefix = monthFix('sales', monthly, true);
+    assert.equal(prefix, 'INV/{FY}/{MM}/');
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { restart: 'monthly', prefix } });
+    assert.equal(getVoucherType(t.db, sales.id).numbering.restart, 'monthly');
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { restart: 'yearly', prefix: 'INV/{FY}/', width: 4 } });
+  });
+
+  it('next number: the client refuses what the core refuses (below the start); a valid one is set', () => {
+    const sales = salesType();
+    assert.match(nextNumberProblem(0, 1) ?? '', /whole number/);
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { start: 10 } });
+    assert.match(nextNumberProblem(5, 10) ?? '', /starts at 10/);
+    assert.throws(() => setNextNumber(t.ctx, { id: sales.id, date: TODAY, next: 5 }), AppError);
+    assert.equal(nextNumberProblem(41, 10), null);
+    // Jumping ahead skips numbers: confirmed, then set.
+    assert.throws(() => setNextNumber(t.ctx, { id: sales.id, date: TODAY, next: 41 }), AppError);
+    assert.equal(setNextNumber(t.ctx, { id: sales.id, date: TODAY, next: 41, acknowledgeWarnings: true }).next, 'INV/26-27/0041');
+    const [status] = numberingStatus(t.db, { ids: [sales.id], date: TODAY });
+    assert.equal(draftFromNumbering(getVoucherType(t.db, sales.id).numbering, status.nextSeq).next, 41);
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { start: 1 } });
+  });
+
+  it('the preview\'s next number is the one the core gives after the save (start changes); unknown after a restart change', () => {
+    const sales = salesType();
+    const next = () => numberingStatus(t.db, { ids: [sales.id], date: TODAY })[0];
+    const draftNow = () => draftFromNumbering(getVoucherType(t.db, sales.id).numbering, next().nextSeq);
+    // Raise the starting number above the next number, then lower it again.
+    for (const start of [100, 1]) {
+      const initial = draftNow();
+      const d = { ...initial, start };
+      const predicted = previewNextSeq(d, initial, next());
+      saveVoucherType(t.ctx, { id: sales.id, numbering: numberingPatch(getVoucherType(t.db, sales.id).numbering, d) ?? {} });
+      assert.equal(next().nextSeq, predicted, `start ${start}`);
+    }
+    // A series that never restarts keeps its own counter ('all'): switching to it gives THAT counter's
+    // next number, not this year's — so the editor shows "worked out when you save".
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { restart: 'never' } });
+    setNextNumber(t.ctx, { id: sales.id, date: TODAY, next: 500, acknowledgeWarnings: true });
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { restart: 'yearly' } });
+    const initial = draftNow();
+    const d = { ...initial, restart: 'never' as const };
+    assert.equal(previewNextSeq(d, initial, next()), null);
+    saveVoucherType(t.ctx, { id: sales.id, numbering: numberingPatch(getVoucherType(t.db, sales.id).numbering, d) ?? {} });
+    assert.notEqual(next().nextSeq, initial.next);
+    assert.equal(next().nextSeq, 500);
+    saveVoucherType(t.ctx, { id: sales.id, numbering: { restart: 'yearly' } });
+  });
+
+  it('Create series: a child type with its own prefix and the parent\'s digits, method and restart', () => {
+    const sales = salesType();
+    const parent = getVoucherType(t.db, sales.id).numbering;
+    const plain = newSeriesNumbering(parent);
+    const d = { ...draftFromNumbering(plain, null, 'Export Sales'), prefix: 'EXP/' };
+    const created = saveVoucherType(t.ctx, { parentId: sales.id, name: d.name, numbering: draftNumbering(plain, d) });
+    assert.deepEqual([created.baseType, created.parentId, created.numbering.prefix, created.numbering.width, created.numbering.restart], ['sales', sales.id, 'EXP/', parent.width, parent.restart]);
+    assert.equal(created.numbering.prefixRows, undefined);
   });
 });

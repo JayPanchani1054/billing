@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { DEFAULT_CONFIG } from '../../../../shared/settings.ts';
 import { assertPrintableMarkup, buildPrintHtml } from './document.ts';
-import { DOCUMENT_CSS, pageCss, previewCss } from './styles.ts';
+import { DOCUMENT_CSS, editingCss, pageCss, previewCss } from './styles.ts';
 import { bankSelectOptions, normaliseOptions, previewOverrides, sameOptions, settingsErrors, cycle, orderedSelection, toggleAll, toggleId, batchKind } from './screenState.ts';
 
 describe('printable HTML document', () => {
@@ -23,6 +23,29 @@ describe('printable HTML document', () => {
     assert.doesNotMatch(pageCss('80mm', { pageNumbers: 'of' }), /counter/);
     assert.match(pageCss('80mm', { pageNumbers: 'of' }), /size: 80mm 297mm; margin: 0;/, 'unmeasured roll: an A4 length');
     assert.doesNotMatch(pageCss('A4', { pageNumbers: 'of' }), /72mm/);
+  });
+
+  it('(2.0) page numbers hidden by the print layout: no counter at all, on one document or several', () => {
+    for (const documents of [1, 3]) {
+      const html = buildPrintHtml({ title: 't', body: '<div></div>', pageSize: 'A4', documents, pageNumbers: false });
+      assert.doesNotMatch(html, /counter\(page/);
+      assert.match(html, /@page \{ size: A4 portrait; margin: 10mm 10mm 12mm;  \}/);
+    }
+    assert.match(buildPrintHtml({ title: 't', body: '<div></div>', pageSize: 'A4', documents: 1, pageNumbers: true }), /counter\(pages\)/, 'shown: as before');
+    assert.equal(pageCss('Legal', { pageNumbers: 'none' }).includes('@bottom-right'), false);
+  });
+
+  it('(2.0) data-part attributes are printable; the editing outlines never reach the printed HTML', () => {
+    assert.doesNotThrow(() => assertPrintableMarkup('<div class="bp-docs"><article class="bp-doc" data-part="title"><td data-part="col.hsn">1006</td></article></div>'));
+    const html = buildPrintHtml({ title: 't', body: '<div class="bp-docs"><h2 class="bp-title" data-part="title">Tax Invoice</h2></div>', pageSize: 'A4', documents: 1 });
+    assert.doesNotMatch(html, /bp-editing|outline/);
+    assert.match(editingCss('col.hsn'), /\.bp-editing \[data-part="col\.hsn"\] \{ outline: 2px solid/);
+    assert.doesNotMatch(editingCss('x"] body { color: red } [a="'), /color: red/, 'only catalogue-shaped ids reach the stylesheet');
+    assert.doesNotMatch(editingCss(null), /2px solid/);
+    for (const css of [editingCss('title'), editingCss(null)]) {
+      assert.doesNotMatch(css, /<\/style/i);
+      assert.match(css, /^\s*\.bp-editing /, 'scoped to the preview container');
+    }
   });
 
   it('rolls are continuous: the page is the roll width by the measured receipt length, edge to edge', () => {
@@ -121,5 +144,12 @@ describe('screen state helpers', () => {
     assert.equal(o.showUpiQr, false);
     assert.equal(o.copies, undefined);
     assert.equal(previewOverrides({ ...base, upiId: ' ab@okaxis ' }).upiId, 'ab@okaxis');
+  });
+  it('(2.0) dirty check compares the layout layer by content', () => {
+    const base = DEFAULT_CONFIG.invoice;
+    const same = { ...base, layout: { hide: [], show: [], text: [] } };
+    assert.equal(sameOptions(base, same), true, 'an equal copy of the layer is not a change');
+    assert.equal(sameOptions(base, { ...base, layout: { hide: ['logo'], show: [], text: [] } }), false);
+    assert.equal(sameOptions(base, { ...base, layout: { hide: [], show: [], text: [{ id: 'footer', value: 'Thank you' }] } }), false);
   });
 });

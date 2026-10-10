@@ -3,10 +3,12 @@
  *
  *   <LedgerCombo rows={ledgers.rows} slot="party" baseType="sales" value={id} onChange={…} onRefetch={ledgers.refetch} />
  *
- * `rows` is the screen's one cached list; the slot narrows it (ledgerAllowed). Alt+C opens
- * 'accounts.ledger.form' for a result with the typed name under the group that fits the slot
- * (createGroupCode: customer / supplier / sales / purchase / bank) and selects the ledger it returns —
- * unless the user moved it to a group this slot refuses, which is explained instead (the save would fail).
+ * `rows` is the screen's one cached list; the slot narrows it (ledgerAllowed). Alt+C creates a ledger
+ * with the typed name under the group that fits the slot (createGroupCode: customer / supplier / sales /
+ * purchase / bank) and selects it: a customer or supplier through the quick dialog (2.0,
+ * accounts/QuickPartyDialog.tsx — name, GSTIN, state, mobile, e-mail, address; "Full form…" opens the
+ * ledger form), anything else through 'accounts.ledger.form' opened for a result — unless the user moved
+ * it to a group this slot refuses, which is explained instead (the save would fail).
  */
 import { memo, useMemo, useState } from 'react';
 import type { Ref } from 'react';
@@ -18,6 +20,9 @@ import { Combobox, useToast } from '../../../ui/index.ts';
 import type { ControlSize } from '../../../ui/index.ts';
 import { createdLedgerProblem, createGroupCode, ledgerAllowed, slotNoun } from '../lib/masters.ts';
 import type { LedgerSlot } from '../lib/masters.ts';
+import { quickPartyGroup } from '../lib/quickParty.ts';
+import type { QuickPartyGroup } from '../lib/quickParty.ts';
+import { QuickPartyDialog } from '../../accounts/QuickPartyDialog.tsx';
 
 export interface LedgerComboProps {
   rows: readonly LedgerPickerRow[];
@@ -88,10 +93,26 @@ export const LedgerCombo = memo(function LedgerCombo(props: LedgerComboProps) {
     return created && created.id === value ? pendingRow(created.id, created.name) : pendingRow(value, '…');
   }, [rows, value, created]);
 
+  const [quick, setQuick] = useState<{ group: QuickPartyGroup; name: string } | null>(null);
+
   const create = async (typed: string) => {
     const groupCode = createGroupCode(slot, baseType, direction);
+    // 2.0: a customer / supplier is created in the quick dialog (the full form stays one click away).
+    const quickGroup = quickPartyGroup(groupCode);
+    if (quickGroup) {
+      setQuick({ group: quickGroup, name: typed.trim() });
+      return;
+    }
+    await fullForm(typed, groupCode);
+  };
+
+  const fullForm = async (typed: string, groupCode: ReturnType<typeof createGroupCode>) => {
     const out = await nav.pushForResult<{ id: number; name: string }>('accounts.ledger.form', { initialName: typed.trim(), forResult: true, ...(groupCode ? { groupCode } : {}) });
     if (!out) return;
+    await select(out);
+  };
+
+  const select = async (out: { id: number; name: string }) => {
     onRefetch?.();
     // The form lets the user change the group: only select a ledger this place accepts.
     try {
@@ -110,7 +131,7 @@ export const LedgerCombo = memo(function LedgerCombo(props: LedgerComboProps) {
   };
 
   const noun = slotNoun(slot, baseType);
-  return (
+  const combo = (
     <Combobox<LedgerPickerRow>
       ref={ref}
       id={props.id}
@@ -138,5 +159,24 @@ export const LedgerCombo = memo(function LedgerCombo(props: LedgerComboProps) {
       openOnFocus={props.openOnFocus}
       listMinWidth={360}
     />
+  );
+  if (!quick) return combo;
+  return (
+    <>
+      {combo}
+      <QuickPartyDialog
+        group={quick.group}
+        initialName={quick.name}
+        onCreated={(out) => {
+          setQuick(null);
+          void select(out);
+        }}
+        onFullForm={(name) => {
+          setQuick(null);
+          void fullForm(name, quick.group);
+        }}
+        onClose={() => setQuick(null)}
+      />
+    </>
   );
 });

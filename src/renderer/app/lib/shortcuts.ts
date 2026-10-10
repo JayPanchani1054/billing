@@ -92,6 +92,7 @@ export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'Y, Ctrl+A', label: 'Yes / confirm', group: 'Dialogs', global: false },
   { keys: 'N, Escape', label: 'No / cancel', group: 'Dialogs', global: false },
   { keys: 'Ctrl+S', label: 'Accept / save (same as Ctrl+A)', group: 'Forms', global: false, description: 'Works wherever Ctrl+A accepts or saves' },
+  { keys: 'Ctrl+R', label: 'Change the voucher number (voucher entry and view)', group: 'Forms', global: false, description: 'Needs the “Change voucher numbers and the next number” permission; kept in the edit log' },
 ];
 
 /** Keys feature screens must NOT bind (they belong to the shell). */

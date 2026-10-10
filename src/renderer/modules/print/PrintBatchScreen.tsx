@@ -1,7 +1,8 @@
 /**
  * 'print.batch' {ids?} — print several vouchers in one go.
  *  - With `ids`: combined preview of those vouchers (each with its copies), Print all (Alt+P),
- *    Save as one PDF (Alt+E).
+ *    Save as one PDF (Alt+E). (2.0) Each document prints with its saved print layouts (company ‹ voucher
+ *    type); hidden statutory particulars are listed with the other warnings.
  *  - Without: pick vouchers of the period (Alt+F2) by kind; Space / Enter ticks a row, Alt+A ticks
  *    all, Ctrl+A previews the ticked vouchers.
  */
@@ -10,10 +11,12 @@ import type { InvoiceTemplate } from '../../../shared/settings.ts';
 import type { PrintCopy, PrintPageSize } from '../../../shared/types/print.ts';
 import { PRINT_BATCH_MAX, PRINT_COPIES, PRINT_PAGE_SIZES } from '../../../shared/types/print.ts';
 import type { VoucherListRow } from '../../../shared/types/vouchers.ts';
+import { layoutWarnings } from '../../../shared/printLayout.ts';
 import { Screen, useApiQuery, useNav, usePeriod, type ScreenProps } from '../../app/index.ts';
 import { Badge, Button, Checkbox, DataTable, EmptyState, Inline, Select, Stack, type Column } from '../../ui/index.ts';
 import { PreviewPane, PrintControls, WarningsBanner } from './components.tsx';
 import { isRoll, pageSizeFor, resolveCopies, templateForPageSize, toggleCopy } from './lib/layout.ts';
+import { layoutDoc, pageNumbersShown, resolveDocLayout } from './lib/layoutParts.ts';
 import { BATCH_KINDS, batchKind, cycle, orderedSelection, toggleAll, toggleId } from './lib/screenState.ts';
 import { qrsOf, useDocumentQrs, usePrintActions, usePrinterChoice } from './usePrinting.ts';
 
@@ -44,7 +47,8 @@ function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate
   const items = useMemo(() => (docs ?? []).map((doc) => ({ doc, copies: resolveCopies(doc, copiesChoice), qrs: qrsOf(qrs, doc.id) })), [docs, copiesChoice, qrs]);
   const pages = items.reduce((a, it) => a + it.copies.length, 0);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const actions = usePrintActions(rootRef, { docs: docs ?? [], pageSize, documents: pages, ready, deviceName: printer.printer || undefined });
+  const pageNumbers = useMemo(() => pageNumbersShown((docs ?? []).map((d) => layoutDoc(d))), [docs]);
+  const actions = usePrintActions(rootRef, { docs: docs ?? [], pageSize, documents: pages, ready, deviceName: printer.printer || undefined, pageNumbers });
   const shownCopies = copiesChoice ?? (first ? resolveCopies(first) : ['original' as PrintCopy]);
 
   const setTemplate = (t: InvoiceTemplate): void => {
@@ -61,7 +65,7 @@ function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate
     const out: string[] = [];
     const missing = q.data?.notFound.length ?? 0;
     if (missing > 0) out.push(`${missing} voucher${missing === 1 ? ' was' : 's were'} deleted since the list was made and will not print.`);
-    for (const d of docs ?? []) for (const w of d.warnings) out.push(`${d.title} ${d.number ?? ''}: ${w}`);
+    for (const d of docs ?? []) for (const w of [...d.warnings, ...layoutWarnings(d, resolveDocLayout(d))]) out.push(`${d.title} ${d.number ?? ''}: ${w}`);
     return out;
   }, [docs, q.data]);
 

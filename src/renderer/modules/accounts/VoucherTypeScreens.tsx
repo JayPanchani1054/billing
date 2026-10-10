@@ -503,6 +503,12 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
               </>
             ) : null}
           </FieldGroup>
+          {/* 2.0: the simple editor of every number series (and the next number, the gaps of the year). */}
+          <div data-enter-skip="">
+            <Button variant="link" icon="hash" onClick={() => nav.push('accounts.numbering')}>
+              Open Invoice Numbering
+            </Button>
+          </div>
 
           {automatic ? (
             <FieldGroup legend="Prefix / suffix from a date" description="A row replaces the prefix or suffix for vouchers dated on or after its date, e.g. a new series from 1-Apr. Numbers already given never change.">

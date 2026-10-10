@@ -1,7 +1,8 @@
 /**
  * Printed "Paid by" / "Refunded by" block of a POS bill or return (rendered by the print templates:
  * Compact receipt, Modern and Classic invoices; nothing for other documents). Print classes only
- * (bp-*), so the preview and the printed HTML look the same.
+ * (bp-*), so the preview and the printed HTML look the same. `data-part="pos"`: the print layout part
+ * (2.0 preview editor).
  */
 import type { PrintVoucherData } from '../../../shared/types/print.ts';
 import { posPrintRows } from './lib/print.ts';
@@ -14,7 +15,7 @@ export function PosPrintBlock({ doc, compact = false }: { doc: PrintVoucherData;
     return (
       <>
         <div className="bp-c-rule" />
-        <table>
+        <table data-part="pos">
           <tbody>
             <tr>
               <td colSpan={2}>
@@ -29,12 +30,16 @@ export function PosPrintBlock({ doc, compact = false }: { doc: PrintVoucherData;
             ))}
           </tbody>
         </table>
-        {footer ? <div className="bp-small">{footer}</div> : null}
+        {footer ? (
+          <div className="bp-small" data-part="pos">
+            {footer}
+          </div>
+        ) : null}
       </>
     );
   }
   return (
-    <section className="bp-avoid">
+    <section className="bp-avoid" data-part="pos">
       <table className="bp-taxsum">
         <thead>
           <tr>

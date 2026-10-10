@@ -9,6 +9,7 @@ import type { NativePageSize } from '../../../../shared/bridge.ts';
 import type { InvoicePaperSize, InvoiceTemplate, ReceiptRollWidth } from '../../../../shared/settings.ts';
 import type { PrintAddress, PrintCopy, PrintLine, PrintPageSize, PrintVoucherData } from '../../../../shared/types/print.ts';
 import { PRINT_COPIES, PRINT_PAGE_SIZES } from '../../../../shared/types/print.ts';
+import { isPartShown, type PrintPartId } from '../../../../shared/printLayout.ts';
 
 // ───────────────────────────── Formatting ─────────────────────────────
 
@@ -177,8 +178,19 @@ export interface LabelValue {
   value: string;
 }
 
+/** A header-grid entry with the print part it belongs to (click-to-select and the layout editor). */
+export interface HeaderRef extends LabelValue {
+  /** Catalogue part (shared/printLayout.ts); absent for the reverse-charge line, which no part owns. */
+  part?: PrintPartId;
+}
+
 /** Number / date / place of supply / reverse charge / e-way bill / references for the header grid. */
 export function headerRefs(doc: PrintVoucherData): LabelValue[] {
+  return headerRefsWithParts(doc).map((r) => ({ label: r.label, value: r.value }));
+}
+
+/** headerRefs with each entry's print part: doc.number, doc.date, refs, originalInvoice, placeOfSupply, ewayBill. */
+export function headerRefsWithParts(doc: PrintVoucherData): HeaderRef[] {
   const noLabel =
     doc.layout === 'voucher'
       ? 'Voucher No.'
@@ -195,32 +207,40 @@ export function headerRefs(doc: PrintVoucherData): LabelValue[] {
             : doc.layout === 'inventory'
               ? 'Voucher No.'
               : 'Invoice No.';
-  const out: LabelValue[] = [
-    { label: noLabel, value: doc.number ?? '—' },
-    { label: 'Dated', value: dateText(doc.date) },
+  const out: HeaderRef[] = [
+    { label: noLabel, value: doc.number ?? '—', part: 'doc.number' },
+    { label: 'Dated', value: dateText(doc.date), part: 'doc.date' },
   ];
   if (doc.referenceNo) {
     const label = doc.baseType === 'purchase' || doc.baseType === 'debit_note' ? 'Supplier Invoice No.' : 'Reference No.';
-    out.push({ label, value: doc.referenceDate ? `${doc.referenceNo} dated ${dateText(doc.referenceDate)}` : doc.referenceNo });
+    out.push({ label, value: doc.referenceDate ? `${doc.referenceNo} dated ${dateText(doc.referenceDate)}` : doc.referenceNo, part: 'refs' });
   }
   if (doc.originalInvoice) {
-    out.push({ label: 'Against Invoice', value: doc.originalInvoice.date ? `${doc.originalInvoice.number} dated ${dateText(doc.originalInvoice.date)}` : doc.originalInvoice.number });
-    if (doc.originalInvoice.reason) out.push({ label: 'Reason', value: doc.originalInvoice.reason });
+    out.push({ label: 'Against Invoice', value: doc.originalInvoice.date ? `${doc.originalInvoice.number} dated ${dateText(doc.originalInvoice.date)}` : doc.originalInvoice.number, part: 'originalInvoice' });
+    if (doc.originalInvoice.reason) out.push({ label: 'Reason', value: doc.originalInvoice.reason, part: 'originalInvoice' });
   }
-  if (doc.placeOfSupply && doc.layout !== 'voucher') out.push({ label: 'Place of Supply', value: doc.placeOfSupply.label });
+  if (doc.placeOfSupply && doc.layout !== 'voucher') out.push({ label: 'Place of Supply', value: doc.placeOfSupply.label, part: 'placeOfSupply' });
   if (doc.layout === 'invoice' && doc.gst.showTax) out.push({ label: 'Reverse Charge', value: doc.reverseCharge ? 'Yes' : 'No' });
-  if (doc.ewayBill) out.push({ label: 'e-Way Bill No.', value: doc.ewayBill.date ? `${doc.ewayBill.number} dated ${dateText(doc.ewayBill.date)}` : doc.ewayBill.number });
-  return [...out, ...doc.references];
+  if (doc.ewayBill) out.push({ label: 'e-Way Bill No.', value: doc.ewayBill.date ? `${doc.ewayBill.number} dated ${dateText(doc.ewayBill.date)}` : doc.ewayBill.number, part: 'ewayBill' });
+  return [...out, ...doc.references.map((r): HeaderRef => ({ label: r.label, value: r.value, part: 'refs' }))];
 }
 
 // ───────────────────────────── Item table columns ─────────────────────────────
 
 export interface ItemColumns {
+  /** (2.0) Serial number column (layout part `col.sno`). */
+  sno: boolean;
   hsn: boolean;
   batch: boolean;
   qty: boolean;
+  /** (2.0) The unit next to quantities (and the classic "per" column) — layout part `col.unit`. */
+  unit: boolean;
   rate: boolean;
   discount: boolean;
+  /** (2.0) Per-line GST rate column (Modern: when there are no per-line tax columns) — `col.gstRate`. */
+  gstRate: boolean;
+  /** (2.0) Taxable-value column of the per-line tax layout (Modern) — `col.taxable`. */
+  taxable: boolean;
   /** (print group) MRP per unit (items with an MRP, when the MRP column is on). */
   mrp: boolean;
   /** Per-line taxable value + tax columns. */
@@ -230,25 +250,43 @@ export interface ItemColumns {
   cgstSgst: boolean;
   cess: boolean;
   amount: boolean;
+  /** (2.0) Per-line tax head columns actually printed (heads present, `lineTax` on, `col.cgst` … not hidden). */
+  lineHeads: { cgst: boolean; sgst: boolean; igst: boolean; cess: boolean };
 }
 
+/**
+ * Columns of the item table: what the data and the options call for, ANDed with the parts a print layout
+ * did not hide (`doc.applied`, shared/printLayout.ts). A column never shows without data.
+ */
 export function itemColumns(doc: PrintVoucherData, opts: { pageSize: PrintPageSize; template: InvoiceTemplate }): ItemColumns {
   const lines = doc.lines;
+  const shown = (id: PrintPartId): boolean => isPartShown(doc, id);
   const narrow = opts.pageSize !== 'A4' && opts.pageSize !== 'Letter' && opts.pageSize !== 'Legal' && opts.pageSize !== 'A5-landscape';
   const priced = doc.layout !== 'inventory' || lines.some((l) => (l.rate ?? 0) !== 0 || l.amount !== 0);
   const heads = taxHeads(doc);
+  const lineTax = doc.layout === 'invoice' && doc.gst.showTax && doc.options.itemwiseTax && !narrow && opts.template !== 'compact';
   return {
-    hsn: lines.some((l) => !!l.hsnSac) || doc.gst.showTax,
-    batch: lines.some((l) => !!l.batch),
-    qty: lines.some((l) => l.qty !== null),
-    rate: priced && lines.some((l) => l.rate !== null),
-    discount: lines.some((l) => l.discount !== 0 || l.discountPct !== 0),
+    sno: shown('col.sno'),
+    hsn: (lines.some((l) => !!l.hsnSac) || doc.gst.showTax) && shown('col.hsn'),
+    batch: lines.some((l) => !!l.batch) && shown('col.batch'),
+    qty: lines.some((l) => l.qty !== null) && shown('col.qty'),
+    unit: shown('col.unit'),
+    rate: priced && lines.some((l) => l.rate !== null) && shown('col.rate'),
+    discount: lines.some((l) => l.discount !== 0 || l.discountPct !== 0) && shown('col.discount'),
+    gstRate: doc.gst.showTax && shown('col.gstRate'),
+    taxable: priced && shown('col.taxable'),
     mrp: showMrp(doc),
-    lineTax: doc.layout === 'invoice' && doc.gst.showTax && doc.options.itemwiseTax && !narrow && opts.template !== 'compact',
+    lineTax,
     igst: heads.igst,
     cgstSgst: heads.cgstSgst,
     cess: heads.cess,
-    amount: priced,
+    amount: priced && shown('col.amount'),
+    lineHeads: {
+      cgst: lineTax && heads.cgstSgst && shown('col.cgst'),
+      sgst: lineTax && heads.cgstSgst && shown('col.sgst'),
+      igst: lineTax && heads.igst && shown('col.igst'),
+      cess: lineTax && heads.cess && shown('col.cess'),
+    },
   };
 }
 
@@ -278,24 +316,29 @@ export interface TotalRow {
   label: string;
   amount: Paise;
   kind: 'subtotal' | 'tax' | 'charge' | 'roundoff' | 'total';
+  /** (2.0) Print part of the row: totals.taxable / taxHeads / charges / roundOff / grand. */
+  part: PrintPartId;
 }
 
-/** Rows of the totals box: taxable value, tax heads, charges, round off, total. */
+/**
+ * Rows of the totals box: taxable value, tax heads, charges, round off, total — minus the rows a print
+ * layout hid (the grand total is locked). Only what is printed changes: the amounts are the document's.
+ */
 export function totalRows(doc: PrintVoucherData): TotalRow[] {
   const t = doc.totals;
   const rows: TotalRow[] = [];
   const hasAdjustments = t.tax !== 0 || t.charges !== 0 || t.roundOff !== 0;
-  if (doc.layout === 'invoice' && hasAdjustments) rows.push({ label: doc.gst.showTax ? 'Taxable Value' : 'Sub Total', amount: t.taxable, kind: 'subtotal' });
+  if (doc.layout === 'invoice' && hasAdjustments) rows.push({ label: doc.gst.showTax ? 'Taxable Value' : 'Sub Total', amount: t.taxable, kind: 'subtotal', part: 'totals.taxable' });
   if (doc.gst.showTax) {
-    if (t.cgst !== 0) rows.push({ label: 'CGST', amount: t.cgst, kind: 'tax' });
-    if (t.sgst !== 0) rows.push({ label: doc.gst.sgstLabel, amount: t.sgst, kind: 'tax' });
-    if (t.igst !== 0) rows.push({ label: 'IGST', amount: t.igst, kind: 'tax' });
-    if (t.cess !== 0) rows.push({ label: 'Cess', amount: t.cess, kind: 'tax' });
+    if (t.cgst !== 0) rows.push({ label: 'CGST', amount: t.cgst, kind: 'tax', part: 'totals.taxHeads' });
+    if (t.sgst !== 0) rows.push({ label: doc.gst.sgstLabel, amount: t.sgst, kind: 'tax', part: 'totals.taxHeads' });
+    if (t.igst !== 0) rows.push({ label: 'IGST', amount: t.igst, kind: 'tax', part: 'totals.taxHeads' });
+    if (t.cess !== 0) rows.push({ label: 'Cess', amount: t.cess, kind: 'tax', part: 'totals.taxHeads' });
   }
-  for (const c of doc.charges) rows.push({ label: c.name, amount: c.amount, kind: 'charge' });
-  if (t.roundOff !== 0) rows.push({ label: 'Round Off', amount: t.roundOff, kind: 'roundoff' });
-  rows.push({ label: 'Total', amount: t.grandTotal, kind: 'total' });
-  return rows;
+  for (const c of doc.charges) rows.push({ label: c.name, amount: c.amount, kind: 'charge', part: 'totals.charges' });
+  if (t.roundOff !== 0) rows.push({ label: 'Round Off', amount: t.roundOff, kind: 'roundoff', part: 'totals.roundOff' });
+  rows.push({ label: 'Total', amount: t.grandTotal, kind: 'total', part: 'totals.grand' });
+  return rows.filter((r) => isPartShown(doc, r.part));
 }
 
 /** Tax head rows for the classic (boxed) layout, with rates when a single rate applies. */
@@ -328,11 +371,11 @@ export function taxabilityText(t: PrintLine['taxability']): string {
  * Second line of a receipt item: 'HSN 1006 · GST 5%' (Rule 46: HSN and rate per line). The rate prints
  * on every taxed line, with or without an HSN code; absorbed charges show neither.
  */
-export function compactLineInfo(l: PrintLine, showTax: boolean): string {
+export function compactLineInfo(l: PrintLine, showTax: boolean, cols: { hsn?: boolean; gstRate?: boolean } = {}): string {
   if (l.absorbed) return 'Included in the taxable value';
   const parts: string[] = [];
-  if (l.hsnSac) parts.push(`HSN ${l.hsnSac}`);
-  if (showTax) parts.push(`GST ${l.taxability === 'taxable' ? pctText(l.gstRate) : taxabilityText(l.taxability)}`);
+  if (l.hsnSac && cols.hsn !== false) parts.push(`HSN ${l.hsnSac}`);
+  if (showTax && cols.gstRate !== false) parts.push(`GST ${l.taxability === 'taxable' ? pctText(l.gstRate) : taxabilityText(l.taxability)}`);
   return parts.join(' · ');
 }
 

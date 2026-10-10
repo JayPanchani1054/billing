@@ -76,9 +76,10 @@ export function settingsErrors(o: InvoicePrintOptions, bankUpiId: string | null 
   return e;
 }
 
+/** Same values (lists and the (2.0) layout layer compared by content). */
 export function sameOptions(a: InvoicePrintOptions, b: InvoicePrintOptions): boolean {
   const keys = Object.keys(a) as Array<keyof InvoicePrintOptions>;
-  return keys.every((k) => (Array.isArray(a[k]) ? JSON.stringify(a[k]) === JSON.stringify(b[k]) : a[k] === b[k]));
+  return keys.every((k) => (typeof a[k] === 'object' && a[k] !== null ? JSON.stringify(a[k]) === JSON.stringify(b[k]) : a[k] === b[k]));
 }
 
 /** Copies in canonical order. */

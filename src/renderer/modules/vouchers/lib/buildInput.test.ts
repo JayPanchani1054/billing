@@ -135,3 +135,45 @@ describe('formFromInput', () => {
     assert.equal(f.ledgers.filter((r) => !isBlankLedger(r)).length, 3);
   });
 });
+
+describe('2.0 Change number (Ctrl+R): numberOverride', () => {
+  const sale = () => {
+    let f = newForm({ voucherTypeId: 5, baseType: 'sales', mode: 'item_invoice', date: '2026-10-05', partyLedgerId: 31 });
+    f = formReducer(f, { type: 'item', key: f.items[0].key, patch: { itemId: 1, qty: 1, rate: 100 } });
+    return f;
+  };
+
+  it('a new voucher sends no override and no number until the dialog sets one', () => {
+    const { input } = buildVoucherInput(sale());
+    assert.equal(input.numberOverride, undefined);
+    assert.equal(input.number, undefined);
+  });
+
+  it('the dialog result is sent as numberOverride (trimmed; reason / continueSeries only when given), never as `number`', () => {
+    const f = formReducer(sale(), { type: 'patch', patch: { numberOverride: { number: ' A-100 ', reason: ' Paper bill book ', continueSeries: true } } });
+    const { input } = buildVoucherInput(f);
+    assert.deepEqual(input.numberOverride, { number: 'A-100', reason: 'Paper bill book', continueSeries: true });
+    assert.equal(input.number, undefined, 'the override is explicit; the typed-number path is untouched');
+    const bare = buildVoucherInput(formReducer(sale(), { type: 'patch', patch: { numberOverride: { number: 'A-101', reason: '  ' } } })).input;
+    assert.deepEqual(bare.numberOverride, { number: 'A-101' });
+  });
+
+  it('an alteration keeps its saved number and adds the override; the rest of the input is unchanged', () => {
+    const saved: VoucherInput = { id: 42, expectedUpdatedAt: '2026-10-05T10:00:00.000Z', voucherTypeId: 5, date: '2026-10-05', mode: 'item_invoice', number: 'INV/26-27/0042', partyLedgerId: 31, items: [{ itemId: 1, qty: 1, rate: 100 }], ledgers: [] };
+    const f = formFromInput(saved, { baseType: 'sales', alter: true });
+    assert.equal(f.numberOverride, null);
+    const before = buildVoucherInput(f).input;
+    const after = buildVoucherInput(formReducer(f, { type: 'patch', patch: { numberOverride: { number: 'INV/26-27/0141' } } })).input;
+    assert.equal(after.number, 'INV/26-27/0042');
+    const { numberOverride, ...rest } = after;
+    assert.deepEqual(numberOverride, { number: 'INV/26-27/0141' });
+    assert.deepEqual(rest, before);
+  });
+
+  it('the next voucher after a save starts without the override', () => {
+    const f = formReducer(sale(), { type: 'patch', patch: { numberOverride: { number: 'A-100' } } });
+    const next = formReducer(f, { type: 'next', date: '2026-10-05' });
+    assert.equal(next.numberOverride, null);
+    assert.equal(buildVoucherInput(next).input.numberOverride, undefined);
+  });
+});
