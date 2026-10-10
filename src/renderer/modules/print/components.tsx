@@ -83,7 +83,7 @@ export function PrintControls({
                 key={c}
                 checked={copies.includes(c)}
                 label={copyLabels[c]}
-                description={`Alt+${i + 1}`}
+                description={`Ctrl+${i + 1}`}
                 onChange={() => onCopies(toggleCopy(copies, c))}
               />
             ))}
@@ -136,7 +136,9 @@ export function PreviewPane({
       }
     : undefined;
   return (
-    <ScrollArea ref={paneRef} className={editing ? 'bp-preview bp-editing' : 'bp-preview'} aria-label={label} shadows onClick={onClick}>
+    // `horizontal`: a sheet is drawn at its real width (A4 ≈ 794 px), wider than the pane beside the layout
+    // editor on a small window or at a large zoom — scroll to its right edge instead of cutting it off.
+    <ScrollArea ref={paneRef} className={editing ? 'bp-preview bp-editing' : 'bp-preview'} aria-label={label} shadows horizontal onClick={onClick}>
       <style>{DOCUMENT_CSS + previewCss(pageSize) + (editing ? editingCss(editing.selected) : '')}</style>
       {preparing ? (
         <Inline gap={2}>

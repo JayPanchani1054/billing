@@ -290,7 +290,12 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
   const reset = async (key: string): Promise<void> => {
     if (!doc) return;
     if (key === 'print') {
-      updateEdit(emptyEdit());
+      const ok = await confirm({
+        title: 'Undo the changes made to this print?',
+        message: `This print goes back to what is saved for ${doc.voucherTypeName} and for all documents.`,
+        confirmLabel: 'Undo changes',
+      });
+      if (ok) updateEdit(emptyEdit());
       return;
     }
     try {

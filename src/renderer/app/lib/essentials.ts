@@ -49,7 +49,9 @@ export const ESSENTIALS: readonly EssentialGroup[] = [
   {
     id: 'company',
     label: 'Company',
-    entries: [{ label: 'Settings' }, { label: 'Invoice Numbering' }, { label: 'Invoice Printing' }, { label: 'Features' }, { label: 'Backup' }],
+    // Invoice Printing before Invoice Numbering: with Settings taking N, Printing needs V and
+    // Numbering can still take U — the other order leaves Printing without any free letter.
+    entries: [{ label: 'Settings' }, { label: 'Invoice Printing' }, { label: 'Invoice Numbering' }, { label: 'Features' }, { label: 'Backup' }],
   },
 ];
 

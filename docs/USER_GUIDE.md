@@ -1495,9 +1495,14 @@ this voucher type; needs the *Alter masters* permission) or **Save for all docum
 company settings*). Choices that Invoice Printing already offers — HSN summary, bank details, UPI QR,
 tax on every line, MRP column, declaration, terms and signatory — are saved into those same settings
 (and into the voucher type's own choices for a voucher type). **Reset ▾** undoes this print's changes, or
-what is saved for the voucher type or for all documents. *Company › **Invoice Printing*** has the same
-panel (**Alt+L**, *Customize layout…*) for all documents; save it there with **Ctrl+A**. Batch printing
-(*Utilities › **Print Vouchers***) and printing right after saving use the saved layouts.
+removes what is saved for the voucher type (its parts, wording and show / hide choices; its print title,
+declaration and terms stay in *Voucher Types*) or for all documents (the parts and wording; the Invoice
+Printing settings themselves stay — change them there). *Company › **Invoice Printing*** has the same
+panel (**Alt+L**, *Customize layout…*) for all documents; save it there with **Ctrl+A**. There the
+declaration, terms and signatory boxes are Invoice Printing's own settings: an empty box prints none and ↺
+brings back the built-in wording. Batch printing (*Utilities › **Print Vouchers***) and printing right after
+saving use the saved layouts. Hiding your GSTIN hides the PAN printed with it; turn *Your PAN* back on to
+print the PAN alone.
 
 Hiding a particular that GST rules require on that document — for example the buyer's GSTIN on a B2B tax
 invoice, the HSN/SAC codes (column and summary both hidden), the place of supply of an inter-State supply,

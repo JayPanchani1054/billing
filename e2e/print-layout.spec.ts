@@ -172,6 +172,9 @@ test('click-to-select, the Rule 46(g) warning when HSN is hidden, and Reset › 
   // Reset this print, then what is saved for Sales: the bank details print again.
   await panel.getByRole('button', { name: 'Reset' }).click();
   await page.getByRole('menuitem', { name: /^This print/ }).click();
+  const undo = page.getByRole('dialog', { name: 'Undo the changes made to this print?' });
+  await expect(undo).toBeVisible();
+  await undo.getByRole('button', { name: 'Undo changes', exact: true }).click();
   await expect(panel.getByText(warning)).toHaveCount(0);
   await panel.getByRole('button', { name: 'Reset' }).click();
   await page.getByRole('menuitem', { name: /^Saved for Sales/ }).click();

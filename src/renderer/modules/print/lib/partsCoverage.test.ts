@@ -167,6 +167,20 @@ describe('print layout parts: every supported part is honoured by its template',
     assert.deepEqual(bad, []);
   });
 
+  test('one choke point: every printed document goes through layoutDoc in PrintDocuments', () => {
+    const root = code(read('templates/PrintDocuments.tsx'));
+    assert.match(root, /items\.map\(\(it\) => \(\{ \.\.\.it, doc: layoutDoc\(it\.doc, layers\) \}\)\)/, 'each item is laid out');
+    assert.match(root, /laidOut\.flatMap\(/, 'only laid-out documents are drawn');
+    assert.doesNotMatch(root, /items\.flatMap\(/, 'never the raw items');
+    // The preview pane is the only drawer, and hands the layers on; templates are drawn nowhere else.
+    assert.match(code(read('components.tsx')), /<PrintDocuments [^>]*layers=\{layers\}/);
+    for (const f of ['PrintVoucherScreen.tsx', 'PrintBatchScreen.tsx', 'PrintSettingsScreen.tsx', 'ShareDialog.tsx', 'usePrinting.ts']) {
+      assert.doesNotMatch(code(read(f)), /<(DocumentView|ModernInvoice|ClassicInvoice|CompactDoc|InventoryDoc|VoucherDoc|PrintDocuments)\b/, f);
+    }
+    // Batch printing (and print after saving: the preview with no per-print change) use the saved layers only.
+    assert.doesNotMatch(code(read('PrintBatchScreen.tsx')), /<PreviewPane [^>]*layers=/);
+  });
+
   test('the editing outline class never enters the printed element', () => {
     const tpl = fs.readdirSync(path.resolve(printDir, 'templates')).map((f) => read(`templates/${f}`)).join('\n');
     assert.doesNotMatch(tpl, /bp-editing/);

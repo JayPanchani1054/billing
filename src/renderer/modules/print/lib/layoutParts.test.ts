@@ -30,6 +30,7 @@ import {
   mergeIntoLayer,
   overridesAfterSave,
   pageNumbersShown,
+  panShown,
   parseSessionEdit,
   partHasData,
   previewOverridesOf,
@@ -187,6 +188,12 @@ describe('data per part', () => {
     assert.equal(partHasData(voucherDoc(), 'party', { ...view, template: 'classic' }), true, 'paid to: the accounts of a payment');
     // A hidden column is still "data" for the editor: the switch says what showing it would print.
     assert.equal(partHasData(layoutDoc(doc, { print: layer({ hide: ['col.hsn'] }) }), 'col.hsn', view), true);
+    // What each template really prints: the receipt has the phone only and the reference number only.
+    const contact = sampleDoc({ company: { ...doc.company, phone: null, email: 'a@b.in', website: 'b.in' }, referenceNo: null, references: [{ label: 'Vehicle No.', value: 'MH12' }] });
+    assert.equal(partHasData(contact, 'company.contact', view), true);
+    assert.equal(partHasData(contact, 'company.contact', { template: 'compact', pageSize: '80mm' }), false);
+    assert.equal(partHasData(contact, 'refs', view), true);
+    assert.equal(partHasData(contact, 'refs', { template: 'compact', pageSize: '80mm' }), false);
   });
 });
 
@@ -239,6 +246,21 @@ describe('editor model', () => {
     const company = editorModel(input(doc, { level: 'company', options: { ...doc.options, terms: 'Net 30' } }));
     const terms = company.texts.find((r) => r.id === 'terms');
     assert.deepEqual([terms?.value, terms?.option, terms?.sourceText], ['Net 30', 'terms', '']);
+  });
+
+  it('Invoice Printing (company level): an option text blank prints none, ↺ restores the built-in default', () => {
+    const doc = sampleDoc();
+    const m = (o: Partial<typeof doc.options>) => new Map(editorModel(input(doc, { level: 'company', options: { ...doc.options, ...o } })).texts.map((r) => [r.id, r]));
+    const atDefault = m({ declaration: DEFAULT_CONFIG.invoice.declaration, terms: '' });
+    const decl = atDefault.get('declaration');
+    assert.deepEqual([decl?.value, decl?.set, decl?.blankPrintsNothing, decl?.resetValue], [DEFAULT_CONFIG.invoice.declaration, false, true, DEFAULT_CONFIG.invoice.declaration]);
+    const cleared = m({ declaration: '' }).get('declaration');
+    assert.deepEqual([cleared?.value, cleared?.set, cleared?.placeholder], ['', true, ''], 'blank: nothing prints, and ↺ is offered to bring the default back');
+    assert.equal(m({ signatoryLabel: 'Partner' }).get('signatoryLabel')?.resetValue, 'Authorised Signatory');
+    // Print level keeps "blank inherits" for every text.
+    const print = new Map(editorModel(input(doc)).texts.map((r) => [r.id, r]));
+    assert.deepEqual([print.get('declaration')?.blankPrintsNothing, print.get('declaration')?.resetValue], [false, null]);
+    assert.deepEqual([print.get('footer')?.blankPrintsNothing, print.get('footer')?.resetValue], [false, null]);
   });
 
   it('statutory warnings come from the shared guard on the document as core built it', () => {
@@ -328,6 +350,11 @@ describe('saving (D22: option keys stay the owners)', () => {
     assert.deepEqual(after, layer({ hide: ['logo'], show: ['terms'] }));
     assert.deepEqual(overridesAfterSave({ showBankDetails: false, terms: 'x' }, 'voucherType', null), {});
     assert.deepEqual(overridesAfterSave({ showBankDetails: false, terms: 'x' }, 'company', { showBankDetails: true }), { showBankDetails: false }, 'the voucher type still decides: keep it on this print');
+    assert.deepEqual(
+      overridesAfterSave({ showUpiQr: true, showBankDetails: false, declaration: 'd', terms: 't' }, 'company', { showBankDetails: true, terms: 'VT terms' }),
+      { showBankDetails: false, terms: 't' },
+      'only what the voucher type overrules stays; the rest is now saved for all documents',
+    );
   });
 
   it('Reset for a voucher type clears the layer and every show / hide flag, not its texts', () => {
@@ -364,5 +391,50 @@ describe('session memory and overrides', () => {
       assert.ok(isPrintPartId(p.id));
       assert.deepEqual(validatePrintLayout({ hide: [p.id] }, 'print').issues, [], p.id);
     }
+  });
+});
+
+describe('the PAN beside a hidden GSTIN (applyPrintLayout prints it only when a layer shows it)', () => {
+  const doc = sampleDoc({ company: { ...sampleDoc().company, gstin: '27AAPFU0939F1ZV', pan: 'AAPFU0939F' } });
+  const panRow = (print: PrintLayoutSpec, saved = { company: EMPTY_PRINT_LAYOUT, voucherType: EMPTY_PRINT_LAYOUT }) =>
+    editorModel(input(doc, { layers: { ...saved, print } }))
+      .groups.flatMap((g) => g.rows)
+      .find((r) => r.id === 'company.pan');
+
+  it('the switch says the PAN is hidden with the GSTIN, and turning it on prints it', () => {
+    const hideGstin = layer({ hide: ['company.gstin'] });
+    const row = panRow(hideGstin);
+    assert.deepEqual([row?.shown, row?.sourceText, row?.empty], [false, 'Hidden with your GSTIN', false]);
+    assert.equal(layoutDoc(doc, { print: hideGstin }).company.pan, null);
+    const on = setPartShown(hideGstin, 'company.pan', true, resolvePrintLayout());
+    assert.deepEqual(on, layer({ hide: ['company.gstin'], show: ['company.pan'] }));
+    assert.equal(layoutDoc(doc, { print: on }).company.pan, 'AAPFU0939F');
+    assert.equal(panRow(on)?.shown, true);
+    // The GSTIN hidden for all documents: this print's switch still brings the PAN back.
+    const saved = { company: layer({ hide: ['company.gstin'] }), voucherType: EMPTY_PRINT_LAYOUT };
+    const below = resolvePrintLayout(saved.company, saved.voucherType);
+    assert.equal(panShown(below), false);
+    const print = setPartShown(emptyPrintLayout(), 'company.pan', true, below);
+    assert.deepEqual(print, layer({ show: ['company.pan'] }));
+    assert.equal(layoutDoc({ ...doc, savedLayout: saved }, { print }).company.pan, 'AAPFU0939F');
+    // Nothing hides the GSTIN: no entry is needed.
+    assert.deepEqual(setPartShown(emptyPrintLayout(), 'company.pan', true, resolvePrintLayout()), layer());
+  });
+
+  it('saving keeps the PAN show, and this print keeps it while the saved layers do not give it', () => {
+    const change = layer({ hide: ['company.gstin'], show: ['company.pan'] });
+    assert.deepEqual(mergeIntoLayer(EMPTY_PRINT_LAYOUT, change, []), change, 'hide first, then the show that depends on it');
+    const vt = voucherTypePatch({ layer: change, overrides: {} }, { company: EMPTY_PRINT_LAYOUT, voucherType: EMPTY_PRINT_LAYOUT });
+    assert.equal(layoutDoc({ ...doc, savedLayout: { company: EMPTY_PRINT_LAYOUT, voucherType: vt.layer } }).company.pan, 'AAPFU0939F');
+    assert.deepEqual(remainingPerPrint(layer({ show: ['company.pan'] }), { company: EMPTY_PRINT_LAYOUT, voucherType: layer({ hide: ['company.gstin'] }) }), layer({ show: ['company.pan'] }));
+    assert.deepEqual(remainingPerPrint(change, { company: EMPTY_PRINT_LAYOUT, voucherType: change }), layer());
+  });
+
+  it('nothing to print: the letterheads print the PAN only instead of the GSTIN; Classic always', () => {
+    const view = { template: 'modern' as const, pageSize: 'A4' as const };
+    assert.equal(partHasData(doc, 'company.pan', view), false);
+    assert.equal(partHasData(doc, 'company.pan', { ...view, hidden: new Set<PrintPartId>(['company.gstin']) }), true);
+    assert.equal(partHasData(doc, 'company.pan', { ...view, template: 'classic' }), true);
+    assert.equal(partHasData({ ...doc, company: { ...doc.company, gstin: null } }, 'company.pan', view), true);
   });
 });

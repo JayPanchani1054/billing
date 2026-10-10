@@ -913,7 +913,11 @@ both layers live in JSON that backup, restore and the XML export already carry.
   voucher type in `sessionStorage['pevqori.printLayout.<companyId>.<voucherTypeId>']` (try/catch, cleaned
   on read) and offered — never applied unasked — when that kind of document is opened again; print after
   saving ignores it. In Invoice Printing the same panel edits the draft (`invoice.layout` and the options),
-  saved with the form (Ctrl+A).
+  saved with the form (Ctrl+A); there an option text emptied prints none (as in the form) and ↺ restores
+  its `DEFAULT_CONFIG` wording, while everywhere else an empty box inherits. The PAN follows the GSTIN
+  (`applyPrintLayout`): while a layer hides the GSTIN the editor shows the PAN switch off ("Hidden with your
+  GSTIN") and turning it on writes an explicit `show` (`setPartShown`; `mergeIntoLayer` applies hides
+  before shows so saving keeps it).
 
 ## Data plus (`dataplus`) — XML data export, attachments, numbering tokens, multiple aliases
 

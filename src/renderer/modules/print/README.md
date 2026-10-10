@@ -40,6 +40,10 @@ Model, storage and statutory warnings are shared (`src/shared/printLayout.ts`; d
   texts are written to their keys (`voucherTypePatch` / `companyPatch`); Reset ▾ per level (with confirm).
   The per-print edit is kept per voucher type while the preview is open and remembered for the session
   (`sessionStorage`, try/catch): reopening that kind of document **offers** it again ("Apply them").
+  In Invoice Printing (company level) the declaration / terms / signatory boxes are those options: blank
+  prints none and ↺ restores the built-in wording; elsewhere an empty box inherits the grey placeholder.
+  Hiding the GSTIN also hides the PAN (`applyPrintLayout`); the PAN switch then reads "Hidden with your
+  GSTIN" and turning it on writes an explicit `show`.
 - **Warnings.** `layoutWarnings` lines (hidden Rule 46/48/49/53/55 particulars) join the "Before you print"
   banner of the preview and of batch printing, and the panel. Printing is never blocked.
 

@@ -181,7 +181,8 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
     else patch({ layout: setPartShown(layout, row.id, shown, resolvePrintLayout()) });
   };
   const onText = (row: EditorTextRow, value: string | null): void => {
-    if (row.option) patch({ [row.option]: value ?? '' });
+    // An option text: '' prints none (as in the form); ↺ sends the built-in default (row.resetValue).
+    if (row.option) patch({ [row.option]: value ?? row.resetValue ?? '' });
     else patch({ layout: setLayerText(layout, row.id, value) });
   };
   const layoutError = Object.entries(serverErrors).find(([k]) => k.startsWith('invoice.layout'));
@@ -194,7 +195,7 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
       subtitle="How invoices and vouchers look on paper"
       icon="print"
       dirty={dirty}
-      hint="Enter Next field · Ctrl+A Save · Alt+P Print this preview · Esc Back"
+      hint="Enter Next field · Ctrl+A Save · Alt+P Print this preview · Alt+E Save as PDF · Alt+L Customize layout · Esc Back"
       actions={[
         { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || !dirty || save.pending, hidden: readOnly },
         { key: 'Alt+P', label: 'Print preview', icon: 'print', onClick: () => void printing.print(), disabled: !doc || printing.busy !== null },

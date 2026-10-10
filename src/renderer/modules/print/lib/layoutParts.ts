@@ -14,7 +14,7 @@
  * The per-print level of an option-owned part / text is the preview overrides (`print.voucherData
  * { overrides }`, the company keys): a per-print layer never holds such an id (validatePrintLayout).
  */
-import type { InvoiceTemplate } from '../../../../shared/settings.ts';
+import { DEFAULT_CONFIG, type InvoiceTemplate } from '../../../../shared/settings.ts';
 import type { VoucherTypeConfig } from '../../../../shared/types/accounts.ts';
 import type { InvoicePrintOptions, InvoicePrintOverrides, PrintPageSize, PrintVoucherData } from '../../../../shared/types/print.ts';
 import {
@@ -247,7 +247,11 @@ export function layoutDoc(doc: PrintVoucherData, layers: LayoutLayers = {}): Pri
  * print on this document" otherwise and keeps the switch). `doc` is the document as core built it, with
  * the texts of the resolved layers for the text-only parts (notes, footer).
  */
-export function partHasData(doc: PrintVoucherData, id: PrintPartId, view: { template: InvoiceTemplate; pageSize: PrintPageSize; texts?: ReadonlyMap<PrintTextId, string> }): boolean {
+export function partHasData(
+  doc: PrintVoucherData,
+  id: PrintPartId,
+  view: { template: InvoiceTemplate; pageSize: PrintPageSize; texts?: ReadonlyMap<PrintTextId, string>; hidden?: ReadonlySet<PrintPartId> },
+): boolean {
   const raw: PrintVoucherData = doc.applied ? { ...doc, applied: undefined } : doc;
   const cols = itemColumns(raw, view);
   const kind = templateKind(view.template, doc.layout);
@@ -263,11 +267,13 @@ export function partHasData(doc: PrintVoucherData, id: PrintPartId, view: { temp
     case 'company.gstin':
       return !!c.gstin;
     case 'company.pan':
-      return !!c.pan;
+      // Classic prints the PAN beside the GSTIN; the other letterheads only instead of the GSTIN.
+      return !!c.pan && (kind === 'classic' || !c.gstin || !!view.hidden?.has('company.gstin'));
     case 'company.cin':
       return !!c.cin;
     case 'company.contact':
-      return !!(c.phone || c.email || c.website);
+      // The receipt prints the phone only; the classic seller box phone and e-mail; the letterheads all three.
+      return kind === 'compact' ? !!c.phone : kind === 'classic' ? !!(c.phone || c.email) : !!(c.phone || c.email || c.website);
     case 'endorsement':
       return !!doc.endorsement;
     case 'statutoryNotes':
@@ -275,7 +281,8 @@ export function partHasData(doc: PrintVoucherData, id: PrintPartId, view: { temp
     case 'stamp':
       return doc.status.cancelled || doc.status.optional || doc.sample;
     case 'refs':
-      return !!doc.referenceNo || doc.references.length > 0;
+      // The receipt prints the reference number only.
+      return !!doc.referenceNo || (kind !== 'compact' && doc.references.length > 0);
     case 'placeOfSupply':
       return !!doc.placeOfSupply;
     case 'ewayBill':
@@ -430,9 +437,24 @@ function copyLayer(l: PrintLayoutSpec | null | undefined): PrintLayoutSpec {
 }
 
 /**
+ * The PAN is part of the GSTIN: while the GSTIN is hidden (by this layer or one below) the PAN prints only
+ * when a layer explicitly shows it (applyPrintLayout), so showing it then needs a `show` entry.
+ */
+function panNeedsShow(id: PrintPartId, layer: PrintLayoutSpec, below: ResolvedPrintLayout): boolean {
+  if (id !== 'company.pan') return false;
+  if (layer.hide.includes('company.gstin')) return true;
+  return below.hidden.has('company.gstin') && !layer.show.includes('company.gstin');
+}
+
+/** Whether the company PAN prints under a resolved layout (hidden with the GSTIN unless explicitly shown). */
+export function panShown(resolved: ResolvedPrintLayout): boolean {
+  return !resolved.hidden.has('company.pan') && (!resolved.hidden.has('company.gstin') || !!resolved.shown?.has('company.pan'));
+}
+
+/**
  * Show or hide a part in `layer`; `below` is what the layers under it resolve to. Showing a part that a
- * lower layer hides adds it to `show`; showing one nothing hides just removes the entry. Locked parts and
- * unknown ids leave the layer as it is.
+ * lower layer hides adds it to `show` (and the PAN while the GSTIN is hidden, see panNeedsShow); showing one
+ * nothing hides just removes the entry. Locked parts and unknown ids leave the layer as it is.
  */
 export function setPartShown(layer: PrintLayoutSpec, id: PrintPartId, shown: boolean, below: ResolvedPrintLayout): PrintLayoutSpec {
   const def = printPart(id);
@@ -441,7 +463,7 @@ export function setPartShown(layer: PrintLayoutSpec, id: PrintPartId, shown: boo
   out.hide = without(out.hide, id);
   out.show = without(out.show, id);
   if (!shown) out.hide.push(id);
-  else if (below.hidden.has(id)) out.show.push(id);
+  else if (below.hidden.has(id) || panNeedsShow(id, out, below)) out.show.push(id);
   return out;
 }
 
@@ -462,8 +484,10 @@ export function setLayerText(layer: PrintLayoutSpec, id: PrintTextId, value: str
 export function mergeIntoLayer(base: PrintLayoutSpec, change: PrintLayoutSpec, lower: ReadonlyArray<PrintLayoutSpec | null | undefined>): PrintLayoutSpec {
   const below = resolvePrintLayout(...lower);
   let out = copyLayer(base);
-  for (const id of change.show) out = setPartShown(out, id, true, below);
+  // Hides first, so a show that depends on them (the PAN beside a hidden GSTIN) is kept; within one layer
+  // a hide wins over a show of the same id, as in resolvePrintLayout.
   for (const id of change.hide) out = setPartShown(out, id, false, below);
+  for (const id of change.show) if (!change.hide.includes(id)) out = setPartShown(out, id, true, below);
   for (const t of change.text) out = setLayerText(out, t.id, t.value);
   return out;
 }
@@ -476,7 +500,7 @@ export function remainingPerPrint(change: PrintLayoutSpec, saved: { company: Pri
   const r = resolvePrintLayout(saved.company, saved.voucherType);
   return {
     hide: change.hide.filter((id) => !r.hidden.has(id)),
-    show: change.show.filter((id) => r.hidden.has(id)),
+    show: change.show.filter((id) => r.hidden.has(id) || (id === 'company.pan' && !panShown(r))),
     text: change.text.filter((t) => !(written.texts ?? []).includes(t.id) && r.texts.get(t.id) !== t.value),
   };
 }
@@ -642,6 +666,13 @@ export interface EditorTextRow {
   source: LayoutValueSource;
   /** "This print" / "Saved for Sales" / "Saved for all documents" / "From Invoice Printing" ('' for the template's own). */
   sourceText: string;
+  /**
+   * An emptied box means "print nothing" (an Invoice Printing option edited for all documents: a blank
+   * declaration prints none) instead of "use the inherited wording"; ↺ then restores `resetValue`.
+   */
+  blankPrintsNothing: boolean;
+  /** What ↺ writes back (the option's built-in default) when `blankPrintsNothing`; else null (inherit). */
+  resetValue: string | null;
 }
 
 export interface EditorModel {
@@ -706,9 +737,11 @@ export function editorModel(input: EditorInput): EditorModel {
       shown = options[flag] === true;
       source = level === 'print' && overrides[flag] !== undefined ? 'print' : vtSets(vtConfig, VT_FLAG_KEYS[flag]) ? 'voucherType' : 'company';
     } else {
-      shown = !resolved.hidden.has(id);
+      shown = id === 'company.pan' ? panShown(resolved) : !resolved.hidden.has(id);
       source = def.locked ? 'default' : layoutSource(layers, id, 'part');
     }
+    // The PAN hidden only because the GSTIN is (no layer hides the PAN itself).
+    const withGstin = id === 'company.pan' && !shown && !resolved.hidden.has(id);
     const rule = def.statutory ? LAYOUT_RULES[def.statutory].rule : null;
     const row: EditorPartRow = {
       id,
@@ -716,10 +749,10 @@ export function editorModel(input: EditorInput): EditorModel {
       shown,
       locked: def.locked === true,
       flag,
-      empty: shown && !partHasData(doc, id, { template, pageSize, texts: resolved.texts }),
+      empty: shown && !partHasData(doc, id, { template, pageSize, texts: resolved.texts, hidden: resolved.hidden }),
       rule,
       source,
-      sourceText: def.locked ? 'Always printed' : sourceText(source, shown, vtName, !!flag),
+      sourceText: def.locked ? 'Always printed' : withGstin ? 'Hidden with your GSTIN' : sourceText(source, shown, vtName, !!flag),
     };
     let g = groups.get(def.group);
     if (!g) {
@@ -740,12 +773,23 @@ export function editorModel(input: EditorInput): EditorModel {
     let placeholder: string;
     let set: boolean;
     let source: LayoutValueSource;
-    if (option) {
-      const v = level === 'print' ? overrides[option] : options[option];
+    let blankPrintsNothing = false;
+    let resetValue: string | null = null;
+    if (option && level === 'company') {
+      // Invoice Printing's own setting (as in its form): blank prints none; ↺ restores the built-in default.
+      const v = options[option];
+      resetValue = DEFAULT_CONFIG.invoice[option];
+      blankPrintsNothing = true;
+      value = typeof v === 'string' ? v : '';
+      set = value !== resetValue;
+      placeholder = '';
+      source = vtSets(vtConfig, def.legacy?.voucherType) ? 'voucherType' : 'company';
+    } else if (option) {
+      const v = overrides[option];
       set = typeof v === 'string' && v !== '';
       value = set ? (v as string) : '';
-      placeholder = level === 'print' ? input.baseOptions[option] : '';
-      source = level === 'print' && set ? 'print' : vtSets(vtConfig, def.legacy?.voucherType) ? 'voucherType' : 'company';
+      placeholder = input.baseOptions[option];
+      source = set ? 'print' : vtSets(vtConfig, def.legacy?.voucherType) ? 'voucherType' : 'company';
     } else {
       const mine = edited.text.find((t) => t.id === id);
       set = mine !== undefined;
@@ -755,7 +799,7 @@ export function editorModel(input: EditorInput): EditorModel {
     }
     const sourceText =
       source === 'print' ? 'This print' : source === 'voucherType' ? `Saved for ${vtName}` : source === 'company' ? (option ? (level === 'print' ? 'From Invoice Printing' : '') : 'Saved for all documents') : '';
-    return { id, label: displayLabel(def.label), max: def.max, multiline: def.multiline === true, value, placeholder, set, option, source, sourceText };
+    return { id, label: displayLabel(def.label), max: def.max, multiline: def.multiline === true, value, placeholder, set, option, source, sourceText, blankPrintsNothing, resetValue };
   });
   return { groups: [...groups.values()], texts, resolved };
 }

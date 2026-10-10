@@ -140,7 +140,7 @@ export function LayoutEditor({ model, warnings, onPart, onText, pick, onEscape, 
               />
             </ScrollArea>
             {warnings.length > 0 ? (
-              <Banner tone="warning" title="Statutory particulars hidden">
+              <Banner tone="warning" title="Hidden details GST rules require">
                 {warnings.length === 1 ? (
                   warnings[0]
                 ) : (
@@ -176,7 +176,7 @@ function PartRow({ row, readOnly, onPart }: { row: EditorPartRow; readOnly: bool
     <Stack gap={1}>
       {row.locked ? (
         <Inline gap={2} id={`${partSwitchId(row.id)}-row`} tabIndex={-1} aria-describedby={notes.length > 0 ? noteId : undefined}>
-          <Icon name="lock" size="sm" label="Always printed" />
+          <Icon name="lock" size="sm" />
           <span>{row.label}</span>
         </Inline>
       ) : (
@@ -200,9 +200,11 @@ function PartRow({ row, readOnly, onPart }: { row: EditorPartRow; readOnly: bool
 }
 
 function TextRow({ row, readOnly, onText }: { row: EditorTextRow; readOnly: boolean; onText: (row: EditorTextRow, value: string | null) => void }) {
-  const set = (value: string): void => onText(row, value === '' ? null : value);
+  // An emptied box inherits the wording in grey — except an Invoice Printing option edited for all
+  // documents, where blank prints nothing (as in its form) and ↺ restores the built-in default.
+  const set = (value: string): void => onText(row, value === '' && !row.blankPrintsNothing ? null : value);
   const reset = row.set ? (
-    <IconButton icon="undo" size="sm" variant="ghost" aria-label={`Use the default ${row.label.toLowerCase()}`} disabled={readOnly} onClick={() => onText(row, null)} />
+    <IconButton icon="undo" size="sm" variant="ghost" aria-label={`Use the default ${row.label.toLowerCase()}`} disabled={readOnly} onClick={() => onText(row, row.resetValue)} />
   ) : undefined;
   return (
     <Field label={row.label} hint={row.sourceText || undefined} labelAction={reset}>
