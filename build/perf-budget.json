@@ -1,7 +1,67 @@
 {
-  "//": "Performance budget (docs/ARCHITECTURE.md §9a). enforce: false = e2e/perf.spec.ts and `node scripts/size-report.mjs --budget` only report. baseline: the 1.0 numbers, taken from the e2e job log (or perf-report.json) of each CI platform with `node scripts/size-report.mjs --baseline linux.log win32.log --from \"CI run <id> @ <sha>\"` (data-only commit). ceilings (the 2.0 targets) — initial JS ≤ 0.55 × baseline, start-up ≤ 1.15 × baseline on the same runner, first screen open ≤ baseline + 30 ms (warn-only on noisy runners; screen open with its data always warn-only); absolute byte ceilings stay null (off) — the CSS source budget is a unit test (src/renderer/styles/cssBudget.test.ts). Keep enforce false until a captured baseline is committed here.",
+  "//": "Performance budget (docs/ARCHITECTURE.md §9a). enforce: false = e2e/perf.spec.ts and `node scripts/size-report.mjs --budget` only report. baseline: the 2.0.0 numbers (captured 2026-10-10; the 1.0 numbers were never captured), taken from the e2e job log (or perf-report.json) of each CI platform with `node scripts/size-report.mjs --baseline linux.log win32.log --from \"CI run <id> @ <sha>\"` (data-only commit). ceilings (the 2.0 targets) — initial JS ≤ 0.55 × baseline, start-up ≤ 1.15 × baseline on the same runner, first screen open ≤ baseline + 30 ms (warn-only on noisy runners; screen open with its data always warn-only); absolute byte ceilings stay null (off) — the CSS source budget is a unit test (src/renderer/styles/cssBudget.test.ts). Keep enforce false until a captured baseline is committed here.",
   "enforce": false,
-  "baseline": null,
+  "baseline": {
+    "capturedFrom": "CI run 38078497623 @ 87b0166 (2.0.0)",
+    "sizes": {
+      "initialJs": {
+        "raw": 1504563,
+        "gzip": 453609
+      },
+      "rendererJs": {
+        "raw": 2449450,
+        "gzip": 804054
+      },
+      "rendererCss": {
+        "raw": 139524,
+        "gzip": 23163
+      },
+      "main": {
+        "raw": 2177545,
+        "gzip": 681325
+      }
+    },
+    "timings": {
+      "linux": {
+        "startupMs": 111.6,
+        "launchMs": 242.1,
+        "screenOpenMs": {
+          "vouchers.entry": 7.6,
+          "vouchers.daybook": 10,
+          "reports.balanceSheet": 6.9,
+          "outstanding.receivables": 8.5,
+          "gst.gstr1": 7.2
+        },
+        "screenOpenP95Ms": 10,
+        "screenReadyMs": {
+          "vouchers.entry": 29.3,
+          "vouchers.daybook": 20.7,
+          "reports.balanceSheet": 12.9,
+          "outstanding.receivables": 19.2,
+          "gst.gstr1": 10.4
+        }
+      },
+      "win32": {
+        "startupMs": 212.7,
+        "launchMs": 369.3,
+        "screenOpenMs": {
+          "vouchers.entry": 10.7,
+          "vouchers.daybook": 12,
+          "reports.balanceSheet": 8.1,
+          "outstanding.receivables": 9.6,
+          "gst.gstr1": 8.7
+        },
+        "screenOpenP95Ms": 12,
+        "screenReadyMs": {
+          "vouchers.entry": 36.7,
+          "vouchers.daybook": 24.2,
+          "reports.balanceSheet": 16.6,
+          "outstanding.receivables": 19.7,
+          "gst.gstr1": 14.4
+        }
+      }
+    }
+  },
   "ceilings": {
     "initialJsRatio": 0.55,
     "startupRatio": 1.15,

@@ -479,15 +479,15 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
   `src/main/size-report.test.ts`, the `markBoot()` call in `main.tsx` and the `markPhase(app.phase)` effect in
   `App.tsx`, `e2e/perf.spec.ts` and the additive `e2e/support.ts` options (1.0's own `e2e/flows.ts`) — and capture
   from that run's e2e logs.
-- **Status at 2.0.0 — TODO (needs CI numbers).** The 1.0 baseline **has not been captured yet**:
-  `build/perf-budget.json` ships with `"baseline": null` and `"enforce": false`, so the size report and
-  `e2e/perf.spec.ts` only report and no ceiling is checked. Consequently the 2.0 targets are **unverified**:
-  initial JS ≤ 0.55 × 1.0 has not been measured (a source-level estimate of what the lazy screens take out of
-  the entry put it nearer 0.65–0.70 × 1.0, i.e. likely above the target), and start-up / screen-open against
-  1.0 are not compared. To close it: capture the 1.0 baseline as described above, paste it into
-  `build/perf-budget.json` as a data-only commit, read the 2.0 numbers from a CI run against it, and only
-  then set `enforce: true` (and, if wanted, `rendererJsMaxBytes` / `rendererCssMaxBytes` from measured
-  sizes). Never fill the baseline with estimated or invented numbers.
+- **Status — the 2.0.0 baseline is captured; the 1.0 one never was.** `build/perf-budget.json` `baseline` holds the
+  2.0.0 numbers from the e2e logs of CI run 38078497623 (commit `87b0166`, both runners), captured with
+  `scripts/size-report.mjs --baseline`: initial JS 1,504,563 B raw (453,609 gzip), start-up 112 ms (Linux) / 213 ms
+  (Windows). 2.1 is measured against it (initial JS raw ≤ 1.02 × 2.0, start-up and screen open no slower);
+  `enforce` is switched on by the 2.1 integration step. The 2.0 target "initial JS ≤ 0.55 × 1.0" stays
+  **unverified** — no 1.0 baseline exists (a source-level estimate put 2.0 near 0.65–0.70 × 1.0). Never fill a
+  baseline with estimated or invented numbers. The 2.0 look is recorded by the **UI snapshots** workflow run
+  38093517573 (commit `6777482`, all 27 shots of `e2e/snapshots.spec.ts`) — the reference the 2.1 screens are
+  compared with.
 - **Lazy screens** (2.0) — the screens of `attachments`¹, `banking`, `cheques`, `data`, `documents`, `forex`, `gst`,
   `gstrecon`, `inventory`, `mfg`, `outstanding`, `pos`, `reports`, `security`, `stock` and `tds` are fetched the first
   time they open, so their code is not in the initial JS. A module's `index.ts` declares them with
