@@ -287,7 +287,8 @@ function calmFacts(): CalmFacts {
   };
   const boxed = (el: Element): boolean => {
     const s = getComputedStyle(el);
-    const transparent = (c: string) => c === 'transparent' || /rgba\([^)]*,\s*0\)$/.test(c);
+    // Computed colours: "rgba(0, 0, 0, 0)", or "color(srgb … / 0)" / "oklab(… / 0)" for color-mix() tokens.
+    const transparent = (c: string) => c === 'transparent' || /rgba\([^)]*,\s*0(\.0+)?\)$/.test(c) || /\/\s*0(\.0+)?\)$/.test(c);
     const border = ['Top', 'Right', 'Bottom', 'Left'].some((side) => {
       const w = parseFloat(s.getPropertyValue(`border-${side.toLowerCase()}-width`));
       const style = s.getPropertyValue(`border-${side.toLowerCase()}-style`);
@@ -399,7 +400,12 @@ async function check(id: string, kind: Kind, viewport: { width: number; height: 
   await expect(page.locator('[data-screen]:not([hidden]) .bx-screen-skeleton, [data-screen]:not([hidden]) [aria-busy="true"]'))
     .toHaveCount(0, { timeout: 10_000 })
     .catch(() => console.log(`[calm] note: ${id} still loading after 10 s`));
-  const facts = await page.evaluate(calmFacts);
+  let facts = await page.evaluate(calmFacts);
+  // A drawer or popover still sliding in can widen the scroller for a frame: judge the settled layout.
+  if (facts.hScroll) {
+    await page.waitForTimeout(400);
+    facts = await page.evaluate(calmFacts);
+  }
   const strict = !PENDING_CALM.includes(id);
   const found = rulesFor(facts, kind, strict);
   for (const rule of found) violations.push({ id, where, rule });

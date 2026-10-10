@@ -52,6 +52,7 @@
   border-radius: var(--radius-lg);
   overflow-x: auto;
 }
+/* Also used by VoucherViewScreen. */
 .bx-vch-grid__title {
   margin: 0;
   padding: var(--space-2) var(--space-3);
@@ -289,6 +290,7 @@
 .bx-vch-totals__row.is-grand dt {
   color: var(--text-primary);
 }
+/* Also used by VoucherViewScreen. */
 .bx-vch-totals__words {
   margin: 0;
   font-size: var(--fs-12);

@@ -7,8 +7,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { GRAPH_CATALOGUE } from './lib/chartCatalogue.ts';
 
 const read = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n?/g, '\n');
 const importsOf = (src: string): string[] => [...src.matchAll(/^import [^;]*? from '([^']+)';$/gm)].map((m) => m[1]);
@@ -55,4 +56,44 @@ test('graphStrip.tsx declares the graph strip contract and holds no Ctrl+J liter
   assert.match(strip, /^export function useGraphsToggle\(kind: GraphKind\): GraphsToggle \{$/m);
   assert.match(strip, /^export type GraphKind = 'report' \| 'detail';$/m);
   assert.doesNotMatch(strip, /Ctrl\+J/, 'the only Ctrl+J literal lives in app/lib/graphsToggle.ts (SPEC-21 §4.5)');
+});
+
+// ── e2e/calm.spec.ts registry lines (SPEC-21 §6.1): lanes delete ids from PENDING_CALM as their screens comply.
+// The spec checks them again against the live Go To catalogue in CI; this catches a typo or a stale id in seconds.
+const repoFile = (rel: string): string => read(`../../../${rel}`);
+const listIn = (src: string, name: string): string[] => {
+  const body = new RegExp(`const ${name}: readonly string\\[\\] = \\[([\\s\\S]*?)\\];`).exec(src)?.[1] ?? '';
+  return [...body.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+};
+
+/** Screen ids registered by the modules (`{ id: 'x.y', title: …, component }`) and the shell's Home. */
+function registeredScreenIds(): Set<string> {
+  const modulesDir = fileURLToPath(new URL('../modules/', import.meta.url));
+  const files = readdirSync(modulesDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && existsSync(`${modulesDir}${e.name}/index.ts`))
+    .map((e) => `${modulesDir}${e.name}/index.ts`);
+  files.push(fileURLToPath(new URL('./shellModule.ts', import.meta.url)));
+  const ids = new Set<string>();
+  for (const f of files) {
+    const src = readFileSync(f, 'utf8').replace(/\bid:\s*ROOT_SCREEN\b/g, "id: 'app.gateway'");
+    for (const m of src.matchAll(/\bid:\s*['"]([a-z]\w*(?:\.\w+)+)['"]\s*,\s*title:/g)) ids.add(m[1]);
+  }
+  return ids;
+}
+
+test('e2e/calm.spec.ts: PENDING_CALM and P1 name registered screens only, once each, in order', () => {
+  const spec = repoFile('e2e/calm.spec.ts');
+  const registered = registeredScreenIds();
+  assert.ok(registered.has('app.gateway') && registered.has('reports.profitLoss') && registered.size > 150, `scan found ${registered.size} screens`);
+  const pending = listIn(spec, 'PENDING_CALM');
+  const p1 = listIn(spec, 'P1');
+  assert.ok(p1.length >= 10, 'P1 list read');
+  for (const [name, list] of [['PENDING_CALM', pending], ['P1', p1]] as const) {
+    assert.deepEqual(list.filter((id) => !registered.has(id)), [], `${name}: ids that are not registered screens`);
+    assert.deepEqual(list.filter((id, i) => list.indexOf(id) !== i), [], `${name}: ids listed twice`);
+    assert.deepEqual(list, [...list].sort(), `${name}: keep it sorted (lanes delete their own lines)`);
+  }
+  // P1 = the catalogue's P1 rows (the screens of the 2.0 snapshots and Home).
+  assert.deepEqual(p1, [...new Set(GRAPH_CATALOGUE.filter((r) => r.priority === 'P1').map((r) => r.id))].sort());
+  assert.match(spec, /^const CHROME_PENDING = (true|false);$/m, 'WP-B1 flips this one line');
 });

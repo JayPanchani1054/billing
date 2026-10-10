@@ -1,4 +1,4 @@
-/* ReportFrame */
+/* ReportFrame (+ at the end, the Export and Appearance dialogs ReportScreen and AppearancePanel render) */
 .bx-report__footer {
   color: var(--text-muted);
   font-size: var(--fs-12);
@@ -114,4 +114,67 @@ button.bx-report__period:hover {
     padding: 0;
     border: 0;
   }
+}
+
+/* Export format chooser */
+.bx-export-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.bx-export-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  text-align: left;
+}
+.bx-export-choice:hover,
+.bx-export-choice:focus-visible {
+  border-color: var(--brand);
+  background: var(--brand-subtle);
+}
+.bx-export-choice__icon {
+  color: var(--brand-text);
+}
+.bx-export-choice__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+.bx-export-choice__label {
+  font-weight: var(--fw-semibold);
+}
+.bx-export-choice__body {
+  color: var(--text-secondary);
+  font-size: var(--text-small);
+}
+
+/* Appearance panel (user menu › Appearance…, Settings hub) */
+.bx-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.bx-appearance__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.bx-appearance__label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-weight: var(--fw-medium);
+}
+.bx-appearance__hint {
+  max-width: 36ch;
+  color: var(--text-secondary);
+  font-size: var(--text-small);
+  font-weight: var(--fw-regular);
 }

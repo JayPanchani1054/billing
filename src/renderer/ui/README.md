@@ -333,7 +333,7 @@ cells: amount + fixed-width `Dr`/`Cr` suffix in `--dr`/`--cr`. Define `columns` 
 
 ```tsx
 <ReportFrame
-  companyName={company.name} title="Trial Balance" period={{ from, to }} onPeriodClick={openPeriod}
+  title="Trial Balance" period={{ from, to }} onPeriodClick={openPeriod}
   filters={<SegmentedControl aria-label="View" value={view} onChange={setView}
              options={[{ value: 'condensed', label: 'Condensed' }, { value: 'detailed', label: 'Detailed' }]} />}
   actions={<><Button icon="export" shortcut="Alt+E" onClick={exportIt}>Export</Button>

@@ -130,7 +130,8 @@ const SCREEN_FILES: Record<string, string[]> = {
 
 /** Keys bound in the given files: every string literal that is a key or a comma-separated key list. */
 function boundKeys(rels: readonly string[]): { keys: Set<string>; ctrlDigits: boolean } {
-  const files = [path.join(repoRoot, 'src/renderer/app/Screen.tsx')];
+  // The two screen templates bind keys for every screen (ReportScreen: Alt+F2 / Alt+E / Alt+P); 2.1 moved it to its own file.
+  const files = [path.join(repoRoot, 'src/renderer/app/Screen.tsx'), path.join(repoRoot, 'src/renderer/app/ReportScreen.tsx')];
   for (const rel of rels) {
     const p = path.join(modulesDir, rel);
     assert.ok(fs.existsSync(p), `${rel} (SCREEN_FILES) does not exist`);

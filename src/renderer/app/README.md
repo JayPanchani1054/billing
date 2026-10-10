@@ -140,7 +140,8 @@ scope (active only while it is on top), an error boundary, and handles Esc / foc
 </ReportScreen>
 ```
 
-It shows company + title + period (click or Alt+F2 to change), the Export dialog (Excel / CSV /
+It shows title + period (click or Alt+F2 to change; since 2.1 the company is named only in the top
+bar — export and print still carry it), the Export dialog (Excel / CSV /
 PDF — press X, C or P) and Print, toasts "Saved … · Show in folder". Pass `period={…}` to show a
 drilled-down range instead of the global period. Export and Print need the `data.export`
 permission: without it both are disabled with a hint (`EXPORT_DENIED_HINT`), and the core refuses

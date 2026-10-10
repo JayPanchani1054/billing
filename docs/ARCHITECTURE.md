@@ -80,7 +80,7 @@ src/
   renderer/            React app
     app/               Shell, navigation stack, keyboard, registry.ts (ModuleDef contract), API client
     ui/                Design-system components
-    styles/            tokens.css, base.css, components.css
+    styles/            index.css → tokens, base, components, charts, shell, report, gateway (.css)
     modules/<module>/  index.ts (ModuleDef) + screens/components for that module
 scripts/               build.mjs, dev.mjs
 build/                 Installer resources (icon, NSIS include)
@@ -361,7 +361,7 @@ One calm visual language for every screen, defined once in `src/renderer/styles/
   at the 180 KB gate). Raising a ceiling is a reviewed decision, never a fix for a heavier stylesheet.
   2.1 splits the global stylesheets by owner (rules moved unchanged): `styles/index.css` imports
   tokens, base, components, charts (`.bx-chart*`, `.bx-sparkline*`, `.bx-kpi*`), shell (frame, page
-  header, screen layout), report (`.bx-report*`) and gateway (Home menu, Go To, F1 overlay,
+  header, screen layout), report (`.bx-report*`, the Export and Appearance dialogs) and gateway (Home menu, Go To, F1 overlay,
   `--gateway-menu-w`); the vouchers module loads `vouchers-entry.css` + `vouchers-view.css`, the GST
   module `gst-returns.css` + `gst.css`. Every file counts toward the same 180 KB total.
   `ui/lib/contrast.test.ts` keeps every text pair ≥ 4.5:1 and every control/focus/icon pair ≥ 3:1

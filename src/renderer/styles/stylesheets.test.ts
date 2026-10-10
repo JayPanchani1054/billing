@@ -37,12 +37,14 @@ test('the renderer entry loads the global styles once, through styles/index.css'
 test('moved families stay out of the files they left', () => {
   const left: Array<[string, RegExp]> = [
     ['./components.css', /^bx-(page-header|report|chart|sparkline|kpi)(\b|_|-)/],
-    ['./shell.css', /^bx-(report|gateway|goto|shortcuts)(\b|_|-)/],
+    ['./shell.css', /^bx-(report|gateway|goto|shortcuts|export-choices?|appearance)(\b|_|-)/],
   ];
   for (const [file, family] of left) assert.deepEqual(classes(file).filter((c) => family.test(c)), [], file);
   assert.ok(classes('./charts.css').includes('bx-kpi') && classes('./charts.css').includes('bx-chart'), 'charts.css holds the chart and KPI rules');
   assert.ok(classes('./shell.css').includes('bx-page-header'), 'shell.css holds the page header');
   assert.ok(classes('./report.css').includes('bx-report'), 'report.css holds the report frame');
+  // ReportScreen's Export dialog and AppearancePanel have the report template's owner (WP-B2), so their rules sit in report.css.
+  assert.ok(classes('./report.css').includes('bx-export-choice') && classes('./report.css').includes('bx-appearance__row'), 'report.css holds the Export and Appearance dialogs');
   assert.ok(classes('./gateway.css').includes('bx-gateway') && classes('./gateway.css').includes('bx-goto__input'), 'gateway.css holds Home and Go To');
 });
 

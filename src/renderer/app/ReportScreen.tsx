@@ -50,7 +50,7 @@ export interface ReportScreenProps {
 }
 
 /**
- * Standard report: ReportFrame with company + period header (click or Alt+F2 to change), Export
+ * Standard report: ReportFrame with title + period header (click or Alt+F2 to change), Export
  * (Alt+E → Excel / CSV / PDF) and Print (Alt+P) wired to the export helpers. Export and Print need
  * the data.export permission (disabled with a hint otherwise; the core enforces and logs it).
  */
