@@ -231,7 +231,7 @@ export function posRegister(db: Db, today: string, input: PosRegisterInput): Pos
             ${USER_NAME} AS user_name, b.return_of_id, (SELECT o.number FROM vouchers o WHERE o.id = b.return_of_id) AS return_of_number, v.is_optional
        FROM pos_bills b JOIN vouchers v ON v.id = b.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
       WHERE ${where}
-      ORDER BY v.date, v.number_seq, v.id
+      ORDER BY v.date, v.id
       LIMIT :limit OFFSET :offset`,
     { ...params, limit, offset },
   );

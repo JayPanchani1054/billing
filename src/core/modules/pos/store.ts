@@ -211,7 +211,7 @@ export function saveTenderMode(ctx: CompanyCtx, input: PosTenderModeSaveInput): 
   }
   const clash = db.value<number>('SELECT id FROM pos_tender_modes WHERE name = :name COLLATE NOCASE AND id IS NOT :id', { name, id: existing?.id ?? null });
   if (clash !== undefined) throw validation([{ path: 'name', message: `A tender mode named '${name}' already exists.` }]);
-  const sortOrder = input.sortOrder ?? existing?.sortOrder ?? (db.value<number>('SELECT COALESCE(MAX(sort_order), 0) + 10 FROM pos_tender_modes') ?? 10);
+  const sortOrder = input.sortOrder ?? existing?.sortOrder ?? (db.value<number>(`SELECT COALESCE(MAX(sort_order), 0) + 10 FROM pos_tender_modes WHERE kind <> 'exchange'`) ?? 10);
   const isActive = input.isActive ?? existing?.isActive ?? true;
   let id: number;
   if (existing) {
@@ -362,7 +362,7 @@ export function ensurePosSetup(db: Db, ts: string, audit?: Audit): { createdType
     const ledger = ensureExchangeLedger(db, ts, audit);
     db.run(
       `INSERT INTO pos_tender_modes (guid, name, kind, ledger_id, sort_order, is_active, created_at, updated_at)
-       VALUES (:guid, :name, 'exchange', :ledger, 90, 1, :ts, :ts)`,
+       VALUES (:guid, :name, 'exchange', :ledger, 1000, 1, :ts, :ts)`,
       { guid: randomUUID(), name: db.value('SELECT 1 FROM pos_tender_modes WHERE name = :n', { n: 'Exchange credit' }) === undefined ? 'Exchange credit' : 'Exchange credit (system)', ledger, ts },
     );
   }
