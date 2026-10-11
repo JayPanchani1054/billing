@@ -1,4 +1,4 @@
-/* GST registers, exceptions, e-documents. Prefix: bx-gst- */
+/* GST registers (bx-gst-) */
 
 .bx-gst-fill {
   display: flex;
@@ -7,34 +7,14 @@
   gap: var(--space-3);
   min-height: 0;
 }
-.bx-gst-fill > .bx-table {
-  flex: 1;
-}
 
-/* Issues */
-.bx-gst-issues {
-  display: flex;
-  flex-direction: column;
-}
 .bx-gst-issue {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.bx-gst-issue:last-child {
-  border-bottom: 0;
+  padding: var(--space-1) 0;
 }
 .bx-gst-issue__head {
   display: flex;
-  align-items: center;
   gap: var(--space-2);
-}
-.bx-gst-issue__code {
-  font-weight: var(--fw-medium);
 }
 .bx-gst-issue__fix {
   color: var(--text-secondary);
-  font-size: var(--fs-12);
 }

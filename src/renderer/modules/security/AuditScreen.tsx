@@ -33,13 +33,13 @@ import {
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
 import {
-  Badge,
   Banner,
   Button,
   DataTable,
   Drawer,
   EmptyState,
   Field,
+  FiltersPopover,
   Icon,
   Inline,
   KeyValueList,
@@ -58,11 +58,12 @@ import {
   useToast,
 } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { ActionBadge, DiffTable, Fingerprint } from './components.tsx';
+import { ActionText, DiffTable, Fingerprint } from './components.tsx';
 import { useNow } from './hooks.ts';
 import {
   ACTION_GROUPS,
   actionLabel,
+  activeFilterCount,
   anchorSummary,
   actionOptions,
   adjacentId,
@@ -224,16 +225,15 @@ function VerifyResult({
     return (
       <Banner
         tone="danger"
-        className="bx-sec-verify bx-sec-verify--broken"
         title={`Tampering alert — ${report.message}`}
         onDismiss={onDismiss}
         action={
           report.brokenAtId !== null ? (
-            <Button size="sm" variant="danger" icon="eye" onClick={() => onShowEntry(report.brokenAtId as number)}>
+            <Button size="sm" variant="link" onClick={() => onShowEntry(report.brokenAtId as number)}>
               Show entry #{report.brokenAtId}
             </Button>
           ) : report.anchor?.canReset ? (
-            <Button size="sm" variant="danger" icon="shield" loading={resetting} onClick={() => void acceptCurrentLog()}>
+            <Button size="sm" variant="link" loading={resetting} onClick={() => void acceptCurrentLog()}>
               Accept current log
             </Button>
           ) : undefined
@@ -252,7 +252,6 @@ function VerifyResult({
   return (
     <Banner
       tone={tone}
-      className="bx-sec-verify"
       title={tone === 'info' ? report.message : `Edit log intact ✓ — ${formatCount(report.count)} entr${report.count === 1 ? 'y' : 'ies'} verified`}
       onDismiss={onDismiss}
     >
@@ -312,6 +311,7 @@ function EditLogView({ params }: { params: Params }) {
 
   // A new filter shows page 1; keep the page inside range when the total shrinks.
   const update = (patch: Partial<AuditFilterState>) => setFilters((f) => ({ ...f, ...patch, page: patch.page ?? 1 }));
+  const clearFilters = () => setFilters({ ...DEFAULT_FILTERS, pageSize: filters.pageSize });
   useEffect(() => {
     if (list.data && filters.page > pageCount) setFilters((f) => ({ ...f, page: pageCount }));
   }, [list.data, filters.page, pageCount]);
@@ -362,7 +362,16 @@ function EditLogView({ params }: { params: Params }) {
     nav.push(link.screen, link.params);
   };
   useScreenActions([
-    { key: 'Alt+V', label: verify.busy ? 'Verifying…' : 'Verify edit log', icon: 'shield', primary: true, onClick: () => void verify.run(), disabled: verify.busy, hint: 'Check that no entry was changed, inserted or removed.' },
+    // 2.1 (D5): a log has no filled button; Verify is its first secondary.
+    {
+      key: 'Alt+V',
+      label: verify.busy ? 'Verifying…' : 'Verify edit log',
+      icon: 'shield',
+      onClick: () => void verify.run(),
+      prominent: true,
+      disabled: verify.busy,
+      hint: 'Check that no entry was changed, inserted or removed.',
+    },
     { key: 'Alt+H', label: 'Record history', icon: 'clock', onClick: () => selected && openHistory(selected), disabled: !hasRecord, hint: 'Every change to the selected record.' },
     {
       key: 'Alt+A',
@@ -373,7 +382,7 @@ function EditLogView({ params }: { params: Params }) {
       hint: selected && !selectedLink ? 'This entry has no record to open (deleted, or not a voucher or master).' : undefined,
     },
     { key: 'Ctrl+F', label: 'Search', icon: 'search', onClick: () => searchRef.current?.focus(), group: 'filter' },
-    { key: 'Alt+X', label: 'Clear filters', icon: 'filter', onClick: () => setFilters({ ...DEFAULT_FILTERS, pageSize: filters.pageSize }), disabled: !filtered && filters.dates === DEFAULT_FILTERS.dates, group: 'filter' },
+    { key: 'Alt+X', label: 'Clear filters', icon: 'filter', onClick: () => clearFilters(), disabled: !filtered && filters.dates === DEFAULT_FILTERS.dates, group: 'filter' },
     { key: 'Ctrl+PageUp', label: 'Previous page', icon: 'chevron-left', onClick: () => update({ page: filters.page - 1 }), disabled: filters.page <= 1, group: 'page' },
     { key: 'Ctrl+PageDown', label: 'Next page', icon: 'chevron-right', onClick: () => update({ page: filters.page + 1 }), disabled: filters.page >= pageCount, group: 'page' },
     {
@@ -400,7 +409,15 @@ function EditLogView({ params }: { params: Params }) {
         title: (r) => `${formatDateTime(r.ts, true)} (${relativeTime(r.ts, now)})`,
       },
       { key: 'username', header: 'User', width: 120, sortable: true, value: (r) => r.username ?? '—' },
-      { key: 'action', header: 'Action', width: 140, sortable: true, value: (r) => actionLabel(r.action), render: (r) => <ActionBadge action={r.action} /> },
+      // 2.1: words, not a badge on every row; a deletion or a failed login is the only coloured word.
+      {
+        key: 'action',
+        header: 'Action',
+        width: 140,
+        sortable: true,
+        value: (r) => actionLabel(r.action),
+        render: (r) => <ActionText action={r.action} />,
+      },
       { key: 'entityTypeLabel', header: 'Record type', width: 140, sortable: true },
       {
         key: 'entityLabel',
@@ -423,55 +440,60 @@ function EditLogView({ params }: { params: Params }) {
   return (
     <Screen
       title="Edit Log"
-      subtitle="Who changed what, and when. Entries cannot be edited or deleted."
-      icon="book"
+      // 2.1: the context run says what is listed (the period or all dates, then each filter) — once.
+      subtitle={summary}
       hint="Enter Open entry · Alt+H Record history · Alt+A Open record · Alt+V Verify · Ctrl+F Search · Alt+E Export · Alt+P Print · Ctrl+PgUp/PgDn Page"
-      meta={
-        facets.data?.firstTs ? (
-          <span className="bx-muted">
-            Since {formatDateTime(facets.data.firstTs)} · last entry {relativeTime(facets.data.lastTs, now)}
-          </span>
-        ) : undefined
-      }
     >
       <div className="bx-sec-audit">
         {verify.report ? <VerifyResult report={verify.report} onDismiss={verify.clear} onShowEntry={(id) => setDetailId(id)} onReverify={() => void verify.run()} /> : null}
 
-        <div ref={filterRef} className="bx-sec-filters" role="search" aria-label="Filter the edit log">
-          <Field label="Dates">
-            <SegmentedControl<'period' | 'all'>
-              aria-label="Dates"
-              value={filters.dates}
-              onChange={(v) => update({ dates: v })}
-              options={[
-                { value: 'period', label: period.label },
-                { value: 'all', label: 'All dates' },
-              ]}
-            />
-          </Field>
-          <div className="bx-sec-filters__select">
-            <Field label="User">
-              <Select value={filters.userId === null ? ANY : String(filters.userId)} onChange={(v) => update({ userId: v === ANY ? null : Number(v) })} options={users} />
-            </Field>
-          </div>
-          <Field label="Action">
-            <SegmentedControl<ActionGroup> aria-label="Kind of action" value={filters.group} onChange={(g) => setFilters((f) => withGroup(f, g))} options={ACTION_GROUPS.map((g) => ({ value: g.value, label: g.label }))} />
-          </Field>
-          <div className="bx-sec-filters__select">
-            <Field label="Exactly">
-              <Select value={filters.action ?? ANY} onChange={(v) => update({ action: v === ANY ? null : (v as AuditFilterState['action']) })} options={actions} />
-            </Field>
-          </div>
-          <div className="bx-sec-filters__select">
-            <Field label="Record type">
-              <Select value={filters.entityType ?? ANY} onChange={(v) => update({ entityType: v === ANY ? null : v })} options={types} />
-            </Field>
-          </div>
+        {/* One toolbar row: the search and one Filters ▾ (dates, user, action, record type); the count on the right. */}
+        <div ref={filterRef} className="bx-toolbar-row" role="search" aria-label="Filter the edit log">
           <div className="bx-sec-filters__search">
-            <Field label="Search" hint="Record name, user, record type or action.">
-              <TextInput ref={searchRef} value={filters.search} onChange={(e) => update({ search: e.target.value })} leadingIcon="search" placeholder="e.g. Sharma, ledger, ravi" aria-keyshortcuts="Control+F" />
-            </Field>
+            <TextInput
+              ref={searchRef}
+              value={filters.search}
+              onChange={(e) => update({ search: e.target.value })}
+              leadingIcon="search"
+              placeholder="Search record, user, record type or action"
+              aria-label="Search the edit log"
+              aria-keyshortcuts="Control+F"
+            />
           </div>
+          <FiltersPopover count={activeFilterCount(filters)} onClear={clearFilters}>
+            <Stack gap={3}>
+              <Field label="Dates">
+                <SegmentedControl<'period' | 'all'>
+                  aria-label="Dates"
+                  value={filters.dates}
+                  onChange={(v) => update({ dates: v })}
+                  options={[
+                    { value: 'period', label: period.label },
+                    { value: 'all', label: 'All dates' },
+                  ]}
+                />
+              </Field>
+              <Field label="User">
+                <Select value={filters.userId === null ? ANY : String(filters.userId)} onChange={(v) => update({ userId: v === ANY ? null : Number(v) })} options={users} />
+              </Field>
+              <Field label="Action">
+                <SegmentedControl<ActionGroup> aria-label="Kind of action" value={filters.group} onChange={(g) => setFilters((f) => withGroup(f, g))} options={ACTION_GROUPS.map((g) => ({ value: g.value, label: g.label }))} />
+              </Field>
+              <Field label="Exactly">
+                <Select value={filters.action ?? ANY} onChange={(v) => update({ action: v === ANY ? null : (v as AuditFilterState['action']) })} options={actions} />
+              </Field>
+              <Field label="Record type">
+                <Select value={filters.entityType ?? ANY} onChange={(v) => update({ entityType: v === ANY ? null : v })} options={types} />
+              </Field>
+            </Stack>
+          </FiltersPopover>
+          <span
+            className="bx-toolbar-row__end bx-muted"
+            aria-live="polite"
+            title={facets.data?.firstTs ? `Since ${formatDateTime(facets.data.firstTs)} · last entry ${relativeTime(facets.data.lastTs, now)}` : undefined}
+          >
+            {list.refreshing ? 'Updating…' : `${formatCount(total)} entr${total === 1 ? 'y' : 'ies'}`}
+          </span>
         </div>
 
         {list.error ? (
@@ -481,7 +503,7 @@ function EditLogView({ params }: { params: Params }) {
         ) : null}
 
         <div className="bx-sec-table">
-          <DataTable<AuditListRow>
+          <DataTable
             aria-label={`Edit log — ${summary}`}
             autoFocus
             gridRef={setGrid}
@@ -495,26 +517,23 @@ function EditLogView({ params }: { params: Params }) {
             virtualize="auto"
             height="max(320px, calc(100vh - 420px))"
             getRowClassName={(r) => (r.action === 'login_failed' || r.action === 'delete' ? 'bx-sec-row--attention' : undefined)}
-            empty={<EmptyState icon="book" title={filtered ? 'No matching entries' : 'No entries'} body={emptyBody} />}
+            empty={<EmptyState title={filtered ? 'No matching entries' : 'No entries'} body={emptyBody} />}
           />
         </div>
 
-        <div className="bx-sec-audit__footer">
-          <span className="bx-muted" aria-live="polite">
-            {list.refreshing ? 'Updating…' : total > 0 ? `${formatCount(total)} entr${total === 1 ? 'y' : 'ies'} · ${summary}` : summary}
-          </span>
-          {total > 0 ? (
+        {total > filters.pageSize ? (
+          <div className="bx-sec-audit__footer">
             <Pagination
               page={filters.page}
               pageSize={filters.pageSize}
               total={total}
               onPageChange={(p) => update({ page: p })}
               pageSizeOptions={PAGE_SIZES}
-              onPageSizeChange={(s) => update({ pageSize: s })}
+              onPageSizeChange={(sz) => update({ pageSize: sz })}
               itemLabel="entries"
             />
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       {detailId !== null ? (
@@ -614,7 +633,7 @@ function EntryDrawer({
             items={[
               { key: 'when', label: 'When', value: formatDateTime(d.ts, true) },
               { key: 'user', label: 'User', value: d.username ?? '—' },
-              { key: 'action', label: 'Action', value: <ActionBadge action={d.action} /> },
+              { key: 'action', label: 'Action', value: <ActionText action={d.action} /> },
               { key: 'type', label: 'Record type', value: d.entityTypeLabel },
               { key: 'record', label: 'Record', value: d.entityLabel ?? (d.entityId !== null ? `#${d.entityId}` : '—') },
               { key: 'summary', label: 'Summary', value: d.summary },
@@ -733,8 +752,7 @@ function HistoryView({ target }: { target: HistoryTarget }) {
   return (
     <Screen
       title={`History — ${label}`}
-      subtitle={`${typeLabel} · every recorded version${data ? ` (${data.versions.length})` : ''}. Changes cannot be edited or deleted.`}
-      icon="clock"
+      subtitle={data ? `${typeLabel} · ${data.versions.length} version${data.versions.length === 1 ? '' : 's'}` : typeLabel}
       width="form"
       loading={q.loading}
       error={q.error}
@@ -744,12 +762,12 @@ function HistoryView({ target }: { target: HistoryTarget }) {
       <Stack gap={4}>
         {verify.report ? <VerifyResult report={verify.report} onDismiss={verify.clear} onShowEntry={(id) => setDetailId(id)} onReverify={() => void verify.run()} /> : null}
         {data?.truncated ? (
-          <Banner tone="info" inline title="Long history">
-            Only the most recent {data.versions.length} versions are shown. Export the edit log for the complete record.
+          <Banner tone="info" title="Long history">
+            Only the most recent {data.versions.length} versions are shown — Export (Alt+E) has the complete record.
           </Banner>
         ) : null}
         {versions.length === 0 ? (
-          <EmptyState icon="clock" title="No changes recorded for this record" body="Changes made from now on will appear here." />
+          <EmptyState title="No changes recorded for this record" body="Changes made from now on will appear here." />
         ) : (
           <Timeline versions={versions} now={now} onOpen={(id) => setDetailId(id)} />
         )}
@@ -801,16 +819,14 @@ function Timeline({ versions, now, onOpen }: { versions: readonly AuditHistoryVe
             onDoubleClick={() => onOpen(v.id)}
           >
             <div className="bx-sec-timeline__head">
-              <ActionBadge action={v.action} />
+              <ActionText action={v.action} />
               <span className="bx-sec-timeline__when" title={formatDateTime(v.ts, true)}>
                 {formatDateTime(v.ts)} · {relativeTime(v.ts, now)}
               </span>
               <span>
                 by <strong>{v.username ?? 'unknown'}</strong>
               </span>
-              <Badge size="sm" tone="neutral">
-                #{v.id}
-              </Badge>
+              <span className="bx-muted">#{v.id}</span>
             </div>
             <VersionBody version={v} />
           </article>

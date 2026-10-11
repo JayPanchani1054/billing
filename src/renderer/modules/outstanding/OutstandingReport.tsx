@@ -1,44 +1,45 @@
 /**
  * 'outstanding.receivables' / 'outstanding.payables' — "Outstandings" for one side, in three
  * views (Ctrl+1/2/3):
- *   Parties — KPI strip + party-wise outstanding with credit-limit use ("Group Outstandings")
+ *   Parties — party-wise outstanding ("Group Outstandings"); the answer in words on the toolbar row
  *   Bills   — every pending bill with due date and overdue days ("Bills Receivable/Payable")
- *   Ageing  — party amounts in ageing buckets (editable periods, due-date or bill-date basis) + chart
+ *   Ageing  — party amounts in ageing buckets (editable periods, due-date or bill-date basis) + the graph
  * "As on" = the period's end date (Alt+F2). Enter opens the party (bills: the voucher; Alt+V the party).
  * Amounts are shown ledger-signed with Dr/Cr; parties without bill-wise details are aged FIFO
  * (Alt+N switches to a single "On Account" line).
+ *
+ * 2.1 (SPEC-21 §1.9, D25): the stat "To collect ₹x · Overdue ₹y · ₹z not matched to bills ›" replaces the
+ * KPI tiles; "N over credit limit" is the context run's one danger word; uniform columns hide (Group and
+ * Credit limit used via More › Columns…); days are plain "190 d"; the credit-limit switch is a checkable
+ * More item; the Ageing view is the only graph (no ageing fetch in the Parties and Bills views); its
+ * periods and the bills' filters sit in popovers.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { AgeingBasis, AgeingResult, NonBillWiseMode, OutstandingSide, PartyOutstandingRow } from '../../../shared/types/outstanding.ts';
 import { DEFAULT_AGEING_BUCKETS } from '../../../shared/types/outstanding.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
+import { checkItem, columnsItem } from '../../app/lib/moreItems.ts';
 import { useNav } from '../../app/nav.tsx';
 import type { ScreenActionItem } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { usePeriod } from '../../app/working.tsx';
 import { formatDate } from '../../../shared/dates.ts';
-import { formatMoney } from '../../../shared/format.ts';
+import { Button, DataTable, EmptyState, Field, FiltersPopover, Inline, NumberInput, Popover, SegmentedControl, StatLine, Switch, TextInput, useDebouncedValue } from '../../ui/index.ts';
+import type { Column, StatLineItem } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { DangerWord, Fill, GroupSelect, LimitUsed, OverdueDays, useGroupOptions } from './components.tsx';
+import { ageingChart, receivablesStat } from './lib/charts.ts';
+import type { OutstandingStatId } from './lib/charts.ts';
 import {
-  Badge,
-  BarChart,
-  DataTable,
-  EmptyState,
-  Field,
-  Inline,
-  NumberInput,
-  SegmentedControl,
-  Switch,
-  TextInput,
-  useDebouncedValue,
-} from '../../ui/index.ts';
-import type { Column } from '../../ui/index.ts';
-import { AgeingBar, AgeingLegend, Fill, GroupSelect, KpiStrip, OverdueBadge, UtilisationBar, VGap, useGroupOptions } from './components.tsx';
-import {
+  NO_BILL_FILTER,
   OUTSTANDING_VIEWS,
   SIDE_TEXT,
+  ageColumnFilter,
   ageingExport,
+  billFilterCount,
   billsExport,
+  billsInView,
   bucketText,
   keyBills,
   ledgerSign,
@@ -46,9 +47,11 @@ import {
   partiesExport,
   partiesInView,
   refTypeLabel,
+  withMinDays,
+  withOverdueOnly,
+  withUnmatchedOnly,
 } from './lib/model.ts';
-import type { KeyedBillRow, OutstandingView } from './lib/model.ts';
-import { ageingBarText } from './lib/ageingBars.ts';
+import type { BillFilter, KeyedBillRow, OutstandingView } from './lib/model.ts';
 
 export interface OutstandingParams {
   view?: OutstandingView;
@@ -66,6 +69,17 @@ export function PayablesScreen({ params }: ScreenProps<OutstandingParams>) {
 
 type AgeingRow = AgeingResult['rows'][number];
 
+/** Columns of the Parties view shown only on request (More › Columns…); exports keep every column. */
+const PARTY_COLUMNS_HIDDEN = ['groupName', 'utilisation'];
+
+/** What each stat figure's tooltip says (the label is in the line). */
+const STAT_TITLES: Readonly<Record<OutstandingStatId | 'overdueHere', string>> = {
+  net: 'Bills less advances and amounts on account — the Net outstanding total',
+  overdue: 'Bills past their due date — opens the Ageing view (Ctrl+3)',
+  overdueHere: 'Bills past their due date',
+  unmatched: 'Advances and amounts on account — opens those lines in the Bills view',
+};
+
 function OutstandingReport({ side, params }: { side: OutstandingSide; params: OutstandingParams }) {
   const nav = useNav();
   const { to: asOf } = usePeriod();
@@ -78,16 +92,20 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
   const [groupId, setGroupId] = useState<number | undefined>(params.groupId);
   const [search, setSearch] = useState('');
   const term = useDebouncedValue(search.trim(), 250);
-  const [overdueOnly, setOverdueOnly] = useState(params.overdueOnly ?? false);
-  const [minDays, setMinDays] = useState<number | null>(null);
+  // The Bills view's filters, changed only through lib/model.ts (they exclude each other where they must).
+  const [billFilter, setBillFilter] = useState<BillFilter>({ ...NO_BILL_FILTER, overdueOnly: params.overdueOnly ?? false });
+  const { overdueOnly, minDays, unmatchedOnly } = billFilter;
   const [overLimitOnly, setOverLimitOnly] = useState(false);
+  const [hiddenParty, setHiddenParty] = useState<string[]>(PARTY_COLUMNS_HIDDEN);
   const [bucketDraft, setBucketDraft] = useState(bucketText(DEFAULT_AGEING_BUCKETS));
   const [buckets, setBuckets] = useState<number[]>([...DEFAULT_AGEING_BUCKETS]);
   const [bucketError, setBucketError] = useState<string | null>(null);
+  const [periodsOpen, setPeriodsOpen] = useState(false);
   const [basis, setBasis] = useState<AgeingBasis>('due_date');
   const [cursor, setCursor] = useState<{ ledgerId: number; ledgerName: string } | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const bucketRef = useRef<HTMLInputElement | null>(null);
+  const periodsRef = useRef<HTMLButtonElement | null>(null);
   const groups = useGroupOptions(side);
 
   const base = { side, asOf, groupId, search: term || undefined, nonBillWise };
@@ -97,12 +115,14 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
     { ...base, overdueOnly: overdueOnly || undefined, minOverdueDays: minDays ?? undefined, limit: 10_000 },
     { keepPrevious: true, enabled: view === 'bills' },
   );
+  // The Ageing view is the only one that ages (and draws): no ageing request in the other two.
   const ageing = useApiQuery('outstanding.ageing', { ...base, buckets, basis }, { keepPrevious: true, enabled: view === 'ageing' });
 
-  // Rows AND totals of the party list as shown (the over-limit filter recomputes the totals).
+  // Rows AND totals of the lists as shown (the over-limit and not-matched filters recompute the totals).
   const partyView = useMemo(() => (summary.data ? partiesInView(summary.data, overLimitOnly) : undefined), [summary.data, overLimitOnly]);
   const partyRows = useMemo(() => partyView?.rows ?? [], [partyView]);
-  const billRows = useMemo(() => keyBills(bills.data?.rows ?? []), [bills.data]);
+  const billView = useMemo(() => (bills.data ? billsInView(bills.data, unmatchedOnly) : undefined), [bills.data, unmatchedOnly]);
+  const billRows = useMemo(() => keyBills(billView?.rows ?? []), [billView]);
   const ageRows = useMemo(() => ageing.data?.rows ?? [], [ageing.data]);
 
   // The highlighted party drives Alt+S / Alt+L / Alt+I / Alt+V. It must be a row of the table on
@@ -117,46 +137,95 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
     setCursor(null);
   };
 
-  const applyBuckets = (): void => {
+  /** Applies the typed periods; false (and the reason shown) when they are not valid. */
+  const applyBuckets = (): boolean => {
     const parsed = parseBucketText(bucketDraft);
     if (!parsed.ok) {
       setBucketError(parsed.error);
-      return;
+      return false;
     }
     setBucketError(null);
     setBuckets(parsed.buckets);
     setBucketDraft(bucketText(parsed.buckets));
+    return true;
   };
+  /** Forgets a typed edit: the field shows the periods in use again. */
+  const discardBuckets = (): void => {
+    setBucketDraft(bucketText(buckets));
+    setBucketError(null);
+  };
+  // Esc in the field cancels the edit; the popover's own Esc handler then closes it (focus back on Periods).
+  const discardOnClose = useRef(false);
+  const closePeriods = (): void => {
+    // Leaving the popover (outside click, Tab) applies valid periods, as leaving the 2.0 field did, and
+    // forgets invalid ones; Esc forgets the edit either way.
+    if (discardOnClose.current || !applyBuckets()) discardBuckets();
+    discardOnClose.current = false;
+    setPeriodsOpen(false);
+  };
+
+  // Bills view filters (the "not matched" link and the graph's columns set them).
+  const showUnmatched = (): void => {
+    changeView('bills');
+    setBillFilter((f) => withUnmatchedOnly(f, true));
+  };
+  const drillAge = useRef<(minDays: number | null) => void>(() => undefined);
+  drillAge.current = (from) => {
+    changeView('bills');
+    setBillFilter(ageColumnFilter(from, basis));
+  };
+  const onAgeColumn = useCallback((from: number | null) => drillAge.current(from), []);
+
+  // ── The graph (Ageing view only) and the stat ──
+  const ageSpec = useMemo(() => (view === 'ageing' && ageing.data ? ageingChart(ageing.data, onAgeColumn) : null), [view, ageing.data, onAgeColumn]);
+  const statSource = view === 'parties' ? partyView : summary.data;
+  const statItems = useMemo<StatLineItem[]>(
+    () =>
+      statSource
+        ? receivablesStat(statSource).map((it) => ({
+            label: it.label,
+            value: it.value,
+            link: it.link,
+            title: it.id === 'overdue' && view === 'ageing' ? STAT_TITLES.overdueHere : STAT_TITLES[it.id],
+            onClick: it.id === 'overdue' ? (view === 'ageing' ? undefined : () => changeView('ageing')) : it.id === 'unmatched' ? showUnmatched : undefined,
+          }))
+        : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [statSource, view],
+  );
+  const overLimitCount = summary.data?.totals.overLimitCount ?? 0;
 
   // ── Columns ──
   const partyColumns = useMemo<Column<PartyOutstandingRow>[]>(
     () => [
       { key: 'ledgerName', header: t.party, sortable: true, minWidth: 200 },
-      { key: 'groupName', header: 'Group', width: 150, sortable: true },
-      { key: 'pending', header: 'Outstanding', kind: 'drcr', width: 150, value: (r) => r.pending * sign, total: true, sortable: true },
-      { key: 'overdue', header: 'Overdue', kind: 'drcr', width: 140, value: (r) => r.overdue * sign, total: true, sortable: true },
-      { key: 'notDue', header: 'Not due', kind: 'drcr', width: 140, value: (r) => r.notDue * sign, total: true, sortable: true },
-      { key: 'unadjusted', header: 'Adv. / on a/c', kind: 'drcr', width: 140, value: (r) => (r.advance + r.onAccount) * sign, total: true, sortable: true },
+      { key: 'overdue', header: 'Overdue', kind: 'drcr', width: 150, value: (r) => r.overdue * sign, total: true, sortable: true },
+      { key: 'notDue', header: 'Not due', kind: 'drcr', width: 150, value: (r) => r.notDue * sign, total: true, sortable: true },
+      { key: 'unadjusted', header: 'Advances & on account', kind: 'drcr', width: 190, value: (r) => (r.advance + r.onAccount) * sign, total: true, sortable: true },
+      { key: 'pending', header: 'Net outstanding', kind: 'drcr', width: 160, value: (r) => r.pending * sign, total: true, sortable: true },
       {
         key: 'oldestDueDays',
-        header: 'Oldest overdue',
-        width: 120,
+        header: 'Oldest',
+        width: 90,
         align: 'right',
         sortable: true,
-        value: (r) => r.oldestDueDays,
-        render: (r) => <OverdueBadge days={r.oldestDueDays} />,
+        value: (r) => r.oldestDueDays || null,
+        sortValue: (r) => r.oldestDueDays,
+        render: (r) => <OverdueDays days={r.oldestDueDays} limits={buckets} />,
       },
+      { key: 'groupName', header: 'Group', width: 150, sortable: true },
       {
         key: 'utilisation',
         header: 'Credit limit used',
-        width: 160,
+        width: 140,
+        align: 'right',
         sortable: true,
         value: (r) => r.utilisationPercent,
         sortValue: (r) => r.utilisationPercent ?? -1,
-        render: (r) => <UtilisationBar percent={r.utilisationPercent} partyName={r.ledgerName} />,
+        render: (r) => <LimitUsed percent={r.utilisationPercent} />,
       },
     ],
-    [t, sign],
+    [t, sign, buckets],
   );
 
   const billColumns = useMemo<Column<KeyedBillRow>[]>(
@@ -165,18 +234,17 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       {
         key: 'billName',
         header: 'Bill no.',
-        width: 170,
+        width: 190,
         sortable: true,
+        title: (r) => (r.refType === 'new' || r.refType === 'on_account' ? r.billName : `${r.billName} (${refTypeLabel(r.refType)})`),
         render: (r) =>
-          r.refType === 'new' ? (
+          r.refType === 'new' || r.refType === 'on_account' ? (
             r.billName
           ) : (
-            <Inline gap={1} wrap={false}>
-              <span className="bx-truncate">{r.billName}</span>
-              <Badge size="sm" tone={r.refType === 'advance' ? 'info' : 'neutral'}>
-                {refTypeLabel(r.refType)}
-              </Badge>
-            </Inline>
+            <span className="bx-truncate">
+              {r.billName}
+              <span className="bx-muted"> · {refTypeLabel(r.refType)}</span>
+            </span>
           ),
       },
       { key: 'ledgerName', header: t.party, minWidth: 180, sortable: true },
@@ -184,15 +252,15 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       {
         key: 'overdueDays',
         header: 'Overdue',
-        width: 110,
+        width: 100,
         align: 'right',
         sortable: true,
-        render: (r) => <OverdueBadge days={r.overdueDays} notDueText={r.dueDate ? 'Not due' : ''} />,
+        render: (r) => <OverdueDays days={r.overdueDays} notDueText={r.dueDate ? 'Not due' : ''} limits={buckets} />,
       },
       { key: 'originalAmount', header: 'Bill amount', kind: 'drcr', width: 150, value: (r) => r.originalAmount * sign, sortable: true },
       { key: 'pendingAmount', header: 'Pending', kind: 'drcr', width: 150, value: (r) => r.pendingAmount * sign, total: true, sortable: true },
     ],
-    [t, sign],
+    [t, sign, buckets],
   );
 
   const bucketLabels = ageing.data?.buckets.map((b) => b.label).join('|') ?? '';
@@ -200,16 +268,6 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
     const labels = bucketLabels ? bucketLabels.split('|') : [];
     return [
       { key: 'ledgerName', header: t.party, sortable: true, minWidth: 200 },
-      {
-        key: 'profile',
-        header: 'Age profile',
-        width: 130,
-        // Text (hover / copy) describes every bucket; sorting puts the oldest money first.
-        value: (r) => ageingBarText(labels, r.amounts, (p) => formatMoney(p, { symbol: true })),
-        sortValue: (r) => r.amounts.findLastIndex((a) => a > 0),
-        sortable: true,
-        render: (r) => <AgeingBar labels={labels} amounts={r.amounts} partyName={r.ledgerName} />,
-      },
       ...labels.map(
         (label, i): Column<AgeingRow> => ({ key: `b${i}`, header: label, kind: 'drcr', width: 130, value: (r) => r.amounts[i] * sign, total: true, sortable: true }),
       ),
@@ -226,8 +284,8 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
   const actions: ScreenActionItem[] = [
     ...OUTSTANDING_VIEWS.map((v) => ({ key: v.key, label: `${v.label} view`, onClick: () => changeView(v.value), group: 'view', disabled: view === v.value })),
     { key: 'Ctrl+F', label: 'Search', icon: 'search', onClick: () => searchRef.current?.focus(), group: 'view' },
-    { key: 'Alt+O', label: overdueOnly ? 'Show all bills' : 'Overdue only', icon: 'filter', onClick: () => setOverdueOnly((x) => !x), hidden: view !== 'bills', group: 'filter' },
-    { key: 'Alt+B', label: 'Ageing periods', icon: 'sliders', onClick: () => bucketRef.current?.focus(), hidden: view !== 'ageing', group: 'filter' },
+    { key: 'Alt+O', label: 'Overdue only', icon: 'filter', onClick: () => setBillFilter((f) => withOverdueOnly(f, !f.overdueOnly)), hidden: view !== 'bills', group: 'filter', checked: overdueOnly },
+    { key: 'Alt+B', label: 'Ageing periods', icon: 'sliders', onClick: () => setPeriodsOpen(true), hidden: view !== 'ageing', group: 'filter', hint: `${bucketText(buckets)} days` },
     {
       key: 'Alt+U',
       label: basis === 'due_date' ? 'Age by bill date' : 'Age by due date',
@@ -243,6 +301,7 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       group: 'filter',
       hint: 'Parties without bill-wise details: age their balance FIFO against the latest invoices, or show it as one On Account line',
     },
+    ...(view === 'parties' ? [checkItem('Only parties over their credit limit', overLimitOnly, setOverLimitOnly), columnsItem(partyColumns, hiddenParty, setHiddenParty)] : []),
     {
       key: 'Alt+V',
       label: 'Party outstanding',
@@ -273,23 +332,27 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       group: 'go',
       hint: party ? `Payment reminder for ${party.ledgerName}` : 'Reminder letters for every customer with overdue bills',
     },
-    { key: 'Alt+W', label: t.otherTitle, icon: 'arrow-right', onClick: () => nav.replace(t.otherScreen), group: 'go' },
+    // Alt+W is a convention key (Share): 2.1 keeps it here but never as a button (SPEC-21 D25, §3.1 rule 2b).
+    { key: 'Alt+W', label: t.otherTitle, icon: 'arrow-right', onClick: () => nav.replace(t.otherScreen), group: 'go', demoted: true },
   ];
 
   const active = view === 'parties' ? summary : view === 'bills' ? bills : ageing;
   const exportDef = () => {
-    if (view === 'bills' && bills.data) return billsExport(bills.data);
+    if (view === 'bills' && billView) return billsExport(billView);
     if (view === 'ageing' && ageing.data) return ageingExport(ageing.data);
     return partyView ? partiesExport(partyView) : { columns: [], rows: [] };
   };
   const nothing = `Nothing ${side === 'receivable' ? 'receivable' : 'payable'} as on ${formatDate(asOf)}`;
-  const filtered = !!term || groupId !== undefined || overLimitOnly || (view === 'bills' && (overdueOnly || minDays !== null));
+  const filtered = !!term || groupId !== undefined || overLimitOnly || (view === 'bills' && (overdueOnly || minDays !== null || unmatchedOnly));
   const emptyBody = filtered ? 'No party or bill matches these filters — clear the search or filters.' : `Every ${t.party.toLowerCase()} is settled. Change the date with Alt+F2.`;
+  const billFilters = billFilterCount(billFilter);
+  const truncated = view === 'bills' && bills.data && bills.data.total > bills.data.rows.length ? bills.data : null;
 
   return (
     <ReportScreen
       title={t.title}
-      subtitle={view === 'parties' ? 'Party-wise outstanding' : view === 'bills' ? 'Bill-wise outstanding' : `Ageing by ${basis === 'due_date' ? 'due date' : 'bill date'}`}
+      subtitle={view === 'ageing' ? `aged by ${basis === 'due_date' ? 'due date' : 'bill date'}` : undefined}
+      meta={overLimitCount > 0 ? <DangerWord>{`${overLimitCount} over credit limit`}</DangerWord> : undefined}
       periodMode="asOn"
       exportDef={exportDef}
       loading={summary.loading && !summary.data}
@@ -297,10 +360,19 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       error={active.error ?? summary.error}
       onRetry={() => void active.refetch()}
       actions={actions}
+      graph={reportGraph(ageSpec)}
+      stat={statItems.length ? <StatLine items={statItems} /> : undefined}
       hint={
         view === 'bills'
           ? 'Enter Open voucher · Alt+V Party · Alt+O Overdue only · Ctrl+1/2/3 Views · Ctrl+F Search · Alt+F2 As on · Alt+E Export · Esc Back'
           : `Enter Open party · Ctrl+1/2/3 Views · Ctrl+F Search · Alt+S Statement${side === 'receivable' ? ' · Alt+R Reminder' : ''} · Alt+F2 As on · Alt+E Export · Alt+P Print · Esc Back`
+      }
+      toolbar={
+        truncated ? (
+          <span className="bx-muted" title="Narrow the search to see the rest">
+            {`First ${truncated.rows.length.toLocaleString('en-IN')} of ${truncated.total.toLocaleString('en-IN')} bills`}
+          </span>
+        ) : undefined
       }
       filters={
         <Inline gap={2}>
@@ -315,130 +387,126 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
             aria-label={`Search ${t.parties}`}
           />
           <GroupSelect options={groups} value={groupId} onChange={setGroupId} allLabel={side === 'receivable' ? 'All debtors' : 'All creditors'} />
+          {view === 'bills' ? (
+            <FiltersPopover
+              count={billFilters}
+              onClear={() => setBillFilter(NO_BILL_FILTER)}
+            >
+              <Switch
+                size="sm"
+                checked={overdueOnly}
+                onChange={(on) => setBillFilter((f) => withOverdueOnly(f, on))}
+                label="Overdue only"
+                showState={false}
+                aria-keyshortcuts="Alt+O"
+              />
+              <Field label="Overdue by at least" layout="inline" labelWidth="auto">
+                <NumberInput
+                  size="sm"
+                  value={minDays}
+                  onChange={(v) => setBillFilter((f) => withMinDays(f, v))}
+                  min={0}
+                  max={36_500}
+                  suffix="days"
+                  style={{ width: 90 }}
+                  aria-label="Minimum overdue days"
+                />
+              </Field>
+              <Switch
+                size="sm"
+                checked={unmatchedOnly}
+                onChange={(on) => setBillFilter((f) => withUnmatchedOnly(f, on))}
+                label="Only advances and on account"
+                showState={false}
+              />
+            </FiltersPopover>
+          ) : view === 'ageing' ? (
+            <>
+              <Button
+                ref={periodsRef}
+                variant="ghost"
+                size="sm"
+                iconRight="chevron-down"
+                aria-haspopup="dialog"
+                aria-expanded={periodsOpen}
+                aria-keyshortcuts="Alt+B"
+                title="Ageing periods · Alt+B"
+                onClick={() => (periodsOpen ? closePeriods() : setPeriodsOpen(true))}
+              >
+                {`Periods ${bucketText(buckets)} days`}
+              </Button>
+              <Popover open={periodsOpen} onClose={closePeriods} anchorRef={periodsRef} aria-label="Ageing periods" initialFocus={bucketRef}>
+                <Field label="Ageing periods (days)" error={bucketError ?? undefined}>
+                  <TextInput
+                    ref={bucketRef}
+                    size="sm"
+                    value={bucketDraft}
+                    onValueChange={setBucketDraft}
+                    onKeyDown={(e) => {
+                      // Esc cancels the edit (the popover closes itself and returns focus to Periods).
+                      if (e.key === 'Escape') discardOnClose.current = true;
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (applyBuckets()) {
+                          setPeriodsOpen(false);
+                          periodsRef.current?.focus();
+                        }
+                      }
+                    }}
+                    style={{ width: 200 }}
+                  />
+                </Field>
+              </Popover>
+            </>
+          ) : null}
         </Inline>
       }
     >
-      <KpiStrip
-        summary={summary.data}
-        loading={summary.loading}
-        onOverdue={() => {
-          changeView('bills');
-          setOverdueOnly(true);
-        }}
-        onOverLimit={() => {
-          changeView('parties');
-          setOverLimitOnly(true);
-        }}
-      />
-      <VGap />
       {view === 'parties' ? (
-        <>
-          <Inline gap={3}>
-            <Switch size="sm" checked={overLimitOnly} onChange={setOverLimitOnly} label="Only parties over their credit limit" showState={false} />
-          </Inline>
-          <VGap />
-          <DataTable<PartyOutstandingRow>
-            aria-label={`${t.title} by party`}
+        <DataTable<PartyOutstandingRow>
+          aria-label={`${t.title} by party`}
+          autoFocus
+          columns={partyColumns}
+          rows={partyRows}
+          getRowKey={(r) => String(r.ledgerId)}
+          loading={summary.loading}
+          hideEmptyColumns
+          hiddenColumns={hiddenParty}
+          onRowActivate={(r) => openParty(r.ledgerId)}
+          onSelect={(_, r) => setCursor(r ? { ledgerId: r.ledgerId, ledgerName: r.ledgerName } : null)}
+          typeToJump={(r) => r.ledgerName}
+          empty={<EmptyState icon="check-circle" title={nothing} body={emptyBody} />}
+        />
+      ) : view === 'bills' ? (
+        <DataTable<KeyedBillRow>
+          aria-label={`${t.title} by bill`}
+          autoFocus
+          columns={billColumns}
+          rows={billRows}
+          getRowKey={(r) => r.key}
+          loading={bills.loading}
+          hideEmptyColumns
+          onRowActivate={(r) => (r.voucherId !== null ? nav.push('vouchers.view', { id: r.voucherId }) : openParty(r.ledgerId))}
+          onSelect={(_, r) => setCursor(r ? { ledgerId: r.ledgerId, ledgerName: r.ledgerName } : null)}
+          typeToJump={(r) => r.billName}
+          empty={<EmptyState icon="check-circle" title={overdueOnly || minDays !== null ? 'No overdue bills' : nothing} body={emptyBody} />}
+        />
+      ) : (
+        <Fill>
+          <DataTable<AgeingRow>
+            aria-label={`${t.title} ageing`}
             autoFocus
-            columns={partyColumns}
-            rows={partyRows}
+            columns={ageColumns}
+            rows={ageRows}
             getRowKey={(r) => String(r.ledgerId)}
-            loading={summary.loading}
+            loading={ageing.loading}
+            hideEmptyColumns
             onRowActivate={(r) => openParty(r.ledgerId)}
             onSelect={(_, r) => setCursor(r ? { ledgerId: r.ledgerId, ledgerName: r.ledgerName } : null)}
             typeToJump={(r) => r.ledgerName}
             empty={<EmptyState icon="check-circle" title={nothing} body={emptyBody} />}
           />
-        </>
-      ) : view === 'bills' ? (
-        <>
-          <Inline gap={3}>
-            <Switch size="sm" checked={overdueOnly} onChange={setOverdueOnly} label="Overdue only" showState={false} aria-keyshortcuts="Alt+O" />
-            <Field label="Overdue by at least" layout="inline" labelWidth="auto">
-              <NumberInput size="sm" value={minDays} onChange={(v) => setMinDays(v === null || v <= 0 ? null : Math.round(v))} min={0} max={36_500} suffix="days" style={{ width: 90 }} aria-label="Minimum overdue days" />
-            </Field>
-            {bills.data && bills.data.total > billRows.length ? (
-              <span className="bx-muted">
-                Showing the first {billRows.length.toLocaleString('en-IN')} of {bills.data.total.toLocaleString('en-IN')} bills — narrow the search to see the rest.
-              </span>
-            ) : null}
-          </Inline>
-          <VGap />
-          <DataTable<KeyedBillRow>
-            aria-label={`${t.title} by bill`}
-            autoFocus
-            columns={billColumns}
-            rows={billRows}
-            getRowKey={(r) => r.key}
-            loading={bills.loading}
-            onRowActivate={(r) => (r.voucherId !== null ? nav.push('vouchers.view', { id: r.voucherId }) : openParty(r.ledgerId))}
-            onSelect={(_, r) => setCursor(r ? { ledgerId: r.ledgerId, ledgerName: r.ledgerName } : null)}
-            typeToJump={(r) => r.billName}
-            empty={<EmptyState icon="check-circle" title={overdueOnly || minDays !== null ? 'No overdue bills' : nothing} body={emptyBody} />}
-          />
-        </>
-      ) : (
-        <>
-          <Inline gap={3} align="start">
-            <Field label="Ageing periods (days)" layout="inline" labelWidth="auto" error={bucketError ?? undefined}>
-              <TextInput
-                ref={bucketRef}
-                size="sm"
-                value={bucketDraft}
-                onValueChange={setBucketDraft}
-                onBlur={applyBuckets}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    applyBuckets();
-                  }
-                }}
-                aria-keyshortcuts="Alt+B"
-                style={{ width: 170 }}
-              />
-            </Field>
-            <SegmentedControl<AgeingBasis>
-              aria-label="Age by"
-              size="sm"
-              value={basis}
-              onChange={setBasis}
-              options={[
-                { value: 'due_date', label: 'By due date' },
-                { value: 'bill_date', label: 'By bill date' },
-              ]}
-            />
-          </Inline>
-          <VGap />
-          {ageing.data && ageing.data.rows.length > 0 ? (
-            <>
-              <BarChart
-                title={`${t.title} by age, as on ${formatDate(asOf)}`}
-                description="Total outstanding in each ageing period"
-                categories={ageing.data.buckets.map((b) => b.label)}
-                series={[{ name: t.amount, values: ageing.data.totals.amounts, slot: 1 }]}
-                valueFormat="inr"
-                height={170}
-              />
-              <VGap />
-              <AgeingLegend labels={ageing.data.buckets.map((b) => b.label)} />
-              <VGap />
-            </>
-          ) : null}
-          <Fill>
-            <DataTable<AgeingRow>
-              aria-label={`${t.title} ageing`}
-              autoFocus
-              columns={ageColumns}
-              rows={ageRows}
-              getRowKey={(r) => String(r.ledgerId)}
-              loading={ageing.loading}
-              onRowActivate={(r) => openParty(r.ledgerId)}
-              onSelect={(_, r) => setCursor(r ? { ledgerId: r.ledgerId, ledgerName: r.ledgerName } : null)}
-              typeToJump={(r) => r.ledgerName}
-              empty={<EmptyState icon="check-circle" title={nothing} body={emptyBody} />}
-            />
-          </Fill>
-        </>
+        </Fill>
       )}
     </ReportScreen>
   );

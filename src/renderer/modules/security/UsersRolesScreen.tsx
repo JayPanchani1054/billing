@@ -18,7 +18,7 @@ import { useNav, useScreenActions } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
 import { Screen } from '../../app/Screen.tsx';
 import { useAppState, useCan } from '../../app/state.tsx';
-import { Badge, Banner, Button, Checkbox, DataTable, EmptyState, Inline, Stack, Tabs, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
+import { Banner, Button, DataTable, EmptyState, NO_KEY, Stack, Tabs, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { UserStatusBadges } from './components.tsx';
 import { useNow } from './hooks.ts';
@@ -42,8 +42,7 @@ export function UsersRolesScreen({ params }: ScreenProps<{ tab?: TabId }>) {
   return (
     <Screen
       title="Users & Roles"
-      subtitle="Who can open this company and what each person may do."
-      icon="users"
+      subtitle={users.data && roles.data ? `${users.data.total} user${users.data.total === 1 ? '' : 's'} · ${roles.data.total} role${roles.data.total === 1 ? '' : 's'}` : undefined}
       hint={tab === 'users' ? 'Enter Alter · Alt+C Create User · Alt+R Reset Password · Alt+U Unlock · Alt+V Deactivate · Alt+H History · Ctrl+2 Roles' : 'Enter Open · Alt+C Create Role · Alt+K Copy · Alt+D Delete · Alt+H History · Ctrl+1 Users'}
       actions={[
         { key: 'Ctrl+1', label: 'Users', icon: 'user', onClick: () => setTab('users'), group: 'view', disabled: tab === 'users' },
@@ -57,12 +56,12 @@ export function UsersRolesScreen({ params }: ScreenProps<{ tab?: TabId }>) {
             tone="info"
             title="Security is off"
             action={
-              <Button size="sm" icon="lock" onClick={() => nav.push('security.settings')}>
+              <Button size="sm" variant="link" onClick={() => nav.push('security.settings')}>
                 Turn on…
               </Button>
             }
           >
-            Anyone who opens this company has full access. You can add users and roles now — they apply as soon as security is turned on.
+            Anyone who opens this company has full access; users and roles apply once it is on.
           </Banner>
         ) : null}
         <Tabs
@@ -70,20 +69,8 @@ export function UsersRolesScreen({ params }: ScreenProps<{ tab?: TabId }>) {
           value={tab}
           onChange={(id) => setTab(id === 'roles' ? 'roles' : 'users')}
           items={[
-            {
-              id: 'users',
-              label: 'Users',
-              icon: 'user',
-              badge: users.data ? <Badge size="sm">{users.data.total}</Badge> : undefined,
-              content: <UsersTab />,
-            },
-            {
-              id: 'roles',
-              label: 'Roles',
-              icon: 'shield',
-              badge: roles.data ? <Badge size="sm">{roles.data.total}</Badge> : undefined,
-              content: <RolesTab />,
-            },
+            { id: 'users', label: 'Users', content: <UsersTab /> },
+            { id: 'roles', label: 'Roles', content: <RolesTab /> },
           ]}
         />
       </Stack>
@@ -188,7 +175,8 @@ function UsersTab() {
   };
 
   useScreenActions([
-    { key: 'Alt+C', label: 'Create user', icon: 'plus', primary: true, onClick: () => void openForm() },
+    // 2.1 (D5): a list's Create is a secondary button (Alt+C, a convention, keeps it in the title row).
+    { key: 'Alt+C', label: 'Create user', icon: 'plus', onClick: () => void openForm() },
     { key: 'Alt+A', label: 'Alter user', icon: 'edit', onClick: () => selected && void openForm(selected.id), disabled: !selected },
     {
       key: 'Alt+R',
@@ -236,6 +224,8 @@ function UsersTab() {
       hint: 'Every change to this user, password resets and unlocks.',
     },
     { key: 'Alt+D', label: 'Delete…', icon: 'trash', onClick: () => selected && void doDelete(selected), disabled: !selected || selected.isSelf, group: 'danger', hint: 'Users are kept for the edit log — you will be offered to deactivate instead.' },
+    // 2.1: a view option is a keyless, checkable More item (it was a checkbox beside the search).
+    { key: NO_KEY, label: 'Show deactivated users', onClick: () => setShowInactive((v) => !v), checked: showInactive, group: 'view' },
   ]);
 
   const columns = useMemo<Column<SecurityUser>[]>(
@@ -285,7 +275,7 @@ function UsersTab() {
 
   return (
     <Stack gap={3}>
-      <Inline gap={3} align="center">
+      <div className="bx-toolbar-row">
         <div className="bx-sec-filters__search">
           <TextInput
             value={search}
@@ -302,15 +292,14 @@ function UsersTab() {
             aria-label="Search users"
           />
         </div>
-        <Checkbox checked={showInactive} onChange={setShowInactive} label="Show deactivated users" />
-      </Inline>
+      </div>
       {q.error ? (
-        <Banner tone="danger" title="Users could not be loaded" action={<Button size="sm" onClick={() => void q.refetch()}>Try again</Button>}>
+        <Banner tone="danger" title="Users could not be loaded" action={<Button size="sm" variant="link" onClick={() => void q.refetch()}>Try again</Button>}>
           {userMessage(q.error)}
         </Banner>
       ) : null}
       <div className="bx-sec-table">
-        <DataTable<SecurityUser>
+        <DataTable
           aria-label="Users"
           autoFocus
           gridRef={gridRef}
@@ -324,10 +313,8 @@ function UsersTab() {
           typeToJump={(u) => u.username}
           empty={
             <EmptyState
-              icon="users"
-              title={debounced ? 'No user matches your search' : 'No users yet'}
-              body={debounced ? 'Check the spelling or clear the search.' : 'Press Alt+C to add the first user.'}
-              action={debounced ? undefined : <Button icon="plus" onClick={() => void openForm()}>Create user</Button>}
+              title={debounced ? 'No user matches your search' : showInactive ? 'No users yet' : 'No active users'}
+              body={debounced ? 'Check the spelling or clear the search.' : 'Alt+C adds a user.'}
             />
           }
         />
@@ -375,9 +362,16 @@ function RolesTab() {
   };
 
   useScreenActions([
-    { key: 'Alt+C', label: 'Create role', icon: 'plus', primary: true, onClick: () => void open({}) },
+    { key: 'Alt+C', label: 'Create role', icon: 'plus', onClick: () => void open({}) },
     { key: 'Alt+A', label: selected?.isSystem ? 'View role' : 'Alter role', icon: selected?.isSystem ? 'eye' : 'edit', onClick: () => selected && void open({ id: selected.id }), disabled: !selected },
-    { key: 'Alt+K', label: 'Copy as new role', icon: 'copy', onClick: () => selected && void open({ copyFrom: selected.id }), disabled: !selected, hint: 'Start a new role from the selected role’s permissions.' },
+    {
+      key: 'Alt+K',
+      label: 'Copy as new role',
+      icon: 'copy',
+      onClick: () => selected && void open({ copyFrom: selected.id }),
+      disabled: !selected,
+      hint: 'Start a new role from the selected role’s permissions. Built-in roles cannot be changed — copy one to make your own; role changes apply to each user from their next login.',
+    },
     {
       key: 'Alt+H',
       label: 'Edit history',
@@ -409,16 +403,7 @@ function RolesTab() {
         render: (r) => (
           <span className="bx-sec-badges">
             <span className="bx-sec-user__name">{r.name}</span>
-            {r.isSystem ? (
-              <Badge size="sm" tone="neutral" icon="lock">
-                Built-in
-              </Badge>
-            ) : null}
-            {r.isOwner ? (
-              <Badge size="sm" tone="brand">
-                Full access
-              </Badge>
-            ) : null}
+            {r.isSystem || r.isOwner ? <span className="bx-muted">{[r.isSystem ? 'built-in' : null, r.isOwner ? 'full access' : null].filter(Boolean).join(' · ')}</span> : null}
           </span>
         ),
       },
@@ -440,12 +425,12 @@ function RolesTab() {
   return (
     <Stack gap={3}>
       {q.error ? (
-        <Banner tone="danger" title="Roles could not be loaded" action={<Button size="sm" onClick={() => void q.refetch()}>Try again</Button>}>
+        <Banner tone="danger" title="Roles could not be loaded" action={<Button size="sm" variant="link" onClick={() => void q.refetch()}>Try again</Button>}>
           {userMessage(q.error)}
         </Banner>
       ) : null}
       <div className="bx-sec-table">
-        <DataTable<SecurityRole>
+        <DataTable
           aria-label="Roles"
           autoFocus
           columns={columns}
@@ -455,10 +440,9 @@ function RolesTab() {
           onSelect={(k) => setCursor(k)}
           onRowActivate={(r) => void open({ id: r.id })}
           loading={q.loading}
-          empty={<EmptyState icon="shield" title="No roles" body="Press Alt+C to create one." />}
+          empty={<EmptyState title="No roles" body="Alt+C creates one." />}
         />
       </div>
-      <p className="bx-muted">Built-in roles cannot be changed — copy one (Alt+K) to make your own. Role changes apply to each user from their next login.</p>
     </Stack>
   );
 }

@@ -1,10 +1,8 @@
 /* Stock (inventory reports) screens. Semantic design tokens only (no raw colours). Prefix: bx-stock- */
 
-/* One-line explanation above a report table. */
-.bx-stock-note {
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-  line-height: var(--lh-snug);
+/* A late order: the words in danger text (no pill). */
+.bx-stock-late {
+  color: var(--danger-text);
 }
 
 /* A loss / shortage figure: emphasised by weight (the minus sign carries the meaning; no red/green). */

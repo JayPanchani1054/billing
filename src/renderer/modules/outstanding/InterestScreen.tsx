@@ -4,6 +4,9 @@
  * Rate: the party ledger's own rate by default (blank = each ledger's rate); basis due/bill date;
  * grace days. Enter on a bill opens a drawer with its balance segments (how the interest was worked
  * out, lines adding up to the paisa). Export (Alt+E) / Print (Alt+P) the bill list.
+ *
+ * 2.1 (SPEC-21 §5): no graph — the two figures (interest to charge, interest payable) are the table's
+ * total lines; the bill count sits on the toolbar row; tiles and badges are gone.
  */
 import { useMemo, useRef, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
@@ -16,17 +19,14 @@ import type { ScreenProps } from '../../app/registry.ts';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { usePeriod } from '../../app/working.tsx';
 import {
-  Badge,
   Banner,
   Button,
   DataTable,
   Drawer,
   EmptyState,
   Field,
-  Grid,
   Inline,
   KeyValueList,
-  KpiCard,
   NumberInput,
   PercentInput,
   SegmentedControl,
@@ -125,10 +125,10 @@ export function InterestScreen({ params }: ScreenProps<InterestParams>) {
           r.refType === 'new' ? (
             r.billName
           ) : (
-            <Inline gap={1} wrap={false}>
-              <span className="bx-truncate">{r.billName}</span>
-              <Badge size="sm">{refTypeLabel(r.refType)}</Badge>
-            </Inline>
+            <span className="bx-truncate">
+              {r.billName}
+              <span className="bx-muted"> · {refTypeLabel(r.refType)}</span>
+            </span>
           ),
       },
       { key: 'billDate', header: 'Bill date', kind: 'date', width: 110, sortable: true },
@@ -144,7 +144,6 @@ export function InterestScreen({ params }: ScreenProps<InterestParams>) {
         width: 120,
         hidden: !mixedSides,
         value: (r) => (r.side === 'receivable' ? 'To charge' : 'Payable'),
-        render: (r) => <Badge size="sm" tone={r.side === 'receivable' ? 'brand' : 'accent'}>{r.side === 'receivable' ? 'To charge' : 'Payable'}</Badge>,
       },
     ],
     [scope, mixedSides],
@@ -203,6 +202,7 @@ export function InterestScreen({ params }: ScreenProps<InterestParams>) {
         onRetry={() => void q.refetch()}
         actions={actions}
         hint="Enter Next field / Bill details · Alt+N Party · Alt+R Rate · Alt+U Basis · Alt+O Party outstanding · Alt+F2 Period · Alt+E Export · Esc Back"
+        toolbar={d ? <span className="bx-muted">{`${d.totals.billCount} ${d.totals.billCount === 1 ? 'bill' : 'bills'}`}</span> : undefined}
         filters={
           <Inline gap={2}>
             <SegmentedControl<InterestScope> aria-label="Calculate for" size="sm" value={scope} onChange={setScope} options={SCOPES.map((s) => ({ ...s, disabled: s.value === 'group' && groups.length === 0 }))} />
@@ -268,15 +268,6 @@ export function InterestScreen({ params }: ScreenProps<InterestParams>) {
             </Field>
           </Inline>
         </div>
-        <VGap />
-        {d ? (
-          <Grid minItemWidth={170} gap={3}>
-            <KpiCard label="Interest to charge" value={d.totals.receivable} amount icon="rupee" caption="From customers (receivable)" />
-            <KpiCard label="Interest payable" value={d.totals.payable} amount icon="wallet" caption="To suppliers (e.g. MSME delayed payments)" />
-            <KpiCard label="Bills" value={String(d.totals.billCount)} icon="invoice" caption={`${formatDate(d.from)} to ${formatDate(d.to)}`} />
-            <KpiCard label="Parties without a rate" value={String(d.skipped.length)} icon="alert" caption={d.skipped.length ? 'Not calculated — see below' : 'Every party has a rate'} />
-          </Grid>
-        ) : null}
         {d && d.skipped.length > 0 ? (
           <>
             <VGap />

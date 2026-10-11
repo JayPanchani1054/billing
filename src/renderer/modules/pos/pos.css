@@ -19,9 +19,6 @@
   flex: 1 1 auto;
   min-width: 280px;
 }
-.pos-scan__input {
-  font-size: var(--fs-16);
-}
 .pos-counter__name {
   width: 120px;
 }
@@ -31,18 +28,12 @@
   text-align: center;
 }
 
-.pos-total {
-  padding: var(--space-4);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-}
 .pos-total__label {
   color: var(--text-secondary);
   font-size: var(--fs-14);
 }
 .pos-total__amount {
-  font-size: var(--text-display);
+  font-size: var(--text-heading);
   font-weight: var(--fw-bold);
   line-height: var(--lh-tight);
   color: var(--text-primary);
@@ -62,18 +53,11 @@
   color: var(--success-text);
   font-weight: var(--fw-semibold);
 }
-.pos-total--small .pos-total__amount {
-  font-size: var(--fs-24);
-}
 
 .pos-card {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-3);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
 }
 
 .pos-tenders {
@@ -82,9 +66,8 @@
 }
 .pos-tenders th {
   padding: var(--space-1) var(--space-2);
-  background: var(--surface-2);
   color: var(--text-secondary);
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-semibold);
   text-align: left;
   border-bottom: 1px solid var(--border-default);
 }
@@ -112,11 +95,10 @@
   align-items: flex-end;
 }
 .pos-pay-summary strong {
-  font-size: var(--fs-20);
+  font-size: var(--text-title);
 }
 .pos-pay-summary__change strong {
-  font-size: var(--fs-32);
-  color: var(--text-primary);
+  font-size: var(--text-heading);
 }
 
 .pos-drawer {

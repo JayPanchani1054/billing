@@ -8,15 +8,16 @@
  * Alt+F2 period · Alt+E export · Alt+P print · Esc back.
  */
 import { useMemo, useRef, useState } from 'react';
-import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { ForexLedgerCurrency, ForexLedgerRow } from '../../../shared/types/forex.ts';
 import { ReportScreen, useApiQuery, useCan, useFeatures, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { DataTable, EmptyState, Field, Picker, Stack } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { useReportPeriod } from '../reports/components.tsx';
 import { ForexOff } from './components.tsx';
+import { ledgerChart } from './lib/charts.ts';
 import { currencyMap, fxDrCr, ledgerExport, ledgerFooterNote, rateText } from './lib/model.ts';
 
 export interface ForexLedgerParams {
@@ -40,6 +41,7 @@ export function LedgerScreen({ params }: ScreenProps<ForexLedgerParams>) {
   const d = ledgerId !== null && q.data?.ledgerId === ledgerId ? q.data : undefined;
   const selected = ledgers.find((l) => l.ledgerId === ledgerId) ?? null;
   const current = d?.rows.find((r) => String(r.voucherId) === cursor) ?? null;
+  const spec = useMemo(() => (d ? ledgerChart(d) : null), [d]);
 
   const columns = useMemo<Column<ForexLedgerRow>[]>(() => {
     const c = d?.currency;
@@ -92,8 +94,20 @@ export function LedgerScreen({ params }: ScreenProps<ForexLedgerParams>) {
   return (
     <ReportScreen
       title={d ? d.ledgerName : 'Ledger in Foreign Currency'}
-      subtitle={d ? `Kept in ${d.currency.formalName} (${d.currency.symbol}) · books in rupees` : 'Ledger Vouchers in both currencies'}
+      subtitle={d ? `In ${d.currency.formalName} and rupees` : undefined}
       period={p.period}
+      graph={reportGraph(spec)}
+      graphKind="detail"
+      about={
+        d ? (
+          <>
+            <p>
+              {d.ledgerName} is kept in {d.currency.formalName} ({d.currency.symbol}); the books are in rupees. Each voucher shows its amount in the currency, the rate it was entered at and the rupees
+              posted, with running balances in both. “₹ only” lines are exchange adjustments in rupees (realised or revaluation).
+            </p>
+          </>
+        ) : undefined
+      }
       loading={ledgerId !== null && q.loading && !d}
       refreshing={q.refreshing}
       error={ledgerId !== null ? q.error : ctxQ.error}
@@ -127,7 +141,6 @@ export function LedgerScreen({ params }: ScreenProps<ForexLedgerParams>) {
     >
       {ledgerId === null ? (
         <EmptyState
-          icon="ledger"
           title="Choose a ledger kept in a foreign currency"
           body="Type its name above. A ledger is kept in a foreign currency when its master has a Currency (Ledger › Currency)."
         />
@@ -135,7 +148,6 @@ export function LedgerScreen({ params }: ScreenProps<ForexLedgerParams>) {
         <Stack gap={2} grow>
           <DataTable<ForexLedgerRow>
             aria-label={d ? `Ledger vouchers of ${d.ledgerName} in ${d.currency.formalName} and rupees` : 'Ledger vouchers'}
-            className="bx-rep-fill"
             columns={columns}
             rows={d?.rows ?? []}
             getRowKey={(r) => String(r.voucherId)}
@@ -145,11 +157,11 @@ export function LedgerScreen({ params }: ScreenProps<ForexLedgerParams>) {
             footerRows={footer}
             loading={q.loading}
             typeToJump={(r) => r.particulars}
-            empty={<EmptyState icon="receipt" title="No vouchers for this ledger in the period" body="Opening and closing balances are below. Change the period with Alt+F2." />}
+            empty={<EmptyState title="No vouchers for this ledger in the period" body="Opening and closing balances are below. Change the period with Alt+F2." />}
             autoFocus
           />
-          {note ? <p className="bx-rep-note">{note}</p> : null}
-          {d ? <p className="bx-rep-note">Period {formatDate(d.from)} to {formatDate(d.to)}. “₹ only” lines are exchange adjustments in rupees (realised or revaluation).</p> : null}
+          {/* The closing balance at the closing rate: a footnote under the figures it explains (data first). */}
+          {note ? <p className="bx-muted">{note}</p> : null}
         </Stack>
       )}
     </ReportScreen>

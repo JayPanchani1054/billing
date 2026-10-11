@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { GstIssue, Gstr1DocRow, Gstr1SectionId, Gstr1SectionResult, Gstr1SectionSummary, Gstr1Summary } from '../../../../shared/types/gst-returns.ts';
 import { GSTR1_SECTIONS } from '../../../../shared/types/gst-returns.ts';
-import { buildTiles, countText, GSTR1_TILES, issuesForSections, sectionExport, sectionLayout, signedInvoiceValue, summaryExport, tileDef, tileOfSection } from './gstr1.ts';
+import { buildTiles, countText, GSTR1_TILES, gstr1Rows, issuesForSections, sectionExport, sectionLayout, signedInvoiceValue, summaryExport, tileDef, tileName, tileOfSection } from './gstr1.ts';
 
 const ROWS: ReadonlySet<Gstr1SectionId> = new Set(['b2cs', 'nil', 'hsn_b2b', 'hsn_b2c', 'at', 'atadj']);
 
@@ -109,6 +109,36 @@ describe('GSTR-1 tiles', () => {
     assert.ok(t11);
     assert.deepEqual([t11.empty, t11.notes], [true, ['Advances are not derived from the books.']]);
     assert.equal(tiles.get('4B')?.empty, true);
+  });
+
+  it('names each table row exactly as the 2.0 tile (e2e first-day reads it)', () => {
+    const tiles = new Map(buildTiles(summary).map((t) => [t.id, t]));
+    const a4 = tiles.get('4A');
+    assert.ok(a4);
+    assert.equal(tileName(a4), 'Table 4A, B2B invoices: 2 documents, taxable 3,000.00, tax 540.00, 1 errors');
+    assert.match(tileName({ ...a4, count: 1, taxable: 100000, tax: 18000, errors: 0 }), /^Table 4A, B2B invoices: 1 document, taxable 1,000\.00, tax 180\.00$/);
+    const b9 = tiles.get('9B');
+    assert.ok(b9);
+    assert.equal(tileName(b9), 'Table 9B, Credit / debit notes: 2 documents, taxable -10,500.00, tax -1,890.00, 1 warnings');
+  });
+
+  it('lists the non-empty tables (every table on request): supply tables, then the check tables 12 and 13', () => {
+    const tiles = buildTiles(summary);
+    const r = gstr1Rows(tiles, false);
+    assert.deepEqual(
+      r.supply.map((t) => t.id),
+      tiles.filter((t) => !t.empty && t.id !== '12' && t.id !== '13').map((t) => t.id),
+    );
+    assert.ok(!r.supply.some((t) => t.empty), 'no empty table without "Show empty tables"');
+    assert.deepEqual(
+      r.checks.map((t) => t.id),
+      ['12', '13'],
+    );
+    assert.equal(r.hidden, tiles.filter((t) => t.empty).length);
+    const all = gstr1Rows(tiles, true);
+    assert.equal(all.supply.length + all.checks.length, 12);
+    assert.equal(all.hidden, 0);
+    assert.deepEqual(gstr1Rows([], false), { supply: [], checks: [], hidden: 0 });
   });
 
   it('filters issues by section and lays out drill-downs by section kind', () => {

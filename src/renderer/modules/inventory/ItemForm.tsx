@@ -3,10 +3,15 @@
  * Params: { id?: number; initialName?: string; forResult?: boolean; groupId?: number }.
  * Opened for a result (pushForResult from an ItemPicker), saving returns { id, name }.
  *
- * One keyboard-first page: Enter moves through every field, Ctrl+A saves. Sections: Basic, Tax (GST
- * on), Pricing, Stock (goods only) and Opening stock (goods only).
+ * 2.1 (SPEC-21 §1.8, D23): one flat column of "Label : value" rows. Essentials — Name, Unit, Under, the
+ * GST switch with its rate and HSN, Selling price (Barcode too when POS is on) — then the opening stock
+ * grid (goods), then the "More details  Ctrl+I" line (Alt+F1 alias) over everything else
+ * (lib/itemEssentials.ts). The line opens by itself when a field inside holds a value or an error, and
+ * otherwise remembers its state on this computer. Enter moves through the visible fields only; Ctrl+A
+ * (the title row's one filled button — "Save & create next" on Creation, as on the ledger form) saves.
+ * Field hints show on focus.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GodownDto, GstHistoryRow, StockGroupDto, StockItemDetail, UnitDto } from '../../../shared/types/inventory.ts';
 import type { CompanyConfig } from '../../../shared/settings.ts';
 import {
@@ -31,12 +36,13 @@ import {
   userMessage,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
+import { setMoreDetailsOpen, useUiPrefs } from '../../app/preferences.ts';
 import {
   AmountInput,
   Banner,
   Button,
+  DisclosureLine,
   Field,
-  FieldGroup,
   NumberInput,
   Panel,
   QuantityInput,
@@ -67,6 +73,8 @@ import {
 } from './lib/itemForm.ts';
 import type { OpeningContext, OpeningField } from './lib/opening.ts';
 import { emptyOpening, isShownValue, openingErrorsToGrid, remapOpeningErrors } from './lib/opening.ts';
+import type { EssentialsContext } from './lib/itemEssentials.ts';
+import { detailsToggle, itemAlterContext, itemDetailsForced, itemFormActions, itemSaveLabel, MORE_DETAILS_KIND, moreDetailsSummary, showStandardCost } from './lib/itemEssentials.ts';
 import { netRate, qtyText } from './lib/slabs.ts';
 import { altUnitText } from './lib/units.ts';
 import { openingCellId, OpeningStockGrid } from './OpeningStockGrid.tsx';
@@ -85,29 +93,29 @@ export interface ItemFormParams {
 const ID = 'inv-item-';
 const OPEN_ID = 'inv-item-open-';
 
-/** Order used to focus the first invalid field. */
+/** Order used to focus the first invalid field (the page order: Essentials, then More details). */
 const FIELD_ORDER = [
   'name',
+  'unitId',
+  'groupId',
+  'gstRate',
+  'hsnSac',
+  'gstApplicableFrom',
+  'sellingPrice',
+  'barcode',
   'alias',
   'moreAliases',
   'partNo',
-  'barcode',
   'description',
-  'groupId',
   'categoryId',
-  'unitId',
   'altUnitId',
   'altConversion',
-  'gstRate',
   'cessRate',
   'cessPerUnit',
-  'hsnSac',
-  'gstApplicableFrom',
   'mrp',
-  'sellingPrice',
   'purchasePrice',
-  'standardCost',
   'costingMethod',
+  'standardCost',
   'reorderLevel',
   'minOrderQty',
   'maintainBatches',
@@ -207,6 +215,13 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
   const [errors, setErrors] = useState<ItemErrors>({});
   const [banner, setBanner] = useState<string | null>(null);
   const [created, setCreated] = useState(0);
+  /** Focus after the next render (a field revealed by an error or by Ctrl+I is not focusable before it). */
+  const [focusAfter, setFocusAfter] = useState<{ errors?: ItemErrors; id?: string } | null>(null);
+  useEffect(() => {
+    if (!focusAfter) return;
+    if (focusAfter.errors) focusFirstError(focusAfter.errors, FIELD_ORDER, idOf);
+    else if (focusAfter.id) focusField(focusAfter.id);
+  }, [focusAfter]);
 
   const dirty = itemDraftDirty(d, base);
   const mainGodown = godowns.find((g) => g.isPredefined) ?? null;
@@ -283,7 +298,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
     setErrors(e);
     setBanner(unseenErrors(e));
     if (Object.values(e).some(Boolean)) {
-      focusFirstError(e, FIELD_ORDER, idOf);
+      setFocusAfter({ errors: e });
       return;
     }
     try {
@@ -316,7 +331,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
         setD(next);
         setErrors({});
         setCreated((n) => n + 1);
-        window.setTimeout(() => focusField(`${ID}name`), 0);
+        setFocusAfter({ id: `${ID}name` });
       } else {
         nav.pop();
       }
@@ -326,7 +341,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
       const fields = withOpeningErrorsShown(openingErrorsToGrid(split.fields, d.openings));
       setErrors(fields);
       setBanner([split.message, unseenErrors(fields)].filter(Boolean).join(' ') || null);
-      if (Object.keys(fields).length) focusFirstError(fields, FIELD_ORDER, idOf);
+      if (Object.keys(fields).length) setFocusAfter({ errors: fields });
     }
   };
 
@@ -377,27 +392,73 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
   };
 
   const formRef = useEnterAdvance<HTMLFormElement>({ enabled: !readOnly, onComplete: () => void submit('next') });
-  const primaryLabel = forResult ? 'Save & return' : saved ? 'Save' : 'Save & next';
   const costing = costingInfo(d.costingMethod);
+  const L = 'inline' as const;
+
+  // ── More details (Ctrl+I, Alt+F1): remembered per form kind; never hides a value or an error ──
+  const ui = useUiPrefs();
+  const essentials: EssentialsContext = { gstEnabled: company.gstEnabled, pos: features.pos, existing: saved !== null };
+  const detailsForced = itemDetailsForced(d, errors, essentials);
+  const detailsOpen = detailsForced || ui.moreDetails[MORE_DETAILS_KIND] === true;
+  const detailsLine = useRef<HTMLButtonElement | null>(null);
+  /** Ctrl+I / Alt+F1 (`fromKey`) or the line: open/close (remembered) — or, while held open, jump in/out. */
+  const toggleDetails = (fromKey: boolean): void => {
+    const region = detailsLine.current?.nextElementSibling ?? null;
+    const t = detailsToggle({ open: detailsOpen, forced: detailsForced, fromKey, focusInside: !!region && typeof document !== 'undefined' && region.contains(document.activeElement) });
+    if (t.remember !== null) setMoreDetailsOpen(MORE_DETAILS_KIND, t.remember);
+    if (t.focus === 'section') setFocusAfter({ id: `${ID}alias` });
+    else if (t.focus === 'line') detailsLine.current?.focus();
+  };
+  const saveLabel = itemSaveLabel({ existing: saved !== null, forResult });
+
+  const gstProps = {
+    value: d,
+    onChange: patch,
+    errors,
+    kind: d.isService ? ('services' as const) : ('goods' as const),
+    hsnDigits: config.gst.hsnDigits,
+    noun: 'stock item' as const,
+    existing: !!saved,
+    changed: gstDetailsChanged(d, saved),
+    history: saved?.gstHistory ?? [],
+    onDeleteHistory: saved && canAlter ? (h: GstHistoryRow) => void removeHistory(h) : undefined,
+    effectiveText: !d.gstApplicable ? inheritText : undefined,
+    unitSymbol: unit?.symbol,
+    referenceDate: workingDate,
+    idPrefix: ID,
+    savedOwn: saved?.gstApplicable ?? false,
+    readOnly,
+    layout: L,
+  };
+  const barcodeField = (
+    <Field label="Barcode" layout={L} optional htmlFor={`${ID}barcode`} error={errors.barcode} hint="Scan or type. Must be unique.">
+      <TextInput id={`${ID}barcode`} value={d.barcode} onChange={(e) => set('barcode', e.target.value)} maxLength={100} autoComplete="off" mono readOnly={readOnly} />
+    </Field>
+  );
 
   return (
     <Screen
       title={saved ? 'Stock Item Alteration' : 'Stock Item Creation'}
-      subtitle={saved ? saved.name : created > 0 ? `${created} created in this session` : undefined}
-      icon="box"
+      subtitle={saved ? itemAlterContext(saved) : created > 0 ? `${created} created in this session` : undefined}
       width="form"
       dirty={dirty}
-      hint="Enter Next field · Ctrl+A Save · Alt+C Create in a list · Ctrl+Enter Add opening row · Esc Back"
-      actions={[
-        { key: 'Ctrl+A', label: primaryLabel, icon: 'save', primary: true, onClick: () => void submit('next'), disabled: readOnly },
-        { key: 'Alt+S', label: 'Save & close', icon: 'check', onClick: () => void submit('close'), hidden: !!saved || forResult || readOnly },
+      hint={`Enter Next field · Ctrl+A ${saveLabel} · Ctrl+I More details · Alt+C Create in a list · Ctrl+Enter Add opening row · Esc Back`}
+      actions={itemFormActions(
         {
-          key: 'Alt+L',
-          label: 'Price lists',
-          icon: 'tag',
-          onClick: () => nav.push('inventory.priceList', { itemId: saved?.id }),
-          hidden: !saved || !features.priceLevels,
-          group: 'more',
+          existing: saved !== null,
+          forResult,
+          readOnly,
+          detailsOpen,
+          priceLevels: features.priceLevels,
+          canDelete,
+          hasTransactions: saved?.hasTransactions === true,
+        },
+        {
+          save: () => void submit('next'),
+          saveClose: () => void submit('close'),
+          toggleDetails: () => toggleDetails(true),
+          priceLists: () => nav.push('inventory.priceList', { itemId: saved?.id }),
+          remove: () => void remove(),
         },
         {
           key: 'Alt+H',
@@ -407,34 +468,11 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
           hidden: !saved || !canAudit,
           group: 'more',
         },
-        {
-          key: 'Alt+D',
-          label: 'Delete',
-          icon: 'trash',
-          onClick: () => void remove(),
-          hidden: !saved || !canDelete,
-          disabled: saved?.hasTransactions,
-          hint: saved?.hasTransactions ? 'Used in vouchers — cannot be deleted' : undefined,
-          group: 'danger',
-        },
-      ]}
-      footer={
-        <>
-          <Button onClick={() => void nav.back()}>Cancel</Button>
-          {!saved && !forResult ? (
-            <Button shortcut="Alt+S" loading={save.pending} onClick={() => void submit('close')} disabled={readOnly}>
-              Save & close
-            </Button>
-          ) : null}
-          <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit('next')} disabled={readOnly}>
-            {primaryLabel}
-          </Button>
-        </>
-      }
+      )}
     >
       <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Stock item">
         <AttachmentsRailAction entityType="stock_item" entityId={saved?.id ?? null} label={saved?.name} />
-        <Stack gap={4}>
+        <Stack gap={3}>
           {readOnly ? (
             <Banner tone="info" inline title="View only">
               {saved ? 'You may look at stock items but not change them. Ask an administrator for permission to alter masters.' : 'You may not create stock items. Ask an administrator for permission to create masters.'}
@@ -446,214 +484,40 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
             </Banner>
           ) : null}
 
-          {/* ── Basic ── */}
-          <Panel title="Basic details" headingLevel={2}>
-            <Stack gap={3}>
-              <FieldGroup columns={2}>
-                <Field label="Name" required htmlFor={`${ID}name`} error={errors.name}>
-                  <TextInput id={`${ID}name`} value={d.name} onChange={(e) => set('name', e.target.value)} maxLength={200} data-autofocus="" autoComplete="off" readOnly={readOnly} />
-                </Field>
-                <Field label="Alias" optional htmlFor={`${ID}alias`} error={errors.alias} hint="Another name to find it by (short name, local name).">
-                  <TextInput id={`${ID}alias`} value={d.alias} onChange={(e) => set('alias', e.target.value)} maxLength={200} autoComplete="off" readOnly={readOnly} />
-                </Field>
-                <Field
-                  label="More aliases"
-                  optional
-                  htmlFor={`${ID}moreAliases`}
-                  error={errors.moreAliases ?? Object.entries(errors).find(([k, v]) => k.startsWith('aliases') && v)?.[1]}
-                  hint="One per line: supplier's code, old code, local-language name… Found in every search. Ctrl+Enter moves on."
-                >
-                  <TextArea
-                    id={`${ID}moreAliases`}
-                    value={d.moreAliases}
-                    onChange={(e) => {
-                      set('moreAliases', e.target.value);
-                      if (Object.keys(errors).some((k) => k.startsWith('aliases'))) setErrors((x) => Object.fromEntries(Object.entries(x).filter(([k]) => !k.startsWith('aliases'))));
-                    }}
-                    maxLength={4000}
-                    rows={1}
-                    autoGrow
-                    maxRows={6}
-                    readOnly={readOnly}
-                  />
-                </Field>
-                <Field label="Part number" optional htmlFor={`${ID}partNo`} error={errors.partNo}>
-                  <TextInput id={`${ID}partNo`} value={d.partNo} onChange={(e) => set('partNo', e.target.value)} maxLength={100} autoComplete="off" readOnly={readOnly} />
-                </Field>
-                <Field label="Barcode" optional htmlFor={`${ID}barcode`} error={errors.barcode} hint="Scan or type. Must be unique.">
-                  <TextInput id={`${ID}barcode`} value={d.barcode} onChange={(e) => set('barcode', e.target.value)} maxLength={100} autoComplete="off" mono readOnly={readOnly} />
-                </Field>
-              </FieldGroup>
-              {/* Out of the Enter path (a textarea takes Enter as a new line): Tab or click to reach it. */}
-              <div data-enter-skip="">
-                <Field label="Description" optional htmlFor={`${ID}description`} error={errors.description} hint="Printed under the item name on invoices. Enter skips it — click or Tab here to add one.">
-                  <TextArea id={`${ID}description`} value={d.description} onChange={(e) => set('description', e.target.value)} maxLength={2000} rows={2} autoGrow maxRows={6} readOnly={readOnly} />
-                </Field>
-              </div>
-              <FieldGroup columns={2}>
-                <Field label="Under (stock group)" optional htmlFor={`${ID}groupId`} error={errors.groupId} hint="Groups share GST details and roll up in stock reports. Alt+C to create.">
-                  <StockGroupPicker id={`${ID}groupId`} value={d.groupId} onChange={(gid) => set('groupId', gid)} readOnly={readOnly} />
-                </Field>
-                <Field label="Category" optional htmlFor={`${ID}categoryId`} error={errors.categoryId} hint="A second way to classify items (e.g. brand, size). Alt+C to create.">
-                  <StockCategoryPicker id={`${ID}categoryId`} value={d.categoryId} onChange={(cid) => set('categoryId', cid)} readOnly={readOnly} />
-                </Field>
-              </FieldGroup>
-              <FieldGroup columns={2}>
-                <Field
-                  label="Unit"
-                  required
-                  htmlFor={`${ID}unitId`}
-                  error={errors.unitId}
-                  hint={saved?.hasTransactions ? 'Cannot change: the item is used in vouchers.' : 'How you count it: Nos, Kg, Mtr, Box… Alt+C to create.'}
-                >
-                  <UnitPicker
-                    id={`${ID}unitId`}
-                    value={d.unitId}
-                    onChange={(uid) => set('unitId', uid)}
-                    disabled={saved?.hasTransactions}
-                    readOnly={readOnly}
-                    required
-                    invalid={!!errors.unitId}
-                  />
-                </Field>
-                <Field label="Is this a service?" htmlFor={`${ID}isService`} hint={d.isService ? 'No stock is kept; use a SAC code for GST.' : 'Goods: stock is kept and valued.'}>
-                  <Switch id={`${ID}isService`} checked={d.isService} onChange={(v) => set('isService', v)} disabled={readOnly} label={d.isService ? 'Yes — service' : 'No — goods'} />
-                </Field>
-              </FieldGroup>
-              {!d.isService ? (
-                <div className="bx-inv-conversion">
-                  <Field label="Alternate unit" optional htmlFor={`${ID}altUnitId`} error={errors.altUnitId} hint="A second unit you buy or sell in, e.g. Box.">
-                    <UnitPicker
-                      id={`${ID}altUnitId`}
-                      value={d.altUnitId}
-                      onChange={(uid) => patch({ altUnitId: uid, altConversion: uid === null ? null : d.altConversion })}
-                      exclude={d.unitId !== null ? new Set([d.unitId]) : undefined}
-                      readOnly={readOnly}
-                      placeholder="None"
-                    />
-                  </Field>
-                  {d.altUnitId !== null ? (
-                    <>
-                      <span className="bx-inv-conversion__eq" aria-hidden="true">
-                        1 {altUnit?.symbol ?? ''} =
-                      </span>
-                      <Field
-                        label={`${unit?.symbol ?? 'Base units'} in 1 ${altUnit?.symbol ?? 'alternate unit'}`}
-                        required
-                        htmlFor={`${ID}altConversion`}
-                        error={errors.altConversion}
-                        hint={altUnitText(unit?.symbol, altUnit?.symbol, d.altConversion) || 'e.g. 12 when 1 Box = 12 Nos'}
-                      >
-                        <NumberInput id={`${ID}altConversion`} value={d.altConversion} onChange={(v) => { if (!isShownValue(v, d.altConversion, 4)) set('altConversion', v); }} decimals={4} min={0} readOnly={readOnly} />
-                      </Field>
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-              {saved ? (
-                <Field label="Active" htmlFor={`${ID}isActive`} hint={d.isActive ? 'Offered in voucher entry.' : 'Hidden from voucher entry; history and reports keep it.'}>
-                  <Switch id={`${ID}isActive`} checked={d.isActive} onChange={(v) => set('isActive', v)} disabled={readOnly} label={d.isActive ? 'Yes' : 'No — inactive'} />
-                </Field>
-              ) : null}
-            </Stack>
-          </Panel>
+          {/* ── Essentials ── */}
+          <Field label="Name" layout={L} required htmlFor={`${ID}name`} error={errors.name}>
+            <TextInput id={`${ID}name`} value={d.name} onChange={(e) => set('name', e.target.value)} maxLength={200} data-autofocus="" autoComplete="off" readOnly={readOnly} />
+          </Field>
+          <Field
+            label="Unit"
+            layout={L}
+            required
+            htmlFor={`${ID}unitId`}
+            error={errors.unitId}
+            hintApplies={saved?.hasTransactions === true}
+            hint={saved?.hasTransactions ? 'Cannot change: the item is used in vouchers.' : 'How you count it: Nos, Kg, Mtr, Box… Alt+C to create.'}
+          >
+            <UnitPicker id={`${ID}unitId`} value={d.unitId} onChange={(uid) => set('unitId', uid)} disabled={saved?.hasTransactions} readOnly={readOnly} required invalid={!!errors.unitId} />
+          </Field>
+          <Field label="Under" layout={L} optional htmlFor={`${ID}groupId`} error={errors.groupId} hint="The stock group: groups share GST details and roll up in stock reports. Alt+C to create.">
+            <StockGroupPicker id={`${ID}groupId`} value={d.groupId} onChange={(gid) => set('groupId', gid)} readOnly={readOnly} placeholder="Primary" />
+          </Field>
+          {company.gstEnabled ? <GstFields {...gstProps} part="essentials" /> : null}
+          <Field
+            label="Selling price"
+            layout={L}
+            optional
+            htmlFor={`${ID}sellingPrice`}
+            error={errors.sellingPrice}
+            hint={`Per ${unit?.symbol ?? 'unit'}${d.rateInclusiveOfTax ? ', incl. GST' : ', before GST'}. Offered in vouchers; you can change it on each bill.`}
+          >
+            <AmountInput id={`${ID}sellingPrice`} value={d.sellingPrice} onChange={(v) => set('sellingPrice', v)} symbol readOnly={readOnly} />
+          </Field>
+          {features.pos ? barcodeField : null}
 
-          {/* ── Tax ── */}
-          {company.gstEnabled ? (
-            <Panel title="GST" headingLevel={2}>
-              <Stack gap={3}>
-                <GstFields
-                  value={d}
-                  onChange={patch}
-                  errors={errors}
-                  kind={d.isService ? 'services' : 'goods'}
-                  hsnDigits={config.gst.hsnDigits}
-                  noun="stock item"
-                  existing={!!saved}
-                  changed={gstDetailsChanged(d, saved)}
-                  history={saved?.gstHistory ?? []}
-                  onDeleteHistory={saved && canAlter ? (h) => void removeHistory(h) : undefined}
-                  effectiveText={!d.gstApplicable ? inheritText : undefined}
-                  unitSymbol={unit?.symbol}
-                  referenceDate={workingDate}
-                  idPrefix={ID}
-                  savedOwn={saved?.gstApplicable ?? false}
-                  readOnly={readOnly}
-                />
-                <Field label="Prices include GST" htmlFor={`${ID}rateInclusiveOfTax`} hint={d.rateInclusiveOfTax ? 'Rates typed in vouchers include GST; the tax is worked out backwards.' : 'Rates typed in vouchers are before GST (usual for B2B).'}>
-                  <Switch id={`${ID}rateInclusiveOfTax`} checked={d.rateInclusiveOfTax} onChange={(v) => set('rateInclusiveOfTax', v)} disabled={readOnly} />
-                </Field>
-              </Stack>
-            </Panel>
-          ) : null}
-
-          {/* ── Pricing ── */}
-          <Panel title="Prices" description="Defaults offered in vouchers. You can change them on each bill." headingLevel={2}>
-            <Stack gap={3}>
-              <FieldGroup columns={4}>
-                <Field label="MRP" optional htmlFor={`${ID}mrp`} error={errors.mrp} hint="Maximum retail price (incl. tax).">
-                  <AmountInput id={`${ID}mrp`} value={d.mrp} onChange={(v) => set('mrp', v)} symbol readOnly={readOnly} />
-                </Field>
-                <Field label="Selling price" optional htmlFor={`${ID}sellingPrice`} error={errors.sellingPrice} hint={`Per ${unit?.symbol ?? 'unit'}${d.rateInclusiveOfTax ? ', incl. GST' : ', before GST'}.`}>
-                  <AmountInput id={`${ID}sellingPrice`} value={d.sellingPrice} onChange={(v) => set('sellingPrice', v)} symbol readOnly={readOnly} />
-                </Field>
-                <Field label="Purchase price" optional htmlFor={`${ID}purchasePrice`} error={errors.purchasePrice} hint={`Per ${unit?.symbol ?? 'unit'}.`}>
-                  <AmountInput id={`${ID}purchasePrice`} value={d.purchasePrice} onChange={(v) => set('purchasePrice', v)} symbol readOnly={readOnly} />
-                </Field>
-                <Field
-                  label="Standard cost"
-                  required={d.costingMethod === 'std_cost'}
-                  optional={d.costingMethod !== 'std_cost'}
-                  htmlFor={`${ID}standardCost`}
-                  error={errors.standardCost}
-                  hint="Used by the Standard cost method."
-                >
-                  <AmountInput id={`${ID}standardCost`} value={d.standardCost} onChange={(v) => set('standardCost', v)} symbol readOnly={readOnly} />
-                </Field>
-              </FieldGroup>
-              {features.priceLevels ? <PriceLevelSummary saved={saved} onOpen={() => nav.push('inventory.priceList', { itemId: saved?.id })} /> : null}
-            </Stack>
-          </Panel>
-
-          {/* ── Stock ── */}
+          {/* ── Opening stock (goods) ── */}
           {!d.isService ? (
-            <Panel title="Stock" headingLevel={2}>
-              <Stack gap={3}>
-                <Field label="Costing method" htmlFor={`${ID}costingMethod`} error={errors.costingMethod} hint={costing.explain}>
-                  <Select id={`${ID}costingMethod`} value={d.costingMethod} onChange={(v) => set('costingMethod', v)} options={COSTING_INFO.map((c) => ({ value: c.value, label: c.label }))} disabled={readOnly} />
-                </Field>
-                <FieldGroup columns={2}>
-                  <Field label="Reorder level" optional htmlFor={`${ID}reorderLevel`} error={errors.reorderLevel} hint="Stock reports flag the item when stock falls to this.">
-                    <QuantityInput id={`${ID}reorderLevel`} value={d.reorderLevel} onChange={(v) => set('reorderLevel', v)} unit={unit?.symbol} decimals={unit?.decimalPlaces ?? 0} readOnly={readOnly} />
-                  </Field>
-                  <Field label="Minimum order quantity" optional htmlFor={`${ID}minOrderQty`} error={errors.minOrderQty} hint="Suggested quantity when you reorder.">
-                    <QuantityInput id={`${ID}minOrderQty`} value={d.minOrderQty} onChange={(v) => set('minOrderQty', v)} unit={unit?.symbol} decimals={unit?.decimalPlaces ?? 0} readOnly={readOnly} />
-                  </Field>
-                </FieldGroup>
-                {features.batches || d.maintainBatches ? (
-                  <FieldGroup columns={3}>
-                    <Field label="Keep in batches" htmlFor={`${ID}maintainBatches`} error={errors.maintainBatches} hint={features.batches ? 'Track stock by batch or lot number.' : 'Batches are off in F11, so vouchers do not ask for them.'}>
-                      <Switch id={`${ID}maintainBatches`} checked={d.maintainBatches} onChange={(v) => patch(v ? { maintainBatches: true } : { maintainBatches: false, trackMfgDate: false, useExpiry: false })} disabled={readOnly} />
-                    </Field>
-                    {d.maintainBatches && (features.expiryDates || d.trackMfgDate) ? (
-                      <Field label="Record manufacturing date" htmlFor={`${ID}trackMfgDate`} error={errors.trackMfgDate}>
-                        <Switch id={`${ID}trackMfgDate`} checked={d.trackMfgDate} onChange={(v) => set('trackMfgDate', v)} disabled={readOnly} />
-                      </Field>
-                    ) : null}
-                    {d.maintainBatches && (features.expiryDates || d.useExpiry) ? (
-                      <Field label="Record expiry date" htmlFor={`${ID}useExpiry`} error={errors.useExpiry} hint="Batches are then offered first-expiry-first-out.">
-                        <Switch id={`${ID}useExpiry`} checked={d.useExpiry} onChange={(v) => set('useExpiry', v)} disabled={readOnly} />
-                      </Field>
-                    ) : null}
-                  </FieldGroup>
-                ) : null}
-              </Stack>
-            </Panel>
-          ) : null}
-
-          {/* ── Opening stock ── */}
-          {!d.isService ? (
-            <Panel title="Opening stock" description={`Stock in hand on ${formatDate(booksFrom)} (books beginning). Value = quantity × rate, or type a value to override.`} headingLevel={2} id={`${ID}openings`}>
+            <Panel title="Opening stock" description={`On ${formatDate(booksFrom)}, the books beginning`} headingLevel={2} id={`${ID}openings`} padded={false}>
               <Stack gap={2}>
                 {openingLocked ? (
                   <Banner tone="info" inline title="Locked">
@@ -669,7 +533,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
                   <p className="bx-inv-note">No opening stock.</p>
                 ) : d.openings.length === 0 ? (
                   <div data-enter-ignore="">
-                    <Button icon="plus" onClick={() => set('openings', [emptyOpening(mainGodown?.id ?? null)])}>
+                    <Button title="Value = quantity × rate, or type a value to override" onClick={() => set('openings', [emptyOpening(mainGodown?.id ?? null)])}>
                       Add opening stock
                     </Button>
                   </div>
@@ -692,6 +556,150 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
             </Panel>
           ) : null}
 
+          {/* ── More details (Ctrl+I, Alt+F1) ── */}
+          <DisclosureLine shortcut="Ctrl+I" summary={moreDetailsSummary(d)} open={detailsOpen} forceOpen={detailsForced} onToggle={() => toggleDetails(false)} buttonRef={detailsLine}>
+            <Stack gap={3}>
+              <Field label="Alias" layout={L} optional htmlFor={`${ID}alias`} error={errors.alias} hint="Another name to find it by (short name, local name).">
+                <TextInput id={`${ID}alias`} value={d.alias} onChange={(e) => set('alias', e.target.value)} maxLength={200} autoComplete="off" readOnly={readOnly} />
+              </Field>
+              <Field
+                label="More aliases"
+                layout={L}
+                optional
+                htmlFor={`${ID}moreAliases`}
+                error={errors.moreAliases ?? Object.entries(errors).find(([k, v]) => k.startsWith('aliases') && v)?.[1]}
+                hint="One per line: supplier's code, old code, local-language name… Found in every search. Ctrl+Enter moves on."
+              >
+                <TextArea
+                  id={`${ID}moreAliases`}
+                  value={d.moreAliases}
+                  onChange={(e) => {
+                    set('moreAliases', e.target.value);
+                    if (Object.keys(errors).some((k) => k.startsWith('aliases'))) setErrors((x) => Object.fromEntries(Object.entries(x).filter(([k]) => !k.startsWith('aliases'))));
+                  }}
+                  maxLength={4000}
+                  rows={1}
+                  autoGrow
+                  maxRows={6}
+                  readOnly={readOnly}
+                />
+              </Field>
+              <Field label="Part number" layout={L} optional htmlFor={`${ID}partNo`} error={errors.partNo}>
+                <TextInput id={`${ID}partNo`} value={d.partNo} onChange={(e) => set('partNo', e.target.value)} maxLength={100} autoComplete="off" readOnly={readOnly} />
+              </Field>
+              {features.pos ? null : barcodeField}
+              {/* Out of the Enter path (a textarea takes Enter as a new line): Tab or click to reach it. */}
+              <div data-enter-skip="">
+                <Field label="Description" layout={L} optional htmlFor={`${ID}description`} error={errors.description} hint="Printed under the item name on invoices. Enter skips it — click or Tab here to add one.">
+                  <TextArea id={`${ID}description`} value={d.description} onChange={(e) => set('description', e.target.value)} maxLength={2000} rows={2} autoGrow maxRows={6} readOnly={readOnly} />
+                </Field>
+              </div>
+              <Field label="Category" layout={L} optional htmlFor={`${ID}categoryId`} error={errors.categoryId} hint="A second way to classify items (e.g. brand, size). Alt+C to create.">
+                <StockCategoryPicker id={`${ID}categoryId`} value={d.categoryId} onChange={(cid) => set('categoryId', cid)} readOnly={readOnly} />
+              </Field>
+              <Field label="Is this a service?" layout={L} htmlFor={`${ID}isService`} hint={d.isService ? 'No stock is kept; use a SAC code for GST.' : 'Goods: stock is kept and valued.'}>
+                <Switch id={`${ID}isService`} checked={d.isService} onChange={(v) => set('isService', v)} disabled={readOnly} label={d.isService ? 'Yes — service' : 'No — goods'} />
+              </Field>
+              {!d.isService ? (
+                <>
+                  <Field label="Alternate unit" layout={L} optional htmlFor={`${ID}altUnitId`} error={errors.altUnitId} hint="A second unit you buy or sell in, e.g. Box.">
+                    <UnitPicker
+                      id={`${ID}altUnitId`}
+                      value={d.altUnitId}
+                      onChange={(uid) => patch({ altUnitId: uid, altConversion: uid === null ? null : d.altConversion })}
+                      exclude={d.unitId !== null ? new Set([d.unitId]) : undefined}
+                      readOnly={readOnly}
+                      placeholder="None"
+                    />
+                  </Field>
+                  {d.altUnitId !== null ? (
+                    <Field
+                      label={`${unit?.symbol ?? 'Base units'} in 1 ${altUnit?.symbol ?? 'alternate unit'}`}
+                      layout={L}
+                      required
+                      htmlFor={`${ID}altConversion`}
+                      error={errors.altConversion}
+                      hintApplies={altUnitText(unit?.symbol, altUnit?.symbol, d.altConversion) !== ''}
+                      hint={altUnitText(unit?.symbol, altUnit?.symbol, d.altConversion) || 'e.g. 12 when 1 Box = 12 Nos'}
+                    >
+                      <NumberInput id={`${ID}altConversion`} value={d.altConversion} onChange={(v) => { if (!isShownValue(v, d.altConversion, 4)) set('altConversion', v); }} decimals={4} min={0} readOnly={readOnly} />
+                    </Field>
+                  ) : null}
+                </>
+              ) : null}
+              {saved ? (
+                <Field label="Active" layout={L} htmlFor={`${ID}isActive`} hint={d.isActive ? 'Offered in voucher entry.' : 'Hidden from voucher entry; history and reports keep it.'}>
+                  <Switch id={`${ID}isActive`} checked={d.isActive} onChange={(v) => set('isActive', v)} disabled={readOnly} label={d.isActive ? 'Yes' : 'No — inactive'} />
+                </Field>
+              ) : null}
+              {company.gstEnabled ? (
+                <>
+                  <GstFields {...gstProps} part="details" />
+                  <Field label="Prices include GST" layout={L} htmlFor={`${ID}rateInclusiveOfTax`} hint={d.rateInclusiveOfTax ? 'Rates typed in vouchers include GST; the tax is worked out backwards.' : 'Rates typed in vouchers are before GST (usual for B2B).'}>
+                    <Switch id={`${ID}rateInclusiveOfTax`} checked={d.rateInclusiveOfTax} onChange={(v) => set('rateInclusiveOfTax', v)} disabled={readOnly} />
+                  </Field>
+                </>
+              ) : null}
+              <Field label="MRP" layout={L} optional htmlFor={`${ID}mrp`} error={errors.mrp} hint="Maximum retail price (incl. tax).">
+                <AmountInput id={`${ID}mrp`} value={d.mrp} onChange={(v) => set('mrp', v)} symbol readOnly={readOnly} />
+              </Field>
+              <Field label="Purchase price" layout={L} optional htmlFor={`${ID}purchasePrice`} error={errors.purchasePrice} hint={`Per ${unit?.symbol ?? 'unit'}. Offered in purchase vouchers.`}>
+                <AmountInput id={`${ID}purchasePrice`} value={d.purchasePrice} onChange={(v) => set('purchasePrice', v)} symbol readOnly={readOnly} />
+              </Field>
+              {!d.isService ? (
+                <>
+                  <Field label="Costing method" layout={L} htmlFor={`${ID}costingMethod`} error={errors.costingMethod} hint={costing.explain}>
+                    <Select id={`${ID}costingMethod`} value={d.costingMethod} onChange={(v) => set('costingMethod', v)} options={COSTING_INFO.map((c) => ({ value: c.value, label: c.label }))} disabled={readOnly} />
+                  </Field>
+                  {showStandardCost(d) ? (
+                    <Field
+                      label="Standard cost"
+                      layout={L}
+                      required={d.costingMethod === 'std_cost'}
+                      optional={d.costingMethod !== 'std_cost'}
+                      htmlFor={`${ID}standardCost`}
+                      error={errors.standardCost}
+                      hint={`Per ${unit?.symbol ?? 'unit'}. Used by the Standard cost method.`}
+                    >
+                      <AmountInput id={`${ID}standardCost`} value={d.standardCost} onChange={(v) => set('standardCost', v)} symbol readOnly={readOnly} />
+                    </Field>
+                  ) : null}
+                  <Field label="Reorder level" layout={L} optional htmlFor={`${ID}reorderLevel`} error={errors.reorderLevel} hint="Stock reports flag the item when stock falls to this.">
+                    <QuantityInput id={`${ID}reorderLevel`} value={d.reorderLevel} onChange={(v) => set('reorderLevel', v)} unit={unit?.symbol} decimals={unit?.decimalPlaces ?? 0} readOnly={readOnly} />
+                  </Field>
+                  <Field label="Minimum order quantity" layout={L} optional htmlFor={`${ID}minOrderQty`} error={errors.minOrderQty} hint="Suggested quantity when you reorder.">
+                    <QuantityInput id={`${ID}minOrderQty`} value={d.minOrderQty} onChange={(v) => set('minOrderQty', v)} unit={unit?.symbol} decimals={unit?.decimalPlaces ?? 0} readOnly={readOnly} />
+                  </Field>
+                  {features.batches || d.maintainBatches ? (
+                    <>
+                      <Field
+                        label="Keep in batches"
+                        layout={L}
+                        htmlFor={`${ID}maintainBatches`}
+                        error={errors.maintainBatches}
+                        hintApplies={!features.batches}
+                        hint={features.batches ? 'Track stock by batch or lot number.' : 'Batches are off in F11, so vouchers do not ask for them.'}
+                      >
+                        <Switch id={`${ID}maintainBatches`} checked={d.maintainBatches} onChange={(v) => patch(v ? { maintainBatches: true } : { maintainBatches: false, trackMfgDate: false, useExpiry: false })} disabled={readOnly} />
+                      </Field>
+                      {d.maintainBatches && (features.expiryDates || d.trackMfgDate) ? (
+                        <Field label="Record manufacturing date" layout={L} htmlFor={`${ID}trackMfgDate`} error={errors.trackMfgDate}>
+                          <Switch id={`${ID}trackMfgDate`} checked={d.trackMfgDate} onChange={(v) => set('trackMfgDate', v)} disabled={readOnly} />
+                        </Field>
+                      ) : null}
+                      {d.maintainBatches && (features.expiryDates || d.useExpiry) ? (
+                        <Field label="Record expiry date" layout={L} htmlFor={`${ID}useExpiry`} error={errors.useExpiry} hint="Batches are then offered first-expiry-first-out.">
+                          <Switch id={`${ID}useExpiry`} checked={d.useExpiry} onChange={(v) => set('useExpiry', v)} disabled={readOnly} />
+                        </Field>
+                      ) : null}
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+              {features.priceLevels ? <PriceLevelSummary saved={saved} /> : null}
+            </Stack>
+          </DisclosureLine>
+
           {warnings.length ? (
             <Banner tone="warning" inline title="Please check">
               {warnings.join(' ')}
@@ -703,37 +711,27 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
   );
 }
 
-/** Price lists applicable today, per price level (read-only; edited on the Price List screen). */
-function PriceLevelSummary({ saved, onOpen }: { saved: StockItemDetail | null; onOpen: () => void }) {
+/** Price lists applicable today, per price level (read-only; edited on Price Lists — More ▾, Alt+L). */
+function PriceLevelSummary({ saved }: { saved: StockItemDetail | null }) {
   if (!saved) return <p className="bx-inv-note">Save the item first, then set its price-level rates in Price Lists (Alt+L).</p>;
+  if (saved.priceLists.length === 0) return <p className="bx-inv-note">No price-level rates yet (Price Lists, Alt+L). Vouchers use the selling price.</p>;
   return (
-    <Stack gap={1}>
-      {saved.priceLists.length === 0 ? (
-        <p className="bx-inv-note">No price-level rates yet. Vouchers use the selling price above.</p>
-      ) : (
-        <ul className="bx-inv-summary" aria-label="Price levels">
-          {saved.priceLists.map((pl) => (
-            <li key={pl.priceLevelId}>
-              {pl.priceLevelName}:{' '}
-              <strong>
-                {pl.slabs
-                  .map((s) => {
-                    const net = netRate(s.rate, s.discountPct);
-                    const r = `₹${formatRate(s.rate)}${s.discountPct && net !== null ? ` less ${formatPercent(s.discountPct)} = ₹${formatRate(net)}` : ''}`;
-                    return pl.slabs.length > 1 ? `${qtyText(s.qtyFrom)}${s.qtyTo === null ? '+' : `–${qtyText(s.qtyTo)}`}: ${r}` : r;
-                  })
-                  .join('; ')}
-              </strong>{' '}
-              (from {formatDate(pl.applicableFrom)})
-            </li>
-          ))}
-        </ul>
-      )}
-      <div data-enter-ignore="">
-        <Button size="sm" variant="ghost" icon="tag" shortcut="Alt+L" onClick={onOpen}>
-          Edit price lists
-        </Button>
-      </div>
-    </Stack>
+    <ul className="bx-inv-summary" aria-label="Price levels">
+      {saved.priceLists.map((pl) => (
+        <li key={pl.priceLevelId}>
+          {pl.priceLevelName}:{' '}
+          <strong>
+            {pl.slabs
+              .map((s) => {
+                const net = netRate(s.rate, s.discountPct);
+                const r = `₹${formatRate(s.rate)}${s.discountPct && net !== null ? ` less ${formatPercent(s.discountPct)} = ₹${formatRate(net)}` : ''}`;
+                return pl.slabs.length > 1 ? `${qtyText(s.qtyFrom)}${s.qtyTo === null ? '+' : `–${qtyText(s.qtyTo)}`}: ${r}` : r;
+              })
+              .join('; ')}
+          </strong>{' '}
+          (from {formatDate(pl.applicableFrom)})
+        </li>
+      ))}
+    </ul>
   );
 }

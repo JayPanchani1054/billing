@@ -69,7 +69,7 @@ export function CounterScreen({ params }: ScreenProps<CounterParams>) {
   const ctxQ = useApiQuery('pos.context', {}, { staleTime: 0 });
   if (!features.pos) return <PosOff title="POS Counter" />;
   const ctx = ctxQ.data;
-  if (!ctx) return <Screen title="POS Counter" icon="cart" loading={!ctxQ.error} error={ctxQ.error} onRetry={() => void ctxQ.refetch()} />;
+  if (!ctx) return <Screen title="POS Counter" loading={!ctxQ.error} error={ctxQ.error} onRetry={() => void ctxQ.refetch()} />;
   return <Counter ctx={ctx} params={params ?? {}} />;
 }
 
@@ -374,7 +374,7 @@ function Counter({ ctx, params }: { ctx: PosContext; params: CounterParams }) {
 
   if (typeId === null) {
     return (
-      <Screen title="POS Counter" icon="cart" hint="Esc Back">
+      <Screen title="POS Counter" hint="Esc Back">
         <Banner tone="warning" title="No POS voucher type">
           Mark a Sales voucher type “Use as POS invoice” under Masters › Voucher Types (turning POS invoicing on creates “POS Sales”).
         </Banner>
@@ -386,7 +386,6 @@ function Counter({ ctx, params }: { ctx: PosContext; params: CounterParams }) {
     <Screen
       title={altering ? `${typeName} Alteration` : 'POS Counter'}
       subtitle={`${typeName}${counter ? ` · ${counter}` : ''}${ctx.priceLevel ? ` · ${ctx.priceLevel.name} prices` : ''}`}
-      icon="cart"
       dirty={dirty}
       loading={altering && detailQ.loading}
       error={altering ? detailQ.error : undefined}
@@ -427,12 +426,12 @@ function Counter({ ctx, params }: { ctx: PosContext; params: CounterParams }) {
                 data-autofocus
                 aria-label="Scan barcode or type item code"
                 maxLength={200}
-                className="pos-scan__input"
                 leadingIcon="search"
                 value={scan}
                 onChange={(e) => setScan(e.target.value)}
                 onKeyDown={(e) => void onScanKey(e)}
-                placeholder="Scan barcode, or type item code / alias / name — 3*code adds three"
+                placeholder="Scan or type item code"
+                title="Barcode, item code, alias or name — 3*code adds three"
                 trailing={scanBusy ? <Spinner size="xs" label="Looking up the item" /> : undefined}
                 autoComplete="off"
                 spellCheck={false}
@@ -491,7 +490,7 @@ function Counter({ ctx, params }: { ctx: PosContext; params: CounterParams }) {
         </Stack>
 
         <Stack gap={3} className="pos-counter__side">
-          <div className="pos-total" aria-live="polite">
+          <div aria-live="polite">
             <div className="pos-total__label">{altering ? 'Bill total' : 'To pay'}</div>
             <div className={`pos-total__amount bx-num${settled ? '' : ' is-pending'}`}>{rupees(total)}</div>
             {preview ? (
@@ -513,7 +512,7 @@ function Counter({ ctx, params }: { ctx: PosContext; params: CounterParams }) {
             <div className="bx-muted">
               {customer
                 ? [customer.mobile, customer.gstin ? `GSTIN ${customer.gstin}` : null, customer.stateCode ? stateLabel(customer.stateCode) : null].filter(Boolean).join(' · ')
-                : 'Paid in full at the counter. Alt+U for a customer (mobile number) to sell on account.'}
+                : 'Paid in full at the counter'}
             </div>
             {placeOfSupply ? <div className="bx-muted">Place of supply: {stateLabel(placeOfSupply)}</div> : null}
             {customer?.stateCode && customer.stateCode !== ctx.companyStateCode ? (
@@ -533,7 +532,7 @@ function Counter({ ctx, params }: { ctx: PosContext; params: CounterParams }) {
                 <span className="bx-num">{rupees(last.total)}</span>
               </Inline>
               <div className="bx-muted">
-                {last.change > 0 ? `Change given ${rupees(last.change)}` : last.credit > 0 ? `${rupees(last.credit)} on account` : 'Paid in full'} · Alt+P Reprint · Alt+V View
+                {last.change > 0 ? `Change given ${rupees(last.change)}` : last.credit > 0 ? `${rupees(last.credit)} on account` : 'Paid in full'}
               </div>
             </div>
           ) : null}

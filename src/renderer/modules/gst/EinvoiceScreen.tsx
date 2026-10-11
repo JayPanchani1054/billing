@@ -7,14 +7,16 @@
  *   IRN generated documents with an active IRN and the 24-hour IRP cancellation window; mark an IRN
  *                 cancelled on the IRP (Alt+K).
  * Both: history per voucher (Alt+H); Enter opens the voucher; Alt+A alters it (Pending IRN).
+ * 2.1 (SPEC-21 §5, WP-J2): a work queue — no graph; its counts are the toolbar-row stat ("Pending N ·
+ * Ready M"), the explanations are under More ▾ › About this report.
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { EinvoiceGeneratedRow, EinvoiceImportResult, EinvoicePendingRow, GstCancelRequiredRow } from '../../../shared/types/gst-returns.ts';
 import { isApiError, native, ReportScreen, useApiMutation, useApiQuery, useCan, useNav, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, Checkbox, DataTable, EmptyState, Field, Inline, Modal, Panel, Select, Stack, Tabs, TextInput, useHotkeys, useToast } from '../../ui/index.ts';
+import { Badge, Banner, Button, Checkbox, DataTable, EmptyState, Field, Inline, Modal, Panel, Select, Stack, StatLine, Tabs, TextInput, useHotkeys, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { DocEventsDrawer, FileResultDialog, GstHelp, RejectedDocsDialog, saveJsonFile, useGstRange } from './components.tsx';
+import { DocEventsDrawer, FileResultDialog, RejectedDocsDialog, saveJsonFile, useGstRange } from './components.tsx';
 import type { FileResult } from './components.tsx';
 import {
   cancelWindowText,
@@ -30,6 +32,7 @@ import {
   toggleSelection,
 } from './lib/compliance.ts';
 import type { IrnCancelReason } from './lib/compliance.ts';
+import { pendingStat } from './lib/registerCharts.ts';
 import { bulkFileMessage } from './lib/reports.ts';
 
 const SUPPLY_LABELS: Readonly<Record<EinvoicePendingRow['supplyType'], string>> = {
@@ -265,33 +268,38 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
 
   const enabled = q.data?.enabled ?? true;
   const active = pending ? q : g;
+  const stat = pending ? (q.data ? pendingStat(rows) : []) : g.data && generated.length > 0 ? [{ label: 'Active IRNs', value: String(generated.length) }] : [];
   return (
     <>
       <ReportScreen
         title="e-Invoice"
-        subtitle={
-          pending
-            ? q.data
-              ? `${rows.length} pending · ${readyCount} ready${selected.size ? ` · ${selected.size} selected` : ''}`
-              : undefined
-            : g.data
-              ? `${generated.length} with an active IRN`
-              : undefined
-        }
+        subtitle={pending && selected.size ? `${selected.size} selected` : undefined}
         period={override}
         filters={
           <Tabs
             aria-label="e-Invoice view"
-            variant="pill"
             value={view}
             onChange={(id) => setView(id === 'generated' ? 'generated' : 'pending')}
             items={[
-              { id: 'pending', label: 'Pending IRN', badge: q.data ? rows.length : undefined },
+              { id: 'pending', label: 'Pending IRN' },
               { id: 'generated', label: 'IRN generated' },
             ]}
           />
         }
         actions={actions}
+        stat={stat.length ? <StatLine items={stat} /> : undefined}
+        about={
+          <>
+            <p>
+              Pending IRN: B2B, SEZ, export and deemed-export invoices and notes that still need an IRN. Select the ready ones, save the JSON for the IRP, then import
+              the IRP’s response to record the IRN and QR code on each invoice.
+            </p>
+            <p>
+              IRN generated: invoices and notes with an IRN. The IRP lets you cancel an IRN only within 24 hours of generation; after you cancel it there, mark it
+              cancelled here (Alt+K). Later, reverse the invoice with a credit note instead.
+            </p>
+          </>
+        }
         exportDef={
           pending && q.data
             ? () => ({
@@ -351,11 +359,6 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
         }
       >
         <div className="bx-gst-fill">
-          <GstHelp>
-            {pending
-              ? 'B2B, SEZ, export and deemed-export invoices and notes that still need an IRN. Select the ready ones, save the JSON for the IRP, then import the IRP’s response to record the IRN and QR code on each invoice.'
-              : 'Invoices and notes with an IRN. The IRP lets you cancel an IRN only within 24 hours of generation; after you cancel it there, mark it cancelled here (Alt+K). Later, reverse the invoice with a credit note instead.'}
-          </GstHelp>
           {!enabled ? (
             <Banner tone="info" title="e-Invoicing is turned off">
               Turn on e-Invoice under Features (F11) if your turnover makes it mandatory. Pending invoices are still listed below.
@@ -389,7 +392,7 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
                 height="45vh"
                 empty={<EmptyState icon="check-circle" title="No invoices waiting for an IRN" body="Every B2B, SEZ and export invoice in this period has an IRN. Change the period with Alt+F2." />}
               />
-              {current ? <ReadinessPanel row={current} onAlter={() => nav.push('vouchers.entry', { id: current.voucherId })} /> : null}
+              {current ? <ReadinessPanel row={current} /> : null}
             </>
           ) : (
             <>
@@ -423,7 +426,8 @@ export function EinvoiceScreen({ params }: ScreenProps<EinvoiceParams>) {
   );
 }
 
-function ReadinessPanel({ row, onAlter }: { row: EinvoicePendingRow; onAlter: () => void }) {
+/** What stands between the highlighted invoice and its IRN (Alter voucher is the title row's Alt+A). */
+function ReadinessPanel({ row }: { row: EinvoicePendingRow }) {
   const title = `${DOC_LABELS[row.docType]} ${row.number ?? ''} · ${row.partyName ?? ''}`;
   if (row.errors.length === 0 && row.warnings.length === 0) {
     return (
@@ -434,14 +438,8 @@ function ReadinessPanel({ row, onAlter }: { row: EinvoicePendingRow; onAlter: ()
   }
   return (
     <Panel
-      title={title}
+      title={`${title} — ${row.ready ? 'ready, check the notes' : 'fix before generating'}`}
       headingLevel={2}
-      description={row.ready ? 'Ready — but check these notes.' : 'Fix these before generating the e-invoice:'}
-      actions={
-        <Button size="sm" icon="edit" onClick={onAlter}>
-          Alter voucher (Alt+A)
-        </Button>
-      }
     >
       <ul className="bx-gst-list">
         {row.errors.map((e, i) => (

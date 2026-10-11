@@ -1,9 +1,12 @@
 /**
- * Dashboard cards. Every card drills down: KPI tiles and alert rows are buttons, lists are DataTables
- * (Enter / double-click opens the row), chart months activate with Enter. Text wears text tokens; the
- * only colours are the chart / tone tokens of the UI kit.
+ * Dashboard parts (2.1, SPEC-21 §1.3, §5). Home's panel: three figures, the "Sales — last 12 months"
+ * graph, "Needs your attention" and the one-line Setup. The full Dashboard: four figures, the trend and
+ * ageing graphs, the attention list, the secondary cards as one line each ("Show all cards" shows the
+ * 2.0 cards). Every figure, row and line drills down — when the viewer may open the target (useDrill).
+ * Text wears text tokens; the only colours are the graph kit's and the tone dots of the alerts.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatDrCr, formatQty } from '../../../shared/format.ts';
 import type {
@@ -15,44 +18,49 @@ import type {
   DashboardTopItem,
   DashboardVoucherRow,
 } from '../../../shared/types/dashboard.ts';
-import { useCan, useCompany, useFeatures, useNav, useShell } from '../../app/index.ts';
-import { Badge, BarChart, Button, Card, Checkbox, DataTable, EmptyState, Icon, KeyValueList, KpiCard, ProgressBar, Skeleton } from '../../ui/index.ts';
+import { api, useBooks, useCan, useCompany, useFeatures, useNav, useScreenActions, useShell } from '../../app/index.ts';
+import { GraphStrip, useGraphsToggle } from '../../app/graphStrip.tsx';
+import type { ReportGraph } from '../../app/graphStrip.tsx';
+import { graphsAnnouncement } from '../../app/lib/graphsToggle.ts';
+import { Badge, Button, Card, Checkbox, DataTable, EmptyState, IconButton, KeyValueList, KpiCard, Tooltip } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
+import { LazyChart } from '../../ui/lazyChart.tsx';
+import type { ChartSpec } from '../../ui/lib/chartSpec.ts';
+import { MiniColumns } from '../../ui/MiniColumns.tsx';
 import {
-  ageingBars,
+  ageingSpec,
   balanceRange,
   buildAlerts,
+  canShowStartCard,
+  cardLines,
   cashBankCaption,
-  changeText,
   compact,
-  compactSigned,
   DRILL,
-  exact,
   flowKpi,
   gstDueLine,
   gstItems,
-  homeKpis,
+  HOME_ALERTS_SHOWN,
+  homeAlerts,
+  homeFigures,
+  homeSalesDrill,
+  homeSalesGraph,
   isVoucherTarget,
   parseStartPrefs,
-  START_VOUCHER_BASE,
   plural,
-  salesSpark,
+  setupLine,
   signedKpi,
-  canShowStartCard,
+  START_VOUCHER_BASE,
   startCardMode,
   startPrefsKey,
-  startProgress,
   startSteps,
   toggleTicked,
-  trendChart,
+  trendSpec,
 } from './lib/model.ts';
 import type { DashboardAlert, DrillTarget, StartPrefs, StartStep } from './lib/model.ts';
 
-export type DashboardLayout = 'full' | 'compact';
-
 /**
  * Drill-downs that respect the viewer's permissions (nav.canOpen: screen access and feature). A
- * target the viewer may not open is not offered — tiles and rows are not clickable, "→" buttons are
+ * target the viewer may not open is not offered — figures and rows are not clickable, links are
  * hidden — instead of leading to the shell's refusal toast.
  */
 export interface Drill {
@@ -74,616 +82,144 @@ export function useDrill(): Drill {
   }, [nav]);
 }
 
-// ───────────────────────────── KPI row ─────────────────────────────
-
-export function KpiRow({ s, loading, layout, workingDate }: { s: DashboardSummary | undefined; loading: boolean; layout: DashboardLayout; workingDate?: string }) {
-  const drill = useDrill();
-  const sales = s ? flowKpi(s.sales, s.asOf, workingDate) : null;
-  const purchases = s ? flowKpi(s.purchases, s.asOf, workingDate) : null;
-  const period = s?.ranges.period;
-  const purchaseChange = s ? changeText(purchases?.delta ?? null) : null;
-  // A negative figure is relabelled, never shown with a bare minus.
-  const salesK = signedKpi('Sales', sales?.value ?? 0, 'Sales returns (net)');
-  const purchasesK = signedKpi('Purchases', purchases?.value ?? 0, 'Purchase returns (net)');
-  const receivablesK = signedKpi('Receivables', s?.receivables.total ?? 0, 'Advances from customers');
-  const payablesK = signedKpi('Payables', s?.payables.total ?? 0, 'Advances to suppliers');
-  const cashBankK = signedKpi('Cash & bank', s ? s.cashBank.cashTotal + s.cashBank.bankTotal : 0, 'Cash & bank (overdrawn)');
-  return (
-    <div className="bx-db__kpis" role="group" aria-label="Key figures">
-      <KpiCard
-        label={salesK.label}
-        icon="rupee"
-        value={salesK.value}
-        amount
-        loading={loading}
-        delta={sales && sales.delta !== null ? { value: sales.delta, label: 'vs last year', goodWhen: 'up' } : undefined}
-        caption={sales ? (sales.delta === null ? sales.comparison : sales.caption) : undefined}
-        sparkline={s ? salesSpark(s.trend) : undefined}
-        onClick={period ? drill.to(DRILL.salesRegister(period)) : undefined}
-      />
-      {layout === 'full' ? (
-        <KpiCard
-          label={purchasesK.label}
-          icon="cart"
-          value={purchasesK.value}
-          amount
-          loading={loading}
-          caption={purchases ? `${purchases.comparison}${purchaseChange && purchaseChange !== 'no change' ? ` (${purchaseChange})` : ''}` : undefined}
-          onClick={period ? drill.to(DRILL.purchaseRegister(period)) : undefined}
-        />
-      ) : null}
-      {s?.grossProfit ? (
-        <KpiCard
-          label={s.grossProfit.amount < 0 ? 'Gross loss' : 'Gross profit'}
-          icon="chart"
-          value={Math.abs(s.grossProfit.amount)}
-          amount
-          loading={loading}
-          caption={
-            s.grossProfit.marginPercent === null
-              ? 'No sales in this period'
-              : `Margin ${s.grossProfit.marginPercent.toFixed(1)}%${s.grossProfit.method === 'purchases' ? ' · sales − purchases' : ''}`
-          }
-          onClick={period ? drill.to(DRILL.profitLoss(period)) : undefined}
-        />
-      ) : null}
-      <KpiCard
-        label={receivablesK.label}
-        icon="users"
-        value={receivablesK.value}
-        amount
-        loading={loading}
-        caption={s ? (s.receivables.overdue > 0 ? `${compact(s.receivables.overdue)} overdue` : 'Nothing overdue') : undefined}
-        onClick={drill.to(DRILL.receivables())}
-      />
-      <KpiCard
-        label={payablesK.label}
-        icon="truck"
-        value={payablesK.value}
-        amount
-        loading={loading}
-        caption={s ? (s.payables.dueSoon.count > 0 ? `${compact(s.payables.dueSoon.amount)} due in ${s.payables.dueSoon.days} days` : `Nothing due in ${s.payables.dueSoon.days} days`) : undefined}
-        onClick={drill.to(DRILL.payables())}
-      />
-      <KpiCard
-        label={cashBankK.label}
-        icon="wallet"
-        value={cashBankK.value}
-        amount
-        loading={loading}
-        caption={s ? cashBankCaption(s.cashBank) : undefined}
-        onClick={s ? drill.to(DRILL.cashBank(balanceRange(s))) : undefined}
-      />
-    </div>
-  );
-}
-
-// ───────────────────────────── Home tiles (2.0) ─────────────────────────────
+// ───────────────────────────── Home: the three figures ─────────────────────────────
 
 /**
- * Home's four tiles (lib/model.ts homeKpis): To collect, To pay, Cash & bank, Sales this month. Each
- * drills to its report when the viewer may open it.
+ * To collect, To pay, Cash & bank (lib/model.ts homeFigures): the drill buttons of 2.0, quieter facts in
+ * the tooltip. A clickable KpiCard renders a <button> that does not take the Tooltip's aria-describedby,
+ * so the same facts follow the caption as visually hidden text: a screen reader hears them too.
  */
-export function HomeKpiRow({ s, loading, workingDate }: { s: DashboardSummary | undefined; loading: boolean; workingDate?: string }) {
+export function HomeFigures({ s, loading }: { s: DashboardSummary | undefined; loading: boolean }) {
   const drill = useDrill();
-  const tiles = useMemo(() => (s ? homeKpis(s, workingDate) : null), [s, workingDate]);
-  if (!tiles) {
-    return (
-      <div className="bx-db__kpis" role="group" aria-label="Key figures">
-        {(['To collect', 'To pay', 'Cash & bank', 'Sales this month'] as const).map((label) => (
-          <KpiCard key={label} label={label} value={0} amount loading={loading} />
-        ))}
-      </div>
-    );
-  }
+  const figures = useMemo(() => (s ? homeFigures(s) : null), [s]);
   return (
-    <div className="bx-db__kpis" role="group" aria-label="Key figures">
-      {tiles.map((t) => (
-        <KpiCard
-          key={t.id}
-          label={t.label}
-          icon={t.icon}
-          value={t.value}
-          amount
-          loading={loading}
-          delta={t.delta !== undefined && t.delta !== null ? { value: t.delta, label: 'vs last year', goodWhen: 'up' } : undefined}
-          caption={t.caption}
-          onClick={drill.to(t.target)}
-        />
-      ))}
+    <div className="bx-db__figures" role="group" aria-label="Key figures">
+      {figures
+        ? figures.map((f) => (
+            <Tooltip key={f.id} content={f.tooltip} placement="bottom" describeChild={false}>
+              <KpiCard
+                label={f.label}
+                value={f.value}
+                amount
+                caption={
+                  <>
+                    {f.caption}
+                    <span className="bx-sr-only">. {f.tooltip}</span>
+                  </>
+                }
+                onClick={drill.to(f.target)}
+              />
+            </Tooltip>
+          ))
+        : ['To collect', 'To pay', 'Cash & bank'].map((label) => <KpiCard key={label} label={label} value={0} amount loading={loading} />)}
     </div>
   );
 }
 
-// ───────────────────────────── Alerts ─────────────────────────────
+// ───────────────────────────── Home: the graph ─────────────────────────────
 
-export function AlertsCard({ s, loading, className }: { s: DashboardSummary | undefined; loading: boolean; className?: string }) {
+/** The Sales Accounts group id, looked up once per company when a column is opened (masters.view). */
+const salesGroupIds = new Map<string, number | null>();
+
+async function salesGroupId(companyId: string): Promise<number | null> {
+  if (salesGroupIds.has(companyId)) return salesGroupIds.get(companyId) ?? null;
+  const list = await api('accounts.group.list', {});
+  const id = list.rows.find((g) => g.depth === 0 && g.primaryCode === 'SALES_ACCOUNTS')?.id ?? null;
+  salesGroupIds.set(companyId, id);
+  return id;
+}
+
+/**
+ * "Sales — last 12 months" (MiniColumns, the only graph code in the start-up bundle) in the graph
+ * strip's header line — title · '₹35.8 K so far in Oct · ▲ 12 % vs 1–10 Oct 2025' · Hide graphs.
+ * Ctrl+J (useGraphsToggle) is registered on Home only while the graph exists. Enter / a click on a
+ * column opens the Sales Accounts monthly summary of that month's financial year; without access to
+ * the groups (or the summary) it opens that month's Sales Register instead.
+ */
+export function HomeGraph({ s }: { s: DashboardSummary }) {
   const drill = useDrill();
-  const alerts = useMemo(() => (s ? buildAlerts(s, { canOpen: drill.can }) : []), [s, drill.can]);
+  const companyId = useCompany().id;
+  const { fyStartMonth } = useBooks();
+  const canGroups = useCan('masters.view');
+  const g = useMemo(() => homeSalesGraph(s), [s]);
+  const toggle = useGraphsToggle('report');
+  useScreenActions(g && toggle.action ? [toggle.action] : NO_ACTIONS);
+  const graph = useMemo<ReportGraph | null>(() => {
+    if (!g) return null;
+    const open = (i: number) => {
+      const month = g.keys[i];
+      const m = s.trend.find((t) => t.month === month);
+      if (!month || !m) return;
+      const register = DRILL.salesRegister({ from: m.from, to: m.to });
+      if (!canGroups || !drill.can('reports.monthlySummary')) return drill.open(register);
+      salesGroupId(companyId).then(
+        (id) => drill.open(id === null ? register : homeSalesDrill(month, s.booksFrom, id, fyStartMonth)),
+        () => drill.open(register),
+      );
+    };
+    // A viewer who may open neither the summary nor the register gets a graph without a drill.
+    const canDrill = drill.can('reports.monthlySummary') || drill.can('reports.register');
+    return {
+      title: g.title,
+      takeaway: g.takeaway,
+      inline: false,
+      render: () => <MiniColumns title={g.title} months={g.months} values={g.values} emphasis={g.emphasis} label={g.label} onActivate={canDrill ? open : undefined} />,
+    };
+  }, [g, s, canGroups, drill, companyId, fyStartMonth]);
+  return <GraphStrip graph={graph} kind="report" />;
+}
+
+const NO_ACTIONS: readonly never[] = [];
+
+// ───────────────────────────── Needs your attention ─────────────────────────────
+
+/**
+ * One sentence per alert with a 6 px tone dot (the meaning is in the words); the detail is the row's
+ * tooltip. `limit`: rows shown before "N more", which expands in place.
+ */
+export function AlertList({ alerts, limit, allClear }: { alerts: readonly DashboardAlert[]; limit?: number; allClear?: boolean }) {
+  const drill = useDrill();
+  const [all, setAll] = useState(false);
+  if (alerts.length === 0) return allClear ? <p className="bx-db__note">All clear — nothing overdue, low or pending.</p> : null;
+  const shown = limit === undefined || all ? alerts : alerts.slice(0, limit);
+  const more = alerts.length - shown.length;
   return (
-    <Card
-      className={className}
-      title="Needs your attention"
-      padding="sm"
-      actions={alerts.length > 0 ? <Badge tone={alerts.some((a) => a.tone === 'danger') ? 'danger' : 'warning'} size="sm">{alerts.length}</Badge> : undefined}
-    >
-      {loading && !s ? (
-        <Skeleton lines={3} />
-      ) : alerts.length === 0 ? (
-        <p className="bx-db-allclear">
-          <Icon name="check-circle" size="sm" className="bx-db-allclear__icon" />
-          All clear — nothing overdue, low or pending.
-        </p>
-      ) : (
-        <ul className="bx-db-alerts" aria-label="Alerts">
-          {alerts.map((a) => (
+    <section>
+      <h2 className="bx-db__h">Needs your attention</h2>
+      <ul className="bx-db-alerts">
+        {shown.map((a) => {
+          const open = drill.to(a.target);
+          const body = (
+            <>
+              {a.title}
+              <span className="bx-sr-only">. {a.body}</span>
+            </>
+          );
+          return (
             <li key={a.id}>
-              {a.target ? (
-                <button type="button" className="bx-db-alert" onClick={drill.to(a.target)}>
-                  <AlertContent a={a} />
-                  <Icon name="chevron-right" size="sm" className="bx-db-alert__chevron" />
+              {open ? (
+                <button type="button" className="bx-db-alert" data-tone={a.tone} title={a.body} onClick={open}>
+                  {body}
                 </button>
               ) : (
-                <div className="bx-db-alert is-static">
-                  <AlertContent a={a} />
-                </div>
+                <span className="bx-db-alert" data-tone={a.tone} title={a.body}>
+                  {body}
+                </span>
               )}
             </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-function AlertContent({ a }: { a: DashboardAlert }) {
-  return (
-    <>
-      <span className={`bx-db-alert__icon bx-db-alert__icon--${a.tone}`}>
-        <Icon name={a.icon} size="sm" label={a.tone === 'danger' ? 'Urgent' : a.tone === 'warning' ? 'Warning' : 'Note'} />
-      </span>
-      <span>
-        <span className="bx-db-alert__title">{a.title}</span>
-        <span className="bx-db-alert__body">{a.body}</span>
-      </span>
-    </>
-  );
-}
-
-// ───────────────────────────── Trend ─────────────────────────────
-
-export function TrendCard({ s, loading, layout, className }: { s: DashboardSummary | undefined; loading: boolean; layout: DashboardLayout; className?: string }) {
-  const drill = useDrill();
-  const chart = useMemo(() => (s ? trendChart(s.trend) : null), [s]);
-  const title = 'Sales and purchases — last 12 months';
-  return (
-    <Card
-      className={className}
-      title={title}
-      subtitle="Net of returns, before GST"
-      padding="sm"
-      actions={
-        s && drill.can('reports.register') ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.salesRegister(s.ranges.period))}>
-            Sales register
-          </Button>
-        ) : undefined
-      }
-    >
-      {loading && !s ? (
-        <Skeleton variant="rect" height={layout === 'full' ? 260 : 190} />
-      ) : chart && s ? (
-        <BarChart
-          title={title}
-          description={chart.description}
-          categories={chart.categories}
-          series={chart.series}
-          valueFormat="inr"
-          height={layout === 'full' ? 260 : 190}
-          onCategoryActivate={
-            drill.can('reports.register')
-              ? (i) => {
-                  const m = s.trend[i];
-                  if (m) drill.open(DRILL.salesRegister({ from: m.from, to: m.to }));
-                }
-              : undefined
-          }
-          empty={chart.empty ? <EmptyState size="sm" icon="chart" title="No sales or purchases yet" body="Press F8 for a sales invoice or F9 for a purchase." /> : undefined}
-        />
+          );
+        })}
+      </ul>
+      {more > 0 ? (
+        <Button size="sm" variant="link" onClick={() => setAll(true)}>
+          {more} more
+        </Button>
       ) : null}
-    </Card>
+    </section>
   );
 }
 
-// ───────────────────────────── Receivables ageing ─────────────────────────────
-
-export function AgeingCard({ s, loading, className }: { s: DashboardSummary | undefined; loading: boolean; className?: string }) {
-  const drill = useDrill();
-  const r = s?.receivables;
-  const bars = useMemo(() => (r ? ageingBars(r.ageing) : []), [r]);
-  return (
-    <Card
-      className={className}
-      title="Receivables ageing"
-      subtitle="By due date"
-      padding="sm"
-      actions={
-        drill.can('outstanding.receivables') ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.receivablesAgeing())}>
-            Ageing
-          </Button>
-        ) : undefined
-      }
-    >
-      {loading && !r ? (
-        <Skeleton lines={6} />
-      ) : r ? (
-        <>
-          <p className="bx-db__figures">
-            <span>
-              {r.total < 0 ? 'Net advance' : 'Total'} <strong>{compact(Math.abs(r.total))}</strong>
-            </span>
-            <span>
-              Overdue <strong>{compact(r.overdue)}</strong>
-            </span>
-            <span>{plural(r.partyCount, 'customer')}</span>
-          </p>
-          {r.total === 0 && bars.every((b) => b.amount === 0) ? (
-            <EmptyState size="sm" icon="check-circle" title="Nothing to collect" body="No customer owes you money on this date." />
-          ) : (
-            <ul className="bx-db-age" aria-label="Receivables by age">
-              {bars.map((b) => (
-                <li key={b.index}>
-                  <button
-                    type="button"
-                    className="bx-db-age__row"
-                    aria-label={`${b.label}: ${exact(b.amount)}${b.overdue ? ' overdue' : ''}`}
-                    disabled={!drill.can('outstanding.receivables')}
-                    onClick={drill.to(b.overdue ? DRILL.receivablesAgeing() : DRILL.receivables())}
-                  >
-                    <span className="bx-db-age__label">{b.label}</span>
-                    <span className="bx-db-age__track" aria-hidden="true">
-                      <span className={`bx-db-age__fill${b.overdue ? ' is-overdue' : ''}`} style={{ display: 'block', width: `${b.percent}%` }} />
-                    </span>
-                    <span className="bx-db-age__amount" title={exact(b.amount)}>
-                      {b.amount === 0 ? '–' : compactSigned(b.amount, 'credit')}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {r.advance !== 0 || r.onAccount !== 0 ? (
-            <p className="bx-db__note">
-              Also: advances {compact(Math.abs(r.advance))} · on account {compactSigned(r.onAccount, 'credit')} (not aged).
-            </p>
-          ) : null}
-        </>
-      ) : null}
-    </Card>
-  );
-}
-
-// ───────────────────────────── Cash & bank ─────────────────────────────
-
-interface CashBankRow extends DashboardBalanceRow {
-  kind: 'cash' | 'bank';
-}
-
-export function CashBankCard({ s, loading, className }: { s: DashboardSummary | undefined; loading: boolean; className?: string }) {
-  const drill = useDrill();
-  const rows = useMemo<CashBankRow[]>(
-    () => (s ? [...s.cashBank.cash.map((r) => ({ ...r, kind: 'cash' as const })), ...s.cashBank.banks.map((r) => ({ ...r, kind: 'bank' as const }))] : []),
-    [s],
-  );
-  const columns = useMemo<Column<CashBankRow>[]>(
-    () => [
-      {
-        key: 'name',
-        header: 'Account',
-        minWidth: 140,
-        render: (r) => (
-          <span>
-            {r.name}
-            {r.accountTail ? <span className="bx-muted"> ··{r.accountTail}</span> : null}
-            {r.isOverdraft ? <span className="bx-muted"> (OD)</span> : null}
-          </span>
-        ),
-      },
-      { key: 'balance', header: 'Balance', kind: 'drcr', width: 150 },
-    ],
-    [],
-  );
-  return (
-    <Card
-      className={className}
-      title="Cash & bank"
-      subtitle={s ? `As on ${formatDate(s.asOf)}` : undefined}
-      padding="sm"
-      actions={
-        s && drill.can('reports.cashBank') ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.cashBank(balanceRange(s)))}>
-            Cash/Bank books
-          </Button>
-        ) : undefined
-      }
-    >
-      <DataTable<CashBankRow>
-        aria-label="Cash and bank balances"
-        columns={columns}
-        rows={rows}
-        getRowKey={(r) => String(r.ledgerId)}
-        loading={loading && !s}
-        skeletonRows={3}
-        density="compact"
-        onRowActivate={drill.can('reports.ledger') ? (r) => drill.open(DRILL.ledger(r.ledgerId, s ? balanceRange(s) : undefined)) : undefined}
-        footerRows={s && rows.length > 1 ? [{ key: 'total', cells: { name: 'Total', balance: formatDrCr(s.cashBank.cashTotal + s.cashBank.bankTotal) } }] : undefined}
-        empty={<EmptyState size="sm" icon="bank" title="No cash or bank accounts" body="Create a ledger under Bank Accounts to see its balance here." />}
-      />
-    </Card>
-  );
-}
-
-// ───────────────────────────── GST ─────────────────────────────
-
-export function GstCard({ s, className }: { s: DashboardSummary | undefined; className?: string }) {
-  const drill = useDrill();
-  const g = s?.gst;
-  const due = s?.gstDue ?? null;
-  if (!s || (!g && !due)) return null;
-  const main = due ?? g;
-  return (
-    <Card
-      className={className}
-      title="GST"
-      subtitle="Estimate from your books"
-      padding="sm"
-      actions={
-        main && drill.can('gst.gstr3b') ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.gstr3b(main.period))}>
-            GSTR-3B
-          </Button>
-        ) : undefined
-      }
-    >
-      {due ? (
-        <section className="bx-db-gst" aria-label={`GST return for ${due.label}`}>
-          <p className="bx-db-gst__head">
-            <strong>{due.label} return</strong> · {gstDueLine(due, s.asOf)}
-          </p>
-          <KeyValueList layout="inline" alignValues="right" items={gstItems(due)} />
-        </section>
-      ) : null}
-      {g ? (
-        <section className="bx-db-gst" aria-label={`GST for ${g.label} so far`}>
-          <p className="bx-db-gst__head">
-            <strong>{g.label} so far</strong> · {g.dueForm} due by {formatDate(g.dueDate)}
-          </p>
-          <KeyValueList layout="inline" alignValues="right" items={gstItems(g)} />
-          <p className="bx-db__note">{plural(g.documentCount, 'GST document')} this month so far. Interest and late fee are not included.</p>
-        </section>
-      ) : null}
-    </Card>
-  );
-}
-
-// ───────────────────────────── Top lists ─────────────────────────────
-
-export function TopCustomersCard({ s, loading, className }: { s: DashboardSummary | undefined; loading: boolean; className?: string }) {
-  const drill = useDrill();
-  const columns = useMemo<Column<DashboardTopCustomer>[]>(
-    () => [
-      { key: 'name', header: 'Customer', minWidth: 140 },
-      { key: 'amount', header: 'Sales', kind: 'amount', width: 130 },
-      { key: 'sharePercent', header: 'Share', width: 70, align: 'right', value: (r) => (r.sharePercent === null ? '' : `${r.sharePercent.toFixed(1)}%`) },
-    ],
-    [],
-  );
-  return (
-    <Card className={className} title="Top customers" subtitle="By sales in the period" padding="sm">
-      <DataTable<DashboardTopCustomer>
-        aria-label="Top customers by sales"
-        columns={columns}
-        rows={s?.topCustomers ?? []}
-        getRowKey={(r) => String(r.ledgerId)}
-        loading={loading && !s}
-        skeletonRows={5}
-        density="compact"
-        onRowActivate={drill.can('reports.ledger') ? (r) => drill.open(DRILL.ledger(r.ledgerId, s?.ranges.period)) : undefined}
-        empty={<EmptyState size="sm" icon="users" title="No credit sales in this period" body="Cash sales are not listed by customer. Change the period with Alt+F2." />}
-      />
-    </Card>
-  );
-}
-
-export function TopItemsCard({ s, loading, className }: { s: DashboardSummary | undefined; loading: boolean; className?: string }) {
-  const drill = useDrill();
-  const columns = useMemo<Column<DashboardTopItem>[]>(
-    () => [
-      { key: 'name', header: 'Item', minWidth: 140 },
-      { key: 'qty', header: 'Quantity', width: 110, align: 'right', value: (r) => formatQty(r.qty, Number.isInteger(r.qty) ? 0 : 2, r.unit || undefined) },
-      { key: 'amount', header: 'Sales', kind: 'amount', width: 130 },
-    ],
-    [],
-  );
-  if (s && !s.features.inventory) return null;
-  return (
-    <Card className={className} title="Top items" subtitle="By sales value in the period" padding="sm">
-      <DataTable<DashboardTopItem>
-        aria-label="Top items by sales"
-        columns={columns}
-        rows={s?.topItems ?? []}
-        getRowKey={(r) => String(r.itemId)}
-        loading={loading && !s}
-        skeletonRows={5}
-        density="compact"
-        onRowActivate={drill.can('stock.item') ? (r) => drill.open(DRILL.stockItem(r.itemId)) : undefined}
-        empty={<EmptyState size="sm" icon="box" title="No items sold in this period" body="Item invoices (F8) show their items here." />}
-      />
-    </Card>
-  );
-}
-
-export function LowStockCard({ s, loading, className }: { s: DashboardSummary | undefined; loading: boolean; className?: string }) {
-  const drill = useDrill();
-  const columns = useMemo<Column<DashboardLowStockItem>[]>(
-    () => [
-      { key: 'name', header: 'Item', minWidth: 140 },
-      { key: 'onHand', header: 'In stock', width: 100, align: 'right', value: (r) => formatQty(r.onHand, Number.isInteger(r.onHand) ? 0 : 2, r.unit || undefined) },
-      { key: 'reorderLevel', header: 'Reorder at', width: 100, align: 'right', value: (r) => formatQty(r.reorderLevel, Number.isInteger(r.reorderLevel) ? 0 : 2) },
-      { key: 'shortfall', header: 'Short by', width: 90, align: 'right', value: (r) => formatQty(r.shortfall, Number.isInteger(r.shortfall) ? 0 : 2) },
-    ],
-    [],
-  );
-  if (s && !s.features.inventory) return null;
-  const more = s ? s.lowStock.count - s.lowStock.items.length : 0;
-  return (
-    <Card
-      className={className}
-      title="Low stock"
-      subtitle="Below the reorder level"
-      padding="sm"
-      actions={
-        drill.can('stock.reorder') ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.reorder())}>
-            Reorder status
-          </Button>
-        ) : undefined
-      }
-    >
-      <DataTable<DashboardLowStockItem>
-        aria-label="Items below reorder level"
-        columns={columns}
-        rows={s?.lowStock.items ?? []}
-        getRowKey={(r) => String(r.itemId)}
-        loading={loading && !s}
-        skeletonRows={3}
-        density="compact"
-        onRowActivate={drill.can('stock.item') ? (r) => drill.open(DRILL.stockItem(r.itemId)) : undefined}
-        empty={<EmptyState size="sm" icon="check-circle" title="Stock levels are fine" body="Set a reorder level on an item to be warned here." />}
-      />
-      {more > 0 ? <p className="bx-db__note">{plural(more, 'more item')} — open Reorder status to see all.</p> : null}
-    </Card>
-  );
-}
-
-// ───────────────────────────── Vouchers ─────────────────────────────
-
-function VoucherFlags({ r }: { r: Pick<DashboardVoucherRow, 'isCancelled' | 'isOptional' | 'isPostDated'> }) {
-  if (!r.isCancelled && !r.isOptional && !r.isPostDated) return null;
-  return (
-    <span className="bx-db-flags">
-      {r.isCancelled ? <Badge tone="danger" size="sm">Cancelled</Badge> : null}
-      {r.isOptional ? <Badge tone="neutral" size="sm">Optional</Badge> : null}
-      {r.isPostDated ? <Badge tone="info" size="sm">Post-dated</Badge> : null}
-    </span>
-  );
-}
-
-export function RecentVouchersCard({ s, loading, className, limit }: { s: DashboardSummary | undefined; loading: boolean; className?: string; /** Rows shown (Home: 5); all by default. */ limit?: number }) {
-  const drill = useDrill();
-  const columns = useMemo<Column<DashboardVoucherRow>[]>(
-    () => [
-      { key: 'date', header: 'Date', kind: 'date', width: 104 },
-      { key: 'typeName', header: 'Voucher', width: 150, value: (r) => `${r.typeName}${r.number ? ` ${r.number}` : ''}` },
-      {
-        key: 'partyName',
-        header: 'Party',
-        minWidth: 120,
-        render: (r) => (
-          <span>
-            {r.partyName ?? <span className="bx-muted">—</span>} <VoucherFlags r={r} />
-          </span>
-        ),
-      },
-      { key: 'amount', header: 'Amount', kind: 'amount', width: 120, blankZero: true },
-    ],
-    [],
-  );
-  return (
-    <Card
-      className={className}
-      title="Recent vouchers"
-      subtitle="Last entered"
-      padding="sm"
-      actions={
-        s && drill.can('vouchers.daybook') ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.dayBook(s.ranges.today))}>
-            Day Book
-          </Button>
-        ) : undefined
-      }
-    >
-      <DataTable<DashboardVoucherRow>
-        aria-label="Recently entered vouchers"
-        columns={columns}
-        rows={limit === undefined ? (s?.recentVouchers ?? []) : (s?.recentVouchers ?? []).slice(0, limit)}
-        getRowKey={(r) => String(r.id)}
-        loading={loading && !s}
-        skeletonRows={5}
-        density="compact"
-        onRowActivate={drill.can('vouchers.view') ? (r) => drill.open(DRILL.voucher(r.id)) : undefined}
-        empty={<EmptyState size="sm" icon="journal" title="No vouchers yet" body="Vouchers you enter appear here." />}
-      />
-    </Card>
-  );
-}
-
-export function PostDatedCard({ s, loading, className }: { s: DashboardSummary | undefined; loading: boolean; className?: string }) {
-  const drill = useDrill();
-  const columns = useMemo<Column<DashboardPdcRow>[]>(
-    () => [
-      { key: 'date', header: 'Date', kind: 'date', width: 104 },
-      { key: 'partyName', header: 'Party', minWidth: 120, value: (r) => r.partyName ?? r.typeName },
-      {
-        key: 'direction',
-        header: 'In / out',
-        width: 90,
-        value: (r) => (r.direction === 'in' ? 'Receive' : 'Pay'),
-        render: (r) => (
-          <span className="bx-db-dir">
-            <Icon name={r.direction === 'in' ? 'arrow-down' : 'arrow-up'} size="xs" />
-            {r.direction === 'in' ? 'Receive' : 'Pay'}
-          </span>
-        ),
-      },
-      { key: 'instrumentNo', header: 'Cheque', width: 90, value: (r) => r.instrumentNo ?? '' },
-      { key: 'amount', header: 'Amount', kind: 'amount', width: 120 },
-    ],
-    [],
-  );
-  const p = s?.postDated;
-  return (
-    <Card
-      className={className}
-      title="Post-dated cheques"
-      subtitle={p ? `To receive ${compact(p.inflow)} · to pay ${compact(p.outflow)}` : undefined}
-      padding="sm"
-      actions={
-        drill.can('banking.pdc') ? (
-          <Button size="sm" variant="ghost" iconRight="arrow-right" onClick={drill.to(DRILL.pdc())}>
-            All cheques
-          </Button>
-        ) : undefined
-      }
-    >
-      <DataTable<DashboardPdcRow>
-        aria-label="Upcoming post-dated cheques"
-        columns={columns}
-        rows={p?.rows ?? []}
-        getRowKey={(r) => String(r.id)}
-        loading={loading && !s}
-        skeletonRows={3}
-        density="compact"
-        onRowActivate={drill.can('vouchers.view') ? (r) => drill.open(DRILL.voucher(r.id)) : undefined}
-        empty={<EmptyState size="sm" icon="calendar" title="No post-dated cheques" body="Receipts and payments marked post-dated appear here until their date." />}
-      />
-      {p && p.count > p.rows.length ? <p className="bx-db__note">{plural(p.count - p.rows.length, 'more cheque')} — see All cheques.</p> : null}
-    </Card>
-  );
-}
-
-// ───────────────────────────── Getting started ─────────────────────────────
+// ───────────────────────────── Setup (getting started) ─────────────────────────────
 
 function loadStartPrefs(companyId: string): StartPrefs {
   try {
@@ -694,8 +230,9 @@ function loadStartPrefs(companyId: string): StartPrefs {
 }
 
 /**
- * Every mounted useStartSteps (the card, the rail's "Show Get started") takes the new preferences after
- * a change — passed along, not re-read, so Hide / Show still work for this session when storage is blocked.
+ * Every mounted useStartSteps (Home's Setup line, the full Dashboard's, its Alt+S) takes the new
+ * preferences after a change — passed along, not re-read, so × and Show still work for this session
+ * when storage is blocked.
  */
 const startPrefsListeners = new Set<(companyId: string, prefs: StartPrefs) => void>();
 
@@ -710,13 +247,13 @@ function saveStartPrefs(companyId: string, prefs: StartPrefs): void {
 
 /**
  * The company's getting-started steps (lib/model.ts startSteps — the app's one onboarding list) and
- * whether the card shows (startCardMode). Hide and "Mark as done" are remembered per company.
+ * whether Setup shows (startCardMode). × (hide) and "Mark as done" are remembered per company.
  */
 export function useStartSteps(s: DashboardSummary | undefined): {
   steps: StartStep[];
   mode: 'steps' | 'empty' | null;
   hide: () => void;
-  /** Undo Hide (offered only when `canShow`). */
+  /** Undo hide (offered only when `canShow`). */
   show: () => void;
   canShow: boolean;
   tick: (id: string, on: boolean) => void;
@@ -766,70 +303,471 @@ export function useStartSteps(s: DashboardSummary | undefined): {
   };
 }
 
-export function GettingStarted({ s, className }: { s: DashboardSummary | undefined; className?: string }) {
+/**
+ * Setup as ONE line (D11): "Setup 4 of 9 · Next: Choose what prints on your invoice   Continue   ×".
+ * "Setup 4 of 9" is a disclosure that expands the same `list "First steps"` in place — one line per
+ * step: its tick (done from the books, or "Mark as done"), its title and its action. Steps tick
+ * themselves off; × hides Setup (the full Dashboard's "Show Get started", Alt+S, brings it back).
+ */
+export function SetupLine({ start, hasVouchers }: { start: ReturnType<typeof useStartSteps>; hasVouchers: boolean }) {
   const shell = useShell();
   const drill = useDrill();
-  const { steps, mode, hide, tick } = useStartSteps(s);
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  const { steps, mode, hide, tick } = start;
   if (mode === null) return null;
-  if (mode === 'empty') {
-    return (
-      <Card className={className} padding="md" title="Get started">
-        <EmptyState size="sm" icon="chart" title="Nothing recorded yet" body="Figures appear here once vouchers are entered. Ask the company owner if you need to enter them yourself." />
-      </Card>
-    );
-  }
-  const progress = startProgress(steps);
+  if (mode === 'empty') return <p className="bx-db__note">Nothing recorded yet — figures appear here once vouchers are entered.</p>;
+  const line = setupLine(steps);
+  const go = (st: StartStep) => {
+    const t = st.target;
+    if (isVoucherTarget(t)) shell.openVoucher(START_VOUCHER_BASE[t]);
+    else drill.open(t);
+  };
   return (
-    <Card
-      className={className}
-      padding="md"
-      title="Get started"
-      subtitle={progress.total > 0 ? `${progress.done} of ${progress.total} done · steps tick themselves off as you complete them` : 'Your dashboard fills up as you record sales, purchases and receipts.'}
-      actions={
-        <Button size="sm" variant="ghost" onClick={hide}>
-          Hide
+    <section>
+      <div className="bx-db-setup">
+        <Button size="sm" variant="link" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(!open)}>
+          {line.total > 0 ? `Setup ${line.done} of ${line.total}` : 'Setup'}
         </Button>
-      }
-    >
-      {progress.total > 0 ? <ProgressBar value={progress.done} max={progress.total} aria-label="Getting started progress" /> : null}
-      <ol className="bx-db-start" aria-label="First steps">
-        {steps.map((st, i) => (
-          <li key={st.id} className={st.done ? 'bx-db-start__step is-done' : 'bx-db-start__step'}>
-            <span className="bx-db-start__num" aria-hidden="true">
-              {st.done ? <Icon name="check" size="sm" /> : i + 1}
+        {line.next ? <span className="bx-db__muted">· Next: {line.next.title}</span> : null}
+        {line.next ? (
+          <Button size="sm" variant="link" onClick={() => line.next && go(line.next)}>
+            Continue
+          </Button>
+        ) : null}
+        <IconButton size="sm" icon="close" aria-label="Hide setup" onClick={hide} />
+      </div>
+      {!hasVouchers ? <p className="bx-db__note">Tip: hold Ctrl to see the keys of the buttons on screen.</p> : null}
+      <ol id={listId} className="bx-db-steps" aria-label="First steps" hidden={!open}>
+        {steps.map((st) => (
+          <li key={st.id} className={st.done ? 'is-done' : undefined}>
+            {st.optional ? (
+              <span />
+            ) : (
+              <Checkbox
+                checked={st.done}
+                disabled={st.doneFromBooks}
+                onChange={(on) => tick(st.id, on)}
+                aria-label={st.doneFromBooks ? `“${st.title}” is done` : `Mark “${st.title}” as done`}
+              />
+            )}
+            <span title={st.body}>
+              {st.title}
+              {st.optional ? <span className="bx-db__muted"> (optional)</span> : null}
             </span>
-            <span className="bx-db-start__text">
-              <span className="bx-db-start__title">
-                {st.title}
-                {st.optional ? <span className="bx-muted"> (optional)</span> : null}
-              </span>
-              <span className="bx-db-start__body">{st.body}</span>
-              {st.optional ? null : (
-                <Checkbox
-                  className="bx-db-start__tick"
-                  label={st.doneFromBooks ? 'Done' : 'Mark as done'}
-                  checked={st.done}
-                  disabled={st.doneFromBooks}
-                  onChange={(on) => tick(st.id, on)}
-                  aria-label={st.doneFromBooks ? `“${st.title}” is done` : `Mark “${st.title}” as done`}
-                />
-              )}
-            </span>
-            <Button
-              size="sm"
-              variant={st.done ? 'ghost' : st.target === 'sales-voucher' ? 'primary' : 'secondary'}
-              shortcut={st.shortcut}
-              onClick={() => {
-                const t = st.target;
-                if (isVoucherTarget(t)) shell.openVoucher(START_VOUCHER_BASE[t]);
-                else drill.open(t);
-              }}
-            >
+            <Button size="sm" variant="link" aria-keyshortcuts={st.shortcut} title={st.shortcut ? `${st.action} · ${st.shortcut}` : undefined} onClick={() => go(st)}>
               {st.action}
             </Button>
           </li>
         ))}
       </ol>
+    </section>
+  );
+}
+
+// ───────────────────────────── Full Dashboard: figures ─────────────────────────────
+
+/** The full Dashboard's four figures: Sales (▲ % vs last year), Gross profit (margin), Receivables, Cash & bank. */
+export function KpiRow({ s, loading, workingDate }: { s: DashboardSummary | undefined; loading: boolean; workingDate?: string }) {
+  const drill = useDrill();
+  const sales = s ? flowKpi(s.sales, s.asOf, workingDate) : null;
+  const period = s?.ranges.period;
+  // A negative figure is relabelled, never shown with a bare minus.
+  const salesK = signedKpi('Sales', sales?.value ?? 0, 'Sales returns (net)');
+  const receivablesK = signedKpi('Receivables', s?.receivables.total ?? 0, 'Advances from customers');
+  const cashBankK = signedKpi('Cash & bank', s ? s.cashBank.cashTotal + s.cashBank.bankTotal : 0, 'Cash & bank (overdrawn)');
+  const gp = s?.grossProfit ?? null;
+  return (
+    <div className="bx-db__figures" role="group" aria-label="Key figures">
+      <KpiCard
+        label={salesK.label}
+        value={salesK.value}
+        amount
+        loading={loading}
+        delta={sales && sales.delta !== null ? { value: sales.delta, label: 'vs last year' } : undefined}
+        caption={sales && sales.delta === null ? sales.comparison : undefined}
+        onClick={period ? drill.to(DRILL.salesRegister(period)) : undefined}
+      />
+      {gp ? (
+        <KpiCard
+          label={gp.amount < 0 ? 'Gross loss' : 'Gross profit'}
+          value={Math.abs(gp.amount)}
+          amount
+          loading={loading}
+          caption={gp.marginPercent === null ? 'No sales in this period' : `Margin ${gp.marginPercent.toFixed(1)} %`}
+          onClick={period ? drill.to(DRILL.profitLoss(period)) : undefined}
+        />
+      ) : null}
+      <KpiCard
+        label={receivablesK.label}
+        value={receivablesK.value}
+        amount
+        loading={loading}
+        caption={s && s.receivables.overdue > 0 ? `${compact(s.receivables.overdue)} overdue` : undefined}
+        onClick={drill.to(DRILL.receivables())}
+      />
+      <KpiCard
+        label={cashBankK.label}
+        value={cashBankK.value}
+        amount
+        loading={loading}
+        caption={s ? cashBankCaption(s.cashBank) : undefined}
+        onClick={s ? drill.to(DRILL.cashBank(balanceRange(s))) : undefined}
+      />
+    </div>
+  );
+}
+
+// ───────────────────────────── Full Dashboard: graphs ─────────────────────────────
+
+/**
+ * The full Dashboard's graphs fold together (Ctrl+J, or the "Hide graphs" text button on the first graph
+ * card). Folding while a plot has the focus would drop the focus to <body>: it moves to that button
+ * instead (as the report strip does), and a live region says what changed.
+ */
+export interface GraphFold {
+  shown: boolean;
+  /** On the plots' wrapper: remembers whether the focus is inside a plot. */
+  plot: { onFocus: () => void; onBlur: (e: { currentTarget: HTMLElement; relatedTarget: EventTarget | null }) => void };
+  /** On the "Hide graphs" button. */
+  toggleRef: { current: HTMLButtonElement | null };
+  /** What the live region says after a change ('' on first render). */
+  announcement: string;
+}
+
+export function useGraphFold(shown: boolean): GraphFold {
+  const inPlot = useRef(false);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const prev = useRef(shown);
+  useLayoutEffect(() => {
+    if (prev.current === shown) return;
+    prev.current = shown;
+    setAnnouncement(graphsAnnouncement(shown, 'report'));
+    if (shown || !inPlot.current) return;
+    inPlot.current = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body) toggleRef.current?.focus();
+  }, [shown]);
+  const plot = useMemo(
+    () => ({
+      onFocus: () => {
+        inPlot.current = true;
+      },
+      // A move to another element clears it; a blur without a new target (the plot being removed) does not.
+      onBlur: (e: { currentTarget: HTMLElement; relatedTarget: EventTarget | null }) => {
+        if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node)) inPlot.current = false;
+      },
+    }),
+    [],
+  );
+  return { shown, plot, toggleRef, announcement };
+}
+
+/**
+ * A graph card: the heading, the one-sentence answer (the plot's description) and — while graphs are
+ * shown (Ctrl+J, "Hide graphs") — the plot through LazyChart. Folded, the answer stays.
+ */
+function GraphCard({ title, takeaway, spec, fold, toggle, className }: { title: string; takeaway: string; spec: ChartSpec | null; fold: GraphFold; toggle?: ReactNode; className?: string }) {
+  const takeawayId = useId();
+  return (
+    <Card className={className} title={title} headingLevel={2} padding="none" actions={toggle}>
+      <p id={takeawayId} className="bx-db__note">
+        {takeaway}
+      </p>
+      {fold.shown && spec ? (
+        <div onFocus={fold.plot.onFocus} onBlur={fold.plot.onBlur}>
+          <LazyChart spec={spec} describedBy={takeawayId} />
+        </div>
+      ) : null}
     </Card>
   );
 }
+
+/**
+ * "Sales and purchases — last 12 months": a line of Sales with Purchases as grey context (LazyChart);
+ * months after the balances date have no mark.
+ */
+export function TrendCard({ s, fold, toggle, className }: { s: DashboardSummary | undefined; fold: GraphFold; toggle?: ReactNode; className?: string }) {
+  const drill = useDrill();
+  const canRegister = drill.can('reports.register');
+  const spec = useMemo(
+    () =>
+      s
+        ? trendSpec(
+            s.trend,
+            canRegister
+              ? (i) => {
+                  const m = s.trend[i];
+                  if (m) drill.open(DRILL.salesRegister({ from: m.from, to: m.to }));
+                }
+              : undefined,
+            s.asOf,
+          )
+        : null,
+    [s, canRegister, drill],
+  );
+  if (!s) return null;
+  return <GraphCard className={className} title="Sales and purchases — last 12 months" takeaway={spec ? spec.takeaway : 'No sales or purchases in the last 12 months'} spec={spec} fold={fold} toggle={toggle} />;
+}
+
+/** Receivables by age: ordinal columns, "Not due" grey (LazyChart); Enter opens Receivables. */
+export function AgeingCard({ s, fold, toggle, className }: { s: DashboardSummary | undefined; fold: GraphFold; toggle?: ReactNode; className?: string }) {
+  const drill = useDrill();
+  const can = drill.can('outstanding.receivables');
+  const spec = useMemo(() => (s ? ageingSpec(s.receivables.ageing, can ? (i) => drill.open(i === 0 ? DRILL.receivables() : DRILL.receivablesAgeing()) : undefined) : null), [s, can, drill]);
+  if (!s || !spec) return null;
+  return <GraphCard className={className} title="Receivables by age" takeaway={spec.takeaway} spec={spec} fold={fold} toggle={toggle} />;
+}
+
+// ───────────────────────────── Full Dashboard: the other cards ─────────────────────────────
+
+/** The secondary cards as one line each (lib/model.ts cardLines): title · what it says · a link. */
+export function CardLines({ s }: { s: DashboardSummary }) {
+  const drill = useDrill();
+  const lines = useMemo(() => cardLines(s), [s]);
+  return (
+    <ul className="bx-db-lines" aria-label="More figures">
+      {lines.map((l) => (
+        <li key={l.id}>
+          <strong>{l.title}</strong>
+          <span className="bx-db__muted">{l.text}</span>
+          {drill.can(l.target.screen) ? (
+            <Button size="sm" variant="link" onClick={drill.to(l.target)}>
+              {l.link}
+            </Button>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The full alert list of the full Dashboard (every alert, all clear when none). */
+export function AlertsCard({ s }: { s: DashboardSummary }) {
+  const drill = useDrill();
+  const alerts = useMemo(() => buildAlerts(s, { canOpen: drill.can }), [s, drill.can]);
+  return <AlertList alerts={alerts} allClear />;
+}
+
+/** Home's attention list: top 3 + "N more", without what a figure or the Setup line already says. */
+export function HomeAlerts({ s, setupBackupOpen }: { s: DashboardSummary; setupBackupOpen: boolean }) {
+  const drill = useDrill();
+  const alerts = useMemo(() => homeAlerts(s, { viewer: { canOpen: drill.can }, setupBackupOpen }), [s, drill.can, setupBackupOpen]);
+  return <AlertList alerts={alerts} limit={HOME_ALERTS_SHOWN} />;
+}
+
+interface CashBankRow extends DashboardBalanceRow {
+  kind: 'cash' | 'bank';
+}
+
+export function CashBankCard({ s, className }: { s: DashboardSummary; className?: string }) {
+  const drill = useDrill();
+  const rows = useMemo<CashBankRow[]>(() => [...s.cashBank.cash.map((r) => ({ ...r, kind: 'cash' as const })), ...s.cashBank.banks.map((r) => ({ ...r, kind: 'bank' as const }))], [s]);
+  const columns = useMemo<Column<CashBankRow>[]>(
+    () => [
+      { key: 'name', header: 'Account', minWidth: 140, value: (r) => `${r.name}${r.accountTail ? ` ··${r.accountTail}` : ''}${r.isOverdraft ? ' (OD)' : ''}` },
+      { key: 'balance', header: 'Balance', kind: 'drcr', width: 150 },
+    ],
+    [],
+  );
+  return (
+    <Card className={className} title="Cash & bank" subtitle={`As on ${formatDate(s.asOf)}`} padding="none">
+      <DataTable<CashBankRow>
+        aria-label="Cash and bank balances"
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => String(r.ledgerId)}
+        density="compact"
+        onRowActivate={drill.can('reports.ledger') ? (r) => drill.open(DRILL.ledger(r.ledgerId, balanceRange(s))) : undefined}
+        footerRows={rows.length > 1 ? [{ key: 'total', cells: { name: 'Total', balance: formatDrCr(s.cashBank.cashTotal + s.cashBank.bankTotal) } }] : undefined}
+        empty={<EmptyState size="sm" title="No cash or bank accounts" body="Create a ledger under Bank Accounts to see its balance here." />}
+      />
+    </Card>
+  );
+}
+
+export function GstCard({ s, className }: { s: DashboardSummary; className?: string }) {
+  const g = s.gst;
+  const due = s.gstDue;
+  if (!g && !due) return null;
+  return (
+    <Card className={className} title="GST" subtitle="Estimate from your books" padding="none">
+      {due ? (
+        <section aria-label={`GST return for ${due.label}`}>
+          <p className="bx-db__note">
+            {due.label} return · {gstDueLine(due, s.asOf)}
+          </p>
+          <KeyValueList layout="inline" alignValues="right" items={gstItems(due)} />
+        </section>
+      ) : null}
+      {g ? (
+        <section aria-label={`GST for ${g.label} so far`}>
+          <p className="bx-db__note">
+            {g.label} so far · {g.dueForm} due by {formatDate(g.dueDate)} · {plural(g.documentCount, 'GST document')}; interest and late fee not included
+          </p>
+          <KeyValueList layout="inline" alignValues="right" items={gstItems(g)} />
+        </section>
+      ) : null}
+    </Card>
+  );
+}
+
+export function TopCustomersCard({ s, className }: { s: DashboardSummary; className?: string }) {
+  const drill = useDrill();
+  const columns = useMemo<Column<DashboardTopCustomer>[]>(
+    () => [
+      { key: 'name', header: 'Customer', minWidth: 140 },
+      { key: 'amount', header: 'Sales', kind: 'amount', width: 130 },
+      { key: 'sharePercent', header: 'Share', width: 70, align: 'right', value: (r) => (r.sharePercent === null ? '' : `${r.sharePercent.toFixed(1)}%`) },
+    ],
+    [],
+  );
+  return (
+    <Card className={className} title="Top customers" padding="none">
+      <DataTable<DashboardTopCustomer>
+        aria-label="Top customers by sales"
+        columns={columns}
+        rows={s.topCustomers}
+        getRowKey={(r) => String(r.ledgerId)}
+        density="compact"
+        onRowActivate={drill.can('reports.ledger') ? (r) => drill.open(DRILL.ledger(r.ledgerId, s.ranges.period)) : undefined}
+        empty={<EmptyState size="sm" title="No credit sales in this period" body="Cash sales are not listed by customer. Change the period with Alt+F2." />}
+      />
+    </Card>
+  );
+}
+
+export function TopItemsCard({ s, className }: { s: DashboardSummary; className?: string }) {
+  const drill = useDrill();
+  const columns = useMemo<Column<DashboardTopItem>[]>(
+    () => [
+      { key: 'name', header: 'Item', minWidth: 140 },
+      { key: 'qty', header: 'Quantity', width: 110, align: 'right', value: (r) => formatQty(r.qty, Number.isInteger(r.qty) ? 0 : 2, r.unit || undefined) },
+      { key: 'amount', header: 'Sales', kind: 'amount', width: 130 },
+    ],
+    [],
+  );
+  if (!s.features.inventory) return null;
+  return (
+    <Card className={className} title="Top items" padding="none">
+      <DataTable<DashboardTopItem>
+        aria-label="Top items by sales"
+        columns={columns}
+        rows={s.topItems}
+        getRowKey={(r) => String(r.itemId)}
+        density="compact"
+        onRowActivate={drill.can('stock.item') ? (r) => drill.open(DRILL.stockItem(r.itemId)) : undefined}
+        empty={<EmptyState size="sm" title="No items sold in this period" body="Item invoices (F8) show their items here." />}
+      />
+    </Card>
+  );
+}
+
+export function LowStockCard({ s, className }: { s: DashboardSummary; className?: string }) {
+  const drill = useDrill();
+  const columns = useMemo<Column<DashboardLowStockItem>[]>(
+    () => [
+      { key: 'name', header: 'Item', minWidth: 140 },
+      { key: 'onHand', header: 'In stock', width: 100, align: 'right', value: (r) => formatQty(r.onHand, Number.isInteger(r.onHand) ? 0 : 2, r.unit || undefined) },
+      { key: 'reorderLevel', header: 'Reorder at', width: 100, align: 'right', value: (r) => formatQty(r.reorderLevel, Number.isInteger(r.reorderLevel) ? 0 : 2) },
+      { key: 'shortfall', header: 'Short by', width: 90, align: 'right', value: (r) => formatQty(r.shortfall, Number.isInteger(r.shortfall) ? 0 : 2) },
+    ],
+    [],
+  );
+  if (!s.features.inventory) return null;
+  const more = s.lowStock.count - s.lowStock.items.length;
+  return (
+    <Card className={className} title="Low stock" padding="none">
+      <DataTable<DashboardLowStockItem>
+        aria-label="Items below reorder level"
+        columns={columns}
+        rows={s.lowStock.items}
+        getRowKey={(r) => String(r.itemId)}
+        density="compact"
+        onRowActivate={drill.can('stock.item') ? (r) => drill.open(DRILL.stockItem(r.itemId)) : undefined}
+        empty={<EmptyState size="sm" title="Stock levels are fine" body="Set a reorder level on an item to be warned here." />}
+      />
+      {more > 0 ? <p className="bx-db__note">{plural(more, 'more item')} — open Reorder status to see all.</p> : null}
+    </Card>
+  );
+}
+
+/** Cancelled / Optional / Post-dated as words after the party. */
+function flags(r: Pick<DashboardVoucherRow, 'isCancelled' | 'isOptional' | 'isPostDated'>): ReactNode {
+  if (!r.isCancelled && !r.isOptional && !r.isPostDated) return null;
+  return (
+    <>
+      {' '}
+      {r.isCancelled ? <Badge tone="danger" size="sm">Cancelled</Badge> : null}
+      {r.isOptional ? <Badge tone="neutral" size="sm">Optional</Badge> : null}
+      {r.isPostDated ? <Badge tone="info" size="sm">Post-dated</Badge> : null}
+    </>
+  );
+}
+
+export function RecentVouchersCard({ s, className }: { s: DashboardSummary; className?: string }) {
+  const drill = useDrill();
+  const columns = useMemo<Column<DashboardVoucherRow>[]>(
+    () => [
+      { key: 'date', header: 'Date', kind: 'date', width: 104 },
+      { key: 'typeName', header: 'Voucher', width: 150, value: (r) => `${r.typeName}${r.number ? ` ${r.number}` : ''}` },
+      {
+        key: 'partyName',
+        header: 'Party',
+        minWidth: 120,
+        render: (r) => (
+          <span>
+            {r.partyName ?? '—'}
+            {flags(r)}
+          </span>
+        ),
+      },
+      { key: 'amount', header: 'Amount', kind: 'amount', width: 120, blankZero: true },
+    ],
+    [],
+  );
+  return (
+    <Card className={className} title="Recent vouchers" padding="none">
+      <DataTable<DashboardVoucherRow>
+        aria-label="Recently entered vouchers"
+        columns={columns}
+        rows={s.recentVouchers}
+        getRowKey={(r) => String(r.id)}
+        density="compact"
+        onRowActivate={drill.can('vouchers.view') ? (r) => drill.open(DRILL.voucher(r.id)) : undefined}
+        empty={<EmptyState size="sm" title="No vouchers yet" body="Vouchers you enter appear here." />}
+      />
+    </Card>
+  );
+}
+
+export function PostDatedCard({ s, className }: { s: DashboardSummary; className?: string }) {
+  const drill = useDrill();
+  const columns = useMemo<Column<DashboardPdcRow>[]>(
+    () => [
+      { key: 'date', header: 'Date', kind: 'date', width: 104 },
+      { key: 'partyName', header: 'Party', minWidth: 120, value: (r) => r.partyName ?? r.typeName },
+      { key: 'direction', header: 'In / out', width: 90, value: (r) => (r.direction === 'in' ? 'Receive' : 'Pay') },
+      { key: 'instrumentNo', header: 'Cheque', width: 90, value: (r) => r.instrumentNo ?? '' },
+      { key: 'amount', header: 'Amount', kind: 'amount', width: 120 },
+    ],
+    [],
+  );
+  const p = s.postDated;
+  return (
+    <Card className={className} title="Post-dated cheques" subtitle={`To receive ${compact(p.inflow)} · to pay ${compact(p.outflow)}`} padding="none">
+      <DataTable<DashboardPdcRow>
+        aria-label="Upcoming post-dated cheques"
+        columns={columns}
+        rows={p.rows}
+        getRowKey={(r) => String(r.id)}
+        density="compact"
+        onRowActivate={drill.can('vouchers.view') ? (r) => drill.open(DRILL.voucher(r.id)) : undefined}
+        empty={<EmptyState size="sm" title="No post-dated cheques" body="Receipts and payments marked post-dated appear here until their date." />}
+      />
+      {p.count > p.rows.length ? <p className="bx-db__note">{plural(p.count - p.rows.length, 'more cheque')} — see All cheques.</p> : null}
+    </Card>
+  );
+}
+

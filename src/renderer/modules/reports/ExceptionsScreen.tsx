@@ -90,7 +90,7 @@ export function ExceptionsScreen({ params }: ScreenProps<{ from?: string; to?: s
             }
       }
     >
-      <Stack gap={2} grow>
+      <Stack gap={2}>
         <Tabs
           aria-label="Exception lists"
           value={tab}
@@ -101,7 +101,6 @@ export function ExceptionsScreen({ params }: ScreenProps<{ from?: string; to?: s
           <DataTable<NegativeLedgerRow>
             key="balances"
             aria-label={current.label}
-            className="bx-rep-fill"
             columns={balanceColumns}
             rows={d?.negativeLedgers ?? []}
             getRowKey={(r) => String(r.ledgerId)}
@@ -114,7 +113,6 @@ export function ExceptionsScreen({ params }: ScreenProps<{ from?: string; to?: s
           <DataTable<ExceptionVoucher>
             key={tab}
             aria-label={current.label}
-            className="bx-rep-fill"
             columns={voucherColumns}
             rows={lists[tab]}
             getRowKey={(r) => String(r.id)}

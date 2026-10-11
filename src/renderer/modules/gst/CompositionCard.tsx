@@ -2,7 +2,8 @@
  * Dashboard card (ModuleDef.dashboardCards) for composition taxpayers: CMP-08 for the quarter being
  * filed (due on the 18th after the quarter) and the next one, and GSTR-4 for the last financial year
  * (due 30 April) until it is marked filed. Hidden for regular taxpayers and without gst.view. No hotkeys
- * (the Gateway embeds the dashboard): each line is a link to its return.
+ * (the Gateway embeds the dashboard): each line is a link to its return. 2.1: the "check the portal"
+ * footnote is the subtitle's tooltip.
  */
 import { formatDate, useApiQuery, useAppState, useCan, useNav, useWorkingDate } from '../../app/index.ts';
 import { Badge, Button, Card, Inline, Stack } from '../../ui/index.ts';
@@ -18,7 +19,12 @@ export function CompositionCard({ className }: { className?: string }) {
   if (!on) return null;
   const dues = compositionDues(date, filings.data ?? []);
   return (
-    <Card className={className} title="Composition returns" subtitle="CMP-08 by the 18th after each quarter · GSTR-4 by 30 April" padding="sm">
+    <Card
+      className={className}
+      title="Composition returns"
+      subtitle={<span title="Due dates as notified; check the portal for any extension.">CMP-08 by the 18th after each quarter · GSTR-4 by 30 April</span>}
+      padding="sm"
+    >
       <Stack gap={2}>
         {dues.map((d) => (
           <Inline gap={2} justify="between" key={`${d.form}:${d.period}`}>
@@ -36,7 +42,6 @@ export function CompositionCard({ className }: { className?: string }) {
             )}
           </Inline>
         ))}
-        <p className="bx-muted">Due dates as notified; check the portal for any extension.</p>
       </Stack>
     </Card>
   );

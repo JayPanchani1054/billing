@@ -19,9 +19,11 @@ import { formatMoney } from '../../../shared/format.ts';
 import type { Itc04ReturnRow, Itc04SentRow, PendingJobWorkRow, ProductionRegisterRow, StockJournalClass } from '../../../shared/types/mfg.ts';
 import { ReportScreen, Screen, useApiQuery, useCan, useCompany, useFeatures, useNav, usePeriod, useWorkingDate } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, DataTable, EmptyState, Field, SegmentedControl, Select, Stack, Switch } from '../../ui/index.ts';
-import type { Column, FooterRow } from '../../ui/index.ts';
-import { CLASS_LABEL, goodsTypeLabel, itc04ReturnedExport, itc04SentExport, itc04Title, pendingJobWorkExport, productionExport, returnStatusText, STATUS_TONE } from './lib/model.ts';
+import { Banner, DataTable, EmptyState, Inline, SegmentedControl, Select, StatLine } from '../../ui/index.ts';
+import type { Column } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { itc04Stat, jobWorkChart, jobWorkStat, overdueBannerShown, productionChart } from './lib/charts.ts';
+import { CLASS_LABEL, goodsTypeLabel, itc04ReturnedExport, itc04SentExport, itc04Title, pendingJobWorkExport, productionExport, returnStatusText } from './lib/model.ts';
 
 // ───────────────────────────── Production Register ─────────────────────────────
 
@@ -29,6 +31,7 @@ type KindFilter = 'all' | 'manufacturing' | 'material_in';
 
 export function ProductionRegisterScreen({ params }: ScreenProps<{ itemId?: number; bomId?: number }>) {
   const { from, to } = usePeriod();
+  const { date: workingDate } = useWorkingDate();
   const nav = useNav();
   const features = useFeatures();
   const canAlter = useCan('vouchers.alter');
@@ -43,6 +46,7 @@ export function ProductionRegisterScreen({ params }: ScreenProps<{ itemId?: numb
   const data = q.data;
   const rows = useMemo(() => data?.rows ?? [], [data]);
   const current = rows.find((r) => String(r.voucherId) === selected) ?? rows[0] ?? null;
+  const spec = useMemo(() => (data ? productionChart(data, workingDate.slice(0, 7)) : null), [data, workingDate]);
   const columns = useMemo<Column<ProductionRegisterRow>[]>(
     () => [
       { key: 'date', header: 'Date', kind: 'date', width: 105, sortable: true },
@@ -68,7 +72,7 @@ export function ProductionRegisterScreen({ params }: ScreenProps<{ itemId?: numb
   ];
   if (!on) {
     return (
-      <Screen title="Production Register" icon="layers">
+      <Screen title="Production Register">
         <EmptyState icon="layers" title="Manufacturing is turned off" body="Turn on Bill of materials and manufacturing, or Job work, in Features (F11)." />
       </Screen>
     );
@@ -76,8 +80,14 @@ export function ProductionRegisterScreen({ params }: ScreenProps<{ itemId?: numb
   return (
     <ReportScreen
       title="Production Register"
-      subtitle={data && rows.length > 0 ? `${rows.length} voucher${rows.length === 1 ? '' : 's'} · cost of production ₹ ${formatMoney(data.totals.productValue)}` : undefined}
       actions={actions}
+      graph={reportGraph(spec)}
+      about={
+        <p>
+          Values are the stock valuation engine&apos;s — the same as the Stock Summary and the Balance Sheet. A back-dated purchase re-values the components and the finished goods everywhere.
+          The BOM estimate is today&apos;s cost of the same quantity.
+        </p>
+      }
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
@@ -108,11 +118,8 @@ export function ProductionRegisterScreen({ params }: ScreenProps<{ itemId?: numb
         onSelect={(k) => setSelected(k)}
         onRowActivate={(r) => nav.push('vouchers.view', { id: r.voucherId })}
         loading={q.loading}
-        empty={<EmptyState icon="layers" title="No production in this period" body="Manufacturing Journals and finished goods received from job workers appear here. Change the period with Alt+F2." />}
+        empty={<EmptyState icon="layers" title="No production in this period" body="Manufacturing Journals and finished goods received from job workers appear here." />}
       />
-      <p className="bx-mfg-note">
-        Values are the stock valuation engine's — the same as the Stock Summary and the Balance Sheet. A back-dated purchase re-values the components and the finished goods everywhere.
-      </p>
     </ReportScreen>
   );
 }
@@ -147,24 +154,17 @@ export function PendingJobWorkScreen({ params }: ScreenProps<{ direction?: 'out'
       { key: 'pendingQty', header: 'Pending', kind: 'qty', width: 110, render: (r) => `${r.pendingQty} ${r.unit}` },
       { key: 'pendingValue', header: 'Value', kind: 'amount', width: 130, total: true },
       { key: 'dueDate', header: 'Return by', kind: 'date', width: 110 },
-      {
-        key: 'status',
-        header: 'Status',
-        width: 170,
-        value: (r) => returnStatusText(r.status, r.daysLeft),
-        render: (r) => <Badge size="sm" tone={STATUS_TONE[r.status]}>{returnStatusText(r.status, r.daysLeft)}</Badge>,
-      },
+      { key: 'status', header: 'Status', width: 170, value: (r) => returnStatusText(r.status, r.daysLeft) },
     ],
     [direction],
   );
-  const footer = useMemo<FooterRow[]>(
-    () => (data && rows.length > 0 ? [{ key: 'counts', tone: 'subtle', cells: { itemName: `${data.counts.overdue} overdue · ${data.counts.dueSoon} due within 30 days`, pendingValue: data.overdueValue } }] : []),
-    [data, rows.length],
-  );
+  const spec = useMemo(() => (data ? jobWorkChart(data, direction, onlyAlerts) : null), [data, direction, onlyAlerts]);
+  const banner = data ? overdueBannerShown(data, direction) : false;
+  const stat = data ? jobWorkStat(data, { overdueInBanner: banner }) : [];
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+1', label: 'Goods with job workers', icon: 'truck', onClick: () => setDirection('out'), disabled: direction === 'out', group: 'view' },
     { key: 'Ctrl+2', label: "Principals' goods with us", icon: 'truck', onClick: () => setDirection('in'), disabled: direction === 'in', group: 'view' },
-    { key: 'Ctrl+3', label: onlyAlerts ? 'Show all' : 'Only overdue / due soon', icon: 'filter', onClick: () => setOnlyAlerts((v) => !v), group: 'view' },
+    { key: 'Ctrl+3', label: 'Only overdue / due soon', icon: 'filter', onClick: () => setOnlyAlerts((v) => !v), group: 'view', checked: onlyAlerts },
     {
       key: 'Alt+I',
       label: direction === 'out' ? 'Receive back (Material In)' : 'Send back (Material Out)',
@@ -177,7 +177,7 @@ export function PendingJobWorkScreen({ params }: ScreenProps<{ direction?: 'out'
   ];
   if (!features.jobWork) {
     return (
-      <Screen title="Pending Job Work" icon="truck">
+      <Screen title="Pending Job Work">
         <EmptyState icon="truck" title="Job work is turned off" body="Turn on Job work in Features (F11 › Inventory; it needs Multiple godowns)." />
       </Screen>
     );
@@ -185,7 +185,6 @@ export function PendingJobWorkScreen({ params }: ScreenProps<{ direction?: 'out'
   return (
     <ReportScreen
       title="Pending Job Work"
-      subtitle={direction === 'out' ? 'Our goods with job workers' : "Principals' goods with us"}
       periodMode="asOn"
       actions={actions}
       loading={q.loading}
@@ -193,20 +192,21 @@ export function PendingJobWorkScreen({ params }: ScreenProps<{ direction?: 'out'
       error={q.error}
       onRetry={q.refetch}
       hint="Enter View challan · Alt+I Receive or send back · Ctrl+1/2 Out or in · Ctrl+3 Alerts only · Alt+F2 Date · Alt+E Export"
-      filters={
-        <Stack gap={2}>
-          <SegmentedControl<'out' | 'in'> aria-label="Direction" size="sm" value={direction} onChange={setDirection} options={[{ value: 'out', label: 'With job workers' }, { value: 'in', label: 'Principals’ goods with us' }]} />
-          <Field label="Only overdue / due soon" layout="inline">
-            <Switch checked={onlyAlerts} onChange={setOnlyAlerts} />
-          </Field>
-        </Stack>
+      filters={<SegmentedControl<'out' | 'in'> aria-label="Direction" size="sm" value={direction} onChange={setDirection} options={[{ value: 'out', label: 'With job workers' }, { value: 'in', label: 'Principals’ goods with us' }]} />}
+      stat={stat.length > 0 ? <StatLine items={stat} /> : undefined}
+      graph={reportGraph(spec)}
+      about={
+        <p>
+          CGST Act s.143: inputs sent to a job worker must come back within one year and capital goods within three years (moulds, dies, jigs, fixtures and tools are exempt);
+          otherwise they are deemed supplied by you on the day they were sent out — pay GST with interest on them, or record the Commissioner&apos;s extension on the challan line.
+          Challans are matched first-in-first-out.
+        </p>
       }
       exportDef={() => (data ? { ...pendingJobWorkExport(data, direction), period: `As on ${formatDate(to)}` } : { columns: [], rows: [] })}
     >
-      {data && data.counts.overdue > 0 && direction === 'out' ? (
+      {data && banner ? (
         <Banner tone="danger" title={`${data.counts.overdue} challan line${data.counts.overdue === 1 ? '' : 's'} past the return date`}>
-          Under CGST s.143 inputs not received back within one year (capital goods: three years) are deemed supplied by you on the day they were sent out — pay GST with interest on them, or
-          record the Commissioner's extension on the challan line. Value pending: ₹ {formatMoney(data.overdueValue)}.
+          ₹ {formatMoney(data.overdueValue)} deemed supplied on the day sent (CGST s.143) — GST with interest is payable.
         </Banner>
       ) : null}
       {data && data.unexplained.length > 0 ? (
@@ -223,7 +223,6 @@ export function PendingJobWorkScreen({ params }: ScreenProps<{ direction?: 'out'
         selectedKey={current ? current.key : null}
         onSelect={(k) => setSelected(k)}
         onRowActivate={(r) => nav.push('vouchers.view', { id: r.voucherId })}
-        footerRows={footer.length > 0 ? footer : undefined}
         loading={q.loading}
         empty={<EmptyState icon="truck" title="Nothing pending" body={direction === 'out' ? 'No goods are with job workers on this date.' : 'No principal’s goods are with you on this date.'} />}
       />
@@ -308,13 +307,13 @@ export function Itc04Screen() {
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+1', label: 'Table 4 (sent)', icon: 'upload', onClick: () => setTable('4'), disabled: table === '4', group: 'view' },
     { key: 'Ctrl+2', label: 'Tables 5A–5C (received / sent on / sold)', icon: 'download', onClick: () => setTable('5'), disabled: table === '5', group: 'view' },
-    { key: 'Ctrl+3', label: aato ? 'AATO up to ₹5 crore (annual)' : 'AATO above ₹5 crore (half-yearly)', icon: 'settings', onClick: () => setAato(!aato), group: 'view' },
+    { key: 'Ctrl+3', label: 'Turnover above ₹5 crore (half-yearly)', icon: 'settings', onClick: () => setAato(!aato), group: 'view', checked: aato, hint: "Previous year's aggregate turnover: half-yearly ITC-04 above ₹5 crore, annual otherwise (rule 45(3))" },
     // A toggle: back a year, and back again to the working date's year (the list shows two years).
     { key: 'Ctrl+4', label: refDate === date ? 'Previous financial year' : 'Current financial year', icon: 'calendar', onClick: () => setRefDate(refDate === date ? addMonths(date, -12) : date), group: 'view' },
   ];
   if (!features.jobWork) {
     return (
-      <Screen title="ITC-04" icon="gst">
+      <Screen title="ITC-04">
         <EmptyState icon="truck" title="Job work is turned off" body="Turn on Job work in Features (F11 › Inventory; it needs Multiple godowns)." />
       </Screen>
     );
@@ -323,8 +322,17 @@ export function Itc04Screen() {
   return (
     <ReportScreen
       title="ITC-04"
-      subtitle={period ? `${period.label} · due ${formatDate(period.dueDate)} (check the portal for extensions)` : undefined}
+      subtitle={period ? `Due ${formatDate(period.dueDate, 'D-MMM-YY')}` : undefined}
       periodMode="none"
+      stat={data ? <StatLine items={itc04Stat(data)} /> : undefined}
+      aboutLabel="About this return"
+      about={
+        <p>
+          ITC-04 is half-yearly when the previous year&apos;s aggregate turnover is above ₹5 crore, annual otherwise (rule 45(3)); check the portal for extended due dates. Export gives a
+          clean CSV / Excel of the form&apos;s columns to key into the GST portal&apos;s ITC-04 offline tool. It is not the portal&apos;s JSON upload format, which Pevqori does not
+          generate. Table 5A pairs each receipt with its original challan first-in-first-out; enter losses and wastes yourself where they apply.
+        </p>
+      }
       actions={actions}
       loading={q.loading || periodsQ.loading}
       refreshing={q.refreshing}
@@ -332,15 +340,10 @@ export function Itc04Screen() {
       onRetry={() => void (q.refetch(), periodsQ.refetch())}
       hint="Ctrl+1 Table 4 · Ctrl+2 Tables 5 · Ctrl+3 Turnover band · Ctrl+4 Previous / current year · Enter View · Alt+E Export"
       filters={
-        <Stack gap={2}>
-          <Field label="Period" layout="inline">
-            <Select value={key ?? ''} onChange={(v) => setKey(v)} options={periods.map((p) => ({ value: p.key, label: p.label }))} />
-          </Field>
-          <Field label="AATO above ₹5 crore" layout="inline" hint="Previous year's aggregate turnover: half-yearly ITC-04 above ₹5 crore, annual otherwise (rule 45(3)).">
-            <Switch checked={aato} onChange={setAato} />
-          </Field>
-          <SegmentedControl<'4' | '5'> aria-label="Table" size="sm" value={table} onChange={setTable} options={[{ value: '4', label: `Table 4 (${data?.sent.length ?? 0})` }, { value: '5', label: `Tables 5A–5C (${data?.returned.length ?? 0})` }]} />
-        </Stack>
+        <Inline gap={3} align="center">
+          <SegmentedControl<'4' | '5'> aria-label="Table" size="sm" value={table} onChange={setTable} options={[{ value: '4', label: 'Table 4' }, { value: '5', label: 'Tables 5A–5C' }]} />
+          <Select aria-label="Period" size="sm" value={key ?? ''} onChange={(v) => setKey(v)} options={periods.map((p) => ({ value: p.key, label: p.label }))} />
+        </Inline>
       }
       exportDef={() => {
         if (!data || !period) return { columns: [], rows: [] };
@@ -377,10 +380,6 @@ export function Itc04Screen() {
           empty={<EmptyState icon="truck" title="Nothing received back in this period" body="Material In vouchers and sales from a job worker's godown appear here." />}
         />
       )}
-      <p className="bx-mfg-note">
-        Export gives a clean CSV / Excel of the form's columns to key into the GST portal's ITC-04 offline tool. It is not the portal's JSON upload format, which Pevqori does not generate. Table 5A pairs
-        each receipt with its original challan first-in-first-out; enter losses and wastes yourself where they apply.
-      </p>
     </ReportScreen>
   );
 }

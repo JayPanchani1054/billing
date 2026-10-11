@@ -79,6 +79,15 @@ export function hasFilters(f: AuditFilterState): boolean {
   return f.userId !== null || f.group !== 'all' || f.action !== null || f.entityType !== null || f.search.trim() !== '';
 }
 
+/**
+ * How many of the Filters ▾ popover's choices narrow the list (2.1: the button reads "Filters (2)"): showing
+ * all dates instead of the period, a user, an action (a group or an exact action count as one) and a record
+ * type. The search box sits beside the button, so it is not counted.
+ */
+export function activeFilterCount(f: AuditFilterState): number {
+  return (f.dates !== DEFAULT_FILTERS.dates ? 1 : 0) + (f.userId !== null ? 1 : 0) + (f.group !== 'all' || f.action !== null ? 1 : 0) + (f.entityType !== null ? 1 : 0);
+}
+
 /** A type alias (not an interface) so it is assignable to nav params. */
 export type AuditScreenParams = {
   entityType?: string;

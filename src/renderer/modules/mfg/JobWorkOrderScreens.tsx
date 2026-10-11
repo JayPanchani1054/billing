@@ -28,9 +28,7 @@ import {
 } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import {
-  Badge,
   Banner,
-  Button,
   DataTable,
   DateInput,
   EmptyState,
@@ -90,7 +88,6 @@ export function JobWorkOrderListScreen({ params }: ScreenProps<{ direction?: Job
         header: 'Status',
         width: 100,
         value: (r) => orderStatusText(r),
-        render: (r) => <Badge size="sm" tone={r.status === 'closed' ? 'neutral' : r.overdue ? 'danger' : 'info'}>{orderStatusText(r)}</Badge>,
       },
     ],
     [T.party],
@@ -109,9 +106,16 @@ export function JobWorkOrderListScreen({ params }: ScreenProps<{ direction?: Job
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+1', label: 'Job Work Out Orders', icon: 'truck', onClick: () => setDirection('out'), disabled: direction === 'out', group: 'view' },
     { key: 'Ctrl+2', label: 'Job Work In Orders', icon: 'truck', onClick: () => setDirection('in'), disabled: direction === 'in', group: 'view' },
-    { key: 'Ctrl+3', label: 'Show open', icon: 'filter', onClick: () => setStatus('open'), disabled: status === 'open', group: 'view' },
-    { key: 'Ctrl+4', label: 'Show all', icon: 'filter', onClick: () => setStatus('all'), disabled: status === 'all', group: 'view' },
-    { key: 'Alt+C', label: `Create ${T.one}`, icon: 'plus', primary: true, onClick: () => nav.push('mfg.jobWorkOrder.form', { direction }), hidden: !canCreate },
+    { key: 'Ctrl+3', label: 'Open orders only', icon: 'filter', onClick: () => setStatus('open'), group: 'view', checked: status === 'open' },
+    { key: 'Ctrl+4', label: 'All orders, closed too', icon: 'filter', onClick: () => setStatus('all'), group: 'view', checked: status === 'all' },
+    {
+      key: 'Alt+C',
+      label: `Create ${T.one}`,
+      icon: 'plus',
+      onClick: () => nav.push('mfg.jobWorkOrder.form', { direction }),
+      hidden: !canCreate,
+      prominent: true,
+    },
     { key: 'Alt+A', label: 'Alter', icon: 'edit', onClick: () => current && nav.push('mfg.jobWorkOrder.form', { id: current.id }), disabled: !current },
     { key: 'Alt+O', label: 'Material Out', icon: 'upload', onClick: () => challan('material_out'), disabled: !current || current.status === 'closed', hidden: !canCreate, group: 'go' },
     { key: 'Alt+I', label: 'Material In', icon: 'download', onClick: () => challan('material_in'), disabled: !current || current.status === 'closed', hidden: !canCreate, group: 'go' },
@@ -119,7 +123,7 @@ export function JobWorkOrderListScreen({ params }: ScreenProps<{ direction?: Job
   ];
   if (!features.jobWork) {
     return (
-      <Screen title="Job Work Orders" icon="truck">
+      <Screen title="Job Work Orders">
         <EmptyState icon="truck" title="Job work is turned off" body={OFF} />
       </Screen>
     );
@@ -127,19 +131,16 @@ export function JobWorkOrderListScreen({ params }: ScreenProps<{ direction?: Job
   return (
     <ReportScreen
       title={T.many}
+      subtitle={q.data ? `${rows.length} ${status === 'open' ? 'open order' : 'order'}${rows.length === 1 ? '' : 's'}` : undefined}
       periodMode="none"
+      outputInMore
       actions={actions}
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={q.refetch}
       hint="Enter Alter · Alt+C Create · Alt+O Material Out · Alt+I Material In · Ctrl+1/2 Out or In orders · Ctrl+3/4 Open or all · Alt+E Export"
-      filters={
-        <Stack gap={2}>
-          <SegmentedControl<JobWorkDirection> aria-label="Kind" size="sm" value={direction} onChange={setDirection} options={[{ value: 'out', label: 'Out (to job workers)' }, { value: 'in', label: 'In (from principals)' }]} />
-          <SegmentedControl<'open' | 'all'> aria-label="Status" size="sm" value={status} onChange={setStatus} options={[{ value: 'open', label: 'Open' }, { value: 'all', label: 'All' }]} />
-        </Stack>
-      }
+      filters={<SegmentedControl<JobWorkDirection> aria-label="Kind" size="sm" value={direction} onChange={setDirection} options={[{ value: 'out', label: 'Out (to job workers)' }, { value: 'in', label: 'In (from principals)' }]} />}
       exportDef={() => jobWorkOrdersExport(rows, direction)}
     >
       <DataTable<JobWorkOrderListRow>
@@ -152,7 +153,7 @@ export function JobWorkOrderListScreen({ params }: ScreenProps<{ direction?: Job
         onSelect={(k) => setSelected(k)}
         onRowActivate={(r) => nav.push('mfg.jobWorkOrder.form', { id: r.id })}
         loading={q.loading}
-        empty={<EmptyState icon="truck" title={`No ${status === 'open' ? 'open ' : ''}${T.many.toLowerCase()}`} body="Press Alt+C to create one. An order plans the work; Material Out / In vouchers move the goods." />}
+        empty={<EmptyState icon="truck" title={`No ${status === 'open' ? 'open ' : ''}${T.many.toLowerCase()}`} body="An order plans the work; Material Out / In vouchers move the goods." />}
       />
     </ReportScreen>
   );
@@ -175,13 +176,13 @@ export function JobWorkOrderFormScreen({ params }: ScreenProps<JobWorkOrderFormP
   const title = `${ORDER_TITLES[direction].one} ${id === undefined ? 'Creation' : 'Alteration'}`;
   if (!features.jobWork) {
     return (
-      <Screen title={title} icon="truck">
+      <Screen title={title}>
         <EmptyState icon="truck" title="Job work is turned off" body={OFF} />
       </Screen>
     );
   }
   if ((id !== undefined && !q.data) || !godowns.data) {
-    return <Screen title={title} icon="truck" width="form" loading={!(q.error ?? godowns.error)} error={q.error ?? godowns.error} onRetry={() => void (q.refetch(), godowns.refetch())} />;
+    return <Screen title={title} width="form" loading={!(q.error ?? godowns.error)} error={q.error ?? godowns.error} onRetry={() => void (q.refetch(), godowns.refetch())} />;
   }
   return <OrderFormView key={q.data ? `${q.data.id}:${q.data.updatedAt}` : direction} saved={q.data ?? null} direction={direction} godowns={godowns.data.rows} title={title} partyId={params.partyId} />;
 }
@@ -326,7 +327,7 @@ function OrderFormView({ saved, direction, godowns, title, partyId }: { saved: J
     <Screen
       title={saved ? `${T.one} ${saved.number}` : title}
       subtitle={saved ? `${saved.partyName} · ${saved.status === 'closed' ? 'Closed' : 'Open'}${saved.qty !== null ? ` · done ${saved.productDoneQty} of ${saved.qty} ${saved.unit ?? ''}` : ''}` : undefined}
-      icon="truck"
+      meta={saved?.dueDate && saved.status === 'open' && saved.dueDate < working.date ? `Past its due date (${formatDate(saved.dueDate)})` : undefined}
       width="form"
       dirty={dirty}
       actions={actions}
@@ -372,7 +373,7 @@ function OrderFormView({ saved, direction, godowns, title, partyId }: { saved: J
               <Select<'open' | 'closed'> value={form.status} onChange={(v) => setForm((f) => ({ ...f, status: v }))} disabled={readOnly || !saved} options={[{ value: 'open', label: 'Open' }, { value: 'closed', label: 'Closed' }]} />
             </Field>
           </FieldGroup>
-          <FieldGroup columns={3} legend={direction === 'out' ? 'Goods to be made by the job worker' : 'Goods to be made for the principal'}>
+          <FieldGroup columns={3} legend={direction === 'out' ? 'Goods the job worker makes' : 'Goods made for the principal'}>
             <Field label="Item" optional error={errors.fields.itemId}>
               <ItemPicker goodsOnly value={form.itemId !== null ? { id: form.itemId, name: form.itemName } : null} onChange={(it) => setForm((f) => ({ ...f, itemId: it?.id ?? null, itemName: it?.name ?? '', unit: it?.unitSymbol ?? '', decimals: it?.unitDecimals ?? 0, bomId: it && it.id === f.itemId ? f.bomId : null }))} readOnly={readOnly} />
             </Field>
@@ -397,7 +398,7 @@ function OrderFormView({ saved, direction, godowns, title, partyId }: { saved: J
             </Field>
           </FieldGroup>
           <LinesTable caption={direction === 'out' ? 'Material to send' : 'Material the principal sends'} columns={columns} rows={rows} />
-          <Field label="Narration" optional hint="Ctrl+Enter to move on.">
+          <Field label="Narration" optional hint="Ctrl+Enter saves.">
             <TextArea value={form.narration} onChange={(e) => setForm((f) => ({ ...f, narration: e.target.value }))} rows={2} autoGrow maxRows={5} maxLength={2000} readOnly={readOnly} />
           </Field>
           {saved && saved.vouchers.length > 0 ? (
@@ -416,12 +417,6 @@ function OrderFormView({ saved, direction, godowns, title, partyId }: { saved: J
               />
             </section>
           ) : null}
-          {saved?.dueDate && saved.status === 'open' && saved.dueDate < working.date ? <Banner tone="warning">Past its due date ({formatDate(saved.dueDate)}).</Banner> : null}
-          <div>
-            <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} disabled={readOnly} onClick={() => void submit()} data-enter-target="">
-              Save
-            </Button>
-          </div>
         </Stack>
       </div>
     </Screen>

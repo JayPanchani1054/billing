@@ -64,12 +64,16 @@ export function withTbBudget(
   };
 }
 
+/** Drill-down screens that take the scenario of the report they were opened from. */
+const SCENARIO_SCREENS: ReadonlySet<string> = new Set(['reports.groupSummary', 'reports.profitLoss']);
+
 /**
- * Carry the scenario into a drill-down that supports it (Group Summary); ledgers and vouchers always
- * show the books. Returns the target unchanged without a scenario.
+ * Carry the scenario into a drill-down that supports it (Group Summary; the P&L of a month or of the
+ * Balance Sheet's P&L A/c line); ledgers and vouchers always show the books. Returns the target
+ * unchanged without a scenario.
  */
 export function withScenario(target: DrillTarget | null, scenarioId: number | null): DrillTarget | null {
-  if (!target || scenarioId === null || target.screen !== 'reports.groupSummary') return target;
+  if (!target || scenarioId === null || !SCENARIO_SCREENS.has(target.screen)) return target;
   return { ...target, params: { ...target.params, scenarioId } };
 }
 

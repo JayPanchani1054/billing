@@ -13,7 +13,7 @@
  * Ctrl+1 / Ctrl+2 switch TDS / TCS where both are on. Alt+E export, Alt+P print.
  */
 import { useMemo, useState } from 'react';
-import { formatDate } from '../../../shared/dates.ts';
+import { formatDate, formatMonth } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type {
   TdsChallanRow,
@@ -30,9 +30,12 @@ import type { ScreenProps } from '../../app/registry.ts';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { useCan } from '../../app/state.tsx';
 import { usePeriod } from '../../app/working.tsx';
-import { Badge, Banner, DataTable, EmptyState, Grid, KpiCard, Panel, Stack } from '../../ui/index.ts';
+import { Badge, Banner, DataTable, EmptyState, Panel, Stack, StatLine } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
 import { KindSwitch, PanBadge, TdsOff, useKind } from './components.tsx';
+import { challansChart, computationChart, exceptionsStat, outstandingChart, outstandingStat } from './lib/charts.ts';
 import {
   challansExport,
   computationExport,
@@ -46,6 +49,17 @@ import {
 
 const inr = (p: number): string => formatMoney(p, { symbol: true });
 
+/** A status in words; a badge only for the ones that need doing (2.1: badges are for exceptions). */
+function StatusText({ text, tone }: { text: string; tone?: 'danger' | 'warning' }) {
+  return tone ? (
+    <Badge size="sm" tone={tone}>
+      {text}
+    </Badge>
+  ) : (
+    <span className="bx-muted">{text}</span>
+  );
+}
+
 // ───────────────────────────── Computation ─────────────────────────────
 
 export function ComputationScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
@@ -58,6 +72,9 @@ export function ComputationScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
   const current = rows.find((r) => r.key === cursor) ?? null;
   const k = kind ?? 'tds';
   const verb = k === 'tds' ? 'Deducted' : 'Collected';
+  const spec = useMemo(() => (q.data ? computationChart(q.data) : null), [q.data]);
+  // One row per section (≤ 7): the bars sit under the Balance cells instead of a strip (D26).
+  const inline = inlineBars(spec, rows.length);
 
   const columns = useMemo<Column<TdsComputationRow>[]>(
     () => [
@@ -71,16 +88,17 @@ export function ComputationScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
       { key: 'base', header: 'Tax base', kind: 'amount', width: 130, total: true },
       { key: 'deducted', header: verb, kind: 'amount', width: 120, total: true, sortable: true },
       { key: 'deposited', header: 'Deposited', kind: 'amount', width: 120, total: true },
-      { key: 'balance', header: 'Balance', kind: 'amount', width: 120, total: true, blankZero: true },
+      { key: 'balance', header: 'Balance', kind: 'amount', width: 120, total: true, blankZero: true, ...(inline ? { bar: { value: (r: TdsComputationRow) => r.balance, slot: 1 as const } } : {}) },
     ],
-    [k, verb],
+    [k, verb, inline],
   );
 
   if (kind === null) return <TdsOff title="TDS / TCS Computation" />;
   return (
     <ReportScreen
       title={`${KIND_LABEL[k]} Computation`}
-      subtitle="Per party and section, from the vouchers of the period"
+      graph={reportGraph(spec, { inline })}
+      about={<p>Per party and section, from the vouchers of the period. Balance = {verb.toLowerCase()} − deposited by challans up to the end of the period.</p>}
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
@@ -176,9 +194,7 @@ export function LinesScreen({ params }: ScreenProps<LinesParams>) {
         width: 170,
         value: (r) => STATUS_LABEL[r.status],
         render: (r) => (
-          <Badge size="sm" tone={r.status === 'deducted' ? 'brand' : r.status === 'overridden_nil' || r.status === 'no_party' ? 'warning' : 'neutral'}>
-            {r.overridden ? `${STATUS_LABEL[r.status]} (changed)` : STATUS_LABEL[r.status]}
-          </Badge>
+          <StatusText text={r.overridden ? `${STATUS_LABEL[r.status]} (changed)` : STATUS_LABEL[r.status]} tone={r.overridden || r.status === 'overridden_nil' || r.status === 'no_party' ? 'warning' : undefined} />
         ),
       },
       { key: 'deposited', header: 'Deposited', kind: 'amount', width: 110, blankZero: true, total: true },
@@ -258,6 +274,12 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
   const [cursor, setCursor] = useState<string | null>(null);
   const current = rows.find((r) => r.key === cursor) ?? null;
   const k = kind ?? 'tds';
+  // Enter on a month's column = the lines of that month (all sections), as Enter on a row does for one.
+  const spec = useMemo(
+    () => (d ? outstandingChart(d, (month) => nav.push('tds.lines', { kind: d.kind, period: month, from: `${month}-01`, to: d.asOf, title: formatMonth(month) })) : null),
+    [d, nav],
+  );
+  const stat = d ? outstandingStat(d) : [];
 
   const columns = useMemo<Column<TdsOutstandingRow>[]>(
     () => [
@@ -276,11 +298,7 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
         header: 'Status',
         width: 110,
         value: (r) => OUTSTANDING_STATUS[r.status],
-        render: (r) => (
-          <Badge size="sm" tone={r.status === 'overdue' ? 'danger' : r.status === 'due' ? 'warning' : r.status === 'paid_late' || r.status === 'excess' ? 'info' : 'success'}>
-            {OUTSTANDING_STATUS[r.status]}
-          </Badge>
-        ),
+        render: (r) => <StatusText text={OUTSTANDING_STATUS[r.status]} tone={r.status === 'overdue' ? 'danger' : r.status === 'due' ? 'warning' : undefined} />,
       },
     ],
     [k],
@@ -302,9 +320,7 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
         width: 100,
         value: (r) => r.status,
         render: (r) => (
-          <Badge size="sm" tone={r.status === 'overdue' ? 'danger' : r.status === 'due' ? 'warning' : r.status === 'filed_late' ? 'info' : 'success'}>
-            {r.status === 'overdue' ? 'Overdue' : r.status === 'due' ? 'Due' : r.status === 'filed_late' ? 'Filed late' : 'Filed'}
-          </Badge>
+          <StatusText text={r.status === 'overdue' ? 'Overdue' : r.status === 'due' ? 'Due' : r.status === 'filed_late' ? 'Filed late' : 'Filed'} tone={r.status === 'overdue' ? 'danger' : r.status === 'due' ? 'warning' : undefined} />
         ),
       },
     ],
@@ -320,30 +336,37 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
   return (
     <ReportScreen
       title={`${KIND_LABEL[k]} Outstanding`}
-      subtitle={k === 'tds' ? 'Deducted but not deposited; due by the 7th of the next month (30 April for March)' : 'Collected but not deposited; due by the 7th of the next month'}
       periodMode="asOn"
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
       filters={<KindSwitch kind={k} kinds={kinds} onChange={setKind} />}
+      graph={reportGraph(spec)}
+      stat={stat.length ? <StatLine items={stat} /> : undefined}
+      about={
+        <>
+          <p>
+            {k === 'tds'
+              ? 'Tax deducted but not yet deposited. It is due by the 7th of the next month (30 April for tax deducted in March).'
+              : 'Tax collected but not yet deposited. It is due by the 7th of the next month.'}
+          </p>
+          <p>
+            Interest runs to the as-on date: {k === 'tds' ? '1.5% a month or part of a month u/s 201(1A)(ii)' : '1% a month or part of a month u/s 206C(7)'}. A quarterly statement filed late costs ₹200 a
+            day u/s 234E, up to the tax it reports{d && d.totals.lateFee > 0 ? ` — ${inr(d.totals.lateFee)} so far` : ''}.
+          </p>
+          <p>{k === 'tds' ? 'Form 26Q / 27Q is due on 31 Jul, 31 Oct, 31 Jan and 31 May.' : 'Form 27EQ is due on 15 Jul, 15 Oct, 15 Jan and 15 May.'}</p>
+        </>
+      }
       exportDef={() => (d ? outstandingExport(d) : { columns: [], rows: [] })}
       actions={[
         ...kindActions,
-        { key: 'Alt+C', label: 'Create challan', icon: 'plus', primary: true, hidden: !canPay, disabled: !canPay, onClick: () => (current ? payCurrent() : nav.push('tds.challan', { kind: k })) },
-        { key: 'Alt+F1', label: all ? 'Only unsettled' : 'Include settled', group: 'view', onClick: () => setAll((x) => !x) },
+        { key: 'Alt+C', label: 'Create challan', icon: 'plus', hidden: !canPay, disabled: !canPay, onClick: () => (current ? payCurrent() : nav.push('tds.challan', { kind: k })) },
+        { key: 'Alt+F1', label: 'Settled months too', group: 'view', onClick: () => setAll((x) => !x), checked: all },
       ]}
       hint="Enter Lines · Alt+C Create challan for the month · Alt+F1 Settled months · Alt+F2 Period · Alt+E Export · Esc Back"
     >
       <Stack gap={4}>
-        {d ? (
-          <Grid columns={4} gap={3}>
-            <KpiCard label="Balance to deposit" value={d.totals.balance} amount />
-            <KpiCard label="Interest so far" value={d.totals.interest - d.totals.interestPaid} amount caption={k === 'tds' ? 's.201(1A)(ii) 1.5% per month or part' : 's.206C(7) 1% per month or part'} />
-            <KpiCard label="Late fee u/s 234E" value={d.totals.lateFee} amount caption="₹200 a day, up to the tax" />
-            <KpiCard label={k === 'tds' ? 'Deducted' : 'Collected'} value={d.totals.deducted} amount caption={`Deposited ${inr(d.totals.deposited)}`} />
-          </Grid>
-        ) : null}
         <DataTable<TdsOutstandingRow>
           aria-label={`${KIND_LABEL[k]} outstanding by month`}
           autoFocus
@@ -355,7 +378,7 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
           onRowActivate={(r) => nav.push('tds.lines', { kind: r.kind, section: r.section, period: r.period, from: `${r.period}-01`, to, title: `${r.section} ${r.periodLabel}` })}
           empty={<EmptyState title="Nothing outstanding" body={`All ${KIND_LABEL[k]} up to ${formatDate(to)} has been deposited. Alt+F1 shows settled months too.`} />}
         />
-        <Panel title="Quarterly statements" description={k === 'tds' ? 'Form 26Q / 27Q — due 31 Jul, 31 Oct, 31 Jan and 31 May' : 'Form 27EQ — due 15 Jul, 15 Oct, 15 Jan and 15 May'}>
+        <Panel title="Quarterly statements">
           <DataTable<TdsStatementRow>
             aria-label="Quarterly statements"
             columns={stmtColumns}
@@ -383,6 +406,7 @@ export function ChallansScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
   const [cursor, setCursor] = useState<string | null>(null);
   const current = rows.find((r) => String(r.id) === cursor) ?? null;
   const k = kind ?? 'tds';
+  const spec = useMemo(() => (q.data ? challansChart(q.data, from, to) : null), [q.data, from, to]);
 
   const columns = useMemo<Column<TdsChallanRow>[]>(
     () => [
@@ -403,7 +427,7 @@ export function ChallansScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
         header: 'On time',
         width: 80,
         value: (r) => (r.late ? 'Late' : 'Yes'),
-        render: (r) => (r.late ? <Badge size="sm" tone="warning">Late</Badge> : <span className="bx-muted">Yes</span>),
+        render: (r) => <StatusText text={r.late ? 'Late' : 'Yes'} tone={r.late ? 'warning' : undefined} />,
       },
       { key: 'number', header: 'Voucher', width: 100, value: (r) => r.number ?? '' },
     ],
@@ -414,7 +438,8 @@ export function ChallansScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
   return (
     <ReportScreen
       title={`${KIND_LABEL[k]} Challan Register`}
-      subtitle="ITNS 281 challans by deposit date"
+      graph={reportGraph(spec)}
+      about={<p>ITNS 281 challans by date of deposit. A challan deposited after the due date of its month is marked late.</p>}
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
@@ -423,7 +448,7 @@ export function ChallansScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
       exportDef={() => (q.data ? challansExport(q.data) : { columns: [], rows: [] })}
       actions={[
         ...kindActions,
-        { key: 'Alt+C', label: 'Create challan', icon: 'plus', primary: true, hidden: !canPay, disabled: !canPay, onClick: () => nav.push('tds.challan', { kind: k }) },
+        { key: 'Alt+C', label: 'Create challan', icon: 'plus', hidden: !canPay, disabled: !canPay, onClick: () => nav.push('tds.challan', { kind: k }) },
         { key: 'Alt+Enter', label: 'View voucher', icon: 'eye', disabled: !current, onClick: () => current && nav.push('vouchers.view', { id: current.voucherId }) },
       ]}
       hint="Enter Alter challan · Alt+C Create challan · Alt+Enter View voucher · Alt+F2 Period · Alt+E Export · Esc Back"
@@ -456,6 +481,7 @@ export function ExceptionsScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
   const current = rows.find((r) => r.key === cursor) ?? null;
   const k = kind ?? 'tds';
   const errors = rows.filter((r) => r.severity === 'error').length;
+  const stat = exceptionsStat(rows);
 
   const columns = useMemo<Column<TdsExceptionRow>[]>(
     () => [
@@ -466,18 +492,15 @@ export function ExceptionsScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
         width: 210,
         value: (r) => EXCEPTION_LABEL[r.type],
         sortable: true,
-        render: (r) => (
-          <Badge size="sm" tone={r.severity === 'error' ? 'danger' : 'warning'} icon="alert">
-            {EXCEPTION_LABEL[r.type]}
-          </Badge>
-        ),
+        render: (r) => <StatusText text={EXCEPTION_LABEL[r.type]} tone={r.severity === 'error' ? 'danger' : 'warning'} />,
       },
       { key: 'voucher', header: 'Voucher', width: 140, value: (r) => `${r.typeName} ${r.number ?? ''}`.trim() },
       { key: 'partyName', header: 'Party', minWidth: 150, value: (r) => r.partyName ?? '' },
       { key: 'section', header: 'Section', width: 80 },
       { key: 'message', header: 'Details', minWidth: 320 },
-      { key: 'shortfall', header: 'Shortfall', kind: 'amount', width: 110, blankZero: true, total: true },
-      { key: 'interest', header: 'Interest', kind: 'amount', width: 100, blankZero: true, total: true },
+      // No total row: the stat line carries the one total of each (a to-do list, D24).
+      { key: 'shortfall', header: 'Shortfall', kind: 'amount', width: 110, blankZero: true },
+      { key: 'interest', header: 'Interest', kind: 'amount', width: 100, blankZero: true },
     ],
     [],
   );
@@ -486,7 +509,8 @@ export function ExceptionsScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
   return (
     <ReportScreen
       title={`${KIND_LABEL[k]} Exceptions`}
-      subtitle={rows.length === 0 ? 'Nothing to fix' : `${rows.length} item(s), ${errors} to fix before filing`}
+      subtitle={rows.length === 0 ? 'Nothing to fix' : `${rows.length} item(s) · ${errors} to fix before filing`}
+      stat={stat.length ? <StatLine items={stat} /> : undefined}
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
@@ -515,7 +539,7 @@ export function ExceptionsScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
         selectedKey={cursor}
         onSelect={(key) => setCursor(key)}
         onRowActivate={(r) => nav.push('vouchers.view', { id: r.voucherId })}
-        empty={<EmptyState icon="check-circle" title="No exceptions" body="PANs, thresholds and deductions look right for this period." />}
+        empty={<EmptyState title="No exceptions" body="PANs, thresholds and deductions look right for this period." />}
       />
     </ReportScreen>
   );

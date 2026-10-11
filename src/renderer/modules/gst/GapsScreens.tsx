@@ -6,6 +6,8 @@
  *   'gst.rule37' {asOf?} — purchases not paid within 180 days (Rule 37): the credit to reverse for the
  *        unpaid part, and to reclaim once paid. Alt+R posts the reversal journal, Alt+L the reclaim
  *        (both a GST stat adjustment journal through the books; need gst.file). Enter opens the purchase.
+ * 2.1 (SPEC-21 §5, WP-J2): no graph (a change log; two numbers driving actions — the table's totals);
+ * the explanations are under More ▾ › About this report.
  */
 import { useMemo, useRef, useState } from 'react';
 import type { Gstr3bChangeRow, Rule37Row } from '../../../shared/types/gst-plus.ts';
@@ -14,7 +16,7 @@ import { formatDate, formatMoney, ReportScreen, useApiMutation, useApiQuery, use
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, Banner, Button, DataTable, DateInput, EmptyState, Field, Hotkeys, Inline, Modal, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { GstHelp, PeriodSelect, useReturnPeriod } from './components.tsx';
+import { PeriodSelect, useReturnPeriod } from './components.tsx';
 import { CHANGE_KIND_LABELS, gstr3bChangesExport, rule37Actionable, rule37Export } from './lib/gaps.ts';
 
 const sum = (t: TaxAmounts): number => t.igst + t.cgst + t.sgst + t.cess;
@@ -49,10 +51,16 @@ export function Gstr3bChangesScreen({ params }: ScreenProps<{ period?: string; a
   return (
     <ReportScreen
       title="Changes after GSTR-3B Filing"
-      subtitle={all ? 'All periods' : rp.label ? `Reported in ${rp.label}` : undefined}
+      subtitle={all ? 'All periods' : undefined}
       periodMode="none"
       filters={all ? undefined : <PeriodSelect periods={rp.periods} value={rp.key} onChange={rp.setKey} selectRef={selectRef} />}
       actions={actions}
+      about={
+        <p>
+          Purchases, journals and other vouchers changed after the GSTR-3B of their period was filed. The filed period keeps its figures; the change is reported in the
+          GSTR-3B of the period shown — more credit in 4(A), less credit as a reversal in 4(B)(2), tax in 3.1.
+        </p>
+      }
       exportDef={q.data ? () => ({ ...gstr3bChangesExport(rows), title: 'Changes after GSTR-3B Filing', period: all ? 'All periods' : rp.label }) : undefined}
       loading={rp.loading || (q.loading && !q.data)}
       refreshing={q.refreshing}
@@ -60,21 +68,15 @@ export function Gstr3bChangesScreen({ params }: ScreenProps<{ period?: string; a
       onRetry={() => (rp.error ? rp.refetch() : void q.refetch())}
       hint="Enter Open voucher · Ctrl+1 This period · Ctrl+2 All · Alt+E Export · Esc Back"
     >
-      <div className="bx-gst-fill">
-        <GstHelp>
-          Purchases, journals and other vouchers changed after the GSTR-3B of their period was filed. The filed period keeps its figures; the change is reported in the GSTR-3B of the
-          period shown — more credit in 4(A), less credit as a reversal in 4(B)(2), tax in 3.1.
-        </GstHelp>
-        <DataTable<Gstr3bChangeRow>
-          aria-label="Changes after GSTR-3B filing"
-          autoFocus
-          columns={cols}
-          rows={rows}
-          getRowKey={(r) => String(r.id)}
-          onRowActivate={(r) => (r.voucherId ? nav.push('vouchers.view', { id: r.voucherId }) : undefined)}
-          empty={<EmptyState icon="check" title="No changes" body={`Nothing changed after filing${all ? '' : ' for this period'}. Mark a GSTR-3B filed (Alt+F on GSTR-3B) to start tracking changes.`} />}
-        />
-      </div>
+      <DataTable<Gstr3bChangeRow>
+        aria-label="Changes after GSTR-3B filing"
+        autoFocus
+        columns={cols}
+        rows={rows}
+        getRowKey={(r) => String(r.id)}
+        onRowActivate={(r) => (r.voucherId ? nav.push('vouchers.view', { id: r.voucherId }) : undefined)}
+        empty={<EmptyState icon="check" title="No changes" body={`Nothing changed after filing${all ? '' : ' for this period'}. Mark a GSTR-3B filed (Alt+F on GSTR-3B) to start tracking changes.`} />}
+      />
     </ReportScreen>
   );
 }
@@ -116,7 +118,6 @@ export function Rule37Screen({ params }: ScreenProps<{ asOf?: string }>) {
   return (
     <ReportScreen
       title="Rule 37 — Unpaid after 180 Days"
-      subtitle={asOf ? `As on ${formatDate(asOf)}` : undefined}
       periodMode="none"
       filters={
         <Inline gap={2} align="center">
@@ -125,6 +126,7 @@ export function Rule37Screen({ params }: ScreenProps<{ asOf?: string }>) {
         </Inline>
       }
       actions={actions}
+      about={r ? <p>{r.notes.join(' ')}</p> : undefined}
       exportDef={r ? () => ({ ...rule37Export(r), title: 'Rule 37 — Unpaid after 180 Days', period: `As on ${formatDate(r.asOf)}` }) : undefined}
       loading={q.loading && !q.data}
       refreshing={q.refreshing}
@@ -133,7 +135,6 @@ export function Rule37Screen({ params }: ScreenProps<{ asOf?: string }>) {
       hint="Enter Open purchase · Alt+R Post reversal · Alt+L Post reclaim · Alt+E Export · Esc Back"
     >
       <div className="bx-gst-fill">
-        {r ? <GstHelp>{r.notes[0]}</GstHelp> : null}
         {r && r.notBillWise.length > 0 ? (
           <Banner tone="warning" inline>
             {`${r.notBillWise.length} purchase(s) are of suppliers without bill-wise details, so their payment cannot be traced: ${r.notBillWise
@@ -151,11 +152,6 @@ export function Rule37Screen({ params }: ScreenProps<{ asOf?: string }>) {
           onRowActivate={(x) => nav.push('vouchers.view', { id: x.voucherId })}
           empty={<EmptyState icon="check" title="Nothing to reverse" body="Every purchase with input tax credit was paid within 180 days of its invoice date." />}
         />
-        {r ? (
-          <p className="bx-gst-help">
-            {r.notes.slice(1).join(' ')}
-          </p>
-        ) : null}
       </div>
       {posting && r && asOf ? <PostRule37Dialog kind={posting} asOf={asOf} total={sum(posting === 'reversal' ? r.totals.toReverse : r.totals.toReclaim)} onClose={() => setPosting(null)} /> : null}
     </ReportScreen>

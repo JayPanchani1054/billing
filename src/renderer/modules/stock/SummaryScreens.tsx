@@ -4,15 +4,23 @@
  * inward and outward. Enter drills a group / category into its own summary and an item into its
  * vouchers. Alt+V hides values (quantities only), Alt+Z lists items with nothing in the period,
  * Alt+X expands or collapses every group.
+ *
+ * 2.1 graph (SPEC-21 §5): "Where money is locked in stock" — the level-0 rows by closing value, drawn
+ * as 4 px bars under the Closing value cells when there are ≤ 7 of them, else a Top 6 + Other strip;
+ * none in Quantities only. The toolbar row holds the Category select (and the Godown one, behind
+ * "Filters ▾", when there are godowns).
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { StockSummaryInput, StockSummaryResult, StockSummaryRow } from '../../../shared/types/stock.ts';
 import { ReportScreen, useApiQuery, useFeatures } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { DataTable, Field, Inline } from '../../ui/index.ts';
+import { DataTable } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { GodownPicker, StockCategoryPicker } from '../inventory/pickers.tsx';
-import { amountColumn, NothingHere, qtyColumn, rateColumn, useDrill, useExpansion, useStockPeriod } from './components.tsx';
+import { amountColumn, NothingHere, qtyColumn, rateColumn, StockFilters, useDrill, useExpansion, useStockPeriod, withBar } from './components.tsx';
+import type { StockFilter } from './components.tsx';
+import { stockSummaryChart, stockSummaryInline, summaryBarValue } from './lib/charts.ts';
 import { filterSubtitle, paramId, signedAmountText, summaryDrill, summaryExport, visibleRows } from './lib/model.ts';
 
 export interface StockSummaryParams {
@@ -46,6 +54,10 @@ function SummaryReport({ mode, params }: { mode: Mode; params: StockSummaryParam
   const group = useApiQuery('inventory.group.get', { id: groupId ?? 0 }, { enabled: groupId !== undefined, staleTime: 60_000 });
   const valuesShown = data?.valuesShown ?? showValues;
 
+  const open = useCallback((r: StockSummaryRow) => drill(summaryDrill(r, { from: p.from, to: p.to, godownId, categoryId })), [drill, p.from, p.to, godownId, categoryId]);
+  const spec = useMemo(() => (data ? stockSummaryChart(data, mode, open) : null), [data, mode, open]);
+  const inline = useMemo(() => (data ? stockSummaryInline(data, spec) : false), [data, spec]);
+
   const columns = useMemo<Column<StockSummaryRow>[]>(() => {
     const unit = (r: StockSummaryRow) => r.unit;
     const hideDetail = !detailed;
@@ -59,9 +71,13 @@ function SummaryReport({ mode, params }: { mode: Mode; params: StockSummaryParam
       amountColumn<StockSummaryRow>('outValue', 'Outward value', (r) => r.outward.value, { hidden: hideDetail || !valuesShown }),
       qtyColumn<StockSummaryRow>('closeQty', 'Closing qty', (r) => r.closing.qty, unit),
       rateColumn<StockSummaryRow>('rate', 'Rate', (r) => r.closing.rate, { hidden: !valuesShown }),
-      amountColumn<StockSummaryRow>('closeValue', 'Closing value', (r) => r.closing.value, { hidden: !valuesShown, blankZero: false }),
+      withBar(
+        amountColumn<StockSummaryRow>('closeValue', 'Closing value', (r) => r.closing.value, { hidden: !valuesShown, blankZero: false }),
+        inline,
+        summaryBarValue,
+      ),
     ];
-  }, [detailed, valuesShown]);
+  }, [detailed, valuesShown, inline]);
 
   const footer = useMemo<FooterRow[]>(() => {
     if (!data || rows.length === 0 || !valuesShown) return [];
@@ -78,6 +94,14 @@ function SummaryReport({ mode, params }: { mode: Mode; params: StockSummaryParam
 
   const title = mode === 'group' ? (groupId !== undefined && group.data ? `Stock Summary — ${group.data.name}` : 'Stock Summary') : 'Stock Categories';
   const subtitle = filterSubtitle([detailed ? 'Detailed' : null, valuesShown ? null : 'Quantities only']);
+  const filters: StockFilter[] = [
+    ...(mode === 'group'
+      ? [{ key: 'category', label: 'Category', active: categoryId !== undefined, clear: () => setCategoryId(undefined), node: <StockCategoryPicker size="sm" value={categoryId ?? null} onChange={(id) => setCategoryId(id ?? undefined)} allowCreate={false} placeholder="All categories" aria-label="Stock category" /> }]
+      : []),
+    ...(features.multipleGodowns
+      ? [{ key: 'godown', label: 'Godown', active: godownId !== undefined, clear: () => setGodownId(undefined), node: <GodownPicker size="sm" value={godownId ?? null} onChange={(id) => setGodownId(id ?? undefined)} allowCreate={false} placeholder="All godowns" aria-label="Godown" /> }]
+      : []),
+  ];
 
   return (
     <ReportScreen
@@ -90,20 +114,8 @@ function SummaryReport({ mode, params }: { mode: Mode; params: StockSummaryParam
       onRetry={q.refetch}
       actions={actions}
       hint="Enter Open · →/← Expand/collapse · Alt+F1 Detailed · Alt+V Values · Alt+Z All items · Alt+E Export · Alt+P Print"
-      filters={
-        <Inline gap={2}>
-          {features.multipleGodowns ? (
-            <Field label="Godown" layout="inline" labelWidth={64}>
-              <GodownPicker size="sm" value={godownId ?? null} onChange={(id) => setGodownId(id ?? undefined)} allowCreate={false} placeholder="All godowns" aria-label="Godown" />
-            </Field>
-          ) : null}
-          {mode === 'group' ? (
-            <Field label="Category" layout="inline" labelWidth={72}>
-              <StockCategoryPicker size="sm" value={categoryId ?? null} onChange={(id) => setCategoryId(id ?? undefined)} allowCreate={false} placeholder="All categories" aria-label="Stock category" />
-            </Field>
-          ) : null}
-        </Inline>
-      }
+      graph={reportGraph(spec, { inline })}
+      filters={filters.length > 0 ? <StockFilters filters={filters} /> : undefined}
       exportDef={() => ({
         subtitle,
         ...summaryExport(visibleRows(rows, expansion.expandedKeys), { detailed, valuesShown, totals: data?.totals ?? { openingValue: 0, inwardValue: 0, outwardValue: 0, closingValue: 0 } }),
@@ -120,7 +132,7 @@ function SummaryReport({ mode, params }: { mode: Mode; params: StockSummaryParam
         expandable
         expandedKeys={expansion.expandedKeys}
         onExpandedChange={expansion.onExpandedChange}
-        onRowActivate={(r) => drill(summaryDrill(r, { from: p.from, to: p.to, godownId, categoryId }))}
+        onRowActivate={open}
         footerRows={footer.length > 0 ? footer : undefined}
         loading={q.loading}
         empty={

@@ -3,15 +3,20 @@
  * voucher that moved the item (inward / outward quantity and value at cost) with the running
  * closing balance, totals and closing. Enter opens the voucher. Another item can be chosen in the
  * toolbar; Alt+M opens the item master.
+ *
+ * 2.1 graph (detail class — folded to its one-line answer by default, Ctrl+J): "Quantity in stock",
+ * the running closing quantity in the item's unit.
  */
 import { useMemo, useState } from 'react';
 import type { StockItemVoucherRow } from '../../../shared/types/stock.ts';
 import { formatDate, ReportScreen, useApiQuery, useCan, useFeatures, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { DataTable, EmptyState, Field, Inline } from '../../ui/index.ts';
+import { DataTable, EmptyState } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { GodownPicker, ItemPicker } from '../inventory/pickers.tsx';
-import { amountColumn, NothingHere, qtyColumn, useStockPeriod } from './components.tsx';
+import { amountColumn, NothingHere, qtyColumn, ToolbarLeft, useStockPeriod } from './components.tsx';
+import { stockItemChart } from './lib/charts.ts';
 import { costingLabel, filterSubtitle, itemVouchersExport, paramId, qtyText, signedAmountText } from './lib/model.ts';
 
 export interface StockItemParams {
@@ -32,6 +37,7 @@ export function StockItemScreen({ params }: ScreenProps<StockItemParams>) {
   const d = q.data;
   const rows = useMemo(() => d?.rows ?? [], [d]);
   const unit = d?.item.unit ?? '';
+  const spec = useMemo(() => (d ? stockItemChart(d) : null), [d]);
 
   const columns = useMemo<Column<StockItemVoucherRow>[]>(() => {
     const u = () => unit;
@@ -77,22 +83,18 @@ export function StockItemScreen({ params }: ScreenProps<StockItemParams>) {
       onRetry={q.refetch}
       actions={actions}
       hint="Enter Open voucher · Alt+M Item master · Alt+F2 Period · Alt+E Export · Alt+P Print · Esc Back"
+      graph={reportGraph(spec)}
+      graphKind="detail"
       filters={
-        <Inline gap={2}>
-          <Field label="Item" layout="inline" labelWidth={40}>
-            <ItemPicker size="sm" value={d ? { id: d.item.id, name: d.item.name } : null} onChange={(row) => row && setItemId(row.id)} allowCreate={false} goodsOnly aria-label="Stock item" />
-          </Field>
-          {features.multipleGodowns ? (
-            <Field label="Godown" layout="inline" labelWidth={64}>
-              <GodownPicker size="sm" value={godownId ?? null} onChange={(id) => setGodownId(id ?? undefined)} allowCreate={false} placeholder="All godowns" aria-label="Godown" />
-            </Field>
-          ) : null}
-        </Inline>
+        <ToolbarLeft>
+          <ItemPicker size="sm" value={d ? { id: d.item.id, name: d.item.name } : null} onChange={(row) => row && setItemId(row.id)} allowCreate={false} goodsOnly placeholder="Choose an item" aria-label="Stock item" />
+          {features.multipleGodowns ? <GodownPicker size="sm" value={godownId ?? null} onChange={(id) => setGodownId(id ?? undefined)} allowCreate={false} placeholder="All godowns" aria-label="Godown" /> : null}
+        </ToolbarLeft>
       }
       exportDef={d ? () => ({ title: `Stock Item Vouchers — ${d.item.name}`, ...itemVouchersExport(d) }) : undefined}
     >
       {itemId === undefined ? (
-        <EmptyState icon="box" title="Choose a stock item" body="Type the item's name in the Item box above to see its vouchers." />
+        <EmptyState icon="box" title="Choose a stock item" body="Type the item's name in the box above to see its vouchers." />
       ) : (
         <DataTable<StockItemVoucherRow>
           aria-label={`Vouchers of ${title}`}

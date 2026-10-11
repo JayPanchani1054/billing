@@ -83,14 +83,19 @@ export function CostCentresScreen() {
   return (
     <Screen
       title="Cost Centres"
-      subtitle="Track income and expenses by branch, project, department or person."
-      icon="layers"
       loading={cats.loading}
       error={cats.error}
       onRetry={() => void cats.refetch()}
       hint="Enter Alter · Alt+C Create Centre · Alt+N Create Category · Alt+D Delete · Esc Back"
       actions={[
-        { key: 'Alt+C', label: 'Create centre', icon: 'plus', primary: true, disabled: !canCreate || !category, onClick: () => setCentreDialog({ row: null, parentId: centre?.id ?? null }) },
+        {
+          key: 'Alt+C',
+          label: 'Create centre',
+          icon: 'plus',
+          disabled: !canCreate || !category,
+          onClick: () => setCentreDialog({ row: null, parentId: centre?.id ?? null }),
+          prominent: true,
+        },
         { key: 'Alt+N', label: 'Create category', icon: 'layers', disabled: !canCreate, onClick: () => setCatDialog('new') },
         { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canDelete || (pane === 'centres' ? !centre : !category), onClick: () => void remove() },
       ]}
@@ -131,11 +136,9 @@ export function CostCentresScreen() {
               loading={centres.loading}
               empty={
                 <EmptyState
-                  icon="layers"
                   title={search.trim() ? 'No centre matches' : 'No cost centres yet'}
                   body={search.trim() ? 'Change the search.' : 'Press Alt+C to create one — e.g. a branch, project or department.'}
                   size="sm"
-                  action={canCreate && category && !search.trim() ? <Button icon="plus" onClick={() => setCentreDialog({ row: null, parentId: null })}>Create centre</Button> : undefined}
                 />
               }
             />

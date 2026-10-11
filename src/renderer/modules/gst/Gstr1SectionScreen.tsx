@@ -1,7 +1,8 @@
 /**
  * 'gst.gstr1.section' {period, tile, section?} — one GSTR-1 table: the aggregate rows (B2CS by state
  * and rate, nil/exempt split, HSN rows, document series) and the vouchers behind it. Tables with
- * several sections (6A, 6B, 9B, 11, 12) show a tab per section (Ctrl+Tab). Enter opens the voucher.
+ * several sections (6A, 6B, 9B, 11, 12) show a tab per section (Alt+←/→). Enter opens the voucher.
+ * 2.1: no graph (a drill-down of the filing); what the table holds is in More › "About this table".
  */
 import { useMemo, useState } from 'react';
 import type { GstHsnRow, Gstr1B2csRow, Gstr1DocRow, Gstr1DocSeries, Gstr1NilRow, Gstr1SectionId, Gstr1SectionResult } from '../../../shared/types/gst-returns.ts';
@@ -9,7 +10,7 @@ import { formatPercent, ReportScreen, useApiQuery, useNav } from '../../app/inde
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, DataTable, EmptyState, Inline, Tabs } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { GstHelp, IssuesPanel } from './components.tsx';
+import { IssuesPanel, ReturnAbout } from './components.tsx';
 import { docKindLabel, issuesForSections, SECTION_TAB_LABELS, sectionExport, sectionLayout, signedInvoiceValue, tileDef } from './lib/gstr1.ts';
 import type { Gstr1TileId } from './lib/gstr1.ts';
 
@@ -74,6 +75,12 @@ export function Gstr1SectionScreen({ params }: ScreenProps<Gstr1SectionParams>) 
       periodMode="none"
       actions={actions}
       exportDef={data ? () => sectionExport(data) : undefined}
+      about={
+        <ReturnAbout
+          lead={`${SECTION_HELP[def.id] ?? def.help}${def.id === '11' || def.id === '13' ? '' : ' Credit notes and other documents that reduce the table show as negative amounts.'}`}
+        />
+      }
+      aboutLabel="About this table"
       loading={q.loading && !data}
       refreshing={q.refreshing}
       error={q.error}
@@ -81,10 +88,6 @@ export function Gstr1SectionScreen({ params }: ScreenProps<Gstr1SectionParams>) 
       hint="Enter Open voucher · Alt+←/→ Switch part · Alt+E Export · Alt+P Print · Esc Back"
     >
       <div className="bx-gst-fill">
-        <GstHelp>
-          {SECTION_HELP[def.id] ?? def.help}
-          {def.id === '11' || def.id === '13' ? '' : ' Credit notes and other documents that reduce the table show as negative amounts.'}
-        </GstHelp>
         {sections.length > 1 ? (
           <Tabs
             aria-label={`Parts of table ${def.id}`}

@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Screen, useApiQuery, useNav, userMessage, useScreen, useShell } from '../../app/index.ts';
-import { Badge, Banner, Button, Icon, KeyValueList, Panel, Skeleton, Stack } from '../../ui/index.ts';
+import { Banner, Button, Icon, KeyValueList, Panel, Skeleton, Stack } from '../../ui/index.ts';
 import { cx } from '../../ui/lib/cx.ts';
 import { useNow } from './hooks.ts';
 import { idleDeadline, idleExplanation, idleLevel, passwordStatus, permissionCountText, permissionSummary, previousLoginStatus } from './lib/session.ts';
@@ -51,19 +51,22 @@ export function SessionScreen() {
   const pwd = s ? passwordStatus(s, now) : null;
   const prev = s ? previousLoginStatus(s, now) : null;
   const canChangePassword = !!s && !s.implicit && s.securityEnabled;
+  // While the "needs changing" banner offers Change password, the title row does not show it a second time
+  // (it moves to More; Alt+W stays registered — SPEC-21 §3.1 rule 2b, as Print under the Saved bar).
+  const pwdBanner = !!pwd && (pwd.tone === 'warning' || pwd.tone === 'danger');
 
   return (
     <Screen
       title="My Session"
-      subtitle="Who is logged in, what you may do, and when you will be logged out."
-      icon="user"
+      // 2.1: who is logged in is the context run (no icon tile, no second heading for it).
+      subtitle={s ? [s.displayName, s.role, s.implicit ? 'no login' : null].filter(Boolean).join(' · ') : undefined}
       width="form"
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Alt+W Change password · Alt+L My activity · Alt+Q Log out · Esc Back"
       actions={[
-        { key: 'Alt+W', label: 'Change password', icon: 'key', onClick: () => nav.push('company.changePassword'), hidden: !canChangePassword },
+        { key: 'Alt+W', label: 'Change password', icon: 'key', onClick: () => nav.push('company.changePassword'), hidden: !canChangePassword, demoted: pwdBanner },
         {
           key: 'Alt+L',
           label: 'My activity',
@@ -80,43 +83,32 @@ export function SessionScreen() {
       {s ? (
         <Stack gap={5}>
           {s.implicit || !s.securityEnabled ? (
-            <Banner tone="info" title="Security is off">
-              Nobody logs in, so everyone who opens this company works as “{s.username}” with full access.
-              {s.canManageSecurity ? ' Turn security on in Security Settings when more than one person uses this computer.' : ''}
+            <Banner
+              tone="info"
+              title="Security is off"
+              action={
+                s.canManageSecurity ? (
+                  <Button size="sm" variant="link" onClick={() => nav.push('security.settings')}>
+                    Security settings
+                  </Button>
+                ) : undefined
+              }
+            >
+              Everyone who opens this company works as “{s.username}” with full access.
             </Banner>
           ) : null}
 
-          <Panel title="Logged in as" headingLevel={2}>
-            <div className="bx-sec-state">
-              <span className="bx-sec-state__icon is-on" aria-hidden="true">
-                <Icon name="user" size="lg" />
-              </span>
-              <div className="bx-sec-state__body">
-                <p className="bx-sec-state__title">
-                  {s.displayName}{' '}
-                  <span className="bx-sec-badges">
-                    <Badge tone={s.isOwner ? 'brand' : 'neutral'} size="sm">
-                      {s.role}
-                    </Badge>
-                    {s.implicit ? (
-                      <Badge tone="neutral" size="sm">
-                        No login
-                      </Badge>
-                    ) : null}
-                  </span>
-                </p>
-                <KeyValueList
-                  layout="inline"
-                  labelWidth={150}
-                  items={[
-                    { key: 'username', label: 'Username', value: s.username },
-                    { key: 'started', label: 'Session started', value: `${formatDateTime(s.startedAt)} (${relativeTime(s.startedAt, now)})` },
-                    { key: 'previous', label: 'Previous login', value: prev ? <span className={toneClass(prev.tone)}>{prev.text}</span> : '—' },
-                    { key: 'password', label: 'Password', value: pwd ? <span className={toneClass(pwd.tone)}>{pwd.text}</span> : '—' },
-                  ]}
-                />
-              </div>
-            </div>
+          <Panel title="Your login" headingLevel={2}>
+            <KeyValueList
+              layout="inline"
+              labelWidth={150}
+              items={[
+                { key: 'username', label: 'Username', value: s.username },
+                { key: 'started', label: 'Session started', value: `${formatDateTime(s.startedAt)} (${relativeTime(s.startedAt, now)})` },
+                { key: 'previous', label: 'Previous login', value: prev ? <span className={toneClass(prev.tone)}>{prev.text}</span> : '—' },
+                { key: 'password', label: 'Password', value: pwd ? <span className={toneClass(pwd.tone)}>{pwd.text}</span> : '—' },
+              ]}
+            />
           </Panel>
 
           {prev?.tone === 'warning' ? (
@@ -125,16 +117,30 @@ export function SessionScreen() {
             </Banner>
           ) : null}
           {pwd && (pwd.tone === 'warning' || pwd.tone === 'danger') ? (
-            <Banner tone={pwd.tone} title="Your password needs changing" action={canChangePassword ? <Button size="sm" icon="key" shortcut="Alt+W" onClick={() => nav.push('company.changePassword')}>
+            <Banner
+              tone={pwd.tone}
+              title="Your password needs changing"
+              action={
+                canChangePassword ? (
+                  <Button size="sm" variant="link" onClick={() => nav.push('company.changePassword')}>
                     Change password
-                  </Button> : undefined}>
+                  </Button>
+                ) : undefined
+              }
+            >
               {pwd.text}
             </Banner>
           ) : null}
 
-          <Panel title="Automatic logout" headingLevel={2} description={idleExplanation(s)}>
+          <Panel title="Automatic logout" headingLevel={2}>
             {deadline !== null ? (
-              <div className="bx-sec-idle" role="timer" aria-live="off" aria-label={`Time left before automatic logout: ${formatCountdown(deadline - now.getTime())}`}>
+              <div
+                className="bx-sec-idle"
+                role="timer"
+                aria-live="off"
+                aria-label={`Time left before automatic logout: ${formatCountdown(deadline - now.getTime())}`}
+                title={idleExplanation(s)}
+              >
                 <span className={cx('bx-sec-countdown', level === 'low' && 'is-low', level === 'expired' && 'is-expired')}>{formatCountdown(deadline - now.getTime())}</span>
                 <span className="bx-muted">
                   {level === 'expired'
@@ -143,17 +149,17 @@ export function SessionScreen() {
                 </span>
               </div>
             ) : (
-              <p className="bx-muted">{s.idleTimeoutMinutes <= 0 && s.securityEnabled && !s.implicit ? 'No automatic logout.' : 'Not applicable.'}</p>
+              <p className="bx-muted">{idleExplanation(s)}</p>
             )}
           </Panel>
 
           <Panel
             title="What you may do"
             headingLevel={2}
-            description={`${catalog.data || s.isOwner ? `${permissionCountText(groups, s.isOwner)}. ` : ''}Permissions come from your role and are fixed at login — after a change by the Owner, log out and in again.`}
+            description={`${catalog.data || s.isOwner ? `${permissionCountText(groups, s.isOwner)} · ` : ''}an Owner's change applies from your next login`}
           >
             {catalog.error ? (
-              <Banner tone="danger" inline title="The permission list could not be loaded" action={<Button size="sm" onClick={() => void catalog.refetch()}>Try again</Button>}>
+              <Banner tone="danger" title="The permission list could not be loaded" action={<Button size="sm" variant="link" onClick={() => void catalog.refetch()}>Try again</Button>}>
                 {userMessage(catalog.error)}
               </Banner>
             ) : !catalog.data ? (

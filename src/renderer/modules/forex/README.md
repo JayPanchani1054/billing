@@ -12,6 +12,24 @@ screen opened anyway shows how to turn it on (`ForexOff`).
 | `forex.revaluation` {asOf?} | Forex Revaluation | Reports | Ctrl+A post journal (dialog: date, narration, preview) · Alt+R type closing rates · Alt+T rate type · Enter / Alt+L ledger · Alt+F2 · Alt+E / Alt+P |
 | `forex.opening` {ledgerId?} | Opening Balance in Currency | Masters (asks for the ledger) · Alt+O from the above | Enter next · Alt+R fill at a rate · Ctrl+A save · Alt+M master |
 
+Graphs (2.1, SPEC-21 §5; pure builders in `lib/charts.ts`, tested in `lib/charts.test.ts`, drawn
+through `reportGraph` of `ui/lazyChart.tsx`; Ctrl+J folds them):
+
+* `forex.outstanding` — Receivables (Ctrl+2) or Payables (Ctrl+3): columns of the bills by age (Not
+  due grey, then 1–30 … over 90 days on the indigo ramp), in rupees at the closing rate (as carried
+  without a rate); Σ = the side's unpaid bill rows — an advance or on-account amount (a bill on the
+  other side) is not drawn. "All" (Ctrl+1) has no graph. The stat says, per currency, the net in the
+  currency and, in brackets, the unrealised gain / loss in exact rupees ("USD $ 2,000.00 Dr (₹4,000
+  gain)"; ≤ 3 figures; more currencies → a count); it replaces the 2.0 tiles.
+* `forex.revaluation` — bars of the unrealised adjustment per party (gain indigo, loss orange), inside
+  the Adjustment cells when every party is one line (≤ 7); Σ = the net. The takeaway counts parties
+  ("Gain on 5 parties, loss on 2; largest loss …"), never the folded "Other" bar.
+* `forex.ledger` — a line of the balance in the currency (opening, then the end of each day; ≥ 3
+  voucher rows; ≤ 480 points), ending on the closing balance. Detail class: folded by default.
+* None for settings and openings. Explanations moved to More › "About this report"; the voucher-entry
+  side panel renders nothing until there is an invoice currency or a foreign line the server check
+  priced (`entryPanelShown` in `lib/entry.ts`, pinned by `lib/entryPanel.test.ts`).
+
 Elsewhere:
 
 * **Voucher entry** (vouchers module renders them): `ForexDialogs.tsx` — `ForexInvoiceDialog` (Alt+Y on

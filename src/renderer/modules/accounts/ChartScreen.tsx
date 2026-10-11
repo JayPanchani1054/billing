@@ -3,6 +3,8 @@
  * closing balances as on the period end (Alt+F2). Search keeps the path to each match.
  * Enter opens the group / ledger form, →/← expand/collapse, Alt+F1 detailed/condensed,
  * Alt+C creates a ledger under the highlighted group, Alt+U a sub-group; Alt+E / Alt+P export / print.
+ * 2.1: one search on the toolbar row; Expand all, Collapse all, the checkable "Hide inactive ledgers",
+ * Export and Print are in More ▾ (keys unchanged); "Create ledger" is the one title-row button.
  */
 import { useMemo, useState } from 'react';
 import { formatIndianNumber } from '../../../shared/format.ts';
@@ -11,7 +13,8 @@ import { useNav } from '../../app/nav.tsx';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { useCan } from '../../app/state.tsx';
 import { usePeriod } from '../../app/working.tsx';
-import { Button, Checkbox, DataTable, EmptyState, TextInput, useDebouncedValue } from '../../ui/index.ts';
+import { checkItem } from '../../app/lib/moreItems.ts';
+import { DataTable, EmptyState, TextInput, useDebouncedValue } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { NameCell } from './components.tsx';
 import { filterChart, flattenChart, parentKeys, parentKeysUpTo } from './lib/chartTree.ts';
@@ -74,31 +77,33 @@ export function ChartScreen() {
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
+      outputInMore
       hint="Enter Open · →/← Expand/Collapse · Alt+F1 Detailed · Alt+C Create Ledger · Alt+U Create Group · Alt+E Export · Esc Back"
       actions={[
-        { key: 'Alt+C', label: 'Create ledger', icon: 'plus', primary: true, onClick: createLedger, disabled: !canCreate },
+        {
+          key: 'Alt+C',
+          label: 'Create ledger',
+          icon: 'plus',
+          onClick: createLedger,
+          disabled: !canCreate,
+          prominent: true,
+        },
         { key: 'Alt+U', label: 'Create group', icon: 'layers', onClick: createGroup, disabled: !canCreate },
         { key: 'Alt+F1', label: detailed ? 'Condensed' : 'Detailed', icon: detailed ? 'chevrons-up-down' : 'list', onClick: toggleDetail, group: 'view' },
+        { key: '', label: 'Expand all', onClick: () => setExpanded(allParents), disabled: !!debounced, group: 'view' },
+        { key: '', label: 'Collapse all', onClick: () => setExpanded(new Set()), disabled: !!debounced, group: 'view' },
+        checkItem('Hide inactive ledgers', activeOnly, setActiveOnly),
       ]}
       filters={
-        <div className="bx-acc-toolbar">
-          <TextInput
-            wrapperClassName="bx-acc-toolbar__search"
-            size="sm"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            leadingIcon="search"
-            placeholder="Find a group or ledger"
-            aria-label="Find a group or ledger"
-          />
-          <Button size="sm" variant="ghost" onClick={() => setExpanded(allParents)} disabled={!!debounced}>
-            Expand all
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setExpanded(new Set())} disabled={!!debounced}>
-            Collapse all
-          </Button>
-          <Checkbox checked={activeOnly} onChange={setActiveOnly} label="Hide inactive ledgers" />
-        </div>
+        <TextInput
+          wrapperClassName="bx-acc-toolbar__search"
+          size="sm"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          leadingIcon="search"
+          placeholder="Find a group or ledger"
+          aria-label="Find a group or ledger"
+        />
       }
       exportDef={() => ({
         columns: [{ header: 'Particulars' }, { header: 'Kind' }, { header: 'Closing balance', kind: 'drcr' }],
@@ -131,9 +136,9 @@ export function ChartScreen() {
         }
         empty={
           debounced ? (
-            <EmptyState icon="search" title="Nothing matches" body={`No group or ledger contains “${debounced}”.`} />
+            <EmptyState title="Nothing matches" body={`No group or ledger contains “${debounced}”.`} />
           ) : (
-            <EmptyState icon="layers" title="No accounts yet" body="Press Alt+C to create the first ledger." />
+            <EmptyState title="No accounts yet" body="Press Alt+C to create the first ledger." />
           )
         }
       />

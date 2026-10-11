@@ -6,17 +6,21 @@
  *   'gst.boe' {from?, to?} — bills of entry recorded on import purchases (ITC in GSTR-3B 4(A)(1));
  *       Alt+O reconciles them with the IMPG / IMPGSEZ sections of a GSTR-2B JSON downloaded from the portal.
  * Enter on a row opens its voucher.
+ *
+ * 2.1 (SPEC-21 §5, WP-J2): Table 11's one figure (the net tax in 3.1(a)) is the toolbar-row stat; the
+ * reconcile view of the bills of entry is one share bar (lib/registerCharts.ts) + "Matched N of M"; the
+ * legal help sentences are under More ▾ › About this report.
  */
 import { useMemo, useState } from 'react';
 import type { AdvanceVoucherRow, BoeReconResult, BoeReconRow, BoeRow, PendingAdvance, Table11Row } from '../../../shared/types/gst-plus.ts';
-import { formatMoney, native, ReportScreen, useApiMutation, useApiQuery, useCan, useNav, userMessage } from '../../app/index.ts';
+import { formatDate, native, ReportScreen, useApiMutation, useApiQuery, useCan, useNav, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, DataTable, EmptyState, Grid, KpiCard, Panel, SegmentedControl, useToast } from '../../ui/index.ts';
+import { Badge, Banner, DataTable, EmptyState, Panel, SegmentedControl, StatLine, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { GstHelp, useGstRange } from './components.tsx';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { useGstRange } from './components.tsx';
 import { advanceKindLabel, advancesExport, boeExport, boeReconExport, BOE_STATUS_LABELS, pendingAdvancesExport } from './lib/gstplus.ts';
-
-const money = (p: number): string => formatMoney(p);
+import { advancesStat, boeChart, boeStat } from './lib/registerCharts.ts';
 
 function t11Columns(): Column<Table11Row>[] {
   return [
@@ -67,6 +71,7 @@ export function AdvancesScreen({ params }: ScreenProps<{ from?: string; to?: str
   );
   const q = view === 'table11' ? reg : pend;
   const a = reg.data;
+  const stat = view === 'table11' && a ? advancesStat(a) : [];
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+1', label: 'Table 11', onClick: () => setView('table11'), disabled: view === 'table11', group: 'view' },
     { key: 'Ctrl+2', label: 'Pending advances', onClick: () => setView('pending'), disabled: view === 'pending', group: 'view' },
@@ -76,7 +81,7 @@ export function AdvancesScreen({ params }: ScreenProps<{ from?: string; to?: str
   return (
     <ReportScreen
       title="Advances (GST)"
-      subtitle={view === 'table11' ? 'GSTR-1 Table 11' : `Pending as on ${to}`}
+      subtitle={view === 'pending' ? `Pending as on ${formatDate(to)}` : undefined}
       period={override}
       filters={
         <SegmentedControl
@@ -91,6 +96,13 @@ export function AdvancesScreen({ params }: ScreenProps<{ from?: string; to?: str
         />
       }
       actions={actions}
+      stat={stat.length ? <StatLine items={stat} /> : undefined}
+      about={
+        <p>
+          Tax is payable when an advance is received for services (time of supply, s.13); advances for goods carry no tax (Notification 66/2017-CT). Mark a receipt as an
+          advance with Alt+J in the receipt voucher; the invoice that bills the supply adjusts it (Table 11B). The net tax is included in GSTR-3B 3.1(a).
+        </p>
+      }
       exportDef={
         view === 'table11'
           ? a
@@ -107,24 +119,15 @@ export function AdvancesScreen({ params }: ScreenProps<{ from?: string; to?: str
       hint="Enter Open voucher · Ctrl+1 Table 11 · Ctrl+2 Pending · Alt+C Create advance receipt · Alt+F2 Period · Alt+E Export · Esc Back"
     >
       <div className="bx-gst-scroll">
-        <GstHelp>
-          Tax is payable when an advance is received for services (time of supply, s.13); advances for goods carry no tax (Notification 66/2017-CT). Mark a receipt as an
-          advance with Alt+J in the receipt voucher; the invoice that bills the supply adjusts it (Table 11B).
-        </GstHelp>
         {view === 'table11' && a ? (
           <>
-            <Grid minItemWidth={180} gap={3}>
-              <KpiCard label="Received (11A)" value={a.received.reduce((s, r) => s + r.igst + r.cgst + r.sgst + r.cess, 0)} amount caption="Tax on advances received" />
-              <KpiCard label="Adjusted / refunded (11B)" value={a.adjusted.reduce((s, r) => s + r.igst + r.cgst + r.sgst + r.cess, 0)} amount caption="Tax reversed on invoicing" />
-              <KpiCard label="Net in 3.1(a)" value={a.net.igst + a.net.cgst + a.net.sgst + a.net.cess} amount caption={`Taxable ${money(a.net.taxable)}`} />
-            </Grid>
             <Panel title="11A · Advances received (tax liability arising)" headingLevel={2}>
               <DataTable<Table11Row> aria-label="Table 11A" columns={t11} rows={a.received} getRowKey={(r, i) => `${r.pos}:${r.rate}:${i}`} height={Math.min(300, 40 + 32 * (a.received.length + 2))} empty={<EmptyState size="sm" title="No advances received in this period" />} />
             </Panel>
             <Panel title="11B · Advances adjusted against invoices or refunded" headingLevel={2}>
               <DataTable<Table11Row> aria-label="Table 11B" columns={t11} rows={a.adjusted} getRowKey={(r, i) => `${r.pos}:${r.rate}:${i}`} height={Math.min(300, 40 + 32 * (a.adjusted.length + 2))} empty={<EmptyState size="sm" title="No advances adjusted in this period" />} />
             </Panel>
-            <Panel title="Vouchers" headingLevel={2} description="Enter opens the voucher.">
+            <Panel title="Vouchers" headingLevel={2}>
               <DataTable<AdvanceVoucherRow>
                 aria-label="Advance vouchers"
                 autoFocus
@@ -165,6 +168,8 @@ export function BoeScreen({ params }: ScreenProps<{ from?: string; to?: string }
   const recon = useApiMutation('gst.boe.reconcile', { invalidates: [] });
   const [result, setResult] = useState<BoeReconResult | null>(null);
   const rows = q.data ?? [];
+  const spec = useMemo(() => (result ? boeChart(result) : null), [result]);
+  const stat = result ? boeStat(result) : [];
   const cols = useMemo<Column<BoeRow>[]>(
     () => [
       { key: 'boeNo', header: 'BOE no.', width: 120, sortable: true },
@@ -210,9 +215,17 @@ export function BoeScreen({ params }: ScreenProps<{ from?: string; to?: string }
   return (
     <ReportScreen
       title="Bills of Entry"
-      subtitle={result ? 'Reconciliation with GSTR-2B (IMPG / IMPGSEZ)' : 'Imports of goods'}
+      subtitle={result ? 'Reconciliation with GSTR-2B (IMPG / IMPGSEZ)' : undefined}
       period={override}
       actions={actions}
+      graph={reportGraph(spec)}
+      stat={stat.length ? <StatLine items={stat} /> : undefined}
+      about={
+        <p>
+          IGST paid at customs on imported goods is claimed as ITC on the bill of entry (Rule 36(1)(d)), in GSTR-3B 4(A)(1). Enter the bill of entry on the purchase
+          voucher with Alt+J; compare with the bills of entry GSTR-2B shows from ICEGATE (Alt+O) before you claim.
+        </p>
+      }
       exportDef={
         result
           ? () => ({ ...boeReconExport(result.rows), title: 'Bills of Entry — GSTR-2B reconciliation', period: { from, to } })
@@ -226,46 +239,35 @@ export function BoeScreen({ params }: ScreenProps<{ from?: string; to?: string }
       onRetry={() => void q.refetch()}
       hint="Enter Open purchase · Alt+O Reconcile with GSTR-2B · Ctrl+1 Register · Alt+C Create import purchase · Alt+F2 Period · Alt+E Export · Esc Back"
     >
-      <div className="bx-gst-scroll">
-        <GstHelp>
-          IGST paid at customs on imported goods is claimed as ITC on the bill of entry (Rule 36(1)(d)), in GSTR-3B 4(A)(1). Enter the bill of entry on the purchase
-          voucher with Alt+J; compare with the bills of entry GSTR-2B shows from ICEGATE before you claim.
-        </GstHelp>
-        {result ? (
-          <>
-            <Grid minItemWidth={160} gap={3}>
-              <KpiCard label="Matched" value={result.counts.matched} />
-              <KpiCard label="Mismatch" value={result.counts.mismatch} />
-              <KpiCard label="Not in books" value={result.counts.missing_in_books} />
-              <KpiCard label="Not in GSTR-2B" value={result.counts.missing_in_portal} />
-            </Grid>
-            {result.warnings.length > 0 ? (
-              <Banner tone="warning" inline>
-                {result.warnings.join(' ')}
-              </Banner>
-            ) : null}
-            <DataTable<BoeReconRow>
-              aria-label="Bill of entry reconciliation"
-              autoFocus
-              columns={rCols}
-              rows={result.rows}
-              getRowKey={(r, i) => `${r.boeNo}:${r.portCode ?? ''}:${i}`}
-              onRowActivate={(r) => (r.books ? nav.push('vouchers.view', { id: r.books.voucherId }) : undefined)}
-              empty={<EmptyState title="Nothing to reconcile" body="Neither the books nor the file have bills of entry in this period." />}
-            />
-          </>
-        ) : (
-          <DataTable<BoeRow>
-            aria-label="Bills of entry"
+      {result ? (
+        <div className="bx-gst-fill">
+          {result.warnings.length > 0 ? (
+            <Banner tone="warning" inline>
+              {result.warnings.join(' ')}
+            </Banner>
+          ) : null}
+          <DataTable<BoeReconRow>
+            aria-label="Bill of entry reconciliation"
             autoFocus
-            columns={cols}
-            rows={rows}
-            getRowKey={(r) => `${r.voucherId}`}
-            onRowActivate={(r) => nav.push('vouchers.view', { id: r.voucherId })}
-            empty={<EmptyState icon="file" title="No bills of entry in this period" body="Record the import purchase (Alt+C) and enter its bill of entry with Alt+J." />}
+            columns={rCols}
+            rows={result.rows}
+            getRowKey={(r, i) => `${r.boeNo}:${r.portCode ?? ''}:${i}`}
+            onRowActivate={(r) => (r.books ? nav.push('vouchers.view', { id: r.books.voucherId }) : undefined)}
+            empty={<EmptyState title="Nothing to reconcile" body="Neither the books nor the file have bills of entry in this period." />}
           />
-        )}
-      </div>
+        </div>
+      ) : (
+        <DataTable<BoeRow>
+          aria-label="Bills of entry"
+          autoFocus
+          hideEmptyColumns
+          columns={cols}
+          rows={rows}
+          getRowKey={(r) => `${r.voucherId}`}
+          onRowActivate={(r) => nav.push('vouchers.view', { id: r.voucherId })}
+          empty={<EmptyState icon="file" title="No bills of entry in this period" body="Record the import purchase (Alt+C) and enter its bill of entry with Alt+J." />}
+        />
+      )}
     </ReportScreen>
   );
 }

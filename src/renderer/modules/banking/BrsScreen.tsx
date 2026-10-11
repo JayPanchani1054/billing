@@ -5,7 +5,9 @@
  * bank (or reconciled ones / all, Ctrl+1/2/3); type the bank date in each row — '5', '5-4', '05042026',
  * 'v' (voucher date), '.' (same as above), empty to clear — Enter/↓ moves down, Shift+Enter/↑ up,
  * Ctrl+Enter opens the voucher. Alt+R gives every open row the statement date, Ctrl+A saves.
- * The balances panel reconciles books → bank and explains the difference with the imported statement.
+ * The balances panel reconciles books → bank and explains the difference with the imported statement; the
+ * stat on the toolbar row gives the verdict ("Agrees ✓" / "Difference ₹x") — no graph: the books → bank
+ * lines are the picture (SPEC-21 §5).
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -22,9 +24,10 @@ import { ReadOnlyNotice, ReportScreen } from '../../app/Screen.tsx';
 import { useCan } from '../../app/state.tsx';
 import { usePeriod } from '../../app/working.tsx';
 import { todayLocal } from '../../../shared/dates.ts';
-import { Badge, Banner, Card, EmptyState, Inline, SegmentedControl, Stack, TextInput, useToast } from '../../ui/index.ts';
+import { Badge, Banner, Card, EmptyState, Inline, SegmentedControl, Stack, StatLine, TextInput, useToast } from '../../ui/index.ts';
 import { BankSelect, NoBanks, useBanks, useDefaultBank } from './components.tsx';
 import { CATEGORY_LABEL, evaluateRows, explainBrs, fillBankDates, pendingSave, projectedBankBalance, type BalanceLine } from './lib/brsGrid.ts';
+import { brsStat } from './lib/charts.ts';
 import { brsExport } from './lib/exports.ts';
 
 const SHOW_OPTIONS: ReadonlyArray<{ value: BrsShow; label: string }> = [
@@ -191,10 +194,10 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
   }
 
   const bank = banks.find((b) => b.id === ledgerId) ?? null;
+  const stat = brs && explanation && !stale ? brsStat(brs, explanation.status) : [];
   return (
     <ReportScreen
       title="Bank Reconciliation"
-      subtitle={bank ? `${bank.name}${bank.accountNo ? ` · A/c ${bank.accountNo}` : ''}` : undefined}
       periodMode="asOn"
       loading={banksLoading || (q.loading && !brs)}
       refreshing={q.refreshing}
@@ -204,6 +207,7 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
         void q.refetch();
       }}
       exportDef={brs ? () => brsExport(brs) : undefined}
+      stat={stat.length > 0 ? <StatLine items={stat} /> : null}
       hint="Type a bank date: 5 · 5-4 · v voucher date · . same as above · blank clears · Enter Next row (on the last row: save) · Ctrl+Enter Open voucher · Ctrl+A Save"
       filters={
         <Inline gap={2} wrap>
@@ -336,34 +340,22 @@ export function BrsScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
           )}
         </Stack>
         {brs && explanation ? (
-          <Stack gap={2}>
-            <Card title="Books and bank" subtitle={`As on ${formatDate(brs.asOf)}`} padding="sm">
-              <ul className="bx-bk-balances" aria-label="Reconciliation of balances">
-                {explanation.lines.map((l) => (
-                  <BalanceRow key={l.key} line={l} />
-                ))}
-                {pending.entries.length > 0 && projected !== null ? (
-                  <BalanceRow
-                    line={{ key: 'projected', label: `Balance as per bank after saving ${pending.entries.length} change${pending.entries.length === 1 ? '' : 's'}`, amount: projected, kind: 'drcr', strong: true }}
-                  />
-                ) : null}
-              </ul>
-            </Card>
-            <Banner
-              tone={explanation.status === 'agrees' ? 'success' : explanation.status === 'unexplained' ? 'warning' : 'info'}
-              title={
-                explanation.status === 'agrees'
-                  ? 'Reconciled'
-                  : explanation.status === 'explained'
-                    ? 'Difference explained'
-                    : explanation.status === 'unexplained'
-                      ? 'Difference to check'
-                      : 'Check with your statement'
-              }
-            >
+          <Card title="Books and bank" padding="sm">
+            <ul className="bx-bk-balances" aria-label="Reconciliation of balances">
+              {explanation.lines.map((l) => (
+                <BalanceRow key={l.key} line={l} />
+              ))}
+              {pending.entries.length > 0 && projected !== null ? (
+                <BalanceRow
+                  line={{ key: 'projected', label: `Balance as per bank after saving ${pending.entries.length} change${pending.entries.length === 1 ? '' : 's'}`, amount: projected, kind: 'drcr', strong: true }}
+                />
+              ) : null}
+            </ul>
+            {/* The verdict is the stat; what to do about it stays here as one quiet sentence. */}
+            <p className="bx-bk-balances__note">
               {explanation.message}
-            </Banner>
-          </Stack>
+            </p>
+          </Card>
         ) : null}
       </div>
     </ReportScreen>

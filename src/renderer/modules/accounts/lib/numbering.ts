@@ -17,7 +17,7 @@ import {
   NUMBERING_TEXT_MAX,
   NUMBERING_TOKENS,
 } from '../../../../shared/numbering.ts';
-import type { SchemeDescription } from '../../../../shared/numbering.ts';
+import type { NumberingTextRow, SchemeDescription } from '../../../../shared/numbering.ts';
 import { formatIndianNumber } from '../../../../shared/format.ts';
 import type { NumberingMethod, NumberingRestart, VoucherNumbering, VoucherTypeRow } from '../../../../shared/types/accounts.ts';
 
@@ -258,7 +258,7 @@ export function restartLabel(n: Pick<VoucherNumbering, 'method' | 'restart'>): s
  * The one-click fix for a GST series that restarts every month without the month in its number:
  * the prefix with `{MM}/` added ("INV/{FY}/" → "INV/{FY}/{MM}/"). null when no fix is needed, when the
  * longer prefix would not fit, or when it would not cure the problem (a dated prefix / suffix row
- * without the month — that is fixed in the Voucher Type form). It cures the restart only: a number
+ * without the month — fixed in the editor's Advanced dated rows). It cures the restart only: a number
  * that becomes longer than 16 characters (e.g. with 4 digits) is then reported by the usual checks.
  */
 export function monthFix(baseType: VoucherBaseType, n: VoucherNumbering, gstEnabled: boolean): string | null {
@@ -390,6 +390,67 @@ export function numberingPatch(base: VoucherNumbering, d: SeriesDraft): Partial<
   if (now.start !== base.start) patch.start = now.start;
   if (now.restart !== base.restart) patch.restart = now.restart;
   return Object.keys(patch).length > 0 ? patch : null;
+}
+
+// ───────────────────────────── 2.1: dated prefix / suffix rows in the editor ─────────────────────────────
+
+/** The rows the core stores for a text typed as '' (none from that date): text null, dates as typed. */
+export function cleanDatedRows(rows: readonly NumberingTextRow[]): NumberingTextRow[] {
+  return rows.map((r) => ({ applicableFrom: r.applicableFrom, text: r.text === null || r.text === '' ? null : r.text }));
+}
+
+function sameDatedRows(a: readonly NumberingTextRow[], b: readonly NumberingTextRow[]): boolean {
+  const key = (rows: readonly NumberingTextRow[]) =>
+    JSON.stringify(
+      cleanDatedRows(rows)
+        .map((r) => [r.applicableFrom, r.text] as const)
+        .sort((x, y) => x[0].localeCompare(y[0])),
+    );
+  return key(a) === key(b);
+}
+
+/**
+ * The dated prefix / suffix rows the editor changed (2.1: the Invoice Numbering editor's Advanced edits
+ * them), for the key-level patch — a kind is sent only when it changed, and then whole (the core replaces
+ * that kind; an empty list removes its rows). null when neither changed.
+ */
+export function datedRowsPatch(
+  base: Pick<VoucherNumbering, 'prefixRows' | 'suffixRows'>,
+  prefixRows: readonly NumberingTextRow[],
+  suffixRows: readonly NumberingTextRow[],
+): Pick<VoucherNumbering, 'prefixRows' | 'suffixRows'> | null {
+  const patch: Pick<VoucherNumbering, 'prefixRows' | 'suffixRows'> = {};
+  if (!sameDatedRows(base.prefixRows ?? [], prefixRows)) patch.prefixRows = cleanDatedRows(prefixRows);
+  if (!sameDatedRows(base.suffixRows ?? [], suffixRows)) patch.suffixRows = cleanDatedRows(suffixRows);
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/** Two key-level patches as one (null when both are null). */
+export function mergeNumberingPatches(a: Partial<VoucherNumbering> | null, b: Partial<VoucherNumbering> | null): Partial<VoucherNumbering> | null {
+  if (!a && !b) return null;
+  return { ...(a ?? {}), ...(b ?? {}) };
+}
+
+/** The scheme with the editor's dated rows (an empty kind has no rows). */
+export function withDatedRows(n: VoucherNumbering, prefixRows: readonly NumberingTextRow[], suffixRows: readonly NumberingTextRow[]): VoucherNumbering {
+  const out: VoucherNumbering = { ...n };
+  delete out.prefixRows;
+  delete out.suffixRows;
+  if (prefixRows.length > 0) out.prefixRows = cleanDatedRows(prefixRows);
+  if (suffixRows.length > 0) out.suffixRows = cleanDatedRows(suffixRows);
+  return out;
+}
+
+/**
+ * The voucher-type form's one numbering line (2.1): "INV/26-27/0001 · every financial year" — or how the
+ * numbers are given when they are not automatic.
+ */
+export function numberingSummary(n: VoucherNumbering, date: string, fyStartMonth = 4): string {
+  if (!isAutomatic(n.method)) return METHOD_OPTIONS.find((o) => o.value === n.method)?.label ?? n.method;
+  const first = formatSchemeNumber(n, Math.max(1, n.start || 1), date, fyStartMonth);
+  const restart = restartLabel(n).toLowerCase();
+  const dated = (n.prefixRows?.length ?? 0) + (n.suffixRows?.length ?? 0) > 0 ? ' · changes from a date' : '';
+  return `${first} · ${restart}${dated}`;
 }
 
 /** Problem with the next number as typed (null when fine): a whole number from the starting number up. */

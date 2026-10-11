@@ -32,9 +32,7 @@ import {
 } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import {
-  Badge,
   Banner,
-  Button,
   DataTable,
   Drawer,
   EmptyState,
@@ -44,7 +42,6 @@ import {
   NumberInput,
   PercentInput,
   QuantityInput,
-  SegmentedControl,
   Select,
   Stack,
   Switch,
@@ -96,7 +93,9 @@ export function BomListScreen({ params }: ScreenProps<{ itemId?: number }>) {
         sortable: true,
         render: (r) => (
           <span>
-            {r.name} {r.isDefault ? <Badge size="sm" tone="brand">Default</Badge> : null} {!r.isActive ? <Badge size="sm">Inactive</Badge> : null}
+            {r.name}
+            {r.isDefault ? <span className="bx-muted"> · default</span> : null}
+            {!r.isActive ? <span className="bx-muted"> · inactive</span> : null}
           </span>
         ),
       },
@@ -119,16 +118,23 @@ export function BomListScreen({ params }: ScreenProps<{ itemId?: number }>) {
     }
   };
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+C', label: 'Create BOM', icon: 'plus', primary: true, onClick: () => nav.push('mfg.bom.form', params.itemId !== undefined ? { itemId: params.itemId } : {}), hidden: !canCreate },
+    {
+      key: 'Alt+C',
+      label: 'Create BOM',
+      icon: 'plus',
+      onClick: () => nav.push('mfg.bom.form', params.itemId !== undefined ? { itemId: params.itemId } : {}),
+      hidden: !canCreate,
+      prominent: true,
+    },
     { key: 'Alt+A', label: 'Alter', icon: 'edit', onClick: () => current && nav.push('mfg.bom.form', { id: current.id }), disabled: !current },
     { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), hidden: !canDelete, disabled: !current, group: 'danger' },
-    { key: 'Ctrl+1', label: 'Show active', icon: 'filter', onClick: () => setView('active'), disabled: view === 'active', group: 'view' },
-    { key: 'Ctrl+2', label: 'Show all', icon: 'filter', onClick: () => setView('all'), disabled: view === 'all', group: 'view' },
+    { key: 'Ctrl+1', label: 'Active BOMs only', icon: 'filter', onClick: () => setView('active'), group: 'view', checked: view === 'active' },
+    { key: 'Ctrl+2', label: 'All BOMs, inactive too', icon: 'filter', onClick: () => setView('all'), group: 'view', checked: view === 'all' },
     { key: 'Ctrl+F', label: 'Search', icon: 'search', onClick: () => searchRef.current?.focus(), group: 'view' },
   ];
   if (!features.manufacturing) {
     return (
-      <Screen title="Bills of Materials" icon="layers">
+      <Screen title="Bills of Materials">
         <EmptyState icon="layers" title="Bill of materials is turned off" body={OFF} />
       </Screen>
     );
@@ -136,7 +142,9 @@ export function BomListScreen({ params }: ScreenProps<{ itemId?: number }>) {
   return (
     <ReportScreen
       title="Bills of Materials"
+      subtitle={q.data ? `${rows.length} BOM${rows.length === 1 ? '' : 's'}${view === 'all' ? ', inactive too' : ''}` : undefined}
       periodMode="none"
+      outputInMore
       actions={actions}
       loading={q.loading}
       refreshing={q.refreshing}
@@ -144,10 +152,7 @@ export function BomListScreen({ params }: ScreenProps<{ itemId?: number }>) {
       onRetry={q.refetch}
       hint="Enter Alter · Alt+C Create BOM · Alt+D Delete · Ctrl+F Search · Ctrl+1/2 Active or all · Alt+E Export"
       filters={
-        <Stack gap={2}>
-          <TextInput ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Search item or BOM" aria-label="Search bills of materials" size="sm" />
-          <SegmentedControl<'active' | 'all'> aria-label="Show" size="sm" value={view} onChange={setView} options={[{ value: 'active', label: 'Active' }, { value: 'all', label: 'All' }]} />
-        </Stack>
+        <TextInput ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Search item or BOM" aria-label="Search bills of materials" size="sm" />
       }
       exportDef={() => bomListExport(rows)}
     >
@@ -161,7 +166,7 @@ export function BomListScreen({ params }: ScreenProps<{ itemId?: number }>) {
         onSelect={(k) => setSelected(k)}
         onRowActivate={(r) => nav.push('mfg.bom.form', { id: r.id })}
         loading={q.loading}
-        empty={<EmptyState icon="layers" title="No bills of materials yet" body="A BOM lists the components (and any by-products or scrap) of an item you make. Press Alt+C to create one." />}
+        empty={<EmptyState icon="layers" title="No bills of materials yet" body="A BOM lists the components (and any by-products or scrap) of an item you make." />}
       />
     </ReportScreen>
   );
@@ -183,13 +188,13 @@ export function BomFormScreen({ params }: ScreenProps<BomFormParams>) {
   const title = id === undefined ? 'BOM Creation' : 'BOM Alteration';
   if (!features.manufacturing) {
     return (
-      <Screen title={title} icon="layers">
+      <Screen title={title}>
         <EmptyState icon="layers" title="Bill of materials is turned off" body={OFF} />
       </Screen>
     );
   }
   const waiting = (id !== undefined && !q.data) || (id === undefined && params.itemId !== undefined && !item.data);
-  if (waiting || q.error || item.error) return <Screen title={title} icon="layers" width="form" loading={!(q.error ?? item.error)} error={q.error ?? item.error} onRetry={() => void (q.refetch(), item.refetch())} />;
+  if (waiting || q.error || item.error) return <Screen title={title} width="form" loading={!(q.error ?? item.error)} error={q.error ?? item.error} onRetry={() => void (q.refetch(), item.refetch())} />;
   const startItem = item.data ? { id: item.data.id, name: item.data.name, unit: item.data.unitSymbol ?? '' } : null;
   return <BomFormView key={q.data ? `${q.data.id}:${q.data.updatedAt}` : 'new'} saved={q.data ?? null} startItem={startItem} title={title} />;
 }
@@ -329,7 +334,6 @@ function BomFormView({ saved, startItem, title }: { saved: BomDetail | null; sta
     <Screen
       title={saved ? `${title} — ${saved.itemName}` : title}
       subtitle={saved ? `${saved.name} · revision ${saved.revision}${saved.usedInVouchers > 0 ? ` · used in ${saved.usedInVouchers} voucher(s)` : ''}` : undefined}
-      icon="layers"
       width="form"
       dirty={dirty}
       actions={actions}
@@ -356,7 +360,12 @@ function BomFormView({ saved, startItem, title }: { saved: BomDetail | null; sta
             <Field label="BOM name" required error={errors.fields.name} hint="e.g. Standard, Export pack. An item may have several.">
               <TextInput value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} maxLength={100} readOnly={readOnly} />
             </Field>
-            <Field label="Components are for" required error={errors.fields.outputQty} hint="Quantity of the finished item the lines below make.">
+            <Field
+              label="Components are for"
+              required
+              error={errors.fields.outputQty}
+              hint="Quantity of the finished item the lines below make. Components are consumed at the stock valuation method as on the voucher date; by-products and scrap reduce the cost by their rate per unit or a share of the production cost."
+            >
               <QuantityInput value={form.outputQty} onChange={(q) => setForm((f) => ({ ...f, outputQty: q }))} unit={form.unit} decimals={3} readOnly={readOnly} />
             </Field>
             <Field label="Default BOM of the item" hint="Chosen first in the Manufacturing Journal.">
@@ -367,11 +376,7 @@ function BomFormView({ saved, startItem, title }: { saved: BomDetail | null; sta
             </Field>
           </FieldGroup>
           <LinesTable caption="Components, by-products and scrap" columns={columns} rows={rows} />
-          <p className="bx-mfg-note">
-            Components are consumed at the company's stock valuation method as on the voucher date. By-products and scrap reduce the cost of the finished goods by their rate per unit, or by a
-            share of the production cost.
-          </p>
-          <Field label="Notes" optional hint="Ctrl+Enter to move on.">
+          <Field label="Notes" optional hint="Ctrl+Enter saves.">
             <TextArea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} autoGrow maxRows={5} maxLength={2000} readOnly={readOnly} />
           </Field>
           {saved && canReports ? (
@@ -392,11 +397,6 @@ function BomFormView({ saved, startItem, title }: { saved: BomDetail | null; sta
               )}
             </section>
           ) : null}
-          <div>
-            <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} disabled={readOnly} onClick={() => void submit()} data-enter-target="">
-              {forResult ? 'Save & return' : 'Save'}
-            </Button>
-          </div>
         </Stack>
       </div>
       {historyOpen && saved ? <RevisionDrawer bomId={saved.id} onClose={() => setHistoryOpen(false)} /> : null}
@@ -432,7 +432,7 @@ function RevisionDrawer({ bomId, onClose }: { bomId: number; onClose: () => void
         <DataTable<BomRevisionRow> aria-label="Revisions" autoFocus columns={columns} rows={revs} getRowKey={(r) => String(r.revision)} selectedKey={current ? String(current.revision) : null} onSelect={(k) => setSelected(k)} loading={q.loading} />
         {current ? (
           <>
-            <p className="bx-mfg-note">
+            <p className="bx-muted">
               Revision {current.revision}: {current.snapshot.name} for {current.snapshot.outputQty} {current.snapshot.unit}
               {current.snapshot.isDefault ? ' · default' : ''}
               {current.snapshot.isActive ? '' : ' · inactive'}

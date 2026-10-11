@@ -2,6 +2,9 @@
  * 'reports.ratios' — Ratio Analysis: principal groups (left) and key ratios (right) with the
  * formula of each. Enter on a principal group opens its group summary. "—" means the ratio cannot be
  * worked out because its denominator is zero.
+ *
+ * 2.1: deliberately no graph — the ratios are the content. Two plain sections on the flat sheet; the
+ * section's name heads its first column (no title band).
  */
 import { useMemo } from 'react';
 import type { RatioItem } from '../../../shared/types/reports.ts';
@@ -28,7 +31,7 @@ export function RatiosScreen({ params }: ScreenProps<{ from?: string; to?: strin
         render: (r) => <span className="bx-num">{ratioText(r)}</span>,
         title: (r) => (r.value === null ? 'Not computable: the denominator is zero' : ratioText(r)),
       },
-      { key: 'formula', header: 'How it is worked out', minWidth: 220, render: (r) => <span className="bx-rep-formula">{r.formula}</span> },
+      { key: 'formula', header: 'How it is worked out', minWidth: 220, render: (r) => <span className="bx-rep-note">{r.formula}</span> },
     ],
     [],
   );
@@ -40,8 +43,7 @@ export function RatiosScreen({ params }: ScreenProps<{ from?: string; to?: strin
   };
   const table = (title: string, rows: readonly RatioItem[], autoFocus: boolean) => (
     <section className="bx-rep-side" aria-label={title}>
-      <div className="bx-rep-side__title">{title}</div>
-      <DataTable<RatioItem> aria-label={title} columns={columns} rows={rows} getRowKey={(r) => r.key} onRowActivate={open} loading={q.loading} virtualize={false} autoFocus={autoFocus} />
+      <DataTable<RatioItem> aria-label={title} columns={[{ ...columns[0], header: title }, ...columns.slice(1)]} rows={rows} getRowKey={(r) => r.key} onRowActivate={open} loading={q.loading} virtualize={false} autoFocus={autoFocus} />
     </section>
   );
   return (

@@ -12,6 +12,7 @@ import { useConfirm } from '../../app/confirm.tsx';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
+import { aboutItem } from '../../app/lib/moreItems.ts';
 import { useNav } from '../../app/nav.tsx';
 import { invalidate } from '../../app/queryClient.ts';
 import type { ScreenProps } from '../../app/registry.ts';
@@ -25,6 +26,7 @@ import {
   Button,
   DataTable,
   DateInput,
+  Drawer,
   EmptyState,
   Field,
   FieldGroup,
@@ -58,6 +60,7 @@ export function NaturesScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
   const rows = q.data ?? [];
   const [cursor, setCursor] = useState<string | null>(null);
   const current = rows.find((r) => String(r.id) === cursor) ?? null;
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   const columns = useMemo<Column<TdsNature>[]>(
     () => [
@@ -111,18 +114,17 @@ export function NaturesScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
   return (
     <Screen
       title={k === 'tcs' ? 'Nature of Goods (TCS)' : 'Nature of Payment (TDS)'}
-      subtitle="Sections, rates and thresholds. Rates in force today are shown; open a nature for its dated history."
-      icon="percent"
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Enter Alter · Alt+C Create · Alt+D Delete · Ctrl+1 TDS · Ctrl+2 TCS · Esc Back"
       actions={[
-        { key: 'Alt+C', label: 'Create nature', icon: 'plus', primary: true, hidden: !canManage, disabled: !canManage, onClick: () => nav.push('tds.nature.form', { kind: k }) },
+        { key: 'Alt+C', label: 'Create nature', icon: 'plus', hidden: !canManage, disabled: !canManage, onClick: () => nav.push('tds.nature.form', { kind: k }) },
         { key: 'Alt+A', label: 'Alter', icon: 'edit', disabled: !current, onClick: () => current && nav.push('tds.nature.form', { id: current.id, kind: k }) },
         { key: 'Ctrl+1', label: 'TDS natures', group: 'view', hidden: !kinds.includes('tds'), disabled: k === 'tds', onClick: () => setKind('tds') },
         { key: 'Ctrl+2', label: 'TCS natures', group: 'view', hidden: !kinds.includes('tcs'), disabled: k === 'tcs', onClick: () => setKind('tcs') },
         { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', hidden: !canManage, disabled: !canManage || !current || current.isSystem, onClick: () => void remove() },
+        aboutItem(() => setAboutOpen(true), 'About these rates'),
       ]}
     >
       <Stack gap={3}>
@@ -141,11 +143,16 @@ export function NaturesScreen({ params }: ScreenProps<{ kind?: TdsKind }>) {
           loading={q.loading}
           empty={<EmptyState title="No natures" body="Press Alt+C to create one." />}
         />
-        <span className="bx-muted">
-          Seeded for the Income-tax Act 1961 as in force for FY 2025-26 (Finance Act 2025). From 1-Apr-2026 the Income-tax Act 2025 applies: check the
-          rates and sections against the latest Finance Act and alter them here when they change — add a dated rate row, never overwrite the old one.
-        </span>
       </Stack>
+      {aboutOpen ? (
+        <Drawer open onClose={() => setAboutOpen(false)} title="About these rates" size="sm">
+          <p>
+            The rates in force today are shown; open a nature for its dated history. They were seeded for the Income-tax Act 1961 as in force for FY 2025-26 (Finance Act 2025). From
+            1-Apr-2026 the Income-tax Act 2025 applies: check the rates and sections against the latest Finance Act and alter them here when they change — add a dated rate row, never
+            overwrite the old one.
+          </p>
+        </Drawer>
+      ) : null}
     </Screen>
   );
 }
@@ -232,7 +239,6 @@ export function NatureFormScreen({ params }: ScreenProps<{ id?: number; kind?: T
       title={params.id ? `Alter ${KIND_LABEL[kind]} Nature` : `Create ${KIND_LABEL[kind]} Nature`}
       subtitle={loaded?.isSystem ? 'Came with the app — rates are yours to keep current.' : undefined}
       width="form"
-      icon="percent"
       dirty={draft !== null}
       loading={existing.loading}
       error={existing.error}

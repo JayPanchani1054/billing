@@ -8,6 +8,7 @@ import {
   buildSeriesRows,
   checkNumbering,
   confirmWarningsOf,
+  datedRowsPatch,
   defaultLedgerSide,
   DIGIT_OPTIONS,
   draftFromNumbering,
@@ -20,12 +21,14 @@ import {
   GST_DOCUMENT_BASE_TYPES,
   insertToken,
   lengthNote,
+  mergeNumberingPatches,
   monthFix,
   newSeriesNumbering,
   newTypeNumbering,
   nextNumberProblem,
   nextNumberToSet,
   numberingPatch,
+  numberingSummary,
   numberLength,
   numberingPreview,
   previewNextSeq,
@@ -40,6 +43,7 @@ import {
   SIMPLE_METHOD_OPTIONS,
   METHOD_OPTIONS,
   tokenChips,
+  withDatedRows,
   yearlySwitchOn,
 } from './numbering.ts';
 
@@ -384,5 +388,38 @@ describe('server answers', () => {
     assert.match(seriesNameProblem('sales', [{ name: 'Sales' }]) ?? '', /already a voucher type/);
     assert.match(seriesNameProblem('x'.repeat(61), []) ?? '', /at most 60/);
     assert.equal(seriesNameProblem('Cash Sales', [{ name: 'Sales' }]), null);
+  });
+});
+
+describe('2.1: dated prefix / suffix rows in the editor, and the voucher type form line', () => {
+  const rows = [{ applicableFrom: '2027-04-01', text: 'B/{FY}/' }];
+
+  it('datedRowsPatch: nothing when unchanged (order and empty text aside); a changed kind is sent whole', () => {
+    const base = n({ prefixRows: rows });
+    assert.equal(datedRowsPatch(base, rows, []), null);
+    assert.equal(datedRowsPatch(n({ suffixRows: [{ applicableFrom: '2027-01-01', text: null }] }), [], [{ applicableFrom: '2027-01-01', text: '' }]), null, "'' is stored as null");
+    const added = [...rows, { applicableFrom: '2026-10-01', text: 'BR2/' }];
+    assert.deepEqual(datedRowsPatch(base, added, []), { prefixRows: added });
+    assert.deepEqual(datedRowsPatch(base, [], []), { prefixRows: [] }, 'removing every row sends an empty list (the core then deletes them)');
+    assert.deepEqual(datedRowsPatch(n(), [], [{ applicableFrom: '2027-04-01', text: '' }]), { suffixRows: [{ applicableFrom: '2027-04-01', text: null }] });
+  });
+
+  it('mergeNumberingPatches / withDatedRows', () => {
+    assert.equal(mergeNumberingPatches(null, null), null);
+    assert.deepEqual(mergeNumberingPatches({ prefix: 'INV/' }, { prefixRows: rows }), { prefix: 'INV/', prefixRows: rows });
+    assert.deepEqual(mergeNumberingPatches(null, { suffixRows: [] }), { suffixRows: [] });
+    const w = withDatedRows(n({ prefix: 'A/', prefixRows: rows, suffixRows: rows }), [], rows);
+    assert.equal(w.prefixRows, undefined, 'an empty kind has no rows');
+    assert.deepEqual(w.suffixRows, rows);
+    assert.equal(w.prefix, 'A/');
+    // The preview follows the rows: from 1-Apr-2027 the dated prefix applies.
+    assert.equal(formatNumber(withDatedRows(n({ prefix: 'A/', width: 2 }), rows, []), 3, '2027-05-01'), 'B/27-28/03');
+  });
+
+  it('numberingSummary: the first number and the restart, or how numbers are given', () => {
+    assert.equal(numberingSummary(n({ prefix: 'INV/{FY}/', width: 4 }), '2026-10-10'), 'INV/26-27/0001 · every financial year');
+    assert.equal(numberingSummary(n({ restart: 'never', start: 7 }), '2026-10-10'), '7 · never');
+    assert.equal(numberingSummary(n({ prefixRows: rows }), '2026-10-10'), '1 · every financial year · changes from a date');
+    assert.equal(numberingSummary(n({ method: 'manual' }), '2026-10-10'), METHOD_OPTIONS.find((o) => o.value === 'manual')?.label);
   });
 });

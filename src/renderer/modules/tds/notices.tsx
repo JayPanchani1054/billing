@@ -46,14 +46,13 @@ export function TdsDueNotice() {
   return (
     <Banner
       tone={tone}
-      icon="percent"
       title={tone === 'danger' ? 'TDS / TCS needs attention' : 'TDS / TCS due soon'}
       onDismiss={() => {
         writeFlag(key);
         setDismissed(true);
       }}
       action={
-        <Button size="sm" variant="primary" onClick={() => nav.push('tds.outstanding', { kind: items[0].kind })}>
+        <Button size="sm" variant="link" onClick={() => nav.push('tds.outstanding', { kind: items[0].kind })}>
           Review
         </Button>
       }

@@ -1,7 +1,9 @@
 /**
  * List screen for the tree masters (stock groups, stock categories, godowns): tree view with
- * expand/collapse, type-to-search (flat results), Enter alters, Alt+C creates (under the selected
- * row with Alt+Shift+C), Alt+D (or Ctrl+D) deletes, Alt+E export, Alt+P print.
+ * expand/collapse, type-to-search (flat results), Enter alters. Title row (2.1, SPEC-21 §1.7): the
+ * count in the context run, "Create <noun>" (Alt+C) and More ▾ — Create under selected (Alt+Shift+C),
+ * the list's extras, Delete (Alt+D or Ctrl+D), Print (Alt+P), Export (Alt+E). Columns blank on every row
+ * hide (exports keep them).
  */
 import { useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -9,6 +11,7 @@ import { ReportScreen, useCan, useConfirm, useNav, userMessage } from '../../app
 import type { ExportCell, ExportColumn, ScreenActionItem } from '../../app/index.ts';
 import { Button, DataTable, EmptyState, Field, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
 import type { Column, IconName } from '../../ui/index.ts';
+import { countText, pluralOf, treeListActions } from './lib/listActions.ts';
 import type { Leveled } from './lib/tree.ts';
 import { orderTree } from './lib/tree.ts';
 import './inventory.css';
@@ -24,7 +27,8 @@ export interface TreeMasterListProps<T extends TreeMasterRow> {
   title: string;
   /** 'stock group' — used in messages. */
   noun: string;
-  icon: IconName;
+  /** Accepted and ignored (2.1: no icon tiles; empty states draw none). */
+  icon?: IconName;
   rows: readonly T[] | undefined;
   loading: boolean;
   refreshing?: boolean;
@@ -45,11 +49,12 @@ export interface TreeMasterListProps<T extends TreeMasterRow> {
   extraActions?: (current: T | null) => readonly ScreenActionItem[];
   /** Shown above the table. */
   notice?: ReactNode;
+  /** Context run (default: the count, "12 stock groups"). */
   subtitle?: ReactNode;
 }
 
 export function TreeMasterList<T extends TreeMasterRow>(props: TreeMasterListProps<T>) {
-  const { title, noun, icon, rows, loading, refreshing, error, onRetry, columns, exportColumns, exportRow, formScreen, onDelete, deleteBlocked, emptyTitle, emptyBody, extraActions, notice, subtitle } = props;
+  const { title, noun, rows, loading, refreshing, error, onRetry, columns, exportColumns, exportRow, formScreen, onDelete, deleteBlocked, emptyTitle, emptyBody, extraActions, notice, subtitle } = props;
   const nav = useNav();
   const toast = useToast();
   const confirm = useConfirm();
@@ -109,6 +114,7 @@ export function TreeMasterList<T extends TreeMasterRow>(props: TreeMasterListPro
     }
   };
 
+  const plural = pluralOf(noun);
   const create = (parentId?: number): void => {
     nav.push(formScreen, { ...(search.trim() ? { initialName: search.trim() } : {}), ...(parentId !== undefined ? { parentId } : {}) });
   };
@@ -116,36 +122,28 @@ export function TreeMasterList<T extends TreeMasterRow>(props: TreeMasterListPro
   return (
     <ReportScreen
       title={title}
-      subtitle={subtitle}
+      subtitle={subtitle ?? (rows ? countText(rows.length, noun, plural) : undefined)}
       periodMode="none"
+      outputInMore
       loading={loading}
       refreshing={refreshing}
       error={error}
       onRetry={onRetry}
       hint={`Type to Search · Enter Alter · Alt+C Create ${noun.replace(/\b\w/g, (c) => c.toUpperCase())} · Alt+D Delete · →/← Expand/Collapse`}
-      actions={[
-        { key: 'Alt+C', label: `Create ${noun}`, icon: 'plus', primary: true, onClick: () => create(), hidden: !canCreate },
-        { key: 'Alt+Shift+C', label: 'Create under selected', icon: 'plus', onClick: () => create(current?.id), hidden: !canCreate, disabled: !current },
-        ...(extraActions?.(current) ?? []),
-        {
-          key: 'Alt+D, Ctrl+D',
-          label: 'Delete',
-          icon: 'trash',
-          onClick: () => void remove(current),
-          hidden: !canDelete,
-          disabled: !current || busy,
-          hint: current ? (deleteBlocked?.(current) ?? undefined) : undefined,
-          group: 'danger',
-        },
-      ]}
+      actions={treeListActions(
+        noun,
+        { canCreate, canDelete, hasCurrent: current !== null, busy, deleteHint: current ? (deleteBlocked?.(current) ?? undefined) : undefined },
+        { create: () => create(), createUnder: () => create(current?.id), remove: () => void remove(current) },
+        extraActions?.(current) ?? [],
+      )}
       filters={
         <Field label="Search" hideLabel>
           <TextInput
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             leadingIcon="search"
-            placeholder={`Search ${noun}s`}
-            aria-label={`Search ${noun}s`}
+            placeholder={`Search ${plural}`}
+            aria-label={`Search ${plural}`}
             data-autofocus=""
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
@@ -172,22 +170,12 @@ export function TreeMasterList<T extends TreeMasterRow>(props: TreeMasterListPro
         onSelect={(k) => setSelected(k ?? undefined)}
         onRowActivate={(r) => nav.push(formScreen, { id: r.id })}
         loading={loading}
+        hideEmptyColumns
         empty={
           q ? (
-            <EmptyState icon="search" title={`No ${noun}s match “${search.trim()}”`} body="Change the search, or press Alt+C to create it." />
+            <EmptyState title={`No ${plural} match “${search.trim()}”`} body="Change the search, or press Alt+C to create it." />
           ) : (
-            <EmptyState
-              icon={icon}
-              title={emptyTitle}
-              body={emptyBody}
-              action={
-                canCreate ? (
-                  <Button variant="primary" icon="plus" shortcut="Alt+C" onClick={() => create()}>
-                    Create {noun}
-                  </Button>
-                ) : undefined
-              }
-            />
+            <EmptyState title={emptyTitle} body={emptyBody} action={canCreate ? <Button onClick={() => create()}>Create {noun}</Button> : undefined} />
           )
         }
       />

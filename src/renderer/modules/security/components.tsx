@@ -5,7 +5,7 @@
 import { Fragment, useMemo } from 'react';
 import type { PasswordPolicyInfo, SecurityUser, AuditFieldChange } from '../../../shared/types/security.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
-import { Badge, Icon, IconButton, Tooltip, useToast } from '../../ui/index.ts';
+import { Icon, IconButton, Tooltip, useToast } from '../../ui/index.ts';
 import { cx } from '../../ui/lib/cx.ts';
 import { actionLabel, actionTone, groupedHash } from './lib/auditQuery.ts';
 import { diffRows, KIND_LABEL } from './lib/diffFormat.ts';
@@ -19,14 +19,21 @@ export function usePasswordPolicy(): PasswordPolicyInfo | null {
   return q.data ?? null;
 }
 
+/**
+ * A user's status in words (2.1: badges only for exceptions): "Active · Owner · You" muted; a lockout or a
+ * password to change in its tone's text colour. Each word keeps its explanation as a tooltip.
+ */
 export function UserStatusBadges({ user, now }: { user: SecurityUser; now: Date }) {
   const badges = userBadges(user, now);
   return (
     <span className="bx-sec-badges">
-      {badges.map((b) => (
-        <Badge key={b.key} tone={b.tone} size="sm" title={b.title} dot={b.key === 'active' || b.key === 'inactive' || b.key === 'locked'}>
-          {b.label}
-        </Badge>
+      {badges.map((b, i) => (
+        <Fragment key={b.key}>
+          {i > 0 ? <span className="bx-muted" aria-hidden="true">·</span> : null}
+          <span className={b.tone === 'danger' ? 'bx-sec-text--danger' : b.tone === 'warning' ? 'bx-sec-text--warning' : 'bx-muted'} title={b.title}>
+            {b.label}
+          </span>
+        </Fragment>
       ))}
     </span>
   );
@@ -54,12 +61,9 @@ export function PasswordChecklist({ policy, password, username, showHistory = tr
   );
 }
 
-export function ActionBadge({ action }: { action: string }) {
-  return (
-    <Badge tone={actionTone(action)} size="sm">
-      {actionLabel(action)}
-    </Badge>
-  );
+/** An edit-log action in words (2.1: no badge on every entry); a deletion or a failed login is the one coloured word. */
+export function ActionText({ action }: { action: string }) {
+  return actionTone(action) === 'danger' ? <span className="bx-sec-text--danger">{actionLabel(action)}</span> : <>{actionLabel(action)}</>;
 }
 
 function DiffValue({ value, as }: { value: FormattedValue; as: 'del' | 'ins' | 'span' }) {

@@ -75,14 +75,9 @@ export function NoBanks() {
   const nav = useNav();
   return (
     <EmptyState
-      icon="bank"
       title="No bank accounts yet"
       body="Create a ledger under Bank Accounts (or Bank OD A/c for an overdraft / cash credit) to reconcile it with the bank."
-      action={
-        <Button variant="primary" icon="plus" onClick={() => nav.push('accounts.ledger.form', { groupCode: 'BANK_ACCOUNTS' })}>
-          Create bank ledger
-        </Button>
-      }
+      action={<Button onClick={() => nav.push('accounts.ledger.form', { groupCode: 'BANK_ACCOUNTS' })}>Create bank ledger</Button>}
     />
   );
 }

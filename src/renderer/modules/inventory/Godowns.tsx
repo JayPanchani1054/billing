@@ -22,7 +22,7 @@ import {
   userMessage,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, Field, FieldGroup, Inline, Select, Stack, Switch, TextArea, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Banner, Button, Field, FieldGroup, Inline, Select, Stack, Switch, TextArea, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { AcceptKey, FeatureOff, focusFirstError, HistoryButton, HistoryKey, INVENTORY_INVALIDATES, splitApiError, useMasterHistory } from './common.tsx';
 import { LedgerPicker } from '../accounts/pickers.tsx';
@@ -31,6 +31,13 @@ import type { Leveled } from './lib/tree.ts';
 import { descendantIds } from './lib/tree.ts';
 import { GodownPicker } from './pickers.tsx';
 import { TreeMasterList } from './TreeMasterList.tsx';
+
+/** The Type column's words: Main location, Principal's stock (job work), Third party or Own. */
+function godownKind(g: GodownDto): string {
+  if (g.isPredefined) return 'Main location';
+  if (g.thirdPartyKind === 'party_with_us') return "Principal's stock";
+  return g.isThirdParty ? 'Third party' : 'Own';
+}
 
 const OFF_BODY = 'Turn on Multiple godowns in Features (F11) to keep stock in more than one location. Until then all stock is in Main Location.';
 
@@ -41,27 +48,8 @@ export function GodownListScreen() {
   const del = useApiMutation('inventory.godown.delete', { invalidates: INVENTORY_INVALIDATES });
   const columns = useMemo<Column<Leveled<GodownDto>>[]>(
     () => [
-      {
-        key: 'kind',
-        header: 'Type',
-        width: 140,
-        render: (g) =>
-          g.isPredefined ? (
-            <Badge size="sm" tone="brand">
-              Main location
-            </Badge>
-          ) : g.thirdPartyKind === 'party_with_us' ? (
-            <Badge size="sm" tone="info">
-              Principal's stock
-            </Badge>
-          ) : g.isThirdParty ? (
-            <Badge size="sm" tone="warning">
-              Third party
-            </Badge>
-          ) : (
-            <span className="bx-muted">Own</span>
-          ),
-      },
+      // Plain words (2.1): only what is special about a location is said; "Own" stays quiet.
+      { key: 'kind', header: 'Type', width: 160, value: godownKind, render: (g) => (godownKind(g) === 'Own' ? <span className="bx-muted">Own</span> : godownKind(g)) },
       { key: 'address', header: 'Address', value: (g) => (g.address ?? '').replace(/\s*\n\s*/g, ', ') },
     ],
     [],
@@ -230,7 +218,7 @@ function GodownForm({ title, saved, params, all }: { title: string; saved: Godow
           <Inline gap={2}>
             <HistoryButton onOpen={history} />
             {deletable ? (
-              <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
+              <Button variant="danger" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
                 Delete
               </Button>
             ) : null}
@@ -240,7 +228,7 @@ function GodownForm({ title, saved, params, all }: { title: string; saved: Godow
       footer={
         <>
           <Button onClick={() => void nav.back()}>Cancel</Button>
-          <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()} disabled={readOnly}>
+          <Button variant="primary" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()} disabled={readOnly}>
             {forResult ? 'Save & return' : 'Save'}
           </Button>
         </>

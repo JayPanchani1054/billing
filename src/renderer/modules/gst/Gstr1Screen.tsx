@@ -1,18 +1,23 @@
 /**
- * 'gst.gstr1' {period?} — GSTR-1 summary for a return period: one tile per table (4A … 13) with
- * counts, taxable value and tax; Enter on a tile opens its documents ('gst.gstr1.section'); the
- * uncertain-transactions panel links to the voucher / master to fix; Alt+J saves the portal JSON;
- * Alt+E exports the summary to Excel / CSV / PDF.
+ * 'gst.gstr1' {period?} — GSTR-1 for a return period, as the portal's tables (2.1, SPEC-21 §1.9): one
+ * row per table that has something to report (4A … 11), the Total row, then the check tables 12 and 13;
+ * More › "Show empty tables" lists every table. Enter on a row opens its documents ('gst.gstr1.section').
+ * No graph — the tables are the filing. The stat answers "can I file?" ("Nothing blocking" / "N block
+ * the JSON · Review ›"); the return period is the title row's token (Alt+F2); notes are in More ›
+ * "About this return". Alt+J saves the portal JSON; Alt+E exports the summary.
  */
 import { useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { Gstr1Summary } from '../../../shared/types/gst-returns.ts';
-import { api, formatMoney, ReportScreen, useApiQuery, useCan, useConfirm, useNav, userMessage } from '../../app/index.ts';
+import { api, formatDate, formatMoney, ReportScreen, useApiQuery, useCan, useConfirm, useNav, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Grid, KpiCard, useRovingFocus, useToast } from '../../ui/index.ts';
-import { FileResultDialog, GstHelp, IssuesPanel, PeriodSelect, saveJsonFile, useReturnPeriod } from './components.tsx';
+import { checkItem } from '../../app/lib/moreItems.ts';
+import { Badge, Banner, Button, EmptyState, StatLine, useRovingFocus, useToast } from '../../ui/index.ts';
+import { FileResultDialog, IssuesPanel, PeriodSelect, ReturnAbout, saveJsonFile, useReturnPeriod } from './components.tsx';
 import type { FileResult } from './components.tsx';
-import { buildTiles, countText, summaryExport, taxOf } from './lib/gstr1.ts';
+import { buildTiles, countText, gstr1Rows, summaryExport, tileName } from './lib/gstr1.ts';
 import type { Gstr1Tile } from './lib/gstr1.ts';
+import { gstr1Excluded, gstr1Stat, gstr1Total } from './lib/returnCharts.ts';
 import { MarkFiledDialog } from './plusComponents.tsx';
 
 export interface Gstr1Params {
@@ -32,6 +37,7 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<FileResult | null>(null);
   const [marking, setMarking] = useState(false);
+  const [showEmpty, setShowEmpty] = useState(false);
   const composition = rp.periods?.registration === 'composition';
   const amendCount = summary ? (summary.amendments?.invoices.length ?? 0) + (summary.amendments?.notes.length ?? 0) + (summary.amendments?.b2cs.length ?? 0) + (summary.amendments?.late.length ?? 0) : 0;
 
@@ -73,7 +79,10 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
     else if (rp.key) nav.push('gst.gstr1.section', { period: rp.key, tile: t.id });
   };
 
-  const errors = summary?.issues.filter((i) => i.severity === 'error').length ?? 0;
+  const openExceptions = (): void => {
+    if (summary) nav.push('gst.exceptions', { from: summary.period.from, to: summary.period.to });
+  };
+  const stat = summary ? gstr1Stat(summary.issues) : null;
   const actions: ScreenActionItem[] = [
     { key: 'Alt+F2', label: 'Return period', icon: 'calendar', onClick: () => selectRef.current?.focus(), group: 'period' },
     {
@@ -98,15 +107,32 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
       group: 'file',
     },
     { key: 'Alt+M', label: `Amendments${amendCount ? ` (${amendCount})` : ''}`, icon: 'list', onClick: () => rp.key && nav.push('gst.amendments', { period: rp.key }), disabled: !rp.key, group: 'go' },
+    checkItem('Show empty tables', showEmpty, setShowEmpty),
   ];
 
   return (
     <>
       <ReportScreen
         title="GSTR-1"
-        subtitle={rp.label ? `Outward supplies · ${rp.label}` : 'Outward supplies'}
         periodMode="none"
-        filters={<PeriodSelect periods={rp.periods} value={rp.key} onChange={rp.setKey} selectRef={selectRef} />}
+        context={<PeriodSelect periods={rp.periods} value={rp.key} onChange={rp.setKey} selectRef={selectRef} token />}
+        meta={
+          summary?.filing ? (
+            <span title={summary.filing.arn ? `ARN ${summary.filing.arn}` : undefined}>Filed {formatDate(summary.filing.filedOn, 'D-MMM-YY')}</span>
+          ) : undefined
+        }
+        stat={
+          stat ? (
+            <StatLine
+              items={[
+                { label: '', value: stat.text, tone: stat.tone ?? undefined },
+                ...(stat.link ? [{ label: stat.link, value: '', link: true, onClick: openExceptions, title: 'GST exceptions for this period · Alt+X' }] : []),
+              ]}
+            />
+          ) : undefined
+        }
+        about={summary ? <Gstr1About summary={summary} /> : undefined}
+        aboutLabel="About this return"
         actions={actions}
         exportDef={summary ? () => ({ ...summaryExport(summary), title: 'GSTR-1 Summary', period: summary.period.label }) : undefined}
         loading={rp.loading || (q.loading && !summary)}
@@ -120,12 +146,6 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
             This company is registered under composition: it does not file GSTR-1. Open GST › CMP-08 for the quarterly statement.
           </Banner>
         ) : null}
-        {summary?.filing ? (
-          <Banner tone="success" inline>
-            Filed on {summary.filing.filedOn}
-            {summary.filing.arn ? ` (ARN ${summary.filing.arn})` : ''}. Changes to its documents are reported as amendments in the next GSTR-1 (Alt+M).
-          </Banner>
-        ) : null}
         {amendCount > 0 ? (
           <Banner tone="warning" inline>
             {amendCount} amended or late document(s) of earlier filed periods are reported in this return — Alt+M lists them.
@@ -136,7 +156,7 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
             Return periods start from the date your books begin. Record a sale or purchase to see it here.
           </Banner>
         ) : summary ? (
-          <Gstr1Body summary={summary} tiles={tiles} onOpen={openTile} errors={errors} onShowAll={() => nav.push('gst.exceptions', { from: summary.period.from, to: summary.period.to })} />
+          <Gstr1Body summary={summary} tiles={tiles} showEmpty={showEmpty} onShowEmpty={() => setShowEmpty(true)} onOpen={openTile} onShowAll={openExceptions} />
         ) : null}
       </ReportScreen>
       <FileResultDialog result={result} onClose={() => setResult(null)} />
@@ -155,99 +175,147 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
   );
 }
 
-function Gstr1Body({ summary, tiles, onOpen, errors, onShowAll }: { summary: Gstr1Summary; tiles: Gstr1Tile[]; onOpen: (t: Gstr1Tile) => void; errors: number; onShowAll: () => void }) {
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  const roving = useRovingFocus(gridRef, { orientation: 'both' });
-  const ex = summary.excluded;
-  const excluded = [
-    ex.optional > 0 ? `${ex.optional} optional` : '',
-    ex.cancelled > 0 ? `${ex.cancelled} cancelled` : '',
-    ex.notGst > 0 ? `${ex.notGst} without GST` : '',
-  ].filter(Boolean);
+/** More › "About this return": what the screen is for, what is not in the return, and the core's notes. */
+function Gstr1About({ summary }: { summary: Gstr1Summary }) {
+  const excluded = gstr1Excluded(summary);
+  return (
+    <ReturnAbout
+      lead="Your sales for the period arranged table by table as on the GST portal. Open a table with Enter to check its documents, fix what blocks the JSON (GST exceptions, Alt+X), then save the JSON (Alt+J) and upload it on the portal."
+      notes={summary.notes}
+    >
+      <p>
+        {excluded ? `Not in GSTR-1 for ${summary.period.label}: ${excluded}.` : 'Every document of the period is reported.'} Tables 12 (HSN summary) and 13 (documents issued) restate
+        the others, so the Total row does not add them. Credit notes reduce the tables they belong to.
+      </p>
+      {summary.filing ? (
+        <p>
+          Filed on {formatDate(summary.filing.filedOn)}
+          {summary.filing.arn ? ` (ARN ${summary.filing.arn})` : ''}. Changes to its documents are reported as amendments in the next GSTR-1 (Alt+M).
+        </p>
+      ) : null}
+    </ReturnAbout>
+  );
+}
+
+function Gstr1Body({
+  summary,
+  tiles,
+  showEmpty,
+  onShowEmpty,
+  onOpen,
+  onShowAll,
+}: {
+  summary: Gstr1Summary;
+  tiles: Gstr1Tile[];
+  showEmpty: boolean;
+  onShowEmpty: () => void;
+  onOpen: (t: Gstr1Tile) => void;
+  onShowAll: () => void;
+}) {
+  const bodyRef = useRef<HTMLTableSectionElement | null>(null);
+  // ↑/↓ (and ←/→, as between the 2.0 tiles) move between the tables; Home/End to the ends.
+  const roving = useRovingFocus(bodyRef, { orientation: 'both' });
+  const rows = useMemo(() => gstr1Rows(tiles, showEmpty), [tiles, showEmpty]);
+  const total = gstr1Total(summary, rows.supply);
+  const first = rows.supply[0] ?? rows.checks[0];
+  if (!first) {
+    return (
+      <EmptyState
+        title={`Nothing to report for ${summary.period.label}`}
+        body="No sales, notes or advances fall in this return period."
+        action={
+          <Button variant="link" onClick={onShowEmpty}>
+            Show empty tables
+          </Button>
+        }
+      />
+    );
+  }
+  const row = (t: Gstr1Tile): ReactNode => <TableRow key={t.id} tile={t} onOpen={onOpen} autoFocus={t === first} />;
   return (
     <div className="bx-gst-scroll">
-      <GstHelp>
-        Your sales for the period arranged table by table as on the GST portal. Open a table with Enter to check its invoices, fix the uncertain transactions, then
-        save the JSON (Alt+J) and upload it on the portal.
-      </GstHelp>
-      {summary.notes.length > 0 ? (
-        <Banner tone="info" title="Notes">
-          <ul className="bx-gst-list">
-            {summary.notes.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-        </Banner>
-      ) : null}
-      {errors > 0 ? (
-        <Banner tone="danger" title={`${errors} ${errors === 1 ? 'problem needs' : 'problems need'} fixing before you file`}>
-          The portal would reject these documents or the return would be wrong. See Uncertain transactions below.
-        </Banner>
-      ) : null}
-      <Grid minItemWidth={180} gap={3}>
-        <KpiCard label="Taxable value" value={summary.totals.taxable} amount caption="All tables except 4B" />
-        <KpiCard
-          label="Total tax"
-          value={taxOf(summary.totals)}
-          amount
-          caption={`IGST ${formatMoney(summary.totals.igst)} · CGST ${formatMoney(summary.totals.cgst)} · SGST ${formatMoney(summary.totals.sgst)} · Cess ${formatMoney(summary.totals.cess)}`}
-        />
-        <KpiCard label="Not in GSTR-1" value={String(ex.optional + ex.cancelled + ex.notGst)} caption={excluded.length > 0 ? excluded.join(' · ') : 'Every document is reported'} />
-      </Grid>
-      <div ref={gridRef} className="bx-gst-tiles" role="group" aria-label="GSTR-1 tables" onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
-        {tiles.map((t, i) => (
-          <Tile key={t.id} tile={t} onOpen={onOpen} autoFocus={i === 0} />
-        ))}
-      </div>
-      <IssuesPanel issues={summary.issues} onShowAll={onShowAll} />
+      <table className="bx-gst-form" aria-label={`GSTR-1 tables, ${summary.period.label}`}>
+        <thead>
+          <tr>
+            <th scope="col" className="bx-gst-form__row">
+              Table
+            </th>
+            <th scope="col">Name</th>
+            <th scope="col" className="is-num">
+              Count
+            </th>
+            <th scope="col" className="is-num">
+              Taxable value
+            </th>
+            <th scope="col" className="is-num">
+              Tax
+            </th>
+          </tr>
+        </thead>
+        <tbody ref={bodyRef} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
+          {rows.supply.map(row)}
+          <tr className="is-total" title={total.note ? `${total.split}. ${total.note}` : total.split}>
+            <td className="bx-gst-form__row" />
+            <th scope="row">
+              {total.label}
+              {total.note ? <span className="bx-sr-only"> ({total.note})</span> : null}
+            </th>
+            <td className="is-num" />
+            <td className="is-num">{formatMoney(total.taxable)}</td>
+            <td className="is-num">{formatMoney(total.tax)}</td>
+          </tr>
+          {rows.checks.map(row)}
+        </tbody>
+      </table>
+      {summary.issues.length > 0 ? <IssuesPanel issues={summary.issues} onShowAll={onShowAll} defaultCollapsed /> : null}
     </div>
   );
 }
 
-function Tile({ tile, onOpen, autoFocus }: { tile: Gstr1Tile; onOpen: (t: Gstr1Tile) => void; autoFocus: boolean }) {
-  const label = `Table ${tile.table}, ${tile.title}: ${countText(tile.count, tile.countLabel)}, taxable ${formatMoney(tile.taxable)}, tax ${formatMoney(tile.tax)}${
-    tile.errors ? `, ${tile.errors} errors` : ''
-  }${tile.warnings ? `, ${tile.warnings} warnings` : ''}`;
+/**
+ * One table of the return: the first cell is a plain button named exactly as the 2.0 tile (Enter opens
+ * the table, ↑/↓ move between tables); a click anywhere on the row opens it too.
+ */
+function TableRow({ tile, onOpen, autoFocus }: { tile: Gstr1Tile; onOpen: (t: Gstr1Tile) => void; autoFocus: boolean }) {
+  const open = (): void => onOpen(tile);
   return (
-    <button
-      type="button"
-      className={`bx-gst-tile${tile.empty ? ' is-empty' : ''}${tile.errors > 0 ? ' has-errors' : ''}`}
-      data-roving-item=""
-      data-autofocus={autoFocus ? '' : undefined}
-      aria-label={label}
-      onClick={() => onOpen(tile)}
-    >
-      <span className="bx-gst-tile__head">
-        <span className="bx-gst-tile__table">{tile.table}</span>
-        <span className="bx-gst-tile__title">{tile.title}</span>
-      </span>
-      <span className="bx-gst-tile__help">{tile.help}</span>
-      {/* A button may only contain phrasing content, so the figures are spans laid out as a grid. */}
-      <span className="bx-gst-tile__figures" aria-hidden="true">
-        <span className="bx-gst-tile__label">{tile.countLabel === 'documents' ? 'Documents' : tile.countLabel === 'rows' ? 'Rows' : 'Series'}</span>
-        <span className="bx-gst-tile__value">{tile.count}</span>
-        <span className="bx-gst-tile__label">Taxable</span>
-        <span className="bx-gst-tile__value">{formatMoney(tile.taxable)}</span>
-        <span className="bx-gst-tile__label">Tax</span>
-        <span className="bx-gst-tile__value">{formatMoney(tile.tax)}</span>
-      </span>
-      <span className="bx-gst-tile__foot">
+    <tr className="bx-gst-link-row" onClick={open} title={[tile.help, ...tile.notes].join(' ')}>
+      <td className="bx-gst-form__row">
+        <Button
+          variant="link"
+          size="sm"
+          data-roving-item=""
+          data-autofocus={autoFocus ? '' : undefined}
+          aria-label={tileName(tile)}
+          onClick={(e) => {
+            e.stopPropagation();
+            open();
+          }}
+        >
+          {tile.table}
+        </Button>
+      </td>
+      <th scope="row">
+        {tile.title}
         {tile.errors > 0 ? (
-          <Badge tone="danger" size="sm" icon="x-circle">
-            {tile.errors} {tile.errors === 1 ? 'error' : 'errors'}
-          </Badge>
+          <>
+            {' '}
+            <Badge tone="danger" size="sm">
+              {tile.errors} {tile.errors === 1 ? 'error' : 'errors'}
+            </Badge>
+          </>
+        ) : tile.warnings > 0 ? (
+          <>
+            {' '}
+            <Badge tone="warning" size="sm">
+              {tile.warnings} {tile.warnings === 1 ? 'warning' : 'warnings'}
+            </Badge>
+          </>
         ) : null}
-        {tile.warnings > 0 ? (
-          <Badge tone="warning" size="sm" icon="alert">
-            {tile.warnings} {tile.warnings === 1 ? 'warning' : 'warnings'}
-          </Badge>
-        ) : null}
-        {tile.notes.length > 0 ? (
-          <Badge tone="info" size="sm" icon="info" title={tile.notes.join(' ')}>
-            Note
-          </Badge>
-        ) : null}
-      </span>
-    </button>
+      </th>
+      <td className="is-num">{countText(tile.count, tile.countLabel)}</td>
+      <td className="is-num">{formatMoney(tile.taxable)}</td>
+      <td className="is-num">{formatMoney(tile.tax)}</td>
+    </tr>
   );
 }

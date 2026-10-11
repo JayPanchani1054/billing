@@ -14,9 +14,10 @@ import { invalidate } from '../../app/queryClient.ts';
 import type { ScreenProps } from '../../app/registry.ts';
 import { Screen } from '../../app/Screen.tsx';
 import { useCompany } from '../../app/state.tsx';
-import { Badge, Banner, Button, Checkbox, DataTable, EmptyState, FieldGroup, Icon, Inline, Panel, SegmentedControl, Stack } from '../../ui/index.ts';
+import { Badge, Banner, Button, DataTable, EmptyState, FieldGroup, Panel, SegmentedControl, Stack } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { chooseFile, Steps, useSaveFile, type ChosenFile } from './components.tsx';
+import { chooseFile, TipCheckbox, useEnterRunsStep, useSaveFile, type ChosenFile } from './components.tsx';
+import { stepLine } from './lib/backupView.ts';
 import {
   actionText,
   commitBlockReason,
@@ -202,31 +203,50 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
     step === 'kind'
       ? { label: 'Continue', icon: 'arrow-right' as const, run: () => kindCursor && setKind(kindCursor), disabled: !kindCursor }
       : step === 'file'
-        ? { label: 'Choose file…', icon: 'upload' as const, run: () => void pickFile(), disabled: busy !== null }
+        ? { label: busy === 'preview' ? 'Checking rows…' : 'Choose file…', icon: 'upload' as const, run: () => void pickFile(), disabled: busy !== null }
         : step === 'preview'
-          ? { label: 'Import', icon: 'check' as const, run: () => void commit(), disabled: busy !== null || !!blocked }
+          ? { label: preview ? importLabel(preview.summary.willCreate + preview.summary.willUpdate) : 'Import', icon: 'check' as const, run: () => void commit(), disabled: busy !== null || !!blocked }
           : { label: 'Import another file', icon: 'refresh' as const, run: () => restart(true), disabled: false };
+
+  // Enter on the file step chooses the file, as Enter on 2.0's focused in-page button did (Ctrl+A too).
+  useEnterRunsStep(() => void pickFile(), step === 'file' && busy === null);
 
   return (
     <Screen
       title="Import from Excel"
-      subtitle={info ? info.label : 'Bring masters, opening balances and invoices in from Excel or CSV.'}
-      icon="upload"
+      // 2.1: the step is words in the title row (no row of numbered discs); step 1 adds the order to import in.
+      subtitle={[info?.label, stepLine(STEPS, step), step === 'kind' ? 'masters first, then opening balances, then invoices' : null].filter(Boolean).join(' · ')}
       width="full"
       dirty={step === 'preview' && busy !== 'commit'}
       hint={
         step === 'kind'
           ? '↑/↓ Choose · Enter Continue · Esc Back'
           : step === 'file'
-            ? 'Alt+T Template · Ctrl+A Choose file · Alt+B Back'
+            ? 'Enter Choose file · Alt+T Template · Alt+B Back'
             : step === 'preview'
               ? 'Ctrl+A Import · Alt+O Another file · Alt+B Back'
               : 'Ctrl+A Import another · Esc Close'
       }
       actions={[
         { key: 'Ctrl+A', label: primary.label, icon: primary.icon, primary: true, onClick: primary.run, disabled: primary.disabled },
-        { key: 'Alt+T', label: 'Download template', icon: 'download', onClick: () => void downloadTemplate(), hidden: !kind || step === 'result', disabled: busy !== null },
-        { key: 'Alt+O', label: 'Choose another file', icon: 'folder', onClick: () => void pickFile(), hidden: step !== 'preview', disabled: busy !== null },
+        {
+          key: 'Alt+T',
+          label: 'Download template',
+          icon: 'download',
+          onClick: () => void downloadTemplate(),
+          prominent: step === 'file',
+          hidden: !kind || step === 'result',
+          disabled: busy !== null,
+        },
+        {
+          key: 'Alt+O',
+          label: 'Choose another file',
+          icon: 'folder',
+          onClick: () => void pickFile(),
+          prominent: true,
+          hidden: step !== 'preview',
+          disabled: busy !== null,
+        },
         { key: 'Alt+B', label: 'Previous step', icon: 'arrow-left', onClick: back, hidden: step === 'kind' || step === 'result' },
         { key: 'Alt+X', label: 'XML data import', icon: 'sync', onClick: () => nav.push('data.xmlImport'), group: 'more' },
       ]}
@@ -235,7 +255,6 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
       onRetry={() => void kindsQ.refetch()}
     >
       <Stack gap={4}>
-        <Steps steps={STEPS} current={step} label="Import steps" />
         {error ? (
           <Banner
             tone={error.retry ? 'warning' : 'danger'}
@@ -243,7 +262,7 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
             onDismiss={() => setError(null)}
             action={
               error.retry ? (
-                <Button size="sm" icon="refresh" onClick={error.retry} disabled={busy !== null}>
+                <Button size="sm" variant="link" onClick={error.retry} disabled={busy !== null}>
                   Wait and retry
                 </Button>
               ) : undefined
@@ -255,12 +274,12 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
         ) : null}
         {waiting ? (
           <Banner tone="info" title="Waiting for the other task to finish…">
-            The import starts by itself as soon as the company is free (Pevqori checks every 2 seconds, for up to 2 minutes).
+            It starts by itself when the company is free.
           </Banner>
         ) : null}
 
         {step === 'kind' ? <KindStep kinds={kindsQ.data ?? []} cursor={cursor} setCursor={setCursor} onChoose={(k) => setKind(k)} /> : null}
-        {step === 'file' && info ? <FileStep info={info} busy={busy} onTemplate={() => void downloadTemplate()} onChoose={() => void pickFile()} /> : null}
+        {step === 'file' && info ? <FileStep info={info} /> : null}
         {step === 'preview' && preview && file && kind ? (
           <PreviewStep
             preview={preview}
@@ -276,10 +295,9 @@ export function ImportScreen({ params }: ScreenProps<{ kind?: ImportKind }>) {
             setAcknowledgeWarnings={setAcknowledgeWarnings}
             blocked={blocked}
             busy={busy}
-            onCommit={() => void commit()}
           />
         ) : null}
-        {step === 'result' && result ? <ResultStep result={result} onAgain={() => restart(true)} onOther={() => restart(false)} /> : null}
+        {step === 'result' && result ? <ResultStep result={result} onOther={() => restart(false)} /> : null}
       </Stack>
     </Screen>
   );
@@ -292,53 +310,54 @@ function KindStep({ kinds, cursor, setCursor, onChoose }: { kinds: readonly Impo
     () => [
       { key: 'label', header: 'Import', width: 260, render: (k) => <strong>{k.label}</strong> },
       { key: 'description', header: 'What it brings in' },
-      { key: 'group', header: 'Kind', width: 120, value: (k) => (isVoucherKind(k.kind) ? 'Transactions' : 'Masters'), render: (k) => <Badge size="sm" tone={isVoucherKind(k.kind) ? 'info' : 'neutral'}>{isVoucherKind(k.kind) ? 'Transactions' : 'Masters'}</Badge> },
+      { key: 'group', header: 'Kind', width: 120, value: (k) => (isVoucherKind(k.kind) ? 'Transactions' : 'Masters') },
     ],
     [],
   );
   return (
-    <Panel title="What would you like to import?" description="Import masters first (groups → ledgers → units → items), then opening balances, then invoices.">
-      <DataTable<ImportKindInfo>
-        aria-label="Kinds of import"
-        autoFocus
-        columns={columns}
-        rows={kinds}
-        getRowKey={(k) => k.kind}
-        selectedKey={cursor ?? kinds[0]?.kind ?? null}
-        onSelect={(k) => setCursor(k)}
-        onRowActivate={(k) => onChoose(k.kind)}
-        virtualize={false}
-      />
-    </Panel>
+    <DataTable
+      aria-label="Kinds of import"
+      autoFocus
+      columns={columns}
+      rows={kinds}
+      getRowKey={(k) => k.kind}
+      selectedKey={cursor ?? kinds[0]?.kind ?? null}
+      onSelect={(k) => setCursor(k)}
+      onRowActivate={(k) => onChoose(k.kind)}
+      virtualize={false}
+      empty={<EmptyState size="sm" title="Nothing can be imported here" body="Your role does not allow imports into this company." />}
+    />
   );
 }
 
-function FileStep({ info, busy, onTemplate, onChoose }: { info: ImportKindInfo; busy: string | null; onTemplate: () => void; onChoose: () => void }) {
+function FileStep({ info }: { info: ImportKindInfo }) {
   const columns = useMemo<Column<ImportKindInfo['columns'][number]>[]>(
     () => [
       { key: 'header', header: 'Column', width: 200, render: (c) => <strong>{c.header}</strong> },
-      { key: 'required', header: 'Needed', width: 100, render: (c) => (c.required ? <Badge size="sm" tone="warning">Required</Badge> : <span className="bx-muted">Optional</span>) },
+      { key: 'required', header: 'Needed', width: 100, render: (c) => (c.required ? 'Required' : <span className="bx-muted">Optional</span>) },
       { key: 'help', header: 'What to enter', render: (c) => (c.choices?.length ? `${c.help} (${c.choices.join(', ')})` : c.help) },
     ],
     [],
   );
+  // 2.1: Download template (Alt+T) and Choose file… (Ctrl+A) are the title row's buttons; the step shows what the file needs.
   return (
-    <Stack gap={4}>
-      <Panel title={`1. Get the ${info.label.toLowerCase()} template`} description="An Excel file with the right headings, two example rows and an Instructions sheet. Delete the examples and type or paste your data.">
-        <Inline gap={2}>
-          <Button icon="download" loading={busy === 'template'} onClick={onTemplate} shortcut="Alt+T">
-            Download template
-          </Button>
-          <span className="bx-muted">Your own sheet works too, as long as the first row has these headings.</span>
-        </Inline>
-      </Panel>
-      <Panel title="2. Choose your filled-in file" description="Excel (.xlsx) or CSV. Nothing is saved until you have checked every row on the next step.">
-        <Button variant="primary" icon="upload" loading={busy === 'file' || busy === 'preview'} onClick={onChoose} shortcut="Ctrl+A" data-autofocus>
-          {busy === 'preview' ? 'Checking rows…' : 'Choose file…'}
-        </Button>
-      </Panel>
-      <Panel title="Columns" description={info.groupByHeader ? `Rows with the same “${info.groupByHeader}” form one record.` : undefined} collapsible defaultCollapsed={false}>
-        <DataTable aria-label={`${info.label} columns`} columns={columns} rows={info.columns} getRowKey={(c) => c.key} virtualize={false} />
+    <Stack gap={3}>
+      <p className="bx-muted">
+        Excel (.xlsx) or CSV with these headings in the first row — the template has them, two example rows and an Instructions sheet. Nothing is
+        saved until you have checked every row.
+      </p>
+      <Panel title="Columns">
+        <Stack gap={2}>
+          {info.groupByHeader ? <p className="bx-muted">Rows with the same “{info.groupByHeader}” form one record.</p> : null}
+          <DataTable
+            aria-label={`${info.label} columns`}
+            columns={columns}
+            rows={info.columns}
+            getRowKey={(c) => c.key}
+            virtualize={false}
+            empty={<EmptyState size="sm" title="No columns" body="This import takes no columns." />}
+          />
+        </Stack>
       </Panel>
     </Stack>
   );
@@ -358,7 +377,6 @@ function PreviewStep(p: {
   setAcknowledgeWarnings: (v: boolean) => void;
   blocked: string | null;
   busy: string | null;
-  onCommit: () => void;
 }) {
   const { preview } = p;
   const s = preview.summary;
@@ -371,12 +389,16 @@ function PreviewStep(p: {
         key: 'status',
         header: 'Status',
         width: 110,
+        value: (r) => statusBadge(r.status).label,
+        // 2.1: "Ready" / "Exists" are words; only a row to check or fix is a badge.
         render: (r) => {
           const b = statusBadge(r.status);
-          return (
+          return b.tone === 'danger' || b.tone === 'warning' ? (
             <Badge size="sm" tone={b.tone}>
               {b.label}
             </Badge>
+          ) : (
+            b.label
           );
         },
       },
@@ -388,67 +410,50 @@ function PreviewStep(p: {
   const voucher = isVoucherKind(p.kind);
   return (
     <Stack gap={4}>
-      <Panel
-        title={
-          <span className="bx-data-file">
-            <Icon name="file" size="sm" />
-            <span className="bx-data-file__name">{p.file.name}</span>
-            <span>
-              {formatBytes(p.file.size)}
-              {preview.sheet ? ` · sheet “${preview.sheet}”` : ''} · headings on row {preview.headerRow}
-            </span>
-          </span>
-        }
-      >
-        <Stack gap={3}>
-          <Banner tone={s.error ? 'danger' : s.warning ? 'warning' : 'success'} title={previewSummaryText(preview)}>
-            {s.error
-              ? 'Rows with errors cannot be imported. Correct them in the file and choose it again (Alt+O), or skip them.'
-              : s.warning
-                ? 'Read the warnings below before importing.'
-                : 'Every row can be imported.'}
-          </Banner>
-          {preview.unmappedHeaders.length ? (
-            <Banner tone="info" title="Some columns were not recognised and will be ignored">
-              {preview.unmappedHeaders.join(', ')}
-            </Banner>
-          ) : null}
-        </Stack>
-      </Panel>
-      <Inline gap={3} align="center">
+      <p className="bx-data-file">
+        <span className="bx-data-file__name">{p.file.name}</span>
+        <span>
+          {formatBytes(p.file.size)}
+          {preview.sheet ? ` · sheet “${preview.sheet}”` : ''} · headings on row {preview.headerRow}
+        </span>
+      </p>
+      <Banner tone={s.error ? 'danger' : s.warning ? 'warning' : 'success'} title={previewSummaryText(preview)}>
+        {s.error ? 'Rows with errors cannot be imported — correct them in the file and choose it again (Alt+O), or skip them.' : s.warning ? 'Read the warnings below before importing.' : null}
+      </Banner>
+      {preview.unmappedHeaders.length ? (
+        <Banner tone="info" title="Some columns were not recognised and will be ignored">
+          {preview.unmappedHeaders.join(', ')}
+        </Banner>
+      ) : null}
+      <div className="bx-toolbar-row">
         <SegmentedControl aria-label="Show rows" options={FILTERS} value={p.filter} onChange={p.setFilter} size="sm" />
-        <span className="bx-muted">
+        <span className="bx-toolbar-row__end bx-muted">
           Showing {rows.length} of {preview.rows.length}
         </span>
-      </Inline>
-      <DataTable<ImportRowResult>
+      </div>
+      <DataTable
         aria-label="Rows of the file"
         columns={columns}
         rows={rows}
         getRowKey={(r) => String(r.rowNumber)}
         height="min(50vh, 480px)"
-        empty={<EmptyState size="sm" icon="check-circle" title="No rows to show" body="Choose “All rows” to see everything." />}
+        empty={<EmptyState size="sm" title="No rows to show" body="Choose “All rows” to see everything." />}
       />
       <FieldGroup legend="Options" columns={voucher ? 3 : 2}>
-        <Checkbox label="Skip rows with errors" description="Import the good rows now and fix the rest later." checked={p.skipInvalid} onChange={p.setSkipInvalid} />
+        <TipCheckbox label="Skip rows with errors" tip="Import the good rows now and fix the rest later." checked={p.skipInvalid} onChange={p.setSkipInvalid} />
         {!voucher ? (
-          <Checkbox label="Update existing records" description="Masters that already exist are changed to match the file (otherwise they are left alone)." checked={p.updateExisting} onChange={p.setUpdateExisting} disabled={p.busy === 'preview'} />
+          <TipCheckbox label="Update existing records" tip="Masters that already exist are changed to match the file (otherwise they are left alone)." checked={p.updateExisting} onChange={p.setUpdateExisting} disabled={p.busy === 'preview'} />
         ) : null}
         {voucher ? (
-          <Checkbox label="Save vouchers with warnings" description="I have read the warnings (e.g. a number that cannot be kept)." checked={p.acknowledgeWarnings} onChange={p.setAcknowledgeWarnings} />
+          <TipCheckbox label="Save vouchers with warnings" tip="I have read the warnings (e.g. a number that cannot be kept)." checked={p.acknowledgeWarnings} onChange={p.setAcknowledgeWarnings} />
         ) : null}
       </FieldGroup>
       {p.blocked ? <p className="bx-muted" role="status">{p.blocked}</p> : null}
-      <div>
-        <Button variant="primary" icon="check" loading={p.busy === 'commit'} disabled={!!p.blocked || p.busy !== null} shortcut="Ctrl+A" onClick={p.onCommit}>
-          Import {s.willCreate + s.willUpdate} record{s.willCreate + s.willUpdate === 1 ? '' : 's'}
-        </Button>
-      </div>
     </Stack>
   );
 }
 
-function ResultStep({ result, onAgain, onOther }: { result: ImportCommitResult; onAgain: () => void; onOther: () => void }) {
+function ResultStep({ result, onOther }: { result: ImportCommitResult; onOther: () => void }) {
   const r = commitResultText(result);
   const columns = useMemo<Column<ImportRowResult>[]>(
     () => [
@@ -459,22 +464,37 @@ function ResultStep({ result, onAgain, onOther }: { result: ImportCommitResult; 
     ],
     [],
   );
+  // 2.1: "Import another file" is the title row's primary (Ctrl+A); a different kind is one link here.
   return (
     <Stack gap={4}>
-      <Banner tone={r.tone} title={r.title}>
+      <Banner
+        tone={r.tone}
+        title={r.title}
+        action={
+          <Button size="sm" variant="link" onClick={onOther}>
+            Import something else
+          </Button>
+        }
+      >
         {r.message}
       </Banner>
       {result.rows.length ? (
         <Panel title="Rows not imported">
-          <DataTable<ImportRowResult> aria-label="Rows not imported" columns={columns} rows={result.rows} getRowKey={(x) => String(x.rowNumber)} height="min(40vh, 360px)" />
+          <DataTable
+            aria-label="Rows not imported"
+            columns={columns}
+            rows={result.rows}
+            getRowKey={(x) => String(x.rowNumber)}
+            height="min(40vh, 360px)"
+            empty={<EmptyState size="sm" title="Every row was imported" />}
+          />
         </Panel>
       ) : null}
-      <Inline gap={2}>
-        <Button variant="primary" icon="refresh" onClick={onAgain} shortcut="Ctrl+A">
-          Import another file
-        </Button>
-        <Button onClick={onOther}>Import something else</Button>
-      </Inline>
     </Stack>
   );
+}
+
+/** The title row's primary on the check step says what it will do: "Import 12 records". */
+function importLabel(n: number): string {
+  return `Import ${n} record${n === 1 ? '' : 's'}`;
 }

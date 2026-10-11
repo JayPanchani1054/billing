@@ -2,14 +2,20 @@
  * 'reports.costCentres' {categoryId?, from?, to?} — Cost Category Summary: categories and their cost
  * centres (sub-centres rolled up). Enter on a centre shows its ledger breakup below; Enter on a
  * ledger of the breakup opens Ledger Vouchers.
+ *
+ * 2.1: "Net by cost centre" — the centres of the first (or the given) category, as 4 px bars in the Net
+ * column when there are ≤ 7 of them, else a Top 6 + Other strip (lib/charts.ts).
  */
 import { useMemo, useState } from 'react';
 import type { CostCentreLedgerRow, CostCentreRow } from '../../../shared/types/reports.ts';
 import { ReportScreen, useApiQuery } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { DataTable, EmptyState, Stack } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { useDrill, useReportPeriod, useTreeExpansion } from './components.tsx';
+import { costCentresChart, costCentresOf } from './lib/charts.ts';
 
 export interface CostCentresParams {
   categoryId?: number;
@@ -26,14 +32,17 @@ export function CostCentresScreen({ params }: ScreenProps<CostCentresParams>) {
   const d = q.data;
   const rows = useMemo(() => d?.rows ?? [], [d]);
   const expansion = useTreeExpansion('costCentres', rows, 1);
+  const spec = useMemo(() => costCentresChart(d, categoryId), [d, categoryId]);
+  const drawn = useMemo(() => new Set(d ? costCentresOf(d, categoryId).map((r) => r.key) : []), [d, categoryId]);
+  const inline = inlineBars(spec, drawn.size);
   const columns = useMemo<Column<CostCentreRow>[]>(
     () => [
       { key: 'name', header: 'Particulars', tree: true, minWidth: 220 },
       { key: 'debit', header: 'Debit', kind: 'amount', width: 150, blankZero: true },
       { key: 'credit', header: 'Credit', kind: 'amount', width: 150, blankZero: true },
-      { key: 'net', header: 'Net', kind: 'drcr', width: 170 },
+      { key: 'net', header: 'Net', kind: 'drcr', width: 170, bar: inline ? { value: (r) => (drawn.has(r.key) ? r.net : null), slot: 'polarity' } : undefined },
     ],
-    [],
+    [inline, drawn],
   );
   const ledgerColumns = useMemo<Column<CostCentreLedgerRow>[]>(
     () => [
@@ -54,8 +63,8 @@ export function CostCentresScreen({ params }: ScreenProps<CostCentresParams>) {
   return (
     <ReportScreen
       title="Cost Centres"
-      subtitle="Category summary"
       period={p.period}
+      graph={reportGraph(spec, { inline })}
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
@@ -71,10 +80,9 @@ export function CostCentresScreen({ params }: ScreenProps<CostCentresParams>) {
         levels: [...rows.map((r) => r.level), ...(centre ? [0, ...centre.ledgers.map(() => 1)] : [])],
       })}
     >
-      <Stack gap={3} grow>
+      <Stack gap={3}>
         <DataTable<CostCentreRow>
           aria-label="Cost categories and centres"
-          className="bx-rep-fill"
           columns={columns}
           rows={rows}
           getRowKey={(r) => r.key}
@@ -90,7 +98,7 @@ export function CostCentresScreen({ params }: ScreenProps<CostCentresParams>) {
         />
         {centre ? (
           <section className="bx-rep-side" aria-label={`Ledger breakup of ${centre.name}`}>
-            <div className="bx-rep-side__title">Ledger breakup — {centre.name}</div>
+            <h2 className="bx-rep-side__title">Ledger breakup — {centre.name}</h2>
             <DataTable<CostCentreLedgerRow>
               aria-label={`Ledger breakup of ${centre.name}`}
               columns={ledgerColumns}

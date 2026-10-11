@@ -251,7 +251,7 @@ export interface ItcTile {
 }
 
 /** Parts of the ITC at risk that are not zero: 'Not on portal 2,280.00 · credit notes not booked 180.00'. */
-export function itcRiskCaption(s: ReconSummary): string {
+export function itcRiskCaption(s: Pick<ReconSummary, 'itcAtRisk'>): string {
   const parts: Array<[string, Paise]> = [
     ['Not on portal', headsTotal(s.itcAtRisk.missingInPortal)],
     ['books higher', headsTotal(s.itcAtRisk.excessInBooks)],

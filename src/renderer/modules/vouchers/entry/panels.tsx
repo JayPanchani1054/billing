@@ -1,177 +1,124 @@
 /**
- * Side panels of the voucher screen: party details (GSTIN, state, balance, credit limit, pending
- * bills), live totals with the GST breakup and amount in words, and the checks list (server
- * warnings from preview / save, shown inline — info ones never interrupt saving).
+ * Voucher entry panels (2.1, SPEC-21 D13/D15/D16): the one-line party facts under the party, the sticky
+ * totals strip of an invoice, the side column's pending bills of a receipt / payment party, and the checks
+ * list (server warnings from preview / save — the side column shows it only with something to fix or
+ * confirm; info ones never interrupt saving). Every figure comes from the pure builders of lib/strip.ts.
  */
-import { memo } from 'react';
-import type { ReactNode } from 'react';
+import { Fragment, memo } from 'react';
 import { formatDate } from '../../../../shared/dates.ts';
 import { formatDrCr, formatMoney } from '../../../../shared/format.ts';
-import { stateLabel } from '../../../../shared/gst/index.ts';
-import type { Paise } from '../../../../shared/money.ts';
-import { amountInWords } from '../../../../shared/words.ts';
 import type { PartyContext, VoucherWarning } from '../../../../shared/types/vouchers.ts';
-import { Badge, Banner, Button, Icon, KeyValueList, Skeleton } from '../../../ui/index.ts';
-import { REF_TYPE_LABEL } from '../lib/bills.ts';
-import type { BillAllocationInput } from '../../../../shared/types/vouchers.ts';
-import type { TaxBreakupRow } from '../lib/masters.ts';
+import { Badge, Banner, Button, Skeleton } from '../../../ui/index.ts';
+import { stripAmount } from '../lib/strip.ts';
+import type { PartyLineSegment, TotalsStrip } from '../lib/strip.ts';
 
-const REG_TEXT: Readonly<Record<string, string>> = {
-  regular: 'Regular',
-  composition: 'Composition',
-  unregistered: 'Unregistered',
-  consumer: 'Consumer',
-  sez: 'SEZ',
-  overseas: 'Overseas',
-  deemed_export: 'Deemed export',
-  uin: 'UIN holder',
-};
+/**
+ * "Cur bal 54,356.00 Cr · Overdue 14,644.00 (190 d) · Limit exceeded" — one muted line, no keys (D15). The
+ * line is always there (empty until a party is chosen), so choosing one never moves the grid.
+ */
+export function PartyLine({ segments, onBalance }: { segments: readonly PartyLineSegment[]; onBalance?: () => void }) {
+  if (segments.length === 0) {
+    return (
+      <p className="bx-vch-partyline" aria-hidden="true">
+        {'\u00a0'}
+      </p>
+    );
+  }
+  return (
+    <p className="bx-vch-partyline">
+      {segments.map((s, i) => (
+        <Fragment key={s.key}>
+          {i > 0 ? ' · ' : null}
+          {s.key === 'balance' && onBalance ? (
+            <button type="button" className="bx-vch-partyline__link" title="Open the ledger" onClick={onBalance}>
+              {s.text}
+            </button>
+          ) : (
+            <span className={s.danger ? 'bx-vch-over' : undefined}>{s.text}</span>
+          )}
+        </Fragment>
+      ))}
+    </p>
+  );
+}
 
-export interface PartyPanelProps {
+/**
+ * The sticky totals strip of an invoice (D13): Taxable · CGST · SGST (or IGST) · Cess · Round off ·
+ * Total ₹ — right-aligned; the Total's tooltip says the supply kind, the GSTR-1 table and the amount in
+ * words; notes (engine notes, the server figure when it differs) as a second muted line.
+ */
+export const TotalsStripBar = memo(function TotalsStripBar({ strip, tooltip, notes }: { strip: TotalsStrip; tooltip: string; notes: readonly string[] }) {
+  return (
+    <section className="bx-vch-strip" aria-label="Totals">
+      <dl className="bx-vch-strip__row bx-num">
+        {strip.items.map((i) => (
+          <div key={i.key} className={i.muted ? 'bx-muted' : undefined}>
+            <dt>{i.label}</dt>
+            <dd>{stripAmount(i.amount)}</dd>
+          </div>
+        ))}
+        <div className="bx-vch-strip__total" title={tooltip || undefined}>
+          <dt>Total</dt>
+          <dd aria-live="polite">{`₹ ${formatMoney(strip.total)}`}</dd>
+        </div>
+      </dl>
+      {notes.length > 0 ? <p className="bx-vch-strip__notes">{notes.join(' · ')}</p> : null}
+    </section>
+  );
+});
+
+export interface PartyBillsPanelProps {
   party: PartyContext | undefined;
   loading: boolean;
-  /** Amount this voucher adds to the party's Dr balance (sales) — for the credit-limit line. */
-  voucherEffect: Paise;
-  bills: readonly BillAllocationInput[] | null;
-  billWiseOn: boolean;
-  onBills?: () => void;
   onOpenLedger?: () => void;
 }
 
-export const PartyPanel = memo(function PartyPanel({ party, loading, voucherEffect, bills, billWiseOn, onBills, onOpenLedger }: PartyPanelProps) {
+/**
+ * The side column of a receipt / payment whose party keeps bills (D16): the party, its balance and its
+ * pending bills (top 5 + "N more") — the work of the voucher, so it stays in view. Plain text, no card.
+ */
+export const PartyBillsPanel = memo(function PartyBillsPanel({ party, loading, onOpenLedger }: PartyBillsPanelProps) {
   if (loading && !party) {
     return (
       <section className="bx-vch-side" aria-label="Party details">
-        <Skeleton lines={5} />
+        <Skeleton lines={4} />
       </section>
     );
   }
   if (!party) return null;
-  const after = party.balance + voucherEffect;
-  const overLimit = party.creditLimit !== null && party.creditLimit > 0 && voucherEffect > 0 && after > party.creditLimit;
-  const pending = party.pendingBills.slice(0, 6);
+  const pending = party.pendingBills.slice(0, 5);
   return (
     <section className="bx-vch-side" aria-label="Party details">
-      <div className="bx-vch-side__head">
-        <h3 className="bx-vch-side__title">{party.name}</h3>
+      <h3 className="bx-vch-side__title">
+        {party.name}
         {onOpenLedger ? (
-          <Button size="sm" variant="link" onClick={onOpenLedger}>
-            Ledger
-          </Button>
+          <>
+            {' · '}
+            <Button variant="link" onClick={onOpenLedger}>
+              Ledger
+            </Button>
+          </>
         ) : null}
-      </div>
-      <KeyValueList
-        layout="inline"
-        labelWidth={110}
-        items={[
-          { label: 'GSTIN', value: party.gstin ?? (party.kind === 'debtor' || party.kind === 'creditor' ? 'Not registered' : '—') },
-          { label: 'Registration', value: party.registrationType ? (REG_TEXT[party.registrationType] ?? party.registrationType) : '—', hideEmpty: true },
-          { label: 'State', value: party.stateCode ? stateLabel(party.stateCode) : (party.country ?? '—') },
-          { label: 'Balance', value: <span className="bx-num">{formatDrCr(party.balance, { keepZero: true })}</span> },
-          ...(party.creditLimit
-            ? [{ label: 'Credit limit', value: <span className={overLimit ? 'bx-num bx-vch-over' : 'bx-num'}>{`₹ ${formatMoney(party.creditLimit)}${overLimit ? ' — exceeded' : ''}`}</span> }]
-            : []),
-          ...(party.creditDays ? [{ label: 'Credit period', value: `${party.creditDays} days` }] : []),
-        ]}
-      />
-      {party.billWise && billWiseOn ? (
-        <div className="bx-vch-side__bills">
-          <div className="bx-vch-side__head">
-            <h4 className="bx-vch-side__subtitle">Pending bills</h4>
-            {onBills ? (
-              <Button size="sm" variant="ghost" icon="receipt" shortcut="Alt+B" onClick={onBills}>
-                {bills ? 'Edit allocation' : 'Allocate'}
-              </Button>
-            ) : null}
-          </div>
-          {pending.length === 0 ? (
-            <p className="bx-muted">No pending bills.</p>
-          ) : (
-            <ul className="bx-vch-side__list">
-              {pending.map((b) => (
-                <li key={b.billName}>
-                  <span>{b.billName}</span>
-                  <span className="bx-muted">{b.dueDate ? `due ${formatDate(b.dueDate, 'D-MMM-YY')}` : formatDate(b.billDate, 'D-MMM-YY')}</span>
-                  <span className="bx-num">{formatDrCr(b.amount)}</span>
-                </li>
-              ))}
-              {party.pendingBills.length > pending.length ? <li className="bx-muted">+ {party.pendingBills.length - pending.length} more</li> : null}
-            </ul>
-          )}
-          {bills ? (
-            <p className="bx-vch-side__alloc">
-              This voucher: {bills.map((b) => `${REF_TYPE_LABEL[b.refType]}${b.billName ? ` ${b.billName}` : ''} ₹ ${formatMoney(b.amount)}`).join(' · ')}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
-  );
-});
-
-export interface TotalsPanelProps {
-  title: string;
-  /** Rows above the grand total (taxable, tax heads, charges, round off). */
-  rows: ReadonlyArray<{ key: string; label: ReactNode; amount: Paise; muted?: boolean }>;
-  total: Paise;
-  totalLabel: string;
-  words: boolean;
-  notes: readonly string[];
-  /** Server figure when it differs from the client's (shown as a note). */
-  serverTotal: Paise | null;
-  extra?: ReactNode;
-}
-
-export const TotalsPanel = memo(function TotalsPanel({ title, rows, total, totalLabel, words, notes, serverTotal, extra }: TotalsPanelProps) {
-  return (
-    <section className="bx-vch-side bx-vch-totals" aria-label={title}>
-      <h3 className="bx-vch-side__title">{title}</h3>
-      <dl className="bx-vch-totals__list">
-        {rows.map((r) => (
-          <div key={r.key} className={r.muted ? 'bx-vch-totals__row is-muted' : 'bx-vch-totals__row'}>
-            <dt>{r.label}</dt>
-            <dd className="bx-num">{r.amount < 0 ? `(−) ${formatMoney(-r.amount)}` : formatMoney(r.amount)}</dd>
-          </div>
-        ))}
-        <div className="bx-vch-totals__row is-grand">
-          <dt>{totalLabel}</dt>
-          <dd className="bx-num" aria-live="polite">
-            ₹ {formatMoney(total)}
-          </dd>
-        </div>
-      </dl>
-      {words && total > 0 ? <p className="bx-vch-totals__words">{amountInWords(total)}</p> : null}
-      {serverTotal !== null && serverTotal !== total ? (
-        <p className="bx-vch-totals__note">
-          <Icon name="info" size="sm" /> The books will record ₹ {formatMoney(serverTotal)} (checked with the saved masters).
-        </p>
-      ) : null}
-      {extra}
-      {notes.length > 0 ? (
-        <ul className="bx-vch-totals__notes" aria-label="GST notes">
-          {notes.map((n, i) => (
-            <li key={i}>{n}</li>
+      </h3>
+      <p className="bx-num">Cur bal {formatDrCr(party.balance, { keepZero: true })}</p>
+      <h4 className="bx-vch-side__subtitle">Pending bills</h4>
+      {pending.length === 0 ? (
+        <p className="bx-muted">None</p>
+      ) : (
+        <ul className="bx-vch-side__list">
+          {pending.map((b) => (
+            <li key={b.billName}>
+              <span>{b.billName}</span>
+              <span className="bx-muted">{formatDate(b.dueDate ?? b.billDate, 'D-MMM-YY')}</span>
+              <span className="bx-num">{formatDrCr(b.amount)}</span>
+            </li>
           ))}
+          {party.pendingBills.length > pending.length ? <li className="bx-muted">{party.pendingBills.length - pending.length} more</li> : null}
         </ul>
-      ) : null}
+      )}
     </section>
   );
 });
-
-export function breakupRows(o: {
-  taxable: Paise;
-  tax: readonly TaxBreakupRow[];
-  outside: Paise;
-  roundOff: Paise;
-  showTaxable: boolean;
-}): Array<{ key: string; label: ReactNode; amount: Paise; muted?: boolean }> {
-  const out: Array<{ key: string; label: ReactNode; amount: Paise; muted?: boolean }> = [];
-  if (o.showTaxable) out.push({ key: 'taxable', label: 'Taxable value', amount: o.taxable });
-  for (const t of o.tax) out.push({ key: t.key, label: t.label, amount: t.amount, muted: t.key.startsWith('rc:') });
-  if (o.outside !== 0) out.push({ key: 'outside', label: 'Other charges / deductions', amount: o.outside });
-  if (o.roundOff !== 0) out.push({ key: 'ro', label: 'Round off', amount: o.roundOff });
-  return out;
-}
 
 /** One line of the checks list: a server warning, or a hard error the preview reported. */
 export interface CheckItem {
@@ -193,8 +140,11 @@ export interface ChecksPanelProps {
 const LEVEL_TONE = { block: 'danger', confirm: 'warning', info: 'info' } as const;
 const LEVEL_TEXT = { block: 'Must fix', confirm: 'Check', info: 'Note' } as const;
 
+/** D16: the side column shows the checks only when one must be fixed or confirmed (info notes stay on their rows). */
+export const hasWork = (items: readonly CheckItem[]): boolean => items.some((i) => i.level !== 'info');
+
 export const ChecksPanel = memo(function ChecksPanel({ items, checking, onFocusPath }: ChecksPanelProps) {
-  if (items.length === 0 && !checking) return null;
+  if (!hasWork(items)) return null;
   const sorted = [...items].sort((a, b) => rank(a.level) - rank(b.level));
   return (
     <section className="bx-vch-side" aria-label="Checks" aria-live="polite">

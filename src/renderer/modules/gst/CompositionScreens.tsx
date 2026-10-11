@@ -8,6 +8,8 @@
  *   'gst.composition' —         — the company's composition category and the effective-dated rate
  *                     master (Alt+C create, Enter / Alt+A alter, Alt+D delete).
  * The screens explain themselves for a regular taxpayer (they file GSTR-1 / GSTR-3B instead).
+ * 2.1 (SPEC-21 §5): statutory forms and a rates master — no graph; the turnover figures read as one
+ * caption line, "Filed …" is the title row's state word, explanations and notes are in More › "About".
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Cmp08Row, Cmp08Summary, CompositionCategory, CompositionRate, Gstr4InwardRow, Gstr4QuarterRow, Gstr4RateRow, Gstr4Summary } from '../../../shared/types/gst-plus.ts';
@@ -16,9 +18,10 @@ import type { TaxAmounts } from '../../../shared/types/gst-returns.ts';
 import { TAX_HEADS } from '../../../shared/types/gst-returns.ts';
 import { api, formatDate, formatMoney, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useConfirm, useNav, useWorkingDate, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { AmountInput, Badge, Banner, Button, DataTable, DateInput, EmptyState, Field, Grid, Hotkeys, KpiCard, Modal, Panel, PercentInput, Select, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { aboutItem } from '../../app/lib/moreItems.ts';
+import { AmountInput, Banner, Button, DataTable, DateInput, Drawer, EmptyState, Field, Hotkeys, Modal, Panel, PercentInput, Select, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { FileResultDialog, GstHelp, WideTable } from './components.tsx';
+import { FileResultDialog, ReturnAbout, TokenSelect, WideTable } from './components.tsx';
 import type { FileResult } from './components.tsx';
 import { cmp08TableExport, gstr4TableExport, HEAD_NAMES, rateFormErrors, taxSum } from './lib/gstplus.ts';
 import { fyList, initialFy } from './lib/periods.ts';
@@ -88,9 +91,18 @@ export function Cmp08Screen({ params }: ScreenProps<{ period?: string }>) {
     <>
       <ReportScreen
         title="CMP-08"
-        subtitle={pp.label ? `Statement for payment of self-assessed tax · ${pp.label}` : 'Statement for payment of self-assessed tax'}
         periodMode="none"
-        filters={pp.composition ? pp.select(selectRef) : undefined}
+        context={pp.composition ? <span className="bx-gst-token">{pp.select(selectRef)}</span> : 'Statement for composition taxpayers'}
+        meta={filing ? <span title={filing.arn ? `ARN ${filing.arn}` : undefined}>Filed {formatDate(filing.filedOn, 'D-MMM-YY')}</span> : undefined}
+        about={
+          <ReturnAbout
+            lead="Composition tax on your turnover for the quarter, plus tax on purchases under reverse charge, paid in cash with CMP-08 by the 18th of the month after the quarter. Bills of Supply carry no tax: it comes out of your own pocket."
+            notes={s?.notes ?? []}
+          >
+            {filing ? <p>Marked filed on {formatDate(filing.filedOn)}. Later changes to this quarter's documents do not change what was filed; correct them in the next statement or GSTR-4.</p> : null}
+          </ReturnAbout>
+        }
+        aboutLabel="About this return"
         actions={actions}
         exportDef={s ? () => ({ ...cmp08TableExport(s), title: 'CMP-08', period: s.period.label }) : undefined}
         loading={pp.loading || (enabled && q.loading && !s)}
@@ -102,7 +114,7 @@ export function Cmp08Screen({ params }: ScreenProps<{ period?: string }>) {
         {!pp.loading && !pp.composition && pp.key !== null ? (
           <NotComposition form="CMP-08" onOpen={() => nav.push('gst.gstr3b')} />
         ) : s ? (
-          <Cmp08Body s={s} filed={filing?.filedOn ?? null} />
+          <Cmp08Body s={s} />
         ) : pp.key === null && !pp.loading ? (
           <EmptyState icon="calendar" title="No quarter yet" body="Record a sale or purchase to prepare CMP-08." />
         ) : null}
@@ -124,7 +136,7 @@ export function Cmp08Screen({ params }: ScreenProps<{ period?: string }>) {
   );
 }
 
-function Cmp08Body({ s, filed }: { s: Cmp08Summary; filed: string | null }) {
+function Cmp08Body({ s }: { s: Cmp08Summary }) {
   const cols = useMemo<Column<Cmp08Row>[]>(
     () => [
       { key: 'row', header: 'Sl.', width: 60 },
@@ -134,61 +146,43 @@ function Cmp08Body({ s, filed }: { s: Cmp08Summary; filed: string | null }) {
     ],
     [],
   );
-  const payable = s.table3.find((r) => r.key === 'payable');
   const paidTotal = taxSum(s.paid) + s.paid.interest;
+  const turnover = `Turnover ${money(s.turnover.total)}${s.turnover.exempt ? ` (exempt ${money(s.turnover.exempt)})` : ''} · tax ${s.rate}% ${s.basis === 'turnover' ? 'on turnover' : 'on taxable turnover'} of ${money(s.turnover.taxBase)}`;
   return (
     <div className="bx-gst-scroll">
-      <GstHelp>
-        Composition tax on your turnover for the quarter, plus tax on purchases under reverse charge, paid in cash with CMP-08 by the 18th of the month after the quarter.
-        Bills of Supply carry no tax: it comes out of your own pocket.
-      </GstHelp>
-      {filed ? (
-        <Banner tone="success" title={`Marked filed on ${formatDate(filed)}`}>
-          Later changes to this quarter's documents do not change what was filed; correct them in the next statement or GSTR-4.
-        </Banner>
-      ) : null}
-      <Grid minItemWidth={180} gap={3}>
-        <KpiCard label="Turnover" value={s.turnover.total} amount caption={`Taxable ${money(s.turnover.taxable)} · Exempt ${money(s.turnover.exempt)}`} />
-        <KpiCard label="Tax base" value={s.turnover.taxBase} amount caption={`${s.rate}% · ${s.basis === 'turnover' ? 'on turnover' : 'on taxable turnover'}`} />
-        <KpiCard label="Tax payable" value={payable ? taxSum(payable) : 0} amount caption="Row 3 (1 + 2)" />
-        <KpiCard label="Paid (set-off)" value={paidTotal} amount caption={paidTotal === 0 ? 'Not posted yet — Alt+S' : 'Cash used by the set-off'} />
-      </Grid>
-      {s.notes.length > 0 ? (
-        <Banner tone="info" title="Notes">
-          <ul className="bx-gst-list">
-            {s.notes.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-        </Banner>
-      ) : null}
-      <Panel title={`Table 3 · Summary of self-assessed liability (${COMPOSITION_CATEGORY_LABELS[s.category]})`} headingLevel={2} description={`${s.outwardDocs} outward and ${s.rcmDocs} reverse-charge document(s).`}>
+      <Panel
+        title={`Table 3 · Summary of self-assessed liability (${COMPOSITION_CATEGORY_LABELS[s.category]})`}
+        headingLevel={2}
+        description={`${turnover} · ${s.outwardDocs} outward and ${s.rcmDocs} reverse-charge document(s)`}
+      >
         <DataTable<Cmp08Row> aria-label="CMP-08 table 3" autoFocus columns={cols} rows={s.table3} getRowKey={(r) => r.key} height={40 + 32 * (s.table3.length + 1)} />
       </Panel>
-      <Panel title="Table 4 · Tax paid (from the set-off journal)" headingLevel={2}>
+      <Panel title="Table 4 · Tax paid (from the set-off journal)" headingLevel={2} description={paidTotal === 0 ? 'Not posted yet — GST set-off (Alt+S).' : undefined}>
         <WideTable label="CMP-08 table 4">
-          <thead>
-            <tr>
-              <th scope="col">Paid in cash</th>
-              {TAX_HEADS.map((h) => (
-                <th key={h} scope="col" className="is-num">
-                  {HEAD_NAMES[h]}
-                </th>
-              ))}
-              <th scope="col" className="is-num">Interest</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row">Tax and interest</th>
-              {TAX_HEADS.map((h) => (
-                <td key={h} className="is-num">
-                  {money(s.paid[h])}
-                </td>
-              ))}
-              <td className="is-num">{money(s.paid.interest)}</td>
-            </tr>
-          </tbody>
+          <table className="bx-gst-form" aria-label="CMP-08 table 4">
+            <thead>
+              <tr>
+                <th scope="col">Paid in cash</th>
+                {TAX_HEADS.map((h) => (
+                  <th key={h} scope="col" className="is-num">
+                    {HEAD_NAMES[h]}
+                  </th>
+                ))}
+                <th scope="col" className="is-num">Interest</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Tax and interest</th>
+                {TAX_HEADS.map((h) => (
+                  <td key={h} className="is-num">
+                    {money(s.paid[h])}
+                  </td>
+                ))}
+                <td className="is-num">{money(s.paid.interest)}</td>
+              </tr>
+            </tbody>
+          </table>
         </WideTable>
       </Panel>
     </div>
@@ -295,26 +289,29 @@ export function Gstr4Screen({ params }: ScreenProps<{ fy?: string }>) {
     <>
       <ReportScreen
         title="GSTR-4"
-        subtitle={fy ? `Annual return for composition taxpayers · FY ${fy}` : 'Annual return for composition taxpayers'}
         periodMode="none"
-        filters={
+        context={
           composition ? (
-            <label className="bx-gst-period">
-              <span className="bx-gst-period__label">Financial year</span>
-              <Select
-                ref={selectRef}
-                size="sm"
-                aria-label="Financial year"
-                aria-keyshortcuts="Alt+F2"
-                value={fy ?? ''}
-                placeholder={periods.data ? 'Choose a year' : 'Loading…'}
-                disabled={years.length === 0}
-                options={years.map((y) => ({ value: y, label: `FY ${y}` }))}
-                onChange={(v) => setFy(v)}
-              />
-            </label>
-          ) : undefined
+            <TokenSelect
+              label="Financial year"
+              selectRef={selectRef}
+              value={fy}
+              placeholder={periods.data ? 'Choose a year' : 'Loading…'}
+              options={years.map((y) => ({ value: y, label: `FY ${y}` }))}
+              onChange={setFy}
+            />
+          ) : (
+            'Annual return for composition taxpayers'
+          )
         }
+        meta={filing ? <span title={filing.arn ? `ARN ${filing.arn}` : undefined}>Filed {formatDate(filing.filedOn, 'D-MMM-YY')}</span> : undefined}
+        about={
+          <ReturnAbout
+            lead="The annual return for composition taxpayers, prepared from your books. Compare it with your CMP-08 statements and GSTR-4A on the portal before filing (by 30 April after the year)."
+            notes={s?.notes ?? []}
+          />
+        }
+        aboutLabel="About this return"
         actions={actions}
         exportDef={s ? () => ({ ...gstr4TableExport(s), title: 'GSTR-4', period: `FY ${s.fy}` }) : undefined}
         loading={periods.loading || (enabled && q.loading && !s)}
@@ -326,7 +323,7 @@ export function Gstr4Screen({ params }: ScreenProps<{ fy?: string }>) {
         {periods.data && !composition ? (
           <NotComposition form="GSTR-4" onOpen={() => nav.push('gst.gstr3b')} />
         ) : s ? (
-          <Gstr4Body s={s} filed={filing?.filedOn ?? null} onQuarter={(r) => nav.push('gst.cmp08', { period: r.quarter })} />
+          <Gstr4Body s={s} onQuarter={(r) => nav.push('gst.cmp08', { period: r.quarter })} />
         ) : years.length === 0 && periods.data ? (
           <EmptyState icon="calendar" title="No financial year to show" body="Record sales or purchases to prepare GSTR-4." />
         ) : null}
@@ -347,7 +344,7 @@ export function Gstr4Screen({ params }: ScreenProps<{ fy?: string }>) {
   );
 }
 
-function Gstr4Body({ s, filed, onQuarter }: { s: Gstr4Summary; filed: string | null; onQuarter: (r: Gstr4QuarterRow) => void }) {
+function Gstr4Body({ s, onQuarter }: { s: Gstr4Summary; onQuarter: (r: Gstr4QuarterRow) => void }) {
   const qCols = useMemo<Column<Gstr4QuarterRow>[]>(
     () => [
       { key: 'label', header: 'Quarter', minWidth: 170, render: (r) => (r.filed ? r.label : `${r.label} · not filed`) },
@@ -383,19 +380,9 @@ function Gstr4Body({ s, filed, onQuarter }: { s: Gstr4Summary; filed: string | n
   return (
     <div className="bx-gst-scroll">
       <Banner tone="warning" title={s.caption}>
-        Prepared from your books. Compare with your CMP-08 statements and GSTR-4A on the portal before filing.
+        Compare with your CMP-08 statements and GSTR-4A.
       </Banner>
-      {filed ? <Badge tone="success">Marked filed on {formatDate(filed)}</Badge> : null}
-      {s.notes.length > 0 ? (
-        <Banner tone="info" title="Notes">
-          <ul className="bx-gst-list">
-            {s.notes.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-        </Banner>
-      ) : null}
-      <Panel title="Table 5 · Summary of CMP-08 for each quarter" headingLevel={2} description="Enter opens the quarter's CMP-08.">
+      <Panel title="Table 5 · Summary of CMP-08 for each quarter" headingLevel={2}>
         <DataTable<Gstr4QuarterRow> aria-label="GSTR-4 table 5" autoFocus columns={qCols} rows={s.table5} getRowKey={(r) => r.quarter} onRowActivate={onQuarter} height={40 + 32 * (s.table5.length + 2)} />
       </Panel>
       <Panel title="Table 4 · Inward supplies (4A registered, 4B registered under reverse charge, 4C unregistered, 4D import of services)" headingLevel={2}>
@@ -413,42 +400,44 @@ function Gstr4Body({ s, filed, onQuarter }: { s: Gstr4Summary; filed: string | n
       </Panel>
       <Panel title="Table 8 · Tax payable and paid" headingLevel={2}>
         <WideTable label="GSTR-4 table 8">
-          <thead>
-            <tr>
-              <th scope="col">Particulars</th>
-              {TAX_HEADS.map((h) => (
-                <th key={h} scope="col" className="is-num">
-                  {HEAD_NAMES[h]}
-                </th>
-              ))}
-              <th scope="col" className="is-num">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row">Tax payable</th>
-              {TAX_HEADS.map((h) => (
-                <td key={h} className="is-num">
-                  {money(s.table8.payable[h])}
-                </td>
-              ))}
-              <td className="is-num">{money(taxSum(s.table8.payable))}</td>
-            </tr>
-            <tr>
-              <th scope="row">Interest</th>
-              {TAX_HEADS.map((h) => (
-                <td key={h} className="is-num">
-                  {money(s.table8.interest[h])}
-                </td>
-              ))}
-              <td className="is-num">{money(taxSum(s.table8.interest))}</td>
-            </tr>
-            <tr>
-              <th scope="row">Paid (through CMP-08)</th>
-              <td colSpan={TAX_HEADS.length} />
-              <td className="is-num bx-gst-cash">{money(s.table8.paid)}</td>
-            </tr>
-          </tbody>
+          <table className="bx-gst-form" aria-label="GSTR-4 table 8">
+            <thead>
+              <tr>
+                <th scope="col">Particulars</th>
+                {TAX_HEADS.map((h) => (
+                  <th key={h} scope="col" className="is-num">
+                    {HEAD_NAMES[h]}
+                  </th>
+                ))}
+                <th scope="col" className="is-num">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Tax payable</th>
+                {TAX_HEADS.map((h) => (
+                  <td key={h} className="is-num">
+                    {money(s.table8.payable[h])}
+                  </td>
+                ))}
+                <td className="is-num">{money(taxSum(s.table8.payable))}</td>
+              </tr>
+              <tr>
+                <th scope="row">Interest</th>
+                {TAX_HEADS.map((h) => (
+                  <td key={h} className="is-num">
+                    {money(s.table8.interest[h])}
+                  </td>
+                ))}
+                <td className="is-num">{money(taxSum(s.table8.interest))}</td>
+              </tr>
+              <tr>
+                <th scope="row">Paid (through CMP-08)</th>
+                <td colSpan={TAX_HEADS.length} />
+                <td className="is-num">{money(s.table8.paid)}</td>
+              </tr>
+            </tbody>
+          </table>
         </WideTable>
       </Panel>
     </div>
@@ -468,6 +457,7 @@ export function CompositionRatesScreen() {
   const del = useApiMutation('gst.composition.deleteRate', { invalidates: ['gst'] });
   const [editing, setEditing] = useState<CompositionRate | 'new' | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [about, setAbout] = useState(false);
   const st = q.data;
   const rows = st?.rates ?? [];
   const current = rows.find((r) => String(r.id) === selected) ?? rows[0] ?? null;
@@ -501,17 +491,25 @@ export function CompositionRatesScreen() {
     }
   };
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+C', label: 'Create rate', icon: 'plus', primary: true, onClick: () => setEditing('new'), hidden: !canFile, disabled: !canFile, group: 'edit' },
+    {
+      key: 'Alt+C',
+      label: 'Create rate',
+      icon: 'plus',
+      onClick: () => setEditing('new'),
+      hidden: !canFile,
+      disabled: !canFile,
+      group: 'edit',
+      prominent: true,
+    },
     { key: 'Alt+A', label: 'Alter rate', icon: 'edit', onClick: () => current && setEditing(current), hidden: !canFile, disabled: !canFile || !current, group: 'edit' },
     { key: 'Alt+D', label: 'Delete rate', icon: 'trash', onClick: () => void remove(current), hidden: !canFile, disabled: !canFile || !current, group: 'danger' },
     { key: 'Alt+R', label: 'CMP-08', icon: 'gst', onClick: () => nav.push('gst.cmp08'), group: 'go' },
+    aboutItem(() => setAbout(true), 'About these rates'),
   ];
   return (
     <>
       <Screen
         title="Composition Rates"
-        subtitle="Composition levy rate master (effective-dated)"
-        icon="gst"
         actions={actions}
         loading={q.loading}
         error={q.error}
@@ -525,10 +523,6 @@ export function CompositionRatesScreen() {
                 This company is not registered under composition: these rates are used only if you opt in (Company › GST details).
               </Banner>
             ) : null}
-            <GstHelp>
-              Composition tax = rate × turnover of each document's date. Rates as notified under Rule 7 (manufacturers 1%, traders 1% of taxable turnover, restaurants
-              5%, s.10(2A) service providers 6%; half CGST, half SGST/UTGST). Check them against the current notifications and correct them here if they change.
-            </GstHelp>
             <Field label="Your category" hint="Decides which rate applies to your turnover" htmlFor="bx-cmp-category">
               <Select
                 id="bx-cmp-category"
@@ -553,6 +547,12 @@ export function CompositionRatesScreen() {
           </Stack>
         ) : null}
       </Screen>
+      <Drawer open={about} onClose={() => setAbout(false)} title="About these rates" description="Composition Rates" size="sm">
+        <p>
+          The composition levy rates, effective-dated: each applies to documents dated on or after its date, until a later rate starts. Composition tax = rate × turnover of each document's date. Rates as notified under Rule 7 (manufacturers 1%, traders 1% of taxable turnover, restaurants 5%,
+          s.10(2A) service providers 6%; half CGST, half SGST/UTGST). Check them against the current notifications and correct them here if they change.
+        </p>
+      </Drawer>
       {editing ? <RateDialog rate={editing === 'new' ? null : editing} category={st?.category ?? 'trader'} onClose={() => setEditing(null)} /> : null}
     </>
   );

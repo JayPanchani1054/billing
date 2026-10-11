@@ -3,15 +3,21 @@
  * voucher (particulars = the other ledger or "(as per details)"), running balance, current total and
  * closing balance. Alt+L (or the picker) switches ledger, Alt+F1 adds narration and reference
  * columns, Alt+Y opens the monthly summary, Alt+M the ledger master, Enter opens the voucher and Alt+A alters it.
+ *
+ * 2.1: a drill-down report (graph class 'detail', folded to its one-line answer by default): "Balance by
+ * date" — the running balance on the account's own side, the last point the closing balance
+ * (lib/charts.ts; a truncated ledger draws its month-end balances from the monthly summary).
  */
 import { useMemo, useRef, useState } from 'react';
 import type { LedgerPickerRow } from '../../../shared/types/accounts.ts';
 import type { LedgerReportRow } from '../../../shared/types/reports.ts';
 import { ReportScreen, formatDrCr, useApiQuery, useCan, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, DataTable, EmptyState, Field, Inline, Picker, Stack } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { Badge, DataTable, EmptyState, Inline, Picker, Stack } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
+import { ledgerChart } from './lib/charts.ts';
 import { currentRow, voucherTarget } from './lib/model.ts';
 import { useForexContext } from '../forex/hooks.ts';
 
@@ -34,6 +40,9 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
   const ledgers = useApiQuery('accounts.ledger.picker', { includeInactive: true }, { staleTime: 60_000, enabled: canPick });
   const q = useApiQuery('reports.ledger', { ledgerId: ledgerId ?? 0, from: p.from, to: p.to }, { keepPrevious: true, enabled: ledgerId !== null });
   const d = ledgerId !== null ? q.data : undefined;
+  // More vouchers than the list holds: the graph draws month-end balances instead (same closing).
+  const monthly = useApiQuery('reports.monthlySummary', { ledgerId: ledgerId ?? 0, from: p.from, to: p.to }, { keepPrevious: true, enabled: ledgerId !== null && d?.truncated === true });
+  const spec = useMemo(() => (d && d.ledger.id === ledgerId ? ledgerChart(d, d.truncated && monthly.data?.subject.id === ledgerId ? monthly.data : null) : null), [d, ledgerId, monthly.data]);
   const items = useMemo(() => ledgers.data ?? [], [ledgers.data]);
   const selected = items.find((l) => l.id === ledgerId) ?? null;
   // Alt+A applies to the highlighted voucher only while it belongs to the ledger on screen.
@@ -92,7 +101,10 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
   return (
     <ReportScreen
       title={title}
-      subtitle={d ? `Ledger · ${d.ledger.groupName}${d.ledger.isActive ? '' : ' · inactive'}` : 'Ledger Vouchers'}
+      subtitle={d ? d.ledger.groupName : 'Ledger Vouchers'}
+      meta={d && !d.ledger.isActive ? 'Inactive' : undefined}
+      graph={reportGraph(spec)}
+      graphKind="detail"
       period={p.period}
       loading={ledgerId !== null && q.loading}
       refreshing={q.refreshing}
@@ -101,30 +113,28 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
       actions={actions}
       hint="Enter Open voucher · Alt+A Alter · Alt+L Change ledger · Alt+F1 Narration · Alt+Y Monthly · Alt+M Ledger Master"
       filters={
-        <Field label="Ledger" layout="inline" labelWidth={64}>
-          <Picker<LedgerPickerRow>
-            ref={pickerRef}
-            aria-label="Ledger"
-            items={items}
-            getKey={(l) => String(l.id)}
-            getLabel={(l) => l.name}
-            getAlias={(l) => l.alias}
-            getKeywords={(l) => [l.groupName, l.gstin ?? '']}
-            groupBy={(l) => l.groupName}
-            rightMeta={(l) => formatDrCr(l.balance)}
-            value={selected}
-            onChange={(l) => {
-              if (!l) return;
-              setLedgerId(l.id);
-              setCursor(null);
-            }}
-            clearable={false}
-            placeholder={!canPick ? 'You may not browse ledgers' : ledgers.error ? 'Could not load the ledger list' : ledgers.loading ? 'Loading ledgers…' : 'Type a ledger name'}
-            disabled={!canPick || (ledgers.loading && items.length === 0)}
-            listMinWidth={360}
-            autoFocus={ledgerId === null}
-          />
-        </Field>
+        <Picker<LedgerPickerRow>
+          ref={pickerRef}
+          aria-label="Ledger"
+          items={items}
+          getKey={(l) => String(l.id)}
+          getLabel={(l) => l.name}
+          getAlias={(l) => l.alias}
+          getKeywords={(l) => [l.groupName, l.gstin ?? '']}
+          groupBy={(l) => l.groupName}
+          rightMeta={(l) => formatDrCr(l.balance)}
+          value={selected}
+          onChange={(l) => {
+            if (!l) return;
+            setLedgerId(l.id);
+            setCursor(null);
+          }}
+          clearable={false}
+          placeholder={!canPick ? 'You may not browse ledgers' : ledgers.error ? 'Could not load the ledger list' : ledgers.loading ? 'Loading ledgers…' : 'Type a ledger name'}
+          disabled={!canPick || (ledgers.loading && items.length === 0)}
+          listMinWidth={360}
+          autoFocus={ledgerId === null}
+        />
       }
       exportDef={() => ({
         subtitle: d ? `${d.ledger.name} (${d.ledger.groupName})` : undefined,
@@ -152,10 +162,9 @@ export function LedgerScreen({ params }: ScreenProps<LedgerParams>) {
       {ledgerId === null ? (
         <EmptyState icon="ledger" title="Choose a ledger" body="Type a ledger name above, or open one from the Trial Balance or a group summary." />
       ) : (
-        <Stack gap={2} grow>
+        <Stack gap={2}>
           <DataTable<LedgerReportRow>
             aria-label={`Ledger vouchers of ${title}`}
-            className="bx-rep-fill"
             columns={columns}
             rows={d?.rows ?? []}
             getRowKey={(r) => String(r.voucherId)}

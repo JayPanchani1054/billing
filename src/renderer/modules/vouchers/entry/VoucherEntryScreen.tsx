@@ -20,15 +20,23 @@
  * alteration: Alt+D delete, Alt+X cancel, Alt+2 duplicate, Alt+H edit history.
  *
  * 2.0 (lib/disclosure.ts, lib/savedBar.ts): sales-side documents keep Reference no. / date and Reverse
- * charge in More details until they hold a value; the derived place of supply shows as a chip; after a
- * voucher is created the Saved bar offers Print, Share and Record payment.
+ * charge in More details until they hold a value; after a voucher is created the Saved bar offers Print,
+ * Share and Record payment.
+ *
+ * 2.1 "calm" (SPEC-21 §1.4, D13–D20): one Save (the title row's primary; no footer), one number (the No.
+ * field, plain text when read-only, "changed" after Ctrl+R), the entry mode as a menu button in the
+ * context run ("Item invoice ▾", Alt+I unchanged), the party's facts as one line under it
+ * (lib/strip.ts › partyLine), place of supply as plain text, "More details  Ctrl+I ›" as a header link,
+ * Charges & discounts as a disclosure inside the Enter chain (lib/gridNav.ts › opensBeforeFocus), the
+ * totals as a sticky strip (lib/strip.ts › totalsStrip), a side column only when it holds the work
+ * (receipt / payment bills, checks to fix, TDS / forex), no hint lines, and "Saved" said once.
  */
 import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { PREDEFINED_VOUCHER_TYPES } from '../../../../shared/constants.ts';
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { formatDate } from '../../../../shared/dates.ts';
-import { formatMoney } from '../../../../shared/format.ts';
+import { formatDrCr, formatMoney } from '../../../../shared/format.ts';
 import { stateOptions } from '../../../../shared/gst/index.ts';
 import type { VoucherTypeRow } from '../../../../shared/types/accounts.ts';
 import type { ItemPickerRow } from '../../../../shared/types/inventory.ts';
@@ -61,7 +69,8 @@ import {
 } from '../../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../../app/index.ts';
 import { isShellFocus } from '../../../app/index.ts';
-import { Badge, Button, DateInput, EmptyState, Field, Hotkeys, Kbd, SegmentedControl, Select, Switch, TextArea, TextInput, useEnterAdvance, useToast } from '../../../ui/index.ts';
+import { Button, DateInput, DisclosureLine, DropdownMenu, EmptyState, Field, Hotkeys, Icon, Kbd, Select, Switch, TextArea, TextInput, useEnterAdvance, useToast } from '../../../ui/index.ts';
+import type { MenuEntry } from '../../../ui/index.ts';
 import { allocationTotal } from '../lib/bills.ts';
 import { ACCOUNT_ROW, buildVoucherInput, formFromInput } from '../lib/buildInput.ts';
 import type { BuiltInput } from '../lib/buildInput.ts';
@@ -69,18 +78,19 @@ import { cellId, confirmationRequest, headerId, mapFieldErrors, parseCellId, tar
 import type { KeyMaps } from '../lib/errorPaths.ts';
 import { amountDecimals, formReducer, isBlankItem, isBlankLedger, itemLineValue, itemsOf, newForm, withFirstLedger } from '../lib/formState.ts';
 import type { ItemRow, LedgerRow, VoucherForm } from '../lib/formState.ts';
-import { entrySections, initialFocusId, neighbourSection, nextCell, rowAfterDelete, verticalCell } from '../lib/gridNav.ts';
+import { chargesCollapsible, entrySections, initialFocusId, neighbourSection, nextCell, opensBeforeFocus, rowAfterDelete, verticalCell } from '../lib/gridNav.ts';
 import type { EntrySection, GridModel } from '../lib/gridNav.ts';
 import { baseTypeLabel, defaultDirection, defaultTypeFor, isGstBase, isInvoiceMode, MODE_LABEL, partySign, postsToBooks, qtyLabel, showsParty, singleEntryAccountSide, trackingKinds } from '../lib/kinds.ts';
 import { defaultItemRate, priceSide, rowsFromTrackingDoc, taxBreakup, toClientItemInfo, toClientLedgerTax } from '../lib/masters.ts';
 import { computeInvoiceTotals, computeLedgerTotals, computeStockTotals, stabilizeLines } from '../lib/totals.ts';
 import type { ClientTotals, LineFigures, TotalsEnv } from '../lib/totals.ts';
 import { afterSavePrint, entryPrintTarget, savedToastMessage, voucherRefLabel } from '../lib/printing.ts';
+import { acceptMessage, partyLine, stripNotes, stripTooltip, totalsStrip } from '../lib/strip.ts';
 import type { SavedVoucherRef } from '../lib/printing.ts';
 import { clientIssues } from '../lib/validate.ts';
 import { changeNumberAvailability, isGstDocType } from '../lib/changeNumber.ts';
 import { disclosedHasValue, headerDisclosure, placeOfSupplyAssumed, placeOfSupplyChip } from '../lib/disclosure.ts';
-import { recordPaymentTarget, savedBarVisible, SHARE_DENIED_HINT } from '../lib/savedBar.ts';
+import { barToast, recordPaymentTarget, savedBarVisible, SHARE_DENIED_HINT } from '../lib/savedBar.ts';
 import type { SavedBarState } from '../lib/savedBar.ts';
 import { ChangeNumberDialog } from '../ChangeNumberDialog.tsx';
 import { SavedBar } from './SavedBar.tsx';
@@ -93,7 +103,7 @@ import { ConfigHintsDialog, CostDialog, InstrumentDialog, MoreDetailsDialog, Rea
 import type { MoreDetailsValue } from './dialogs.tsx';
 import { GridEnvContext, ItemGrid, itemColumns, LedgerGrid, navItemColumns, rowDetailNeeds, TotalRow } from './grids.tsx';
 import type { GridEnv, LedgerColumn, RowDialogKind } from './grids.tsx';
-import { breakupRows, checkItemsOf, ChecksPanel, ErrorBanner, PartyPanel, TotalsPanel } from './panels.tsx';
+import { checkItemsOf, ChecksPanel, ErrorBanner, hasWork, PartyBillsPanel, PartyLine, TotalsStripBar } from './panels.tsx';
 import type { CheckItem } from './panels.tsx';
 import { TdsEntryPanel } from '../../tds/EntryPanel.tsx';
 import type { TdsVoucherPreview } from '../../../../shared/types/tds.ts';
@@ -136,8 +146,9 @@ export const VOUCHER_INVALIDATES = ['vouchers', 'reports', 'gst', 'gstrecon', 'o
 export function focusId(id: string, attempts = 6): void {
   const tryFocus = (left: number) => {
     const el = typeof document === 'undefined' ? null : document.getElementById(id);
-    if (el) {
-      el.focus();
+    if (el) el.focus();
+    // Not there yet — or still inside a region that is opening (Charges & discounts): try again next frame.
+    if (el && (document.activeElement === el || left <= 0)) {
       if (typeof (el as HTMLElement).scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       return;
     }
@@ -455,6 +466,10 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const [detailsPinned, setDetailsPinned] = useState(() => disclosedHasValue(form));
   /** The place-of-supply chip was opened: the select stays for this voucher. */
   const [posOpen, setPosOpen] = useState(false);
+  /** 2.1 (D17): Charges & discounts opened (by click or by the Enter chain) for this voucher. */
+  const [chargesOpen, setChargesOpen] = useState(false);
+  /** 2.1 (D18): a save was attempted on this voucher — "Invoice has no lines" may show from then on. */
+  const [saveAttempted, setSaveAttempted] = useState(false);
   const headerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (form.touched && savedBar !== null) setSavedBar(null);
@@ -547,6 +562,17 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
 
   // ── Navigation between header, grids and narration ──
   const sections = useMemo(() => entrySections(form.mode, baseType), [form.mode, baseType]);
+  // 2.1 (D17): the charges of an item invoice are a disclosure; a charge keeps it open.
+  const chargesFold = chargesCollapsible(form.mode, baseType);
+  const hasCharge = chargesFold && form.ledgers.some((r) => !isBlankLedger(r));
+  const chargesShown = !chargesFold || chargesOpen || hasCharge;
+  const chargesShownRef = useRef(chargesShown);
+  chargesShownRef.current = chargesShown;
+  // Once a charge exists the section stays open for this voucher: removing the last charge (Ctrl+D) must not
+  // hide the row the cursor is on.
+  useEffect(() => {
+    if (hasCharge) setChargesOpen(true);
+  }, [hasCharge]);
   const itemCols = useMemo(
     () => (itemsOn ? itemColumns({ baseType, mode: form.mode === 'inventory' ? 'inventory' : 'item_invoice', features, gstOn: ctx.company.gstEnabled }) : []),
     [itemsOn, baseType, form.mode, features, ctx.company.gstEnabled],
@@ -636,6 +662,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     if (s === 'header') return focusHeaderLast();
     if (s === 'accept') return void askAccept();
     if (s === 'narration') return focusId(headerId('narration'));
+    // Charges & discounts: the same stop as 2.0 — the closed disclosure opens, then the cursor goes in.
+    if (opensBeforeFocus(s, { collapsible: chargesCollapsible(f.mode, baseType), open: chargesShownRef.current })) setChargesOpen(true);
     const rows = sectionRows(s, f);
     if (rows.length === 0) return;
     const section = s === 'ledgers' ? 'ledgers' : 'items';
@@ -858,6 +886,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
 
   const doSave = async () => {
     if (busy) return;
+    setSaveAttempted(true);
     const f = formRef.current;
     const issues = checksFor(f, computeInvoiceTotals(f, totalsEnv).grandTotal);
     if (issues.first) {
@@ -897,10 +926,17 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       }
       const saved: SavedVoucherRef = { id: out.id, number: out.number, typeName };
       const printNow = afterSavePrint(out.id, printAfterSave);
-      toast.success(`${voucherRefLabel(saved)} saved`, {
-        message: savedToastMessage(formatMoney(out.totals.grandTotal), infos.map((w) => w.message), printNow !== null, nav.isRegistered('print.voucher')),
-        action: { label: 'View', onClick: () => nav.push('vouchers.view', { id: out.id }) },
-      });
+      if (f.docLinks) {
+        // Leaves the screen (no Saved bar): the 2.0 toast says it.
+        toast.success(`${voucherRefLabel(saved)} saved`, {
+          message: savedToastMessage(formatMoney(out.totals.grandTotal), infos.map((w) => w.message), printNow !== null, nav.isRegistered('print.voucher')),
+          action: { label: 'View', onClick: () => nav.push('vouchers.view', { id: out.id }) },
+        });
+      } else {
+        // 2.1 (D20): the Saved bar says it once — only the save's notes get a toast.
+        const note = barToast(infos.map((w) => w.message));
+        if (note) toast.info(note.title, { message: note.message });
+      }
       setLastSaved(saved);
       setPreview(null);
       setSaveWarnings(null);
@@ -919,9 +955,12 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         baseType,
         partyId,
         partyClasses: partyKind === 'debtor' || partyKind === 'creditor' ? ['party', partyKind] : partyId !== null ? (ledgers.byId.get(partyId)?.classes ?? []) : [],
+        partyName: partyId === null ? null : party && party.ledgerId === partyId ? party.name : (ledgers.byId.get(partyId)?.name ?? null),
       });
       setDetailsPinned(false);
       setPosOpen(false);
+      setChargesOpen(false);
+      setSaveAttempted(false);
       dispatch({ type: 'next', date: f.date, isOptional: ctx.voucherType.optionalByDefault, partyLedgerId: startParty });
       if (printNow) {
         nav.push('print.voucher', printNow);
@@ -944,11 +983,19 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     if (ok) await saveRef.current();
   };
 
+  /** D19: "Sales for ₹ 27,140.00 (Rupees … Only) to Asha Retail." (lib/strip.ts › acceptMessage). */
   const summaryText = (): string => {
     const f = formRef.current;
-    if (isInvoiceMode(f.mode)) return `${typeName} for ${docTotalText ?? `₹ ${formatMoney(invoice.grandTotal)}`}${party ? ` to ${party.name}` : ''}.`;
-    if (f.mode === 'ledger') return `${typeName}: Dr ₹ ${formatMoney(ledgerTotals.debit)} = Cr ₹ ${formatMoney(ledgerTotals.credit || ledgerTotals.debit)}.`;
-    return `${typeName} with ${f.items.filter((r) => !isBlankItem(r)).length} item line(s).`;
+    return acceptMessage({
+      typeName,
+      kind: isInvoiceMode(f.mode) ? 'invoice' : f.mode === 'ledger' ? 'ledger' : 'stock',
+      total: invoice.grandTotal,
+      totalText: docTotalText,
+      partyName: party?.name ?? null,
+      debit: ledgerTotals.debit,
+      credit: ledgerTotals.credit,
+      itemLines: f.items.filter((r) => !isBlankItem(r)).length,
+    });
   };
 
   // ── Alteration actions ──
@@ -1082,6 +1129,9 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const renumberAction = changeNumberAvailability({ where: 'entry', canRenumber, method: numberingMethod });
   const isOrderOrNote = trackKinds.length > 0 && form.partyLedgerId !== null;
   const printTarget = entryPrintTarget(detail ? detail.id : null, lastSaved);
+  const barShown = savedBar !== null && savedBarVisible(savedBar, form.touched);
+  // 2.1: what left the title row keeps its key (SPEC-21 §3.1 rule 2b): Ctrl+I More details (the header
+  // link), Alt+B Bill-wise and Alt+W Share go to More; Print too while the Saved bar offers it.
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+A', label: isAlter ? 'Save changes' : 'Save', icon: 'save', primary: true, onClick: () => void doSave(), disabled: busy !== null },
     { key: 'F10', label: 'Voucher type', icon: 'invoice', onClick: () => setDialog({ kind: 'type' }), hidden: isAlter, group: 'type' },
@@ -1101,7 +1151,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       onClick: () => setDialog({ kind: 'more' }),
       hidden: form.mode === 'ledger',
       group: 'details',
-      prominent: true,
+      demoted: true,
     },
     { key: 'Alt+T', label: 'From notes/orders', icon: 'link', onClick: () => setDialog({ kind: 'tracking' }), hidden: !isOrderOrNote || !itemsOn, group: 'details' },
     {
@@ -1111,7 +1161,6 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       onClick: openBills,
       hidden: !features.billWise,
       group: 'details',
-      prominent: true,
     },
     // 2.0: Change number (vouchers.renumber): the number of this voucher, checked live, kept in the edit log.
     { key: 'Ctrl+R', label: 'Change number', icon: 'hash', onClick: () => setDialog({ kind: 'number' }), hidden: renumberAction.hidden, group: 'details' },
@@ -1131,6 +1180,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       hint: !isAlter && printTarget ? 'The voucher you just saved' : undefined,
       group: 'saved',
       prominent: true,
+      demoted: barShown,
     },
     {
       key: 'Alt+W',
@@ -1141,6 +1191,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       disabled: !canExport,
       hint: canExport ? (isAlter ? 'Opens the print preview with the Share dialog' : 'Shares the voucher you just saved') : SHARE_DENIED_HINT,
       group: 'saved',
+      demoted: true,
     },
     { key: 'Alt+2', label: 'Duplicate', icon: 'copy', onClick: () => detail && nav.push('vouchers.entry', { duplicateOf: detail.id }), hidden: !isAlter || !ctx.permissions.canCreate, group: 'saved' },
     {
@@ -1154,6 +1205,23 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     { key: 'Alt+X', label: 'Cancel voucher', icon: 'x-circle', onClick: () => setDialog({ kind: 'cancel' }), hidden: !isAlter || !ctx.permissions.canAlter, group: 'danger' },
     { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void doDelete(), hidden: !isAlter || !ctx.permissions.canDelete, group: 'danger' },
   ];
+
+  // ── Figures the header and the strip share ──
+  const serverTotal = preview && preview.form === form && preview.grandTotal !== null && isInvoiceMode(form.mode) ? preview.grandTotal : null;
+  const sign = postsParty(baseType) ? partySign(baseType) : 1;
+  // A foreign-currency invoice's form total is in that currency: the party effect uses the rupees of the last check.
+  const partyEffect = isInvoiceMode(form.mode) && postsParty(baseType) ? sign * (docForex ? (serverTotal ?? 0) : invoice.grandTotal) : 0;
+  const docTotalText = docForex && docCurrency ? formatForex(decodeForex(invoice.grandTotal, formDecimals), docCurrency.decimalPlaces, docCurrency.symbol) : null;
+
+  // ── Receipt / payment: the bills of the party line stay in view (D16) ──
+  const billParty = useMemo(() => {
+    if (form.mode !== 'ledger' || (baseType !== 'receipt' && baseType !== 'payment')) return null;
+    const row = form.ledgers.find((r) => r.ledgerId !== null && rowDetailNeeds(gridEnv, r.ledgerId).bills);
+    return row?.ledgerId ?? null;
+  }, [form.mode, form.ledgers, baseType, gridEnv]);
+  const billsInput = voucherId === null ? { ledgerId: billParty ?? 0, date: form.date } : { ledgerId: billParty ?? 0, date: form.date, excludeVoucherId: voucherId };
+  const billsQ = useApiQuery('vouchers.partyContext', billsInput, { enabled: billParty !== null, keepPrevious: true });
+  const billsParty = billsQ.data && billsQ.data.ledgerId === billParty ? billsQ.data : undefined;
 
   // ── Header ──
   const headerAdvance = useEnterAdvance<HTMLDivElement>({ onComplete: () => enterSection(sections[0], 'forward') });
@@ -1176,8 +1244,9 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   if (form.date > ctx.today && !form.isPostDated && postsToBooks(baseType)) dateHints.push('Future date — press Ctrl+T to mark it post-dated if the money moves later.');
   const numberEditable = numberingMethod === 'manual' || numberingMethod === 'automatic_override';
   const accountRow = form.accountLedgerId !== null ? ledgers.byId.get(form.accountLedgerId) : undefined;
-  /** 2.0: a number chosen with Change number (Ctrl+R) — shown in the No. field with a "changed" badge. */
+  /** 2.0: a number chosen with Change number (Ctrl+R) — shown in the No. field, followed by the word "changed". */
   const numberOverride = form.numberOverride ?? null;
+  const numberReadOnly = !numberEditable || numberOverride !== null;
   const disclosure = headerDisclosure({
     baseType,
     mode: form.mode,
@@ -1217,20 +1286,22 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           htmlFor={headerId('number')}
           error={cellErrors[headerId('number')]}
           required={numberingMethod === 'manual' && !isAlter && numberOverride === null}
-          labelAction={numberOverride ? <Badge tone="info">changed</Badge> : undefined}
           hint={numberOverride?.reason ? `Changed: ${numberOverride.reason}` : undefined}
         >
+          {/* 2.1: one number — plain text when read-only (the automatic next number), "changed" after Ctrl+R. */}
           <TextInput
             id={headerId('number')}
-            value={numberOverride ? numberOverride.number : form.number}
-            readOnly={!numberEditable || numberOverride !== null}
+            value={numberOverride ? numberOverride.number : numberReadOnly ? form.number || (isAlter ? (detail?.number ?? '') : ctx.nextNumber) : form.number}
+            readOnly={numberReadOnly}
+            quiet={numberReadOnly}
             maxLength={50}
-            placeholder={isAlter ? (detail?.number ?? '') : ctx.nextNumber || (numberingMethod === 'manual' ? 'Type the number' : '')}
+            placeholder={numberReadOnly ? undefined : isAlter ? (detail?.number ?? '') : ctx.nextNumber}
+            suffix={numberOverride ? <span className="bx-muted">changed</span> : undefined}
             onValueChange={(s) => dispatch({ type: 'patch', patch: { number: s } })}
           />
         </Field>
       ) : null}
-      <Field label="Date" htmlFor={headerId('date')} required error={cellErrors[headerId('date')]} hint={dateHints[0]}>
+      <Field label="Date" htmlFor={headerId('date')} required error={cellErrors[headerId('date')]} hint={dateHints[0]} hintApplies={dateHints.length > 0}>
         <DateInput
           id={headerId('date')}
           value={form.date}
@@ -1261,48 +1332,56 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         </>
       ) : null}
       {partyShown ? (
-        <Field label={baseType === 'purchase' || direction === 'inward' ? "Supplier (party A/c)" : "Party A/c name"} htmlFor={headerId('party')} required error={cellErrors[headerId('party')]} className="bx-vch-head__wide">
-          <LedgerCombo
-            id={headerId('party')}
-            rows={ledgers.rows}
-            slot="party"
-            baseType={baseType}
-            direction={direction}
-            value={form.partyLedgerId}
-            invalid={!!cellErrors[headerId('party')]}
-            onChange={(id) => dispatch({ type: 'patch', patch: { partyLedgerId: id, partyBills: null, party: null } })}
-            onRefetch={ledgers.refetch}
+        <div className="bx-vch-head__wide">
+          <Field label={baseType === 'purchase' || direction === 'inward' ? "Supplier (party A/c)" : "Party A/c name"} htmlFor={headerId('party')} required error={cellErrors[headerId('party')]}>
+            <LedgerCombo
+              id={headerId('party')}
+              rows={ledgers.rows}
+              slot="party"
+              baseType={baseType}
+              direction={direction}
+              value={form.partyLedgerId}
+              invalid={!!cellErrors[headerId('party')]}
+              onChange={(id) => dispatch({ type: 'patch', patch: { partyLedgerId: id, partyBills: null, party: null } })}
+              onRefetch={ledgers.refetch}
+            />
+          </Field>
+          <PartyLine
+            segments={party ? partyLine({ baseType, date: form.date, side: direction === 'outward' ? 'dr' : 'cr', party, voucherEffect: partyEffect }) : []}
+            onBalance={party ? () => nav.push('reports.ledger', { ledgerId: party.ledgerId }) : undefined}
           />
-        </Field>
+        </div>
       ) : null}
       {form.mode === 'ledger' && form.layout === 'single' && singleEntryAccountSide(baseType) !== null ? (
-        <Field
-          label="Account"
-          htmlFor={headerId('account')}
-          required
-          error={cellErrors[headerId('account')]}
-          hint={accountRow ? `Current balance: ${formatDrCrText(accountRow.balance)}` : 'The cash or bank account the money goes through'}
-          className="bx-vch-head__wide"
-          labelAction={
-            accountRow?.classes.includes('bank') ? (
-              <Button size="sm" variant="link" tabIndex={-1} onClick={() => setDialog({ kind: 'instrument', rowKey: ACCOUNT_ROW })}>
-                {form.accountInstrument ? 'Bank details ✓' : 'Bank details (Alt+K)'}
-              </Button>
-            ) : undefined
-          }
-        >
-          <LedgerCombo
-            id={headerId('account')}
-            rows={ledgers.rows}
-            slot="account"
-            baseType={baseType}
-            direction={direction}
-            value={form.accountLedgerId}
-            invalid={!!cellErrors[headerId('account')]}
-            onChange={(id) => dispatch({ type: 'patch', patch: { accountLedgerId: id, accountInstrument: null } })}
-            onRefetch={ledgers.refetch}
-          />
-        </Field>
+        <div className="bx-vch-head__wide">
+          <Field
+            label="Account"
+            htmlFor={headerId('account')}
+            required
+            error={cellErrors[headerId('account')]}
+            hint={accountRow ? undefined : 'The cash or bank account the money goes through'}
+            labelAction={
+              accountRow?.classes.includes('bank') ? (
+                <Button size="sm" variant="link" tabIndex={-1} shortcut="Alt+K" onClick={() => setDialog({ kind: 'instrument', rowKey: ACCOUNT_ROW })}>
+                  {form.accountInstrument ? 'Bank details ✓' : 'Bank details'}
+                </Button>
+              ) : undefined
+            }
+          >
+            <LedgerCombo
+              id={headerId('account')}
+              rows={ledgers.rows}
+              slot="account"
+              baseType={baseType}
+              direction={direction}
+              value={form.accountLedgerId}
+              invalid={!!cellErrors[headerId('account')]}
+              onChange={(id) => dispatch({ type: 'patch', patch: { accountLedgerId: id, accountInstrument: null } })}
+              onRefetch={ledgers.refetch}
+            />
+          </Field>
+          <PartyLine segments={accountRow ? [{ key: 'balance', text: `Cur bal ${formatDrCr(accountRow.balance, { keepZero: true })}` }] : []} />
+        </div>
       ) : null}
       {isNoteDoc ? (
         <>
@@ -1324,20 +1403,20 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       ) : null}
       {gstDoc && posChip ? (
         <Field label="Place of supply" htmlFor={headerId('placeOfSupply')}>
-          <Button
+          {/* 2.1: plain text ("Maharashtra", "Gujarat · inter-state") that never overflows its cell; Enter/click opens the select. */}
+          <button
+            type="button"
             id={headerId('placeOfSupply')}
-            size="sm"
-            variant="secondary"
-            iconRight="edit"
-            aria-label={`Place of supply: ${posChip.label} (change)`}
-            title="Worked out from the party and the consignee. Click (or Enter) to choose it yourself."
+            className="bx-vch-pos"
+            aria-label={`Place of supply: ${posChip.full} (change)`}
+            title={`${posChip.full}${partyTax?.gstin ? ` · party GSTIN ${partyTax.gstin}` : ''}\nWorked out from the party and the consignee. Click (or Enter) to choose it yourself.`}
             onClick={() => {
               setPosOpen(true);
               focusId(headerId('placeOfSupply'));
             }}
           >
             {posChip.label}
-          </Button>
+          </button>
         </Field>
       ) : gstDoc ? (
         <Field label="Place of supply" htmlFor={headerId('placeOfSupply')} error={cellErrors[headerId('placeOfSupply')]}>
@@ -1363,6 +1442,14 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         <Field label="Reverse charge">
           <Switch checked={form.reverseCharge} onChange={(c) => dispatch({ type: 'patch', patch: { reverseCharge: c } })} />
         </Field>
+      ) : null}
+      {form.mode !== 'ledger' ? (
+        // 2.1: the Ctrl+I action is demoted to More; this link is its visible home (D4 prints its key).
+        <button type="button" className="bx-disclosure bx-vch-head__more" aria-haspopup="dialog" aria-keyshortcuts="Control+I" onClick={() => setDialog({ kind: 'more' })}>
+          <span>More details</span>
+          <Kbd keys="Ctrl+I" tone="subtle" aria-hidden="true" />
+          <Icon name="chevron-right" size="sm" />
+        </button>
       ) : null}
     </div>
   );
@@ -1407,15 +1494,14 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           </tr>
         ) : null}
       </>
-    ) : form.mode === 'accounting_invoice' ? (
-      <TotalRow span={ledgerSpan} trailing={ledgerTrailing} label="Total of lines" decimals={formDecimals} value={form.ledgers.reduce((a, r) => a + (r.ledgerId === null ? 0 : (r.amount ?? 0)), 0)} />
     ) : undefined;
 
   const itemSpan = (cols: readonly string[]) => 1 + cols.indexOf('amount');
   const itemFooter = (rows: readonly ItemRow[]): ReactNode => {
-    if (!itemCols.includes('amount')) return undefined;
+    // 2.1: an item invoice's total is the strip; the value of the items shows only beside a charge.
+    if (!itemCols.includes('amount') || (form.mode === 'item_invoice' && !hasCharge)) return undefined;
     const value = rows.reduce((a, r) => (isBlankItem(r) ? a : a + itemLineValue(r, formDecimals)), 0);
-    return <TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label={form.mode === 'item_invoice' ? 'Value of items' : 'Total'} decimals={formDecimals} value={value} />;
+    return <TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label={form.mode === 'item_invoice' ? 'Items' : 'Total'} decimals={formDecimals} value={value} />;
   };
 
   const grids: ReactNode[] = [];
@@ -1431,7 +1517,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           rowErrors={rowErrors}
           rowWarnings={rowWarnings}
           qtyLabel="Quantity"
-          footer={<TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label="Total out" value={stockTotals.consumption} />}
+          foot={<TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label="Total out" value={stockTotals.consumption} />}
         />
         <ItemGrid
           title="Destination (production)"
@@ -1442,7 +1528,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           rowErrors={rowErrors}
           rowWarnings={rowWarnings}
           qtyLabel="Quantity"
-          footer={<TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label="Total in" value={stockTotals.production} />}
+          foot={<TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label="Total in" value={stockTotals.production} />}
         />
       </div>,
     );
@@ -1457,15 +1543,14 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         rowErrors={rowErrors}
         rowWarnings={rowWarnings}
         qtyLabel={qtyLabel(baseType)}
-        footer={itemFooter(form.items)}
+        foot={itemFooter(form.items)}
       />,
     );
   }
   if (form.mode !== 'inventory') {
-    grids.push(
+    const ledgerGrid = (
       <LedgerGrid
         key="ledgers"
-        title={form.mode === 'item_invoice' ? 'Additional ledgers (freight, packing, discount — enter a discount as a minus amount)' : undefined}
         caption={form.mode === 'item_invoice' ? 'Additional ledgers' : form.mode === 'accounting_invoice' ? 'Invoice lines' : 'Particulars'}
         slot={ledgerSlot}
         amountKind={ledgerAmountKind}
@@ -1475,68 +1560,76 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         rowErrors={rowErrors}
         rowWarnings={rowWarnings}
         amountLabel={ledgerAmountKind === 'signed' ? 'Amount (Dr / Cr)' : 'Amount'}
-        footer={ledgerFooter}
-      />,
+        foot={ledgerFooter}
+      />
+    );
+    grids.push(
+      chargesFold ? (
+        // 2.1 (D17): "Charges & discounts ›" — freight, packing, a discount as a minus amount. Open by itself
+        // when a charge exists; the Enter chain opens it on the way (enterSection).
+        <DisclosureLine key="charges" label="Charges & discounts" open={chargesShown} forceOpen={hasCharge} onToggle={setChargesOpen} className="bx-vch-charges">
+          {ledgerGrid}
+        </DisclosureLine>
+      ) : (
+        ledgerGrid
+      ),
     );
   }
 
-  // ── Side panels ──
-  const serverTotal = preview && preview.form === form && preview.grandTotal !== null && isInvoiceMode(form.mode) ? preview.grandTotal : null;
-  const sign = postsParty(baseType) ? partySign(baseType) : 1;
-  const totalsPanel = isInvoiceMode(form.mode) ? (
-    <TotalsPanel
-      title={gstDoc ? 'Tax & totals' : 'Totals'}
-      rows={breakupRows({ taxable: invoice.taxable, tax: taxBreakup(invoice.computation, ctx.company.stateCode), outside: invoice.outside, roundOff: invoice.roundOff, showTaxable: true })}
-      total={invoice.grandTotal}
-      totalLabel={postsParty(baseType) ? (sign > 0 ? 'Invoice total (receivable)' : 'Invoice total (payable)') : 'Total'}
-      words
-      notes={invoice.warnings}
-      serverTotal={serverTotal}
-      extra={
-        invoice.computation && gstDoc ? (
-          <p className="bx-vch-totals__meta">
-            {invoice.computation.interState ? 'Inter-state (IGST)' : 'Within the state (CGST + SGST)'} · {natureLabel(invoice.computation.nature)}
-            {invoice.computation.reverseCharge ? ' · Reverse charge' : ''}
-          </p>
-        ) : null
-      }
-    />
-  ) : form.mode === 'ledger' ? (
-    <TotalsPanel
-      title="Totals"
-      rows={[
-        { key: 'dr', label: 'Debit', amount: ledgerTotals.debit },
-        { key: 'cr', label: 'Credit', amount: ledgerTotals.credit },
-      ]}
-      total={ledgerTotals.debit}
-      totalLabel={ledgerTotals.difference === 0 ? 'Voucher amount' : 'Not balanced yet'}
-      words={ledgerTotals.difference === 0}
-      notes={[]}
-      serverTotal={null}
-    />
-  ) : (
-    <TotalsPanel title="Totals" rows={[]} total={stockTotals.total} totalLabel={baseType === 'stock_journal' ? 'Value of production' : 'Value of goods'} words={false} notes={[]} serverTotal={null} />
-  );
+  // ── Side column (2.1, D16: only when it holds the work) and the totals strip (D13) ──
+  const strip =
+    isInvoiceMode(form.mode) && !docForex ? (
+      <TotalsStripBar
+        strip={totalsStrip({ taxable: invoice.taxable, tax: taxBreakup(invoice.computation, ctx.company.stateCode), outside: invoice.outside, roundOff: invoice.roundOff, grandTotal: invoice.grandTotal, gst: ctx.company.gstEnabled })}
+        tooltip={stripTooltip({
+          gst: invoice.computation && gstDoc ? { interState: invoice.computation.interState, nature: invoice.computation.nature, reverseCharge: invoice.computation.reverseCharge } : null,
+          total: invoice.grandTotal,
+          words: true,
+        })}
+        notes={stripNotes({ warnings: invoice.warnings, saveAttempted, serverTotal, total: invoice.grandTotal })}
+      />
+    ) : null;
 
-  // A foreign-currency invoice's form total is in that currency: the party effect uses the rupees of the last check.
-  const partyEffect = isInvoiceMode(form.mode) && postsParty(baseType) ? sign * (docForex ? (serverTotal ?? 0) : invoice.grandTotal) : 0;
-  const docTotalText = docForex && docCurrency ? formatForex(decodeForex(invoice.grandTotal, formDecimals), docCurrency.decimalPlaces, docCurrency.symbol) : null;
-  const metaBadges = (
-    <>
-      <Badge tone="neutral">{MODE_LABEL[form.mode]}</Badge>
-      {form.isOptional ? <Badge tone="warning">Optional — not in the books</Badge> : null}
-      {form.gstDetails && gstDetailsSummary(form.gstDetails) ? <Badge tone="brand">GST: {gstDetailsSummary(form.gstDetails)}</Badge> : null}
-      {form.isPostDated ? <Badge tone="info">Post-dated</Badge> : null}
-      {docForex && docCurrency ? (
-        <Badge tone="brand">
-          In {docCurrency.isoCode ?? docCurrency.symbol} @ ₹{formatExchangeRate(docForex.rate)}
-        </Badge>
-      ) : null}
-      {form.docLinks?.convertedFromId !== undefined ? <Badge tone="brand">Converts a {baseType === 'sales_order' ? 'quotation' : 'quotation / proforma'} — linked on save</Badge> : null}
-      {form.docLinks?.recurring ? <Badge tone="brand">Recurring voucher · {form.docLinks.recurring.periodKey}</Badge> : null}
-      {isAlter && detail?.irn.status ? <Badge tone="info">e-Invoice: {detail.irn.status}</Badge> : null}
-    </>
-  );
+  // The context run (D14): the entry mode as a menu (new vouchers of a type with more than one mode), then state words.
+  const modeItems: MenuEntry[] = allowed.map((m) => ({
+    key: m,
+    label: MODE_LABEL[m],
+    checked: form.mode === m,
+    radio: true,
+    // The key Alt+I takes to this mode, printed as plain text (the menu registers nothing).
+    shortcut: m !== altMode ? undefined : 'Alt+I',
+    onSelect: () => dispatch({ type: 'setMode', mode: m }),
+  }));
+  const modeMenu =
+    allowed.length > 1 && !isAlter ? (
+      <DropdownMenu
+        aria-label="Entry mode"
+        items={modeItems}
+        renderTrigger={(t) => (
+          <button type="button" {...t} className="bx-vch-mode" aria-label={`Entry mode: ${MODE_LABEL[form.mode]}`}>
+            {MODE_LABEL[form.mode]}
+            <Icon name="chevron-down" size="sm" />
+          </button>
+        )}
+      />
+    ) : undefined;
+  const gstWords = form.gstDetails ? gstDetailsSummary(form.gstDetails) : '';
+  const stateWords = [
+    form.isPostDated ? 'Post-dated' : '',
+    gstWords ? `GST: ${gstWords}` : '',
+    docForex && docCurrency ? `In ${docCurrency.isoCode ?? docCurrency.symbol} @ ₹${formatExchangeRate(docForex.rate)}` : '',
+    form.docLinks?.convertedFromId !== undefined ? `Converts a ${baseType === 'sales_order' ? 'quotation' : 'quotation / proforma'}` : '',
+    form.docLinks?.recurring ? `Recurring · ${form.docLinks.recurring.periodKey}` : '',
+    isAlter && detail?.irn.status ? `e-Invoice: ${detail.irn.status}` : '',
+  ].filter((w) => w !== '');
+  const meta =
+    form.isOptional || stateWords.length > 0 ? (
+      <>
+        {form.isOptional ? <span className="bx-vch-warn">Optional</span> : null}
+        {form.isOptional && stateWords.length > 0 ? ' · ' : null}
+        {stateWords.join(' · ')}
+      </>
+    ) : undefined;
 
   const onFocusPath = (path: string) => {
     const f = formRef.current;
@@ -1546,53 +1639,32 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   };
 
   const title = `${typeName} ${isAlter ? 'Alteration' : 'Creation'}`;
-  const subtitle = isAlter ? `No. ${detail?.number ?? '—'} · ${formatDate(detail?.date ?? form.date)}` : ctx.nextNumber ? `Next no. ${ctx.nextNumber}` : undefined;
 
   return (
     <GridEnvContext.Provider value={gridEnv}>
       <Screen
         title={title}
-        subtitle={subtitle}
-        icon="invoice"
-        meta={metaBadges}
+        subtitle={modeMenu}
+        meta={meta}
         dirty={form.touched}
         actions={actions}
         hint="Enter Next · Shift+Enter Back · Ctrl+A Save · Alt+C Create master · Ctrl+D Delete line · Esc Back"
-        toolbar={
-          allowed.length > 1 && !isAlter ? (
-            <SegmentedControl<VoucherMode>
-              aria-label="Entry mode"
-              size="sm"
-              value={form.mode}
-              options={allowed.map((m) => ({ value: m, label: MODE_LABEL[m] }))}
-              onChange={(m) => dispatch({ type: 'setMode', mode: m })}
-            />
-          ) : undefined
-        }
-        footer={
-          <div className="bx-vch-foot">
-            <span className="bx-vch-foot__sum bx-num">{docTotalText ? `Total ${docTotalText}` : summaryShort(form, invoice.grandTotal, ledgerTotals, stockTotals.total)}</span>
-            <Button onClick={() => void nav.back()}>Back</Button>
-            <Button variant="primary" shortcut="Ctrl+A" loading={busy === 'save'} onClick={() => void doSave()}>
-              {isAlter ? 'Save changes' : 'Save'}
-            </Button>
-          </div>
-        }
       >
         <Hotkeys map={hotkeys} />
         <div className="bx-vch" data-density="compact">
           <div className="bx-vch__main">
             {banner ? <ErrorBanner title={banner.title} messages={banner.messages} onDismiss={() => setBanner(null)} /> : null}
-            {savedBar && savedBarVisible(savedBar, form.touched) ? renderSavedBar(savedBar) : null}
+            {savedBar && barShown ? renderSavedBar(savedBar) : null}
             {header}
             <div className="bx-vch-body" onKeyDown={onGridKeyDown}>
               {grids}
             </div>
-            <Field label="Narration" htmlFor={headerId('narration')} optional hint="Enter accepts the voucher · Shift+Enter goes back">
+            <Field label="Narration" htmlFor={headerId('narration')}>
               <TextArea
                 id={headerId('narration')}
                 value={form.narration}
                 maxLength={2000}
+                rows={1}
                 autoGrow
                 maxRows={4}
                 onValueChange={(s) => dispatch({ type: 'patch', patch: { narration: s } })}
@@ -1604,20 +1676,12 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
                 }}
               />
             </Field>
+            {strip}
           </div>
           <aside className="bx-vch__side" aria-label="Voucher summary">
-            {partyShown ? (
-              <PartyPanel
-                party={party}
-                loading={partyQ.loading && form.partyLedgerId !== null}
-                voucherEffect={partyEffect}
-                bills={form.partyBills}
-                billWiseOn={features.billWise}
-                onBills={partyBillsOn ? () => setDialog({ kind: 'bills', rowKey: null }) : undefined}
-                onOpenLedger={party ? () => nav.push('reports.ledger', { ledgerId: party.ledgerId }) : undefined}
-              />
+            {billParty !== null ? (
+              <PartyBillsPanel party={billsParty} loading={billsQ.loading} onOpenLedger={() => nav.push('reports.ledger', { ledgerId: billParty })} />
             ) : null}
-            {docForex ? null : totalsPanel}
             <ForexEntryPanel
               relevant={fx.enabled && (docForex !== null || form.ledgers.some((r) => fx.currencyOfLedger(r.ledgerId) !== undefined))}
               doc={docForex}
@@ -1639,10 +1703,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
               readOnly={busy !== null}
               onChange={(tds) => dispatch({ type: 'patch', patch: { tds } })}
             />
-            <ChecksPanel items={checkItems} checking={checking} onFocusPath={onFocusPath} />
-            <p className="bx-vch-keys">
-              <Kbd keys="Alt+C" /> new master · <Kbd keys="Ctrl+I" /> more details · <Kbd keys="F12" /> settings
-            </p>
+            {hasWork(checkItems) ? <ChecksPanel items={checkItems} checking={checking} onFocusPath={onFocusPath} /> : null}
           </aside>
         </div>
         {renderDialog()}
@@ -1650,7 +1711,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     </GridEnvContext.Provider>
   );
 
-  /** 2.0: "✓ Saved Sales 12 · ₹ … — Print · Share · Record payment · ×" above the next voucher. */
+  /** "✓ Saved Sales 12 · ₹ … · party   Print · Share · Record payment   ×" above the next voucher (D20). */
   function renderSavedBar(bar: SavedBarState): ReactNode {
     const printable = nav.isRegistered('print.voucher');
     const pay = recordPaymentTarget(bar);
@@ -1658,6 +1719,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     return (
       <SavedBar
         bar={bar}
+        onOpen={nav.canOpen('vouchers.view') ? () => nav.push('vouchers.view', { id: bar.id }) : undefined}
         onPrint={printable ? () => nav.push('print.voucher', { id: bar.id }) : undefined}
         onShare={printable ? () => nav.push('print.voucher', { id: bar.id, share: true }) : undefined}
         shareDisabled={!canExport}
@@ -1987,32 +2049,4 @@ const NOTE_REASONS = ['Sales return', 'Post-sale discount', 'Deficiency in servi
 /** Base types whose party is posted (invoices and notes) — not orders or stock documents. */
 function postsParty(b: VoucherBaseType): boolean {
   return b === 'sales' || b === 'purchase' || b === 'credit_note' || b === 'debit_note';
-}
-
-function formatDrCrText(p: number): string {
-  if (p === 0) return '₹ 0.00';
-  return `₹ ${formatMoney(Math.abs(p))} ${p > 0 ? 'Dr' : 'Cr'}`;
-}
-
-const NATURE_LABEL: Readonly<Record<string, string>> = {
-  b2b: 'B2B',
-  b2cl: 'B2C large',
-  b2cs: 'B2C small',
-  export_wp: 'Export with IGST',
-  export_wop: 'Export under LUT',
-  sez_wp: 'SEZ with IGST',
-  sez_wop: 'SEZ under LUT',
-  deemed_export: 'Deemed export',
-  nil_exempt: 'Nil / exempt',
-  non_gst: 'Non-GST',
-};
-
-function natureLabel(n: string): string {
-  return NATURE_LABEL[n] ?? n.replace(/_/g, ' ');
-}
-
-function summaryShort(f: VoucherForm, grand: number, l: { debit: number; credit: number; difference: number }, stock: number): string {
-  if (f.mode === 'item_invoice' || f.mode === 'accounting_invoice') return `Total ₹ ${formatMoney(grand)}`;
-  if (f.mode === 'ledger') return l.difference === 0 ? `Dr = Cr ₹ ${formatMoney(l.debit)}` : `Dr ₹ ${formatMoney(l.debit)} · Cr ₹ ${formatMoney(l.credit)} · difference ₹ ${formatMoney(Math.abs(l.difference))}`;
-  return `Value ₹ ${formatMoney(stock)}`;
 }

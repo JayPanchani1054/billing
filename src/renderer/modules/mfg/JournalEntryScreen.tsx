@@ -41,21 +41,19 @@ import {
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import {
   AmountInput,
-  Badge,
   Banner,
   Button,
   DateInput,
   EmptyState,
   Field,
   FieldGroup,
-  Inline,
-  KeyValueList,
   Modal,
   PercentInput,
   QuantityInput,
   NumberInput,
   Select,
   Stack,
+  StatLine,
   TextArea,
   TextInput,
   useEnterAdvance,
@@ -126,11 +124,11 @@ export function JournalEntryScreen({ params }: ScreenProps<MfgJournalParams>) {
   const title = params.id !== undefined ? `${type?.name ?? label} Alteration` : `${type?.name ?? label}`;
   const error = typesQ.error ?? (params.id !== undefined ? detailQ.error : null) ?? (params.duplicateOf !== undefined ? dupQ.error : null) ?? ctxQ.error ?? (wantsOrder ? orderQ.error : null);
   if (error || typesQ.loading || waiting || (wantsOrder && !orderQ.data)) {
-    return <Screen title={title} icon="layers" loading={!error} error={error} onRetry={() => void (typesQ.refetch(), detailQ.refetch(), dupQ.refetch(), ctxQ.refetch())} />;
+    return <Screen title={title} loading={!error} error={error} onRetry={() => void (typesQ.refetch(), detailQ.refetch(), dupQ.refetch(), ctxQ.refetch())} />;
   }
   if (!type) {
     return (
-      <Screen title={title} icon="layers">
+      <Screen title={title}>
         <EmptyState
           icon="layers"
           title={`No ${label} voucher type`}
@@ -144,7 +142,7 @@ export function JournalEntryScreen({ params }: ScreenProps<MfgJournalParams>) {
       </Screen>
     );
   }
-  if (!ctx) return <Screen title={title} icon="layers" loading />;
+  if (!ctx) return <Screen title={title} loading />;
   const seed = wantsOrder && orderQ.data ? { partyLedgerId: orderQ.data.partyLedgerId, godownId: orderQ.data.godownId } : null;
   return <JournalEntry key={`${type.id}:${params.id ?? ''}:${params.duplicateOf ?? ''}`} ctx={ctx} detail={detail} dup={dup} params={params} title={title} seed={seed} />;
 }
@@ -443,7 +441,19 @@ function JournalEntry({
     else nav.push('print.voucher', { id });
   };
 
-  const formRef = useEnterAdvance<HTMLDivElement>({ enabled: !readOnly, onComplete: () => void submit() });
+  // Enter on the last field asks "Accept?" as voucher entry does (D19); Ctrl+A saves at once.
+  const askAccept = async () => {
+    if (save.pending || readOnly) return;
+    const value = preview?.estimate?.productValue ?? 0;
+    const ok = await confirm({
+      title: isAlter ? 'Save this voucher?' : 'Accept this voucher?',
+      message: `${ctx.voucherType.name}${value > 0 ? ` — cost of finished goods ₹ ${formatMoney(value)}` : ''}.`,
+      confirmLabel: isAlter ? 'Save' : 'Accept',
+      cancelLabel: 'Go back',
+    });
+    if (ok) await submit();
+  };
+  const formRef = useEnterAdvance<HTMLDivElement>({ enabled: !readOnly, onComplete: () => void askAccept() });
   const actions: ScreenActionItem[] = [
     { key: 'Ctrl+A', label: isAlter ? 'Save' : 'Accept', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || save.pending, hint: readOnly ? `Needs the “${isAlter ? 'Alter' : 'Create'} vouchers” permission` : undefined },
     { key: 'Alt+B', label: 'Fill from BOM', icon: 'layers', onClick: fillFromBom, hidden: !sections.products || !features.manufacturing, group: 'lines' },
@@ -601,17 +611,9 @@ function JournalEntry({
     <Screen
       title={title}
       subtitle={subtitle}
-      icon="layers"
       dirty={dirty}
       actions={actions}
-      meta={
-        form.isOptional || form.isPostDated ? (
-          <>
-            {form.isOptional ? <Badge tone="warning">Optional — moves no stock</Badge> : null}
-            {form.isPostDated ? <Badge tone="info">Post-dated</Badge> : null}
-          </>
-        ) : undefined
-      }
+      meta={form.isOptional || form.isPostDated ? [form.isOptional ? 'Optional — moves no stock' : null, form.isPostDated ? 'Post-dated' : null].filter(Boolean).join(' · ') : undefined}
       hint="Enter Next field · Ctrl+A Accept · Alt+B Fill from BOM · Ctrl+D Remove line · Alt+N Insert line · Ctrl+L Optional · Alt+P Print · Esc Back"
     >
       <div ref={formRef}>
@@ -670,9 +672,8 @@ function JournalEntry({
           {sections.needsGodown ? (
             <EmptyState
               size="sm"
-              icon="warehouse"
               title="Choose the job worker and the job work godown"
-              body="Its kind decides the lines: “Our stock with third party” sends or receives your own goods; “Third-party stock with us” records a principal's goods you process."
+              body="Its kind decides the lines: your goods with them, or a principal's goods with you."
             />
           ) : null}
 
@@ -752,24 +753,25 @@ function JournalEntry({
           ) : null}
 
           {sections.costs ? (
-            <LinesTable caption="Additional costs (labour, power, overheads)" columns={costCols} rows={costRows} footer={est && est.additional > 0 ? `Additional cost ₹ ${formatMoney(est.additional)}` : undefined} />
-          ) : null}
-
-          {sections.costs ? (
-            <p className="bx-mfg-note">
-              Additional costs only add to the value of the finished goods — the journal posts no ledger entry. Book the expense itself with a Payment or Journal voucher.
-            </p>
+            <LinesTable
+              caption="Additional costs (labour, power, overheads)"
+              note="They add to the value of the finished goods only — the journal posts no ledger entry. Book the expense itself with a Payment or Journal voucher."
+              columns={costCols}
+              rows={costRows}
+              footer={est && est.additional > 0 ? `Additional cost ₹ ${formatMoney(est.additional)}` : undefined}
+            />
           ) : null}
 
           {est && (sections.products || est.transferred > 0) ? (
-            <div className="bx-mfg-summary" aria-live="polite">
-              <KeyValueList
+            <div aria-live="polite">
+              <StatLine
                 items={[
-                  { label: 'Components consumed', value: est.consumed, kind: 'amount' },
-                  { label: 'Additional costs', value: est.additional, kind: 'amount', hideEmpty: true },
-                  { label: 'Less by-products / scrap', value: est.byProducts, kind: 'amount', hideEmpty: true },
-                  { label: 'Cost of finished goods', value: est.productValue, kind: 'amount', strong: true },
-                  { label: 'Rate per unit', value: est.productQty > 0 ? `₹ ${formatMoney(Math.round(est.productRate * 100))} per ${product?.unit ?? 'unit'}` : '—' },
+                  {
+                    label: 'Cost of finished goods',
+                    value: est.productValue,
+                    title: `Components consumed ₹ ${formatMoney(est.consumed)}${est.additional ? ` + additional costs ₹ ${formatMoney(est.additional)}` : ''}${est.byProducts ? ` − by-products / scrap ₹ ${formatMoney(est.byProducts)}` : ''}`,
+                  },
+                  { label: 'Rate per unit', value: est.productQty > 0 ? `₹${formatMoney(Math.round(est.productRate * 100))} per ${product?.unit ?? 'unit'}` : '—' },
                 ]}
               />
             </div>
@@ -781,15 +783,9 @@ function JournalEntry({
             </Banner>
           ) : null}
 
-          <Field label="Narration" optional hint="Ctrl+Enter to move on.">
+          <Field label="Narration" optional hint="Ctrl+Enter to accept.">
             <TextArea value={form.narration} onChange={(e) => setForm((f) => ({ ...f, narration: e.target.value }))} rows={2} autoGrow maxRows={5} maxLength={2000} readOnly={readOnly} />
           </Field>
-          <Inline gap={2} justify="end">
-            <Button onClick={() => void nav.back()}>Cancel</Button>
-            <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} disabled={readOnly} onClick={() => void submit()} data-enter-target="">
-              {isAlter ? 'Save' : 'Accept'}
-            </Button>
-          </Inline>
         </Stack>
       </div>
       {cancelOpen && detail?.id ? (

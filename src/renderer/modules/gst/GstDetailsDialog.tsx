@@ -159,7 +159,6 @@ export function GstDetailsDialog({ baseType, outward, date, partyLedgerId, value
       onClose={onClose}
       size="lg"
       title="GST details"
-      description="The GST side of this voucher that is not an invoice line. Saved with the voucher (Ctrl+A on the voucher)."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>

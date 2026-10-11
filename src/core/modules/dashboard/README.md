@@ -72,15 +72,22 @@ says whether it was served from the memo (`cached`) and how long the call took (
 
 ## Screen (`src/renderer/modules/dashboard`)
 
-- **Home variant (2.0)** — `dashboard.home {embedded: true}` in Home's right panel: four tiles
-  (`lib/model.ts homeKpis`: To collect → Receivables, To pay → Payables, Cash & bank → Cash/Bank Books,
-  Sales this month → the Sales register of the month; negatives relabelled, never a bare minus), Needs
-  your attention, Get started and the last five vouchers (`HOME_RECENT_LIMIT`). **Show more insights**
-  (`homeSections`) mounts the trend chart, ageing, cash & bank, GST and the cards other modules contribute
-  (`ModuleDef.dashboardCards`, which run their own queries) only while open; the choice is kept in
-  `localStorage['pevqori.home.insights']` (try/catch — without storage it is per session). Home therefore
-  issues one `dashboard.summary` request and no module-card queries until asked. The full Dashboard
-  (Reports menu, Go To) is unchanged.
+- **Home panel (2.1, SPEC-21 §1.3)** — `dashboard.home {embedded: true}` in Home's right panel: the period
+  (a link, Alt+F2), three figures (`lib/model.ts homeFigures`: To collect → Receivables, To pay → Payables,
+  Cash & bank → Cash/Bank Books; negatives relabelled, at most one caption and only when it asks for action
+  — To collect reconciles "₹x overdue · ₹y not matched" when more is overdue than is owed; the rest in the
+  tooltip), the graph "Sales — last 12 months" (`homeSalesGraph`: `trend[i].sales` from the books-beginning
+  month, ≥ 3 months, the working-date month emphasised; header = `sales.mtd` against `lastYear.mtd`;
+  MiniColumns, Ctrl+J; a column opens the Sales Accounts monthly summary of its financial year,
+  `homeSalesDrill`), "Needs your attention" (`homeAlerts`: top 3 + N more, without what a caption or the
+  Setup line already says), Setup as one line (`setupLine`) and the link "Full dashboard". One
+  `dashboard.summary` request; module cards run only on the full Dashboard behind "Show all cards"
+  (`pevqori.ui` `dashboardAllCards`). The full Dashboard: four figures, the trend line (Purchases as grey
+  context, `trendSpec`; `trend` runs to the period end, so months after the balances date have no mark
+  instead of a fall to zero) and receivables by age (`ageingSpec`, ordinal) through `LazyChart` — Ctrl+J
+  folds both to their one-line answer and, when a plot had the focus, moves it to "Show graphs" —
+  every alert, and the other cards as one line each (`cardLines`; "Last entry" opens the Day Book of that
+  voucher's date).
 - Get started (2.0) adds **Set your invoice number series** (`accounts.numbering`, done from
   `setup.numberingSet`; left out until that screen is registered) and **Record a payment** (Receipt F6
   via `shell.openVoucher('receipt')`, done from `setup.hasReceipts`); the invoice printing step reads

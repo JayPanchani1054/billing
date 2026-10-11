@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { DashboardAgeingBucket, DashboardSummary } from '../../../../shared/types/dashboard.ts';
 import {
-  ageingBars,
+  ageingSpec,
   balanceRange,
   buildAlerts,
+  cardLines,
   cashBankCaption,
   changeText,
   compactSigned,
@@ -15,13 +16,16 @@ import {
   flowKpi,
   gstDueLine,
   gstItems,
-  HOME_INSIGHTS,
-  HOME_RECENT_LIMIT,
-  homeKpis,
-  homeSections,
+  HOME_ALERTS_SHOWN,
+  HOME_GRAPH_TITLE,
+  HOME_PANEL,
+  homeAlerts,
+  homeFigures,
+  homeSalesDrill,
+  homeSalesGraph,
   isVoucherTarget,
-  parseInsightsOpen,
   plural,
+  setupLine,
   shortMonth,
   parseStartPrefs,
   signedKpi,
@@ -32,7 +36,9 @@ import {
   toggleTicked,
   summaryInput,
   trendChart,
+  trendSpec,
 } from './model.ts';
+import { assertSpec, drawnTotal, enoughData, markColor } from '../../../ui/lib/chartSpec.ts';
 
 const range = (from: string, to: string) => ({ from, to });
 const buckets = (amounts: number[]): DashboardAgeingBucket[] =>
@@ -133,28 +139,80 @@ test('flowKpi: period value, delta vs the same period last year, captions', () =
   assert.equal(fresh.comparison, 'Nothing in the same period last year');
 });
 
-test('trendChart: fixed series slots, month labels, accessible takeaway', () => {
+test('trendChart: Sales is the measured series, Purchases grey context (D29); takeaway in one sentence', () => {
   const c = trendChart(sample().trend);
   assert.equal(c.categories.length, 12);
   assert.equal(c.categories[0], 'Nov 25');
   assert.equal(c.categories[11], 'Oct 26');
-  assert.deepEqual(c.series.map((s) => [s.name, s.slot]), [['Sales', 1], ['Purchases', 2]]);
+  assert.deepEqual(c.series.map((x) => [x.name, x.slot]), [['Sales', 1], ['Purchases', 'other']]);
   assert.equal(c.series[0].values[10], 250_000);
   assert.equal(c.empty, false);
-  assert.equal(c.description, 'Sales peaked in Sep 2026 at ₹ 2,500.00. 12-month sales ₹4.8 K, purchases ₹8.8 K.');
+  assert.equal(c.description, 'Best month Sep 2026 ₹2.5 K · 12 months: sales ₹4.8 K, purchases ₹8.8 K');
   const none = trendChart(sample().trend.map((m) => ({ ...m, sales: 0, purchases: 0 })));
   assert.equal(none.empty, true);
-  assert.equal(none.description, 'No sales or purchases in the last 12 months.');
+  assert.equal(trendSpec(sample().trend.map((m) => ({ ...m, sales: 0, purchases: 0 }))), null, 'nothing to draw: no graph');
 });
 
-test('ageingBars: lengths relative to the largest bucket, credits drawn as 0, overdue flag', () => {
-  const bars = ageingBars(buckets([161_400, 295_000, 0, -1_000, 44_400, 0]));
-  assert.deepEqual(bars.map((b) => b.percent), [54.7, 100, 0, 0, 15.1, 0]); // 161,400 ÷ 295,000 = 54.7%; 44,400 ÷ 295,000 = 15.1%
-  assert.deepEqual(bars.map((b) => b.overdue), [false, true, true, true, true, true]);
-  assert.equal(bars[3].amount, -1_000);
-  assert.deepEqual(ageingBars(buckets([0, 0])).map((b) => b.percent), [0, 0, 0, 0, 0, 0]);
-  // A tiny bucket still shows a sliver.
-  assert.equal(ageingBars(buckets([1, 10_000_000]))[0].percent, 1);
+test('trendSpec: a valid line spec — Sales slot 1 with Purchases as context, Enter opens the month', () => {
+  const opened: number[] = [];
+  const spec = trendSpec(sample().trend, (i) => opened.push(i));
+  assert.ok(spec);
+  assertSpec(spec);
+  assert.equal(spec.kind, 'line');
+  assert.equal(spec.title, 'Sales and purchases — last 12 months');
+  assert.equal(spec.series[1].slot, 'other');
+  assert.equal(markColor(spec, 3, 1), 'other', 'Purchases is never a second colour');
+  assert.equal(spec.total, drawnTotal(spec));
+  assert.ok(spec.takeaway.length <= 90);
+  spec.activate?.(10);
+  assert.deepEqual(opened, [10]);
+});
+
+test('trend: months after the balances date have no mark (never a fall to zero) and stay out of the takeaway', () => {
+  // A whole-year period (Apr–Mar) on 8-Oct: the core trend runs to March; Nov–Mar have not happened.
+  const year = Array.from({ length: 12 }, (_, i) => {
+    const m = ((3 + i) % 12) + 1;
+    const month = `${m >= 4 ? 2026 : 2027}-${String(m).padStart(2, '0')}`;
+    return { month, from: `${month}-01`, to: `${month}-28`, sales: m === 9 ? 250_000 : m === 10 ? 130_000 : m === 4 ? 100_000 : 0, purchases: m === 4 ? 500_000 : 0 };
+  });
+  const c = trendChart(year, '2026-10-08');
+  assert.deepEqual(c.series[0].values.slice(6), [130_000, null, null, null, null, null], 'Oct drawn, Nov–Mar no mark');
+  assert.deepEqual(c.series[1].values.slice(7), [null, null, null, null, null]);
+  assert.equal(c.description, 'Best month Sep 2026 ₹2.5 K · 7 months: sales ₹4.8 K, purchases ₹5.0 K');
+  const spec = trendSpec(year, undefined, '2026-10-08');
+  assert.ok(spec);
+  assertSpec(spec);
+  assert.equal(spec.total, 130_000, 'a line\'s drawn total is its last drawn point (Oct), not a trailing 0');
+  // Without a balances date every month is drawn (the 2.0 behaviour), and nothing in the past: no graph.
+  assert.equal(trendChart(year).series[0].values[11], 0);
+  assert.equal(trendSpec(year.map((m) => (m.month <= '2026-10' ? { ...m, sales: 0, purchases: 0 } : { ...m, sales: 5 })), undefined, '2026-10-08'), null);
+});
+
+test('ageingSpec: ordinal columns, "Not due" grey, total = Σ buckets, takeaway names its base', () => {
+  const r = sample().receivables;
+  const spec = ageingSpec(r.ageing);
+  assert.ok(spec);
+  assertSpec(spec);
+  assert.equal(spec.color, 'ordinal');
+  assert.equal(spec.greyBefore, 1);
+  assert.deepEqual(spec.categories, ['Not due', '1–30 days', '31–60 days', '61–90 days', '91–180 days', '> 180 days']);
+  assert.equal(spec.total, r.ageing.reduce((t, b) => t + b.amount, 0));
+  assert.equal(spec.total, r.notDue + r.overdue, 'the bills outstanding');
+  assert.equal(markColor(spec, 0), 'other');
+  assert.equal(markColor(spec, 5), 'o5', 'the oldest bucket is the darkest');
+  assert.equal(spec.takeaway, 'Of ₹5.0 K in unpaid bills, ₹444 is over 90 days');
+  // More than five overdue buckets fold into the oldest (Σ kept); fewer than three non-zero: no graph.
+  const seven = [...r.ageing, { index: 6, label: '> 365 days', minDays: 366, maxDays: null, amount: 1_000 }];
+  const folded = ageingSpec(seven.map((b, i) => (i === 5 ? { ...b, maxDays: 365 } : b)));
+  assert.ok(folded);
+  assertSpec(folded);
+  assert.equal(folded.categories.length, 6);
+  assert.equal(folded.categories[5], 'Over 180 days');
+  assert.equal(folded.total, spec.total + 1_000);
+  assert.equal(ageingSpec(buckets([500, 0, 0, 0, 0, 0])), null);
+  assert.equal(ageingSpec(buckets([0, 0, 0, 0, 0, 0])), null);
+  const fresh = ageingSpec(buckets([100, 200, 300, 0, 0, 0]));
+  assert.equal(fresh?.takeaway, 'Of ₹6 in unpaid bills, ₹5 is overdue');
 });
 
 test('alerts: most serious first, plain-English, each drills to its screen', () => {
@@ -410,80 +468,201 @@ test('"Show Get started" undoes Hide — offered only while hidden and the card 
   assert.equal(canShowStartCard(some, { hidden: false, hasVouchers: true }), false, 'already showing');
   const allDone = startSteps({ ...ALL, setup: { profileComplete: true, featuresReviewed: true, invoicePrintingSet: true, hasOwnLedgers: true, hasItems: true, hasSales: true, backupFolderSet: true, numberingSet: true, hasReceipts: true }, hasVouchers: true });
   assert.equal(canShowStartCard(allDone, { hidden: true, hasVouchers: true }), false, 'nothing would show');
-  // Wired on the full dashboard (rail Alt+S) and the Gateway panel (a button: no hotkeys there).
+  // Wired on the full dashboard (Alt+S, kept registered while offered); Home's Setup line hides with ×.
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../DashboardScreen.tsx', import.meta.url), 'utf8');
   assert.match(src, /key: 'Alt\+S', label: 'Show Get started', icon: 'eye', onClick: start\.show, hidden: !start\.canShow/);
-  assert.match(src, /start\.canShow \? \([\s\S]*Show Get started/);
+  const parts = fs.readFileSync(new URL('../components.tsx', import.meta.url), 'utf8');
+  assert.match(parts, /aria-label="Hide setup" onClick=\{hide\}/);
 });
 
-test('Home tiles (2.0): To collect, To pay, Cash & bank, Sales this month — each drills', () => {
+test('Home figures (2.1): To collect, To pay, Cash & bank — each drills; captions only when they ask for action', () => {
   const s = sample();
-  const tiles = homeKpis(s, s.asOf);
-  assert.deepEqual(tiles.map((t) => t.label), ['To collect', 'To pay', 'Cash & bank', 'Sales this month']);
-  const [collect, pay, money, month] = tiles;
+  const figures = homeFigures(s);
+  assert.deepEqual(figures.map((f) => f.label), ['To collect', 'To pay', 'Cash & bank'], 'three figures — "Sales this month" is the graph\'s header now');
+  const [collect, pay, money] = figures;
   assert.equal(collect.value, 500_800);
-  assert.equal(collect.caption, '₹3.4 K overdue from 2 customers');
+  assert.equal(collect.caption, '₹3.4 K overdue');
+  assert.equal(collect.tooltip, '₹3.4 K overdue from 2 customers · ₹1.6 K not yet due');
   assert.deepEqual(collect.target, { screen: 'outstanding.receivables' });
+  assert.deepEqual(collect.covers, ['receivables-overdue']);
   assert.equal(pay.value, 667_500);
   assert.equal(pay.caption, '₹2.3 K overdue');
+  assert.equal(pay.tooltip, '₹885 due in 7 days');
   assert.deepEqual(pay.target, { screen: 'outstanding.payables' });
   assert.equal(money.value, s.cashBank.cashTotal + s.cashBank.bankTotal);
-  assert.equal(money.caption, cashBankCaption(s.cashBank));
+  assert.equal(money.caption, null, 'nothing to act on: no caption');
+  assert.equal(money.tooltip, cashBankCaption(s.cashBank), 'the cash / bank split moves to the tooltip');
   assert.deepEqual(money.target, DRILL.cashBank(balanceRange(s)));
-  assert.equal(month.value, 130_000);
-  assert.equal(month.delta, 30);
-  assert.equal(month.caption, 'Same month last year ₹1.0 K');
-  assert.deepEqual(month.target, { screen: 'reports.register', params: { baseType: 'sales', from: '2026-10-01', to: '2026-10-08' } });
-  for (const t of tiles) assert.ok(t.value >= 0, `${t.label} is never negative`);
+  for (const f of figures) assert.ok(f.value >= 0, `${f.label} is never negative`);
 });
 
-test('Home tiles: negatives are relabelled; a past period names its month; nothing due / last year', () => {
+test('Home figures: the To collect caption reconciles when more is overdue than is owed (advances, on account)', () => {
+  const base = sample();
+  // Bills 9,66,000 overdue 4,65,953; advances and on-account receipts 3,66,000 not matched → net 99,953.
+  const s = sample({ receivables: { ...base.receivables, total: 9_995_300, overdue: 46_595_300, notDue: 0, advance: -30_000_000, onAccount: -6_600_000 } });
+  const [collect] = homeFigures(s);
+  assert.equal(collect.value, 9_995_300, 'To collect = net outstanding (bills + advances + on account)');
+  assert.equal(collect.caption, '₹4.66 L overdue · ₹3.66 L not matched');
+  // Overdue within what is owed: the plain caption — also with some advances not matched.
+  assert.equal(homeFigures(sample())[0].caption, '₹3.4 K overdue');
+  assert.equal(homeFigures(sample({ receivables: { ...base.receivables, advance: -10_000 } }))[0].caption, '₹3.4 K overdue');
+});
+
+test('Home figures: negatives are relabelled; negative cash or an overdrawn bank is the one caption', () => {
   const base = sample();
   const s = sample({
     receivables: { ...base.receivables, total: -5_000, overdue: 0 },
     payables: { ...base.payables, total: -1_000, overdue: 0, dueSoon: { ...base.payables.dueSoon, count: 0, amount: 0 } },
     cashBank: { ...base.cashBank, cashTotal: -2_000, bankTotal: 0 },
-    sales: { ...base.sales, mtd: -700, lastYear: { ...base.sales.lastYear, mtd: 0 } },
   });
-  const [collect, pay, money, month] = homeKpis(s, s.asOf);
-  assert.deepEqual([collect.label, collect.value, collect.caption], ['Advances from customers', 5_000, 'Nothing overdue']);
-  assert.deepEqual([pay.label, pay.value, pay.caption], ['Advances to suppliers', 1_000, 'Nothing due in 7 days']);
-  assert.deepEqual([money.label, money.value], ['Cash & bank (overdrawn)', 2_000]);
-  assert.deepEqual([month.label, month.value, month.delta, month.caption], ['Net returns this month', 700, null, 'Nothing in the same month last year']);
-  // Balances as on a past period end: the month tile names the month.
-  assert.equal(homeKpis(sample(), '2026-11-20')[3].label, 'Sales in Oct 2026');
-  // Payables due soon (nothing overdue).
-  const soon = sample({ payables: { ...base.payables, overdue: 0 } });
-  assert.equal(homeKpis(soon, soon.asOf)[1].caption, '₹885 due in 7 days');
+  const [collect, pay, money] = homeFigures(s);
+  assert.deepEqual([collect.label, collect.value, collect.caption, collect.tooltip], ['Advances from customers', 5_000, null, 'Nothing overdue · 3 customers']);
+  assert.deepEqual([pay.label, pay.value, pay.caption, pay.tooltip], ['Advances to suppliers', 1_000, null, 'Nothing due in 7 days']);
+  assert.deepEqual([money.label, money.value, money.caption, money.covers], ['Cash & bank (overdrawn)', 2_000, 'Cash in hand is negative', ['cash-negative']]);
+  const od = sample({ cashBank: { ...base.cashBank, banks: [{ ledgerId: 27, name: 'HDFC Bank', balance: -50_000, isOverdraft: false, accountTail: null }], bankTotal: -50_000 } });
+  assert.deepEqual([homeFigures(od)[2].caption, homeFigures(od)[2].covers], ['HDFC Bank overdrawn', ['bank-overdrawn-27']]);
+  // An OD / cash-credit account drawn is not "overdrawn".
+  const cc = sample({ cashBank: { ...base.cashBank, banks: [{ ledgerId: 28, name: 'SBI CC', balance: -50_000, isOverdraft: true, accountTail: null }], bankTotal: -50_000 } });
+  assert.equal(homeFigures(cc)[2].caption, null);
 });
 
-test('Home sections (2.0): four sections mounted; the other cards only after "Show more insights"', () => {
-  assert.deepEqual(homeSections({ hasVouchers: true, insightsOpen: false }), { main: ['kpis', 'attention', 'start', 'recent'], insights: [] });
-  assert.deepEqual(homeSections({ hasVouchers: false, insightsOpen: false }).main, ['start', 'kpis', 'attention'], 'Get started first while the books are empty');
-  const open = homeSections({ hasVouchers: true, insightsOpen: true });
-  assert.deepEqual(open.insights, [...HOME_INSIGHTS]);
-  assert.ok(open.insights.includes('moduleCards'), 'module cards (their own queries) are insights');
-  assert.ok(!homeSections({ hasVouchers: true, insightsOpen: false }).main.includes('moduleCards'));
-  assert.equal(HOME_RECENT_LIMIT, 5);
-  assert.equal(parseInsightsOpen('1'), true);
-  assert.equal(parseInsightsOpen(null), false);
-  assert.equal(parseInsightsOpen('yes'), false);
+test('Home alerts: never repeat a figure\'s caption or the Setup line (D10)', () => {
+  const s = sample({ cashBank: { ...sample().cashBank, cashTotal: -2_000 } });
+  const all = buildAlerts(s).map((a) => a.id);
+  assert.ok(['receivables-overdue', 'payables-overdue', 'cash-negative', 'backup'].every((id) => all.includes(id)));
+  const home = homeAlerts(s).map((a) => a.id);
+  assert.ok(!home.includes('receivables-overdue') && !home.includes('payables-overdue') && !home.includes('cash-negative'));
+  assert.ok(home.includes('backup'), 'Setup not showing: the backup alert stays');
+  assert.ok(!homeAlerts(s, { setupBackupOpen: true }).some((a) => a.id === 'backup'), 'the Setup line says it');
+  assert.deepEqual(home, all.filter((id) => !['receivables-overdue', 'payables-overdue', 'cash-negative'].includes(id)), 'order kept');
+  // Nothing overdue: no caption, so the alert (if any) is not dropped.
+  const quiet = sample({ receivables: { ...sample().receivables, overdue: 0 } });
+  assert.deepEqual(homeAlerts(quiet).filter((a) => a.id === 'receivables-overdue'), []);
+  // An overdrawn bank named in the caption is not listed again.
+  const od = sample({ cashBank: { ...sample().cashBank, banks: [{ ledgerId: 27, name: 'HDFC Bank', balance: -50_000, isOverdraft: false, accountTail: null }] } });
+  assert.ok(buildAlerts(od).some((a) => a.id === 'bank-overdrawn-27'));
+  assert.ok(!homeAlerts(od).some((a) => a.id === 'bank-overdrawn-27'));
+  assert.equal(HOME_ALERTS_SHOWN, 3);
+});
+
+test('Home graph: months from the books-beginning month to the working-date month, emphasis on that month', () => {
+  // Books begin Apr 2025, asOf 8-Oct-2026: the trend's twelve months (Nov 25 … Oct 26), Oct emphasised.
+  const s = sample();
+  const g = homeSalesGraph(s);
+  assert.ok(g);
+  assert.equal(g.title, HOME_GRAPH_TITLE);
+  assert.equal(HOME_GRAPH_TITLE, 'Sales — last 12 months');
+  assert.equal(g.months.length, 12);
+  assert.deepEqual([g.months[0], g.months[11]], ['Nov', 'Oct']);
+  assert.deepEqual(g.values, s.trend.map((t) => t.sales), 'drawn values are trend[i].sales');
+  assert.equal(g.total, s.trend.reduce((t, m) => t + m.sales, 0));
+  assert.equal(g.emphasis, 11);
+  assert.equal(g.label, '₹1.3 K so far', 'the label is sales.mtd');
+  assert.equal(g.takeaway, '₹1.3 K so far in Oct · ▲ 30 % vs 1–8 Oct 2025');
+  // Books beginning in Jun 2026: Jun … Oct only.
+  const young = homeSalesGraph(sample({ booksFrom: '2026-06-01' }));
+  assert.deepEqual(young?.months, ['Jun', 'Jul', 'Aug', 'Sep', 'Oct']);
+  assert.equal(young?.emphasis, 4);
+  // Fewer than three months: no graph (and so no Ctrl+J on Home).
+  assert.equal(homeSalesGraph(sample({ booksFrom: '2026-09-01' })), null);
+  assert.ok(homeSalesGraph(sample({ booksFrom: '2026-08-15' })), 'three months: a graph');
+  // The working-date month absent from the series: nothing emphasised, no label.
+  const shifted = homeSalesGraph(sample({ asOf: '2026-11-03', trend: sample().trend }));
+  assert.equal(shifted?.emphasis, null);
+  assert.equal(shifted?.label, '');
+});
+
+test('Home graph: the comparison names the same day range a year earlier', () => {
+  const base = sample();
+  const none = homeSalesGraph(sample({ sales: { ...base.sales, lastYear: { ...base.sales.lastYear, mtd: 0 } } }));
+  assert.equal(none?.takeaway, '₹1.3 K so far in Oct · 1–8 Oct 2025: nothing');
+  const down = homeSalesGraph(sample({ sales: { ...base.sales, mtd: 50_000 } }));
+  assert.equal(down?.takeaway, '₹500 so far in Oct · ▼ 50 % vs 1–8 Oct 2025');
+  const same = homeSalesGraph(sample({ sales: { ...base.sales, mtd: 100_000 } }));
+  assert.equal(same?.takeaway, '₹1.0 K so far in Oct · same as 1–8 Oct 2025');
+  const oneDay = homeSalesGraph(sample({ ranges: { ...base.ranges, lastYear: { ...base.ranges.lastYear, mtd: { from: '2025-10-01', to: '2025-10-01' } } } }));
+  assert.match(oneDay?.takeaway ?? '', /vs 1 Oct 2025$/);
+  // A finished month (balances as on a month end) is not "so far".
+  const ended = homeSalesGraph(sample({ asOf: '2026-10-31' }));
+  assert.equal(ended?.label, '₹1.3 K');
+  assert.equal(ended?.takeaway, '₹1.3 K in Oct · ▲ 30 % vs 1–8 Oct 2025');
+  // Net returns are words, never a bare minus.
+  assert.equal(homeSalesGraph(sample({ sales: { ...base.sales, mtd: -700 } }))?.label, '₹7 net returns so far');
+});
+
+test('Home graph drill: the Sales Accounts monthly summary of the column\'s financial year, that month active', () => {
+  assert.deepEqual(homeSalesDrill('2026-09', '2025-04-01', 41), { screen: 'reports.monthlySummary', params: { groupId: 41, from: '2026-04-01', to: '2027-03-31', month: '2026-09' } });
+  assert.deepEqual(homeSalesDrill('2026-02', '2025-04-01', 41), { screen: 'reports.monthlySummary', params: { groupId: 41, from: '2025-04-01', to: '2026-03-31', month: '2026-02' } });
+  // Never before the books begin; a January financial year.
+  assert.deepEqual(homeSalesDrill('2026-09', '2026-06-15', 41).params, { groupId: 41, from: '2026-06-15', to: '2027-03-31', month: '2026-09' });
+  assert.deepEqual(homeSalesDrill('2026-09', '2020-01-01', 41, 1).params, { groupId: 41, from: '2026-01-01', to: '2026-12-31', month: '2026-09' });
+});
+
+test('Setup line (D11): "Setup 4 of 9 · Next: …"; the backup step open keeps the backup alert off Home', () => {
+  const steps = startSteps({ ...ALL, setup: { ...NOTHING_DONE, profileComplete: true, featuresReviewed: true, numberingSet: true, hasOwnLedgers: true }, hasVouchers: true });
+  const line = setupLine(steps);
+  assert.deepEqual([line.done, line.total], [4, 9]);
+  assert.equal(line.next?.title, 'Choose what prints on your invoice');
+  assert.equal(line.backupOpen, true);
+  const backedUp = setupLine(startSteps({ ...ALL, setup: { ...NOTHING_DONE, backupFolderSet: true }, hasVouchers: true }));
+  assert.equal(backedUp.backupOpen, false);
+  // Only the optional XML import left: it is the next step.
+  const xmlOnly = startSteps({ manageCompany: false, createMasters: false, createVouchers: false, importData: true, inventory: false, hasVouchers: false });
+  assert.equal(setupLine(xmlOnly).next?.id, 'xmlImport');
+  assert.deepEqual(HOME_PANEL, ['period', 'figures', 'graph', 'attention', 'setup', 'fullDashboard'], 'top to bottom (D10)');
   assert.equal(isVoucherTarget('receipt-voucher'), true);
   assert.equal(isVoucherTarget({ screen: 'print.settings' }), false);
 });
 
-test('Home variant wiring: the embedded dashboard renders from homeSections; the full dashboard keeps every card', async () => {
+test('Full Dashboard: the other cards as one line each, each with its link', () => {
+  const s = sample({ gstDue: { ...sample().gst!, period: '092026', label: 'Sep 2026', netPayable: 1_333_440, dueDate: '2026-10-20' }, recentVouchers: [{ id: 9, date: '2026-10-08', number: '33', typeName: 'Sales', baseType: 'sales', partyName: 'Asha Retail', amount: 118_000, isCancelled: false, isOptional: false, isPostDated: false }] });
+  const lines = cardLines(s);
+  assert.deepEqual(lines.map((l) => l.id), ['cashBank', 'gst', 'topCustomer', 'topItem', 'lowStock', 'postDated', 'recent']);
+  const by = new Map(lines.map((l) => [l.id, l]));
+  assert.equal(by.get('cashBank')?.text, 'Cash ₹6.1 K · Bank ₹29.9 K');
+  assert.equal(by.get('gst')?.text, 'Sep 2026: ₹13.3 K to pay in cash · GSTR-3B due by 20-Oct-2026 (due in 12 days)');
+  assert.deepEqual(by.get('gst')?.target, DRILL.gstr3b('092026'));
+  assert.equal(by.get('topCustomer')?.text, 'Bangalore Retail ₹2.5 K · 52 % of sales');
+  assert.equal(by.get('lowStock')?.text, '2 items below the reorder level');
+  assert.equal(by.get('postDated')?.text, 'To receive ₹444 · to pay ₹2.3 K');
+  assert.equal(by.get('recent')?.text, 'Sales 33 · Asha Retail · ₹ 1,180.00');
+  assert.deepEqual(by.get('recent')?.target, DRILL.dayBook({ from: '2026-10-08', to: '2026-10-08' }));
+  const older = cardLines(sample({ recentVouchers: [{ id: 3, date: '2026-09-02', number: '7', typeName: 'Receipt', baseType: 'receipt', partyName: null, amount: 5_000, isCancelled: false, isOptional: false, isPostDated: false }] }));
+  assert.deepEqual(older.find((l) => l.id === 'recent')?.target, DRILL.dayBook({ from: '2026-09-02', to: '2026-09-02' }), "the Day Book of the voucher's date, not today's");
+  for (const l of lines) assert.ok(l.link.length > 0 && l.target.screen.length > 0, l.id);
+  // Inventory off: no item lines; nothing post-dated, no vouchers: no line for them.
+  const plain = cardLines(sample({ features: { ...sample().features, inventory: false }, postDated: { count: 0, inflow: 0, outflow: 0, rows: [] } }));
+  assert.deepEqual(plain.map((l) => l.id), ['cashBank', 'gst', 'topCustomer']);
+});
+
+test('wiring: Home renders the 2.1 panel; the full Dashboard keeps every card behind "Show all cards"', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../DashboardScreen.tsx', import.meta.url), 'utf8');
-  const embedded = src.slice(src.indexOf('function EmbeddedDashboard('), src.indexOf('function groupSections('));
-  assert.match(embedded, /homeSections\(\{ hasVouchers: s\?\.hasVouchers \?\? true, insightsOpen \}\)/);
-  assert.match(embedded, /sections\.insights\.map\(render\)/);
-  assert.match(embedded, /aria-expanded=\{insightsOpen\}/);
-  assert.match(embedded, /limit=\{HOME_RECENT_LIMIT\}/);
-  // The full Dashboard body still lists every card.
-  const full = src.slice(src.indexOf('function DashboardBody('));
-  for (const card of ['KpiRow', 'TrendCard', 'AlertsCard', 'AgeingCard', 'CashBankCard', 'GstCard', 'TopCustomersCard', 'TopItemsCard', 'LowStockCard', 'PostDatedCard', 'ModuleCards', 'RecentVouchersCard']) {
+  const home = src.slice(src.indexOf('function HomePanel('), src.indexOf('function FullDashboard('));
+  for (const part of ['<HomeFigures ', '<HomeGraph ', '<HomeAlerts ', '<SetupLine ', 'Full dashboard', 'period.openDialog']) assert.ok(home.includes(part), `Home renders ${part}`);
+  // …in the order of HOME_PANEL (D10): period · figures · graph · attention · Setup · Full dashboard.
+  const at = ['period.openDialog', '<HomeFigures ', '<HomeGraph ', '<HomeAlerts ', '<SetupLine ', '>\n          Full dashboard'].map((p) => home.indexOf(p));
+  assert.equal(at.length, HOME_PANEL.length);
+  assert.deepEqual([...at].sort((x, y) => x - y), at, `Home panel order ${at.join(' < ')}`);
+  assert.ok(at.every((i) => i >= 0));
+  for (const gone of ['Show more insights', 'Change period', 'Refresh dashboard', 'Show Get started', 'RecentVouchersCard']) assert.ok(!home.includes(gone), `Home no longer renders ${gone}`);
+  const full = src.slice(src.indexOf('function FullDashboard('));
+  for (const card of ['KpiRow', 'TrendCard', 'AlertsCard', 'AgeingCard', 'CashBankCard', 'GstCard', 'TopCustomersCard', 'TopItemsCard', 'LowStockCard', 'PostDatedCard', 'ModuleCards', 'RecentVouchersCard', 'CardLines', 'SetupLine']) {
     assert.ok(full.includes(`<${card} `) || full.includes(`<${card} />`), `full dashboard renders ${card}`);
   }
+  assert.match(full, /setUiPrefs\(\{ dashboardAllCards: !allCards \}\)/, '"Show all cards" is remembered (pevqori.ui)');
+  // Graph code: MiniColumns (by path) on Home, everything else only through LazyChart; never Chart.tsx.
+  const parts = fs.readFileSync(new URL('../components.tsx', import.meta.url), 'utf8');
+  assert.match(parts, /from '\.\.\/\.\.\/ui\/MiniColumns\.tsx'/);
+  assert.match(parts, /from '\.\.\/\.\.\/ui\/lazyChart\.tsx'/);
+  assert.ok(!/Chart\.tsx'/.test(parts.replace(/lazyChart\.tsx'/g, '')), 'no static import of the graph kit');
+  // Ctrl+J comes from useGraphsToggle only (no key literal in the module).
+  assert.ok(!/Ctrl\+J'/.test(parts) && !/Ctrl\+J'/.test(src));
+  assert.match(parts, /useScreenActions\(g && toggle\.action \? \[toggle\.action\] : NO_ACTIONS\)/, 'Home registers Ctrl+J only while its graph exists');
+  // The full Dashboard: Ctrl+J only while one of its graphs exists; folding keeps the focus (useGraphFold).
+  assert.match(full, /\.\.\.\(hasGraph && graphs\.action \? \[graphs\.action\] : \[\]\)/);
+  assert.match(full, /ref=\{fold\.toggleRef\}/);
+  assert.match(full, /aria-live="polite"/);
+  assert.ok(enoughData(trendSpec(sample().trend)!));
 });

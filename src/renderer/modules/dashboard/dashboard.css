@@ -1,296 +1,91 @@
-/* Dashboard (dashboard.home). Semantic design tokens only — no raw colours. Prefix: bx-db- */
-
+/* Dashboard: Home's panel (bx-db--home) and dashboard.home (bx-db--full). Semantic tokens only. Prefix: bx-db */
 .bx-db {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-6);
   min-width: 0;
 }
-/* Full page: the dashboard scrolls inside the report body. */
+.bx-db--home {
+  padding: var(--space-6);
+}
 .bx-db--full {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-bottom: var(--space-4);
 }
-/* Inside the Gateway's right panel (which scrolls itself). */
-.bx-db--embedded {
-  gap: var(--space-3);
-  padding: var(--space-5) var(--space-6);
-}
-
-.bx-db__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-4);
-}
-.bx-db__title {
-  margin: 0;
-  font-size: var(--fs-20);
-  font-weight: var(--fw-semibold);
-  line-height: var(--lh-tight);
-}
-.bx-db__sub {
-  margin: var(--space-0-5) 0 0;
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-}
-.bx-db__head-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.bx-db__kpis {
+.bx-db__figures {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: var(--space-6);
 }
-.bx-db--embedded .bx-db__kpis {
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-}
-
 .bx-db__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-6);
   align-items: start;
-}
-.bx-db--embedded .bx-db__grid {
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 }
 .bx-db__wide {
   grid-column: 1 / -1;
 }
-/* Home: "Show more insights" (the other cards mount only when open). */
-.bx-db__more {
-  display: flex;
-  justify-content: center;
+.bx-db__h {
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-13);
+  font-weight: var(--fw-semibold);
 }
-.bx-db__card {
-  min-width: 0;
-}
-.bx-db__note {
-  margin: var(--space-2) 0 0;
+.bx-db__note,
+.bx-db__muted {
   color: var(--text-muted);
   font-size: var(--fs-12);
 }
-.bx-db__figures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
-  margin: 0 0 var(--space-2);
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-}
-.bx-db__figures strong {
-  color: var(--text-primary);
-  font-weight: var(--fw-semibold);
-}
-
-.bx-db-alerts {
-  display: flex;
-  flex-direction: column;
+.bx-db__note,
+.bx-db-alerts,
+.bx-db-steps,
+.bx-db-lines {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.bx-db-alerts > li + li {
-  border-top: 1px solid var(--border-subtle);
-}
-/* Clickable rows (alerts, ageing buckets). */
-.bx-db-alert,
-.bx-db-age__row {
-  display: grid;
+/* One sentence per alert; the 6 px dot carries the tone, the words carry the meaning. */
+.bx-db-alert {
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
   width: 100%;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
+  min-height: 28px;
+  padding: 0 var(--space-1);
   text-align: left;
-  cursor: pointer;
 }
-.bx-db-alert:hover,
-.bx-db-age__row:hover {
+button.bx-db-alert:hover {
   background: var(--row-hover);
 }
-.bx-db-alert:focus-visible,
-.bx-db-age__row:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -2px;
-}
-.bx-db-alert {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: start;
-  gap: var(--space-2-5);
-  padding: var(--space-2) var(--space-1);
-}
-/* An alert the viewer may not open (no permission): informational, not clickable. */
-.bx-db-alert.is-static {
-  cursor: default;
-}
-.bx-db-alert.is-static:hover {
-  background: transparent;
-}
-.bx-db-alert__icon {
-  display: inline-flex;
-  margin-top: var(--space-0-5);
-}
-.bx-db-alert__icon--danger { color: var(--danger-icon); }
-.bx-db-alert__icon--warning { color: var(--warning-icon); }
-.bx-db-alert__icon--info { color: var(--info-icon); }
-.bx-db-alert__title {
-  display: block;
-  font-weight: var(--fw-semibold);
-}
-.bx-db-alert__body {
-  display: block;
-  margin-top: var(--space-0-5);
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-}
-.bx-db-alert__chevron {
-  margin-top: var(--space-0-5);
-  color: var(--text-muted);
-}
-.bx-db-allclear {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  color: var(--text-secondary);
-}
-.bx-db-allclear__icon {
-  color: var(--success-icon);
-}
-
-.bx-db-age {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-0-5);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.bx-db-age__row {
-  grid-template-columns: 96px minmax(60px, 1fr) minmax(96px, auto);
-  align-items: center;
-  min-height: 28px;
-  padding: var(--space-0-5) var(--space-1);
-}
-.bx-db-age__label {
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-  white-space: nowrap;
-}
-.bx-db-age__track {
-  position: relative;
-  height: 10px;
-  border-radius: var(--radius-full);
-  background: var(--surface-2);
-  overflow: hidden;
-}
-/* Emphasis form: "not due" recedes (neutral), overdue buckets carry the accent hue. */
-.bx-db-age__fill {
-  height: 100%;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: var(--chart-other);
-}
-.bx-db-age__fill.is-overdue {
-  background: var(--chart-1);
-}
-.bx-db-age__amount {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.bx-db-flags {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-.bx-db-dir {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  white-space: nowrap;
-}
-
-.bx-db-gst + .bx-db-gst {
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-subtle);
-}
-.bx-db-gst__head {
-  margin: 0 0 var(--space-1);
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-}
-.bx-db-gst__head strong {
-  color: var(--text-primary);
-}
-
-.bx-db-start {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.bx-db-start__step {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-}
-.bx-db-start__step + .bx-db-start__step {
-  border-top: 1px solid var(--border-subtle);
-}
-.bx-db-start__num {
-  display: inline-flex;
+.bx-db-alert::before {
+  content: '';
   flex: none;
-  align-items: center;
-  justify-content: center;
-  width: var(--space-6);
-  height: var(--space-6);
+  width: 6px;
+  height: 6px;
   border-radius: var(--radius-full);
-  background: var(--surface-2);
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-  font-weight: var(--fw-semibold);
+  background: var(--info-icon);
 }
-.bx-db-start__text {
+.bx-db-alert[data-tone='danger']::before {
+  background: var(--danger-icon);
+}
+.bx-db-alert[data-tone='warning']::before {
+  background: var(--warning-icon);
+}
+/* One line each: the Setup line, its steps, the full Dashboard's card lines. */
+.bx-db-setup,
+.bx-db-steps li,
+.bx-db-lines li {
   display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
 }
-.bx-db-start__title {
-  color: var(--text-primary);
-  font-weight: var(--fw-semibold);
-}
-.bx-db-start__body {
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-}
-.bx-db-start__tick {
-  margin-top: var(--space-1);
-  font-size: var(--fs-12);
-}
-.bx-db-start__step.is-done .bx-db-start__num {
-  color: var(--success-icon);
-}
-.bx-db-start__step.is-done .bx-db-start__title {
+.bx-db-steps .is-done {
   color: var(--text-secondary);
 }
-
 @media print {
   .bx-db--full {
     overflow: visible;

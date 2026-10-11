@@ -32,7 +32,8 @@ describe('V7 — R1 walk-through', () => {
   test('voucher entry: the primary button reads "Save", not the jargon "Accept"', () => {
     const src = read('modules/vouchers/entry/VoucherEntryScreen.tsx');
     assert.match(src, /\{ key: 'Ctrl\+A', label: isAlter \? 'Save changes' : 'Save', icon: 'save', primary: true,/);
-    assert.match(src, /\{isAlter \? 'Save changes' : 'Save'\}/, 'the footer button says the same');
+    // 2.1 (SPEC-21 D13): one Save — the title row's primary; the footer bar (a second Save, Back, Total) is gone.
+    assert.doesNotMatch(src, /\bfooter=/, 'no footer= on the entry screen: one Save');
     assert.ok(!/label: isAlter \? 'Save changes' : 'Accept'/.test(src));
     assert.match(src, /hint="Enter Next · Shift\+Enter Back · Ctrl\+A Save ·/);
   });

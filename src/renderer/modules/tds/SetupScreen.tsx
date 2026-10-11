@@ -77,8 +77,6 @@ export function SetupScreen() {
   return (
     <Screen
       title="TDS / TCS Setup"
-      subtitle="Deductor details for challans and quarterly statements"
-      icon="settings"
       width="form"
       dirty={draft !== null}
       loading={q.loading}
@@ -119,14 +117,13 @@ export function SetupScreen() {
                 <Switch checked={d.roundToRupee} onChange={(v) => set({ roundToRupee: v })} disabled={!canManage} aria-label="Round tax to the nearest rupee" />
               </Field>
             </FieldGroup>
-            <Inline gap={2}>
-              <Button onClick={() => nav.push('tds.natures')}>Natures of payment / goods</Button>
-              <Button onClick={() => nav.push('tds.ledgers')}>Ledger TDS / TCS details</Button>
-              {features.tds ? (
-                <Button shortcut="Alt+R" disabled={!canManage} onClick={() => void createReceivable()}>
-                  Create TDS Receivable ledger
-                </Button>
-              ) : null}
+            <Inline gap={3}>
+              <Button variant="link" onClick={() => nav.push('tds.natures')}>
+                Natures of payment / goods
+              </Button>
+              <Button variant="link" onClick={() => nav.push('tds.ledgers')}>
+                Ledger TDS / TCS details
+              </Button>
             </Inline>
           </Stack>
         </div>

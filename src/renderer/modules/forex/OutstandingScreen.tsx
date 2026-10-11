@@ -9,12 +9,13 @@
 import { useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
-import { formatForex } from '../../../shared/forex.ts';
 import { ReportScreen, useApiQuery, useFeatures, useNav, usePeriod } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { Badge, DataTable, EmptyState, Grid, KpiCard, SegmentedControl, Stack } from '../../ui/index.ts';
+import { DataTable, EmptyState, SegmentedControl, StatLine } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { ForexOff } from './components.tsx';
+import { outstandingChart, outstandingStat } from './lib/charts.ts';
 import { currencyMap, fxDrCr, outstandingExport, outstandingRows, rateText, RATE_TYPE_LABEL, type OutstandingRow } from './lib/model.ts';
 
 type Kind = 'all' | 'receivable' | 'payable';
@@ -32,6 +33,9 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: Kind; ledgerI
   const rows = useMemo(() => (d ? outstandingRows(d) : []), [d]);
   const [cursor, setCursor] = useState<string | null>(null);
   const current = rows.find((r) => r.key === cursor) ?? null;
+  // One side only: "All" mixes what is owed to you with what you owe (no graph).
+  const spec = useMemo(() => (d ? outstandingChart(d, kind) : null), [d, kind]);
+  const stat = d ? outstandingStat(d) : [];
 
   const columns = useMemo<Column<OutstandingRow>[]>(
     () => [
@@ -45,7 +49,7 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: Kind; ledgerI
         render: (r) =>
           r.dueDate ? (
             <span>
-              {formatDate(r.dueDate, 'D-MMM-YY')} {r.overdueDays ? <Badge size="sm" tone="warning">{r.overdueDays} d</Badge> : null}
+              {formatDate(r.dueDate, 'D-MMM-YY')} {r.overdueDays ? <span className="bx-muted">· {r.overdueDays} d</span> : null}
             </span>
           ) : null,
       },
@@ -80,8 +84,16 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: Kind; ledgerI
   return (
     <ReportScreen
       title="Forex Outstanding"
-      subtitle={d ? `Closing rates: ${RATE_TYPE_LABEL[d.rateType].toLowerCase()} rate on or before ${formatDate(d.asOf)}` : undefined}
       periodMode="asOn"
+      graph={reportGraph(spec)}
+      stat={stat.length ? <StatLine items={stat} /> : undefined}
+      about={
+        <p>
+          Bills still pending in a foreign currency: the amount in the currency, the rate each was booked at and the rupees in the books, then the closing rate
+          {d ? ` (the ${RATE_TYPE_LABEL[d.rateType].toLowerCase()} rate on or before ${formatDate(d.asOf)})` : ''}, what the bill is worth at it and the unrealised gain or loss. Enter the
+          closing rate in Currencies › Rates of Exchange; Alt+V posts the revaluation.
+        </p>
+      }
       loading={q.loading && !d}
       refreshing={q.refreshing}
       error={q.error}
@@ -111,44 +123,26 @@ export function OutstandingScreen({ params }: ScreenProps<{ kind?: Kind; ledgerI
       ]}
       hint="Enter Ledger / voucher · Ctrl+1 All · Ctrl+2 Receivables · Ctrl+3 Payables · Alt+V Revaluation · Alt+E Export · Esc Back"
     >
-      <Stack gap={3}>
-        {d && d.totals.length > 0 ? (
-          <Grid columns={Math.min(3, d.totals.length * 2)} gap={3}>
-            {d.totals.flatMap((t) => {
-              const c = cur.get(t.currencyId);
-              return [
-                <KpiCard key={`f${t.currencyId}`} label={`Net in ${c?.formalName ?? ''}`} value={c ? formatForex(t.forex, c.decimalPlaces, c.symbol) : String(t.forex)} caption={`₹ ${formatMoney(t.inr)} in the books`} />,
-                <KpiCard
-                  key={`d${t.currencyId}`}
-                  label="Unrealised at closing rate"
-                  value={t.difference === null ? 'No rate' : `₹ ${formatMoney(Math.abs(t.difference))} ${t.difference >= 0 ? 'gain' : 'loss'}`}
-                  caption={t.revalued === null ? 'Enter the closing rate in Currencies › Rates of Exchange' : `₹ ${formatMoney(t.revalued)} at the closing rate`}
-                />,
-              ];
-            })}
-          </Grid>
-        ) : null}
-        <DataTable<OutstandingRow>
-          aria-label="Outstanding in foreign currencies"
-          autoFocus
-          columns={columns}
-          rows={rows}
-          getRowKey={(r) => r.key}
-          getRowLevel={(r) => r.level}
-          isGroupRow={(r) => r.isGroup}
-          expandable
-          defaultExpanded="all"
-          selectedKey={cursor}
-          onSelect={(k) => setCursor(k)}
-          onRowActivate={(r) => {
-            if (r.level === 0) return void nav.push('forex.ledger', { ledgerId: r.ledgerId });
-            const bill = d?.parties.find((p) => p.ledgerId === r.ledgerId)?.bills.find((b) => b.billName === r.name);
-            if (bill?.voucherId) nav.push('vouchers.view', { id: bill.voucherId });
-            else nav.push('forex.ledger', { ledgerId: r.ledgerId });
-          }}
-          empty={<EmptyState title="Nothing outstanding in a foreign currency" body="Parties kept in a foreign currency (Ledger › Currency) with a balance appear here." />}
-        />
-      </Stack>
+      <DataTable<OutstandingRow>
+        aria-label="Outstanding in foreign currencies"
+        autoFocus
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => r.key}
+        getRowLevel={(r) => r.level}
+        isGroupRow={(r) => r.isGroup}
+        expandable
+        defaultExpanded="all"
+        selectedKey={cursor}
+        onSelect={(k) => setCursor(k)}
+        onRowActivate={(r) => {
+          if (r.level === 0) return void nav.push('forex.ledger', { ledgerId: r.ledgerId });
+          const bill = d?.parties.find((p) => p.ledgerId === r.ledgerId)?.bills.find((b) => b.billName === r.name);
+          if (bill?.voucherId) nav.push('vouchers.view', { id: bill.voucherId });
+          else nav.push('forex.ledger', { ledgerId: r.ledgerId });
+        }}
+        empty={<EmptyState title="Nothing outstanding in a foreign currency" body="Parties kept in a foreign currency (Ledger › Currency) with a balance appear here." />}
+      />
     </ReportScreen>
   );
 }

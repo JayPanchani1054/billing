@@ -40,10 +40,17 @@ export function focusRow(key: string): void {
   }, 0);
 }
 
-export function LinesTable({ caption, columns, rows, footer, empty }: { caption: string; columns: readonly LineColumn[]; rows: readonly LineRow[]; footer?: ReactNode; empty?: ReactNode }) {
+/**
+ * `note`: a rule about the lines (2.1: no teaching sentences on screen) — the caption's tooltip, and read
+ * after the caption by a screen reader (never a tooltip over every cell of the grid).
+ */
+export function LinesTable({ caption, note, columns, rows, footer, empty }: { caption: string; note?: string; columns: readonly LineColumn[]; rows: readonly LineRow[]; footer?: ReactNode; empty?: ReactNode }) {
   return (
     <table className="bx-mfg-lines" aria-label={caption}>
-      <caption>{caption}</caption>
+      <caption title={note}>
+        {caption}
+        {note ? <span className="bx-sr-only">. {note}</span> : null}
+      </caption>
       <colgroup>
         <col style={{ width: 36 }} />
         {columns.map((c) => (

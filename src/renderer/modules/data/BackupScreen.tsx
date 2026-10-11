@@ -18,7 +18,7 @@ import { useCan, useCompany, useCompanyConfig } from '../../app/state.tsx';
 import { Badge, Banner, Button, DataTable, EmptyState, Field, Modal, Panel, PasswordInput, Stack, TextInput, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { BackupChecks, BackupPasswordFields } from './components.tsx';
-import { backupFileNamePreview, backupFreshness, backupRowStatus, passwordProblem, verifyOutcome } from './lib/backupView.ts';
+import { backupFileNamePreview, backupFreshness, backupRowStatus, backupStatusLine, passwordProblem, verifyOutcome } from './lib/backupView.ts';
 
 export function BackupScreen() {
   const nav = useNav();
@@ -133,12 +133,16 @@ export function BackupScreen() {
         key: 'status',
         header: 'Type',
         width: 120,
+        value: (b) => backupRowStatus(b).label,
+        // 2.1: a word on every row; a badge only for the exception (a file that cannot be read).
         render: (b) => {
           const s = backupRowStatus(b);
-          return (
-            <Badge tone={s.tone} size="sm" icon={s.label === 'Password' ? 'lock' : undefined}>
+          return s.tone === 'danger' ? (
+            <Badge tone="danger" size="sm">
               {s.label}
             </Badge>
+          ) : (
+            s.label
           );
         },
       },
@@ -149,26 +153,22 @@ export function BackupScreen() {
     [],
   );
 
-  const autoText = config
-    ? config.backup.auto
-      ? `Automatic backups are on — once a day, when the company is opened or closed; the newest ${config.backup.keepLast} are kept.`
-      : 'Automatic backups are off.'
-    : '';
+  // 2.1: the state is words in the title row; only a stale or missing backup is a (one-line) banner.
+  const status = backupStatusLine(fresh, config ? { on: config.backup.auto, keepLast: config.backup.keepLast } : null);
 
   return (
     <Screen
       title="Backup"
-      subtitle={company ? `Keep a copy of ${company.name} somewhere safe — ideally on another drive or a USB disk.` : undefined}
-      icon="database"
+      subtitle={list.data ? status.line || undefined : undefined}
       width="form"
       dirty={dirty}
       hint="Enter Next field · Ctrl+A Back up now · Alt+V Check backup · Alt+R Restore · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Back up now', icon: 'save', primary: true, onClick: () => void backupNow(), disabled: create.pending },
+        { key: 'Ctrl+A', label: create.pending ? 'Backing up…' : 'Back up now', icon: 'save', primary: true, onClick: () => void backupNow(), disabled: create.pending },
         { key: 'Alt+V', label: 'Check backup', icon: 'check-circle', onClick: () => current && setVerifying(current), disabled: !current, group: 'file' },
         { key: 'Alt+R', label: 'Restore…', icon: 'undo', onClick: () => restore(current), disabled: !current || !canRestore, hint: canRestore ? undefined : 'You do not have permission to restore.', group: 'file' },
         { key: 'Alt+F', label: 'Change folder', icon: 'folder', onClick: () => void chooseFolder(), group: 'file' },
-        { key: 'Alt+S', label: 'Backup settings', icon: 'settings', onClick: () => nav.push('company.config', { tab: 'backup' }), group: 'more' },
+        { key: 'Alt+S', label: 'Backup settings', icon: 'settings', onClick: () => nav.push('company.config', { tab: 'backup' }), group: 'more', hint: 'Automatic backups: on or off, and how many to keep.' },
         { key: 'Alt+K', label: 'Check books', icon: 'shield', onClick: () => nav.push('data.verify'), group: 'more' },
       ]}
     >
@@ -179,63 +179,64 @@ export function BackupScreen() {
             title="Confirm the backup folder"
             action={
               canManage ? (
-                <Button size="sm" icon="folder" loading={approve.pending} onClick={() => void confirmFolder()}>
+                <Button size="sm" variant="link" loading={approve.pending} onClick={() => void confirmFolder()}>
                   Confirm folder…
                 </Button>
               ) : undefined
             }
           >
             {unapprovedFolderText(unapproved)}
-            {canManage ? ' Choose Confirm folder and pick it (or another folder) in the dialog.' : ' Ask a user who can change the company configuration to confirm it.'}
+            {canManage ? null : ' Ask a user who can change the company configuration to confirm it.'}
           </Banner>
         ) : null}
-        {list.data ? (
-          <Banner tone={fresh.tone} title={fresh.title}>
-            {autoText} {config ? 'Change this in Backup settings (Alt+S).' : null}
-          </Banner>
-        ) : null}
-
-        <Panel title="Back up now" description="A complete copy of this company's data in one file. Working in the company can continue while it is written.">
-          <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
-            <Stack gap={3}>
-              <Field label="Folder" error={errors.folder} hint={company ? `File name: ${backupFileNamePreview(company.name, new Date())}` : undefined}>
-                <TextInput
-                  value={list.data?.folder ?? folder ?? ''}
-                  readOnly
-                  mono
-                  aria-label="Backup folder"
-                  trailing={
-                    <Button size="sm" icon="folder" onClick={() => void chooseFolder()}>
-                      Change…
-                    </Button>
-                  }
-                />
-              </Field>
-              <Field label="Note" optional hint="Shown in the list below, e.g. “Before filing GSTR-3B”. Not encrypted — don't write passwords here." error={errors.note}>
-                <TextInput value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
-              </Field>
-              <BackupPasswordFields password={password} confirm={confirm} onPassword={setPassword} onConfirm={setConfirm} errors={errors} disabled={create.pending} />
-              {error ? (
-                <Banner tone="danger" title="The backup was not made" onDismiss={() => setError(null)}>
-                  {error}
-                </Banner>
-              ) : null}
-              <div>
-                <Button variant="primary" icon="save" loading={create.pending} shortcut="Ctrl+A" onClick={() => void backupNow()} data-enter-target>
-                  {create.pending ? 'Backing up…' : 'Back up now'}
+        {list.data && status.alert ? (
+          <Banner
+            tone={status.alert.tone}
+            title={status.alert.title}
+            action={
+              config && !config.backup.auto ? (
+                <Button size="sm" variant="link" onClick={() => nav.push('company.config', { tab: 'backup' })}>
+                  Turn on automatic backups
                 </Button>
-              </div>
-            </Stack>
-          </form>
-        </Panel>
+              ) : undefined
+            }
+          />
+        ) : null}
 
-        <Panel title="Backups in this folder" description={list.data ? list.data.folder : undefined}>
+        <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Back up now">
+          <Stack gap={3}>
+            <Field label="Folder" error={errors.folder} hint={company ? `File name: ${backupFileNamePreview(company.name, new Date())}` : undefined}>
+              <TextInput
+                value={list.data?.folder ?? folder ?? ''}
+                readOnly
+                mono
+                aria-label="Backup folder"
+                trailing={
+                  <Button size="sm" variant="ghost" onClick={() => void chooseFolder()}>
+                    Change…
+                  </Button>
+                }
+              />
+            </Field>
+            <Field label="Note" optional hint="Shown in the list below, e.g. “Before filing GSTR-3B”. Not encrypted — don't write passwords here." error={errors.note}>
+              <TextInput value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
+            </Field>
+            <BackupPasswordFields password={password} confirm={confirm} onPassword={setPassword} onConfirm={setConfirm} errors={errors} disabled={create.pending} />
+            {error ? (
+              <Banner tone="danger" title="The backup was not made" onDismiss={() => setError(null)}>
+                {error}
+              </Banner>
+            ) : null}
+          </Stack>
+        </form>
+
+        <Panel title="Backups in this folder">
           {list.error ? (
-            <Banner tone="danger" title="The backup folder could not be read" action={<Button size="sm" onClick={() => void list.refetch()}>Try again</Button>}>
+            <Banner tone="danger" title="The backup folder could not be read" action={<Button size="sm" variant="link" onClick={() => void list.refetch()}>Try again</Button>}>
               {userMessage(list.error)}
             </Banner>
           ) : (
-            <DataTable<BackupFileInfo>
+            <DataTable
               aria-label="Backups"
               columns={columns}
               rows={backups}
@@ -246,7 +247,8 @@ export function BackupScreen() {
               loading={list.loading}
               gridRef={gridRef}
               height="min(50vh, 420px)"
-              empty={<EmptyState size="sm" icon="database" title="No backups in this folder yet" body="Press Ctrl+A to make the first one." />}
+              hideEmptyColumns
+              empty={<EmptyState size="sm" title="No backups in this folder yet" body="Ctrl+A makes the first one." />}
             />
           )}
         </Panel>

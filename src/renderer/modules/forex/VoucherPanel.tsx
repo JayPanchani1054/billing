@@ -30,7 +30,7 @@ export function ForexVoucherPanel({ voucherId, updatedAt }: VoucherPanelProps) {
   return (
     <Panel
       title="Foreign currency"
-      description={doc ? `In ${doc.formalName} (${doc.isoCode ?? doc.symbol}) @ ₹${formatExchangeRate(d.rate as number)} · books in rupees · Alt+Y ledger` : 'Books in rupees · Alt+Y ledger in currency'}
+      description={doc ? `In ${doc.formalName} (${doc.isoCode ?? doc.symbol}) @ ₹${formatExchangeRate(d.rate as number)} · books in rupees` : 'Books in rupees'}
     >
       <Stack gap={1}>
         {doc && d.documentForex !== null ? (

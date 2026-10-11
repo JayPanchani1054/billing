@@ -1,21 +1,22 @@
 /**
- * Shared pieces of the outstanding screens: layout fillers, overdue badge, credit-limit bar, KPI
- * strip, party/group pickers and print/PDF output of ready HTML documents.
+ * Shared pieces of the outstanding screens: layout fillers, overdue days and credit-limit use as plain
+ * text, the context run's danger word, party/group pickers and print/PDF output of ready HTML documents.
  */
 import { useMemo } from 'react';
 import type { CSSProperties, ReactNode, Ref } from 'react';
 import { todayLocal } from '../../../shared/dates.ts';
 import { formatDrCr, formatMoney } from '../../../shared/format.ts';
-import type { OutstandingSide, PartySummaryResult } from '../../../shared/types/outstanding.ts';
+import { DEFAULT_AGEING_BUCKETS } from '../../../shared/types/outstanding.ts';
+import type { OutstandingSide } from '../../../shared/types/outstanding.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { native } from '../../app/bridge.ts';
 import { showInFolder } from '../../app/export.ts';
 import { userMessage } from '../../app/lib/apiErrors.ts';
 import { useCan } from '../../app/state.tsx';
-import { Badge, Grid, Inline, KpiCard, Picker, ProgressBar, Select, Spacer, useToast } from '../../ui/index.ts';
+import { Picker, Select, Spacer, useToast } from '../../ui/index.ts';
 import type { SelectOption } from '../../ui/index.ts';
-import { ageingBarText, ageingLevel, ageingSegments } from './lib/ageingBars.ts';
-import { overdueText, overdueTone, summaryKpis, utilisationTone } from './lib/model.ts';
+import { daysText, isLate } from './lib/charts.ts';
+import { utilisationTone } from './lib/model.ts';
 
 // ───────────────────────────── Layout ─────────────────────────────
 
@@ -33,95 +34,24 @@ export function VGap() {
 
 // ───────────────────────────── Cells ─────────────────────────────
 
-/** "45 days" badge (warning ≤ 60, danger beyond); "Not due" muted text otherwise. */
-export function OverdueBadge({ days, notDueText = '' }: { days: number; notDueText?: string }) {
-  if (days <= 0) return notDueText ? <span className="bx-muted">{notDueText}</span> : null;
-  return (
-    <Badge tone={overdueTone(days)} size="sm">
-      {overdueText(days)}
-    </Badge>
-  );
-}
-
-/** Credit-limit use: a small bar + the percentage (text carries the value; the bar is decoration). */
-export function UtilisationBar({ percent, partyName }: { percent: number | null; partyName: string }) {
-  if (percent === null) return <span className="bx-muted">No limit</span>;
-  const text = `${Math.round(percent)}%`;
-  return (
-    <Inline gap={2} wrap={false}>
-      <ProgressBar
-        value={Math.min(Math.max(percent, 0), 100)}
-        max={100}
-        size="sm"
-        tone={utilisationTone(percent)}
-        aria-label={`${partyName}: ${text} of credit limit used`}
-        valueText={text}
-        style={{ width: 64, flexShrink: 0 }}
-      />
-      <span className="bx-num">{text}</span>
-    </Inline>
-  );
-}
-
-// ───────────────────────────── Ageing bars ─────────────────────────────
-
 /**
- * Small stacked bar of a party's outstanding by age (positive amounts only). The bar is an image
- * with a full text alternative; the colour levels are explained by <AgeingLegend>.
+ * Overdue days as plain text — "190 d" (2.1, D25: no pills). Danger text only beyond the last ageing
+ * period (`limits`, default 30/60/90/180); `notDueText` for a bill that is not yet due.
  */
-export function AgeingBar({ labels, amounts, partyName }: { labels: readonly string[]; amounts: readonly number[]; partyName: string }) {
-  const segs = ageingSegments(amounts);
-  const text = ageingBarText(labels, amounts, (p) => formatMoney(p, { symbol: true }));
-  if (segs.length === 0) return <span className="bx-muted">—</span>;
-  return (
-    <div className="bx-os-agebar" role="img" aria-label={`${partyName}: ${text}`} title={text}>
-      {segs.map((s) => (
-        <span key={s.index} className={`bx-os-agebar__seg bx-os-lvl-${s.level}`} style={{ width: `${s.percent}%` }} />
-      ))}
-    </div>
-  );
+export function OverdueDays({ days, notDueText = '', limits = DEFAULT_AGEING_BUCKETS }: { days: number; notDueText?: string; limits?: readonly number[] }) {
+  if (days <= 0) return notDueText ? <span className="bx-muted">{notDueText}</span> : null;
+  return <span className={isLate(days, limits) ? 'bx-os-danger' : undefined}>{daysText(days)}</span>;
 }
 
-/** Colour key of the ageing bars (text labels carry the meaning). */
-export function AgeingLegend({ labels }: { labels: readonly string[] }) {
-  return (
-    <ul className="bx-os-legend" aria-label="Ageing colour key">
-      {labels.map((l, i) => (
-        <li key={l} className="bx-os-legend__item">
-          <span className={`bx-os-legend__swatch bx-os-lvl-${ageingLevel(i, labels.length)}`} aria-hidden="true" />
-          {l}
-        </li>
-      ))}
-    </ul>
-  );
+/** Credit-limit use as plain text ("64%"); danger text above the limit; "No limit" muted. */
+export function LimitUsed({ percent }: { percent: number | null }) {
+  if (percent === null) return <span className="bx-muted">No limit</span>;
+  return <span className={utilisationTone(percent) === 'danger' ? 'bx-os-danger' : undefined}>{`${Math.round(percent)}%`}</span>;
 }
 
-// ───────────────────────────── KPI strip ─────────────────────────────
-
-export function KpiStrip({ summary, loading, onOverdue, onOverLimit }: { summary: PartySummaryResult | undefined; loading: boolean; onOverdue?: () => void; onOverLimit?: () => void }) {
-  const kpis = summary ? summaryKpis(summary) : null;
-  const ids = ['total', 'overdue', 'notDue', 'unadjusted', 'overLimit'];
-  const labels = ['Total', 'Overdue', 'Not yet due', 'Advances & on account', 'Over credit limit'];
-  return (
-    <Grid minItemWidth={170} gap={3}>
-      {ids.map((id, i) => {
-        const k = kpis?.find((x) => x.id === id);
-        const click = id === 'overdue' ? onOverdue : id === 'overLimit' ? onOverLimit : undefined;
-        return (
-          <KpiCard
-            key={id}
-            label={k?.label ?? labels[i]}
-            value={k ? (k.amount ? k.value : String(k.value)) : ''}
-            amount={k?.amount ?? false}
-            caption={k?.caption}
-            loading={loading || !k}
-            icon={id === 'overdue' ? 'clock' : id === 'overLimit' ? 'alert' : id === 'unadjusted' ? 'wallet' : 'rupee'}
-            onClick={click}
-          />
-        );
-      })}
-    </Grid>
-  );
+/** The context run's one danger word ("3 over credit limit"). */
+export function DangerWord({ children }: { children: ReactNode }) {
+  return <span className="bx-os-danger">{children}</span>;
 }
 
 // ───────────────────────────── Pickers ─────────────────────────────

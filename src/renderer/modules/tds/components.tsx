@@ -17,13 +17,12 @@ export function TdsOff({ title, kind }: { title: string; kind?: TdsKind }) {
   const nav = useNav();
   const what = kind ? KIND_LABEL[kind] : 'TDS or TCS';
   return (
-    <Screen title={title} icon="percent" hint="Esc Back">
+    <Screen title={title} hint="Esc Back">
       <EmptyState
-        icon="percent"
         title={`${what} is turned off for this company`}
         body="Turn it on in Features (F11) › Taxation to deduct or collect tax at source and see these reports."
         action={
-          <Button variant="primary" onClick={() => nav.push('company.features')}>
+          <Button variant="link" onClick={() => nav.push('company.features')}>
             Open Features (F11)
           </Button>
         }
@@ -60,7 +59,7 @@ export function PanBadge({ status, pan }: { status: PanStatus; pan: string | nul
   if (status === 'valid') return <span className="bx-num">{pan}</span>;
   if (status === 'not_applicable') return null;
   return (
-    <Badge size="sm" tone={status === 'invalid' ? 'danger' : 'warning'} icon="alert">
+    <Badge size="sm" tone={status === 'invalid' ? 'danger' : 'warning'}>
       {status === 'invalid' && pan ? `${pan} — invalid` : PAN_LABEL[status]}
     </Badge>
   );

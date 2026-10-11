@@ -6,22 +6,22 @@ Every screen is `gstOnly`, needs `gst.view`; file exports and manual 3B entries 
 
 | Screen id | Params | What |
 |---|---|---|
-| `gst.gstr1` | `{ period? }` | Return-period selector (`gst.periods`), tiles 4A 4B 5 6A 6B 6C 7 8 9B 11 12 13, uncertain transactions with fix links, Alt+J JSON (asks first when there are errors), Alt+E summary export |
+| `gst.gstr1` | `{ period? }` | Return period as the title row's token (`gst.periods`; `<select>` "Return period", Alt+F2). The portal tables as one list: the non-empty tables 4A 4B 5 6A 6B 6C 7 8 9B 11, the Total row (the return's net, `summary.totals`; heads in its tooltip — labelled "Net total", with the reason, when it does not foot with the rows: 4B and 8 are not in the net, advances and amendments are; `gstr1Total`), then 12 and 13 (they restate the others); More › "Show empty tables" (keyless, checkable). Each row's first cell is a button named exactly as the 2.0 tile (`lib/gstr1.ts` `tileName`); ↑/↓ + Enter open the table. No graph. Stat: "Nothing blocking" / "N documents block the JSON · Review ›" (`gstr1Stat`); uncertain transactions (collapsed) with fix links; "Filed …" state word; More › "About this return". Alt+J JSON (asks first when there are errors), Alt+E summary export |
 | `gst.gstr1.section` | `{ period, tile, section? }` | One table: aggregate rows (B2CS / nil / HSN / documents issued) + vouchers (signed: credit notes negative, invoice value too, so columns add up to the totals); tabs for multi-part tables (Alt+←/→); Enter → `vouchers.view`; export with totals |
-| `gst.gstr3b` | `{ period? }` | Portal-style form 3.1, 3.1.1, 3.2, 4, 5, 5.1, “Your entries” (Ctrl+A saves only changed cells), 6.1 payment as on the portal — (A) other than reverse charge: payable, paid through each ITC head, cash, interest, late fee; (B) reverse charge in cash — with the cash total highlighted, ITC set-off explanation, Alt+J JSON (asks first when the period has GST errors), Alt+P print |
-| `gst.gstr9` | `{ fy? }` | Annual summary (tables 4, 5, 6, 9, months, 17/18) with the “Prepared from books — verify before filing” banner; Enter on a month → its GSTR-3B |
+| `gst.gstr3b` | `{ period? }` | Head figure "Cash to pay ₹x" + "Due 20-Oct-26 (in 10 days)" (`returnDue` / `dueCaption` / `dueStateCode`: the dashboard's rule, by the company's state) + "N warnings ›"; meter "From credit · In cash" only when both are above 0 (`gstr3bMeter`); then the portal-style form 3.1, 3.1.1, 3.2, 4, 5, 5.1, “Your entries” (Ctrl+A saves only changed cells), 6.1 payment as on the portal — (A) other than reverse charge: payable, paid through each ITC head, cash, interest, late fee; (B) reverse charge in cash — ending in the cash total row, *How your ITC is used* (folded), Alt+J JSON (asks first when the period has GST errors), Alt+P print |
+| `gst.gstr9` | `{ fy? }` | Annual summary (tables 4, 5, 6, 9, months, 17/18) with the “Prepared from books — verify before filing” banner; the year is the title row's token. Graph: "Tax payable after credit, by month" (polarity columns, `gstr9Chart`; = the month table's "After credit" column); Enter on a month (row or column) → its GSTR-3B |
 | `gst.hsn` | `{ direction? }` | HSN/SAC summary, outward / inward (Ctrl+1/2) |
 | `gst.register` | `{ kind?, from?, to? }` | Sales / purchase register (Ctrl+1/2; purchases show the supplier invoice no. and date); Enter → voucher |
 | `gst.itc` | `{ from?, to? }` | ITC by supplier and by type; Enter → `reports.ledger` |
 | `gst.exceptions` | `{ from?, to? }` | All uncertain transactions, filters (Ctrl+1/2/3, problem type), Enter → `vouchers.view`, Alt+A alter voucher, Alt+M open the master to fix; period-level gaps link to GSTR-1 table 13 |
 | `gst.einvoice` | `{ from?, to?, view?: 'pending' \| 'generated' }` (feature `einvoice`) | Ctrl+1 **Pending IRN**: readiness errors, Space select / Alt+S select all ready, Alt+A alter voucher, Alt+J bulk JSON (rejected list with links), Alt+I import IRP response (JSON/XLSX), vouchers cancelled in the books with an active IRN. Ctrl+2 **IRN generated** (`gst.einvoice.generated`): ack no./date, 24-hour IRP cancellation window, Alt+K mark IRN cancelled (IRP reason codes 1–4 + remarks). Alt+H history in both |
 | `gst.ewaybill` | `{ from?, to? }` (feature `ewayBill`) | Pending e-way bills (threshold shown), Space select / Alt+S select all ready, Alt+A alter voucher, Alt+J bulk JSON (rejected list with links), Alt+N record EWB no./date/validity, Alt+H history |
-| `gst.setoff` | `{ period? }` | GST set-off for the return period (GSTR-3B 6.1, or CMP-08 for composition): credit used per Rule 88A, cash per major × minor head with the cash ledger balance and what is still to deposit (penalty / others typed in), challans of the period (Enter → voucher). Alt+C create challan (PMT-06: CPIN, CIN, BRN, date, bank, mode, head grid prefilled), Ctrl+A post the set-off journal, Alt+V open it, Alt+L cash ledger, Alt+R the return |
-| `gst.ledger.cash` | `{ from?, to? }` | Electronic Cash Ledger (books): KPIs, closing by major × minor head, transactions (Enter → voucher). Alt+S set-off, Alt+L credit ledger |
-| `gst.ledger.credit` | `{ from?, to? }` | Electronic Credit Ledger (books): opening / accrued / reversed / utilised / closing per head, transactions in Dr / Cr (as on the Input ledgers: Dr = credit booked, Cr = reversed / used; the column totals are closing − opening). Alt+S set-off, Alt+L cash ledger, Alt+I Input Tax Credit |
-| `gst.cmp08` | `{ period? }` (quarter) | CMP-08 table 3 / 4, turnover KPIs, notes. Alt+I interest, Alt+F mark filed, Alt+J / Alt+K save JSON / CSV (Pevqori format, FileResultDialog), Alt+S set-off, Alt+R GSTR-4. Explains itself for a regular taxpayer |
-| `gst.gstr4` | `{ fy? }` | GSTR-4 tables 5 (Enter → that quarter's CMP-08), 4A–4D, 6, 8; Alt+J / Alt+K files, Alt+F mark filed |
-| `gst.composition` | — | Composition category + effective-dated rate master: Alt+C create, Enter / Alt+A alter, Alt+D delete (dialog with Enter-advance, Ctrl+A) |
+| `gst.setoff` | `{ period? }` | GST set-off for the return period (GSTR-3B 6.1, or CMP-08 for composition): credit used per Rule 88A, cash per major × minor head with the cash ledger balance and what is still to deposit (penalty / others typed in), challans of the period (Enter → voucher). Alt+C create challan (PMT-06: CPIN, CIN, BRN, date, bank, mode, head grid prefilled), Ctrl+A post the set-off journal, Alt+V open it, Alt+L cash ledger, Alt+R the return. Meter "Cash in ledger ₹A of ₹B needed" (both > 0, `setoffMeter`), stat "To deposit ₹x" (`setoffStat`), state word "Set-off posted …", the return period (or quarter) as the title row's token, More › "About this set-off" |
+| `gst.ledger.cash` | `{ from?, to? }` | Electronic Cash Ledger (books): closing by major × minor head with a "Closing balance" total row (a warning line when the books account differs), transactions (Enter → voucher); detail graph: the running balance (`cashLedgerChart`). Alt+S set-off, Alt+L credit ledger |
+| `gst.ledger.credit` | `{ from?, to? }` | Electronic Credit Ledger (books): opening / accrued / reversed / utilised / closing per head, transactions in Dr / Cr (as on the Input ledgers: Dr = credit booked, Cr = reversed / used; the column totals are closing − opening); detail graph: credit in hand over the period (`creditLedgerChart`, = Σ closing). Alt+S set-off, Alt+L cash ledger, Alt+I Input Tax Credit |
+| `gst.cmp08` | `{ period? }` (quarter) | CMP-08 table 3 / 4 (turnover, rate and tax base as table 3's caption), notes in More › "About this return", "Filed …" state word, the quarter as the title row's token. Alt+I interest, Alt+F mark filed, Alt+J / Alt+K save JSON / CSV (Pevqori format, FileResultDialog), Alt+S set-off, Alt+R GSTR-4. Explains itself for a regular taxpayer |
+| `gst.gstr4` | `{ fy? }` | GSTR-4 tables 5 (Enter → that quarter's CMP-08), 4A–4D, 6, 8 (year as the title row's token); Alt+J / Alt+K files, Alt+F mark filed |
+| `gst.composition` | — | Composition category + effective-dated rate master: Alt+C create (a secondary button, D5), Enter / Alt+A alter, Alt+D delete (dialog with Enter-advance, Ctrl+A); the Rule 7 note is More › "About these rates" |
 | `gst.advances` | `{ from?, to?, view? }` | Ctrl+1 Table 11 (11A / 11B by POS and rate, vouchers; KPIs incl. the net in 3.1(a)); Ctrl+2 pending advances as on the period end. Alt+C create an advance receipt, Alt+R GSTR-1. GSTR-1's table 11 tile opens this screen |
 | `gst.boe` | `{ from?, to? }` | Bills of entry register; Alt+O reconcile with a GSTR-2B JSON / ZIP (IMPG / IMPGSEZ: matched, mismatch, not in books, not in 2B); Ctrl+1 back to the register; Alt+C create an import purchase |
 | `gst.amendments` | `{ period?, all? }` | GSTR-1 amendments reported in a period (Ctrl+1) or all (Ctrl+2): table (9A B2BA …, 9C, 10, Added), original / amended value, Δ taxable / tax; Enter → voucher |
@@ -36,7 +36,10 @@ Pure logic lives in `lib/*.ts` with tests: `node --test "src/renderer/modules/gs
 - `periods.ts` period options / defaults · `gstr1.ts` tile mapping and exports · `gstr3b.ts` manual-entry
   draft + dirty diff, 3.2 table, set-off explanation, print table · `issues.ts` fix links ·
   `compliance.ts` bulk selection, e-way bill entry, IRP import summary, IRN cancellation window / reasons ·
-  `reports.ts` export tables. `gstr1.ts` also builds the section export (`sectionExport`), `gstr3b.ts` the
+  `reports.ts` export tables · `returnCharts.ts` (2.1) the returns' graphs, figures and stats: `gstr1Stat`,
+  `gstr1Total`, `gstr3bPaid` / `gstr3bMeter`, `returnDue` / `dueCaption`, `afterCredit` / `gstr9Chart`,
+  `setoffMeter` / `setoffStat`, `cashLedgerChart`, `creditLedgerChart` — every drawn total equals the
+  table total it summarises (`returnCharts.test.ts`, on the core's own GSTR-3B / GSTR-9 computations). `gstr1.ts` also builds the section export (`sectionExport`), `gstr3b.ts` the
   portal 6.1 layout (`paymentSections`), `periods.ts` maps a date range back to a return period.
 
 GST tables show credit notes / purchase returns as negative amounts (as the portal does) rather than Dr/Cr.
@@ -52,3 +55,15 @@ taxpayers; CMP-08, GSTR-4 and Composition Rates for composition taxpayers. Exten
 `GstDetailsDialog.tsx` with Alt+J (see vouchers/README.md). Pure helpers: `lib/gstplus.ts` (challan
 defaults / grid, field checks for CPIN / CIN / bill of entry / composition rate / typed return period (`periodKeyError`: the dialog's stat-adjustment and challan period fields), `gstDetailsKinds`,
 `gstDetailsForBase`, summaries, quarters, due dates, exports) — tests in `lib/gstplus.test.ts`.
+
+**2.1 "calm" (SPEC-21, WP-J1 — the returns).** One graph per report, or deliberately none: GSTR-1, GSTR-4,
+CMP-08 and Composition Rates have none (the tables are the filing / a master); GSTR-3B a meter only when
+credit and cash both pay part of the tax; GSTR-9 the monthly tax after credit; GST Set-off a cash meter;
+the e-ledgers a running-balance line in the *detail* class (folded until Ctrl+J). The return period /
+year / quarter is a select token in the title row's context run on every return, set-off included (`PeriodSelect token`,
+`TokenSelect`, or a labelled select wrapped in `.bx-gst-token`, which drops the visible label; accessible names
+"Return period" / "Quarter" / "Financial year" kept, Alt+F2 focuses them). Info sentences and Notes boxes moved
+to More › "About this return" (`ReturnAbout`; ReportScreen `about`); the 2.0 one-line help (`GstHelp`) is
+gone. "Filed …" / "Set-off posted …" are the title row's state word. Portal-style tables are flat
+(`gst-returns.css`: hairlines, no fills except the portal's greyed cells). Every hand-made table carries an
+`aria-label`; `WideTable` always wraps a `<table>`.

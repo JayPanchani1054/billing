@@ -311,3 +311,70 @@ describe('busy company: Excel / XML data import offer "Wait and retry" (follow-u
     assert.match(src, /approve\.mutate\(\{ folder: picked\.path \}\)/);
   });
 });
+
+describe('2.1 calm: wizard step line, backup status line, one-line data check', () => {
+  it('stepLine says where the wizard is in one line', async () => {
+    const { stepLine } = await import('./backupView.ts');
+    const steps = [
+      { id: 'kind', label: 'What to import' },
+      { id: 'file', label: 'Choose file' },
+      { id: 'preview', label: 'Check rows' },
+      { id: 'result', label: 'Done' },
+    ];
+    assert.equal(stepLine(steps, 'kind'), 'Step 1 of 4 · What to import');
+    assert.equal(stepLine(steps, 'preview'), 'Step 3 of 4 · Check rows');
+    assert.equal(stepLine(steps, 'nowhere'), '');
+  });
+
+  it('backupStatusLine: fresh backups are words in the context run; stale or missing ones are an alert', async () => {
+    const { backupStatusLine } = await import('./backupView.ts');
+    const now = new Date('2026-10-05T12:00:00Z');
+    assert.deepEqual(backupStatusLine(backupFreshness('2026-10-05T09:00:00Z', now), { on: true, keepLast: 7 }), {
+      line: 'Last backup 3 hours ago · automatic daily, newest 7 kept',
+      alert: null,
+    });
+    const never = backupStatusLine(backupFreshness(null, now), { on: false, keepLast: 7 });
+    // The alert keeps the 2.0 title verbatim; the context run does not repeat it.
+    assert.deepEqual(never.alert, { tone: 'warning', title: 'This company has never been backed up' });
+    assert.equal(never.line, 'automatic backups off');
+    const stale = backupStatusLine(backupFreshness('2026-09-20T12:00:00Z', now), null);
+    assert.equal(stale.alert?.tone, 'danger');
+    assert.match(stale.alert?.title ?? '', /back up now$/);
+    assert.equal(stale.line, '');
+  });
+
+  it('dataCheckSummary is one line: the count of problems, no instructions', () => {
+    const bad: DataVerifyResult = {
+      ok: false,
+      checkedAt: '',
+      checks: [
+        { name: 'orphans', label: '', ok: false, count: 1, details: [] },
+        { name: 'audit_chain', label: '', ok: true, count: 0, details: [] },
+      ],
+    };
+    const s = dataCheckSummary(bad);
+    assert.equal(s.tone, 'warning');
+    assert.equal(s.title, '1 of 2 checks found problems');
+    assert.equal(s.message, '1 problem in total.');
+  });
+});
+
+describe('2.1: Enter runs a wizard step only where Enter has no other job', () => {
+  /** A stand-in for a focused element: `closest()` answers from the tags/roles it "sits in". */
+  const at = (...inside: string[]) => ({
+    closest: (selector: string) => (selector.split(',').some((s) => inside.includes(s.trim())) ? {} : null),
+  });
+  it('runs on the page, a heading or a read-only table', async () => {
+    const { enterRunsStep } = await import('./backupView.ts');
+    assert.equal(enterRunsStep(null), true);
+    assert.equal(enterRunsStep(at('body')), true);
+    assert.equal(enterRunsStep(at('h1')), true);
+    assert.equal(enterRunsStep(at('[role=grid]')), true);
+  });
+  it('leaves Enter to buttons, links, fields, menus and dialogs', async () => {
+    const { enterRunsStep } = await import('./backupView.ts');
+    for (const owner of ['button', 'a[href]', 'input', 'select', 'textarea', '[role=button]', '[role=menuitem]', '[role=option]', '[role=tab]', '[role=combobox]', '[role=dialog]', '[role=alertdialog]']) {
+      assert.equal(enterRunsStep(at(owner)), false, owner);
+    }
+  });
+});

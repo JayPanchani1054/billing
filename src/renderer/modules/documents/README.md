@@ -25,6 +25,27 @@ two extra header fields handled by the vouchers module: *Valid until* (quotation
 with `{draft: {...}}`; the entry screen fetches `documents.draft`, shows a "Converts a quotation" /
 "Recurring voucher · 2026-05" badge, and returns to the list after saving.
 
+## 2.1 calm and graphs (SPEC-21, WP-L1)
+
+- **Bills Pending**: graph *Unbilled challans by age* / *Bills awaited by age* (`lib/charts.ts ›
+  billsPendingChart`; ordinal columns, 0–7 days grey) over the rows the table shows; the view tabs (Note
+  lines · By party · By item) are the toolbar row; Sales / Purchase is Ctrl+1 / Ctrl+2 (More) and the title;
+  a party / item filter is the context run (Ctrl+3 clears it); the CGST s.31 / Rule 55 note is More › About
+  this report and the banner is one line; ages are plain "12 days".
+- **Budget Variance**: graph *Over and under budget* (`budgetVarianceChart`, polarity bars: under budget
+  slot 1, over slot 2), drawn inline under the Variance cells when the table is exactly its ≤ 7 lines;
+  lines inside another line or without a budget stay in the table only. The variance rules are in About.
+- **Quotation Register**: no graph (two numbers): stat *Open ₹x · Conversion y %* (`quotationsStat`; the
+  open value is dropped when it is the visible total row); status filter *All statuses ▾* (Ctrl+3…8 are
+  ticked More items) — the total row adds up the documents the filter lists (`quotationsShown`), the
+  whole register under *All statuses*; statuses as plain words.
+- **Due Recurring Vouchers**: stat *To post ₹x* (`recurringDueStat`, the ticked amount); the footer counts
+  the ticked lines only; a changed amount is marked \* with a tooltip.
+- Lists (Recurring Vouchers, Scenarios, Budgets) show a count in the context run and *Create …* as the
+  secondary button; forms lose the icon tiles, legends and teaching sentences (hints on focus; the
+  scenario rules are the dialog's description). Home notice: one line, link-style *Review & post*;
+  dashboard card without badges (the unbilled challan value is its own row; the CGST s.31 rule its tooltip).
+
 ## Extension points used (app/registry.ts)
 
 - `gatewayNotices: [RecurringDueNotice]` — "N recurring vouchers are due" banner on the Gateway when the
@@ -52,5 +73,7 @@ against the closing balance, none for a group mixing both.
 | `PlanningScreens.tsx` | Scenarios, budgets, budget form, variance |
 | `components.tsx` | Gateway notice, dashboard card, voucher panel |
 | `lib/model.ts` (+ `model.test.ts`) | Pure helpers: labels, schedule text and checks, post selection, bills grouping and ageing, pre-close quantities, scenario checks, budget lines, variance drill / status, exports |
+| `lib/keys21.test.ts` | Every screen file still registers each key it had in 2.0 (2.1 moved actions, never hid them) |
+| `lib/charts.ts` (+ `charts.test.ts`) | Graphs and stats (2.1): bills pending by age (graph total = the Pending value total), budget variance bars (each bar = its line's \|variance\|, signed from the budget's side; Σ of the bars = the table's variance total when every line is on one side), quotation and due-recurring stats |
 
 Tests: `node --test "src/renderer/modules/documents/**/*.test.ts"`.

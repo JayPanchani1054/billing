@@ -13,7 +13,6 @@ import type { ItemPickerRow } from '../../../shared/types/inventory.ts';
 import { api, Screen, useApiQuery, useCan, useNav, userMessage } from '../../app/index.ts';
 import {
   AmountInput,
-  Badge,
   Banner,
   Button,
   Combobox,
@@ -41,7 +40,7 @@ const rupees = (p: Paise): string => `₹ ${formatMoney(p)}`;
 export function PosOff({ title }: { title: string }) {
   const nav = useNav();
   return (
-    <Screen title={title} icon="cart" hint="Esc Back">
+    <Screen title={title} hint="Esc Back">
       <EmptyState
         icon="cart"
         title="POS invoicing is turned off for this company"
@@ -153,7 +152,6 @@ export function CustomerDialog({
       title="Customer"
       description="Find the customer by mobile number, or create one with just a name, mobile and state."
       size="md"
-      footerStart={<span className="bx-muted">Enter Find · Ctrl+A Create · Esc Close</span>}
       footer={
         <>
           <Button onClick={() => onPick(null)}>Walk-in (no customer)</Button>
@@ -250,7 +248,6 @@ export function LineDialog({ line, onClose, onApply }: { line: CartLine | null; 
       title={line.name}
       description={line.mrp !== null ? `MRP ${rupees(line.mrp)} per ${line.unit} (incl. taxes)` : undefined}
       size="sm"
-      footerStart={<span className="bx-muted">Enter Next field · Ctrl+A Apply</span>}
       footer={
         <Button variant="primary" shortcut="Ctrl+A" onClick={apply}>
           Apply
@@ -371,7 +368,6 @@ export function HeldBillsDialog({ open, onClose, onRecall }: { open: boolean; on
       description="Enter recalls the bill to the counter; Alt+D discards it."
       size="lg"
       flush
-      footerStart={<span className="bx-muted">Enter Recall · Alt+D Discard · Esc Close</span>}
     >
       <DiscardKey enabled={current !== null} onDiscard={() => void discard()} />
       <DataTable<PosHeldBill>
@@ -435,7 +431,6 @@ export function TenderDialog(props: {
       title={`${title} — ${rupees(due)}`}
       description={props.customerName ? `${props.isReturn ? 'Return from' : 'Bill to'} ${props.customerName}` : props.isReturn ? 'Walk-in return: refund in full or give exchange credit' : 'Walk-in bill: paid in full'}
       size="lg"
-      footerStart={<span className="bx-muted">Enter Next field · Ctrl+A {props.isReturn ? 'Save return' : 'Save bill'} · Esc Back to the bill</span>}
       footer={
         <Button variant="primary" shortcut="Ctrl+A" loading={props.saving} disabled={!canSave} onClick={props.onSave}>
           {props.isReturn ? 'Save return' : 'Save bill'}
@@ -461,9 +456,7 @@ export function TenderDialog(props: {
                   <td>
                     <Inline gap={2}>
                       <span>{r.name}</span>
-                      <Badge size="sm" tone={r.kind === 'cash' ? 'neutral' : r.kind === 'exchange' ? 'accent' : 'info'}>
-                        {POS_TENDER_KIND_LABELS[r.kind]}
-                      </Badge>
+                      {POS_TENDER_KIND_LABELS[r.kind] !== r.name ? <span className="bx-muted">{POS_TENDER_KIND_LABELS[r.kind]}</span> : null}
                       {i === state.balanceIndex ? <span className="bx-muted">(balance)</span> : null}
                     </Inline>
                   </td>

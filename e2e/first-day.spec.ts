@@ -214,7 +214,7 @@ test('enter a sales invoice by keyboard (F8)', async () => {
   const check = page.getByRole('dialog', { name: 'Please check before saving' });
   await expect(check).toBeVisible();
   await check.getByRole('button', { name: 'Save anyway' }).click();
-  await expect(page.getByText('Sales 1 saved')).toBeVisible();
+  await expect(entry.getByRole('status', { name: 'Voucher saved' })).toContainText('Saved Sales 1');
 
   // Alt+P straight after saving prints the invoice just saved (the form is already blank for the next
   // one): the rail offers "Print Sales 1" and opens its preview; Esc comes back to the empty entry.

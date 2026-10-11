@@ -3,10 +3,15 @@
  * expandable (→ / +) into its history (new / against / advance lines; Enter opens the voucher), and
  * the On Account entries. Actions: Statement of Account, Interest, Reminder letter, Ledger.
  * As on = the period's end date (Alt+F2). Amounts are ledger-signed (Dr / Cr).
+ *
+ * 2.1 (SPEC-21 §5): the figures live in the table's footer (bills pending, of which overdue, advances,
+ * on account, balance); credit terms in the context run, "Over credit limit" its one danger word; a
+ * meter "balance against the credit limit" (detail class: folded until Ctrl+J) only when the party
+ * has a limit and a balance on its side; the not-bill-wise explanation in More › About this report.
  */
 import { useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
-import { formatDrCr, formatMoney } from '../../../shared/format.ts';
+import { formatMoney } from '../../../shared/format.ts';
 import type { OnAccountLine } from '../../../shared/types/outstanding.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { useNav } from '../../app/nav.tsx';
@@ -14,9 +19,11 @@ import type { ScreenActionItem } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { usePeriod } from '../../app/working.tsx';
-import { Badge, Banner, DataTable, EmptyState, Grid, Inline, KpiCard, SegmentedControl, Switch } from '../../ui/index.ts';
+import { DataTable, EmptyState, SegmentedControl } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
-import { OverdueBadge, VGap } from './components.tsx';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { DangerWord, OverdueDays } from './components.tsx';
+import { overCreditLimit, partyChart } from './lib/charts.ts';
 import { partyEmptyBody, partyTreeRows, refTypeLabel } from './lib/model.ts';
 import { useForexContext } from '../forex/hooks.ts';
 import type { PartyTreeRow } from './lib/model.ts';
@@ -29,7 +36,17 @@ const ON_ACCOUNT_KIND: Readonly<Record<OnAccountLine['kind'], string>> = {
   unallocated: 'Not allocated',
 };
 
-const overdueCaption = (n: number): string => (n === 0 ? 'Nothing overdue' : `${n} overdue ${n === 1 ? 'bill' : 'bills'}`);
+/** The context run after "As on …": group, how the balance is broken down, credit terms. */
+function partyContext(d: { ledger: { groupName: string; creditDays: number | null; creditLimit: number | null }; method: string }): string {
+  return [
+    d.ledger.groupName,
+    d.method === 'fifo' ? 'not bill-wise (FIFO)' : d.method === 'on_account' ? 'not bill-wise' : '',
+    d.ledger.creditDays !== null ? `${d.ledger.creditDays} days credit` : '',
+    d.ledger.creditLimit ? `limit ${formatMoney(d.ledger.creditLimit, { symbol: true })}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
   const nav = useNav();
@@ -58,12 +75,10 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
         minWidth: 220,
         render: (r) =>
           r.isBill && r.refType && r.refType !== 'new' ? (
-            <Inline gap={1} wrap={false}>
-              <span className="bx-truncate">{r.label}</span>
-              <Badge size="sm" tone={r.refType === 'advance' ? 'info' : 'neutral'}>
-                {refTypeLabel(r.refType)}
-              </Badge>
-            </Inline>
+            <span className="bx-truncate">
+              {r.label}
+              <span className="bx-muted"> · {refTypeLabel(r.refType)}</span>
+            </span>
           ) : (
             r.label
           ),
@@ -71,7 +86,7 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
       { key: 'date', header: 'Date', kind: 'date', width: 110 },
       { key: 'voucher', header: 'Voucher', width: 180, value: (r) => (r.isBill ? '' : [r.voucherType, r.voucherNumber].filter(Boolean).join(' ')) },
       { key: 'dueDate', header: 'Due date', kind: 'date', width: 110 },
-      { key: 'overdueDays', header: 'Overdue', width: 110, align: 'right', render: (r) => (r.isBill ? <OverdueBadge days={r.overdueDays} notDueText={r.dueDate ? 'Not due' : ''} /> : null) },
+      { key: 'overdueDays', header: 'Overdue', width: 110, align: 'right', render: (r) => (r.isBill ? <OverdueDays days={r.overdueDays} notDueText={r.dueDate ? 'Not due' : ''} /> : null) },
       { key: 'amount', header: 'Amount', kind: 'drcr', width: 150 },
       { key: 'pending', header: 'Pending', kind: 'drcr', width: 150 },
     ],
@@ -92,6 +107,7 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
   const footerRows: FooterRow[] = d
     ? [
         { key: 'bills', tone: 'subtle', cells: { label: 'Bills pending', pending: d.totals.billsPending } },
+        ...(d.totals.overdue !== 0 ? [{ key: 'overdue', tone: 'subtle' as const, cells: { label: 'Of which overdue', pending: d.totals.overdue } }] : []),
         ...(d.totals.advance !== 0 ? [{ key: 'advance', tone: 'subtle' as const, cells: { label: 'Advances', pending: d.totals.advance } }] : []),
         ...(d.totals.onAccount !== 0 ? [{ key: 'onAccount', tone: 'subtle' as const, cells: { label: 'On account', pending: d.totals.onAccount } }] : []),
         { key: 'balance', tone: 'total', cells: { label: `Balance as on ${formatDate(asOf)}`, pending: d.balance } },
@@ -107,7 +123,7 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
     { key: 'Ctrl+2', label: 'On account entries', onClick: () => setSection('onAccount'), group: 'view', disabled: section === 'onAccount' || !billWise },
     // Alt+F1 (detailed / condensed): settled bills are the detailed view. Alt+H is reserved for edit
     // history in every module (CONVENTION_SHORTCUTS); the TDS reports toggle settled lines the same way.
-    { key: 'Alt+F1', label: includeSettled ? 'Hide settled bills' : 'Show settled bills', icon: 'eye', onClick: () => setIncludeSettled((x) => !x), group: 'view' },
+    { key: 'Alt+F1', label: 'Show settled bills', icon: 'eye', onClick: () => setIncludeSettled((x) => !x), group: 'view', checked: includeSettled },
     {
       key: 'Alt+N',
       label: fifo ? 'Show as one On Account line' : 'Break down FIFO',
@@ -115,7 +131,15 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
       hidden: !d || d.ledger.billWise,
       group: 'view',
     },
-    { key: 'Alt+S', label: 'Statement of Account', icon: 'file', onClick: () => nav.push('outstanding.statement', { ledgerId }), group: 'party', primary: true },
+    // A report has no filled button (SPEC-21 D5): the statement stays a title-row button, as a secondary.
+    {
+      key: 'Alt+S',
+      label: 'Statement of Account',
+      icon: 'file',
+      onClick: () => nav.push('outstanding.statement', { ledgerId }),
+      group: 'party',
+      prominent: true,
+    },
     { key: 'Alt+I', label: 'Interest', icon: 'percent', onClick: () => nav.push('outstanding.interest', { ledgerId }), group: 'party' },
     { key: 'Alt+R', label: 'Reminder letter', icon: 'mail', onClick: () => nav.push('outstanding.reminders', { ledgerId }), hidden: !isReceivable, group: 'party' },
     { key: 'Alt+L', label: 'Ledger', icon: 'ledger', onClick: () => nav.push('reports.ledger', { ledgerId }), group: 'party' },
@@ -140,12 +164,22 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
   });
 
   const title = d?.ledger.name ?? 'Party Outstanding';
-  const limitUsed = d && d.ledger.creditLimit && d.balance * (d.ledger.side === 'payable' ? -1 : 1) > 0 ? Math.round((Math.abs(d.balance) / d.ledger.creditLimit) * 100) : null;
+  const spec = useMemo(() => (d ? partyChart(d) : null), [d]);
 
   return (
     <ReportScreen
       title={title}
-      subtitle={d ? `${d.ledger.groupName}${d.method === 'fifo' ? ' · not bill-wise (FIFO)' : d.method === 'on_account' ? ' · not bill-wise' : ''}` : undefined}
+      subtitle={d ? partyContext(d) : undefined}
+      meta={d && overCreditLimit(d) ? <DangerWord>Over credit limit</DangerWord> : undefined}
+      graph={reportGraph(spec)}
+      graphKind="detail"
+      about={
+        d && d.method !== 'bill_wise'
+          ? d.method === 'fifo'
+            ? 'Not maintained bill-wise: the balance is matched first-in-first-out — receipts and payments settle the oldest entries first, so the open items listed are the latest ones. Alt+N shows the balance as one On Account line.'
+            : 'Not maintained bill-wise: the balance is shown as one On Account amount. Alt+N breaks it down FIFO by the latest entries.'
+          : undefined
+      }
       periodMode="asOn"
       exportDef={exportDef}
       loading={q.loading && !d}
@@ -155,50 +189,20 @@ export function PartyScreen({ params }: ScreenProps<{ ledgerId: number }>) {
       actions={actions}
       hint="→ / + Show history · Enter Open voucher · Alt+S Statement · Alt+R Reminder · Esc Back"
       filters={
-        <Inline gap={3}>
-          <SegmentedControl<Section>
-            aria-label="Section"
-            size="sm"
-            value={shown}
-            onChange={setSection}
-            options={[
-              { value: 'bills', label: `Bills${d ? ` (${d.bills.length})` : ''}` },
-              { value: 'onAccount', label: `On account${d ? ` (${d.onAccount.lines.length})` : ''}`, disabled: !!d && !d.ledger.billWise },
-            ]}
-          />
-          <Switch size="sm" checked={includeSettled} onChange={setIncludeSettled} label="Show settled bills" showState={false} />
-        </Inline>
+        <SegmentedControl<Section>
+          aria-label="Section"
+          size="sm"
+          value={shown}
+          onChange={setSection}
+          options={[
+            { value: 'bills', label: `Bills${d ? ` (${d.bills.length})` : ''}` },
+            { value: 'onAccount', label: `On account${d ? ` (${d.onAccount.lines.length})` : ''}`, disabled: !!d && !d.ledger.billWise },
+          ]}
+        />
       }
     >
       {d ? (
         <>
-          <Grid minItemWidth={170} gap={3}>
-            <KpiCard label="Balance" value={formatDrCr(d.balance, { keepZero: true })} icon="rupee" caption={d.ledger.side === 'receivable' ? 'Receivable' : d.ledger.side === 'payable' ? 'Payable' : 'Settled'} />
-            <KpiCard label="Overdue" value={formatDrCr(d.totals.overdue, { keepZero: true })} icon="clock" caption={overdueCaption(d.bills.filter((b) => b.overdueDays > 0).length)} />
-            <KpiCard
-              label="Advances & on account"
-              value={formatDrCr(d.totals.advance + d.totals.onAccount, { keepZero: true })}
-              icon="wallet"
-              caption={d.totals.advance + d.totals.onAccount === 0 ? 'Nothing unadjusted' : 'Not yet adjusted against bills'}
-            />
-            <KpiCard
-              label="Credit terms"
-              value={d.ledger.creditDays !== null ? `${d.ledger.creditDays} days` : '—'}
-              icon="calendar"
-              caption={d.ledger.creditLimit ? `Limit ${formatMoney(d.ledger.creditLimit, { symbol: true })}${limitUsed !== null ? ` · ${limitUsed}% used` : ''}` : 'No credit limit'}
-            />
-          </Grid>
-          <VGap />
-          {d.method !== 'bill_wise' ? (
-            <>
-              <Banner tone="info" inline title="Not maintained bill-wise">
-                {d.method === 'fifo'
-                  ? 'The balance is matched first-in-first-out: receipts and payments settle the oldest entries first, so the open items below are the latest ones. Alt+N shows the balance as one line.'
-                  : 'The balance is shown as one On Account amount. Alt+N breaks it down FIFO by the latest entries.'}
-              </Banner>
-              <VGap />
-            </>
-          ) : null}
           {shown === 'bills' ? (
             <DataTable<PartyTreeRow>
               aria-label={`Pending bills of ${d.ledger.name}`}

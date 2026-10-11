@@ -14,9 +14,10 @@ import { invalidate } from '../../app/queryClient.ts';
 import { Screen } from '../../app/Screen.tsx';
 import { useCompany } from '../../app/state.tsx';
 import { useWorkingDate } from '../../app/working.tsx';
-import { Badge, Banner, Button, Checkbox, DataTable, DateInput, Field, FieldGroup, Grid, Icon, Inline, KeyValueList, Panel, ProgressBar, RadioGroup, Stack } from '../../ui/index.ts';
+import { Badge, Banner, Button, DataTable, DateInput, EmptyState, Field, FieldGroup, Grid, KeyValueList, Panel, ProgressBar, RadioGroup, Stack } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { chooseFile, Steps, type ChosenFile } from './components.tsx';
+import { chooseFile, TipCheckbox, useEnterRunsStep, type ChosenFile } from './components.tsx';
+import { stepLine } from './lib/backupView.ts';
 import { issueCounts, issueTone, progressPercent, XML_FILTERS, xmlCountRows, xmlFileProblem, xmlOptionsProblem, xmlResultSummary, type XmlImportCountRow } from './lib/importView.ts';
 
 type Step = 'file' | 'preview' | 'import' | 'done';
@@ -150,31 +151,46 @@ export function XmlImportScreen() {
 
   const primary =
     step === 'file'
-      ? { label: 'Choose XML file…', icon: 'upload' as const, run: () => void pick(), disabled: busy !== null }
+      ? { label: busy === 'file' ? 'Reading the file…' : 'Choose XML file…', icon: 'upload' as const, run: () => void pick(), disabled: busy !== null }
       : step === 'preview'
         ? { label: 'Start import', icon: 'check' as const, run: () => void runImport(), disabled: !!optionsProblem }
         : step === 'done'
           ? { label: 'Check books', icon: 'shield' as const, run: () => nav.push('data.verify'), disabled: false }
           : { label: 'Importing…', icon: 'sync' as const, run: () => undefined, disabled: true };
 
+  // Enter on the first step chooses the file, as Enter on 2.0's focused in-page button did (Ctrl+A too).
+  useEnterRunsStep(() => void pick(), step === 'file' && busy === null);
+
   return (
     <Screen
       title="XML Data Import"
-      subtitle="Import from another accounting program (XML): bring your masters and vouchers over from its XML export."
-      icon="sync"
+      subtitle={`From another accounting program · ${stepLine(STEPS, step)}`}
       width="form"
       dirty={step === 'preview' || step === 'import'}
-      hint={step === 'preview' ? 'Ctrl+A Start import · Alt+O Another file · Esc Back' : step === 'done' ? 'Ctrl+A Check books · Alt+T Trial Balance · Esc Close' : 'Ctrl+A Choose file · Esc Back'}
+      hint={step === 'preview' ? 'Ctrl+A Start import · Alt+O Another file · Esc Back' : step === 'done' ? 'Ctrl+A Check books · Alt+T Trial Balance · Esc Close' : 'Enter Choose file · Esc Back'}
       actions={[
         { key: 'Ctrl+A', label: primary.label, icon: primary.icon, primary: true, onClick: primary.run, disabled: primary.disabled },
-        { key: 'Alt+O', label: 'Choose another file', icon: 'folder', onClick: () => void pick(), hidden: step !== 'preview' },
-        { key: 'Alt+T', label: 'Trial Balance', icon: 'scale', onClick: () => nav.push('reports.trialBalance'), hidden: step !== 'done' },
+        {
+          key: 'Alt+O',
+          label: 'Choose another file',
+          icon: 'folder',
+          onClick: () => void pick(),
+          prominent: true,
+          hidden: step !== 'preview',
+        },
+        {
+          key: 'Alt+T',
+          label: 'Trial Balance',
+          icon: 'scale',
+          onClick: () => nav.push('reports.trialBalance'),
+          prominent: true,
+          hidden: step !== 'done',
+        },
         { key: 'Alt+N', label: 'Import another file', icon: 'refresh', onClick: restart, hidden: step !== 'done' },
         { key: 'Alt+B', label: 'Back up first', icon: 'database', onClick: () => nav.push('data.backup'), hidden: step === 'done' || step === 'import', group: 'more' },
       ]}
     >
       <Stack gap={4}>
-        <Steps steps={STEPS} current={step} label="XML data import steps" />
         {error ? (
           <Banner
             tone={error.retry ? 'warning' : 'danger'}
@@ -182,7 +198,7 @@ export function XmlImportScreen() {
             onDismiss={() => setError(null)}
             action={
               error.retry ? (
-                <Button size="sm" icon="refresh" onClick={error.retry} disabled={busy !== null}>
+                <Button size="sm" variant="link" onClick={error.retry} disabled={busy !== null}>
                   Wait and retry
                 </Button>
               ) : undefined
@@ -191,15 +207,15 @@ export function XmlImportScreen() {
             {error.message}
           </Banner>
         ) : null}
-        {step === 'file' ? <HowTo busy={busy === 'file'} onChoose={() => void pick()} /> : null}
+        {step === 'file' ? <HowTo /> : null}
         {step === 'preview' && preview && file ? (
           <>
             <PreviewPanel preview={preview} file={file} />
             <Panel title="What to import">
               <Stack gap={3}>
                 <FieldGroup columns={2}>
-                  <Checkbox label="Masters" description="Groups, ledgers with opening balances and bills, units, godowns, items with opening stock" checked={masters} onChange={setMasters} />
-                  <Checkbox label="Vouchers" description="Exactly as recorded in your previous program — amounts and GST are not recalculated" checked={vouchers} onChange={setVouchers} disabled={preview.counts.VOUCHER === 0} />
+                  <TipCheckbox label="Masters" tip="Groups, ledgers with opening balances and bills, units, godowns, items with opening stock" checked={masters} onChange={setMasters} />
+                  <TipCheckbox label="Vouchers" tip="Exactly as recorded in your previous program — amounts and GST are not recalculated" checked={vouchers} onChange={setVouchers} disabled={preview.counts.VOUCHER === 0} />
                 </FieldGroup>
                 {vouchers && preview.dateRange ? (
                   <FieldGroup legend="Vouchers dated" columns={2}>
@@ -222,45 +238,38 @@ export function XmlImportScreen() {
                   ]}
                 />
                 {optionsProblem ? <p className="bx-muted" role="status">{optionsProblem}</p> : null}
-                <div>
-                  <Button variant="primary" icon="check" disabled={!!optionsProblem} shortcut="Ctrl+A" onClick={() => void runImport()}>
-                    Start import
-                  </Button>
-                </div>
               </Stack>
             </Panel>
           </>
         ) : null}
         {step === 'import' ? <ImportProgress progress={progress} /> : null}
-        {step === 'done' && result ? <ResultPanel result={result} onVerify={() => nav.push('data.verify')} onTb={() => nav.push('reports.trialBalance')} /> : null}
+        {step === 'done' && result ? <ResultPanel result={result} /> : null}
       </Stack>
     </Screen>
   );
 }
 
-function HowTo({ busy, onChoose }: { busy: boolean; onChoose: () => void }) {
+function HowTo() {
+  // 2.1: "Choose XML file…" is the title row's primary (Ctrl+A); the step shows how to get the file.
   return (
-    <Stack gap={4}>
-      <Panel title="1. Export your data from your previous accounting program" description="Do this on the computer that has that program. Exporting does not change anything there.">
-        <ol className="bx-data-howto">
-          <li>
-            Open the company in that program and choose its <strong>Export</strong> option (it may be called <strong>Data Interchange</strong>).
-          </li>
-          <li>
-            Choose <strong>Masters</strong> (All Masters) and set <strong>Format = XML (Data Interchange)</strong>, then export.
-          </li>
-          <li>
-            For vouchers, choose <strong>Transactions</strong> (Day Book) with the same XML format and the period you need — usually the whole financial year.
-          </li>
-          <li>Copy the .xml files to this computer (a USB drive is fine). If you cannot find them, check the export folder the program shows when exporting.</li>
-        </ol>
-      </Panel>
-      <Panel title="2. Choose the exported file" description="Import masters first, then transactions. You will see what is in the file before anything is saved.">
-        <Button variant="primary" icon="upload" loading={busy} onClick={onChoose} shortcut="Ctrl+A" data-autofocus>
-          {busy ? 'Reading the file…' : 'Choose XML file…'}
-        </Button>
-      </Panel>
-    </Stack>
+    <Panel title="Export your data from your previous accounting program">
+      <ol className="bx-data-howto">
+        <li>
+          On the computer that has that program, open the company and choose its <strong>Export</strong> option (it may be called <strong>Data Interchange</strong>).
+          Exporting does not change anything there.
+        </li>
+        <li>
+          Choose <strong>Masters</strong> (All Masters) and set <strong>Format = XML (Data Interchange)</strong>, then export.
+        </li>
+        <li>
+          For vouchers, choose <strong>Transactions</strong> (Day Book) with the same XML format and the period you need — usually the whole financial year.
+        </li>
+        <li>Copy the .xml files to this computer (a USB drive is fine). If you cannot find them, check the export folder the program shows when exporting.</li>
+        <li>
+          Here, choose the masters file first, then the transactions file. You see what is in each file before anything is saved.
+        </li>
+      </ol>
+    </Panel>
   );
 }
 
@@ -297,7 +306,6 @@ function PreviewPanel({ preview, file }: { preview: XmlPreviewResult; file: Chos
       <Panel
         title={
           <span className="bx-data-file">
-            <Icon name="file" size="sm" />
             <span className="bx-data-file__name">{file.name}</span>
             <span>{formatBytes(file.size)}</span>
           </span>
@@ -315,11 +323,11 @@ function PreviewPanel({ preview, file }: { preview: XmlPreviewResult; file: Chos
       </Panel>
       <Grid columns={2} gap={4}>
         <Panel title="Masters and vouchers">
-          <DataTable aria-label="Objects in the file" columns={countCols} rows={rows} getRowKey={(r) => r.key} virtualize={false} />
+          <DataTable aria-label="Objects in the file" columns={countCols} rows={rows} getRowKey={(r) => r.key} virtualize={false} empty={<EmptyState size="sm" title="Nothing to import in this file" />} />
         </Panel>
         {preview.vouchersByType.length ? (
           <Panel title="Voucher types">
-            <DataTable aria-label="Vouchers by type" columns={typeCols} rows={preview.vouchersByType} getRowKey={(r) => r.voucherType} virtualize={false} />
+            <DataTable aria-label="Vouchers by type" columns={typeCols} rows={preview.vouchersByType} getRowKey={(r) => r.voucherType} virtualize={false} empty={<EmptyState size="sm" title="No vouchers in this file" />} />
           </Panel>
         ) : null}
       </Grid>
@@ -338,7 +346,7 @@ function PreviewPanel({ preview, file }: { preview: XmlPreviewResult; file: Chos
       ) : null}
       <Panel title={preview.issues.length ? `Issues (${preview.issues.length})` : 'Issues'}>
         {preview.issues.length ? (
-          <DataTable aria-label="Issues found in the file" columns={issueCols} rows={issues} getRowKey={(r) => String(r.i)} height="min(40vh, 360px)" />
+          <DataTable aria-label="Issues found in the file" columns={issueCols} rows={issues} getRowKey={(r) => String(r.i)} height="min(40vh, 360px)" empty={<EmptyState size="sm" title="No issues" />} />
         ) : (
           <p className="bx-muted">No problems found — everything in the file can be imported.</p>
         )}
@@ -363,7 +371,7 @@ function ImportProgress({ progress }: { progress: XmlImportProgress | null }) {
   );
 }
 
-function ResultPanel({ result, onVerify, onTb }: { result: XmlImportResult; onVerify: () => void; onTb: () => void }) {
+function ResultPanel({ result }: { result: XmlImportResult }) {
   const s = xmlResultSummary(result);
   const issues = useMemo(() => result.issues.map((x, i) => ({ ...x, i })), [result.issues]);
   const cols = useMemo<Column<XmlImportIssue & { i: number }>[]>(
@@ -374,6 +382,7 @@ function ResultPanel({ result, onVerify, onTb }: { result: XmlImportResult; onVe
     ],
     [],
   );
+  // 2.1: Check books (Ctrl+A) and Trial Balance (Alt+T) are the title row's buttons.
   return (
     <Stack gap={4}>
       <Banner tone={s.tone} title={s.title}>
@@ -384,19 +393,10 @@ function ResultPanel({ result, onVerify, onTb }: { result: XmlImportResult; onVe
           </span>
         ))}
       </Banner>
-      <Panel title="Next: check that the books agree with your previous program" description="Compare the Trial Balance with the one in your previous program for the same date, then run Check books to confirm every voucher balances.">
-        <Inline gap={2}>
-          <Button variant="primary" icon="shield" onClick={onVerify} shortcut="Ctrl+A">
-            Check books
-          </Button>
-          <Button icon="scale" onClick={onTb} shortcut="Alt+T">
-            Trial Balance
-          </Button>
-        </Inline>
-      </Panel>
+      <p className="bx-muted">Next: compare the Trial Balance with the one in your previous program for the same date, then run Check books.</p>
       {issues.length ? (
         <Panel title={`Issues (${issues.length})`}>
-          <DataTable aria-label="Import issues" columns={cols} rows={issues} getRowKey={(r) => String(r.i)} height="min(40vh, 360px)" />
+          <DataTable aria-label="Import issues" columns={cols} rows={issues} getRowKey={(r) => String(r.i)} height="min(40vh, 360px)" empty={<EmptyState size="sm" title="No issues" />} />
         </Panel>
       ) : null}
     </Stack>

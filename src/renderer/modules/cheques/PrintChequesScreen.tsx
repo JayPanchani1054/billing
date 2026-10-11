@@ -11,7 +11,7 @@ import { formatDate } from '../../../shared/dates.ts';
 import type { ChequePrintItem } from '../../../shared/types/cheques.ts';
 import type { VoucherListRow } from '../../../shared/types/vouchers.ts';
 import { api, Screen, useApiQuery, useCan, useNav, usePeriod, type ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, Checkbox, DataTable, EmptyState, Field, Inline, Select, Stack, useToast, type Column } from '../../ui/index.ts';
+import { Badge, Banner, Button, Checkbox, DataTable, EmptyState, Select, Stack, useToast, type Column } from '../../ui/index.ts';
 import { orderedSelection, toggleAll, toggleId } from '../print/lib/screenState.ts';
 import { ChequeSheets, useChequePrintJob, useChequesOn } from './components.tsx';
 import { chequeMarks, mixedLayouts, selectedCheques } from './lib/cheque.ts';
@@ -26,8 +26,8 @@ export function PrintChequesScreen({ params }: ScreenProps<PrintChequesParams>) 
   const ids = Array.isArray(params.voucherIds) ? params.voucherIds.filter((x) => Number.isInteger(x) && x > 0).slice(0, 200) : [];
   if (!on) {
     return (
-      <Screen title="Print Cheques" icon="bank">
-        <EmptyState icon="bank" title="Cheque printing is turned off" body={CHEQUES_OFF} />
+      <Screen title="Print Cheques">
+        <EmptyState title="Cheque printing is turned off" body={CHEQUES_OFF} />
       </Screen>
     );
   }
@@ -79,7 +79,8 @@ function ChequePreview({ ids }: { ids: number[] }) {
       { key: 'payee', header: 'Payee', minWidth: 200 },
       { key: 'amount', header: 'Amount', kind: 'amount', width: 140 },
       { key: 'bankLedgerName', header: 'Bank', width: 150 },
-      { key: 'acPayee', header: 'Crossing', width: 110, render: (r) => (r.acPayee ? <Badge size="sm">A/c Payee</Badge> : <Badge size="sm" tone="warning">{r.self ? 'Self' : 'Open'}</Badge>) },
+      // Plain words; an uncrossed (open / self) cheque is the exception that is marked.
+      { key: 'acPayee', header: 'Crossing', width: 110, render: (r) => (r.acPayee ? 'A/c Payee' : <Badge size="sm" tone="warning">{r.self ? 'Self' : 'Open'}</Badge>) },
       { key: 'voucherLabel', header: 'Voucher', minWidth: 200 },
     ],
     [excluded],
@@ -88,8 +89,7 @@ function ChequePreview({ ids }: { ids: number[] }) {
   return (
     <Screen
       title="Print Cheques"
-      subtitle={q.data ? `${chosen.length} of ${items.length} cheque${items.length === 1 ? '' : 's'} · ${chosen[0]?.layoutName ?? ''}` : undefined}
-      icon="bank"
+      subtitle={q.data ? `${chosen.length} of ${items.length} cheque${items.length === 1 ? '' : 's'}` : undefined}
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
@@ -110,17 +110,16 @@ function ChequePreview({ ids }: { ids: number[] }) {
       ]}
     >
       <Stack gap={3}>
-        <Inline gap={4} align="end">
-          <Field label="Layout" hint="Default: each bank's own layout (Cheque Books › Alt+S).">
-            <Select
-              aria-label="Cheque layout"
-              size="sm"
-              value={layoutId === null ? '' : String(layoutId)}
-              onChange={(v: string) => setLayoutId(v === '' ? null : Number(v))}
-              options={[{ value: '', label: "Each bank's layout" }, ...(layouts.data ?? []).map((l) => ({ value: String(l.id), label: l.name }))]}
-            />
-          </Field>
-        </Inline>
+        <div>
+          <Select
+            aria-label="Cheque layout"
+            title="Default: each bank's own layout (Cheque Books › Alt+S)"
+            size="sm"
+            value={layoutId === null ? '' : String(layoutId)}
+            onChange={(v: string) => setLayoutId(v === '' ? null : Number(v))}
+            options={[{ value: '', label: chosen[0]?.layoutName ? `Each bank's layout (${chosen[0].layoutName})` : "Each bank's layout" }, ...(layouts.data ?? []).map((l) => ({ value: String(l.id), label: l.name }))]}
+          />
+        </div>
         {q.data && q.data.skipped.length > 0 ? (
           <Banner tone="info" title="Not printed">
             <ul>
@@ -161,7 +160,7 @@ function ChequePreview({ ids }: { ids: number[] }) {
               setExcluded((s) => toggleKey(s, r.key));
             }
           }}
-          empty={<EmptyState icon="bank" title="No cheques to print" body="The vouchers chosen are not paid by cheque. In a Payment, press Alt+K on the bank line and choose Cheque." />}
+          empty={<EmptyState title="No cheques to print" body="The vouchers chosen are not paid by cheque. In a Payment, press Alt+K on the bank line and choose Cheque." />}
         />
         {chosen.length > 0 && mixed.length === 0 ? <ChequeSheets pages={pages} spec={chosen[0].spec} rootRef={rootRef} label="Preview of the cheques" /> : null}
       </Stack>
@@ -199,8 +198,7 @@ function ChequePicker() {
   return (
     <Screen
       title="Print Cheques"
-      subtitle={`${label} · ${chosen.length} selected`}
-      icon="bank"
+      subtitle={`${chosen.length} selected`}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Space or Enter Tick · Alt+A Tick all · Ctrl+A Preview cheques · Alt+F2 Period"
@@ -230,7 +228,7 @@ function ChequePicker() {
             setSelected((s) => toggleId(s, r.id));
           }
         }}
-        empty={<EmptyState icon="bank" title={`No payments or contras from ${formatDate(from)} to ${formatDate(to)}`} body="Change the period with Alt+F2." />}
+        empty={<EmptyState title={`No payments or contras from ${formatDate(from)} to ${formatDate(to)}`} body="Change the period with Alt+F2." />}
       />
     </Screen>
   );

@@ -206,6 +206,15 @@ export function tdsApplies(base: VoucherBaseType, f: Pick<CompanyFeatures, 'tds'
   return !!f.tcs && base === 'sales';
 }
 
+/**
+ * 2.1 (D16): voucher entry's side column holds the TDS / TCS panel only when it applies and has
+ * something to say — a computed line, or the challan of a challan Payment. Otherwise the grid keeps the
+ * full width; the panel's Alt+U (registered before this gate) still opens the dialog.
+ */
+export function entryPanelShown(p: { applies: boolean; isChallan: boolean; lines: number }): boolean {
+  return p.applies && (p.isChallan || p.lines > 0);
+}
+
 /** Set (amount ≠ null) or remove the override of one nature. Empty result → undefined (automatic). */
 export function withOverride(cur: VoucherTdsInput | null | undefined, natureId: number, amount: Paise | null, reason: string): VoucherTdsInput | null {
   const others = (cur?.overrides ?? []).filter((o) => o.natureId !== natureId);

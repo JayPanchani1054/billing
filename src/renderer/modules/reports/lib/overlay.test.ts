@@ -71,8 +71,11 @@ describe('reports scenario / budget overlay', () => {
     assert.equal(plain.columns.length, 4);
   });
 
-  it('carries the scenario into Group Summary drill-downs only; describes the overlay', () => {
+  it('carries the scenario into Group Summary and P&L drill-downs only; describes the overlay', () => {
     assert.deepEqual(withScenario({ screen: 'reports.groupSummary', params: { groupId: 2 } }, 3), { screen: 'reports.groupSummary', params: { groupId: 2, scenarioId: 3 } });
+    // A month of the P&L graph (and the Balance Sheet's P&L A/c line) opens the P&L under the same scenario.
+    assert.deepEqual(withScenario({ screen: 'reports.profitLoss', params: { from: '2026-05-01', to: '2026-05-31' } }, 3), { screen: 'reports.profitLoss', params: { from: '2026-05-01', to: '2026-05-31', scenarioId: 3 } });
+    assert.deepEqual(withScenario({ screen: 'reports.profitLoss', params: { from: '2026-05-01', to: '2026-05-31' } }, null), { screen: 'reports.profitLoss', params: { from: '2026-05-01', to: '2026-05-31' } });
     const ledger = { screen: 'reports.ledger', params: { ledgerId: 5 } };
     assert.equal(withScenario(ledger, 3), ledger);
     assert.equal(withScenario(null, 3), null);

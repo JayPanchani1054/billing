@@ -185,7 +185,6 @@ function ProfileForm({ profile }: { profile: CompanyProfile }) {
     <Screen
       title="Company Details"
       subtitle={profileStampText(profile.createdAt, profile.updatedAt, (iso) => formatRelative(iso))}
-      icon="building"
       width="form"
       dirty={dirty}
       hint="Enter Next field · Ctrl+A Save · Esc Back"
@@ -202,16 +201,6 @@ function ProfileForm({ profile }: { profile: CompanyProfile }) {
           group: 'more',
         },
       ]}
-      footer={
-        canEdit ? (
-          <>
-            <Button onClick={() => void nav.back()}>Cancel</Button>
-            <Button variant="primary" icon="save" loading={save.pending} disabled={!dirty} onClick={() => void submit()} shortcut="Ctrl+A">
-              Save
-            </Button>
-          </>
-        ) : undefined
-      }
     >
       <div ref={formRef}>
         <Stack gap={6}>

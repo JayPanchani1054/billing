@@ -147,8 +147,52 @@ export function dataCheckSummary(r: DataVerifyResult): { tone: StatusTone; title
   return {
     tone: failed.some((c) => c.name === 'integrity' || c.name === 'voucher_balance' || c.name === 'audit_chain') ? 'danger' : 'warning',
     title: `${failed.length} of ${r.checks.length} checks found problems`,
-    message: `${problems} problem${problems === 1 ? '' : 's'} in total. Open a check (Enter) to see the details. Restore a recent backup if the database itself is damaged.`,
+    // One line (2.1): what to do next lives in the screen's About (Enter opens a check; a damaged database → restore).
+    message: `${problems} problem${problems === 1 ? '' : 's'} in total.`,
   };
+}
+
+/**
+ * Elements that do something with Enter themselves (2.1): a wizard step whose one action is the title row's
+ * primary runs it on Enter only where Enter has no other job — the page, a heading, a read-only table.
+ */
+export const ENTER_OWNERS =
+  'button, a[href], input, select, textarea, [contenteditable="true"], [role=button], [role=link], [role=menuitem], [role=menuitemcheckbox], [role=menuitemradio], [role=option], [role=tab], [role=combobox], [role=switch], [role=checkbox], [role=radio], [role=dialog], [role=alertdialog]';
+
+/** Whether Enter on `target` should run the step's action (not when the focused element owns Enter). */
+export function enterRunsStep(target: { closest(selector: string): unknown } | null): boolean {
+  return !target || target.closest(ENTER_OWNERS) === null;
+}
+
+/** A wizard step (Import, XML data import, Restore). */
+export interface StepDef {
+  id: string;
+  label: string;
+}
+
+/**
+ * The wizard's progress as the title row's context words (2.1: one quiet line instead of a row of numbered
+ * discs): "Step 2 of 4 · Choose file". Empty when `current` is not one of the steps.
+ */
+export function stepLine(steps: readonly StepDef[], current: string): string {
+  const at = steps.findIndex((s) => s.id === current);
+  if (at < 0) return '';
+  return `Step ${at + 1} of ${steps.length} · ${steps[at].label}`;
+}
+
+/**
+ * The Backup screen's state in words (2.1): `line` is the context run ("Last backup 3 hours ago · automatic
+ * daily, newest 7 kept"); `alert` is set only when the freshness needs action (never backed up, stale, date
+ * unknown) — the screen then shows it as a one-line banner with its title verbatim.
+ */
+export function backupStatusLine(
+  fresh: { tone: StatusTone; title: string },
+  auto: { on: boolean; keepLast: number } | null,
+): { line: string; alert: { tone: StatusTone; title: string } | null } {
+  const autoText = auto === null ? '' : auto.on ? `automatic daily, newest ${auto.keepLast} kept` : 'automatic backups off';
+  const alert = fresh.tone === 'success' ? null : fresh;
+  const head = alert ? '' : fresh.title;
+  return { line: [head, autoText].filter(Boolean).join(' · '), alert };
 }
 
 /** Suggested file name prefix shown before the backup is written. */

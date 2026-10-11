@@ -4,6 +4,10 @@
  * interest, late fee, credit not in the books; unused credit of earlier periods is brought forward automatically) are typed in "Your entries" and saved with Ctrl+A
  * ('gst.gstr3b.saveAdjustments', only the changed cells are sent). The 6.1 table shows how ITC pays
  * each tax head and the cash to pay. Alt+J saves the portal JSON; Alt+P prints the whole form.
+ *
+ * 2.1 (SPEC-21 §1.9): the head is the figure "Cash to pay ₹x" with when it is due; the meter "From credit
+ * · In cash" is drawn only when both parts are above 0 (returnCharts.ts); the sections are plain tables;
+ * the explanations live in More › "About this return"; the return period is the title row's token.
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -11,20 +15,25 @@ import type { Gstr3bItcRow, Gstr3bSummary, Gstr3bSupplyRow, TaxHead } from '../.
 import { TAX_HEADS } from '../../../shared/types/gst-returns.ts';
 import {
   api,
+  formatDate,
   formatDateTime,
   formatMoney,
   ReportScreen,
   useApiMutation,
   useApiQuery,
   useCan,
+  useCompany,
   useConfirm,
   useDirty,
   useNav,
   userMessage,
+  useWorkingDate,
 } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { AmountInput, Badge, Banner, Button, Panel, Stack, useEnterAdvance, useToast } from '../../ui/index.ts';
-import { FileResultDialog, GstHelp, PeriodSelect, saveJsonFile, useReturnPeriod, WideTable } from './components.tsx';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { statMoney } from '../../ui/lib/statLine.ts';
+import { AmountInput, Badge, Banner, Button, KpiCard, Panel, Stack, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { FileResultDialog, PeriodSelect, ReturnAbout, saveJsonFile, useReturnPeriod, WideTable } from './components.tsx';
 import type { FileResult } from './components.tsx';
 import { MarkFiledDialog, useFiling } from './plusComponents.tsx';
 import { taxSum } from './lib/gstplus.ts';
@@ -46,6 +55,7 @@ import {
   setOffSentence,
 } from './lib/gstr3b.ts';
 import type { AdjustmentDraft, PaymentLine } from './lib/gstr3b.ts';
+import { dueCaption, dueStateCode, gstr3bMeter, returnDue } from './lib/returnCharts.ts';
 
 export interface Gstr3bParams {
   period?: string;
@@ -70,6 +80,7 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
   useEffect(() => setSaved(null), [q.data]);
   const summary = saved && saved.period.key === rp.key ? saved : q.data && q.data.period.key === rp.key ? q.data : undefined;
   const shown = summary ?? q.data;
+  const meter = useMemo(() => (shown ? gstr3bMeter(shown) : null), [shown]);
 
   // Draft of the manual entries, re-based whenever a new summary arrives and nothing is being edited.
   const [draft, setDraft] = useState<AdjustmentDraft>(emptyDraft);
@@ -184,9 +195,16 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
     <>
       <ReportScreen
         title="GSTR-3B"
-        subtitle={rp.label ? `Summary return · ${rp.label}` : 'Summary return'}
         periodMode="none"
-        filters={<PeriodSelect periods={rp.periods} value={rp.key} onChange={(k) => void changePeriod(k)} selectRef={selectRef} />}
+        context={<PeriodSelect periods={rp.periods} value={rp.key} onChange={(k) => void changePeriod(k)} selectRef={selectRef} token />}
+        meta={
+          filing.filing ? (
+            <span title={filing.filing.arn ? `ARN ${filing.filing.arn}` : undefined}>Filed {formatDate(filing.filing.filedOn, 'D-MMM-YY')}</span>
+          ) : undefined
+        }
+        graph={reportGraph(meter)}
+        about={shown ? <Gstr3bAbout summary={shown} /> : undefined}
+        aboutLabel="About this return"
         actions={actions}
         exportDef={shown ? () => ({ ...gstr3bExport(shown), title: 'GSTR-3B', period: shown.period.label }) : undefined}
         loading={rp.loading || (q.loading && !shown)}
@@ -198,17 +216,6 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
         {composition ? (
           <Banner tone="info" title="Composition taxpayers file CMP-08, not GSTR-3B">
             Reverse-charge tax shown here is paid through CMP-08 — open GST › CMP-08.
-          </Banner>
-        ) : null}
-        {filing.filing ? (
-          <Banner tone="success" inline>
-            Marked filed on {filing.filing.filedOn}
-            {filing.filing.arn ? ` (ARN ${filing.filing.arn})` : ''}.
-          </Banner>
-        ) : null}
-        {shown?.bookAdjustments && hasBookAdjustments(shown.bookAdjustments) ? (
-          <Banner tone="info" inline>
-            Included from the books: {bookAdjustmentsText(shown.bookAdjustments)}.
           </Banner>
         ) : null}
         {rp.periods && rp.periods.periods.length === 0 ? (
@@ -226,6 +233,8 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
             fieldErrors={save.fieldErrors}
             onSave={() => void doSave()}
             onExceptions={() => nav.push('gst.exceptions', { from: shown.period.from, to: shown.period.to })}
+            frequency={rp.periods?.filingFrequency ?? 'monthly'}
+            filedOn={filing.filing?.filedOn ?? null}
           />
         ) : null}
       </ReportScreen>
@@ -242,6 +251,25 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
         />
       ) : null}
     </>
+  );
+}
+
+/** More › "About this return": how the form is worked out, what the books added, the set-off rule, notes. */
+function Gstr3bAbout({ summary: s }: { summary: Gstr3bSummary }) {
+  const blocked = sumHeads(s.itc.blocked);
+  return (
+    <ReturnAbout
+      lead="Your summary return worked out from the books. Type the figures only the portal knows under “Your entries for this return”, save them with Ctrl+A, then pay the cash shown in 6.1 and upload the JSON (Alt+J) or copy the figures into the portal."
+      notes={s.notes}
+    >
+      {s.bookAdjustments && hasBookAdjustments(s.bookAdjustments) ? <p>Included from the books: {bookAdjustmentsText(s.bookAdjustments)}.</p> : null}
+      {blocked > 0 ? <p>Table 4 includes {formatMoney(blocked, { symbol: true })} blocked under s.17(5), which is reversed again in 4(B)(1).</p> : null}
+      <p>
+        6.1 as on the portal: (A) tax other than reverse charge is paid first from your input tax credit, the rest in cash; (B) reverse-charge tax, interest and late fee are
+        always paid in cash. {SET_OFF_RULE}
+      </p>
+      {s.adjustmentsUpdatedAt ? <p>Your entries were last saved {formatDateTime(s.adjustmentsUpdatedAt)}.</p> : null}
+    </ReturnAbout>
   );
 }
 
@@ -276,49 +304,64 @@ interface FormProps {
   fieldErrors: Record<string, string>;
   onSave: () => void;
   onExceptions: () => void;
+  frequency: 'monthly' | 'quarterly';
+  /** The return is marked filed (then the caption says so instead of the due date). */
+  filedOn: string | null;
 }
 
-function Gstr3bForm({ summary: s, draft, onDraft, dirty, changes, canEdit, fieldErrors, onSave, onExceptions }: FormProps) {
-  const cash = s.payment.rows;
+function Gstr3bForm({ summary: s, draft, onDraft, dirty, changes, canEdit, fieldErrors, onSave, onExceptions, frequency, filedOn }: FormProps) {
+  const { date: today } = useWorkingDate();
+  const company = useCompany();
+  // The Home dashboard's rule (core gstDueDate): the company's state decides the 22nd / 24th for QRMP filers.
+  const due = filedOn ? null : returnDue(s.period, frequency, dueStateCode(company.stateCode, s.gstin));
+  const when = due ? dueCaption(due, today) : null;
+  const split = s.payment.rows
+    .filter((r) => r.totalCash > 0)
+    .map((r) => `${r.label} ${money(r.totalCash)}`)
+    .join(' · ');
   return (
     <div className="bx-gst-scroll">
-      <GstHelp>
-        Your summary return worked out from the books. Type the figures only the portal knows under “Your entries”, save them with Ctrl+A, then pay the cash shown
-        in 6.1 and upload the JSON (Alt+J) or copy the figures into the portal.
-      </GstHelp>
       {s.issueCount.errors > 0 ? (
         <Banner
           tone="danger"
           title={`${s.issueCount.errors} ${s.issueCount.errors === 1 ? 'entry has' : 'entries have'} GST errors`}
           action={
-            <Button size="sm" onClick={onExceptions}>
-              Review (Alt+X)
+            <Button size="sm" variant="link" onClick={onExceptions}>
+              Review
             </Button>
           }
         >
           Fix them before filing — they can change the figures below.
         </Banner>
-      ) : s.issueCount.warnings > 0 ? (
-        <Banner tone="warning" inline action={<Button size="sm" variant="ghost" onClick={onExceptions}>Review</Button>}>
-          {s.issueCount.warnings} {s.issueCount.warnings === 1 ? 'warning' : 'warnings'} in this period are worth a look.
-        </Banner>
       ) : null}
       {dirty ? (
-        <Banner tone="warning" title={`${changes} unsaved ${changes === 1 ? 'change' : 'changes'}`} action={<Button size="sm" variant="primary" shortcut="Ctrl+A" onClick={onSave}>Save</Button>}>
-          Net ITC, the set-off and the cash to pay are recalculated when you save.
+        <Banner tone="warning" inline>
+          {changes} unsaved {changes === 1 ? 'change' : 'changes'} — save them (Ctrl+A) to recalculate net ITC, the set-off and the cash to pay.
         </Banner>
       ) : null}
 
-      <div className="bx-gst-cashline" role="status" aria-live="polite">
-        <span>Cash to pay for {s.period.label}</span>
-        <span className="bx-gst-cashline__amount">{formatMoney(s.payment.cashTotal, { symbol: true })}</span>
-        <span>
-          {cash
-            .filter((r) => r.totalCash > 0)
-            .map((r) => `${r.label} ${money(r.totalCash)}`)
-            .join(' · ') || 'Nothing to pay in cash'}
-        </span>
-      </div>
+      <KpiCard
+        role="status"
+        aria-live="polite"
+        label="Cash to pay"
+        value={<span title={split || 'Nothing to pay in cash'}>{statMoney(s.payment.cashTotal)}</span>}
+        caption={
+          when || (s.issueCount.errors === 0 && s.issueCount.warnings > 0) ? (
+            <>
+              {/* Once filed, the title row's state word says so; the due date goes. */}
+              {when ? <span className={when.late ? 'bx-gst-late' : undefined}>{when.text}</span> : null}
+              {s.issueCount.errors === 0 && s.issueCount.warnings > 0 ? (
+                <>
+                  {when ? ' · ' : null}
+                  <Button variant="link" size="sm" onClick={onExceptions} title="GST exceptions for this period · Alt+X">
+                    {s.issueCount.warnings} {s.issueCount.warnings === 1 ? 'warning' : 'warnings'} ›
+                  </Button>
+                </>
+              ) : null}
+            </>
+          ) : undefined
+        }
+      />
 
       <Panel title="3.1 Outward supplies and inward supplies liable to reverse charge" headingLevel={2}>
         <SupplyTable rows={s.supplies} caption="Values for the period, net of credit and debit notes." />
@@ -332,7 +375,7 @@ function Gstr3bForm({ summary: s, draft, onDraft, dirty, changes, canEdit, field
         <InterStateTable summary={s} />
       </Panel>
 
-      <Panel title="4 Eligible ITC" headingLevel={2} description={s.itc.blocked && sumHeads(s.itc.blocked) > 0 ? `Includes ${formatMoney(sumHeads(s.itc.blocked), { symbol: true })} blocked under s.17(5), which is reversed again in 4(B)(1).` : undefined}>
+      <Panel title="4 Eligible ITC" headingLevel={2}>
         <ItcTable summary={s} />
       </Panel>
 
@@ -372,25 +415,11 @@ function Gstr3bForm({ summary: s, draft, onDraft, dirty, changes, canEdit, field
 
       <EntriesPanel summary={s} draft={draft} onDraft={onDraft} canEdit={canEdit} fieldErrors={fieldErrors} onSave={onSave} />
 
-      <Panel
-        title="6.1 Payment of tax"
-        headingLevel={2}
-        description="As on the portal: (A) tax other than reverse charge is paid first from your input tax credit, the rest in cash; (B) reverse-charge tax, interest and late fee are always paid in cash."
-      >
+      <Panel title="6.1 Payment of tax" headingLevel={2}>
         <PaymentTable summary={s} />
       </Panel>
 
       <SetOffPanel summary={s} />
-
-      {s.notes.length > 0 ? (
-        <Banner tone="info" title="Notes">
-          <ul className="bx-gst-list">
-            {s.notes.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-        </Banner>
-      ) : null}
     </div>
   );
 }
@@ -601,15 +630,7 @@ function EntriesPanel({
   const formRef = useEnterAdvance<HTMLFormElement>({ onComplete: onSave });
   const errors = Object.entries(fieldErrors);
   return (
-    <Panel
-      title="Your entries for this return"
-      headingLevel={2}
-      description={
-        summary.adjustmentsUpdatedAt
-          ? `Figures from the portal or your records. Last saved ${formatDateTime(summary.adjustmentsUpdatedAt)}.`
-          : 'Figures from the portal or your records (amounts in ₹). Leave blank when they do not apply.'
-      }
-    >
+    <Panel title="Your entries for this return" headingLevel={2}>
       <Stack gap={2}>
         {errors.length > 0 ? (
           <Banner tone="danger" title="Some figures could not be saved">
@@ -730,7 +751,7 @@ function PaymentTable({ summary: s }: { summary: Gstr3bSummary }) {
             <th scope="row" colSpan={6}>
               Total to pay in cash (tax, interest and late fee)
             </th>
-            <td className="is-num bx-gst-cash" colSpan={3}>
+            <td className="is-num" colSpan={3}>
               {formatMoney(s.payment.cashTotal, { symbol: true })}
             </td>
           </tr>
@@ -746,14 +767,14 @@ function SetOffPanel({ summary: s }: { summary: Gstr3bSummary }) {
     [s.payment.setOff, s.payment.creditAvailable, s.payment.broughtForward],
   );
   return (
-    <Panel title="How your ITC is used" headingLevel={2} description={SET_OFF_RULE} collapsible>
+    <Panel title="How your ITC is used" headingLevel={2} collapsible defaultCollapsed>
       <Stack gap={3}>
-        <ul className="bx-gst-setoff">
+        <ul className="bx-gst-list">
           {lines.map((l) => (
             <li key={l.credit}>{setOffSentence(l)}</li>
           ))}
         </ul>
-        <table className="bx-gst-form">
+        <table className="bx-gst-form" aria-label="ITC used per credit head">
           <thead>
             <tr>
               <th scope="col">Credit</th>

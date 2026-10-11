@@ -7,12 +7,12 @@
  */
 import { useState } from 'react';
 import type { StatementLine } from '../../../shared/types/reports.ts';
-import { ReportScreen, formatDate, formatDrCr, useApiQuery, useBooks } from '../../app/index.ts';
+import { ReportScreen, formatDate, formatDrCr, useApiQuery, useBooks, useCan, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Banner, EmptyState, Stack } from '../../ui/index.ts';
+import { Banner, Button, EmptyState, Stack } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
 import { balanceSheetCompareDate, drillForRow, statementAmountText, statementExport, yearStartFor } from './lib/model.ts';
-import { StatementBlockView, useBlockExpansion, visibleBlock } from './statement.tsx';
+import { StatementSheet, useBlockExpansion, visibleBlock } from './statement.tsx';
 import { withScenario } from './lib/overlay.ts';
 import { useReportOverlay } from './overlay.tsx';
 
@@ -25,6 +25,7 @@ export interface BalanceSheetParams {
 export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) {
   const p = useReportPeriod(params);
   const books = useBooks();
+  const nav = useNav();
   const drill = useDrill();
   const [detailed, setDetailed] = useState(false);
   const [compare, setCompare] = useState(false);
@@ -42,6 +43,7 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
   const expansion = useBlockExpansion('bs', block, detailed);
   const compareLabel = d?.compareAsOf ? `As on ${formatDate(d.compareAsOf)}` : null;
   const yearStart = d?.yearStart ?? yearStartFor(asOf, books.fyStartMonth, books.booksFrom);
+  const canFixOpenings = useCan('masters.view') && nav.isRegistered('accounts.openingBalances');
 
   const toggleDetailed = (): void => {
     const next = !detailed;
@@ -51,7 +53,15 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
   const activate = (line: StatementLine): void => drill(withScenario(drillForRow(line, { from: yearStart, to: asOf }, { yearStart }), overlay.scenarioId ?? null));
   const actions: ScreenActionItem[] = [
     { key: 'Alt+F1', label: detailed ? 'Condensed' : 'Detailed', icon: 'layers', onClick: toggleDetailed, group: 'view' },
-    { key: 'Alt+C', label: compare ? 'No comparison' : 'Compare last year', icon: 'columns', onClick: () => setCompare(!compare), group: 'view' },
+    {
+      key: 'Alt+C',
+      label: compare ? 'No comparison' : 'Compare last year',
+      icon: 'columns',
+      onClick: () => setCompare(!compare),
+      group: 'view',
+      // The comparison column keeps a title-row button (the Balance Sheet has room; SPEC-21 §1.9).
+      prominent: true,
+    },
     ...overlay.actions,
   ];
 
@@ -80,31 +90,39 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
         <Stack gap={3}>
           {!d.balanced ? (
             <Banner tone="danger" title="The Balance Sheet does not agree">
-              Assets and liabilities differ by {statementAmountText(Math.abs(d.difference))}. Some stored entries may be damaged — restore a backup or contact support.
+              — assets and liabilities differ by {statementAmountText(Math.abs(d.difference))}; restore a backup or contact support.
             </Banner>
           ) : null}
           {d.openingDifference !== 0 ? (
-            <Banner tone="warning" title="Opening balances do not agree">
-              Ledger opening balances{d.inventoryIntegrated ? ' and opening stock' : ''} differ by {formatDrCr(-d.openingDifference)}, so a
-              difference of {statementAmountText(Math.abs(d.openingDifference))} is shown on the {d.openingDifference > 0 ? 'assets' : 'liabilities'} side to
-              balance it. Correct the ledger opening balances to clear it.
+            <Banner
+              tone="warning"
+              title="Opening balances do not agree"
+              action={
+                canFixOpenings ? (
+                  <Button variant="link" onClick={() => nav.push('accounts.openingBalances')}>
+                    Correct openings
+                  </Button>
+                ) : undefined
+              }
+            >
+              — differ by {formatDrCr(-d.openingDifference)}, shown as “Difference in opening balances”
             </Banner>
           ) : null}
-          <StatementBlockView
+          <StatementSheet
             leftTitle="Liabilities"
             rightTitle="Assets"
-            block={block}
-            expansion={expansion}
+            blocks={[{ block, expansion }]}
             compareLabel={compareLabel}
             budget={overlay.budget ? { ...overlay.budget, leftDrNatural: false } : null}
             onActivate={activate}
-            autoFocus
+            rowTitle={(r) =>
+              r.kind === 'profit_loss'
+                ? `Opening ${statementAmountText(d.profitLoss.openingBalance)} + current period ${statementAmountText(d.profitLoss.currentPeriod)} (from ${formatDate(d.yearStart)})`
+                : r.kind === 'stock' && d.inventoryIntegrated
+                  ? `Closing stock ${statementAmountText(d.closingStock)} from the stock valuation`
+                  : undefined
+            }
           />
-          <p className="bx-rep-note">
-            Profit &amp; Loss A/c: opening {statementAmountText(d.profitLoss.openingBalance)} + current period {statementAmountText(d.profitLoss.currentPeriod)} (from{' '}
-            {formatDate(d.yearStart)}).
-            {d.inventoryIntegrated ? ` Closing stock ${statementAmountText(d.closingStock)} from the stock valuation.` : ''}
-          </p>
         </Stack>
       ) : (
         <EmptyState icon="book" title="No balance sheet yet" body="Change the date with Alt+F2." />

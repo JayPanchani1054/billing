@@ -3,7 +3,9 @@
  *
  * Enter / double-click opens the voucher for alteration; Alt+Enter opens the read-only view
  * (also for cancelled vouchers and users who may not alter); Alt+A alters, Ctrl+P prints (Alt+P
- * prints the register itself), Alt+2 duplicates and Alt+D deletes the highlighted voucher.
+ * prints the register itself), Alt+2 duplicates and Alt+D deletes the highlighted voucher. 2.1: the
+ * row actions live in More ▾ (Alter is `demoted`, its key stays); the total row reads "Total" (the
+ * optional / cancelled rule is its tooltip).
  */
 import { useMemo, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
@@ -71,6 +73,8 @@ export function useVoucherTable(rows: readonly DayBookRow[]): VoucherTableState 
       hint: selected && (selected.isCancelled || selected.irnGenerated) ? 'A cancelled voucher, or one with an e-invoice, can only be viewed (Alt+Enter).' : undefined,
       hidden: !canAlter,
       group: 'row',
+      // 2.1: Enter alters the highlighted row; the title row shows Print and Export (Alt+A stays a key, in More).
+      demoted: true,
     },
     { key: 'Ctrl+P', label: 'Print voucher', icon: 'print', onClick: () => selected && nav.push('print.voucher', { id: selected.id }), disabled: !selected, hidden: !nav.isRegistered('print.voucher'), group: 'row' },
     { key: 'Alt+2', label: 'Duplicate', icon: 'copy', onClick: () => selected && nav.push('vouchers.entry', { duplicateOf: selected.id }), disabled: !selected, hidden: !canCreate, group: 'row' },
@@ -98,7 +102,7 @@ export function VoucherTable({ rows, state, loading, empty, label, showTotals = 
         header: 'Particulars',
         sortable: true,
         render: (r) => (
-          <span className={r.isCancelled ? 'bx-vch-list__name is-cancelled' : 'bx-vch-list__name'}>
+          <span className="bx-vch-list__name">
             <span className="bx-truncate">{r.particulars || <span className="bx-muted">—</span>}</span>
             {r.flags.map((f) => (
               <Badge key={f} size="sm" tone={f === 'Cancelled' ? 'danger' : f === 'Optional' ? 'warning' : 'info'}>
@@ -117,7 +121,14 @@ export function VoucherTable({ rows, state, loading, empty, label, showTotals = 
   );
   const totals = useMemo(() => dayBookTotals(rows), [rows]);
   const footerRows = useMemo<FooterRow[]>(
-    () => (showTotals && rows.length > 0 ? [{ key: 'total', cells: { particulars: 'Total (optional and cancelled vouchers not counted)', debit: totals.debit, credit: totals.credit } }] : []),
+    () =>
+      showTotals && rows.length > 0
+        ? [{ key: 'total', cells: { particulars: (
+                <span title="Optional and cancelled vouchers are not counted">
+                  Total<span className="bx-sr-only"> (optional and cancelled vouchers are not counted)</span>
+                </span>
+              ), debit: totals.debit, credit: totals.credit } }]
+        : [],
     [showTotals, rows.length, totals],
   );
   const onRowKeyDown = (e: ReactKeyboardEvent<HTMLTableElement>, r: DayBookRow | null) => {

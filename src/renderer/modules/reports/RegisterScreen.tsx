@@ -3,15 +3,22 @@
  * Purchase, Payment …): month-wise count and value; Enter on a month lists its vouchers (Alt+V
  * toggles), Enter on a voucher opens it, Alt+A alters it. Cancelled vouchers are listed (marked) but
  * not totalled; optional vouchers are in Exception Reports.
+ *
+ * 2.1: the months view draws "Sales before GST, by month" (taxable value for sales, purchases and notes;
+ * the amount for receipts, payments, contra and journals — lib/charts.ts), the running month as "so far";
+ * Enter on a month in the graph = Enter on its row. The register picker is the title row's token
+ * ("Sales ▾", accessible name "Register"); the Cancelled column shows only when a month has one.
  */
 import { useMemo, useState } from 'react';
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { RegisterMonth, RegisterVoucher } from '../../../shared/types/reports.ts';
 import { ReportScreen, useApiQuery } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { Badge, DataTable, EmptyState, Inline, Select, Stack } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
+import { registerChart } from './lib/charts.ts';
 import { REGISTERS, currentRow, monthLabel, voucherTarget } from './lib/model.ts';
 
 export interface RegisterParams {
@@ -35,17 +42,23 @@ export function RegisterScreen({ params }: ScreenProps<RegisterParams>) {
   const q = useApiQuery('reports.register', { ...subject, from: p.from, to: p.to, includeVouchers: view === 'vouchers' }, { keepPrevious: true });
   const d = q.data;
   const current = view === 'vouchers' ? currentRow(cursor, d?.vouchers, (r) => r.id) : null;
+  const anyCancelled = (d?.totals.cancelled ?? 0) > 0;
+  // The months view's graph; Enter on a month opens the same voucher list as Enter on its row.
+  const spec = useMemo(
+    () => (view === 'months' ? registerChart(d, { activate: (r) => drill({ screen: 'reports.register', params: { ...(voucherTypeId !== undefined ? { voucherTypeId } : { baseType }), from: r.from, to: r.to, view: 'vouchers' } }) }) : null),
+    [d, view, drill, voucherTypeId, baseType],
+  );
 
   const monthColumns = useMemo<Column<RegisterMonth>[]>(
     () => [
       { key: 'month', header: 'Month', minWidth: 160, render: (r) => monthLabel(r.month), value: (r) => monthLabel(r.month) },
       { key: 'count', header: 'Vouchers', kind: 'number', width: 110, total: true },
-      { key: 'cancelled', header: 'Cancelled', kind: 'number', width: 110, total: true },
+      { key: 'cancelled', header: 'Cancelled', kind: 'number', width: 110, total: true, hidden: !anyCancelled },
       { key: 'taxable', header: 'Taxable value', kind: 'amount', width: 160, blankZero: true, total: true },
       { key: 'tax', header: 'Tax', kind: 'amount', width: 140, blankZero: true, total: true },
       { key: 'amount', header: 'Amount', kind: 'amount', width: 170, total: true },
     ],
-    [],
+    [anyCancelled],
   );
   const voucherColumns = useMemo<Column<RegisterVoucher>[]>(
     () => [
@@ -97,15 +110,18 @@ export function RegisterScreen({ params }: ScreenProps<RegisterParams>) {
       error={q.error}
       onRetry={q.refetch}
       actions={actions}
+      graph={reportGraph(spec)}
       hint={view === 'months' ? 'Enter Vouchers of the month · Alt+V Voucher list' : 'Enter Open voucher · Alt+A Alter · Alt+V Monthly view'}
-      filters={
+      subtitle={
         voucherTypeId === undefined ? (
           <Select<VoucherBaseType>
             aria-label="Register"
             size="sm"
+            className="bx-rep-token"
+            title="Choose the register"
             value={baseType}
             onChange={setBaseType}
-            options={REGISTERS.map((r) => ({ value: r.baseType, label: r.label }))}
+            options={REGISTERS.map((r) => ({ value: r.baseType, label: r.label.replace(/ Register$/, '') }))}
           />
         ) : undefined
       }
@@ -127,7 +143,6 @@ export function RegisterScreen({ params }: ScreenProps<RegisterParams>) {
       {view === 'months' ? (
         <DataTable<RegisterMonth>
           aria-label={`${title} by month`}
-          className="bx-rep-fill"
           columns={monthColumns}
           rows={d?.months ?? []}
           getRowKey={(r) => r.month}
@@ -137,10 +152,9 @@ export function RegisterScreen({ params }: ScreenProps<RegisterParams>) {
           autoFocus
         />
       ) : (
-        <Stack gap={2} grow>
+        <Stack gap={2}>
           <DataTable<RegisterVoucher>
             aria-label={`${title} vouchers`}
-            className="bx-rep-fill"
             columns={voucherColumns}
             rows={d?.vouchers ?? []}
             getRowKey={(r) => String(r.id)}

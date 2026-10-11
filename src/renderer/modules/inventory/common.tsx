@@ -72,7 +72,7 @@ export function HistoryKey({ onOpen }: { onOpen: (() => void) | null }) {
 /** Footer button for useMasterHistory (renders nothing when history is not offered). */
 export function HistoryButton({ onOpen }: { onOpen: (() => void) | null }) {
   return onOpen ? (
-    <Button icon="clock" shortcut="Alt+H" onClick={onOpen}>
+    <Button shortcut="Alt+H" onClick={onOpen}>
       Edit history
     </Button>
   ) : null;
@@ -82,18 +82,7 @@ export function HistoryButton({ onOpen }: { onOpen: (() => void) | null }) {
 export function FeatureOff({ title, body }: { title: string; body: ReactNode }) {
   const nav = useNav();
   return (
-    <EmptyState
-      icon="box"
-      title={title}
-      body={body}
-      action={
-        nav.canOpen('company.features') ? (
-          <Button variant="primary" icon="settings" onClick={() => nav.push('company.features')}>
-            Open Features (F11)
-          </Button>
-        ) : undefined
-      }
-    />
+    <EmptyState title={title} body={body} action={nav.canOpen('company.features') ? <Button onClick={() => nav.push('company.features')}>Open Features (F11)</Button> : undefined} />
   );
 }
 

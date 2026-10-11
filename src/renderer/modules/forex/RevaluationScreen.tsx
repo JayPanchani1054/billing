@@ -23,7 +23,10 @@ import { ReportScreen, useApiMutation, useApiQuery, useCan, useFeatures, useNav,
 import type { ScreenProps } from '../../app/index.ts';
 import { Banner, Button, DataTable, DateInput, EmptyState, Field, Hotkeys, Modal, NumberInput, Select, Stack, TextArea, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
 import { ForexOff } from './components.tsx';
+import { revaluationChart } from './lib/charts.ts';
 import {
   currencyMap,
   fxDrCr,
@@ -65,6 +68,9 @@ export function RevaluationScreen({ params }: ScreenProps<{ asOf?: string }>) {
   const blocker = revaluationBlocker(d, rates.length);
   const [cursor, setCursor] = useState<string | null>(null);
   const post = useApiMutation('forex.revaluation.post', { invalidates: ['reports', 'vouchers', 'outstanding', 'dashboard'] });
+  const spec = useMemo(() => (d ? revaluationChart(d) : null), [d]);
+  // Each party one line (≤ 7): the bars sit under the Adjustment cells (D26).
+  const inline = inlineBars(spec, rows.length);
 
   const columns = useMemo<Column<Row>[]>(
     () => [
@@ -74,9 +80,9 @@ export function RevaluationScreen({ params }: ScreenProps<{ asOf?: string }>) {
       { key: 'bookedAmount', header: 'In books (₹)', kind: 'drcr', width: 150 },
       { key: 'closingRate', header: 'Closing rate', width: 110, align: 'right', value: (r) => r.closingRate, render: (r) => <span className="bx-num">{rateText(r.closingRate)}</span> },
       { key: 'revaluedAmount', header: 'At closing rate (₹)', kind: 'drcr', width: 160 },
-      { key: 'adjustment', header: 'Adjustment (₹)', kind: 'drcr', width: 150 },
+      { key: 'adjustment', header: 'Adjustment (₹)', kind: 'drcr', width: 150, ...(inline ? { bar: { value: (r: Row) => r.adjustment, slot: 'polarity' as const } } : {}) },
     ],
-    [cur],
+    [cur, inline],
   );
   const footer: FooterRow[] = d
     ? [{ key: 'net', tone: 'total', cells: { ledgerName: d.net >= 0 ? 'Net unrealised gain' : 'Net unrealised loss', adjustment: formatMoney(Math.abs(d.net)) } }]
@@ -92,8 +98,19 @@ export function RevaluationScreen({ params }: ScreenProps<{ asOf?: string }>) {
   return (
     <ReportScreen
       title="Forex Revaluation"
-      subtitle={d ? `Closing ${RATE_TYPE_LABEL[d.rateType].toLowerCase()} rates as on ${formatDate(d.asOf)} · unrealised exchange gain / loss` : 'Unrealised exchange gain / loss'}
       periodMode="asOn"
+      graph={reportGraph(spec, { inline })}
+      about={
+        <>
+          <p>
+            Balances in a foreign currency restated at the closing rate{d ? ` (${RATE_TYPE_LABEL[d.rateType].toLowerCase()} rates as on ${formatDate(d.asOf)})` : ''}, as AS 11 / Ind AS 21 ask for
+            money items: per ledger (per pending bill of a bill-wise ledger) the amount in the currency, the rupees it is carried at, its value at the closing rate and the adjustment — the unrealised
+            exchange gain or loss. Ctrl+A posts it as one Forex adjustment journal.
+          </p>
+          <p>To reverse it on the first day of the next period, duplicate the posted journal (Alt+2 on the voucher) and swap the sides.</p>
+          {d && d.posted.length > 0 ? <p>Earlier revaluation journals: {d.posted.map((p) => `${p.number ?? `#${p.voucherId}`} (as on ${formatDate(p.asOf)})`).join(', ')}.</p> : null}
+        </>
+      }
       loading={q.loading && !d}
       refreshing={q.refreshing}
       error={q.error}
@@ -123,15 +140,13 @@ export function RevaluationScreen({ params }: ScreenProps<{ asOf?: string }>) {
     >
       <Stack gap={3}>
         {d && d.missingRates.length > 0 ? (
-          <Banner tone="warning">
-            No closing rate for {d.rates.filter((r) => d.missingRates.includes(r.currencyId)).map((r) => r.formalName).join(', ')} on or before {formatDate(d.asOf)}. Those balances are left out — type
-            the rate below (Alt+R) or enter it in Currencies › Rates of Exchange.
+          <Banner tone="warning" title="No closing rate">
+            for {d.rates.filter((r) => d.missingRates.includes(r.currencyId)).map((r) => r.formalName).join(', ')} on or before {formatDate(d.asOf)}: those balances are left out until you type the rate below.
           </Banner>
         ) : null}
         {d && d.posted.some((p) => p.asOf === d.asOf) ? (
-          <Banner tone="info">
-            A revaluation as of {formatDate(d.asOf)} is already posted ({d.posted.filter((p) => p.asOf === d.asOf).map((p) => p.number ?? `#${p.voucherId}`).join(', ')}). The figures below already include it; posting
-            again restates only what is still different.
+          <Banner tone="info" title="Already posted">
+            as of {formatDate(d.asOf)} ({d.posted.filter((p) => p.asOf === d.asOf).map((p) => p.number ?? `#${p.voucherId}`).join(', ')}): the figures include it; posting again restates only what is still different.
           </Banner>
         ) : null}
         {rateRows.length > 0 ? (
@@ -175,13 +190,8 @@ export function RevaluationScreen({ params }: ScreenProps<{ asOf?: string }>) {
           onSelect={(k) => setCursor(k)}
           onRowActivate={(r) => nav.push('forex.ledger', { ledgerId: r.ledgerId, to: asOf })}
           footerRows={footer}
-          empty={<EmptyState icon="check" title="Nothing to revalue" body="Every foreign-currency balance is carried at the closing rate (or there is none). Change the date with Alt+F2." />}
+          empty={<EmptyState title="Nothing to revalue" body="Every foreign-currency balance is carried at the closing rate (or there is none). Change the date with Alt+F2." />}
         />
-        {d && d.posted.length > 0 ? (
-          <p className="bx-rep-note">
-            Earlier revaluation journals: {d.posted.map((p) => `${p.number ?? `#${p.voucherId}`} (as on ${formatDate(p.asOf)})`).join(', ')}.
-          </p>
-        ) : null}
       </Stack>
       {posting && d ? (
         <PostDialog

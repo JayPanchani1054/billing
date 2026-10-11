@@ -2,13 +2,17 @@
  * 'reports.trialBalance' — Trial Balance. Groups / Detailed (Alt+F1) / Ledger-wise (Alt+L),
  * opening column (Alt+O), transactions columns (Alt+T), zero balances (Alt+Z). Enter drills a group
  * into its Group Summary, a ledger into Ledger Vouchers, the opening stock into the Stock Summary.
+ *
+ * 2.1: deliberately no graph — a check, not a story (SPEC-21 §5). The toolbar row says the answer:
+ * "Agrees ✓" or "Differs by ₹x" (danger); the year-start footnote moved to About this report.
  */
 import { useMemo, useState } from 'react';
 import type { TbRow, TrialBalanceMode } from '../../../shared/types/reports.ts';
-import { ReportScreen, formatDate, formatDrCr, useApiQuery, useBooks } from '../../app/index.ts';
+import { ReportScreen, formatDate, formatDrCr, useApiQuery, useBooks, useCan, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Banner, SegmentedControl, Stack } from '../../ui/index.ts';
+import { Banner, Button, SegmentedControl, Stack, StatLine } from '../../ui/index.ts';
 import { TbTable, useDrill, useReportPeriod, useTreeExpansion } from './components.tsx';
+import { trialBalanceStat } from './lib/charts.ts';
 import { drillForRow, tbExport } from './lib/model.ts';
 import { withScenario, withTbBudget } from './lib/overlay.ts';
 import { useReportOverlay } from './overlay.tsx';
@@ -30,6 +34,8 @@ export function TrialBalanceScreen({ params }: ScreenProps<TrialBalanceParams>) 
   const p = useReportPeriod(params);
   const drill = useDrill();
   const books = useBooks();
+  const nav = useNav();
+  const canFixOpenings = useCan('masters.view') && nav.isRegistered('accounts.openingBalances');
   const [mode, setMode] = useState<TrialBalanceMode>(params?.mode ?? 'groups');
   const [showOpening, setShowOpening] = useState(false);
   const [showTransactions, setShowTransactions] = useState(false);
@@ -55,6 +61,7 @@ export function TrialBalanceScreen({ params }: ScreenProps<TrialBalanceParams>) 
     ...overlay.actions,
   ];
   const d = q.data;
+  const check = d ? trialBalanceStat(d) : null;
   return (
     <ReportScreen
       title="Trial Balance"
@@ -67,6 +74,17 @@ export function TrialBalanceScreen({ params }: ScreenProps<TrialBalanceParams>) 
       actions={actions}
       hint="Enter Drill down · →/← Expand/collapse · Alt+F1 Detailed · Alt+O Opening · Alt+T Transactions · Alt+S Scenario · Alt+B Budget"
       filters={<SegmentedControl aria-label="Trial Balance view" size="sm" options={MODES} value={mode} onChange={setMode} />}
+      stat={check ? <StatLine items={[{ label: check.label, value: <span title={check.title}>{check.value}</span>, tone: check.tone }]} /> : undefined}
+      about={
+        d ? (
+          <>
+            <p>Closing balances of every group and ledger for the period; the debit and credit totals must agree.</p>
+            {d.yearStart > books.booksFrom ? (
+              <p>Income and expense ledgers start from {formatDate(d.yearStart)}; the profit of earlier years is in the Profit &amp; Loss A/c.</p>
+            ) : null}
+          </>
+        ) : undefined
+      }
       exportDef={() => ({
         subtitle: [MODES.find((m) => m.value === mode)?.label, overlay.text].filter(Boolean).join(' · '),
         ...withTbBudget(
@@ -79,15 +97,25 @@ export function TrialBalanceScreen({ params }: ScreenProps<TrialBalanceParams>) 
         notes: d && d.openingDifference !== 0 ? `Difference in opening balances: ${formatDrCr(d.openingDifference)}` : undefined,
       })}
     >
-      <Stack gap={3} grow>
+      <Stack gap={3}>
         {d && d.openingDifference !== 0 ? (
-          <Banner tone="warning" title="Opening balances do not agree">
-            Ledger opening balances{d.inventoryIntegrated ? ' and opening stock' : ''} differ by {formatDrCr(-d.openingDifference)}. The difference is shown as its own line so the totals agree — correct the opening balances in the ledgers to clear it.
+          <Banner
+            tone="warning"
+            title="Opening balances do not agree"
+            action={
+              canFixOpenings ? (
+                <Button variant="link" onClick={() => nav.push('accounts.openingBalances')}>
+                  Correct openings
+                </Button>
+              ) : undefined
+            }
+          >
+            — differ by {formatDrCr(-d.openingDifference)}, shown as its own line
           </Banner>
         ) : null}
         {d && !d.balanced ? (
           <Banner tone="danger" title="The Trial Balance does not agree">
-            Debit and credit totals differ by {formatDrCr(d.unbalancedBy)}. Some stored entries may be damaged — restore a backup or contact support.
+            — debit and credit totals differ by {formatDrCr(d.unbalancedBy)}; restore a backup or contact support.
           </Banner>
         ) : null}
         <TbTable
@@ -100,11 +128,6 @@ export function TrialBalanceScreen({ params }: ScreenProps<TrialBalanceParams>) 
           onActivate={activate}
           loading={q.loading}
         />
-        {d && d.yearStart > books.booksFrom ? (
-          <p className="bx-rep-note">
-            Income and expense ledgers start from {formatDate(d.yearStart)}; the profit of earlier years is in the Profit &amp; Loss A/c.
-          </p>
-        ) : null}
         {overlay.dialogs}
       </Stack>
     </ReportScreen>

@@ -64,8 +64,8 @@ test('the vouchers and GST stylesheets are split by screen, each class in one fi
     assert.deepEqual(classes(b).filter((c) => c.startsWith('bx-') && inA.has(c)), [], `${a} / ${b}`);
   }
   assert.ok(classes('../modules/vouchers/vouchers-entry.css').includes('bx-vch-grid'));
-  assert.ok(classes('../modules/vouchers/vouchers-view.css').includes('bx-vch-view__head'));
-  assert.ok(classes('../modules/gst/gst-returns.css').includes('bx-gst-tile'));
+  assert.ok(classes('../modules/vouchers/vouchers-view.css').includes('bx-vch-view__totals')); // 2.1 WP-E2: the view's totals block (the head grid became one Inline line)
+  assert.ok(classes('../modules/gst/gst-returns.css').includes('bx-gst-token')); // 2.1 WP-J1: the returns' period token (the GSTR-1 tiles became table rows)
   assert.ok(classes('../modules/gst/gst.css').includes('bx-gst-issue'));
   const vouchers = read('../modules/vouchers/index.ts');
   assert.match(vouchers, /^import '\.\/vouchers-entry\.css';\nimport '\.\/vouchers-view\.css';$/m);

@@ -2,15 +2,18 @@
  * 'stock.godowns' { godownId? } — Godown Summary as on the end of the period: godowns (tree) with
  * the items held in each, quantity, rate and value. Enter on an item opens its vouchers in that
  * godown; Enter on a godown opens the Stock Summary of that godown. Alt+Z shows empty godowns.
+ * 2.1 graph: "Stock value by godown" — the top-level godowns (inline bars for ≤ 7, else a strip).
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { GodownSummaryRow } from '../../../shared/types/stock.ts';
 import { ReportScreen, useApiQuery, usePeriod } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, DataTable, Field } from '../../ui/index.ts';
+import { DataTable } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { GodownPicker } from '../inventory/pickers.tsx';
-import { amountColumn, NothingHere, qtyColumn, rateColumn, useDrill, useExpansion } from './components.tsx';
+import { amountColumn, NothingHere, qtyColumn, rateColumn, useDrill, useExpansion, withBar } from './components.tsx';
+import { godownBarValue, godownsChart, godownsInline } from './lib/charts.ts';
 import { godownDrill, godownExport, paramId, signedAmountText, visibleRows } from './lib/model.ts';
 
 export interface GodownsParams {
@@ -25,6 +28,9 @@ export function GodownsScreen({ params }: ScreenProps<GodownsParams>) {
   const q = useApiQuery('stock.godownSummary', { asOf: period.to, godownId, showZero }, { keepPrevious: true });
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
   const expansion = useExpansion(rows, 99);
+  const open = useCallback((r: GodownSummaryRow) => drill(godownDrill(r, { from: period.from, to: period.to })), [drill, period.from, period.to]);
+  const spec = useMemo(() => (q.data ? godownsChart(q.data, open) : null), [q.data, open]);
+  const inline = useMemo(() => (q.data ? godownsInline(q.data, spec) : false), [q.data, spec]);
 
   const columns = useMemo<Column<GodownSummaryRow>[]>(
     () => [
@@ -36,10 +42,7 @@ export function GodownsScreen({ params }: ScreenProps<GodownsParams>) {
         render: (r) =>
           r.kind === 'godown' && r.isThirdParty ? (
             <>
-              {r.name}{' '}
-              <Badge tone="info" size="sm">
-                Third party
-              </Badge>
+              {r.name} <span className="bx-muted">· third party</span>
             </>
           ) : (
             r.name
@@ -47,9 +50,13 @@ export function GodownsScreen({ params }: ScreenProps<GodownsParams>) {
       },
       qtyColumn<GodownSummaryRow>('qty', 'Quantity', (r) => r.qty, (r) => r.unit),
       rateColumn<GodownSummaryRow>('rate', 'Rate', (r) => r.rate),
-      amountColumn<GodownSummaryRow>('value', 'Value', (r) => r.value, { width: 160, blankZero: false }),
+      withBar(
+        amountColumn<GodownSummaryRow>('value', 'Value', (r) => r.value, { width: 160, blankZero: false }),
+        inline,
+        godownBarValue,
+      ),
     ],
-    [],
+    [inline],
   );
   const footer = useMemo<FooterRow[]>(() => (q.data && rows.length > 0 ? [{ key: 'total', tone: 'total', cells: { name: 'Grand Total', value: signedAmountText(q.data.totalValue) } }] : []), [q.data, rows.length]);
   const actions: ScreenActionItem[] = [
@@ -67,11 +74,8 @@ export function GodownsScreen({ params }: ScreenProps<GodownsParams>) {
       onRetry={q.refetch}
       actions={actions}
       hint="Enter Open · →/← Expand/collapse · Alt+Z Empty godowns · Alt+F2 Date · Alt+E Export · Alt+P Print"
-      filters={
-        <Field label="Godown" layout="inline" labelWidth={64}>
-          <GodownPicker size="sm" value={godownId ?? null} onChange={(id) => setGodownId(id ?? undefined)} allowCreate={false} placeholder="All godowns" aria-label="Godown" />
-        </Field>
-      }
+      graph={reportGraph(spec, { inline })}
+      filters={<GodownPicker size="sm" value={godownId ?? null} onChange={(id) => setGodownId(id ?? undefined)} allowCreate={false} placeholder="All godowns" aria-label="Godown" />}
       exportDef={() => godownExport(visibleRows(rows, expansion.expandedKeys), q.data?.totalValue ?? 0)}
     >
       <DataTable<GodownSummaryRow>
@@ -85,7 +89,7 @@ export function GodownsScreen({ params }: ScreenProps<GodownsParams>) {
         expandable
         expandedKeys={expansion.expandedKeys}
         onExpandedChange={expansion.onExpandedChange}
-        onRowActivate={(r) => drill(godownDrill(r, { from: period.from, to: period.to }))}
+        onRowActivate={open}
         footerRows={footer.length > 0 ? footer : undefined}
         loading={q.loading}
         empty={<NothingHere icon="warehouse" title="No stock in any godown on this date" body="Change the date with Alt+F2, or press Alt+Z to list empty godowns." />}

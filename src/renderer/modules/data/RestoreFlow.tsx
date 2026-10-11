@@ -18,9 +18,9 @@ import { Screen } from '../../app/Screen.tsx';
 import { useShell } from '../../app/shell.tsx';
 import { useAppState } from '../../app/state.tsx';
 import { useConfirm } from '../../app/confirm.tsx';
-import { Banner, Button, Field, KeyValueList, Modal, PasswordInput, RadioGroup, Stack, TextInput, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
-import { BackupChecks, chooseFile, Steps } from './components.tsx';
-import { restoreChoiceProblem, restoreStep, restoreTargets, verifyOutcome, type RestoreStep } from './lib/backupView.ts';
+import { Banner, Button, Field, keyTip, KeyValueList, Modal, PasswordInput, RadioGroup, Stack, TextInput, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
+import { BackupChecks, chooseFile, useEnterRunsStep } from './components.tsx';
+import { restoreChoiceProblem, restoreStep, restoreTargets, stepLine, verifyOutcome, type RestoreStep } from './lib/backupView.ts';
 import { BACKUP_FILTERS } from './lib/importView.ts';
 
 const STEPS = [
@@ -203,7 +203,7 @@ function useRestoreFlow(env: FlowEnv) {
 
 type Flow = ReturnType<typeof useRestoreFlow>;
 
-function RestoreBody({ flow }: { flow: Flow }) {
+function RestoreBody({ flow, onCloseCompany }: { flow: Flow; onCloseCompany?: () => void }) {
   const { step, file, verify, result } = flow;
   const outcome = verify ? verifyOutcome(verify) : null;
   const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => flow.primary?.run() });
@@ -211,15 +211,13 @@ function RestoreBody({ flow }: { flow: Flow }) {
   return (
     <div ref={formRef}>
       <Stack gap={4}>
-        <Steps steps={STEPS} current={step} label="Restore steps" />
-
         {file ? (
           <Field label="Backup file" hint={step === 'choose' ? undefined : 'Press Alt+O to choose a different file.'}>
             <TextInput value={file.path} readOnly mono aria-label="Backup file" />
           </Field>
         ) : (
           <Banner tone="info" title="Choose the backup to restore">
-            Backups end in <strong>.pvqbak</strong>. They are in the backup folder (F12 › Backup), or on the disk or USB drive you copied them to.
+            A <strong>.pvqbak</strong> file — in the backup folder (F12 › Backup) or on the drive you copied it to.
           </Banner>
         )}
 
@@ -263,9 +261,24 @@ function RestoreBody({ flow }: { flow: Flow }) {
         ) : null}
 
         {result ? (
-          <Banner tone="success" title={`${result.company.name} has been restored`}>
+          <Banner
+            tone="success"
+            title={`${result.company.name} has been restored`}
+            action={
+              onCloseCompany ? (
+                <Button size="sm" variant="link" title={keyTip('Close this company', 'F3')} onClick={onCloseCompany}>
+                  Close this company
+                </Button>
+              ) : undefined
+            }
+          >
             {result.replacedTo ? 'The data it replaced was moved to the trash folder inside your data folder. ' : ''}
-            {flow.env.gate ? 'It is in the company list — select it and press Enter to open it.' : 'Close this company (F3) and select it in the company list to open it.'}
+            {/* The link closes the company; the sentence then says only what is left to do (no key printed twice). */}
+            {flow.env.gate
+              ? 'It is in the company list — select it and press Enter to open it.'
+              : onCloseCompany
+                ? 'Open it from the company list once this company is closed.'
+                : 'Close this company (F3) and select it in the company list to open it.'}
           </Banner>
         ) : null}
       </Stack>
@@ -328,46 +341,35 @@ export function RestoreScreen({ params }: ScreenProps<{ path?: string }>) {
   const shell = useShell();
   const flow = useRestoreFlow({ gate: false, openCompanyId: app.company?.id ?? null, initialPath: params.path });
   const busy = flow.busy !== null;
+  // Enter on the first step chooses the backup (the step has no field for Enter to move through).
+  useEnterRunsStep(() => flow.primary?.run(), flow.step === 'choose' && !busy);
   return (
     <Screen
       title="Restore Backup"
-      subtitle="Bring back a company from a backup file. The company that is open now is never overwritten."
-      icon="undo"
+      // 2.1: the step in words; the open company is never a target (restoreTargets says why in the list).
+      subtitle={stepLine(STEPS, flow.step)}
       width="form"
       dirty={flow.step === 'restore' && !busy}
-      hint="Enter Next · Ctrl+A Continue · Alt+O Choose file · Esc Back"
+      hint={flow.step === 'choose' ? 'Enter Choose backup file · Esc Back' : 'Enter Next · Ctrl+A Continue · Alt+O Choose file · Esc Back'}
       actions={[
         // After the restore Ctrl+A only leaves the screen: closing the company is a separate, explicit choice.
         flow.primary
           ? { key: 'Ctrl+A', label: flow.primary.label, icon: flow.primary.icon, primary: true, onClick: flow.primary.run, disabled: busy }
           : { key: 'Ctrl+A', label: 'Done', icon: 'check', primary: true, onClick: () => void nav.back() },
-        { key: 'Alt+O', label: 'Choose another file', icon: 'folder', onClick: () => void flow.choose(), disabled: busy, hidden: flow.step === 'choose' || flow.step === 'done' },
+        {
+          key: 'Alt+O',
+          label: 'Choose another file',
+          icon: 'folder',
+          onClick: () => void flow.choose(),
+          prominent: true,
+          disabled: busy,
+          hidden: flow.step === 'choose' || flow.step === 'done',
+        },
         { key: 'Alt+N', label: 'Restore another', icon: 'refresh', onClick: flow.reset, hidden: flow.step !== 'done' },
         { key: 'Alt+B', label: 'Backups', icon: 'database', onClick: () => nav.push('data.backup'), group: 'more' },
       ]}
-      footer={
-        <>
-          <Button onClick={() => void nav.back()} disabled={busy}>
-            {flow.step === 'done' ? 'Close' : 'Cancel'}
-          </Button>
-          {flow.primary ? (
-            <Button variant="primary" icon={flow.primary.icon} loading={busy} shortcut="Ctrl+A" onClick={flow.primary.run}>
-              {flow.primary.label}
-            </Button>
-          ) : (
-            <>
-              <Button icon="logout" onClick={() => void shell.closeCompany()} shortcut="F3">
-                Close this company (F3)
-              </Button>
-              <Button variant="primary" icon="check" shortcut="Ctrl+A" onClick={() => void nav.back()}>
-                Done
-              </Button>
-            </>
-          )}
-        </>
-      }
     >
-      <RestoreBody flow={flow} />
+      <RestoreBody flow={flow} onCloseCompany={() => void shell.closeCompany()} />
     </Screen>
   );
 }
@@ -390,7 +392,7 @@ export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
       onClose={() => (busy ? undefined : done ? finish() : onClose())}
       dismissible={!busy}
       title="Restore a backup"
-      description="Bring back a company from a .pvqbak backup file."
+      description={stepLine(STEPS, flow.step)}
       size="lg"
       footer={
         <>

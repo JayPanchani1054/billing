@@ -9,6 +9,7 @@ import type { StatementLine, TbRow } from '../../../shared/types/reports.ts';
 import { formatDrCr, useCompany, useNav, usePeriod } from '../../app/index.ts';
 import { DataTable, EmptyState } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { isOverdrawn } from './lib/charts.ts';
 import { paramsPeriod, statementAmountText, tbTotals } from './lib/model.ts';
 import { rowBudget, sideBudget, tbVariance } from './lib/overlay.ts';
 import type { BudgetBasisByKey, BudgetByKey } from './lib/overlay.ts';
@@ -117,31 +118,57 @@ export interface TbTableProps {
   totalLabel?: string;
   /** (additive) Budget column: budget per row key, Dr + / Cr − (overlay.tsx, Alt+B). */
   budget?: { name: string; byKey: BudgetByKey; basisByKey?: BudgetBasisByKey } | null;
+  /**
+   * (2.1) One "Closing" column (Dr/Cr words) instead of Closing Dr | Closing Cr — Cash/Bank and Group
+   * Summary. `bar` draws the graph inline under it (D26: short tables); `overdrawn` adds the muted
+   * danger word after a cash/bank ledger in credit.
+   */
+  closing?: { bar?: { value: (row: TbRow) => number | null; slot: 1 | 'polarity' } | null; overdrawn?: boolean };
 }
 
 /** Particulars | Opening | Debit | Credit | Closing Dr | Closing Cr, with sticky grand totals. */
-export function TbTable({ rows, expansion, showOpening, showTransactions, onActivate, loading, empty, autoFocus = true, totalLabel = 'Grand Total', budget = null, ...rest }: TbTableProps) {
+export function TbTable({ rows, expansion, showOpening, showTransactions, onActivate, loading, empty, autoFocus = true, totalLabel = 'Grand Total', budget = null, closing, ...rest }: TbTableProps) {
+  const single = closing !== undefined;
+  const closingBar = closing?.bar ?? undefined;
+  const overdrawn = closing?.overdrawn ?? false;
   const columns = useMemo<Column<TbRow>[]>(
     () => [
       { key: 'name', header: 'Particulars', tree: true, minWidth: 240 },
       { key: 'opening', header: 'Opening', kind: 'drcr', width: 170, hidden: !showOpening },
       { key: 'debit', header: 'Debit', kind: 'amount', width: 150, blankZero: true, hidden: !showTransactions },
       { key: 'credit', header: 'Credit', kind: 'amount', width: 150, blankZero: true, hidden: !showTransactions },
-      { key: 'closingDr', header: 'Closing Dr', kind: 'amount', width: 160, blankZero: true, value: (r) => (r.closing > 0 ? r.closing : 0) },
-      { key: 'closingCr', header: 'Closing Cr', kind: 'amount', width: 160, blankZero: true, value: (r) => (r.closing < 0 ? -r.closing : 0) },
+      { key: 'closingDr', header: 'Closing Dr', kind: 'amount', width: 160, blankZero: true, hidden: single, value: (r) => (r.closing > 0 ? r.closing : 0) },
+      { key: 'closingCr', header: 'Closing Cr', kind: 'amount', width: 160, blankZero: true, hidden: single, value: (r) => (r.closing < 0 ? -r.closing : 0) },
+      {
+        key: 'closing',
+        header: 'Closing',
+        kind: 'drcr',
+        width: overdrawn ? 210 : 170,
+        hidden: !single,
+        bar: closingBar,
+        render: overdrawn
+          ? (r) =>
+              isOverdrawn(r) ? (
+                <>
+                  {formatDrCr(r.closing)} <span className="bx-rep-danger">overdrawn</span>
+                </>
+              ) : (
+                formatDrCr(r.closing)
+              )
+          : undefined,
+      },
       { key: 'budget', header: budget ? `Budget (${budget.name})` : 'Budget', kind: 'drcr', width: 170, hidden: !budget, value: (r) => rowBudget(budget?.byKey, r.key) ?? 0, render: (r) => (rowBudget(budget?.byKey, r.key) === null ? '' : formatDrCr(rowBudget(budget?.byKey, r.key) ?? 0)) },
       { key: 'variance', header: 'Variance', kind: 'drcr', width: 170, hidden: !budget, value: (r) => tbVariance(budget?.byKey, r, budget?.basisByKey) ?? 0, render: (r) => (tbVariance(budget?.byKey, r, budget?.basisByKey) === null ? '' : formatDrCr(tbVariance(budget?.byKey, r, budget?.basisByKey) ?? 0)) },
     ],
-    [showOpening, showTransactions, budget],
+    [showOpening, showTransactions, budget, single, closingBar, overdrawn],
   );
   const footer = useMemo<FooterRow[]>(() => {
     const t = tbTotals(rows);
-    return [{ key: 'total', tone: 'total', cells: { name: totalLabel, debit: t.debit, credit: t.credit, closingDr: t.closingDebit, closingCr: t.closingCredit } }];
+    return [{ key: 'total', tone: 'total', cells: { name: totalLabel, debit: t.debit, credit: t.credit, closingDr: t.closingDebit, closingCr: t.closingCredit, closing: formatDrCr(t.closingDebit - t.closingCredit) } }];
   }, [rows, totalLabel]);
   return (
     <DataTable<TbRow>
       aria-label={rest['aria-label']}
-      className="bx-rep-fill"
       columns={columns}
       rows={rows}
       getRowKey={(r) => r.key}
@@ -162,7 +189,10 @@ export function TbTable({ rows, expansion, showOpening, showTransactions, onActi
 // ───────────────────────────── Statement side ─────────────────────────────
 
 export interface StatementSideProps {
+  /** The side's name ("Expenses", "Assets"): the first column's header and the table's name. */
   title: string;
+  /** The block's caption ("Trading Account"), added to the table's name. */
+  caption?: string;
   lines: readonly StatementLine[];
   total: number;
   compareTotal: number | null;
@@ -173,17 +203,22 @@ export interface StatementSideProps {
   autoFocus?: boolean;
   /** Visible row count to size both sides alike (header + rows + footer). */
   heightRows: number;
+  /** A later block of the sheet: its column header is read by screen readers, not shown (one header per sheet). */
+  continued?: boolean;
   /** (additive) Budget column (overlay.tsx, Alt+B): side-natural like the amounts (`drNatural`: expenses / assets side). */
   budget?: { name: string; byKey: BudgetByKey; drNatural: boolean } | null;
+  /** (2.1) Footnotes moved into row tooltips: the name cell's hover text, by row. */
+  rowTitle?: (line: StatementLine) => string | undefined;
 }
 
-const KEY_LINES = new Set(['gross', 'net', 'stock', 'profit_loss', 'difference']);
-
-/** One side of a horizontal statement (Expenses / Income, Liabilities / Assets). */
-export function StatementSide({ title, lines, total, compareTotal, compareLabel, expansion, onActivate, loading, autoFocus, heightRows, budget = null }: StatementSideProps) {
+/**
+ * One side of one block of a two-sided statement (Expenses / Income, Liabilities / Assets): a tree
+ * table on the flat sheet — no box, no title band; bold only on the Total row.
+ */
+export function StatementSide({ title, caption, lines, total, compareTotal, compareLabel, expansion, onActivate, loading, autoFocus, heightRows, continued = false, budget = null, rowTitle }: StatementSideProps) {
   const columns = useMemo<Column<StatementLine>[]>(
     () => [
-      { key: 'name', header: 'Particulars', tree: true, minWidth: 180 },
+      { key: 'name', header: title, tree: true, minWidth: 180, title: rowTitle ? (r) => rowTitle(r) ?? r.name : undefined },
       {
         key: 'amount',
         header: 'Amount',
@@ -209,33 +244,30 @@ export function StatementSide({ title, lines, total, compareTotal, compareLabel,
         render: (r) => statementAmountText(sideBudget(budget?.byKey, r.key, budget?.drNatural ?? true)),
       },
     ],
-    [compareLabel, budget],
+    [title, compareLabel, budget, rowTitle],
   );
   const footer: FooterRow[] = [
     { key: 'total', tone: 'total', cells: { name: 'Total', amount: statementAmountText(total), compare: compareTotal === null ? '' : statementAmountText(compareTotal), budget: '' } },
   ];
   return (
-    <section className="bx-rep-side" aria-label={title}>
-      <div className="bx-rep-side__title">{title}</div>
-      <DataTable<StatementLine>
-        aria-label={title}
-        columns={columns}
-        rows={lines}
-        getRowKey={(r) => r.key}
-        getRowLevel={(r) => r.level}
-        isGroupRow={(r) => r.level === 0}
-        getRowClassName={(r) => (r.level > 0 ? 'bx-rep-child' : KEY_LINES.has(r.kind) ? 'bx-rep-key-line' : undefined)}
-        expandable
-        expandedKeys={expansion.expandedKeys}
-        onExpandedChange={expansion.onExpandedChange}
-        onRowActivate={onActivate}
-        footerRows={footer}
-        loading={loading}
-        virtualize={false}
-        height={`calc(var(--row-h) * ${Math.max(heightRows, 3) + 2} + 2px)`}
-        empty={<EmptyState size="sm" icon="book" title="No amounts" />}
-        autoFocus={autoFocus}
-      />
-    </section>
+    <DataTable<StatementLine>
+      aria-label={caption ? `${title}, ${caption}` : title}
+      className={continued ? 'bx-rep-cont' : undefined}
+      columns={columns}
+      rows={lines}
+      getRowKey={(r) => r.key}
+      getRowLevel={(r) => r.level}
+      getRowClassName={(r) => (r.level > 0 ? 'bx-rep-child' : undefined)}
+      expandable
+      expandedKeys={expansion.expandedKeys}
+      onExpandedChange={expansion.onExpandedChange}
+      onRowActivate={onActivate}
+      footerRows={footer}
+      loading={loading}
+      virtualize={false}
+      height={`calc(var(--row-h) * ${Math.max(heightRows, 3) + (continued ? 1 : 2)} + 2px)`}
+      empty={<EmptyState size="sm" icon="book" title="No amounts" />}
+      autoFocus={autoFocus}
+    />
   );
 }

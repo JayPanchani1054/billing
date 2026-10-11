@@ -6,13 +6,15 @@
  * foreign × 100), the rate, and the rupee value the server computed in the last check. Other
  * vouchers: each foreign line (amount @ rate → rupees) and the realised exchange difference the voucher
  * will post. Alt+Y (registered by the entry screen) changes the currency / rate or a line's amount.
+ * Renders nothing (2.1, D16) until there is something to show: no invoice currency and no foreign line
+ * with an amount yet — the grid keeps the full width.
  */
 import { formatExchangeRate, formatForex } from '../../../shared/forex.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { Paise } from '../../../shared/money.ts';
 import type { ForexCurrency, ForexVoucherPreview, VoucherForexInput } from '../../../shared/types/forex.ts';
-import { Button, Kbd, Stack } from '../../ui/index.ts';
-import { decodeForex } from './lib/entry.ts';
+import { Button, Stack } from '../../ui/index.ts';
+import { decodeForex, entryPanelShown } from './lib/entry.ts';
 import { entrySummary } from './lib/model.ts';
 
 export interface ForexEntryPanelProps {
@@ -39,6 +41,7 @@ export function ForexEntryPanel(p: ForexEntryPanelProps) {
   if (!p.relevant) return null;
   const lines = entrySummary(p.preview, p.currencyOf, money);
   const c = p.docCurrency;
+  if (!entryPanelShown({ relevant: p.relevant, invoiceCurrency: !!(p.doc && c), lines: lines.length })) return null;
   return (
     <section className="bx-vch-side" aria-label="Foreign currency" aria-live="polite">
       <h3 className="bx-vch-side__title">
@@ -54,7 +57,9 @@ export function ForexEntryPanel(p: ForexEntryPanelProps) {
               Total <strong>{formatForex(decodeForex(p.formTotal, p.formDecimals ?? 2), c.decimalPlaces, c.symbol)}</strong>
               {p.serverTotal !== null ? <> · books ₹ {money(p.serverTotal)}</> : null}
             </span>
-            <span className="bx-muted">Rates and amounts on the lines are in {c.symbol}; GST is computed in rupees.</span>
+            <span className="bx-muted" title="GST is computed in rupees">
+              Line rates and amounts in {c.symbol}
+            </span>
           </>
         ) : null}
         {lines
@@ -64,10 +69,9 @@ export function ForexEntryPanel(p: ForexEntryPanelProps) {
               <span className="bx-muted">{l.label}:</span> <span className="bx-num">{l.value}</span>
             </span>
           ))}
-        {lines.length === 0 && !p.doc ? <span className="bx-muted">Enter the amount of the foreign-currency line (Alt+Y).</span> : null}
         {p.onChange ? (
-          <Button size="sm" variant="ghost" icon="edit" onClick={p.onChange}>
-            {p.doc ? 'Currency & rate' : 'Amount & rate'} <Kbd keys="Alt+Y" size="sm" />
+          <Button size="sm" variant="link" shortcut="Alt+Y" onClick={p.onChange}>
+            {p.doc ? 'Currency & rate' : 'Amount & rate'}
           </Button>
         ) : null}
       </Stack>

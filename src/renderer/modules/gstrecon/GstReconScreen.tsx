@@ -1,11 +1,20 @@
 /**
- * 'gstrecon.home' {period?: MMYYYY (or 'YYYY-YY-Qn' with the GSTR-1 tab, quarterly filers), source?: 'gstr2b' | 'gstr2a' | 'gstr1',
+ * 'gstrecon.home' {period?: MMYYYY (or 'YYYY-YY-Qn' with the GSTR-1 view, quarterly filers), source?: 'gstr2b' | 'gstr2a' | 'gstr1',
  * tab?: 'purchases' | 'suppliers' | 'gstr1' | 'imports'} — GST reconciliation.
  *
- * Tabs: Purchases (GSTR-2B / GSTR-2A vs purchase books) · Supplier-wise · GSTR-1 vs sales · Imported files.
- * Keys: Alt+F2 return period · Alt+S GSTR-2B/2A · Alt+O import the portal file · Alt+R reconcile ·
- * Alt+T matching rules · Enter on a row → compare drawer (Ctrl+A accept, Alt+I ignore, Alt+U undo/unlink) ·
- * Alt+M supplier follow-up e-mail · Alt+E export (Excel workbook) · Alt+P print the rows shown · Esc back.
+ * Views (the "Reconciliation views" token of the title row): GSTR-2B / GSTR-2A vs purchase books ·
+ * Supplier-wise · GSTR-1 vs sales · Imported files. Keys: Alt+F2 return period · Alt+S GSTR-2B/2A ·
+ * Alt+O import the portal file · Alt+R reconcile · Alt+T matching rules · Enter on a row → compare
+ * drawer (Ctrl+A accept, Alt+I ignore, Alt+U undo/unlink) · Alt+M supplier follow-up e-mail · Alt+E
+ * export (Excel workbook) · Alt+P print the rows shown · Alt+D delete an import (Imported files) · Esc back.
+ *
+ * 2.1 (SPEC-21 §1.2, §5, WP-J2): one title row (the view and the return period are its context tokens),
+ * one toolbar row (Show · search · Filters on the left, the answer in words on the right — "ITC at risk
+ * ₹x · Reconciled y %"), one graph (lib/charts.ts, through Screen's `graph` prop: the documents by status
+ * as a share bar whose segments filter the table; on Supplier-wise the tax difference per supplier,
+ * inline bars in a short table), then the table. The status tiles, the ITC tiles and the per-head card
+ * left the screen: the graph and the "Show" filter carry the statuses, the stat the ITC figures, and
+ * More ▾ › About this reconciliation the file, the matching rules, the notes and tax per head.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -14,7 +23,6 @@ import type {
   ReconImportResult,
   ReconRow,
   ReconSource,
-  ReconStatus,
   ReconStatusFilter,
   ReconSummary,
   ReconTolerance,
@@ -40,47 +48,16 @@ import {
   useWorkingDate,
 } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import {
-  Badge,
-  Banner,
-  Button,
-  Card,
-  DataTable,
-  EmptyState,
-  Icon,
-  Inline,
-  KpiCard,
-  Pagination,
-  SegmentedControl,
-  Select,
-  Stack,
-  Tabs,
-  TextInput,
-  useDebouncedValue,
-  useHotkeys,
-  useToast,
-} from '../../ui/index.ts';
+import { aboutItem } from '../../app/lib/moreItems.ts';
+import { Badge, Banner, DataTable, Drawer, EmptyState, FiltersPopover, Pagination, Select, Stack, StatLine, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { CompareDrawer } from './CompareDrawer.tsx';
 import { FollowUpDialog, ToleranceDialog } from './dialogs.tsx';
+import { reconChart, reconStat, supplierChart } from './lib/charts.ts';
 import { defaultPeriod, isQuarterKey, periodLabel, periodOptionGroups, storageMonth } from './lib/periods.ts';
-import {
-  conflictMessage,
-  headLines,
-  importResultText,
-  itcTiles,
-  partyWord,
-  resultsExport,
-  rowDocDate,
-  rowDocNo,
-  signedMoney,
-  statusAdvice,
-  statusFilterOptions,
-  statusLabel,
-  STATUS_TONES,
-  TILE_STATUSES,
-  toleranceText,
-} from './lib/recon.ts';
+import { conflictMessage, headLines, importResultText, partyWord, resultsExport, rowDocDate, rowDocNo, signedMoney, statusFilterOptions, statusLabel, STATUS_TONES, toleranceText } from './lib/recon.ts';
 import type { HeadLine } from './lib/recon.ts';
 
 export type GstReconTab = 'purchases' | 'suppliers' | 'gstr1' | 'imports';
@@ -93,6 +70,10 @@ export interface GstReconParams {
 
 const PAGE_SIZE = 200;
 const TABS: readonly GstReconTab[] = ['purchases', 'suppliers', 'gstr1', 'imports'];
+const NEED_FILE = 'You need the "Prepare GST filings" permission';
+
+/** The "Reconciliation views" choices: the purchase source is part of the view's name. */
+type ViewValue = 'gstr2b' | 'gstr2a' | 'suppliers' | 'gstr1' | 'imports';
 
 function isConflictDetails(x: unknown): x is ReconImportConflict {
   return typeof x === 'object' && x !== null && typeof (x as ReconImportConflict).existingDocCount === 'number' && typeof (x as ReconImportConflict).newDocCount === 'number';
@@ -111,7 +92,7 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
   const [purchaseSource, setPurchaseSource] = useState<'gstr2b' | 'gstr2a'>(params?.source === 'gstr2a' ? 'gstr2a' : 'gstr2b');
   const [tab, setTab] = useState<GstReconTab>(() => (params?.tab && TABS.includes(params.tab) ? params.tab : params?.source === 'gstr1' ? 'gstr1' : 'purchases'));
   const source: ReconSource = tab === 'gstr1' ? 'gstr1' : purchaseSource;
-  // Quarters (QRMP GSTR-1) exist only on the GSTR-1 tab; elsewhere fall back to the quarter's last month.
+  // Quarters (QRMP GSTR-1) exist only on the GSTR-1 view; elsewhere fall back to the quarter's last month.
   useEffect(() => {
     if (tab !== 'gstr1' && isQuarterKey(period)) setPeriod(storageMonth(period));
   }, [tab, period]);
@@ -136,9 +117,11 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
   const [drawerRow, setDrawerRow] = useState<ReconRow | null>(null);
   const [followUp, setFollowUp] = useState<string | null>(null);
   const [toleranceOpen, setToleranceOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [tolerance, setTolerance] = useState<ReconTolerance | null>(null);
   const [busy, setBusy] = useState<null | 'import' | 'run' | 'export'>(null);
   const [lastImport, setLastImport] = useState<ReconImportResult | null>(null);
+  const [batchCursor, setBatchCursor] = useState<string | null>(null);
   const periodRef = useRef<HTMLSelectElement | null>(null);
 
   const reconTab = tab === 'purchases' || tab === 'gstr1';
@@ -162,6 +145,8 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
   const rows = useMemo(() => resultsQ.data?.rows ?? [], [resultsQ.data]);
   const selectedRow = rows.find((r) => r.key === selectedKey) ?? null;
   const periodGroups = useMemo(() => periodOptionGroups(booksFrom, today, 36, tab === 'gstr1'), [booksFrom, today, tab]);
+  const batches = batchesQ.data ?? [];
+  const selectedBatch = batches.find((b) => String(b.id) === batchCursor) ?? batches[0] ?? null;
 
   // ── Actions ──────────────────────────────────────────────────────────
 
@@ -291,7 +276,17 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
   })();
 
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+F2', label: 'Return period', icon: 'calendar', onClick: () => periodRef.current?.focus(), group: 'period' },
+    // Imported files lists every period, so it shows no period select: the key stays this screen's (never the
+    // app's period dialog), disabled with the reason.
+    {
+      key: 'Alt+F2',
+      label: 'Return period',
+      icon: 'calendar',
+      onClick: () => periodRef.current?.focus(),
+      disabled: tab === 'imports',
+      hint: tab === 'imports' ? 'Imported files lists every period — open a file (Enter) to reconcile its period' : undefined,
+      group: 'period',
+    },
     {
       key: 'Alt+S',
       label: purchaseSource === 'gstr2b' ? 'Use GSTR-2A' : 'Use GSTR-2B',
@@ -308,7 +303,7 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
       onClick: () => void importFile(),
       disabled: !canFile || busy !== null,
       hidden: !reconTab,
-      hint: canFile ? 'JSON, ZIP or Excel file downloaded from the GST portal' : 'You need the "Prepare GST filings" permission',
+      hint: canFile ? 'JSON, ZIP or Excel file downloaded from the GST portal' : NEED_FILE,
       group: 'file',
     },
     {
@@ -319,10 +314,10 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
       onClick: () => void reconcile(),
       disabled: !canFile || busy !== null || !summary?.batch,
       hidden: !reconTab,
-      hint: summary?.batch ? toleranceText(effectiveTolerance) : `Import the ${label} first`,
+      hint: !canFile ? NEED_FILE : summary?.batch ? toleranceText(effectiveTolerance) : `Import the ${label} first`,
       group: 'file',
     },
-    { key: 'Alt+T', label: 'Matching rules', icon: 'sliders', onClick: () => setToleranceOpen(true), disabled: !canFile || !summary?.batch, hidden: !reconTab, group: 'file' },
+    { key: 'Alt+T', label: 'Matching rules', icon: 'sliders', onClick: () => setToleranceOpen(true), disabled: !canFile || !summary?.batch, hidden: !reconTab, hint: canFile ? undefined : NEED_FILE, group: 'file' },
     {
       key: 'Alt+M',
       label: `${partyWord(purchaseSource)} e-mail`,
@@ -344,6 +339,9 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
       group: 'output',
     },
     { key: 'Alt+P', label: 'Print rows', icon: 'print', onClick: () => void printRows(), disabled: rows.length === 0 || !canExport, hidden: !reconTab, group: 'output', hint: canExport ? undefined : 'You need the "Export data" permission' },
+    // The Imported files view's delete (2.0: a button above the table with its own Alt+D).
+    { key: 'Alt+D', label: 'Delete import', icon: 'trash', onClick: () => selectedBatch && void deleteBatch(selectedBatch), disabled: !canFile || !selectedBatch, hidden: tab !== 'imports', hint: canFile ? undefined : NEED_FILE, group: 'danger' },
+    ...(reconTab && summary?.batch ? [aboutItem(() => setAboutOpen(true), 'About this reconciliation')] : []),
   ];
 
   const statusOptions = useMemo(
@@ -355,72 +353,71 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
     [suppliersQ.data, party],
   );
 
-  const headerBar = (
-    <div className="bx-gr-bar">
-      <label className="bx-gr-field">
-        <span className="bx-gr-bar__label">Return period</span>
-        <Select ref={periodRef} size="sm" aria-label="Return period" aria-keyshortcuts="Alt+F2" options={periodGroups} value={period} onChange={(v) => setPeriod(v)} />
-      </label>
-      {tab === 'purchases' || tab === 'suppliers' ? (
-        <SegmentedControl
+  // The one graph of the view (SPEC-21 §5): documents by status (a segment filters the table), or —
+  // Supplier-wise — the tax difference per supplier (inline bars when the table is that short).
+  const supplierRows = useMemo(() => suppliersQ.data ?? [], [suppliersQ.data]);
+  const spec = useMemo(
+    () => (tab === 'suppliers' ? supplierChart(supplierRows, (r) => openSupplier(r.gstin)) : reconTab && summary ? reconChart(summary, (st) => setStatus(st)) : null),
+    // openSupplier / setStatus only call state setters.
+    [tab, reconTab, summary, supplierRows],
+  );
+  const inline = tab === 'suppliers' && inlineBars(spec, supplierRows.length);
+  const stat = reconTab && summary ? reconStat(summary) : [];
+
+  const viewValue: ViewValue = tab === 'purchases' ? purchaseSource : tab;
+  const context = (
+    <>
+      <span className="bx-gr-token">
+        <Select<ViewValue>
           size="sm"
-          aria-label="Compare purchases with"
-          value={purchaseSource}
-          onChange={setPurchaseSource}
+          aria-label="Reconciliation views"
+          value={viewValue}
           options={[
-            { value: 'gstr2b', label: 'GSTR-2B' },
-            { value: 'gstr2a', label: 'GSTR-2A' },
+            { value: 'gstr2b', label: 'GSTR-2B vs purchases' },
+            { value: 'gstr2a', label: 'GSTR-2A vs purchases' },
+            { value: 'suppliers', label: `Supplier-wise (${RECON_SOURCE_LABELS[purchaseSource]})` },
+            { value: 'gstr1', label: 'GSTR-1 vs sales' },
+            { value: 'imports', label: 'Imported files' },
           ]}
+          onChange={(v) => {
+            if (v === 'gstr2b' || v === 'gstr2a') {
+              setPurchaseSource(v);
+              setTab('purchases');
+            } else setTab(v);
+          }}
         />
+      </span>
+      {tab !== 'imports' ? (
+        <>
+          <span aria-hidden="true"> · </span>
+          <span className="bx-gr-token">
+            <Select ref={periodRef} size="sm" aria-label="Return period" aria-keyshortcuts="Alt+F2" options={periodGroups} value={period} onChange={(v) => setPeriod(v)} />
+          </span>
+        </>
       ) : null}
-      {summary?.batch ? (
-        <span className="bx-gr-meta">
-          {summary.batch.fileName ?? 'File'} · imported {formatDateTime(summary.batch.importedAt)}
-          {summary.run ? ` · reconciled ${formatDateTime(summary.run.runAt)} (${toleranceText(summary.run.tolerance)})` : ''}
-        </span>
-      ) : null}
-    </div>
+    </>
   );
 
-  const reconBody = (
-    <ReconPanel
-      source={source}
-      period={period}
-      summary={summary}
-      summaryLoading={summaryQ.loading}
-      canFile={canFile}
-      busy={busy}
-      lastImport={lastImport && lastImport.source === source && lastImport.period === storageMonth(period) ? lastImport : null}
-      onDismissImport={() => setLastImport(null)}
-      onImport={() => void importFile()}
-      onRun={() => void reconcile()}
-      status={status}
-      onStatus={setStatus}
-      statusOptions={statusOptions}
-      supplier={supplier}
-      onSupplier={setSupplier}
-      supplierOptions={supplierOptions}
-      search={search}
-      onSearch={setSearch}
-      rows={rows}
-      total={resultsQ.data?.total ?? 0}
-      rowsLoading={resultsQ.loading}
-      rowsError={resultsQ.error}
-      page={page}
-      onPage={setPage}
-      selectedKey={selectedKey}
-      onSelect={setSelectedKey}
-      onOpen={(r) => setDrawerRow(r)}
-    />
-  );
+  // Toolbar row: the table's filters (one filter, one search, the rest under Filters) and the answer.
+  const tools =
+    reconTab && summary?.batch ? (
+      <div className="bx-gr-tools">
+        <Select size="sm" aria-label="Show rows" options={statusOptions} value={status} onChange={(v) => setStatus(v)} />
+        <TextInput size="sm" value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Search rows" aria-label="Search rows" title="Number, GSTIN, name or remarks" />
+        <FiltersPopover count={supplier ? 1 : 0} onClear={() => setSupplier('')}>
+          <Select size="sm" aria-label={party} options={supplierOptions} value={supplier} onChange={(v) => setSupplier(v)} />
+        </FiltersPopover>
+        {stat.length ? <StatLine items={stat} /> : null}
+      </div>
+    ) : undefined;
 
   return (
     <Screen
       title="GST Reconciliation"
-      subtitle={tab === 'imports' ? 'Files imported from the GST portal' : `${label} vs ${source === 'gstr1' ? 'sales' : 'purchase'} books · ${periodLabel(period)}`}
-      icon="gst"
-      toolbar={headerBar}
+      subtitle={context}
       actions={actions}
+      graph={reportGraph(spec, { inline })}
+      stat={tools}
       error={tab !== 'imports' && !summary ? summaryQ.error : null}
       onRetry={() => void summaryQ.refetch()}
       hint={
@@ -429,56 +426,55 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
           : 'Enter Compare · Alt+O Import · Alt+R Reconcile · Alt+T Rules · Alt+M E-mail · Alt+E Export · Alt+F2 Period · Esc Back'
       }
     >
-      <Tabs
-        aria-label="Reconciliation views"
-        value={tab}
-        onChange={(id) => setTab(TABS.includes(id as GstReconTab) ? (id as GstReconTab) : 'purchases')}
-        items={[
-          { id: 'purchases', label: 'Purchases', icon: 'cart', content: tab === 'purchases' ? reconBody : null },
-          {
-            id: 'suppliers',
-            label: 'Supplier-wise',
-            icon: 'users',
-            content:
-              tab === 'suppliers' ? (
-                <SupplierTab
-                  rows={suppliersQ.data ?? []}
-                  loading={suppliersQ.loading}
-                  error={suppliersQ.error}
-                  hasRun={!!summary?.run}
-                  source={purchaseSource}
-                  cursor={supplierCursor}
-                  onCursor={setSupplierCursor}
-                  onOpen={(s) => openSupplier(s.gstin)}
-                />
-              ) : null,
-          },
-          { id: 'gstr1', label: 'GSTR-1 vs sales', icon: 'invoice', content: tab === 'gstr1' ? reconBody : null },
-          {
-            id: 'imports',
-            label: 'Imported files',
-            icon: 'folder',
-            content:
-              tab === 'imports' ? (
-                <ImportsTab
-                  batches={batchesQ.data ?? []}
-                  loading={batchesQ.loading}
-                  error={batchesQ.error}
-                  canFile={canFile}
-                  onOpen={(b) => {
-                    setPeriod(b.period);
-                    if (b.source === 'gstr1') setTab('gstr1');
-                    else {
-                      setPurchaseSource(b.source === 'gstr2a' ? 'gstr2a' : 'gstr2b');
-                      setTab('purchases');
-                    }
-                  }}
-                  onDelete={(b) => void deleteBatch(b)}
-                />
-              ) : null,
-          },
-        ]}
-      />
+      {reconTab ? (
+        <ReconPanel
+          source={source}
+          period={period}
+          summary={summary}
+          summaryLoading={summaryQ.loading}
+          canFile={canFile}
+          lastImport={lastImport && lastImport.source === source && lastImport.period === storageMonth(period) ? lastImport : null}
+          onDismissImport={() => setLastImport(null)}
+          status={status}
+          rows={rows}
+          total={resultsQ.data?.total ?? 0}
+          rowsLoading={resultsQ.loading}
+          rowsError={resultsQ.error}
+          page={page}
+          onPage={setPage}
+          selectedKey={selectedKey}
+          onSelect={setSelectedKey}
+          onOpen={(r) => setDrawerRow(r)}
+        />
+      ) : tab === 'suppliers' ? (
+        <SupplierTab
+          rows={supplierRows}
+          loading={suppliersQ.loading}
+          error={suppliersQ.error}
+          hasRun={!!summary?.run}
+          source={purchaseSource}
+          inline={inline}
+          cursor={supplierCursor}
+          onCursor={setSupplierCursor}
+          onOpen={(s) => openSupplier(s.gstin)}
+        />
+      ) : (
+        <ImportsTab
+          batches={batches}
+          loading={batchesQ.loading}
+          error={batchesQ.error}
+          cursor={selectedBatch ? String(selectedBatch.id) : null}
+          onCursor={setBatchCursor}
+          onOpen={(b) => {
+            setPeriod(b.period);
+            if (b.source === 'gstr1') setTab('gstr1');
+            else {
+              setPurchaseSource(b.source === 'gstr2a' ? 'gstr2a' : 'gstr2b');
+              setTab('purchases');
+            }
+          }}
+        />
+      )}
       <CompareDrawer
         row={drawerRow}
         period={period}
@@ -489,11 +485,12 @@ export function GstReconScreen({ params }: ScreenProps<GstReconParams>) {
       />
       <ToleranceDialog open={toleranceOpen} value={effectiveTolerance} busy={busy === 'run'} onRun={(t) => void reconcile(t)} onClose={() => setToleranceOpen(false)} />
       <FollowUpDialog open={followUp !== null} period={period} source={purchaseSource} gstin={followUp} onClose={() => setFollowUp(null)} />
+      {summary ? <AboutDrawer open={aboutOpen} summary={summary} onClose={() => setAboutOpen(false)} /> : null}
     </Screen>
   );
 }
 
-// ───────────────────────────── Reconciliation panel ─────────────────────────────
+// ───────────────────────────── Reconciliation view ─────────────────────────────
 
 interface ReconPanelProps {
   source: ReconSource;
@@ -501,19 +498,9 @@ interface ReconPanelProps {
   summary: ReconSummary | undefined;
   summaryLoading: boolean;
   canFile: boolean;
-  busy: null | 'import' | 'run' | 'export';
   lastImport: ReconImportResult | null;
   onDismissImport: () => void;
-  onImport: () => void;
-  onRun: () => void;
   status: ReconStatusFilter;
-  onStatus: (s: ReconStatusFilter) => void;
-  statusOptions: Array<{ value: ReconStatusFilter; label: string }>;
-  supplier: string;
-  onSupplier: (g: string) => void;
-  supplierOptions: Array<{ value: string; label: string }>;
-  search: string;
-  onSearch: (s: string) => void;
   rows: ReconRow[];
   total: number;
   rowsLoading: boolean;
@@ -528,10 +515,9 @@ interface ReconPanelProps {
 function ReconPanel(p: ReconPanelProps) {
   const { source, period, summary } = p;
   const label = RECON_SOURCE_LABELS[source];
-  const party = partyWord(source);
 
   if (!summary) {
-    return p.summaryLoading ? <p className="bx-gr-meta">Loading…</p> : null;
+    return p.summaryLoading ? <p className="bx-muted">Loading…</p> : null;
   }
 
   if (!summary.batch) {
@@ -541,28 +527,21 @@ function ReconPanel(p: ReconPanelProps) {
         : source === 'gstr2a'
           ? 'GST portal › Returns › GSTR-2A › Download (JSON or Excel)'
           : 'GST portal › Returns › GSTR-1 › Download the filed return (JSON), or the JSON exported from Pevqori';
+    // The import itself is the title row's primary action (Alt+O) — not repeated here.
     return (
       <EmptyState
-        icon="upload"
         title={`No ${label} imported for ${periodLabel(period)}`}
-        body={`Download it from ${where}, then press Alt+O to import it. The reconciliation runs right after the import.`}
-        action={
-          p.canFile ? (
-            <Button variant="primary" icon="upload" shortcut="Alt+O" loading={p.busy === 'import'} onClick={p.onImport}>
-              Import {label}
-            </Button>
-          ) : (
-            <span className="bx-gr-meta">Importing needs the “Prepare GST filings” permission.</span>
-          )
+        body={
+          p.canFile
+            ? `Download it from ${where}, then import it (Alt+O). The reconciliation runs right after the import.`
+            : `Download it from ${where}. Importing needs the “Prepare GST filings” permission.`
         }
       />
     );
   }
 
-  const counts = summary.run?.counts ?? {};
-  const statusOf = (s: ReconStatus): number => counts[s] ?? 0;
   return (
-    <div className="bx-gr-body">
+    <Stack gap={3}>
       {p.lastImport && p.lastImport.warnings.length > 0 ? (
         <Banner tone="warning" title={`${p.lastImport.warnings.length} ${p.lastImport.warnings.length === 1 ? 'note' : 'notes'} on the imported file`} onDismiss={p.onDismissImport}>
           <ul className="bx-gr-notes">
@@ -572,102 +551,59 @@ function ReconPanel(p: ReconPanelProps) {
           </ul>
         </Banner>
       ) : null}
+      {/* Reconcile (Alt+R) is the title row's primary while these hold. */}
       {!summary.run ? (
-        <Banner
-          tone="info"
-          title="Not reconciled yet"
-          action={
-            p.canFile ? (
-              <Button size="sm" variant="primary" icon="refresh" shortcut="Alt+R" loading={p.busy === 'run'} onClick={p.onRun}>
-                Reconcile now
-              </Button>
-            ) : undefined
-          }
-        >
-          {summary.batch.docCount} documents from the {label} are ready to compare with your books.
+        <Banner tone="info" title="Not reconciled yet">
+          {summary.batch.docCount} documents from the {label} are ready to compare with your books (Alt+R).
         </Banner>
       ) : summary.stale ? (
-        <Banner
-          tone="warning"
-          title="Results are out of date"
-          action={
-            p.canFile ? (
-              <Button size="sm" icon="refresh" shortcut="Alt+R" loading={p.busy === 'run'} onClick={p.onRun}>
-                Reconcile again
-              </Button>
-            ) : undefined
-          }
-        >
-          {summary.staleReason}
+        <Banner tone="warning" title="Results are out of date">
+          {summary.staleReason} Reconcile again (Alt+R).
         </Banner>
       ) : null}
-      {summary.warnings.length > 0 && !p.lastImport ? (
-        <p className="bx-gr-help">
-          <Icon name="info" size="sm" />
-          <span>{summary.warnings.join(' ')}</span>
-        </p>
-      ) : null}
-
-      {summary.run ? (
-        <>
-          <div className="bx-gr-tiles" role="group" aria-label="Rows by status — choose one to filter">
-            {TILE_STATUSES.map((s) => (
-              <KpiCard
-                key={s}
-                className={`bx-gr-tile${p.status === s ? ' is-active' : ''}`}
-                aria-pressed={p.status === s}
-                label={statusLabel(s, source)}
-                value={String(statusOf(s))}
-                caption={statusAdvice(s, source)}
-                onClick={() => p.onStatus(p.status === s ? 'open' : s)}
-              />
-            ))}
-          </div>
-          <div className="bx-gr-split">
-            <div className="bx-gr-itc">
-              {itcTiles(summary).map((t) => (
-                <KpiCard key={t.key} label={t.label} value={t.value ?? '—'} amount={t.value !== null} caption={t.caption} />
-              ))}
-            </div>
-            <HeadsCard summary={summary} />
-          </div>
-        </>
-      ) : null}
-
-      <Inline gap={2} align="end" wrap>
-        <label className="bx-gr-field">
-          <span className="bx-gr-bar__label">Show</span>
-          <Select size="sm" aria-label="Show rows" options={p.statusOptions} value={p.status} onChange={(v) => p.onStatus(v)} />
-        </label>
-        <label className="bx-gr-field">
-          <span className="bx-gr-bar__label">{party}</span>
-          <Select size="sm" aria-label={party} options={p.supplierOptions} value={p.supplier} onChange={(v) => p.onSupplier(v)} />
-        </label>
-        <TextInput
-          size="sm"
-          value={p.search}
-          onChange={(e) => p.onSearch(e.target.value)}
-          leadingIcon="search"
-          placeholder="Search number, GSTIN, name, remarks"
-          aria-label="Search rows"
-        />
-      </Inline>
-
-      <div className="bx-gr-table-fill">
-        {p.rowsError ? (
-          <Banner tone="danger" title="The rows could not be loaded">
-            {userMessage(p.rowsError)}
-          </Banner>
-        ) : (
-          <ResultsTable source={source} rows={p.rows} loading={p.rowsLoading} selectedKey={p.selectedKey} onSelect={p.onSelect} onOpen={p.onOpen} status={p.status} />
-        )}
-        {p.total > PAGE_SIZE ? <Pagination page={p.page} pageSize={PAGE_SIZE} total={p.total} onPageChange={p.onPage} itemLabel="rows" /> : null}
-      </div>
-    </div>
+      {p.rowsError ? (
+        <Banner tone="danger" title="The rows could not be loaded">
+          {userMessage(p.rowsError)}
+        </Banner>
+      ) : (
+        <ResultsTable source={source} rows={p.rows} loading={p.rowsLoading} selectedKey={p.selectedKey} onSelect={p.onSelect} onOpen={p.onOpen} status={p.status} />
+      )}
+      {p.total > PAGE_SIZE ? <Pagination page={p.page} pageSize={PAGE_SIZE} total={p.total} onPageChange={p.onPage} itemLabel="rows" /> : null}
+    </Stack>
   );
 }
 
-function HeadsCard({ summary }: { summary: ReconSummary }) {
+/** More ▾ › About this reconciliation: the file, the run and its matching rules, the notes, tax per head. */
+function AboutDrawer({ open, summary, onClose }: { open: boolean; summary: ReconSummary; onClose: () => void }) {
+  const inward = summary.source !== 'gstr1';
+  return (
+    <Drawer open={open} onClose={onClose} title="About this reconciliation" description={`${summary.sourceLabel} · ${summary.periodLabel}`} size="lg">
+      <Stack gap={4}>
+        <Stack gap={1}>
+          {summary.batch ? (
+            <p>
+              {summary.batch.fileName ?? 'File'} · {summary.batch.docCount} documents · imported {formatDateTime(summary.batch.importedAt)}
+            </p>
+          ) : null}
+          {summary.run ? (
+            <p>
+              Reconciled {formatDateTime(summary.run.runAt)} · {toleranceText(summary.run.tolerance)}
+            </p>
+          ) : null}
+          {summary.warnings.length > 0 ? <p className="bx-muted">{summary.warnings.join(' ')}</p> : null}
+          <p className="bx-muted">
+            {inward
+              ? 'Enter on a row compares the portal and your books side by side. Supplier-wise lists the suppliers with the most to fix; Alt+M prepares an e-mail asking one to correct their GSTR-1.'
+              : 'Enter on a row compares GSTR-1 and your books side by side.'}
+          </p>
+        </Stack>
+        {summary.run ? <HeadsTable summary={summary} /> : null}
+      </Stack>
+    </Drawer>
+  );
+}
+
+function HeadsTable({ summary }: { summary: ReconSummary }) {
   const inward = summary.source !== 'gstr1';
   const columns = useMemo<Column<HeadLine>[]>(
     () => [
@@ -679,11 +615,7 @@ function HeadsCard({ summary }: { summary: ReconSummary }) {
     [inward],
   );
   const rows = useMemo(() => headLines(summary), [summary]);
-  return (
-    <Card title={inward ? 'ITC per head: portal vs books' : 'Tax per head: GSTR-1 vs books'} padding="none">
-      <DataTable aria-label="Tax per head" columns={columns} rows={rows} getRowKey={(r) => r.key} density="compact" virtualize={false} />
-    </Card>
-  );
+  return <DataTable aria-label={inward ? 'ITC per head: portal vs books' : 'Tax per head: GSTR-1 vs books'} columns={columns} rows={rows} getRowKey={(r) => r.key} density="compact" virtualize={false} />;
 }
 
 function ResultsTable({
@@ -751,9 +683,9 @@ function ResultsTable({
   );
   const empty =
     status === 'open' ? (
-      <EmptyState icon="check-circle" title="Nothing needs action" body="Every document matches or has been accepted. Choose “All rows” to see them." size="sm" />
+      <EmptyState title="Nothing needs action" body="Every document matches or has been accepted. Choose “All rows” to see them." size="sm" />
     ) : (
-      <EmptyState icon="filter" title="No rows" body="No document fits this filter. Change the filter or the search." size="sm" />
+      <EmptyState title="No rows" body="No document fits this filter. Change the filter or the search." size="sm" />
     );
   return (
     <DataTable
@@ -768,6 +700,7 @@ function ResultsTable({
       onRowActivate={onOpen}
       empty={empty}
       density="compact"
+      height="50vh"
     />
   );
 }
@@ -780,6 +713,7 @@ function SupplierTab({
   error,
   hasRun,
   source,
+  inline,
   cursor,
   onCursor,
   onOpen,
@@ -789,6 +723,8 @@ function SupplierTab({
   error: unknown;
   hasRun: boolean;
   source: 'gstr2b' | 'gstr2a';
+  /** The graph's bars sit in the Difference cells (a short table, SPEC-21 D26). */
+  inline: boolean;
   cursor: string | null;
   onCursor: (g: string | null) => void;
   onOpen: (s: SupplierReconRow) => void;
@@ -802,9 +738,17 @@ function SupplierTab({
       { key: 'openCount', header: 'Needs action', kind: 'number', width: 110, sortable: true },
       { key: 'portalTax', header: `Tax (${RECON_SOURCE_LABELS[source]})`, kind: 'amount', width: 130, total: true },
       { key: 'booksTax', header: 'Tax (books)', kind: 'amount', width: 120, total: true },
-      { key: 'taxDifference', header: 'Difference', kind: 'amount', width: 110, render: (r) => signedMoney(r.taxDifference), sortable: true },
+      {
+        key: 'taxDifference',
+        header: 'Difference',
+        kind: 'amount',
+        width: 110,
+        render: (r) => signedMoney(r.taxDifference),
+        sortable: true,
+        ...(inline ? { bar: { value: (r: SupplierReconRow) => Math.abs(r.taxDifference), slot: 1 as const } } : {}),
+      },
     ],
-    [source],
+    [source, inline],
   );
   if (error) {
     return (
@@ -814,28 +758,22 @@ function SupplierTab({
     );
   }
   if (!loading && !hasRun) {
-    return <EmptyState icon="users" title="Reconcile first" body="Import the GSTR-2B (Alt+O) and reconcile (Alt+R) on the Purchases tab; the supplier-wise picture appears here." />;
+    return <EmptyState title="Reconcile first" body="Import the GSTR-2B (Alt+O) and reconcile (Alt+R) on the GSTR-2B view; the supplier-wise picture appears here." />;
   }
   return (
-    <div className="bx-gr-table-fill">
-      <p className="bx-gr-help">
-        <Icon name="info" size="sm" />
-        <span>Suppliers with the most to fix come first. Enter shows their documents; Alt+M prepares an e-mail asking them to correct their GSTR-1.</span>
-      </p>
-      <DataTable
-        aria-label="Supplier-wise reconciliation"
-        autoFocus
-        columns={columns}
-        rows={rows}
-        getRowKey={(r) => r.gstin || '(none)'}
-        loading={loading}
-        selectedKey={cursor}
-        onSelect={(k) => onCursor(k)}
-        onRowActivate={onOpen}
-        empty={<EmptyState icon="users" title="No suppliers" body="Neither the portal file nor your books have documents for this period." size="sm" />}
-        density="compact"
-      />
-    </div>
+    <DataTable
+      aria-label="Supplier-wise reconciliation"
+      autoFocus
+      columns={columns}
+      rows={rows}
+      getRowKey={(r) => r.gstin || '(none)'}
+      loading={loading}
+      selectedKey={cursor}
+      onSelect={(k) => onCursor(k)}
+      onRowActivate={onOpen}
+      empty={<EmptyState title="No suppliers" body="Neither the portal file nor your books have documents for this period." size="sm" />}
+      density="compact"
+    />
   );
 }
 
@@ -845,19 +783,17 @@ function ImportsTab({
   batches,
   loading,
   error,
-  canFile,
+  cursor,
+  onCursor,
   onOpen,
-  onDelete,
 }: {
   batches: ImportBatchView[];
   loading: boolean;
   error: unknown;
-  canFile: boolean;
+  cursor: string | null;
+  onCursor: (id: string | null) => void;
   onOpen: (b: ImportBatchView) => void;
-  onDelete: (b: ImportBatchView) => void;
 }) {
-  const [cursor, setCursor] = useState<string | null>(null);
-  const selected = batches.find((b) => String(b.id) === cursor) ?? null;
   const columns = useMemo<Column<ImportBatchView>[]>(
     () => [
       { key: 'source', header: 'Return', width: 90, value: (b) => RECON_SOURCE_LABELS[b.source] },
@@ -879,32 +815,21 @@ function ImportsTab({
       </Banner>
     );
   }
+  // Delete import (Alt+D) is a screen action, under More ▾.
   return (
-    <Stack gap={2}>
-      <Inline gap={2} justify="end">
-        <Button icon="trash" variant="danger" shortcut="Alt+D" disabled={!canFile || !selected} onClick={() => selected && onDelete(selected)}>
-          Delete import
-        </Button>
-      </Inline>
-      <ImportsKeys onDelete={canFile && selected ? () => onDelete(selected) : undefined} />
-      <DataTable
-        aria-label="Imported files"
-        autoFocus
-        columns={columns}
-        rows={batches}
-        getRowKey={(b) => String(b.id)}
-        loading={loading}
-        selectedKey={cursor}
-        onSelect={(k) => setCursor(k)}
-        onRowActivate={onOpen}
-        empty={<EmptyState icon="folder" title="No files imported yet" body="Import a GSTR-2B, GSTR-2A or GSTR-1 file from the Purchases or GSTR-1 tab (Alt+O)." size="sm" />}
-        density="compact"
-      />
-    </Stack>
+    <DataTable
+      aria-label="Imported files"
+      autoFocus
+      hideEmptyColumns
+      columns={columns}
+      rows={batches}
+      getRowKey={(b) => String(b.id)}
+      loading={loading}
+      selectedKey={cursor}
+      onSelect={(k) => onCursor(k)}
+      onRowActivate={onOpen}
+      empty={<EmptyState title="No files imported yet" body="Import a GSTR-2B, GSTR-2A or GSTR-1 file from its view (Alt+O)." size="sm" />}
+      density="compact"
+    />
   );
-}
-
-function ImportsKeys({ onDelete }: { onDelete?: () => void }) {
-  useHotkeys({ 'Alt+D': onDelete }, [onDelete]);
-  return null;
 }

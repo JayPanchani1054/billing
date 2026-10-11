@@ -19,9 +19,11 @@ import type { ScreenProps } from '../../app/registry.ts';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { useCan, useFeatures } from '../../app/state.tsx';
 import { useWorkingDate } from '../../app/working.tsx';
-import { Badge, Banner, Button, DataTable, DateInput, EmptyState, Field, Hotkeys, Inline, Modal, SegmentedControl, Select, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Badge, Banner, Button, DataTable, DateInput, EmptyState, Field, Hotkeys, Inline, Modal, SegmentedControl, Select, Stack, StatLine, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { saveCsvFile, TdsOff } from './components.tsx';
+import { returnChart, returnStat } from './lib/charts.ts';
 import { earliestFilingDate, enabledKinds, formsFor, fyLabel, QUARTER_LABEL, quarterChoices, returnChallansExport, returnDeducteesExport, statementStatusText } from './lib/model.ts';
 
 export interface ReturnParams {
@@ -53,6 +55,8 @@ export function ReturnScreen({ params }: ScreenProps<ReturnParams>) {
   const d = q.data && q.data.form === f && q.data.fyStart === fyStart && q.data.quarter === quarter ? q.data : undefined;
   const isTcs = f === '27EQ';
   const years = [...new Set([...choice.years, fyStart])].sort((a, b) => b - a);
+  const spec = useMemo(() => (d ? returnChart(d) : null), [d]);
+  const stat = d ? returnStat(d) : [];
 
   const deducteeCols = useMemo<Column<TdsReturnDeducteeRow & { key: string }>[]>(
     () => [
@@ -115,6 +119,17 @@ export function ReturnScreen({ params }: ScreenProps<ReturnParams>) {
       title={`Form ${f} — ${QUARTER_LABEL[quarter]} ${fyLabel(fyStart)}`}
       subtitle={d ? statementStatusText(d) : FORM_LABEL[f]}
       periodMode="none"
+      graph={reportGraph(spec)}
+      stat={stat.length ? <StatLine items={stat} /> : undefined}
+      about={
+        <>
+          <p>
+            Form {f}: the {isTcs ? 'collectee' : 'deductee'} rows (Ctrl+1) linked to the challans that paid them, and the challan rows (Ctrl+2). Alt+S saves both as CSV files carrying every field the
+            deductee and challan sheets of the return preparation utility ask for, under plain headings.
+          </p>
+          <p>They are not the NSDL / Protean FVU text file: validate the statement with the current FVU before filing. After filing, record the date and token with Alt+R — the late fee u/s 234E stops.</p>
+        </>
+      }
       loading={q.loading && !d}
       refreshing={q.refreshing}
       error={q.error}
@@ -177,10 +192,6 @@ export function ReturnScreen({ params }: ScreenProps<ReturnParams>) {
             empty={<EmptyState title="No challans for this quarter" body="Record the challans you paid (TDS/TCS › Challan)." />}
           />
         )}
-        <span className="bx-muted">
-          The CSV files carry every field the deductee and challan sheets of the return preparation utility ask for, under plain headings. They are not the
-          NSDL / Protean FVU text file: validate the statement with the current FVU before filing.
-        </span>
       </Stack>
       {filing && d ? (
         <FilingDialog

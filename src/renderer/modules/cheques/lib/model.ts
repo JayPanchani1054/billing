@@ -13,7 +13,7 @@ import type {
   PayeeBankDetails,
   PayeePaymentMode,
 } from '../../../../shared/types/cheques.ts';
-import { localDateOf } from '../../../../shared/dates.ts';
+import { formatDate, localDateOf } from '../../../../shared/dates.ts';
 import { formatMoney } from '../../../../shared/format.ts';
 import { normalizeIfsc, validateBankAccountNo, validateIfsc } from '../../../../shared/validators.ts';
 import type { TableExportDef } from '../../../app/export.ts';
@@ -274,6 +274,15 @@ export const REGISTER_VIEWS: ReadonlyArray<{ value: RegisterView; label: string 
   { value: 'cancelled', label: 'Cancelled' },
   { value: 'cleared', label: 'Cleared' },
 ];
+
+/**
+ * The Cheque Leaf Register's context run (2.1): "As on 11-Oct-26", plus the chosen cheque book — the book
+ * and the date are set under Filters ▾, so the title row is where they are read.
+ */
+export function registerContext(asOf: string, bookName: string | null): string {
+  const date = `As on ${formatDate(asOf, 'D-MMM-YY')}`;
+  return bookName ? `${date} · Book ${bookName}` : date;
+}
 
 /** What Alt+X / Alt+U may do with a register row. */
 export function leafActions(r: Pick<ChequeRegisterRow, 'status' | 'voucherId' | 'printedAt' | 'reason'> | null): { cancel: boolean; restore: boolean } {

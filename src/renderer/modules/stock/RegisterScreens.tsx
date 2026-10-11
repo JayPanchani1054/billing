@@ -5,15 +5,21 @@
  *   'stock.profitability'    { groupId?, from?, to? }         Item-wise gross profit
  *   'stock.physicalVariance' { from?, to? }                   Physical stock count differences
  * Enter opens the order / physical stock voucher, or the item's stock vouchers.
+ *
+ * 2.1: Item Profitability draws "Gross profit by item" (polarity bars — inline for ≤ 7 items); Pending
+ * Orders says "Overdue N lines" on the toolbar row instead of a graph; explanations moved to More ›
+ * About this report.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { OrderKind, PendingOrderLine, PhysicalVarianceRow, ProfitabilityRow } from '../../../shared/types/stock.ts';
 import { formatPercent, ReportScreen, useApiQuery, useCan, useNav, usePeriod, useShell } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, DataTable, Field, SegmentedControl, Stack } from '../../ui/index.ts';
+import { DataTable, SegmentedControl } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { StockGroupPicker } from '../inventory/pickers.tsx';
-import { amountColumn, NothingHere, qtyColumn, rateColumn, useDrill, useStockPeriod } from './components.tsx';
+import { amountColumn, NothingHere, qtyColumn, rateColumn, StockStat, useDrill, useStockPeriod, withBar } from './components.tsx';
+import { pendingOrdersStat, profitabilityChart, profitabilityInline } from './lib/charts.ts';
 import { ORDER_KIND_LABEL, overdueText, paramId, pendingOrdersExport, profitabilityExport, signedAmountText, varianceExport } from './lib/model.ts';
 
 // ───────────────────────────── Pending orders ─────────────────────────────
@@ -60,9 +66,7 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
         value: (r) => r.overdueDays ?? 0,
         render: (r) =>
           r.overdueDays !== null ? (
-            <Badge tone="danger" size="sm">
-              {overdueText(r.overdueDays)}
-            </Badge>
+            <span className="bx-stock-late">{overdueText(r.overdueDays)}</span>
           ) : (
             <span className="bx-muted">{r.dueDate ? 'On time' : 'No due date'}</span>
           ),
@@ -93,7 +97,6 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
   return (
     <ReportScreen
       title={`Pending ${L.title}`}
-      subtitle={totals && totals.overdueLines > 0 ? `${totals.overdueLines} line${totals.overdueLines === 1 ? '' : 's'} overdue` : undefined}
       periodMode="asOn"
       loading={q.loading}
       refreshing={q.refreshing}
@@ -102,6 +105,7 @@ export function PendingOrdersScreen({ params }: ScreenProps<{ kind?: OrderKind }
       actions={actions}
       hint="Enter Open Order · Ctrl+1 Sales · Ctrl+2 Purchase · Alt+C Create Order · Alt+L Pre-close · Alt+F2 Date · Alt+E Export · Alt+P Print"
       filters={<SegmentedControl<OrderKind> aria-label="Order type" size="sm" options={KINDS} value={kind} onChange={setKind} />}
+      stat={q.data ? <StockStat items={pendingOrdersStat(q.data)} /> : undefined}
       exportDef={() => pendingOrdersExport(rows, kind, totals?.pendingValue ?? 0)}
     >
       <DataTable<PendingOrderLine>
@@ -138,6 +142,9 @@ export function ProfitabilityScreen({ params }: ScreenProps<{ groupId?: number; 
   const q = useApiQuery('stock.profitability', { from: p.from, to: p.to, groupId }, { keepPrevious: true });
   const d = q.data;
   const rows = useMemo(() => d?.rows ?? [], [d]);
+  const open = useCallback((r: ProfitabilityRow) => drill({ screen: 'stock.item', params: { itemId: r.itemId, from: p.from, to: p.to } }), [drill, p.from, p.to]);
+  const spec = useMemo(() => (d ? profitabilityChart(d, open) : null), [d, open]);
+  const inline = useMemo(() => (d ? profitabilityInline(d, spec) : false), [d, spec]);
   const columns = useMemo<Column<ProfitabilityRow>[]>(
     () => [
       { key: 'name', header: 'Item', minWidth: 200 },
@@ -147,7 +154,11 @@ export function ProfitabilityScreen({ params }: ScreenProps<{ groupId?: number; 
       amountColumn<ProfitabilityRow>('returnsValue', 'Returns', (r) => r.returnsValue),
       amountColumn<ProfitabilityRow>('netSales', 'Net sales', (r) => r.netSales, { blankZero: false }),
       amountColumn<ProfitabilityRow>('cost', 'Cost of goods sold', (r) => r.cost, { width: 160, blankZero: false }),
-      amountColumn<ProfitabilityRow>('grossProfit', 'Gross profit / (loss)', (r) => r.grossProfit, { width: 160, blankZero: false }),
+      withBar(
+        amountColumn<ProfitabilityRow>('grossProfit', 'Gross profit / (loss)', (r) => r.grossProfit, { width: 160, blankZero: false }),
+        inline,
+        (r) => r.grossProfit,
+      ),
       {
         key: 'gpPercent',
         header: 'GP %',
@@ -157,7 +168,7 @@ export function ProfitabilityScreen({ params }: ScreenProps<{ groupId?: number; 
         render: (r) => (r.gpPercent === null ? '' : formatPercent(r.gpPercent)),
       },
     ],
-    [],
+    [inline],
   );
   const footer = useMemo<FooterRow[]>(
     () =>
@@ -169,34 +180,33 @@ export function ProfitabilityScreen({ params }: ScreenProps<{ groupId?: number; 
   return (
     <ReportScreen
       title="Item Profitability"
-      subtitle="Sales less the cost of the goods sold, item by item (before GST)"
       period={p.period}
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={q.refetch}
       hint="Enter Item vouchers · Alt+F2 Period · Alt+E Export · Alt+P Print"
-      filters={
-        <Field label="Group" layout="inline" labelWidth={48}>
-          <StockGroupPicker size="sm" value={groupId ?? null} onChange={(id) => setGroupId(id ?? undefined)} allowCreate={false} placeholder="All groups" aria-label="Stock group" />
-        </Field>
+      graph={reportGraph(spec, { inline })}
+      about={
+        <p>
+          Sales less the cost of the goods sold, item by item (before GST). Cost is each item’s cost at its costing method; goods on a delivery note are costed when they are
+          invoiced. Returns reduce both sales and cost.
+        </p>
       }
+      filters={<StockGroupPicker size="sm" value={groupId ?? null} onChange={(id) => setGroupId(id ?? undefined)} allowCreate={false} placeholder="All groups" aria-label="Stock group" />}
       exportDef={d ? () => profitabilityExport(d) : undefined}
     >
-      <Stack gap={3} grow>
-        <p className="bx-stock-note">Cost is each item’s cost at its costing method; goods on a delivery note are costed when they are invoiced. Returns reduce both sales and cost.</p>
-        <DataTable<ProfitabilityRow>
-          aria-label="Item Profitability"
-          autoFocus
-          columns={columns}
-          rows={rows}
-          getRowKey={(r) => String(r.itemId)}
-          onRowActivate={(r) => drill({ screen: 'stock.item', params: { itemId: r.itemId, from: p.from, to: p.to } })}
-          footerRows={footer.length > 0 ? footer : undefined}
-          loading={q.loading}
-          empty={<NothingHere icon="chart" title="No item sales in this period" body="Sales invoices with stock items appear here. Change the period with Alt+F2." />}
-        />
-      </Stack>
+      <DataTable<ProfitabilityRow>
+        aria-label="Item Profitability"
+        autoFocus
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => String(r.itemId)}
+        onRowActivate={open}
+        footerRows={footer.length > 0 ? footer : undefined}
+        loading={q.loading}
+        empty={<NothingHere icon="chart" title="No item sales in this period" body="Sales invoices with stock items appear here. Change the period with Alt+F2." />}
+      />
     </ReportScreen>
   );
 }
@@ -246,7 +256,6 @@ export function PhysicalVarianceScreen({ params }: ScreenProps<{ from?: string; 
   return (
     <ReportScreen
       title="Physical Stock Register"
-      subtitle="Counted stock against the books, with the value of each difference at cost"
       period={p.period}
       loading={q.loading}
       refreshing={q.refreshing}
@@ -254,6 +263,7 @@ export function PhysicalVarianceScreen({ params }: ScreenProps<{ from?: string; 
       onRetry={q.refetch}
       actions={actions}
       hint="Enter Open Voucher · Alt+C Create Count · Alt+F2 Period · Alt+E Export · Alt+P Print"
+      about={<p>Counted stock against the books, with the value of each difference at cost: an excess found is a gain, a shortage a loss.</p>}
       exportDef={() => varianceExport(rows, d?.totals.netValue ?? 0)}
     >
       <DataTable<PhysicalVarianceRow>

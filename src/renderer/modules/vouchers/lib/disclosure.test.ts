@@ -75,9 +75,18 @@ describe('voucher header: what is inline and what waits in More details (Ctrl+I)
 });
 
 describe('place of supply chip', () => {
-  it('derived and known: "Gujarat (24) · intra-state"', () => {
-    assert.deepEqual(placeOfSupplyChip({ chosen: '', computed: '24', interState: false, hasError: false }), { label: 'Gujarat (24) · intra-state', code: '24' });
-    assert.equal(placeOfSupplyChip({ chosen: '', computed: '27', interState: true, hasError: false })?.label, 'Maharashtra (27) · inter-state');
+  it('derived and known (2.1): "Maharashtra" within the state, "Gujarat · inter-state" across — the code only in the full text', () => {
+    assert.deepEqual(placeOfSupplyChip({ chosen: '', computed: '27', interState: false, hasError: false }), { label: 'Maharashtra', full: 'Maharashtra · intra-state (27)', code: '27' });
+    assert.deepEqual(placeOfSupplyChip({ chosen: '', computed: '24', interState: true, hasError: false }), { label: 'Gujarat · inter-state', full: 'Gujarat · inter-state (24)', code: '24' });
+  });
+
+  it('the accessible name starts with the words shown (label in name, WCAG 2.5.3)', () => {
+    for (const interState of [false, true])
+      for (const computed of ['27', '24', '07', '29']) {
+        const chip = placeOfSupplyChip({ chosen: '', computed, interState, hasError: false });
+        assert.ok(chip && chip.full.startsWith(chip.label), `${computed} ${interState}: "${chip?.full}" starts with "${chip?.label}"`);
+        assert.ok(chip && chip.full.includes(`(${computed})`), 'the state code is in the full text');
+      }
   });
 
   it('the select shows when chosen by hand, not derivable, overseas, unknown or in error', () => {

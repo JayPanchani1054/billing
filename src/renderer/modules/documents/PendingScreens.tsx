@@ -12,16 +12,16 @@
  */
 import { useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
-import { formatMoney } from '../../../shared/format.ts';
 import type { BillsPendingKind, BillsPendingRow } from '../../../shared/types/documents.ts';
 import type { OrderKind } from '../../../shared/types/stock.ts';
 import { DialogScreen, ReportScreen, useApiMutation, useApiQuery, useCan, useNav, usePeriod, userMessage, useWorkingDate } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, DataTable, DateInput, EmptyState, Field, QuantityInput, SegmentedControl, Stack, TextArea, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
+import { Banner, Button, DataTable, DateInput, EmptyState, Field, QuantityInput, SegmentedControl, Stack, TextArea, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { billsPendingChart } from './lib/charts.ts';
 import {
   AGE_BUCKETS,
-  ageBucket,
   BILLS_LABEL,
   billsGroupExport,
   billsPendingExport,
@@ -34,10 +34,6 @@ import {
 } from './lib/model.ts';
 import type { BillsGroupRow, BillsView } from './lib/model.ts';
 
-const KINDS: ReadonlyArray<{ value: BillsPendingKind; label: string }> = [
-  { value: 'sales', label: 'Sales' },
-  { value: 'purchase', label: 'Purchase' },
-];
 const VIEWS: ReadonlyArray<{ value: BillsView; label: string }> = [
   { value: 'lines', label: 'Note lines' },
   { value: 'party', label: 'By party' },
@@ -102,12 +98,9 @@ export function BillsPendingScreen({ params }: ScreenProps<BillsPendingParams>) 
         header: 'Age',
         width: 120,
         value: (r) => r.ageDays,
+        align: 'right',
         sortable: true,
-        render: (r) => (
-          <Badge tone={r.ageDays > 30 ? 'danger' : r.ageDays > 7 ? 'warning' : 'neutral'} size="sm">
-            {`${r.ageDays} day${r.ageDays === 1 ? '' : 's'}`}
-          </Badge>
-        ),
+        render: (r) => <span className="bx-num">{`${r.ageDays} day${r.ageDays === 1 ? '' : 's'}`}</span>,
       },
     ],
     [L],
@@ -134,19 +127,27 @@ export function BillsPendingScreen({ params }: ScreenProps<BillsPendingParams>) 
     { key: 'Ctrl+3', label: filter ? 'All note lines' : 'Note lines', icon: 'list', onClick: () => { setView('lines'); setFilter(null); }, disabled: view === 'lines' && !filter, group: 'view' },
     { key: 'Ctrl+4', label: 'By party', icon: 'users', onClick: () => switchView('party'), disabled: view === 'party', group: 'view' },
     { key: 'Ctrl+5', label: 'By item', icon: 'box', onClick: () => switchView('item'), disabled: view === 'item', group: 'view' },
-    { key: 'Alt+I', label: L.invoice, icon: 'invoice', primary: true, onClick: () => invoice(current), disabled: !current, hidden: !canCreate, hint: 'Pre-fills the invoice with the pending quantities, tracked against the note', group: 'go' },
+    {
+      key: 'Alt+I',
+      label: L.invoice,
+      icon: 'invoice',
+      onClick: () => invoice(current),
+      disabled: !current,
+      hidden: !canCreate,
+      hint: 'Pre-fills the invoice with the pending quantities, tracked against the note',
+      group: 'go',
+      prominent: true,
+    },
   ];
 
-  const ageing = t ? AGE_BUCKETS.map((b) => ({ b, v: all.filter((r) => ageBucket(r.ageDays) === b).reduce((a, r) => a + r.pendingValue, 0) })) : [];
+  // The graph draws the rows the table shows (the filtered lines, or every line behind the groups).
+  const shown = view === 'lines' ? lines : all;
+  const spec = useMemo(() => billsPendingChart(shown, kind), [shown, kind]);
 
   return (
     <ReportScreen
       title={L.title}
-      subtitle={
-        t
-          ? `₹ ${formatMoney(t.pendingValue)} unbilled · ${ageing.filter((x) => x.v !== 0).map((x) => `${x.b} ₹ ${formatMoney(x.v)}`).join(' · ') || 'nothing pending'}`
-          : undefined
-      }
+      subtitle={filter ? `${filter.by === 'party' ? L.party : 'Item'}: ${filter.name}` : undefined}
       periodMode="asOn"
       loading={q.loading}
       refreshing={q.refreshing}
@@ -154,23 +155,21 @@ export function BillsPendingScreen({ params }: ScreenProps<BillsPendingParams>) 
       onRetry={q.refetch}
       actions={actions}
       hint={`Enter ${view === 'lines' ? 'Open note' : 'Show lines'} · Alt+I ${kind === 'sales' ? 'Invoice now' : 'Enter bill'} · Ctrl+3/4/5 Lines, party, item · Alt+F2 Date · Alt+E Export`}
-      filters={
-        <Stack gap={2}>
-          <SegmentedControl<BillsPendingKind> aria-label="Sales or purchase" size="sm" options={KINDS} value={kind} onChange={switchKind} />
-          <SegmentedControl<BillsView> aria-label="View" size="sm" options={VIEWS} value={view} onChange={switchView} />
-        </Stack>
+      filters={<SegmentedControl<BillsView> aria-label="View" size="sm" options={VIEWS} value={view} onChange={switchView} />}
+      graph={reportGraph(spec)}
+      about={
+        <p>
+          For a taxable supply of goods the tax invoice is due before or at the time of removal (CGST Act s.31(1)); a delivery challan covers only movements such as job work, goods sent on
+          approval, transport for reasons other than supply, or goods whose quantity is not known at removal (CGST Rule 55). Seven days is Pevqori&apos;s reminder, not a legal limit;
+          rejections waiting for a credit note are not counted. Alt+I invoices the selected line with its pending quantity.
+        </p>
       }
       exportDef={() => (view === 'lines' ? { subtitle: filter ? filter.name : undefined, ...billsPendingExport(lines, kind) } : billsGroupExport(groups, view, kind))}
     >
       <Stack gap={3} grow>
         {kind === 'sales' && t && t.olderThan7Days > 0 ? (
           <Banner tone="warning" title={`${t.olderThan7Days} delivery note${t.olderThan7Days === 1 ? '' : 's'} unbilled for more than 7 days`}>
-            For a taxable supply of goods the tax invoice is due before or at the time of removal (CGST Act s.31(1)); a delivery challan covers only movements such as job work, goods sent on approval, transport for reasons other than supply, or goods whose quantity is not known at removal (CGST Rule 55). Invoice supplies now with Alt+I.
-          </Banner>
-        ) : null}
-        {filter ? (
-          <Banner tone="info" onDismiss={() => setFilter(null)}>
-            Showing {filter.by === 'party' ? L.party.toLowerCase() : 'item'} {filter.name} only — Ctrl+3 shows every line.
+            The tax invoice is due when the goods leave.
           </Banner>
         ) : null}
         {view === 'lines' ? (

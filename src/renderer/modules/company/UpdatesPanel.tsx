@@ -130,7 +130,7 @@ export function UpdatesPanel() {
             title="Check for updates automatically once a week?"
             action={
               <Inline gap={2}>
-                <Button size="sm" variant="primary" loading={running === 'mode'} onClick={() => void setWeekly(true)}>
+                <Button size="sm" variant="secondary" loading={running === 'mode'} onClick={() => void setWeekly(true)}>
                   Turn on
                 </Button>
                 <Button

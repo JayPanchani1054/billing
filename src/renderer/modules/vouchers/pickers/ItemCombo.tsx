@@ -84,7 +84,6 @@ export const ItemCombo = memo(function ItemCombo(props: ItemComboProps) {
       onCommit={onCommit ? (r) => onCommit(r?.id ?? null, r) : undefined}
       onCreate={canCreate ? (q) => void create(q) : undefined}
       createLabel={(q) => (q.trim() ? `Create item “${q.trim()}”` : 'Create a new stock item')}
-      placeholder="Type an item name, part no. or HSN"
       emptyText={canCreate ? 'No item matches — press Alt+C to create it' : 'No item matches'}
       invalid={props.invalid}
       disabled={props.disabled}

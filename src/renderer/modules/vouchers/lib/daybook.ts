@@ -1,9 +1,13 @@
 /**
- * Day Book / voucher list presentation (pure; tested in daybook.test.ts).
+ * Day Book / voucher list presentation, and the voucher view's document model (pure; tested in
+ * daybook.test.ts).
  */
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
+import { formatDate } from '../../../../shared/dates.ts';
+import { formatPercent } from '../../../../shared/format.ts';
+import { isUtgstState } from '../../../../shared/gst/states.ts';
 import type { Paise } from '../../../../shared/money.ts';
-import type { VoucherListRow } from '../../../../shared/types/vouchers.ts';
+import type { GstLineView, PreviewInventoryLine, VoucherDetail, VoucherListRow } from '../../../../shared/types/vouchers.ts';
 import { dayBookSide } from './kinds.ts';
 
 export interface DayBookRow {
@@ -120,3 +124,160 @@ export function keyAfterRemoval(rows: readonly DayBookRow[], id: number): string
 /** The list route accepts at most 100 characters of search text. */
 export const SEARCH_MAX = 100;
 export const searchText = (s: string): string => s.trim().slice(0, SEARCH_MAX);
+
+// ───────────────────────────── Day Book 2.1 (SPEC-21 §1.6) ─────────────────────────────
+
+export interface DayRange {
+  from: string;
+  to: string;
+}
+
+/**
+ * One date input or two: one while the Day Book shows one day (the default: the working date); From – To
+ * once the range spans more than one day, or when a range was asked for (Alt+F2, More › "Date range…")
+ * so the To date can be typed.
+ */
+export function dayBookDates(range: DayRange, rangeMode: boolean): 'single' | 'range' {
+  return rangeMode || range.from !== range.to ? 'range' : 'single';
+}
+
+/** The range is exactly the period (More › "Whole period" shows ✓). */
+export function isWholePeriod(range: DayRange, period: DayRange): boolean {
+  return range.from === period.from && range.to === period.to;
+}
+
+/** The "Voucher types" menu button's label: "All vouchers", "Sales, Receipt" (one or two types) or "3 types". */
+export function typesLabel(selected: readonly string[], chips: readonly TypeChip[] = DAYBOOK_CHIPS): string {
+  const labels = chips.filter((c) => selected.includes(c.id)).map((c) => c.label);
+  if (labels.length === 0) return 'All vouchers';
+  return labels.length <= 2 ? labels.join(', ') : `${labels.length} types`;
+}
+
+/** "1 voucher", "6 vouchers", "1,234 vouchers" (the toolbar row's count). */
+export function voucherCount(n: number): string {
+  return `${n.toLocaleString('en-IN')} ${n === 1 ? 'voucher' : 'vouchers'}`;
+}
+
+/** The one-line empty state and its one link. */
+export function dayBookEmpty(o: { filtered: boolean; range: DayRange; wholePeriod: boolean }): { title: string; link: 'clear' | 'whole' | null } {
+  if (o.filtered) return { title: 'No vouchers match', link: 'clear' };
+  const title = o.range.from === o.range.to ? `No vouchers on ${formatDate(o.range.from, 'D-MMM-YY')}` : 'No vouchers in this period';
+  return { title, link: o.wholePeriod ? null : 'whole' };
+}
+
+// ───────────────────────────── Voucher view 2.1 (SPEC-21 §1.5, D21) ─────────────────────────────
+
+/** The context run's state words after the date: muted words, and "Cancelled" as the one danger word. */
+export function viewStateWords(v: Pick<VoucherDetail, 'isCancelled' | 'isOptional' | 'isPostDated' | 'affectsBooks' | 'irn'>): { danger: string | null; words: string[] } {
+  const words: string[] = [];
+  if (v.isOptional) words.push('Optional');
+  if (v.isPostDated) words.push('Post-dated');
+  if (!v.affectsBooks && !v.isCancelled && !v.isOptional) words.push('Not in the books');
+  if (v.irn.status) words.push(`e-Invoice ${v.irn.status}`);
+  return { danger: v.isCancelled ? 'Cancelled' : null, words };
+}
+
+/** The party, once, in one line: "Asha Retail · GSTIN 27AAAPA0002A1Z5". Empty when the voucher has no party. */
+export function partyLine(v: Pick<VoucherDetail, 'party' | 'partyLedgerName'>): string {
+  const name = v.party.name ?? v.partyLedgerName ?? '';
+  if (!name) return '';
+  return [name, v.party.gstin ? `GSTIN ${v.party.gstin}` : ''].filter(Boolean).join(' · ');
+}
+
+/** The references, in one line: "Ref. PO-551 dt 8-Oct-26 · Against INV-12 dt 2-Oct-26 · e-Way Bill 3410 · Reverse charge". */
+export function referenceLine(
+  v: Pick<VoucherDetail, 'referenceNo' | 'referenceDate' | 'originalInvoiceNo' | 'originalInvoiceDate' | 'ewayBill' | 'isReverseCharge'>,
+): string {
+  const dated = (no: string | null, date: string | null, word: string) => (no ? `${word} ${no}${date ? ` dt ${formatDate(date, 'D-MMM-YY')}` : ''}` : '');
+  return [
+    dated(v.referenceNo, v.referenceDate, 'Ref.'),
+    dated(v.originalInvoiceNo, v.originalInvoiceDate, 'Against'),
+    v.ewayBill.number ? `e-Way Bill ${v.ewayBill.number}` : '',
+    v.isReverseCharge ? 'Reverse charge' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** What the view shows: the Accounting entries (default without item lines, else Detailed), the GST table (Detailed), the totals block (item invoices), and which table takes the focus. */
+export function viewSections(
+  v: Pick<VoucherDetail, 'mode' | 'inventory' | 'entries' | 'gstLines' | 'isCancelled'>,
+  detailed: boolean,
+): { entries: boolean; gst: boolean; totals: boolean; focus: 'items' | 'entries' | null } {
+  const items = v.inventory.length > 0;
+  const entries = v.entries.length > 0 && (!items || detailed);
+  return {
+    entries,
+    gst: detailed && v.gstLines.length > 0,
+    totals: items && v.mode === 'item_invoice' && !v.isCancelled,
+    focus: items ? 'items' : entries ? 'entries' : null,
+  };
+}
+
+/** Item columns left out: Godown with one godown, Disc % when none, GST % with one rate, HSN/SAC unless Detailed (and blank ones even then). */
+export function hiddenItemColumns(lines: readonly PreviewInventoryLine[], detailed: boolean): string[] {
+  const out: string[] = [];
+  const distinct = <T>(f: (l: PreviewInventoryLine) => T) => new Set(lines.map(f)).size;
+  if (detailed ? lines.every((l) => !l.godownName) : distinct((l) => l.godownName) <= 1) out.push('godownName');
+  if (lines.every((l) => !l.discountPct)) out.push('discountPct');
+  if (!detailed || lines.every((l) => !l.hsnSac)) out.push('hsnSac');
+  const rates = new Set(lines.filter((l) => l.gstRate !== null).map((l) => l.gstRate));
+  if (detailed ? rates.size === 0 : rates.size <= 1) out.push('gstRate');
+  return out;
+}
+
+export interface ViewTotalRow {
+  key: string;
+  label: string;
+  amount: Paise;
+  /** The last row ("Total ₹"). */
+  grand?: boolean;
+  /** Shown muted, not part of the Total: tax the party is not paid (reverse charge, IGST at customs). */
+  muted?: boolean;
+}
+
+/**
+ * The totals block of an item invoice — the same rows as the entry's totals strip (lib/strip.ts):
+ * Taxable (Value without GST) · each tax head by name (UTGST in a union territory without a legislature;
+ * with its rate when the invoice has one rate) · Other charges (whatever else the invoice adds: non-GST
+ * ledgers, TCS) · Round off (when not zero) · Total ₹. Tax the party is not paid — reverse charge, or IGST
+ * on an import / SEZ purchase that is paid at customs — is one muted row outside the Total. Every counted
+ * row adds up to the last, which is the voucher's amount — the same figure the Day Book and the print show.
+ */
+export function viewTotals(v: {
+  totals: Pick<VoucherDetail['totals'], 'amount' | 'taxable' | 'roundOff'>;
+  gstLines: readonly GstLineView[];
+  inventory: readonly PreviewInventoryLine[];
+  placeOfSupply?: string | null;
+}): ViewTotalRow[] {
+  const rows: ViewTotalRow[] = [];
+  const gst = v.gstLines.length > 0;
+  const base = gst ? v.totals.taxable : v.inventory.filter((l) => !l.isConsumption).reduce((s, l) => s + l.amount, 0);
+  rows.push({ key: 'base', label: gst ? 'Taxable' : 'Value', amount: base });
+  const taxOf = (l: GstLineView): Paise => l.igst + l.cgst + l.sgst + l.cess;
+  const paid = v.gstLines.filter((l) => !l.isReverseCharge);
+  const reverse = v.gstLines.filter((l) => l.isReverseCharge).reduce((s, l) => s + taxOf(l), 0);
+  const rates = new Set(paid.filter((l) => l.taxability === 'taxable' && taxOf(l) !== 0).map((l) => l.rate));
+  const rate = rates.size === 1 ? [...rates][0] : null;
+  const pct = (r: number | null) => (r !== null ? ` ${formatPercent(r)}` : '');
+  const sum = (f: (l: GstLineView) => Paise) => paid.reduce((s, l) => s + f(l), 0);
+  const heads: ViewTotalRow[] = [
+    { key: 'igst', label: `IGST${pct(rate)}`, amount: sum((l) => l.igst) },
+    { key: 'cgst', label: `CGST${pct(rate === null ? null : rate / 2)}`, amount: sum((l) => l.cgst) },
+    { key: 'sgst', label: `${isUtgstState(v.placeOfSupply) ? 'UTGST' : 'SGST'}${pct(rate === null ? null : rate / 2)}`, amount: sum((l) => l.sgst) },
+    { key: 'cess', label: 'Cess', amount: sum((l) => l.cess) },
+  ].filter((h) => h.amount !== 0);
+  const headsTotal = heads.reduce((s, h) => s + h.amount, 0);
+  let other = v.totals.amount - base - headsTotal - v.totals.roundOff;
+  // IGST on an import / SEZ purchase is paid at customs, not to the supplier: the invoice amount leaves
+  // out exactly the tax heads (the engine's `payable` rule). Show it beside the Total, not in it.
+  const atCustoms = headsTotal !== 0 && other === -headsTotal;
+  if (atCustoms) other = 0;
+  else rows.push(...heads);
+  if (other !== 0) rows.push({ key: 'other', label: 'Other charges', amount: other });
+  if (v.totals.roundOff !== 0) rows.push({ key: 'roundOff', label: 'Round off', amount: v.totals.roundOff });
+  if (reverse !== 0) rows.push({ key: 'reverse', label: 'Reverse charge tax', amount: reverse, muted: true });
+  if (atCustoms) rows.push({ key: 'customs', label: 'Tax paid at customs', amount: headsTotal, muted: true });
+  rows.push({ key: 'total', label: 'Total ₹', amount: v.totals.amount, grand: true });
+  return rows;
+}

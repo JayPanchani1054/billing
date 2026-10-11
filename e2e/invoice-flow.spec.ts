@@ -1,10 +1,11 @@
 // Pevqori 2.0 invoice flow through the real UI of the built app (docs/USER_GUIDE.md §4.2):
 //
 //   wizard company → item (window.pevqori.api) → F8 → Alt+C in the party field: "Create customer"
-//   (quick dialog, GSTIN fills state and PAN) → item, qty, rate → Ctrl+A → "Sales 1 saved" + the Saved bar
+//   (quick dialog, GSTIN fills state and PAN) → item, qty, rate → Ctrl+A → the Saved bar "Saved Sales 1"
 //   → Record payment opens a Receipt with the customer on the first line → Esc → × dismisses the bar →
 //   Ctrl+I: Reference tab (the reference left the header) → Ctrl+R: A-100 with a reason → saved as
-//   "Sales A-100" → Day Book › view → Ctrl+R renumbers it to A-200 → Alt+H shows the number change.
+//   "Sales A-100" → (2.1) Enter on an empty item line opens Charges & discounts → Day Book › view → Ctrl+R
+//   renumbers it to A-200 → Alt+H shows the number change.
 //
 // The API-level twin of the numbering rules is src/core/testing/e2e/renumber.test.ts.
 import { expect, test } from '@playwright/test';
@@ -87,12 +88,11 @@ test('F8 → Alt+C in the party field creates the customer in the quick dialog; 
   await enterItemLine(entry);
   await page.keyboard.press('Control+a');
   await saveAnywayIfAsked(page);
-  await expect(page.getByText('Sales 1 saved').first()).toBeVisible();
-
-  // The Saved bar above the blank form: the voucher, its amount, Print / Share / Record payment.
+  // The Saved bar above the blank form: the voucher, its amount, Print / Share / Record payment (2.1: it
+  // alone says "saved" — no toast while it shows).
   const bar = entry.getByRole('status', { name: 'Voucher saved' });
-  await expect(bar).toBeVisible();
   await expect(bar).toContainText('Saved Sales 1');
+  await expect(bar).toBeVisible();
   await expect(bar).toContainText('1,180.00');
   await expect(bar.getByRole('button', { name: /^Print/ })).toBeVisible();
   await expect(bar.getByRole('button', { name: /^Share/ })).toBeVisible();
@@ -153,8 +153,27 @@ test('Ctrl+I opens More details on its Reference tab; Ctrl+R sets A-100 with a r
   await enterItemLine(entry);
   await page.keyboard.press('Control+a');
   await saveAnywayIfAsked(page);
-  await expect(page.getByText('Sales A-100 saved').first()).toBeVisible();
   await expect(entry.getByRole('status', { name: 'Voucher saved' })).toContainText('Saved Sales A-100');
+});
+
+test('2.1: Enter on an empty item row opens Charges & discounts on its first row; an empty charge row goes on to the narration', async () => {
+  const entry = topScreen(page);
+  await expect(entry.getByRole('heading', { name: 'Sales Creation', level: 1 })).toBeVisible();
+  // Closed while no charge is entered (SPEC-21 D17); the table keeps its name "Additional ledgers".
+  const charges = entry.getByRole('button', { name: 'Charges & discounts' });
+  await expect(charges).toHaveAttribute('aria-expanded', 'false');
+
+  await entry.getByLabel(/^Party A\/c name/).focus();
+  await pick(page, 'Ravi', new RegExp(lit(PARTY.name)));
+  await enterItemLine(entry);
+  await page.keyboard.press('Enter'); // Amount → the next (empty) line
+  await expect(entry.getByLabel('Item, line 2', { exact: true })).toBeFocused();
+  await page.keyboard.press('Enter'); // an empty item line leaves the items: the same stop as 2.0
+  await expect(charges).toHaveAttribute('aria-expanded', 'true');
+  await expect(entry.getByRole('table', { name: 'Additional ledgers' }).getByLabel('Ledger, line 1', { exact: true })).toBeFocused();
+  await page.keyboard.press('Enter'); // an empty charge line goes on to the narration
+  await expect(entry.getByLabel('Narration', { exact: true })).toBeFocused();
+  await toGateway(page);
 });
 
 test('Day Book › view: Ctrl+R renumbers A-100 to A-200; the edit history shows the number change', async () => {

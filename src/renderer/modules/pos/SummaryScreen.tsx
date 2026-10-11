@@ -1,8 +1,10 @@
 /**
- * 'pos.summary' — day-end POS summary: net sales, cash for the drawer (with an opening float and a
- * counted-cash check), credit, GST, then by tender (Ctrl+1), cashier (Ctrl+2), counter (Ctrl+3) and
- * the bills and returns themselves (Ctrl+4; Enter opens the voucher). Ctrl+5 the working date /
- * Ctrl+6 the report period (Alt+F2). Export (Alt+E) and Print (Alt+P) through the shared export path.
+ * 'pos.summary' — day-end POS summary. The toolbar row: the views by tender (Ctrl+1), cashier (Ctrl+2),
+ * counter (Ctrl+3) and the bills and returns themselves (Ctrl+4; Enter opens the voucher), and the stat
+ * (cash for the drawer, sold on credit, GST — lib/charts.ts). The By tender view draws "Takings by
+ * tender" (inline bars in the table when it has ≤ 7 tenders). Under it, the drawer check: opening float
+ * and counted cash. Ctrl+5 the working date / Ctrl+6 the report period (Alt+F2), checkable in More.
+ * Export (Alt+E) and Print (Alt+P) through the shared export path.
  */
 import { useMemo, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
@@ -11,10 +13,13 @@ import type { Paise } from '../../../shared/money.ts';
 import type { PosRegisterRow, PosSummaryCounterRow, PosSummaryTenderRow, PosSummaryUserRow } from '../../../shared/types/pos.ts';
 import { POS_TENDER_KIND_LABELS } from '../../../shared/types/pos.ts';
 import { ReportScreen, useApiQuery, useFeatures, useNav, usePeriod, useWorkingDate } from '../../app/index.ts';
-import { AmountInput, Badge, DataTable, EmptyState, Field, Grid, Inline, KpiCard, SegmentedControl, Stack } from '../../ui/index.ts';
+import { AmountInput, DataTable, EmptyState, Field, Inline, SegmentedControl, Stack, StatLine } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { PosOff } from './components.tsx';
-import { drawerDifference, drillCounter, drillTender, drillUser, expectedDrawer, signed, summaryExport, summaryTiles, SUMMARY_VIEWS, type SummaryDrill, type SummaryView } from './lib/summary.ts';
+import { summaryStat, tenderChart, visibleTotals } from './lib/charts.ts';
+import { drawerDifference, drillCounter, drillTender, drillUser, expectedDrawer, signed, summaryExport, SUMMARY_VIEWS, type SummaryDrill, type SummaryView } from './lib/summary.ts';
 
 const rupees = (p: Paise): string => `₹ ${formatMoney(p)}`;
 
@@ -47,6 +52,20 @@ function Summary() {
   const regQ = useApiQuery('pos.register', { ...range, ...(drill?.filter ?? {}), limit: 1000 }, { enabled: view === 'bills', keepPrevious: true });
   const s = q.data;
   const reg = regQ.data;
+  // "Takings by tender" belongs to the By tender view; Enter on a bar = Enter on that tender's row.
+  const spec = useMemo(
+    () =>
+      s && view === 'tender'
+        ? tenderChart(s, (modeId) => {
+            const row = s.byTender.find((t) => t.modeId === modeId);
+            if (row) openDrill(drillTender(row));
+          })
+        : null,
+    // openDrill only sets state (stable setters).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [s, view],
+  );
+  const inline = s ? inlineBars(spec, s.byTender.length) : false;
 
   const tenderCols = useMemo<Column<PosSummaryTenderRow>[]>(
     () => [
@@ -55,10 +74,10 @@ function Summary() {
       { key: 'ledgerName', header: 'Ledger', width: 220 },
       { key: 'received', header: 'Received', kind: 'amount', width: 130, total: true },
       { key: 'refunded', header: 'Refunded', kind: 'amount', width: 130, total: true, blankZero: true },
-      { key: 'net', header: 'Net', kind: 'amount', width: 130, total: true },
+      { key: 'net', header: 'Net', kind: 'amount', width: 130, total: true, bar: inline ? { value: (r) => r.net, slot: 1 } : undefined },
       { key: 'count', header: 'Bills', kind: 'number', width: 70 },
     ],
-    [],
+    [inline],
   );
   const userCols = useMemo<Column<PosSummaryUserRow>[]>(
     () => [
@@ -89,10 +108,10 @@ function Summary() {
         header: 'No.',
         width: 150,
         render: (r) => (
-          <Inline gap={1}>
-            <span>{r.number ?? ''}</span>
-            {r.kind === 'return' ? <Badge size="sm" tone="warning">Return{r.returnOf?.number ? ` of ${r.returnOf.number}` : ''}</Badge> : null}
-          </Inline>
+          <span>
+            {r.number ?? ''}
+            {r.kind === 'return' ? <span className="bx-muted"> · return{r.returnOf?.number ? ` of ${r.returnOf.number}` : ''}</span> : null}
+          </span>
         ),
       },
       { key: 'partyName', header: 'Customer', minWidth: 160, value: (r) => r.partyName ?? '' },
@@ -107,32 +126,21 @@ function Summary() {
 
   const expected = s ? expectedDrawer(s, float ?? 0) : 0;
   const diff = drawerDifference(counted, expected);
+  const stat = s ? summaryStat(s, float ?? 0, visibleTotals(s, view, reg)) : [];
   const viewActions = SUMMARY_VIEWS.map((v, i) => ({ key: `Ctrl+${i + 1}`, label: v.label, onClick: () => setView(v.view), group: 'view' }));
 
   return (
     <ReportScreen
       title="POS Day-end Summary"
-      subtitle={[span === 'day' ? `For ${formatDate(date)} (working date, F2)` : null, drill && view === 'bills' ? drill.label : null].filter(Boolean).join(' · ') || undefined}
+      subtitle={[span === 'day' ? `For ${formatDate(date, 'D-MMM-YY')}` : null, drill && view === 'bills' ? drill.label : null].filter(Boolean).join(' · ') || undefined}
       periodMode={span === 'day' ? 'none' : 'range'}
       loading={q.loading && !s}
       refreshing={q.refreshing || regQ.refreshing}
       error={q.error ?? regQ.error}
       onRetry={() => void (q.refetch(), regQ.refetch())}
-      filters={
-        <Inline gap={2}>
-          <SegmentedControl<'day' | 'period'>
-            aria-label="Span"
-            size="sm"
-            value={span}
-            onChange={setSpan}
-            options={[
-              { value: 'day', label: 'Working date' },
-              { value: 'period', label: 'Period' },
-            ]}
-          />
-          <SegmentedControl<SummaryView> aria-label="View" size="sm" value={view} onChange={setView} options={SUMMARY_VIEWS.map((v) => ({ value: v.view, label: v.label }))} />
-        </Inline>
-      }
+      filters={<SegmentedControl<SummaryView> aria-label="View" size="sm" value={view} onChange={setView} options={SUMMARY_VIEWS.map((v) => ({ value: v.view, label: v.label }))} />}
+      stat={stat.length > 0 ? <StatLine items={stat} /> : undefined}
+      graph={reportGraph(spec, { inline })}
       exportDef={() => {
         if (!s) return { columns: [], rows: [] };
         const def = summaryExport(s, view, reg);
@@ -140,19 +148,14 @@ function Summary() {
       }}
       actions={[
         ...viewActions,
-        { key: 'Ctrl+5', label: 'Working date', onClick: () => setSpan('day'), group: 'span' },
-        { key: 'Ctrl+6', label: 'Report period', onClick: () => setSpan('period'), group: 'span' },
+        { key: 'Ctrl+5', label: 'Working date only', onClick: () => setSpan('day'), group: 'span', checked: span === 'day' },
+        { key: 'Ctrl+6', label: 'Report period', onClick: () => setSpan('period'), group: 'span', checked: span === 'period' },
         { key: 'Alt+B', label: 'POS counter', icon: 'cart', onClick: () => nav.push('pos.counter'), group: 'go' },
       ]}
       hint="Ctrl+1 By tender · Ctrl+2 By cashier · Ctrl+3 By counter · Ctrl+4 Bills · Enter Open voucher · Alt+E Export · Alt+P Print · Esc Back"
     >
       {s ? (
         <Stack gap={3}>
-          <Grid columns={4} gap={3}>
-            {summaryTiles(s).map((t) => (
-              <KpiCard key={t.label} label={t.label} value={rupees(t.value)} caption={t.caption} />
-            ))}
-          </Grid>
           <Inline gap={3} align="end" className="pos-drawer">
             <Field label="Opening float" htmlFor="pos-float" hint="Cash kept in the drawer at the start of the day.">
               <AmountInput id="pos-float" value={float} onChange={setFloat} symbol />
@@ -160,14 +163,7 @@ function Summary() {
             <Field label="Cash counted" htmlFor="pos-counted" hint={`Expected ${rupees(expected)} (float + cash received − refunded).`}>
               <AmountInput id="pos-counted" value={counted} onChange={setCounted} symbol />
             </Field>
-            {diff !== null ? (
-              <Badge tone={diff === 0 ? 'success' : 'warning'}>{diff === 0 ? 'Cash tallies' : diff > 0 ? `Excess ${rupees(diff)}` : `Short ${rupees(-diff)}`}</Badge>
-            ) : null}
-            <span className="bx-muted">
-              {s.bills} bills · {s.returns} returns · change given {rupees(s.changeGiven)}
-              {s.exchangeIssued || s.exchangeUsed ? ` · exchange credit issued ${rupees(s.exchangeIssued)}, used ${rupees(s.exchangeUsed)}` : ''}
-              {s.mrpSavings ? ` · customers saved ${rupees(s.mrpSavings)} on MRP` : ''}
-            </span>
+            {diff !== null ? <span role="status">{diff === 0 ? 'Cash tallies' : diff > 0 ? `Excess ${rupees(diff)}` : `Short ${rupees(-diff)}`}</span> : null}
           </Inline>
           {view === 'tender' ? (
             <DataTable<PosSummaryTenderRow>

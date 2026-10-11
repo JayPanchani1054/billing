@@ -1,8 +1,7 @@
 /**
- * Day-end POS summary — pure helpers (tested in summary.test.ts): the KPI tiles, the cash drawer
- * line and the export tables of each view (by tender / by user / by counter / bills).
+ * Day-end POS summary — pure helpers (tested in summary.test.ts): the cash drawer line and the export
+ * tables of each view (by tender / by user / by counter / bills). The stat and the graph: charts.ts.
  */
-import { formatMoney } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import type { PosRegister, PosRegisterInput, PosSummary, PosSummaryCounterRow, PosSummaryTenderRow, PosSummaryUserRow } from '../../../../shared/types/pos.ts';
 import { POS_TENDER_KIND_LABELS } from '../../../../shared/types/pos.ts';
@@ -16,22 +15,6 @@ export const SUMMARY_VIEWS: ReadonlyArray<{ view: SummaryView; label: string }> 
   { view: 'counter', label: 'By counter' },
   { view: 'bills', label: 'Bills and returns' },
 ];
-
-export interface Tile {
-  label: string;
-  value: Paise;
-  caption: string;
-}
-
-/** Headline figures of the day. */
-export function summaryTiles(s: PosSummary): Tile[] {
-  return [
-    { label: 'Net sales', value: s.net, caption: `${s.bills} bill${s.bills === 1 ? '' : 's'} − ${s.returns} return${s.returns === 1 ? '' : 's'}` },
-    { label: 'Cash in drawer from POS', value: s.netCash, caption: `Received in cash − refunded; change given ₹ ${formatMoney(s.changeGiven)}` },
-    { label: 'Sold on credit', value: s.creditSales, caption: s.creditReturns > 0 ? `Returns credited to customers ₹ ${formatMoney(s.creditReturns)}` : 'Left on customers’ accounts' },
-    { label: 'GST on sales', value: s.tax - s.returnTax, caption: `Sales ₹ ${formatMoney(s.tax)} − returns ₹ ${formatMoney(s.returnTax)}` },
-  ];
-}
 
 /** Expected cash in the drawer: opening float + cash received − cash refunded (cash net of change). */
 export function expectedDrawer(s: Pick<PosSummary, 'netCash'>, openingFloat: Paise): Paise {

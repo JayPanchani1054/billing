@@ -1,42 +1,38 @@
 /**
  * 'accounts.voucherTypes' — voucher types (built-in and your own) with their numbering.
- *   Enter alter · Alt+C create a type based on the highlighted one · Alt+D (or Ctrl+D) delete · Alt+E export.
+ *   Enter alter · Alt+C create a type based on the highlighted one · Alt+D (or Ctrl+D) delete · Alt+E / Alt+P
+ *   export / print and the checkable "Hide inactive types" in More ▾ (2.1).
  * 'accounts.voucherType.form' — Voucher Type Creation / Alteration. Params { id? | parentId? | baseType? }.
- *   Numbering with a LIVE preview of the numbers and the GST invoice-number checks (≤ 16 characters,
- *   only A–Z a–z 0–9 / -, unique in the financial year), behaviour switches, defaults (ledger,
- *   party, invoice mode, godown) and printing (title, declaration, terms, bank, template).
+ *   2.1: Name, Based on and ONE numbering line on screen — the line opens the Invoice Numbering editor
+ *   (SeriesDrawer, 'draft': prefix / suffix, digits, restart, method, dated prefix / suffix rows under its
+ *   Advanced, the live preview and the GST invoice-number checks); the form's Save sends it with the rest.
+ *   Abbreviation, alias, active, behaviour switches, defaults (ledger, party, invoice mode, godown) and
+ *   printing (title, declaration, terms, bank, template) sit behind "More details".
  */
-import { useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { VoucherBaseType } from '../../../shared/constants.ts';
-import { financialYear } from '../../../shared/dates.ts';
-import type { NumberingTextRow } from '../../../shared/numbering.ts';
-import type { NumberingMethod, NumberingRestart, VoucherNumbering, VoucherTypeConfig, VoucherTypeDetail, VoucherTypeRow, VoucherTypeSaveInput } from '../../../shared/types/accounts.ts';
+import type { NumberingMethod, VoucherNumbering, VoucherTypeConfig, VoucherTypeDetail, VoucherTypeRow, VoucherTypeSaveInput } from '../../../shared/types/accounts.ts';
 import { api } from '../../app/api.ts';
 import { useConfirm } from '../../app/confirm.tsx';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { fieldErrorsOf, nestedFieldErrors, userMessage } from '../../app/lib/apiErrors.ts';
+import { checkItem } from '../../app/lib/moreItems.ts';
 import { useNav } from '../../app/nav.tsx';
+import { setMoreDetailsOpen, useUiPrefs } from '../../app/preferences.ts';
 import { invalidate } from '../../app/queryClient.ts';
 import type { ScreenProps } from '../../app/registry.ts';
 import { ReadOnlyNotice, ReportScreen, Screen } from '../../app/Screen.tsx';
 import { useCan, useCompany } from '../../app/state.tsx';
 import { useBooks, useWorkingDate } from '../../app/working.tsx';
 import {
-  Badge,
   Banner,
   Button,
-  Checkbox,
   DataTable,
-  DateInput,
+  DisclosureLine,
   EmptyState,
   Field,
-  FieldGroup,
-  IconButton,
-  Inline,
-  NumberInput,
   Select,
-  Stack,
   Switch,
   TextArea,
   TextInput,
@@ -46,24 +42,23 @@ import {
 } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { focusFirstInvalid, NameCell } from './components.tsx';
+import { voucherTypeMoreRevealed, voucherTypeUsual } from './lib/formReveal.ts';
 import {
   BASE_TYPE_LABELS,
   checkNumbering,
   defaultLedgerSide,
-  GST_DOC_NUMBER_MAX_LENGTH,
   GST_DOCUMENT_BASE_TYPES,
   isInvoiceBase,
   METHOD_OPTIONS,
   movesStock,
   newTypeNumbering,
   numberingPreview,
-  numberLength,
-  RESTART_OPTIONS,
-  restartText,
+  numberingSummary,
   seriesClashes,
   seriesClashWarning,
 } from './lib/numbering.ts';
 import { LedgerPicker } from './pickers.tsx';
+import { SeriesDrawer } from './SeriesDrawer.tsx';
 
 const methodLabel = (m: NumberingMethod): string => METHOD_OPTIONS.find((o) => o.value === m)?.label ?? m;
 
@@ -85,10 +80,10 @@ export function VoucherTypesScreen() {
 
   const columns = useMemo<Column<VoucherTypeRow>[]>(
     () => [
-      { key: 'name', header: 'Voucher type', render: (r) => <NameCell name={r.name} alias={r.abbreviation} inactive={!r.isActive} predefined={r.isPredefined} />, sortable: true, sortValue: (r) => r.name },
+      { key: 'name', header: 'Voucher type', render: (r) => <NameCell name={r.name} alias={r.abbreviation} inactive={!r.isActive} />, sortable: true, sortValue: (r) => r.name },
       { key: 'baseType', header: 'Type of voucher', width: 150, value: (r) => BASE_TYPE_LABELS[r.baseType], sortable: true },
-      { key: 'method', header: 'Numbering', width: 170, value: (r) => methodLabel(r.numbering.method) },
-      { key: 'sample', header: 'First number', width: 170, render: (r) => <span className="bx-num">{numberingPreview(r.numbering)?.first ?? '—'}</span> },
+      // One column (2.1): the first number when numbered automatically, else how numbers are given.
+      { key: 'sample', header: 'Numbering', width: 190, render: (r) => <span className="bx-num">{numberingPreview(r.numbering)?.first ?? methodLabel(r.numbering.method)}</span>, value: (r) => numberingPreview(r.numbering)?.first ?? methodLabel(r.numbering.method) },
       { key: 'hotkey', header: 'Key', width: 80 },
       { key: 'voucherCount', header: 'Vouchers', kind: 'number', width: 100, blankZero: true },
     ],
@@ -121,17 +116,21 @@ export function VoucherTypesScreen() {
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
+      outputInMore
       hint="Enter Alter · Alt+C Create based on the highlighted type · Alt+D Delete · Alt+E Export · Esc Back"
       actions={[
-        { key: 'Alt+C', label: 'Create type', icon: 'plus', primary: true, disabled: !canCreate, onClick: () => nav.push('accounts.voucherType.form', current ? { parentId: current.id } : {}) },
+        {
+          key: 'Alt+C',
+          label: 'Create type',
+          icon: 'plus',
+          disabled: !canCreate,
+          onClick: () => nav.push('accounts.voucherType.form', current ? { parentId: current.id } : {}),
+          prominent: true,
+        },
+        checkItem('Hide inactive types', activeOnly, setActiveOnly),
         { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canDelete || !current || current.isPredefined, onClick: () => void remove() },
       ]}
-      filters={
-        <div className="bx-acc-toolbar">
-          <TextInput size="sm" wrapperClassName="bx-acc-toolbar__search" value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Find a voucher type" aria-label="Find a voucher type" />
-          <Checkbox checked={activeOnly} onChange={setActiveOnly} label="Active only" />
-        </div>
-      }
+      filters={<TextInput size="sm" wrapperClassName="bx-acc-toolbar__search" value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Find a voucher type" aria-label="Find a voucher type" />}
       exportDef={() => ({
         columns: [{ header: 'Voucher type' }, { header: 'Type of voucher' }, { header: 'Numbering' }, { header: 'First number' }, { header: 'Vouchers', kind: 'number' }],
         rows: rows.map((r) => [r.name, BASE_TYPE_LABELS[r.baseType], methodLabel(r.numbering.method), numberingPreview(r.numbering)?.first ?? '', r.voucherCount]),
@@ -147,7 +146,8 @@ export function VoucherTypesScreen() {
         onSelect={(k) => setCursor(k)}
         onRowActivate={(r) => nav.push('accounts.voucherType.form', { id: r.id })}
         loading={q.loading}
-        empty={<EmptyState icon="search" title="No voucher type matches" body="Change the search." />}
+        hideEmptyColumns
+        empty={<EmptyState title="No voucher type matches" body="Change the search." />}
       />
     </ReportScreen>
   );
@@ -284,6 +284,9 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
   }, [params.parentId, params.baseType, types]);
   const baselineRef = useRef(draftOf(original, initialParent));
   const [d, setD] = useState<VtDraft>(baselineRef.current);
+  const [numberingOpen, setNumberingOpen] = useState(false);
+  const [drawerDirty, setDrawerDirty] = useState(false);
+  const numberingId = useId();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const formBox = useRef<HTMLDivElement>(null);
   const predefined = original?.isPredefined ?? false;
@@ -291,16 +294,13 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
   const parent = d.parentId !== null ? (types.find((t) => t.id === d.parentId) ?? null) : null;
   const baseType: VoucherBaseType | null = original?.baseType ?? parent?.baseType ?? null;
   const dirty = JSON.stringify(d) !== JSON.stringify(baselineRef.current);
-  const numberingDirty = JSON.stringify(d.numbering) !== JSON.stringify(baselineRef.current.numbering);
   const gstDoc = baseType !== null && GST_DOCUMENT_BASE_TYPES.includes(baseType);
   const check = baseType ? checkNumbering(baseType, d.numbering, company.gstEnabled) : { errors: [], warnings: [] };
   const clash = baseType && company.gstEnabled ? seriesClashWarning(seriesClashes(types, original?.id ?? null, baseType, d.numbering), d.numbering) : null;
   const warnings = clash ? [...check.warnings, clash] : check.warnings;
-  const preview = numberingPreview(d.numbering, workingDate, fyStartMonth);
   const next = useApiQuery('vouchers.nextNumber', { voucherTypeId: original?.id ?? 0, date: workingDate }, { enabled: original !== null && d.numbering.method !== 'none' });
   const side = baseType ? defaultLedgerSide(baseType) : null;
   const godowns = useApiQuery('inventory.godown.list', {}, { enabled: company.features.inventory && company.features.multipleGodowns && baseType !== null && movesStock(baseType) });
-  const fyLabel = financialYear(workingDate, fyStartMonth).label;
 
   const set = <K extends keyof VtDraft>(k: K, v: VtDraft[K]) => {
     setD((x) => ({ ...x, [k]: v }));
@@ -408,30 +408,29 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
   };
 
   const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => void submit() });
-  const numErr = nestedFieldErrors(errors, 'numbering');
   const cfgErr = nestedFieldErrors(errors, 'config');
-  const len = numberLength(d.numbering);
-  const automatic = d.numbering.method === 'automatic' || d.numbering.method === 'automatic_override';
+  const numberingError = Object.entries(errors).find(([k]) => k.startsWith('numbering'))?.[1];
   const parentOptions = types.filter((t) => t.id !== original?.id).map((t) => ({ value: String(t.id), label: `${t.name} (${BASE_TYPE_LABELS[t.baseType]})` }));
   const godownOptions = (godowns.data?.rows ?? []).map((g) => ({ value: String(g.id), label: g.name }));
+  const summary = numberingSummary(d.numbering, workingDate, fyStartMonth);
+  // 2.1: abbreviation, alias, active and the Behaviour / Defaults / Printing sections sit behind "More details";
+  // a value chosen there (not what the books give a type by themselves) or an error opens it (lib/formReveal.ts).
+  const prefs = useUiPrefs();
+  const usual = useMemo(() => voucherTypeUsual(original, d.name), [original, d.name]);
+  const revealed = voucherTypeMoreRevealed(d, errors, usual);
+  const moreOpen = prefs.moreDetails[VOUCHER_TYPE_FORM_KIND] === true || revealed;
 
   return (
     <Screen
       title={original ? 'Voucher Type Alteration' : 'Voucher Type Creation'}
-      subtitle={original ? `${BASE_TYPE_LABELS[original.baseType]}${original.parentName ? ` · based on ${original.parentName}` : ''} · ${original.voucherCount} voucher${original.voucherCount === 1 ? '' : 's'}` : 'A voucher type is a kind of entry with its own numbering and print settings, e.g. "Cash Sales" or "Export Invoice".'}
-      icon="journal"
+      subtitle={original ? `${BASE_TYPE_LABELS[original.baseType]}${original.parentName ? ` · based on ${original.parentName}` : ''}${original.hotkey ? ` · ${original.hotkey}` : ''} · ${original.voucherCount} voucher${original.voucherCount === 1 ? '' : 's'}` : 'A kind of entry with its own numbering and print settings, e.g. "Cash Sales".'}
       width="form"
-      dirty={dirty}
-      meta={
-        <>
-          {predefined ? <Badge tone="neutral" variant="outline">Built-in</Badge> : null}
-          {original?.hotkey ? <Badge tone="neutral">{original.hotkey}</Badge> : null}
-          {original && !original.isActive ? <Badge tone="warning">Inactive</Badge> : null}
-        </>
-      }
+      dirty={dirty || drawerDirty}
+      meta={original && !original.isActive ? <span className="bx-acc-warn">Inactive</span> : undefined}
       hint="Enter Next field · Ctrl+A Save · Esc Back"
       actions={[
         { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly },
+        { key: '', label: 'Invoice Numbering', onClick: () => nav.push('accounts.numbering'), group: 'more', hint: 'Every number series on one screen, with the next numbers and the gaps of the year' },
         { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), hidden: !original || predefined || !canDelete, group: 'danger' },
         {
           key: 'Alt+H',
@@ -442,120 +441,29 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
           group: 'more',
         },
       ]}
-      footer={
-        readOnly ? undefined : (
-          <>
-            <Button onClick={() => void nav.back()}>Cancel</Button>
-            <Button variant="primary" icon="save" loading={save.pending} onClick={() => void submit()} shortcut="Ctrl+A">
-              Save
-            </Button>
-          </>
-        )
-      }
     >
       <div ref={formBox}>
-      <div ref={formRef}>
-        <Stack gap={6}>
+      <div ref={formRef} className="bx-acc-form">
           {readOnly ? <ReadOnlyNotice what="voucher types" /> : null}
-          <FieldGroup legend="Voucher type" columns={2}>
-            <Field label="Name" required error={errors.name || undefined}>
-              <TextInput data-autofocus value={d.name} onChange={(e) => set('name', e.target.value)} readOnly={readOnly || predefined} maxLength={60} placeholder="e.g. Cash Sales, Export Invoice" />
-            </Field>
-            <Field label="Abbreviation" optional error={errors.abbreviation || undefined} hint="Short name shown in registers.">
-              <TextInput value={d.abbreviation} onChange={(e) => set('abbreviation', e.target.value)} readOnly={readOnly} maxLength={10} />
-            </Field>
-            <Field label="Based on" required={!original} error={errors.parentId || undefined} hint={baseType ? `Works like ${BASE_TYPE_LABELS[baseType]}.` : 'Its behaviour (sales, payment, journal…) comes from this type.'}>
-              <Select value={d.parentId === null ? '' : String(d.parentId)} onChange={(v) => setParent(v === '' ? null : Number(v))} disabled={readOnly || predefined} placeholder="Choose…" options={parentOptions} />
-            </Field>
-            <Field label="Alias" optional error={errors.alias || undefined}>
-              <TextInput value={d.alias} onChange={(e) => set('alias', e.target.value)} readOnly={readOnly} maxLength={60} />
-            </Field>
-            <Field label="Active" hint={predefined ? 'Built-in types are always active.' : 'Inactive types are hidden when entering vouchers.'}>
-              <Switch checked={d.isActive} onChange={(v) => set('isActive', v)} disabled={readOnly || predefined} aria-label="Active" />
-            </Field>
-          </FieldGroup>
-
-          <FieldGroup legend="Numbering" description={gstDoc && company.gstEnabled ? 'GST invoice numbers: at most 16 characters, only letters, digits, / and -, and unique for the financial year.' : undefined} columns={2}>
-            <Field label="Method" error={numErr.method} hint={METHOD_OPTIONS.find((o) => o.value === d.numbering.method)?.hint}>
-              <Select<NumberingMethod> value={d.numbering.method} onChange={(v) => setNum('method', v)} disabled={readOnly} options={METHOD_OPTIONS.map((o) => ({ value: o.value, label: o.label }))} />
-            </Field>
-            {d.numbering.method !== 'none' ? (
-              <Field label="Starts again" error={numErr.restart} hint={restartText(d.numbering.restart, fyLabel)}>
-                <Select<NumberingRestart> value={d.numbering.restart} onChange={(v) => setNum('restart', v)} disabled={readOnly} options={RESTART_OPTIONS} />
-              </Field>
-            ) : (
-              <span />
-            )}
-            {automatic ? (
-              <>
-                <Field label="Prefix" optional error={numErr.prefix} hint="Text before the number, e.g. INV/{FY}/ gives INV/26-27/. Tokens: {FY} {FYYYYY} {YY} {MM} {MMM}.">
-                  <TextInput value={d.numbering.prefix ?? ''} onChange={(e) => setNum('prefix', e.target.value || null)} readOnly={readOnly} maxLength={16} mono />
-                </Field>
-                <Field label="Suffix" optional error={numErr.suffix} hint="Text after the number; tokens work here too, e.g. /{FY}.">
-                  <TextInput value={d.numbering.suffix ?? ''} onChange={(e) => setNum('suffix', e.target.value || null)} readOnly={readOnly} maxLength={16} mono />
-                </Field>
-                <Field label="Starting number" error={numErr.start}>
-                  <NumberInput value={d.numbering.start} onChange={(v) => setNum('start', Math.max(1, Math.floor(v ?? 1)))} min={1} max={999_999_999} readOnly={readOnly} grouping={false} />
-                </Field>
-                <Field label="Zero padding" error={numErr.width} hint="Digits, e.g. 4 gives 0001. 0 = no padding.">
-                  <NumberInput value={d.numbering.width} onChange={(v) => setNum('width', Math.min(9, Math.max(0, Math.floor(v ?? 0))))} min={0} max={9} step={1} readOnly={readOnly} />
-                </Field>
-              </>
-            ) : null}
-          </FieldGroup>
-          {/* 2.0: the simple editor of every number series (and the next number, the gaps of the year). */}
-          <div data-enter-skip="">
-            <Button variant="link" icon="hash" onClick={() => nav.push('accounts.numbering')}>
-              Open Invoice Numbering
+          <Field layout="inline" label="Name" required error={errors.name || undefined}>
+            <TextInput data-autofocus value={d.name} onChange={(e) => set('name', e.target.value)} readOnly={readOnly || predefined} maxLength={60} />
+          </Field>
+          <Field layout="inline" label="Based on" required={!original} error={errors.parentId || undefined} hint={baseType ? `Works like ${BASE_TYPE_LABELS[baseType]}.` : 'Its behaviour (sales, payment, journal…) comes from this type.'}>
+            <Select value={d.parentId === null ? '' : String(d.parentId)} onChange={(v) => setParent(v === '' ? null : Number(v))} disabled={readOnly || predefined} placeholder="Choose…" options={parentOptions} />
+          </Field>
+          {/* 2.1: the numbering is one line; it opens the Invoice Numbering editor (dated rows under its Advanced). */}
+          <Field
+            layout="inline"
+            label="Numbering"
+            htmlFor={numberingId}
+            error={numberingError}
+            hint={original && next.data && JSON.stringify(d.numbering) === JSON.stringify(baselineRef.current.numbering) ? `Next voucher: ${next.data}` : undefined}
+            hintApplies
+          >
+            <Button id={numberingId} variant="link" disabled={!baseType} title={baseType ? 'Change the numbering' : 'Choose what it is based on first'} onClick={() => setNumberingOpen(true)}>
+              {summary} ›
             </Button>
-          </div>
-
-          {automatic ? (
-            <FieldGroup legend="Prefix / suffix from a date" description="A row replaces the prefix or suffix for vouchers dated on or after its date, e.g. a new series from 1-Apr. Numbers already given never change.">
-              <DatedTextRows
-                kind="prefix"
-                rows={d.numbering.prefixRows ?? []}
-                onChange={(rows) => {
-                  setNum('prefixRows', rows);
-                  setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('numbering.prefixRows'))));
-                }}
-                errors={errors}
-                readOnly={readOnly}
-                referenceDate={workingDate}
-              />
-              <DatedTextRows
-                kind="suffix"
-                rows={d.numbering.suffixRows ?? []}
-                onChange={(rows) => {
-                  setNum('suffixRows', rows);
-                  setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('numbering.suffixRows'))));
-                }}
-                errors={errors}
-                readOnly={readOnly}
-                referenceDate={workingDate}
-              />
-            </FieldGroup>
-          ) : null}
-
-          {d.numbering.method !== 'none' ? (
-            <div className="bx-acc-preview" role="status" aria-live="polite" aria-label="Numbering preview">
-              {preview ? (
-                <>
-                  <span className="bx-acc-preview__meta">Numbers will look like</span>
-                  <span className="bx-acc-preview__number">{preview.first}</span>
-                  <span className="bx-acc-preview__number">{preview.second}</span>
-                  {gstDoc ? (
-                    <span className="bx-acc-preview__meta">
-                      {len} of {GST_DOC_NUMBER_MAX_LENGTH} characters
-                    </span>
-                  ) : null}
-                  {original && !numberingDirty && next.data ? <span className="bx-acc-preview__meta">· next voucher: {next.data}</span> : null}
-                </>
-              ) : (
-                <span className="bx-acc-preview__meta">You type each voucher number yourself.</span>
-              )}
-            </div>
-          ) : null}
+          </Field>
           {check.errors.length > 0 ? (
             <Banner tone="danger" title={gstDoc && company.gstEnabled ? 'This numbering cannot be used for GST documents' : 'Fix the numbering'}>
               <ul>
@@ -575,26 +483,42 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
             </Banner>
           ) : null}
 
-          <FieldGroup legend="Behaviour" columns={2}>
+          <DisclosureLine summary="abbreviation, behaviour, defaults, printing" open={moreOpen} forceOpen={revealed} onToggle={(open) => setMoreDetailsOpen(VOUCHER_TYPE_FORM_KIND, open)} className="bx-acc-form__more" regionClassName="bx-acc-form">
+          <section className="bx-acc-form" aria-label="General">
+            <h2 className="bx-acc-form__title">General</h2>
+            <Field layout="inline" label="Abbreviation" optional error={errors.abbreviation || undefined} hint="Short name shown in registers.">
+              <TextInput value={d.abbreviation} onChange={(e) => set('abbreviation', e.target.value)} readOnly={readOnly} maxLength={10} />
+            </Field>
+            <Field layout="inline" label="Alias" optional error={errors.alias || undefined}>
+              <TextInput value={d.alias} onChange={(e) => set('alias', e.target.value)} readOnly={readOnly} maxLength={60} />
+            </Field>
+            <Field layout="inline" label="Active" hint={predefined ? 'Built-in types are always active.' : 'Inactive types are hidden when entering vouchers.'}>
+              <Switch checked={d.isActive} onChange={(v) => set('isActive', v)} disabled={readOnly || predefined} aria-label="Active" />
+            </Field>
+          </section>
+
+          <section className="bx-acc-form" aria-label="Behaviour">
+            <h2 className="bx-acc-form__title">Behaviour</h2>
             {FLAGS.map((f) => (
-              <Field key={f.key} label={f.label} hint={f.hint}>
+              <Field key={f.key} layout="inline" label={f.label} hint={f.hint}>
                 <Switch checked={d[f.key]} onChange={(v) => set(f.key, v)} disabled={readOnly} aria-label={f.label} />
               </Field>
             ))}
-          </FieldGroup>
+          </section>
 
           {baseType ? (
-            <FieldGroup legend="Defaults" description="Filled in automatically on new vouchers of this type." columns={2}>
+            <section className="bx-acc-form" aria-label="Defaults for new vouchers">
+              <h2 className="bx-acc-form__title">Defaults for new vouchers</h2>
               {side ? (
-                <Field label={side === 'sales' ? 'Default sales ledger' : 'Default purchase ledger'} optional error={cfgErr.defaultLedgerId}>
+                <Field layout="inline" label={side === 'sales' ? 'Default sales ledger' : 'Default purchase ledger'} optional error={cfgErr.defaultLedgerId}>
                   <LedgerPicker classes={[side]} value={d.config.defaultLedgerId ?? null} onChange={(id) => setCfg('defaultLedgerId', id)} readOnly={readOnly} showBalance={false} />
                 </Field>
               ) : null}
-              <Field label="Default party" optional error={cfgErr.defaultPartyLedgerId} hint="e.g. Cash for a Cash Sales type.">
+              <Field layout="inline" label="Default party" optional error={cfgErr.defaultPartyLedgerId} hint="e.g. Cash for a Cash Sales type.">
                 <LedgerPicker classes={['party', 'cash_bank']} value={d.config.defaultPartyLedgerId ?? null} onChange={(id) => setCfg('defaultPartyLedgerId', id)} readOnly={readOnly} showBalance={false} />
               </Field>
               {isInvoiceBase(baseType) ? (
-                <Field label="Invoice mode" error={cfgErr.invoiceMode} hint="Item invoice lists stock items; accounting invoice lists ledgers only.">
+                <Field layout="inline" label="Invoice mode" error={cfgErr.invoiceMode} hint="Item invoice lists stock items; accounting invoice lists ledgers only.">
                   <Select
                     value={d.config.invoiceMode ?? ''}
                     onChange={(v) => setCfg('invoiceMode', v === '' ? null : v)}
@@ -608,7 +532,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
                 </Field>
               ) : null}
               {baseType === 'stock_journal' && (company.features.manufacturing || company.features.jobWork || d.config.stockJournalClass) ? (
-                <Field label="Use as" error={cfgErr.stockJournalClass} hint="Manufacturing Journal: build finished goods from a bill of materials. Material Out / In: job work challans.">
+                <Field layout="inline" label="Use as" error={cfgErr.stockJournalClass} hint="Manufacturing Journal: build finished goods from a bill of materials. Material Out / In: job work challans.">
                   <Select
                     value={d.config.stockJournalClass ?? ''}
                     onChange={(v) => setCfg('stockJournalClass', v === 'manufacturing' || v === 'material_out' || v === 'material_in' ? v : null)}
@@ -623,7 +547,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
                 </Field>
               ) : null}
               {baseType === 'sales' && (company.features.pos || d.config.posInvoice === true) ? (
-                <Field label="Use as" error={cfgErr.posInvoice} hint="POS invoice: bills are entered on the POS counter (barcode scan, split payment, change, thermal receipt). Fixed once the type has vouchers.">
+                <Field layout="inline" label="Use as" error={cfgErr.posInvoice} hint="POS invoice: bills are entered on the POS counter (barcode scan, split payment, change, thermal receipt). Fixed once the type has vouchers.">
                   <Select
                     value={d.config.posInvoice === true ? 'pos' : ''}
                     onChange={(v) => setCfg('posInvoice', v === 'pos' ? true : null)}
@@ -636,22 +560,23 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
                 </Field>
               ) : null}
               {godownOptions.length > 0 ? (
-                <Field label="Default godown" optional error={cfgErr.defaultGodownId}>
+                <Field layout="inline" label="Default godown" optional error={cfgErr.defaultGodownId}>
                   <Select value={d.config.defaultGodownId === null || d.config.defaultGodownId === undefined ? '' : String(d.config.defaultGodownId)} onChange={(v) => setCfg('defaultGodownId', v === '' ? null : Number(v))} disabled={readOnly} placeholder="None" options={godownOptions} />
                 </Field>
               ) : null}
-            </FieldGroup>
+            </section>
           ) : null}
 
           {baseType && (isInvoiceBase(baseType) || baseType === 'receipt' || baseType === 'sales_order' || baseType === 'delivery_note') ? (
-            <FieldGroup legend="Printing" columns={2}>
-              <Field label="Title on the document" optional error={cfgErr.printTitle} hint={baseType === 'sales' ? 'e.g. Tax Invoice, Bill of Supply.' : undefined}>
+            <section className="bx-acc-form" aria-label="Printing">
+              <h2 className="bx-acc-form__title">Printing</h2>
+              <Field layout="inline" label="Title on the document" optional error={cfgErr.printTitle} hint={baseType === 'sales' ? 'e.g. Tax Invoice, Bill of Supply.' : undefined}>
                 <TextInput value={d.config.printTitle ?? ''} onChange={(e) => setCfg('printTitle', e.target.value)} readOnly={readOnly} maxLength={100} />
               </Field>
-              <Field label="Bank details printed" optional error={cfgErr.bankLedgerId} hint="Overrides the bank chosen in Invoice Printing for this type.">
+              <Field layout="inline" label="Bank details printed" optional error={cfgErr.bankLedgerId} hint="Overrides the bank chosen in Invoice Printing for this type.">
                 <LedgerPicker classes={['bank']} value={d.config.bankLedgerId ?? null} onChange={(id) => setCfg('bankLedgerId', id)} readOnly={readOnly} showBalance={false} allowCreate={false} />
               </Field>
-              <Field label="Template" error={cfgErr.printTemplate}>
+              <Field layout="inline" label="Template" error={cfgErr.printTemplate}>
                 <Select
                   value={d.config.printTemplate ?? ''}
                   onChange={(v) => setCfg('printTemplate', v === '' ? null : v)}
@@ -665,7 +590,7 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
                 />
               </Field>
               {/* print group: MRP column on this type's documents. */}
-              <Field label="MRP column" error={cfgErr.showMrp} hint="Prints the items' MRP (and 'You saved' on receipts).">
+              <Field layout="inline" label="MRP column" error={cfgErr.showMrp} hint="Prints the items' MRP (and 'You saved' on receipts).">
                 <Select
                   value={d.config.showMrp === true ? 'yes' : d.config.showMrp === false ? 'no' : ''}
                   onChange={(v) => setCfg('showMrp', v === 'yes' ? true : v === 'no' ? false : null)}
@@ -677,72 +602,41 @@ function VoucherTypeForm({ original, params, types }: { original: VoucherTypeDet
                   ]}
                 />
               </Field>
-              <Field label="Declaration" optional error={cfgErr.declaration}>
+              <Field layout="inline" label="Declaration" optional error={cfgErr.declaration}>
                 <TextArea value={d.config.declaration ?? ''} onChange={(e) => setCfg('declaration', e.target.value)} readOnly={readOnly} rows={2} autoGrow maxRows={5} maxLength={2000} placeholder="We declare that this invoice shows the actual price of the goods described…" />
               </Field>
-              <Field label="Terms & conditions" optional error={cfgErr.terms}>
+              <Field layout="inline" label="Terms & conditions" optional error={cfgErr.terms}>
                 <TextArea value={d.config.terms ?? ''} onChange={(e) => setCfg('terms', e.target.value)} readOnly={readOnly} rows={2} autoGrow maxRows={6} maxLength={4000} />
               </Field>
-            </FieldGroup>
+            </section>
           ) : null}
-        </Stack>
+          </DisclosureLine>
       </div>
       </div>
+      {numberingOpen && baseType ? (
+        <SeriesDrawer
+          target={{ kind: 'draft', name: d.name, baseType, typeId: original?.id ?? null, numbering: d.numbering, readOnly, onApply: (n) => set('numbering', n) }}
+          types={types}
+          status={null}
+          today={workingDate}
+          fyStartMonth={fyStartMonth}
+          onDirtyChange={setDrawerDirty}
+          onClose={() => {
+            setNumberingOpen(false);
+            setDrawerDirty(false);
+          }}
+        />
+      ) : null}
     </Screen>
   );
 }
+
+/** The ui-preference key of the voucher type form's "More details" (`moreDetails`). */
+const VOUCHER_TYPE_FORM_KIND = 'voucherType';
 
 function withoutKey(e: Record<string, string>, k: string): Record<string, string> {
   if (!(k in e)) return e;
   const copy = { ...e };
   delete copy[k];
   return copy;
-}
-
-/**
- * Dated prefix (or suffix) rows of the numbering (dataplus): each row = applicable-from date + text.
- * Keyboard: Enter moves through the date and text fields (form Enter-advance); the buttons add / remove.
- */
-function DatedTextRows({
-  kind,
-  rows,
-  onChange,
-  errors,
-  readOnly,
-  referenceDate,
-}: {
-  kind: 'prefix' | 'suffix';
-  rows: readonly NumberingTextRow[];
-  onChange: (rows: NumberingTextRow[]) => void;
-  errors: Record<string, string>;
-  readOnly: boolean;
-  referenceDate: string;
-}) {
-  const label = kind === 'prefix' ? 'Prefix' : 'Suffix';
-  const errOf = (i: number, field: 'applicableFrom' | 'text'): string | undefined => errors[`numbering.${kind}Rows[${i}].${field}`];
-  const edit = (i: number, patch: Partial<NumberingTextRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
-  return (
-    <Stack gap={2}>
-      {rows.map((r, i) => (
-        <Inline key={`${kind}-${i}`} gap={2} align="end">
-          <Field label={`${label} from`} error={errOf(i, 'applicableFrom')}>
-            <DateInput value={r.applicableFrom || null} onChange={(v) => edit(i, { applicableFrom: v ?? '' })} referenceDate={referenceDate} readOnly={readOnly} aria-label={`${label} row ${i + 1}: applicable from`} />
-          </Field>
-          <Field label={label} optional error={errOf(i, 'text')}>
-            <TextInput value={r.text ?? ''} onChange={(e) => edit(i, { text: e.target.value || null })} readOnly={readOnly} maxLength={16} mono aria-label={`${label} row ${i + 1}: text`} placeholder="(none)" />
-          </Field>
-          {readOnly ? null : (
-            <IconButton icon="trash" variant="ghost" aria-label={`Remove ${kind} row ${i + 1}`} onClick={() => onChange(rows.filter((_, k) => k !== i))} />
-          )}
-        </Inline>
-      ))}
-      {readOnly ? null : (
-        <div>
-          <Button variant="secondary" size="sm" icon="plus" onClick={() => onChange([...rows, { applicableFrom: referenceDate, text: null }])}>
-            Add dated {kind}
-          </Button>
-        </div>
-      )}
-    </Stack>
-  );
 }

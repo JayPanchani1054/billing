@@ -18,7 +18,7 @@ import { useNav, useScreenResult } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
 import { Screen } from '../../app/Screen.tsx';
 import { useAppState } from '../../app/state.tsx';
-import { Badge, Banner, Button, Checkbox, Field, FieldGroup, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Banner, Checkbox, Field, FieldGroup, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import { cx } from '../../ui/lib/cx.ts';
 import { catalogIndex, grantableFor, groupState, permissionChanges, roleNameProblem, toggleGroup, toggleNote, togglePermission } from './lib/permissionTree.ts';
 import type { ToggleResult } from './lib/permissionTree.ts';
@@ -39,7 +39,7 @@ export function RoleFormScreen({ params }: ScreenProps<RoleParams>) {
   const error = source.error ?? catalog.error ?? roles.error;
   const ready = (sourceId === undefined || source.data) && catalog.data && roles.data;
   if (error || !ready) {
-    return <Screen title={title} icon="shield" width="form" loading={!error} error={error} onRetry={() => void Promise.all([source.error ? source.refetch() : null, catalog.error ? catalog.refetch() : null, roles.error ? roles.refetch() : null])} />;
+    return <Screen title={title} width="form" loading={!error} error={error} onRetry={() => void Promise.all([source.error ? source.refetch() : null, catalog.error ? catalog.refetch() : null, roles.error ? roles.refetch() : null])} />;
   }
   const others = (roles.data?.rows ?? []).filter((r) => r.id !== id).map((r) => r.name);
   return (
@@ -148,45 +148,33 @@ function RoleForm({
   return (
     <Screen
       title={titleText}
-      subtitle={readOnly ? 'Built-in roles are read-only. Copy it to make your own version.' : 'Tick what people with this role may do.'}
-      icon="shield"
+      // 2.1: one context run — built-in/read-only, its users, and what is ticked (the old footer's count).
+      subtitle={[
+        readOnly ? 'Built-in · read-only' : null,
+        source && mode !== 'create' ? `${source.userCount} user${source.userCount === 1 ? '' : 's'}` : null,
+        readOnly
+          ? null
+          : mode === 'alter' && (changes.added.length || changes.removed.length)
+            ? `${changes.added.length} added · ${changes.removed.length} removed`
+            : `${selected.size} permission${selected.size === 1 ? '' : 's'} ticked`,
+      ]
+        .filter(Boolean)
+        .join(' · ')}
       width="form"
       dirty={dirty}
-      meta={
-        source && mode !== 'create' ? (
-          <span className="bx-sec-badges">
-            {source.isSystem ? (
-              <Badge tone="neutral" icon="lock">
-                Built-in
-              </Badge>
-            ) : null}
-            <Badge tone="info">
-              {source.userCount} user{source.userCount === 1 ? '' : 's'}
-            </Badge>
-          </span>
-        ) : undefined
-      }
       hint={readOnly ? 'Alt+K Copy as new role · Esc Back' : 'Tab / Enter Move · Space Tick · Ctrl+A Save · Esc Back'}
       actions={[
         { key: 'Ctrl+A', label: mode === 'create' ? 'Create role' : 'Save', icon: 'save', primary: true, onClick: () => void submit(), hidden: readOnly },
-        { key: 'Alt+K', label: 'Copy as new role', icon: 'copy', onClick: () => source && nav.replace('security.role.form', { copyFrom: source.id }), hidden: !source || mode === 'create' },
+        {
+          key: 'Alt+K',
+          label: 'Copy as new role',
+          icon: 'copy',
+          onClick: () => source && nav.replace('security.role.form', { copyFrom: source.id }),
+          prominent: readOnly,
+          hidden: !source || mode === 'create',
+        },
         { key: 'Alt+D', label: 'Delete role', icon: 'trash', onClick: () => void remove(), hidden: mode !== 'alter', disabled: (source?.userCount ?? 0) > 0, group: 'danger', hint: 'Only roles that no user has can be deleted.' },
       ]}
-      footer={
-        readOnly ? undefined : (
-          <>
-            <span className="bx-muted">
-              {mode === 'alter' && (changes.added.length || changes.removed.length)
-                ? `${changes.added.length} added · ${changes.removed.length} removed`
-                : `${selected.size} permission${selected.size === 1 ? '' : 's'} ticked`}
-            </span>
-            <Button onClick={() => void nav.back()}>Cancel</Button>
-            <Button variant="primary" icon="save" loading={save.pending} shortcut="Ctrl+A" onClick={() => void submit()}>
-              {mode === 'create' ? 'Create role' : 'Save'}
-            </Button>
-          </>
-        )
-      }
     >
       <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
         <Stack gap={5}>
@@ -197,12 +185,12 @@ function RoleForm({
           ) : null}
           {source?.isOwner ? (
             <Banner tone="info" title="The Owner role always has every permission">
-              It cannot be changed, so there is always someone who can manage users and security.
+              It cannot be changed, so someone can always manage users and security.
             </Banner>
           ) : null}
           {!readOnly && !session?.isOwner ? (
-            <Banner tone="info" inline title="Limited by your own access">
-              You can only tick permissions that you have yourself. Ask an Owner for the others.
+            <Banner tone="info" title="Limited by your own access">
+              You can only tick permissions you have yourself.
             </Banner>
           ) : null}
           <FieldGroup columns={2}>
@@ -224,7 +212,7 @@ function RoleForm({
             </Field>
           </FieldGroup>
           {note ? (
-            <Banner tone="info" inline onDismiss={() => setNote(null)}>
+            <Banner tone="info" onDismiss={() => setNote(null)}>
               {note}
             </Banner>
           ) : null}
@@ -252,14 +240,16 @@ function RoleForm({
                       const on = selected.has(item.permission);
                       const blocked = !on && !grantable(item.permission);
                       const changed = mode === 'alter' && on !== savedPerms.includes(item.permission);
+                      const tip = blocked ? 'You do not have this permission yourself, so you cannot grant it.' : (item.description ?? undefined);
                       return (
-                        <div key={item.permission} className={cx('bx-sec-perm-item', changed && 'is-changed')}>
+                        // 2.1: what a permission allows (or why it cannot be ticked) is its tooltip, not a second line.
+                        <div key={item.permission} className={cx('bx-sec-perm-item', changed && 'is-changed')} title={tip}>
                           <Checkbox
                             checked={on}
                             disabled={readOnly || blocked}
                             onChange={(v) => apply(togglePermission(selected, item.permission, v, grantable))}
                             label={item.label}
-                            description={blocked ? 'You do not have this permission yourself, so you cannot grant it.' : item.description}
+                            title={tip}
                           />
                         </div>
                       );

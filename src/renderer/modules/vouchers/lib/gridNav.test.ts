@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { cellId, headerId } from './errorPaths.ts';
-import { entrySections, initialFocusId, neighbourSection, nextCell, rowAfterDelete, verticalCell } from './gridNav.ts';
+import { chargesCollapsible, entrySections, initialFocusId, neighbourSection, nextCell, opensBeforeFocus, rowAfterDelete, verticalCell } from './gridNav.ts';
 import type { GridModel } from './gridNav.ts';
 
 const filled = new Set(['r1', 'r2']);
@@ -74,5 +74,39 @@ describe('where the cursor starts', () => {
     assert.equal(initialFocusId(base), cellId('ledgers', 'l1', 'ledger'));
     assert.equal(initialFocusId({ ...base, firstSection: 'items:src', firstRowKey: 'i2' }), cellId('items', 'i2', 'item'));
     assert.equal(initialFocusId({ ...base, firstRowKey: null }), headerId('date'));
+  });
+});
+
+describe('Charges & discounts (2.1, D17): a closed disclosure inside the same Enter chain', () => {
+  const items: GridModel = { columns: ['item', 'qty', 'rate', 'amount'], rowKeys: ['i1', 'i2'], isBlank: (k) => k === 'i2' };
+  const charges: GridModel = { columns: ['ledger', 'amount'], rowKeys: ['l1'], isBlank: () => true };
+  const sections = entrySections('item_invoice', 'sales');
+
+  it('Enter on an empty item row leaves the items for the charges — the 2.0 stop — and opens them first', () => {
+    assert.deepEqual(nextCell(items, { rowKey: 'i2', column: 'item' }, 'forward'), { kind: 'exit-forward' });
+    const next = neighbourSection(sections, 'items', 'forward');
+    assert.equal(next, 'ledgers');
+    assert.equal(opensBeforeFocus(next, { collapsible: chargesCollapsible('item_invoice', 'sales'), open: false }), true);
+    // Already open (a charge exists, or opened earlier): nothing to open, the cursor just moves.
+    assert.equal(opensBeforeFocus(next, { collapsible: true, open: true }), false);
+  });
+
+  it('Enter on an empty charge row goes to the narration; Shift+Enter from the narration opens the charges again', () => {
+    assert.deepEqual(nextCell(charges, { rowKey: 'l1', column: 'ledger' }, 'forward'), { kind: 'exit-forward' });
+    assert.equal(neighbourSection(sections, 'ledgers', 'forward'), 'narration');
+    const back = neighbourSection(sections, 'narration', 'back');
+    assert.equal(back, 'ledgers');
+    assert.equal(opensBeforeFocus(back, { collapsible: true, open: false }), true);
+    assert.equal(opensBeforeFocus('narration', { collapsible: true, open: false }), false);
+    assert.equal(opensBeforeFocus('accept', { collapsible: true, open: false }), false);
+  });
+
+  it('only the item-invoice layout folds its ledger lines (an accounting invoice or a voucher IS its lines)', () => {
+    assert.equal(chargesCollapsible('item_invoice', 'sales'), true);
+    assert.equal(chargesCollapsible('item_invoice', 'purchase'), true);
+    assert.equal(chargesCollapsible('accounting_invoice', 'sales'), false);
+    assert.equal(chargesCollapsible('ledger', 'receipt'), false);
+    assert.equal(chargesCollapsible('inventory', 'delivery_note'), false);
+    assert.equal(opensBeforeFocus('ledgers', { collapsible: chargesCollapsible('accounting_invoice', 'sales'), open: false }), false);
   });
 });

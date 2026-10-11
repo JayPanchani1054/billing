@@ -5,14 +5,20 @@
  *
  * 'reports.fundsFlow' — sources and applications of funds between the start and end of the period
  * and the resulting change in working capital (with the working-capital breakup).
+ *
+ * 2.1: Cash Flow draws "Net cash flow by month" (polarity columns, In ↑ / Out ↓; Enter on a month = Enter
+ * on its row — lib/charts.ts). Funds Flow deliberately has no graph: sources equal applications by
+ * construction; the working-capital sentence moved to About this report.
  */
 import { useMemo } from 'react';
 import type { CashFlowGroupRow, CashFlowMonth, FundsFlowLine, WorkingCapitalRow } from '../../../shared/types/reports.ts';
 import { ReportScreen, useApiQuery } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { Banner, DataTable, EmptyState, Stack } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
+import { cashFlowChart } from './lib/charts.ts';
 import { monthLabel, statementAmountText } from './lib/model.ts';
 
 const signed = (v: number): string => statementAmountText(v);
@@ -22,6 +28,7 @@ export function CashFlowScreen({ params }: ScreenProps<{ from?: string; to?: str
   const drill = useDrill();
   const q = useApiQuery('reports.cashFlow', { from: p.from, to: p.to }, { keepPrevious: true });
   const d = q.data;
+  const spec = useMemo(() => cashFlowChart(d, { activate: (r) => drill({ screen: 'reports.cashFlow', params: { from: r.from, to: r.to } }) }), [d, drill]);
   const monthColumns = useMemo<Column<CashFlowMonth>[]>(
     () => [
       { key: 'month', header: 'Month', minWidth: 150, render: (r) => monthLabel(r.month), value: (r) => monthLabel(r.month) },
@@ -55,6 +62,7 @@ export function CashFlowScreen({ params }: ScreenProps<{ from?: string; to?: str
       refreshing={q.refreshing}
       error={q.error}
       onRetry={q.refetch}
+      graph={reportGraph(spec)}
       hint="Enter on a month: that month's breakup · Tab: group breakup · Enter on a group: its summary"
       exportDef={() => ({
         columns: [{ header: 'Particulars' }, { header: 'Inflow', kind: 'amount' }, { header: 'Outflow', kind: 'amount' }, { header: 'Net flow', kind: 'amount' }],
@@ -68,7 +76,7 @@ export function CashFlowScreen({ params }: ScreenProps<{ from?: string; to?: str
         totals: d ? ['Total', d.totals.inflow, d.totals.outflow, d.totals.net] : undefined,
       })}
     >
-      <Stack gap={3} grow>
+      <Stack gap={3}>
         <DataTable<CashFlowMonth>
           aria-label="Cash flow by month"
           columns={monthColumns}
@@ -82,7 +90,6 @@ export function CashFlowScreen({ params }: ScreenProps<{ from?: string; to?: str
         />
         <DataTable<CashFlowGroupRow>
           aria-label="Cash flow by group"
-          className="bx-rep-fill"
           columns={groupColumns}
           rows={d?.groups ?? []}
           getRowKey={(r) => String(r.groupId)}
@@ -124,10 +131,9 @@ export function FundsFlowScreen({ params }: ScreenProps<{ from?: string; to?: st
   };
   const side = (title: string, lines: readonly FundsFlowLine[], total: number, autoFocus: boolean) => (
     <section className="bx-rep-side" aria-label={title}>
-      <div className="bx-rep-side__title">{title}</div>
       <DataTable<FundsFlowLine>
         aria-label={title}
-        columns={lineColumns}
+        columns={[{ ...lineColumns[0], header: title }, lineColumns[1]]}
         rows={lines}
         getRowKey={(r) => r.key}
         onRowActivate={openLine}
@@ -148,6 +154,14 @@ export function FundsFlowScreen({ params }: ScreenProps<{ from?: string; to?: st
       error={q.error}
       onRetry={q.refetch}
       hint="Enter Group summary or ledger · Tab Next table"
+      about={
+        d ? (
+          <p>
+            Sources less applications equal the change in working capital. Working capital {d.workingCapital.change >= 0 ? 'increased' : 'decreased'} by{' '}
+            {statementAmountText(Math.abs(d.workingCapital.change))} (from {signed(d.workingCapital.opening)} to {signed(d.workingCapital.closing)}).
+          </p>
+        ) : undefined
+      }
       exportDef={() => ({
         columns: [{ header: 'Particulars' }, { header: 'Amount', kind: 'amount' }],
         rows: d
@@ -168,23 +182,18 @@ export function FundsFlowScreen({ params }: ScreenProps<{ from?: string; to?: st
       })}
     >
       {d ? (
-        <Stack gap={3} grow>
+        <Stack gap={3}>
           {d.difference !== 0 ? (
             <Banner tone="danger" title="Funds flow does not agree">
-              Sources less applications differ from the change in working capital by {statementAmountText(d.difference)}.
+              — sources less applications differ from the change in working capital by {statementAmountText(d.difference)}
             </Banner>
           ) : null}
           <div className="bx-rep-sides">
             {side('Sources of Funds', d.sources, d.totalSources, true)}
             {side('Application of Funds', d.applications, d.totalApplications, false)}
           </div>
-          <p className="bx-rep-note">
-            Working capital {d.workingCapital.change >= 0 ? 'increased' : 'decreased'} by {statementAmountText(Math.abs(d.workingCapital.change))} (from{' '}
-            {signed(d.workingCapital.opening)} to {signed(d.workingCapital.closing)}).
-          </p>
           <DataTable<WorkingCapitalRow>
             aria-label="Working capital changes"
-            className="bx-rep-fill"
             columns={wcColumns}
             rows={d.workingCapitalRows}
             getRowKey={(r) => r.key}

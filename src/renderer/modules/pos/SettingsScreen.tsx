@@ -10,7 +10,7 @@ import type { LedgerListRow } from '../../../shared/types/accounts.ts';
 import type { PosSettings, PosTenderKind, PosTenderMode } from '../../../shared/types/pos.ts';
 import { POS_TENDER_KIND_LABELS, POS_USER_TENDER_KINDS } from '../../../shared/types/pos.ts';
 import { api, Screen, useApiMutation, useApiQuery, useCan, useConfirm, useFeatures, useNav, userMessage } from '../../app/index.ts';
-import { Badge, Banner, Button, Combobox, DataTable, EmptyState, Field, Modal, NumberInput, Panel, Select, Stack, Switch, TextInput, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
+import { Banner, Button, Combobox, DataTable, EmptyState, Field, Modal, NumberInput, Panel, Select, Stack, Switch, TextInput, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { PosOff } from './components.tsx';
 
@@ -75,7 +75,17 @@ function Settings() {
   };
   const columns = useMemo<Column<PosTenderMode>[]>(
     () => [
-      { key: 'name', header: 'Tender mode', render: (m) => <span>{m.name} {m.isSystem ? <Badge size="sm">system</Badge> : null} {!m.isActive ? <Badge size="sm" tone="warning">inactive</Badge> : null}</span> },
+      {
+        key: 'name',
+        header: 'Tender mode',
+        render: (m) => (
+          <span>
+            {m.name}
+            {m.isSystem ? <span className="bx-muted"> · system</span> : null}
+            {!m.isActive ? <span className="bx-muted"> · inactive</span> : null}
+          </span>
+        ),
+      },
       { key: 'kind', header: 'Kind', width: 140, value: (m) => POS_TENDER_KIND_LABELS[m.kind] },
       { key: 'ledgerName', header: 'Posts to ledger', width: 240 },
       { key: 'usedCount', header: 'Bills', kind: 'number', width: 80 },
@@ -86,8 +96,6 @@ function Settings() {
   return (
     <Screen
       title="POS Settings"
-      subtitle="Counter voucher types, walk-in party, prices, printing and tender modes"
-      icon="settings"
       width="form"
       dirty={dirty}
       loading={ctxQ.loading || !s}
@@ -139,11 +147,16 @@ function Settings() {
                   <Select value={String(s.godownId ?? '')} onChange={(v) => set('godownId', v ? Number(v) : null)} options={(godownsQ.data?.rows ?? []).map((g) => ({ value: String(g.id), label: g.name }))} placeholder="Main Location" />
                 </Field>
               ) : null}
-              <Switch checked={s.printAfterSave} onChange={(v) => set('printAfterSave', v)} label="Print the receipt after each bill (straight to the receipt printer chosen in Print Preview › Printer for rolls; otherwise the print dialog)" />
+              <Switch
+                checked={s.printAfterSave}
+                onChange={(v) => set('printAfterSave', v)}
+                label="Print the receipt after each bill"
+                title="Straight to the receipt printer chosen in Print Preview › Printer for rolls; otherwise the print dialog"
+              />
               <Switch checked={s.askCustomerFirst} onChange={(v) => set('askCustomerFirst', v)} label="Ask for the customer's mobile number before the first item" />
             </Stack>
           </form>
-          <Panel title="Tender modes" description="How customers pay. UPI usually reaches the bank account directly; card payments are often kept in a clearing ledger until the acquirer settles them.">
+          <Panel title="Tender modes">
             <DataTable<PosTenderMode>
               aria-label="Tender modes"
               columns={columns}
@@ -153,7 +166,7 @@ function Settings() {
               selectedKey={cursor}
               onSelect={(k) => setCursor(k)}
               onRowActivate={(m) => canManage && setEditing(m)}
-              empty={<EmptyState title="No tender modes" body="Alt+C creates one, e.g. UPI on your bank account." />}
+              empty={<EmptyState title="No tender modes" body="E.g. UPI on your bank account." />}
             />
           </Panel>
         </Stack>
@@ -199,7 +212,6 @@ function TenderModeDialog({ mode, onClose, onSaved }: { mode: PosTenderMode | nu
       onClose={onClose}
       title={mode ? `Tender mode: ${mode.name}` : 'Create tender mode'}
       size="md"
-      footerStart={<span className="bx-muted">Enter Next field · Ctrl+A Save</span>}
       footer={
         <Button variant="primary" shortcut="Ctrl+A" loading={save.pending} disabled={!ledger || !name.trim()} onClick={() => void submit()}>
           Save
@@ -211,7 +223,7 @@ function TenderModeDialog({ mode, onClose, onSaved }: { mode: PosTenderMode | nu
         <Stack gap={3}>
           {save.error && Object.keys(save.fieldErrors).length === 0 ? <Banner tone="danger">{userMessage(save.error)}</Banner> : null}
           <Field label="Name" htmlFor="pos-mode-name" required error={save.fieldErrors.name}>
-            <TextInput id="pos-mode-name" data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. UPI, Card (Pine Labs), Paytm" />
+            <TextInput id="pos-mode-name" data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. UPI, Card" />
           </Field>
           <Field label="Kind" error={save.fieldErrors.kind} hint={locked ? 'Fixed: the mode is used on bills (or is the system mode).' : undefined}>
             <Select<PosTenderKind>

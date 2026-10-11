@@ -6,7 +6,6 @@
  * Amounts are integer paise. Side reports are side-signed (positive = receivable / payable);
  * single-ledger results are Dr + / Cr −.
  */
-import { formatMoney } from '../../../../shared/format.ts';
 import type {
   AgeingResult,
   BillHistoryKind,
@@ -89,20 +88,7 @@ export function historyKindLabel(k: BillHistoryKind): string {
   return HISTORY_LABELS[k];
 }
 
-export type SeverityTone = 'neutral' | 'warning' | 'danger';
-
-/** 0 → neutral (not overdue), 1–60 → warning, > 60 → danger. */
-export function overdueTone(days: number): SeverityTone {
-  return days <= 0 ? 'neutral' : days > 60 ? 'danger' : 'warning';
-}
-
-/** '45 days', '1 day', '' for not overdue. */
-export function overdueText(days: number): string {
-  if (days <= 0) return '';
-  return `${days} day${days === 1 ? '' : 's'}`;
-}
-
-/** Credit-limit bar tone: < 80% brand, 80–100% warning, > 100% danger. */
+/** Credit-limit use tone: < 80% brand, 80–100% warning, > 100% danger (danger = over the limit). */
 export function utilisationTone(pct: number | null): 'brand' | 'warning' | 'danger' {
   if (pct === null || pct < 80) return 'brand';
   return pct > 100 ? 'danger' : 'warning';
@@ -272,6 +258,72 @@ export function partiesInView(r: PartySummaryResult, overLimitOnly: boolean): Pa
   };
 }
 
+/** Bill lines not matched to a bill: advances and amounts on account (the stat's "not matched" link). */
+export function isUnmatched(r: Pick<OutstandingBillRow, 'refType'>): boolean {
+  return r.refType === 'advance' || r.refType === 'on_account';
+}
+
+/**
+ * The bill list as shown: with "Only advances and on account" on, just those lines and their totals
+ * (so an export of the filtered list adds up, as `partiesInView` does for the parties).
+ */
+export function billsInView(r: OutstandingBillsResult, unmatchedOnly: boolean): OutstandingBillsResult {
+  if (!unmatchedOnly) return r;
+  const rows = r.rows.filter(isUnmatched);
+  const sum = (refType: OutstandingRefType): number => rows.reduce((s, b) => s + (b.refType === refType ? b.pendingAmount : 0), 0);
+  const advance = sum('advance');
+  const onAccount = sum('on_account');
+  return { ...r, rows, total: rows.length, totals: { pending: advance + onAccount, overdue: 0, notDue: 0, advance, onAccount, billCount: 0, overdueCount: 0 } };
+}
+
+// ───────────────────────────── Bills view filters ─────────────────────────────
+
+/**
+ * The Bills view's filters. "Only advances and on account" never combines with the overdue filters
+ * (advances and on-account lines are never overdue: together they would always show an empty list), so
+ * every way of setting one — the Filters popover, Alt+O, the stat's link, a graph column — clears the other.
+ */
+export interface BillFilter {
+  overdueOnly: boolean;
+  /** Overdue by at least this many days (null = no minimum). */
+  minDays: number | null;
+  unmatchedOnly: boolean;
+}
+
+export const NO_BILL_FILTER: BillFilter = { overdueOnly: false, minDays: null, unmatchedOnly: false };
+
+/** How many filters are on (the Filters button's count). */
+export function billFilterCount(f: BillFilter): number {
+  return (f.overdueOnly ? 1 : 0) + (f.minDays !== null ? 1 : 0) + (f.unmatchedOnly ? 1 : 0);
+}
+
+/** "Overdue only" on or off (the switch and Alt+O); turning it on clears "Only advances and on account". */
+export function withOverdueOnly(f: BillFilter, on: boolean): BillFilter {
+  return { ...f, overdueOnly: on, unmatchedOnly: on ? false : f.unmatchedOnly };
+}
+
+/** "Overdue by at least N days" (≤ 0 or blank = no minimum); a minimum clears "Only advances and on account". */
+export function withMinDays(f: BillFilter, days: number | null): BillFilter {
+  const minDays = days === null || !Number.isFinite(days) || days <= 0 ? null : Math.round(days);
+  return { ...f, minDays, unmatchedOnly: minDays !== null ? false : f.unmatchedOnly };
+}
+
+/** "Only advances and on account" (the stat's "not matched" link turns it on); on clears the overdue filters. */
+export function withUnmatchedOnly(f: BillFilter, on: boolean): BillFilter {
+  return on ? { overdueOnly: false, minDays: null, unmatchedOnly: true } : { ...f, unmatchedOnly: false };
+}
+
+/**
+ * Enter on a column of the Ageing graph (`minDays` = the column's first day, null = Not due): the bills
+ * list filters by days past DUE, so a due-date column maps onto it exactly — "1–30 days" is overdue only,
+ * "31–60 days" overdue by at least 31 (older bills included: the list has no upper bound). On the
+ * bill-date basis, and for Not due, the list opens without a filter.
+ */
+export function ageColumnFilter(minDays: number | null, basis: AgeingResult['basis']): BillFilter {
+  if (minDays === null || basis !== 'due_date') return NO_BILL_FILTER;
+  return { overdueOnly: true, minDays: minDays > 1 ? minDays : null, unmatchedOnly: false };
+}
+
 export function partiesExport(r: PartySummaryResult): ExportTable {
   const t = SIDE_TEXT[r.side];
   const s = ledgerSign(r.side);
@@ -427,28 +479,4 @@ export function statementPeriod(
 ): { period: { from: string; to: string }; pinned: boolean } {
   const pinned = !!params.from && !!params.to && global.from === globalAtOpen.from && global.to === globalAtOpen.to;
   return pinned ? { period: { from: params.from as string, to: params.to as string }, pinned } : { period: { from: global.from, to: global.to }, pinned };
-}
-
-// ───────────────────────────── KPIs ─────────────────────────────
-
-export interface Kpi {
-  id: string;
-  label: string;
-  /** Paise (amount KPIs) or a count. */
-  value: number;
-  amount: boolean;
-  caption: string;
-}
-
-export function summaryKpis(r: PartySummaryResult): Kpi[] {
-  const t = r.totals;
-  const unadjusted = t.advance + t.onAccount;
-  const share = (part: number): string => (t.billsPending > 0 ? `${Math.round((part / t.billsPending) * 100)}% of bills` : '');
-  return [
-    { id: 'total', label: `Total ${SIDE_TEXT[r.side].amount.toLowerCase()}`, value: t.pending, amount: true, caption: `${t.partyCount} ${t.partyCount === 1 ? 'party' : 'parties'}` },
-    { id: 'overdue', label: 'Overdue', value: t.overdue, amount: true, caption: share(t.overdue) },
-    { id: 'notDue', label: 'Not yet due', value: t.notDue, amount: true, caption: share(t.notDue) },
-    { id: 'unadjusted', label: 'Advances & on account', value: unadjusted, amount: true, caption: unadjusted === 0 ? 'Nothing unadjusted' : `Advances ${formatMoney(t.advance)} · On account ${formatMoney(t.onAccount)}` },
-    { id: 'overLimit', label: 'Over credit limit', value: t.overLimitCount, amount: false, caption: t.overLimitCount === 0 ? 'All within limits' : `${t.overLimitCount === 1 ? 'party' : 'parties'} above their limit` },
-  ];
 }

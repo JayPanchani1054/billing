@@ -63,8 +63,6 @@ function FeaturesForm({ saved }: { saved: CompanyFeatures }) {
   return (
     <Screen
       title="Features"
-      subtitle="Turn on only what your business uses — screens stay simpler."
-      icon="sliders"
       width="form"
       dirty={dirty}
       hint="Tab Move · Space or Y/N Toggle · Ctrl+A Save · Esc Back"
@@ -72,16 +70,6 @@ function FeaturesForm({ saved }: { saved: CompanyFeatures }) {
         { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: !dirty || !canEdit },
         { key: 'F12', label: 'Configure', icon: 'settings', onClick: () => nav.push('company.config'), group: 'more' },
       ]}
-      footer={
-        canEdit ? (
-          <>
-            <Button onClick={() => void nav.back()}>Cancel</Button>
-            <Button variant="primary" icon="save" disabled={!dirty} loading={save.pending} onClick={() => void submit()} shortcut="Ctrl+A">
-              Save {dirty ? `(${changed.length} change${changed.length === 1 ? '' : 's'})` : ''}
-            </Button>
-          </>
-        ) : undefined
-      }
     >
       <Stack gap={6}>
         {!canEdit ? <ReadOnlyNotice what="the features" /> : null}

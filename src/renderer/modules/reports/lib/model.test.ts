@@ -10,6 +10,7 @@ import {
   pairLines,
   paramsPeriod,
   ratioText,
+  sheetTabTarget,
   statementAmountText,
   statementExport,
   tbExport,
@@ -195,4 +196,19 @@ test('expansion state is kept apart per company', () => {
   saveExpansion(expansionKey('7', 'bs:left'), new Set(['g:12']), storage);
   assert.equal(loadExpansion(expansionKey('8', 'bs:left'), storage), null);
   assert.deepEqual([...(loadExpansion(expansionKey('7', 'bs:left'), storage) ?? [])], ['g:12']);
+});
+
+test('two-sided statements: Tab goes to the other side of the same block, then to the next block', () => {
+  // P&L: Trading (0) and Profit & Loss Account (1).
+  assert.deepEqual(sheetTabTarget(2, { block: 0, side: 'left' }, false), { block: 0, side: 'right' });
+  assert.deepEqual(sheetTabTarget(2, { block: 0, side: 'right' }, false), { block: 1, side: 'left' });
+  assert.deepEqual(sheetTabTarget(2, { block: 1, side: 'left' }, false), { block: 1, side: 'right' });
+  assert.equal(sheetTabTarget(2, { block: 1, side: 'right' }, false), null, 'the last table: leave the sheet');
+  assert.deepEqual(sheetTabTarget(2, { block: 1, side: 'left' }, true), { block: 0, side: 'right' });
+  assert.deepEqual(sheetTabTarget(2, { block: 0, side: 'right' }, true), { block: 0, side: 'left' });
+  assert.equal(sheetTabTarget(2, { block: 0, side: 'left' }, true), null, 'the first table: Shift+Tab leaves (to the graph)');
+  // Balance Sheet: one block, Liabilities ⇄ Assets.
+  assert.deepEqual(sheetTabTarget(1, { block: 0, side: 'left' }, false), { block: 0, side: 'right' });
+  assert.equal(sheetTabTarget(1, { block: 0, side: 'right' }, false), null);
+  assert.equal(sheetTabTarget(1, { block: 3, side: 'left' }, false), null, 'a block that is not there');
 });

@@ -8,11 +8,13 @@
  *   'cheques.bank'       {bankLedgerId?}      the bank's cheque layout, 'A/c Payee' by default, signatory
  * A Payment / Contra paid by cheque without a number takes the next unused leaf of the bank's active
  * books when it is saved (core: cheques/hook.ts).
+ * 2.1: masters, no graph; the list's Print / Export sit in More (keys kept), Create is a secondary
+ * button; the forms have one Save, in the title row (Enter on the last field saves too).
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ChequeBook } from '../../../shared/types/cheques.ts';
 import { fieldErrorsOf, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useConfirm, useNav, userMessage, type ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, DataTable, EmptyState, Field, FieldGroup, NumberInput, Select, Stack, Switch, TextInput, useEnterAdvance, useToast, type Column } from '../../ui/index.ts';
+import { Badge, Banner, DataTable, EmptyState, Field, FieldGroup, NumberInput, Select, Stack, Switch, TextInput, useEnterAdvance, useToast, type Column } from '../../ui/index.ts';
 import { ChequeBankSelect, ChequesOff, NoChequeBanks, useChequeBanks, useChequesOn } from './components.tsx';
 import { bookDraft, bookErrors, bookInput, bookLeaves, bookStatus, CHEQUE_INVALIDATES, padNo, type BookDraft } from './lib/model.ts';
 
@@ -66,12 +68,15 @@ function BookList({ initialBank }: { initialBank: number | null }) {
         header: 'Status',
         width: 150,
         value: (r) => bookStatus(r).label,
+        // Plain words; only "Used up" (time for a new book) is marked.
         render: (r) => {
           const s = bookStatus(r);
-          return (
-            <Badge size="sm" tone={s.tone}>
+          return s.tone === 'warning' ? (
+            <Badge size="sm" tone="warning">
               {s.label}
             </Badge>
+          ) : (
+            s.label
           );
         },
       },
@@ -83,13 +88,14 @@ function BookList({ initialBank }: { initialBank: number | null }) {
     <ReportScreen
       title="Cheque Books"
       periodMode="none"
+      outputInMore
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Enter Alter · Alt+C Create cheque book · Alt+D Delete · Alt+R Leaf register · Alt+S Bank print settings · Alt+L Layouts · Alt+E Export"
       actions={[
-        { key: 'Alt+C', label: 'Create cheque book', icon: 'plus', primary: true, onClick: () => nav.push('cheques.book.form', targetBank !== null ? { bankLedgerId: targetBank } : {}), hidden: !canCreate },
+        { key: 'Alt+C', label: 'Create cheque book', icon: 'plus', onClick: () => nav.push('cheques.book.form', targetBank !== null ? { bankLedgerId: targetBank } : {}), hidden: !canCreate },
         { key: 'Alt+A', label: 'Alter', icon: 'edit', onClick: () => current && nav.push('cheques.book.form', { id: current.id, bankLedgerId: current.bankLedgerId }), disabled: !current, hidden: !canAlter },
         { key: 'Alt+R', label: 'Leaf register', icon: 'book', onClick: () => targetBank !== null && nav.push('cheques.register', { bankLedgerId: targetBank }), disabled: targetBank === null, group: 'go' },
         { key: 'Alt+S', label: 'Bank print settings', icon: 'settings', onClick: () => nav.push('cheques.bank', targetBank !== null ? { bankLedgerId: targetBank } : {}), group: 'go' },
@@ -118,7 +124,7 @@ function BookList({ initialBank }: { initialBank: number | null }) {
           onSelect={(k) => setCursor(k)}
           onRowActivate={(r) => nav.push(canAlter ? 'cheques.book.form' : 'cheques.register', canAlter ? { id: r.id, bankLedgerId: r.bankLedgerId } : { bankLedgerId: r.bankLedgerId, bookId: r.id })}
           loading={q.loading}
-          empty={<EmptyState icon="book" title="No cheque books yet" body="Enter the first and last leaf number of each cheque book (Alt+C). Payments by cheque then take the next leaf on their own." />}
+          empty={<EmptyState title="No cheque books yet" body="Enter the first and last leaf number of each cheque book (Alt+C). Payments by cheque then take the next leaf on their own." />}
         />
       )}
     </ReportScreen>
@@ -137,8 +143,8 @@ export function ChequeBookFormScreen({ params }: ScreenProps<{ bankLedgerId?: nu
   const book = q.data?.find((b) => b.id === id) ?? null;
   if (!book) {
     return (
-      <Screen title="Cheque Book Alteration" icon="book" width="form" loading={q.loading} error={q.error} onRetry={() => void q.refetch()}>
-        {!q.loading && !q.error ? <EmptyState icon="book" title="This cheque book no longer exists" body="It may have been deleted. Press Esc to go back." /> : null}
+      <Screen title="Cheque Book Alteration" width="form" loading={q.loading} error={q.error} onRetry={() => void q.refetch()}>
+        {!q.loading && !q.error ? <EmptyState title="This cheque book no longer exists" body="It may have been deleted. Press Esc to go back." /> : null}
       </Screen>
     );
   }
@@ -187,7 +193,6 @@ function BookForm({ saved, initialBank }: { saved: ChequeBook | null; initialBan
     <Screen
       title={saved ? 'Cheque Book Alteration' : 'Cheque Book Creation'}
       subtitle={saved ? `${saved.bankLedgerName} · ${saved.name}` : undefined}
-      icon="book"
       width="form"
       dirty={dirty}
       hint="Enter Next field · Ctrl+A Save · Esc Back"
@@ -220,13 +225,6 @@ function BookForm({ saved, initialBank }: { saved: ChequeBook | null; initialBan
               <Switch checked={d.isActive} disabled={!canSave} onChange={(v) => patch({ isActive: v })} />
             </Field>
           </FieldGroup>
-          {canSave ? (
-            <div>
-              <Button variant="primary" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()} data-enter-target="">
-                Save
-              </Button>
-            </div>
-          ) : null}
         </Stack>
       </form>
     </Screen>
@@ -246,7 +244,7 @@ export function BankSettingsScreen({ params }: ScreenProps<{ bankLedgerId?: numb
   if (!on) return <ChequesOff title="Cheque Printing Settings" />;
   if (bankId === null || !q.data) {
     return (
-      <Screen title="Cheque Printing Settings" icon="settings" width="form" loading={loading || (bankId !== null && q.loading)} error={q.error} onRetry={() => void q.refetch()} hint="Choose the bank · Esc Back">
+      <Screen title="Cheque Printing Settings" width="form" loading={loading || (bankId !== null && q.loading)} error={q.error} onRetry={() => void q.refetch()} hint="Choose the bank · Esc Back">
         {!loading && banks.length === 0 ? (
           <NoChequeBanks />
         ) : (
@@ -287,7 +285,6 @@ function BankSettingsForm({ saved, onBank }: { saved: { bankLedgerId: number; ba
     <Screen
       title="Cheque Printing Settings"
       subtitle={saved.bankLedgerName}
-      icon="settings"
       width="form"
       dirty={dirty}
       hint="Enter Next field · Ctrl+A Save · Alt+L Layouts · Alt+B Cheque books · Esc Back"
@@ -315,13 +312,6 @@ function BankSettingsForm({ saved, onBank }: { saved: { bankLedgerId: number; ba
               <TextInput value={signatory} maxLength={100} readOnly={!canAlter} placeholder="Authorised Signatory" onChange={(e) => setSignatory(e.target.value)} />
             </Field>
           </FieldGroup>
-          {canAlter ? (
-            <div>
-              <Button variant="primary" shortcut="Ctrl+A" loading={save.pending} disabled={!dirty} onClick={() => void submit()} data-enter-target="">
-                Save
-              </Button>
-            </div>
-          ) : null}
         </Stack>
       </form>
     </Screen>

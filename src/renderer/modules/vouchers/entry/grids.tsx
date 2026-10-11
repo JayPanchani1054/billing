@@ -5,6 +5,10 @@
  * dispatch, callbacks) comes from GridEnvContext, whose value is stable while typing. A keystroke
  * re-renders one row (plus the totals panel), so 500-line vouchers stay fast.
  *
+ * 2.1 (SPEC-21 §1.4): flat grids (no card), GST % as muted text that becomes an input on hover / focus
+ * (outside the Enter chain), row tools (bills, cost centres, bank, remove) shown on row hover / focus — a
+ * pressed tool stays visible — and a delivery note / order reference as muted text ("· note DN-1").
+ *
  * Keyboard (handled by the screen through the cell ids, see lib/gridNav.ts and lib/errorPaths.ts):
  * Enter / Shift+Enter move cell by cell; Enter on an empty row leaves the grid; ↑/↓ keep the column;
  * Ctrl+D deletes the row; Alt+N (or Ctrl+N) inserts a row above.
@@ -17,7 +21,7 @@ import type { Paise } from '../../../../shared/money.ts';
 import type { LedgerDetail, LedgerPickerRow } from '../../../../shared/types/accounts.ts';
 import type { GodownDto, ItemPickerRow } from '../../../../shared/types/inventory.ts';
 import type { CompanyFeatures } from '../../../../shared/settings.ts';
-import { AmountInput, Badge, Icon, IconButton, NumberInput, PercentInput, TextInput, Tooltip } from '../../../ui/index.ts';
+import { AmountInput, Icon, IconButton, NumberInput, PercentInput, TextInput, Tooltip } from '../../../ui/index.ts';
 import { cellId } from '../lib/errorPaths.ts';
 import { itemLineValue } from '../lib/formState.ts';
 import type { FormAction, ItemRow, LedgerRow } from '../lib/formState.ts';
@@ -112,10 +116,11 @@ export interface ItemGridProps {
   rowErrors: ReadonlyMap<string, Readonly<Record<string, string>>>;
   rowWarnings: ReadonlyMap<string, string>;
   qtyLabel: string;
-  footer?: ReactNode;
+  /** Rows of the table foot (totals). */
+  foot?: ReactNode;
 }
 
-export function ItemGrid({ title, caption, columns, rows, figures, rowErrors, rowWarnings, qtyLabel, footer }: ItemGridProps) {
+export function ItemGrid({ title, caption, columns, rows, figures, rowErrors, rowWarnings, qtyLabel, foot }: ItemGridProps) {
   return (
     <div className="bx-vch-grid">
       {title ? <h2 className="bx-vch-grid__title">{title}</h2> : null}
@@ -140,7 +145,7 @@ export function ItemGrid({ title, caption, columns, rows, figures, rowErrors, ro
             <ItemRowView key={r.key} row={r} index={i} columns={columns} figures={figures.get(r.key)} errors={rowErrors.get(r.key)} warning={rowWarnings.get(r.key)} />
           ))}
         </tbody>
-        {footer ? <tfoot>{footer}</tfoot> : null}
+        {foot ? <tfoot>{foot}</tfoot> : null}
       </table>
     </div>
   );
@@ -193,13 +198,7 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
               }}
               onRefetch={env.refetchItems}
             />
-            {row.trackingRef || row.orderRef ? (
-              <span className="bx-vch-cell-item__ref">
-                <Badge size="sm" tone="info">
-                  {row.trackingRef ? `Note ${row.trackingRef}` : `Order ${row.orderRef}`}
-                </Badge>
-              </span>
-            ) : null}
+            {row.trackingRef || row.orderRef ? <span className="bx-vch-unit">{row.trackingRef ? `· note ${row.trackingRef}` : `· order ${row.orderRef}`}</span> : null}
           </div>
         );
       case 'godown':
@@ -299,6 +298,7 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
             size="sm"
             value={row.gstRateOverride}
             max={100}
+            quiet
             placeholder={figures ? (figures.taxability === 'taxable' ? formatPercent(figures.rate) : figures.taxability.replace('_', '-')) : ''}
             invalid={!!err('gst')}
             onChange={(g) => patch({ gstRateOverride: g })}
@@ -335,7 +335,11 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
         </td>
       ))}
       <td className="bx-vch-table__act">
-        {blank ? null : <IconButton icon="trash" size="sm" variant="ghost" tabIndex={-1} aria-label={`Remove line ${index + 1}`} tooltip="Remove line (Ctrl+D)" onClick={() => env.deleteRow('items', k)} />}
+        {blank ? null : (
+          <span className="bx-vch-rowtools">
+            <IconButton icon="trash" size="sm" variant="ghost" tabIndex={-1} aria-label={`Remove line ${index + 1}`} tooltip="Remove line (Ctrl+D)" onClick={() => env.deleteRow('items', k)} />
+          </span>
+        )}
       </td>
     </tr>
   );
@@ -357,11 +361,12 @@ export interface LedgerGridProps {
   rowErrors: ReadonlyMap<string, Readonly<Record<string, string>>>;
   rowWarnings: ReadonlyMap<string, string>;
   /** Bill-wise / cost centre / bank detail state for the row buttons. */
-  footer?: ReactNode;
+  /** Rows of the table foot (totals). */
+  foot?: ReactNode;
   amountLabel: string;
 }
 
-export function LedgerGrid({ title, caption, slot, amountKind, columns, rows, figures, rowErrors, rowWarnings, footer, amountLabel }: LedgerGridProps) {
+export function LedgerGrid({ title, caption, slot, amountKind, columns, rows, figures, rowErrors, rowWarnings, foot, amountLabel }: LedgerGridProps) {
   return (
     <div className="bx-vch-grid">
       {title ? <h2 className="bx-vch-grid__title">{title}</h2> : null}
@@ -396,7 +401,7 @@ export function LedgerGrid({ title, caption, slot, amountKind, columns, rows, fi
             />
           ))}
         </tbody>
-        {footer ? <tfoot>{footer}</tfoot> : null}
+        {foot ? <tfoot>{foot}</tfoot> : null}
       </table>
     </div>
   );
@@ -476,6 +481,7 @@ const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind
             size="sm"
             value={row.gstRate}
             max={100}
+            quiet
             placeholder={figures && figures.taxability === 'taxable' ? formatPercent(figures.rate) : ''}
             invalid={!!err('gst')}
             onChange={(g) => patch({ gstRate: g })}

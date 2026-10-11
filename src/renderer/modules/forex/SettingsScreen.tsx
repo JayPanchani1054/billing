@@ -67,8 +67,6 @@ export function SettingsScreen() {
   return (
     <Screen
       title="Multi-currency Settings"
-      subtitle="Exchange gain / loss ledgers and the revaluation rate"
-      icon="settings"
       width="form"
       dirty={dirty}
       loading={q.loading}

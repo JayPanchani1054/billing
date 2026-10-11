@@ -94,9 +94,7 @@
   --fs-14: 14px;
   --fs-16: 16px;
   --fs-18: 18px;
-  --fs-20: 20px;
   --fs-24: 24px;
-  --fs-32: 32px;
 
   /* Semantic type roles */
   --text-caption: var(--fs-12); /* --fs-11 remains for Kbd chips only */
@@ -106,7 +104,6 @@
   --text-subtitle: var(--fs-14);
   --text-title: var(--fs-18);
   --text-heading: var(--fs-24);
-  --text-display: var(--fs-24); /* retired as a size (2.0); kept so nothing breaks */
 
   --lh-tight: 1.2;
   --lh-snug: 1.35;
@@ -195,8 +192,6 @@
   --on-danger-solid: var(--slate-0);
   --info-solid: var(--blue-600);
   --on-info-solid: var(--slate-0);
-  --chart-4: #c98500;
-  --chart-5: #d55181;
 }
 
 /* Light theme (default) */
@@ -326,7 +321,6 @@
   --chart-area-opacity: 0.1;
 
   /* Elevation */
-  --shadow-1: 0 1px 2px rgba(16, 19, 24, 0.06), 0 1px 1px rgba(16, 19, 24, 0.04);
   --shadow-2: 0 4px 12px rgba(16, 19, 24, 0.08), 0 1px 3px rgba(16, 19, 24, 0.06);
   --shadow-3: 0 16px 40px rgba(16, 19, 24, 0.16), 0 4px 12px rgba(16, 19, 24, 0.08);
   --overlay-border: var(--slate-200);
@@ -448,7 +442,6 @@
   --chart-axis: var(--slate-700);
   --chart-area-opacity: 0.16;
 
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
   --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
   --overlay-border: var(--slate-750);

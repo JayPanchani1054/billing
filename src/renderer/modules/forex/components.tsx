@@ -8,13 +8,12 @@ import { Button, Combobox, EmptyState } from '../../ui/index.ts';
 export function ForexOff({ title }: { title: string }) {
   const nav = useNav();
   return (
-    <Screen title={title} icon="rupee" hint="Esc Back">
+    <Screen title={title} hint="Esc Back">
       <EmptyState
-        icon="rupee"
         title="Multiple currencies is turned off for this company"
         body="Turn it on in Features (F11) › Accounting to keep customers, suppliers and bank accounts in a foreign currency."
         action={
-          <Button variant="primary" onClick={() => nav.push('company.features')}>
+          <Button variant="link" onClick={() => nav.push('company.features')}>
             Open Features (F11)
           </Button>
         }

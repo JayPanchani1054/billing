@@ -1,8 +1,10 @@
 /**
- * 'inventory.item.list' — Stock Items. Search (name, alias, part no., barcode) and group /
- * category filters run on the server; the table is virtualised (thousands of rows stay smooth).
- * Enter alters the item, Alt+C creates, Alt+D (or Ctrl+D) deletes, Alt+M opens multiple creation,
- * Alt+E exports, Alt+P prints.
+ * 'inventory.item.list' — Stock Items (2.1, SPEC-21 §1.7). Title row "Stock Items · 4 items" with
+ * "Create stock item" (Alt+C) and More ▾ (Create several Alt+M / Alt+B, Delete Alt+D or Ctrl+D, Print
+ * Alt+P, Export Alt+E). Toolbar row: one search (name, alias, part no., barcode — on the server) and the
+ * group filter; the category filter only when categories exist or one was asked for. The table is
+ * virtualised (thousands of rows stay smooth) and hides columns that are blank on every row; exports
+ * keep every column. Enter alters the item.
  */
 import { useMemo, useRef, useState } from 'react';
 import type { StockItemListRow } from '../../../shared/types/inventory.ts';
@@ -22,10 +24,11 @@ import {
   userMessage,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { Badge, Button, DataTable, EmptyState, Field, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
+import { Button, DataTable, EmptyState, Field, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { FeatureOff, INVENTORY_INVALIDATES } from './common.tsx';
 import { gstSummary } from './lib/itemForm.ts';
+import { countText, itemListActions } from './lib/listActions.ts';
 import { StockCategoryPicker, StockGroupPicker } from './pickers.tsx';
 import './inventory.css';
 
@@ -70,6 +73,9 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
     { keepPrevious: true },
   );
   const units = useApiQuery('inventory.unit.list', { limit: 5000 }, { staleTime: 60_000 });
+  // Same query as the category picker (shared cache): the filter shows only when there is a category to pick.
+  const categories = useApiQuery('inventory.category.list', { limit: 5000 }, { staleTime: 60_000 });
+  const showCategory = initialCategoryId !== null || categoryId !== null || (categories.data?.rows.length ?? 0) > 0;
   const decimalsOf = useMemo(() => {
     const m = new Map((units.data?.rows ?? []).map((u) => [u.id, u.decimalPlaces]));
     return (unitId: number) => m.get(unitId) ?? 0;
@@ -90,16 +96,8 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
           <span className="bx-inv-pick">
             <span className="bx-inv-pick__name">{r.name}</span>
             {r.alias ? <span className="bx-inv-pick__meta">{r.alias}</span> : null}
-            {!r.isActive ? (
-              <Badge size="sm" tone="neutral">
-                Inactive
-              </Badge>
-            ) : null}
-            {r.isService ? (
-              <Badge size="sm" tone="info">
-                Service
-              </Badge>
-            ) : null}
+            {!r.isActive ? <span className="bx-inv-pick__meta">inactive</span> : null}
+            {r.isService ? <span className="bx-inv-pick__meta">service</span> : null}
           </span>
         ),
         title: (r) => [r.name, r.alias, r.partNo ? `Part no. ${r.partNo}` : '', r.barcode ? `Barcode ${r.barcode}` : ''].filter(Boolean).join(' · '),
@@ -107,20 +105,17 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
       { key: 'groupName', header: 'Under', width: 180, sortable: true, value: (r) => r.groupName ?? '' },
       { key: 'categoryName', header: 'Category', width: 150, sortable: true, value: (r) => r.categoryName ?? '' },
       {
+        // The unit is in the quantity ("996 Nos"); the date is the working date (F2).
         key: 'stockQty',
-        header: 'In stock',
+        header: `In stock (${formatDate(asOf, 'D-MMM-YY')})`,
+        headerLabel: `In stock on ${formatDate(asOf)}`,
         kind: 'number',
-        width: 140,
+        width: 160,
         sortable: true,
         sortValue: (r) => r.stockQty ?? 0,
         render: (r) =>
-          r.isService ? (
-            <span className="bx-muted">—</span>
-          ) : (
-            <span className={(r.stockQty ?? 0) < 0 ? 'bx-inv-neg bx-num' : 'bx-num'}>{formatQty(r.stockQty ?? 0, decimalsOf(r.unitId), r.unitSymbol)}</span>
-          ),
+          r.isService ? null : <span className={(r.stockQty ?? 0) < 0 ? 'bx-inv-neg bx-num' : 'bx-num'}>{formatQty(r.stockQty ?? 0, decimalsOf(r.unitId), r.unitSymbol)}</span>,
       },
-      { key: 'unitSymbol', header: 'Unit', width: 80 },
       {
         key: 'gstRate',
         header: 'GST',
@@ -134,7 +129,7 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
       },
       { key: 'sellingPrice', header: 'Selling price', kind: 'amount', width: 130, blankZero: true, sortable: true, value: (r) => r.sellingPrice ?? 0 },
     ],
-    [decimalsOf, gstOn],
+    [decimalsOf, gstOn, asOf],
   );
 
   const remove = async (r: StockItemListRow | null): Promise<void> => {
@@ -164,18 +159,18 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
   return (
     <ReportScreen
       title="Stock Items"
-      subtitle={`Stock as on ${formatDate(asOf)} (working date, F2)`}
+      subtitle={q.data ? countText(rows.length, 'item', 'items', total) : undefined}
       periodMode="none"
+      outputInMore
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
-      hint="Type to Search · Enter Alter · Alt+C Create Stock Item · Alt+D Delete · Alt+E Export"
-      actions={[
-        { key: 'Alt+C', label: 'Create stock item', icon: 'plus', primary: true, onClick: create, hidden: !canCreate },
-        { key: 'Alt+M', label: 'Multiple items', icon: 'layers', onClick: () => nav.push('inventory.item.bulk', groupId !== null ? { groupId } : {}), hidden: !canCreate },
-        { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(current), hidden: !canDelete, disabled: !current, group: 'danger' },
-      ]}
+      hint="Type to Search · Enter Alter · Alt+C Create Stock Item · Alt+M Create several · Alt+D Delete · Alt+E Export"
+      actions={itemListActions(
+        { canCreate, canDelete, hasCurrent: current !== null, busy: del.pending },
+        { create, createSeveral: () => nav.push('inventory.item.bulk', groupId !== null ? { groupId } : {}), remove: () => void remove(current) },
+      )}
       filters={
         <div className="bx-inv-filters">
           <Field label="Search" hideLabel>
@@ -183,7 +178,7 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               leadingIcon="search"
-              placeholder="Search name, alias, part no. or barcode"
+              placeholder="Name, alias, part no. or barcode"
               aria-label="Search stock items"
               data-autofocus=""
               onKeyDown={(e) => {
@@ -197,9 +192,11 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
           <Field label="Under" hideLabel>
             <StockGroupPicker value={groupId} onChange={(id) => setGroupId(id)} allowCreate={false} placeholder="All groups" aria-label="Filter by stock group" />
           </Field>
-          <Field label="Category" hideLabel>
-            <StockCategoryPicker value={categoryId} onChange={(id) => setCategoryId(id)} allowCreate={false} placeholder="All categories" aria-label="Filter by category" />
-          </Field>
+          {showCategory ? (
+            <Field label="Category" hideLabel>
+              <StockCategoryPicker value={categoryId} onChange={(id) => setCategoryId(id)} allowCreate={false} placeholder="All categories" aria-label="Filter by category" />
+            </Field>
+          ) : null}
         </div>
       }
       exportDef={() => ({
@@ -230,13 +227,8 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
       })}
       footer={
         total > rows.length ? (
-          <p className="bx-inv-note">
-            Showing the first {rows.length.toLocaleString('en-IN')} of {total.toLocaleString('en-IN')} items. Type in Search to narrow the list.
-          </p>
-        ) : rows.length ? (
-          <p className="bx-inv-note">
-            {rows.length.toLocaleString('en-IN')} item{rows.length === 1 ? '' : 's'}
-          </p>
+          // The context run already says "5,000 of 12,345 items": only the way out is added here.
+          <p className="bx-inv-note">Only the first {rows.length.toLocaleString('en-IN')} are listed — type in Search to narrow the list.</p>
         ) : null
       }
     >
@@ -252,21 +244,15 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
         loading={q.loading}
         virtualize="auto"
         typeToJump
+        hideEmptyColumns
         empty={
           filtered ? (
-            <EmptyState icon="search" title="No items match" body="Change the search or the filters." />
+            <EmptyState title="No items match" body="Change the search or the filters." />
           ) : (
             <EmptyState
-              icon="box"
               title="No stock items yet"
-              body="Create the goods and services you buy and sell. Press Alt+C, or Alt+M to create many at once."
-              action={
-                canCreate ? (
-                  <Button variant="primary" icon="plus" shortcut="Alt+C" onClick={create}>
-                    Create stock item
-                  </Button>
-                ) : undefined
-              }
+              body="Create the goods and services you buy and sell — one at a time, or several at once (Alt+M)."
+              action={canCreate ? <Button onClick={create}>Create stock item</Button> : undefined}
             />
           )
         }

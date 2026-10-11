@@ -5,13 +5,15 @@
  * the bank's corporate net banking (generic layout: README › E-payments). Payments with a problem
  * (no bank details, several payees, RTGS under ₹2 lakh …) are listed with the fix and never go into a
  * file; Alt+M opens the payee's bank details, Alt+O the voucher. Saving a file is an export (edit log).
+ * 2.1: a workflow, no graph; the bank and the value date are the toolbar row's two quiet controls (their
+ * explanations in tooltips); only problems and payments already in a file are marked in the Status column.
  */
 import { useMemo, useState } from 'react';
 import { formatDate, localDateOf, todayLocal } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { EPaymentCandidate } from '../../../shared/types/cheques.ts';
 import { api, invalidate, native, ReportScreen, showInFolder, useApiQuery, useCan, useConfirm, useNav, usePeriod, userMessage, useWorkingDate, type ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Checkbox, DataTable, DateInput, EmptyState, Field, Inline, Stack, useToast, type Column } from '../../ui/index.ts';
+import { Badge, Banner, Checkbox, DataTable, DateInput, EmptyState, Inline, Stack, useToast, type Column } from '../../ui/index.ts';
 import { ChequeBankSelect, useChequeBanks } from './components.tsx';
 import { alreadyExported, CHEQUE_INVALIDATES, epaymentChosen, epaymentExport, makeAndSavePaymentFile, readyPayments, toggleAllReady } from './lib/model.ts';
 
@@ -120,9 +122,7 @@ export function EPaymentScreen({ params }: ScreenProps<{ bankLedgerId?: number }
               {`In a file of ${formatDate(localDateOf(r.exportedAt))}`}
             </Badge>
           ) : (
-            <Badge size="sm" tone="success">
-              Ready
-            </Badge>
+            'Ready'
           ),
       },
     ],
@@ -146,13 +146,26 @@ export function EPaymentScreen({ params }: ScreenProps<{ bankLedgerId?: number }
         { key: 'Alt+O', label: 'Open voucher', icon: 'eye', onClick: () => current && nav.push('vouchers.view', { id: current.voucherId }), disabled: !current, group: 'go' },
       ]}
       filters={
-        <Inline gap={3} wrap align="end">
-          <Field label="From bank">
-            <ChequeBankSelect banks={banks} value={bankId} onChange={(v) => { setBankId(v); setSelected(new Set()); }} allowAll />
-          </Field>
-          <Field label="Value date" hint="Blank: each payment's date (never before today)">
-            <DateInput aria-label="Value date" size="sm" value={valueDate} minDate={todayLocal()} referenceDate={workingDate} onChange={setValueDate} />
-          </Field>
+        <Inline gap={2} wrap align="center">
+          <ChequeBankSelect
+            banks={banks}
+            value={bankId}
+            onChange={(v) => {
+              setBankId(v);
+              setSelected(new Set());
+            }}
+            allowAll
+          />
+          <DateInput
+            aria-label="Value date"
+            placeholder="Value date"
+            title="Value date of the transfers. Blank: each payment's date (never before today)"
+            size="sm"
+            value={valueDate}
+            minDate={todayLocal()}
+            referenceDate={workingDate}
+            onChange={setValueDate}
+          />
         </Inline>
       }
       exportDef={() => epaymentExport(rows, { from, to })}
@@ -181,7 +194,6 @@ export function EPaymentScreen({ params }: ScreenProps<{ bankLedgerId?: number }
           loading={q.loading}
           empty={
             <EmptyState
-              icon="bank"
               title="No payments by bank transfer in this period"
               body="Payments whose bank line says NEFT, RTGS or IMPS (Alt+K in the voucher), or has no instrument, are listed here. Cheque, DD, UPI and card payments are not. Change the period with Alt+F2."
             />

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { UpdatePolicy, UpdateStatus } from '../../../../shared/bridge.ts';
-import { checkedText, dismissKey, formatSize, noticeFor, shouldAskAutomatic, updateView } from './updateView.ts';
+import { checkedText, dismissKey, formatSize, noticeFor, restartConfirm, shouldAskAutomatic, updateView } from './updateView.ts';
 
 const USER: UpdatePolicy = { mode: 'manual', locked: false, source: 'user', reason: null };
 const WEEKLY: UpdatePolicy = { mode: 'weekly', locked: false, source: 'user', reason: null };
@@ -93,16 +93,28 @@ describe('updates view-model', () => {
   test('Home notice: ready / available, dismissible per version and stage', () => {
     const ready: UpdateStatus = { state: 'ready', current: '2.0.0', version: '2.1.0', notes: '', installOnQuit: false, policy: USER };
     const n = noticeFor(ready, null);
-    assert.deepEqual(n, { version: '2.1.0', title: 'Pevqori 2.1.0 is ready — Restart to update', ready: true });
+    // One line: "Pevqori 2.1.0 is ready", then the action — the link that ends the line.
+    assert.deepEqual(n, { version: '2.1.0', title: 'Pevqori 2.1.0 is ready', action: 'Restart to update', ready: true });
+    assert.ok(!/[—–-]\s*$/.test(n!.title), 'no dangling dash before the link at the far end of the line');
     assert.equal(noticeFor(ready, dismissKey(n!)), null);
     assert.ok(noticeFor({ ...ready, version: '2.2.0' }, dismissKey(n!)), 'a newer version shows again');
     const available: UpdateStatus = { state: 'available', current: '2.0.0', version: '2.1.0', releaseDate: '', notes: '', sizeBytes: 0, policy: USER };
     const a = noticeFor(available, null);
     assert.equal(a?.title, 'Pevqori 2.1.0 is available');
+    assert.equal(a?.action, "See what's new");
     assert.equal(noticeFor(available, dismissKey(a!)), null);
     assert.ok(noticeFor(ready, dismissKey(a!)), 'dismissing "available" does not hide "ready"');
     assert.equal(noticeFor({ state: 'idle', current: '2.0.0', lastCheck: null, policy: USER }, null), null);
     assert.equal(noticeFor(null, null), null);
+  });
+
+  test('Restart to update asks first; the backup reassurance lives in that dialog', () => {
+    assert.deepEqual(restartConfirm(true), {
+      title: 'Restart to update?',
+      message: 'Pevqori closes and opens again in about a minute. Your companies and settings are kept, and the open company is backed up first.',
+      confirmLabel: 'Restart to update',
+    });
+    assert.equal(restartConfirm(false).message, 'Pevqori closes and opens again in about a minute. Your companies and settings are kept.');
   });
 
   test('formatting helpers', () => {

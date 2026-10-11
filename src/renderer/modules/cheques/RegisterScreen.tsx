@@ -8,15 +8,20 @@
  *   Alt+X            cancel an unused leaf (with the reason)  ·  Alt+U re-open one cancelled by mistake
  *   Alt+R            Bank Reconciliation of the bank (where the clearing date is entered)
  *   Alt+B            cheque books  ·  Alt+E export  ·  Alt+P print
+ * 2.1: with one cheque book chosen, a meter "Leaves used N of M" (graph strip, lib/charts.ts); the stat says
+ * what is issued and not cleared and how many are stale. The toolbar row holds the view tabs and the bank
+ * (its one filter); the cheque book and the "as on" date are set under Filters ▾ and read in the context run.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatDate, localDateOf, todayLocal } from '../../../shared/dates.ts';
 import { formatMoney } from '../../../shared/format.ts';
 import type { ChequeRegisterRow } from '../../../shared/types/cheques.ts';
 import { fieldErrorsOf, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useNav, userMessage, useWorkingDate, type ScreenProps } from '../../app/index.ts';
-import { Badge, Button, DataTable, DateInput, Dialog, EmptyState, Field, Hotkeys, Inline, KpiCard, SegmentedControl, Select, Stack, TextInput, useToast, type Column } from '../../ui/index.ts';
+import { Badge, Button, DataTable, DateInput, Dialog, EmptyState, Field, FiltersPopover, Hotkeys, Inline, SegmentedControl, Select, StatLine, TextInput, useToast, type Column } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { ChequeBankSelect, ChequesOff, NoChequeBanks, useChequeBanks, useChequesOn } from './components.tsx';
-import { CHEQUE_INVALIDATES, leafActions, REGISTER_VIEWS, registerExport, STATUS_LABELS, STATUS_TONES, type RegisterView } from './lib/model.ts';
+import { leafMeter, leafStat } from './lib/charts.ts';
+import { CHEQUE_INVALIDATES, leafActions, REGISTER_VIEWS, registerContext, registerExport, STATUS_LABELS, type RegisterView } from './lib/model.ts';
 
 export interface ChequeRegisterParams {
   bankLedgerId?: number;
@@ -49,7 +54,10 @@ function Register({ params }: { params: ChequeRegisterParams }) {
   const restore = useApiMutation('cheques.leaf.restore', { invalidates: CHEQUE_INVALIDATES });
   const toast = useToast();
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
-  const totals = q.data?.totals;
+  const bookName = bookId === null ? null : ((books.data ?? []).find((b) => b.id === bookId)?.name ?? null);
+  const spec = useMemo(() => (q.data ? leafMeter(q.data, bookName) : null), [q.data, bookName]);
+  const stat = q.data ? leafStat(q.data, bookId !== null) : [];
+  const today = todayLocal();
   const current = rows.find((r) => r.key === cursor) ?? rows[0] ?? null;
   const can = leafActions(current);
 
@@ -72,17 +80,18 @@ function Register({ params }: { params: ChequeRegisterParams }) {
         width: 150,
         sortable: true,
         value: (r) => STATUS_LABELS[r.status],
+        // Plain words; only the exception (a stale cheque) is marked.
         render: (r) => (
-          <Inline gap={1}>
-            <Badge size="sm" tone={STATUS_TONES[r.status]}>
-              {STATUS_LABELS[r.status]}
-            </Badge>
-            {r.postDated ? (
-              <Badge size="sm" tone="info">
-                PDC
+          <>
+            {r.status === 'stale' ? (
+              <Badge size="sm" tone="danger">
+                {STATUS_LABELS[r.status]}
               </Badge>
-            ) : null}
-          </Inline>
+            ) : (
+              STATUS_LABELS[r.status]
+            )}
+            {r.postDated ? <span className="bx-muted" title="Post-dated: dated after the as-on date"> · PDC</span> : null}
+          </>
         ),
       },
       { key: 'chequeDate', header: 'Cheque date', kind: 'date', width: 110, sortable: true },
@@ -91,15 +100,16 @@ function Register({ params }: { params: ChequeRegisterParams }) {
       { key: 'voucherLabel', header: 'Voucher', minWidth: 170, value: (r) => r.voucherLabel ?? '' },
       { key: 'bankDate', header: 'Cleared on', kind: 'date', width: 110 },
       { key: 'printedAt', header: 'Printed', width: 110, value: (r) => (r.printedAt ? formatDate(localDateOf(r.printedAt)) : '') },
-      { key: 'bookName', header: 'Book', width: 150, value: (r) => r.bookName ?? 'Outside the books' },
+      // One book chosen (Filters ▾, named in the context run): its name on every row says nothing.
+      { key: 'bookName', header: 'Book', width: 150, value: (r) => r.bookName ?? 'Outside the books', hidden: bookId !== null },
       { key: 'reason', header: 'Remarks', minWidth: 200, value: (r) => r.reason ?? '' },
     ],
-    [],
+    [bookId],
   );
 
   if (!banksLoading && banks.length === 0) {
     return (
-      <Screen title="Cheque Leaf Register" icon="book">
+      <Screen title="Cheque Leaf Register">
         <NoChequeBanks />
       </Screen>
     );
@@ -109,6 +119,9 @@ function Register({ params }: { params: ChequeRegisterParams }) {
     <ReportScreen
       title="Cheque Leaf Register"
       periodMode="none"
+      subtitle={registerContext(asOf, bookName)}
+      graph={reportGraph(spec)}
+      stat={stat.length > 0 ? <StatLine items={stat} /> : null}
       loading={q.loading || bankId === null}
       refreshing={q.refreshing}
       error={q.error}
@@ -122,50 +135,62 @@ function Register({ params }: { params: ChequeRegisterParams }) {
         { key: 'Alt+B', label: 'Cheque books', icon: 'book' as const, onClick: () => nav.push('cheques.books', bankId !== null ? { bankLedgerId: bankId } : {}), group: 'go' },
       ]}
       filters={
-        <Inline gap={2} wrap align="end">
-          <ChequeBankSelect banks={banks} value={bankId} onChange={(v) => { setBankId(v); setBookId(null); }} />
+        <Inline gap={2} wrap align="center">
           <SegmentedControl<RegisterView> aria-label="Leaves" size="sm" value={view} onChange={setView} options={REGISTER_VIEWS} />
-          <Select
-            aria-label="Cheque book"
-            size="sm"
-            value={bookId === null ? '' : String(bookId)}
-            onChange={(v: string) => setBookId(v === '' ? null : Number(v))}
-            options={[{ value: '', label: 'All books' }, ...(books.data ?? []).map((b) => ({ value: String(b.id), label: b.name }))]}
+          <ChequeBankSelect
+            banks={banks}
+            value={bankId}
+            onChange={(v) => {
+              setBankId(v);
+              setBookId(null);
+            }}
           />
-          <DateInput aria-label="Status as on" size="sm" value={asOf} referenceDate={workingDate} onChange={(v) => v && setAsOf(v)} />
+          {/* One filter on the row (the bank); the book and the date sit under Filters ▾ (SPEC-21 §1.2) — the
+              context run names the chosen book, the label counts what is set. */}
+          <FiltersPopover
+            count={(asOf === today ? 0 : 1) + (bookId === null ? 0 : 1)}
+            onClear={() => {
+              setAsOf(today);
+              setBookId(null);
+            }}
+          >
+            <Field label="Cheque book">
+              <Select
+                aria-label="Cheque book"
+                size="sm"
+                value={bookId === null ? '' : String(bookId)}
+                onChange={(v: string) => setBookId(v === '' ? null : Number(v))}
+                options={[{ value: '', label: 'All books' }, ...(books.data ?? []).map((b) => ({ value: String(b.id), label: b.name }))]}
+              />
+            </Field>
+            <Field label="Status as on">
+              <DateInput aria-label="Status as on" size="sm" value={asOf} referenceDate={workingDate} onChange={(v) => v && setAsOf(v)} />
+            </Field>
+          </FiltersPopover>
         </Inline>
       }
       exportDef={() => (q.data ? registerExport(q.data) : { title: 'Cheque Leaf Register', columns: [], rows: [] })}
     >
-      <Stack gap={3}>
-        {totals ? (
-          <Inline gap={3} wrap>
-            <KpiCard label="Issued, not cleared" value={totals.unclearedAmount} amount caption={`${totals.issued + totals.stale} cheques (${totals.stale} stale)`} icon="clock" />
-            <KpiCard label="Leaves" value={String(totals.leaves)} caption={`${totals.unused} unused · ${totals.cleared} cleared · ${totals.cancelled} cancelled`} icon="book" />
-            <KpiCard label="Stale cheques" value={String(totals.stale)} caption="Valid 3 months from their date: re-issue them, or cancel the payment" icon="alert" />
-          </Inline>
-        ) : null}
-        <DataTable<ChequeRegisterRow>
-          aria-label="Cheque leaves"
-          autoFocus
-          columns={columns}
-          rows={rows}
-          getRowKey={(r) => r.key}
-          selectedKey={current?.key ?? null}
-          onSelect={(k) => setCursor(k)}
-          onRowActivate={(r) => {
-            if (r.voucherId !== null) nav.push('vouchers.view', { id: r.voucherId });
-          }}
-          loading={q.loading}
-          empty={
-            <EmptyState
-              icon="book"
-              title={view === 'all' ? 'No cheque leaves for this bank' : `No ${STATUS_LABELS[view as Exclude<RegisterView, 'all'>].toLowerCase()} leaves`}
-              body="Add the bank's cheque books (Alt+B). Cheques written in Payments and Contras appear here with their clearing status from the Bank Reconciliation."
-            />
-          }
-        />
-      </Stack>
+      <DataTable<ChequeRegisterRow>
+        aria-label="Cheque leaves"
+        hideEmptyColumns
+        autoFocus
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => r.key}
+        selectedKey={current?.key ?? null}
+        onSelect={(k) => setCursor(k)}
+        onRowActivate={(r) => {
+          if (r.voucherId !== null) nav.push('vouchers.view', { id: r.voucherId });
+        }}
+        loading={q.loading}
+        empty={
+          <EmptyState
+            title={view === 'all' ? 'No cheque leaves for this bank' : `No ${STATUS_LABELS[view as Exclude<RegisterView, 'all'>].toLowerCase()} leaves`}
+            body="Add the bank's cheque books (Alt+B). Cheques written in Payments and Contras appear here with their clearing status from the Bank Reconciliation."
+          />
+        }
+      />
       {cancelling && bankId !== null ? <CancelLeafDialog bankLedgerId={bankId} row={cancelling} onClose={() => setCancelling(null)} /> : null}
     </ReportScreen>
   );

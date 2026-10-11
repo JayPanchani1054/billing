@@ -168,3 +168,31 @@ export function patchFromRateSelect(value: string): Pick<GstDraft, 'gstRate' | '
   if (value === '') return { gstRate: null, allowNonStandardRate: false };
   return { gstRate: Number(value), allowNonStandardRate: false };
 }
+
+/** What decides whether the "Applicable from" date is on screen (GstFields). */
+export interface ApplicableFromContext {
+  gstApplicable: boolean;
+  /** Alteration of a saved master. */
+  existing: boolean;
+  /** The saved master carries its own GST details. */
+  savedOwn: boolean;
+  /** Rows of dated GST history. */
+  historyCount: number;
+  /** The GST details differ from the saved ones. */
+  changed: boolean;
+  value: string | null;
+  error?: string;
+  /**
+   * (2.1, the stock item's Essentials) Show the date only while it can matter: the details changed, or it
+   * holds a date or an error — not as an empty optional row on every alteration.
+   */
+  onlyWhenNeeded?: boolean;
+}
+
+/** Whether "Applicable from" is shown: an alteration of a master with its own (or dated) GST details. */
+export function showApplicableFrom(c: ApplicableFromContext): boolean {
+  const applies = c.gstApplicable && c.existing && (c.savedOwn || c.historyCount > 0);
+  if (!applies) return false;
+  if (!c.onlyWhenNeeded) return true;
+  return c.changed || !!c.value || !!c.error;
+}

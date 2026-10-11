@@ -291,3 +291,23 @@ export function daysBetween(from: string, to: string): number {
   }
   return n;
 }
+
+/** One table of a two-sided statement sheet: block index (Trading = 0, P&L = 1) and side. */
+export interface SheetCell {
+  block: number;
+  side: 'left' | 'right';
+}
+
+/**
+ * Tab order of a two-sided statement (2.0's "Tab Other side"): each side of the sheet is one named
+ * section holding every block, so DOM order would visit Trading Expenses → P&L Expenses → Trading
+ * Income. Tab instead goes to the other side of the same block, then on to the next block: Trading
+ * Expenses → Trading Income → P&L Expenses → P&L Income (Shift+Tab back). null = leave the sheet (the
+ * browser's own order).
+ */
+export function sheetTabTarget(blocks: number, from: SheetCell, back: boolean): SheetCell | null {
+  const at = from.block * 2 + (from.side === 'right' ? 1 : 0);
+  const to = at + (back ? -1 : 1);
+  if (from.block < 0 || from.block >= blocks || to < 0 || to >= blocks * 2) return null;
+  return { block: Math.floor(to / 2), side: to % 2 === 1 ? 'right' : 'left' };
+}

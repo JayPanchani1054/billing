@@ -55,7 +55,6 @@ export const DYNAMIC_CLASSES: readonly Dynamic[] = [
   { match: 'bx-chart--o-' }, // graph kit: ordinal ramp step (ui/lib/chart.ts colorClass)
   { match: 'bx-chart--s-' }, // charts: series slot
   { match: 'bx-chart__key--' }, // chart legend: key shape
-  { match: 'bx-db-alert__icon--' }, // dashboard alerts: tone
   { match: 'bx-divider--' }, // Divider: orientation
   { match: 'bx-drawer--' }, // Drawer: size
   { match: 'bx-empty--' }, // EmptyState: size
@@ -69,7 +68,6 @@ export const DYNAMIC_CLASSES: readonly Dynamic[] = [
   { match: 'bx-kbd-group--' }, // Kbd: tone, size
   { match: 'bx-kv--' }, // KeyValueList: layout, columns
   { match: 'bx-modal--' }, // Modal: size
-  { match: 'bx-os-lvl-' }, // outstanding ageing levels
   { match: 'bx-progress--' }, // ProgressBar: tone, size
   { match: 'bx-radio-group--' }, // RadioGroup: orientation
   { match: 'bx-screen-layout--' }, // Screen: width

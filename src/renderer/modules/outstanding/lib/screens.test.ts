@@ -1,44 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ReminderParty, RemindersResult } from '../../../../shared/types/outstanding.ts';
-import { ageingBarText, ageingLevel, ageingSegments } from './ageingBars.ts';
 import { interestBasisText, interestInput, interestSegmentLines, rateText } from './interest.ts';
 import type { InterestChoices } from './interest.ts';
 import { clampLookAhead, clampMinDays, dueInText, letterNumericColumns, lookAheadText, remindersExport, remindersQuery, selectedParties, toggleAll, toggleExcluded } from './reminders.ts';
-
-describe('ageing bars', () => {
-  it('spreads the age ranges over four severity levels, last bucket always the most severe', () => {
-    // Default buckets: Not due, 1–30, 31–60, 61–90, 91–180, > 180 → 6 buckets, 5 age ranges.
-    // level = 1 + floor((i − 1) × 4 / 5): i=1 → 1, 2 → 1 (0.8), 3 → 2 (1.6), 4 → 3 (2.4), 5 → last → 4.
-    assert.deepEqual([0, 1, 2, 3, 4, 5].map((i) => ageingLevel(i, 6)), [0, 1, 1, 2, 3, 4]);
-    // One age range only (Not due, > 30): it is the oldest → 4.
-    assert.deepEqual([0, 1].map((i) => ageingLevel(i, 2)), [0, 4]);
-  });
-
-  it('draws only positive amounts and the percentages add up to exactly 100', () => {
-    // 1 : 1 : 1 → 33.3 + 33.3 + 33.3 = 99.9; the spare 0.1 goes to the first largest remainder.
-    const s = ageingSegments([100, 100, 100]);
-    assert.deepEqual(s.map((x) => x.percent), [33.4, 33.3, 33.3]);
-    assert.equal(Math.round(s.reduce((a, x) => a + x.percent * 10, 0)), 1000);
-    // Advances (negative) and zero buckets have no length.
-    const t = ageingSegments([0, 40_000_00, -5_000_00, 1_20_000_00]);
-    assert.deepEqual(t.map((x) => [x.index, x.percent, x.level]), [
-      [1, 25, 1], // 40,000 ÷ 1,60,000 = 25%
-      [3, 75, 4], // 1,20,000 ÷ 1,60,000 = 75%; index 3 is the last of 4 buckets
-    ]);
-    assert.deepEqual(ageingSegments([0, -1]), []);
-  });
-
-  it('describes the bar for screen readers', () => {
-    const money = (p: number): string => `₹${p / 100}`;
-    // 40,000 ÷ 1,20,000 = 33.33…% → 333 tenths; 80,000 ÷ 1,20,000 = 66.66…% → 666 + the spare tenth = 667.
-    // The spoken shares are the bar's own, so they add up to 100 (33.3 + 66.7).
-    assert.equal(ageingBarText(['Not due', '1–30 days'], [40_000_00, 80_000_00], money), 'Not due ₹40000 (33.3%), 1–30 days ₹80000 (66.7%)');
-    // Only positive amounts are described (an advance is not "age").
-    assert.equal(ageingBarText(['Not due', '1–30 days', '> 30 days'], [0, -5_000_00, 10_000_00], money), '> 30 days ₹10000 (100%)');
-    assert.equal(ageingBarText(['Not due'], [0], money), 'Nothing outstanding to age');
-  });
-});
 
 describe('interest input', () => {
   const base: InterestChoices = { scope: 'all', ledgerId: null, groupId: undefined, from: '2026-04-01', to: '2026-09-30', ratePercent: null, basis: 'due_date', graceDays: null };

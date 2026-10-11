@@ -24,7 +24,6 @@ import { api, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useConf
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import {
   AmountInput,
-  Badge,
   Banner,
   Button,
   Checkbox,
@@ -46,7 +45,10 @@ import {
   useToast,
 } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { GroupPicker, LedgerPicker } from '../accounts/pickers.tsx';
+import { budgetVarianceChart, varianceBarValue } from './lib/charts.ts';
 import {
   BASIS_LABEL,
   budgetLinesForSave,
@@ -65,6 +67,7 @@ import type { BudgetLineDraft } from './lib/model.ts';
 
 const EMPTY_SCENARIOS: readonly ScenarioRow[] = [];
 const EMPTY_BUDGETS: readonly BudgetRow[] = [];
+const EMPTY_VARIANCE: readonly BudgetVarianceRow[] = [];
 
 function DialogKeys({ onAccept }: { onAccept: () => void }) {
   useHotkeys({ 'Ctrl+A': () => onAccept() });
@@ -109,19 +112,24 @@ export function ScenarioListScreen() {
   return (
     <Screen
       title="Scenarios"
-      subtitle="Provisional reports: add memorandum vouchers, reversing journals and optional vouchers, or leave voucher types out"
-      icon="layers"
+      subtitle={q.data ? `${rows.length} scenario${rows.length === 1 ? '' : 's'}` : undefined}
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Enter Alter · Alt+C Create Scenario · Alt+D Delete · Esc Back"
       actions={[
-        { key: 'Alt+C', label: 'Create scenario', icon: 'plus', primary: true, onClick: () => setEditing('new'), hidden: !canCreate },
+        {
+          key: 'Alt+C',
+          label: 'Create scenario',
+          icon: 'plus',
+          onClick: () => setEditing('new'),
+          hidden: !canCreate,
+          prominent: true,
+        },
         { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), disabled: !current, hidden: !canDelete, group: 'danger' },
       ]}
     >
-      <Stack gap={3}>
-        <DataTable<ScenarioRow>
+      <DataTable<ScenarioRow>
           aria-label="Scenarios"
           autoFocus
           columns={columns}
@@ -134,15 +142,10 @@ export function ScenarioListScreen() {
             <EmptyState
               icon="layers"
               title="No scenarios yet"
-              body="Press Alt+C to create one — e.g. “Provisional” that adds your Memorandum and Reversing Journal vouchers to the Balance Sheet and P&L."
+              body="E.g. “Provisional”, adding your Memorandum and Reversing Journal vouchers to the Balance Sheet and P&L."
             />
           }
         />
-        <p className="bx-muted">
-          A reversing journal counts while the report date is on or before its “applicable up to” date. Scenarios never change the books, GST returns or
-          outstanding — only the Trial Balance, P&L, Balance Sheet, Group Summary and Budget Variance run under them (Alt+S there).
-        </p>
-      </Stack>
       {editing ? <ScenarioDialog row={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={(id) => setSelected(String(id))} /> : null}
     </Screen>
   );
@@ -195,6 +198,7 @@ function ScenarioDialog({ row, onClose, onSaved }: { row: ScenarioRow | null; on
       open
       onClose={onClose}
       title={row ? 'Scenario Alteration' : 'Scenario Creation'}
+      description="Provisional vouchers (memorandum, optional, and reversing journals up to their “applicable up to” date) never post to the books. A scenario changes only the Trial Balance, P&L, Balance Sheet, Group Summary and Budget Variance run under it (Alt+S there) — never the books, GST returns or outstanding."
       size="lg"
       footer={
         <>
@@ -215,14 +219,14 @@ function ScenarioDialog({ row, onClose, onSaved }: { row: ScenarioRow | null; on
           <Field label="Include actuals" hint="Yes: the books plus the vouchers below. No: only the included provisional vouchers (e.g. a budget-style what-if).">
             <Switch checked={includeActuals} onChange={(v) => { setIncludeActuals(v); setProblem(null); }} aria-label="Include actuals" />
           </Field>
-          <FieldGroup legend="Add provisional vouchers of" description="Memorandum and reversing journal vouchers, and optional vouchers of any type, that never post to the books.">
+          <FieldGroup legend="Add provisional vouchers of">
             {err('includeTypeIds') ? <Banner tone="danger">{err('includeTypeIds')}</Banner> : null}
             <Grid columns={3} gap={2}>
               {[...provisional, ...regular].map((t) => typeBox(t, include, setInclude, 'inc'))}
             </Grid>
           </FieldGroup>
           {includeActuals ? (
-            <FieldGroup legend="Leave out regular vouchers of" description="E.g. leave out Journal to see the figures before year-end adjustments.">
+            <FieldGroup legend="Leave out regular vouchers of">
               {err('excludeTypeIds') ? <Banner tone="danger">{err('excludeTypeIds')}</Banner> : null}
               <Grid columns={3} gap={2}>
                 {regular.map((t) => typeBox(t, exclude, setExclude, 'exc'))}
@@ -273,14 +277,20 @@ export function BudgetListScreen() {
   return (
     <Screen
       title="Budgets"
-      subtitle="Budgets for groups, ledgers and cost centres — compare them with the actuals in Budget Variance (Alt+V)"
-      icon="chart"
+      subtitle={q.data ? `${rows.length} budget${rows.length === 1 ? '' : 's'}` : undefined}
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Enter Alter · Alt+C Create Budget · Alt+V Variance · Alt+D Delete · Esc Back"
       actions={[
-        { key: 'Alt+C', label: 'Create budget', icon: 'plus', primary: true, onClick: () => nav.push('documents.budget.form', {}), hidden: !canCreate },
+        {
+          key: 'Alt+C',
+          label: 'Create budget',
+          icon: 'plus',
+          onClick: () => nav.push('documents.budget.form', {}),
+          hidden: !canCreate,
+          prominent: true,
+        },
         { key: 'Alt+V', label: 'Budget variance', icon: 'chart', onClick: () => current && nav.push('documents.budget.variance', { budgetId: current.id }), disabled: !current, hidden: !canFinancial },
         { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), disabled: !current, hidden: !canDelete, group: 'danger' },
       ]}
@@ -294,7 +304,7 @@ export function BudgetListScreen() {
         selectedKey={current ? String(current.id) : null}
         onSelect={(k) => setSelected(k)}
         onRowActivate={(r) => nav.push('documents.budget.form', { id: r.id })}
-        empty={<EmptyState icon="chart" title="No budgets yet" body="Press Alt+C to create one — e.g. “FY 2026-27” with an expense budget per ledger and a sales target." />}
+        empty={<EmptyState icon="chart" title="No budgets yet" body="E.g. “FY 2026-27”, with an expense budget per ledger and a sales target." />}
       />
     </Screen>
   );
@@ -405,7 +415,6 @@ export function BudgetFormScreen({ params }: ScreenProps<{ id?: number }>) {
   return (
     <Screen
       title={isAlter ? 'Budget Alteration' : 'Budget Creation'}
-      icon="chart"
       width="form"
       dirty={touched}
       loading={isAlter && existing.loading}
@@ -429,7 +438,7 @@ export function BudgetFormScreen({ params }: ScreenProps<{ id?: number }>) {
       <div ref={ref}>
         <Stack gap={4}>
           {save.error && Object.keys(save.fieldErrors).length === 0 ? <Banner tone="danger">{userMessage(save.error)}</Banner> : null}
-          <FieldGroup legend="Budget" columns={2}>
+          <FieldGroup columns={2}>
             <Field label="Name" required error={lineError('name') ?? save.fieldErrors.name}>
               <TextInput data-autofocus value={name} onValueChange={(v) => { setName(v); setTouched(true); setProblem(null); }} maxLength={100} />
             </Field>
@@ -443,7 +452,7 @@ export function BudgetFormScreen({ params }: ScreenProps<{ id?: number }>) {
               <DateInput value={to} onChange={(d) => { setTo(d); setTouched(true); }} referenceDate={workingDate} minDate={from ?? undefined} />
             </Field>
           </FieldGroup>
-          <FieldGroup legend="Lines" description="Amounts are Dr or Cr (type d / c): an expense or asset budget is Dr, an income or liability budget Cr. Nett-transaction budgets are pro-rated by days when you report a shorter period.">
+          <FieldGroup legend="Lines">
             <Stack gap={2}>
               {lines.map((l, i) => (
                 <div key={l.key} className="bx-doc-budget-line" onFocus={() => setFocusKey(l.key)}>
@@ -471,7 +480,12 @@ export function BudgetFormScreen({ params }: ScreenProps<{ id?: number }>) {
                     <Field label="Basis" hideLabel={i > 0}>
                       <Select<BudgetBasis> options={BASIS_OPTIONS} value={l.basis} onChange={(v) => patchLine(l.key, { basis: v })} aria-label={`Line ${i + 1} basis`} />
                     </Field>
-                    <Field label="Amount" hideLabel={i > 0} error={save.fieldErrors[`lines[${i}].amount`]}>
+                    <Field
+                      label="Amount"
+                      hideLabel={i > 0}
+                      error={save.fieldErrors[`lines[${i}].amount`]}
+                      hint={i === 0 ? 'Dr for an expense or asset budget, Cr for income or a liability (type d / c). Nett-transaction budgets are pro-rated by days for a shorter period.' : undefined}
+                    >
                       <AmountInput value={l.amount} onChange={(v) => patchLine(l.key, { amount: v })} drcr aria-label={`Line ${i + 1} amount`} />
                     </Field>
                   </Grid>
@@ -511,8 +525,11 @@ export function BudgetVarianceScreen({ params }: ScreenProps<BudgetVarianceParam
     { budgetId: budget?.id ?? 0, ...(range ?? {}), ...(scenarioId !== null ? { scenarioId } : {}) },
     { enabled: budget !== null, keepPrevious: true },
   );
-  const rows = q.data?.rows ?? [];
+  const rows = useMemo(() => q.data?.rows ?? EMPTY_VARIANCE, [q.data]);
   const scenario = (scenarios.data ?? []).find((s) => s.id === scenarioId) ?? null;
+  const spec = useMemo(() => budgetVarianceChart(rows), [rows]);
+  // A short table that is exactly the graph's lines carries the bars itself (D26).
+  const inline = inlineBars(spec, rows.length);
 
   const columns = useMemo<Column<BudgetVarianceRow>[]>(
     () => [
@@ -534,21 +551,16 @@ export function BudgetVarianceScreen({ params }: ScreenProps<BudgetVarianceParam
       { key: 'basis', header: 'Basis', width: 170, value: (r) => BASIS_LABEL[r.basis] },
       { key: 'budget', header: 'Budget', kind: 'drcr', width: 160 },
       { key: 'actual', header: 'Actual', kind: 'drcr', width: 160 },
-      { key: 'variance', header: 'Variance', kind: 'drcr', width: 160 },
+      { key: 'variance', header: 'Variance', kind: 'drcr', width: 160, bar: inline ? { value: varianceBarValue, slot: 'polarity' } : undefined },
       { key: 'variancePct', header: 'Variance %', width: 110, align: 'right', value: (r) => r.variancePct ?? 0, render: (r) => <span className="bx-num">{variancePctText(r)}</span> },
       {
         key: 'status',
         header: 'Status',
         width: 130,
         value: (r) => varianceStatus(r).label,
-        render: (r) => (
-          <Badge tone={varianceStatus(r).tone} size="sm">
-            {varianceStatus(r).label}
-          </Badge>
-        ),
       },
     ],
-    [],
+    [inline],
   );
   const t = q.data?.totals;
   const footer = useMemo<FooterRow[]>(
@@ -568,8 +580,16 @@ export function BudgetVarianceScreen({ params }: ScreenProps<BudgetVarianceParam
       title="Budget Variance"
       subtitle={
         budget && q.data
-          ? `${budget.name} · ${formatDate(q.data.from)} to ${formatDate(q.data.to)}${q.data.proRata !== 1 ? ` · nett budgets × ${(q.data.proRata * 100).toFixed(2)}% of the budget period` : ''}${scenario ? ` · scenario ${scenario.name}` : ''}`
+          ? `${budget.name}${useReportPeriod ? '' : ` · ${formatDate(q.data.from, 'D-MMM-YY')} – ${formatDate(q.data.to, 'D-MMM-YY')}`}${q.data.proRata !== 1 ? ` · pro-rated ${(q.data.proRata * 100).toFixed(2)} %` : ''}${scenario ? ` · scenario ${scenario.name}` : ''}`
           : undefined
+      }
+      graph={reportGraph(spec, { inline })}
+      about={
+        <p>
+          Variance = actual − budget. A line is over budget when the actual goes beyond the budget on its own side (spent or earned more than budgeted). Nett-transaction budgets are
+          pro-rated by days when the report period is shorter than the budget period; closing-balance budgets are compared with the closing balance. A line inside another budgeted line is
+          shown but counted once in the total, and is left out of the graph, as are lines without a budget.
+        </p>
       }
       periodMode={useReportPeriod ? 'range' : 'none'}
       loading={budgets.loading || (budget !== null && q.loading)}

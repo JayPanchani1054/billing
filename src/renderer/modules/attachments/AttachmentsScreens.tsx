@@ -31,7 +31,7 @@ import {
   useScreenActions,
 } from '../../app/index.ts';
 import type { ScreenProps, VoucherPanelProps } from '../../app/index.ts';
-import { Badge, Button, Card, DataTable, EmptyState, Inline, SegmentedControl, Stack, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
+import { Badge, Button, Card, DataTable, EmptyState, Inline, Select, Stack, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import {
   ATTACHMENTS_INVALIDATES,
@@ -158,7 +158,7 @@ export function AttachmentsScreen({ params }: ScreenProps<ManageParams>) {
 
   const columns = useMemo<Column<AttachmentRow>[]>(
     () => [
-      { key: 'file', header: 'File', render: (r) => <FileCell row={r} />, value: (r) => r.fileName, footer: () => summaryText(rows) },
+      { key: 'file', header: 'File', render: (r) => <FileCell row={r} />, value: (r) => r.fileName },
       { key: 'size', header: 'Size', width: 110, align: 'right', value: (r) => formatFileSize(r.sizeBytes) },
       { key: 'on', header: 'Attached on', width: 130, kind: 'date', value: (r) => localDay(r.createdAt) },
       { key: 'by', header: 'By', width: 160, value: (r) => r.createdByName ?? '' },
@@ -171,13 +171,15 @@ export function AttachmentsScreen({ params }: ScreenProps<ManageParams>) {
       title="Attachments"
       subtitle={`${ENTITY_NOUN[params.entityType]}${params.label ? `: ${params.label}` : ''} · ${summaryText(rows)}`}
       periodMode="none"
+      outputInMore
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={q.refetch}
       hint="Alt+C Attach a file · Enter Open · Alt+K Save a copy · Alt+D Remove · Esc Back"
       actions={[
-        { key: 'Alt+C', label: 'Create attachment (attach a file)', icon: 'upload', primary: true, onClick: () => void cmd.attach(params.entityType, params.entityId), hidden: !canAdd, disabled: cmd.busy },
+        // 2.1 (D5): a list's Create is secondary — the Alt+C convention keeps it a title-row button.
+        { key: 'Alt+C', label: 'Create attachment (attach a file)', icon: 'upload', onClick: () => void cmd.attach(params.entityType, params.entityId), hidden: !canAdd, disabled: cmd.busy },
         { key: 'Alt+O', label: 'Open', icon: 'eye', onClick: () => current && void cmd.open(current), disabled: !current || cmd.busy, group: 'file' },
         { key: 'Alt+K', label: 'Save a copy', icon: 'download', onClick: () => current && void cmd.saveCopy(current), disabled: !current || cmd.busy, group: 'file' },
         { key: 'Alt+M', label: params.entityType === 'voucher' ? 'View voucher' : `Open ${ENTITY_NOUN[params.entityType].toLowerCase()}`, icon: 'external', onClick: () => nav.push(owner.screen, owner.params), hidden: !nav.isRegistered(owner.screen), group: 'go' },
@@ -188,31 +190,30 @@ export function AttachmentsScreen({ params }: ScreenProps<ManageParams>) {
         return { subtitle: `${ENTITY_NOUN[params.entityType]}${params.label ? `: ${params.label}` : ''}`, columns: e.columns, rows: e.rows };
       }}
     >
-      {rows.length === 0 && !q.loading ? (
-        <EmptyState
-          icon="file"
-          title="No files attached"
-          body={canAdd ? 'Press Alt+C to attach a scanned bill, challan, agreement or photo (PDF, images, Excel / Word, CSV, TXT, JSON, XML — up to 25 MB each).' : 'Nothing has been attached to this record.'}
-        />
-      ) : (
-        <DataTable<AttachmentRow>
-          aria-label="Attached files"
-          autoFocus
-          columns={columns}
-          rows={rows}
-          getRowKey={(r) => String(r.id)}
-          selectedKey={current ? String(current.id) : null}
-          onSelect={(key) => setCursor(key)}
-          onRowActivate={(r) => void cmd.open(r)}
-          onRowKeyDown={(e, r) => {
-            if (r && e.key === 'Delete' && canRemove) {
-              e.preventDefault();
-              void cmd.remove(r);
-            }
-          }}
-          loading={q.loading}
-        />
-      )}
+      <DataTable
+        aria-label="Attached files"
+        autoFocus
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => String(r.id)}
+        selectedKey={current ? String(current.id) : null}
+        onSelect={(key) => setCursor(key)}
+        onRowActivate={(r) => void cmd.open(r)}
+        onRowKeyDown={(e, r) => {
+          if (r && e.key === 'Delete' && canRemove) {
+            e.preventDefault();
+            void cmd.remove(r);
+          }
+        }}
+        loading={q.loading}
+        hideEmptyColumns
+        empty={
+          <EmptyState
+            title="No files attached"
+            body={canAdd ? 'Alt+C attaches a scanned bill, challan, agreement or photo (PDF, images, Excel / Word, CSV, TXT, JSON, XML — up to 25 MB each).' : 'Nothing has been attached to this record.'}
+          />
+        }
+      />
     </ReportScreen>
   );
 }
@@ -220,7 +221,7 @@ export function AttachmentsScreen({ params }: ScreenProps<ManageParams>) {
 // ───────────────────────────── Register ─────────────────────────────
 
 const KIND_OPTIONS: ReadonlyArray<{ value: 'all' | AttachmentEntityType; label: string }> = [
-  { value: 'all', label: 'All' },
+  { value: 'all', label: 'All files' },
   { value: 'voucher', label: 'Vouchers' },
   { value: 'ledger', label: 'Ledgers' },
   { value: 'stock_item', label: 'Stock items' },
@@ -268,7 +269,7 @@ export function AttachmentRegisterScreen() {
       { key: 'on', header: 'Attached on', width: 120, kind: 'date', value: (r) => localDay(r.createdAt) },
       { key: 'kind', header: 'To', width: 100, value: (r) => ENTITY_NOUN[r.entityType] },
       { key: 'owner', header: 'Voucher / master', value: (r) => r.ownerLabel },
-      { key: 'file', header: 'File', render: (r) => <FileCell row={r} />, value: (r) => r.fileName, footer: () => `${q.data?.total ?? 0} file(s) · ${formatFileSize(q.data?.totalBytes ?? 0)}` },
+      { key: 'file', header: 'File', render: (r) => <FileCell row={r} />, value: (r) => r.fileName },
       { key: 'size', header: 'Size', width: 100, align: 'right', value: (r) => formatFileSize(r.sizeBytes) },
       { key: 'by', header: 'By', width: 140, value: (r) => r.createdByName ?? '' },
     ],
@@ -290,11 +291,13 @@ export function AttachmentRegisterScreen() {
       error={q.error}
       onRetry={q.refetch}
       hint="Enter Open the voucher / master · Alt+O Open file · Alt+K Save a copy · Ctrl+F Search · Alt+U Remove unused files"
+      // 2.1 (D22): one search and one filter; Print and Export sit in More (a lookup list).
+      outputInMore
       filters={
-        <Inline gap={3}>
-          <SegmentedControl aria-label="Attached to" options={KIND_OPTIONS} value={kind} onChange={setKind} size="sm" />
+        <>
           <TextInput value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="File, note, voucher or master" aria-label="Search attachments" size="sm" data-search="" />
-        </Inline>
+          <Select<'all' | AttachmentEntityType> aria-label="Attached to" options={KIND_OPTIONS} value={kind} onChange={setKind} size="sm" />
+        </>
       }
       actions={[
         { key: 'Alt+O', label: 'Open file', icon: 'eye', onClick: () => current && void cmd.open(current), disabled: !current || cmd.busy, group: 'file' },
@@ -308,7 +311,7 @@ export function AttachmentRegisterScreen() {
         return { subtitle: kind === 'all' ? 'All attachments' : `Attached to ${KIND_OPTIONS.find((o) => o.value === kind)?.label.toLowerCase()}`, columns: e.columns, rows: e.rows };
       }}
     >
-      <DataTable<AttachmentRegisterRow>
+      <DataTable
         aria-label="Attachment register"
         autoFocus
         columns={columns}
@@ -318,7 +321,8 @@ export function AttachmentRegisterScreen() {
         onSelect={(key) => setCursor(key)}
         onRowActivate={openOwner}
         loading={q.loading}
-        empty={<EmptyState icon="file" title="No attachments" body="Files attached to vouchers, ledgers and stock items are listed here." />}
+        hideEmptyColumns
+        empty={<EmptyState title={term || kind !== 'all' ? 'No attachment matches' : 'No attachments'} body={term || kind !== 'all' ? 'Clear the search or choose All files.' : 'Files attached to vouchers, ledgers and stock items are listed here.'} />}
       />
     </ReportScreen>
   );
@@ -362,7 +366,7 @@ export function VoucherAttachmentsPanel({ voucherId }: VoucherPanelProps) {
           <Stack gap={1}>
             {rows.map((r) => (
               <Inline key={r.id} gap={2}>
-                <Button variant="link" size="sm" icon="file" onClick={() => void cmd.open(r)} disabled={cmd.busy}>
+                <Button variant="link" size="sm" onClick={() => void cmd.open(r)} disabled={cmd.busy}>
                   {r.fileName}
                 </Button>
                 <span className="bx-muted">

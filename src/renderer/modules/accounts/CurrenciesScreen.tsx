@@ -94,14 +94,20 @@ export function CurrenciesScreen() {
   return (
     <Screen
       title="Currencies"
-      subtitle="Foreign currencies and their exchange rates (rupees per unit) by date."
-      icon="rupee"
+      subtitle="Rates in rupees per unit, by date"
       loading={cq.loading}
       error={cq.error}
       onRetry={() => void cq.refetch()}
       hint="Enter Alter · Alt+C Create Currency · Alt+R Enter Rate · Alt+D Delete · Esc Back"
       actions={[
-        { key: 'Alt+C', label: 'Create currency', icon: 'plus', primary: true, disabled: !canCreate, onClick: () => setCurDialog('new') },
+        {
+          key: 'Alt+C',
+          label: 'Create currency',
+          icon: 'plus',
+          disabled: !canCreate,
+          onClick: () => setCurDialog('new'),
+          prominent: true,
+        },
         { key: 'Alt+R', label: 'Enter rate', icon: 'calendar', disabled: !canCreate || !currency || currency.isBase, onClick: () => setRateDialog('new') },
         { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', group: 'danger', disabled: !canDelete || (pane === 'rates' ? !rate : !currency || currency.isBase), onClick: () => void remove() },
       ]}
@@ -141,13 +147,7 @@ export function CurrenciesScreen() {
                 onRowActivate={(r) => canAlter && setRateDialog(r)}
                 loading={rq.loading}
                 empty={
-                  <EmptyState
-                    icon="calendar"
-                    title="No rates yet"
-                    body="Enter the rate for a date; vouchers use the latest rate on or before their date."
-                    size="sm"
-                    action={canCreate && currency ? <Button icon="plus" onClick={() => setRateDialog('new')}>Enter rate</Button> : undefined}
-                  />
+                  <EmptyState title="No rates yet" body="Enter the rate for a date (Alt+R); vouchers use the latest rate on or before their date." size="sm" />
                 }
               />
             </div>

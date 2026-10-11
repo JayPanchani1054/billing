@@ -3,6 +3,8 @@
  * as per books and as per bank, open items, the last reconciled date and the latest imported statement.
  * Enter opens the reconciliation; Alt+I imports a statement and Alt+M matches it for the highlighted bank;
  * Alt+Q cheque register, Alt+T post-dated cheques, Alt+C creates a bank ledger (under Bank Accounts).
+ * 2.1: the stat says what is not in the bank yet and links the statement lines to match; with 3 or more
+ * accounts the balances are a bar graph (inline in the table up to 7 accounts) — lib/charts.ts.
  */
 import { useMemo, useState } from 'react';
 import type { BankSummaryRow } from '../../../shared/types/banking.ts';
@@ -13,9 +15,12 @@ import type { ScreenProps } from '../../app/registry.ts';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { useCan } from '../../app/state.tsx';
 import { usePeriod } from '../../app/working.tsx';
-import { Badge, DataTable, Inline, KpiCard, Stack } from '../../ui/index.ts';
+import { Badge, DataTable, StatLine } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
 import { NoBanks, bankLabel, useBanks } from './components.tsx';
+import { bankBalancesChart, bankSummaryStat } from './lib/charts.ts';
 import { summaryExport } from './lib/exports.ts';
 
 export function SummaryScreen(_props: ScreenProps<Record<string, never>>) {
@@ -26,11 +31,21 @@ export function SummaryScreen(_props: ScreenProps<Record<string, never>>) {
   const { banks, loading, error, refetch, refreshing } = useBanks(asOf);
   const [cursor, setCursor] = useState<string | null>(null);
   const selected = banks.find((b) => String(b.id) === cursor) ?? banks[0] ?? null;
+  const spec = useMemo(() => bankBalancesChart(banks, (id) => nav.push('banking.brs', { ledgerId: id })), [banks, nav]);
+  const inline = inlineBars(spec, banks.length);
 
   const columns = useMemo<Column<BankSummaryRow>[]>(
     () => [
       { key: 'name', header: 'Bank account', minWidth: 200, sortable: true, value: (r) => bankLabel(r) },
-      { key: 'balanceAsPerBooks', header: 'As per books', kind: 'drcr', width: 150, total: true, sortable: true },
+      {
+        key: 'balanceAsPerBooks',
+        header: 'As per books',
+        kind: 'drcr',
+        width: 150,
+        total: true,
+        sortable: true,
+        ...(inline ? { bar: { value: (r: BankSummaryRow) => r.balanceAsPerBooks, slot: 'polarity' as const } } : {}),
+      },
       { key: 'issued', header: 'Not presented', kind: 'amount', width: 130, blankZero: true, value: (r) => r.unreconciled.issued, total: true },
       { key: 'deposits', header: 'Not cleared', kind: 'amount', width: 130, blankZero: true, value: (r) => r.unreconciled.deposits, total: true },
       { key: 'balanceAsPerBank', header: 'As per bank', kind: 'drcr', width: 150, total: true, sortable: true },
@@ -45,22 +60,19 @@ export function SummaryScreen(_props: ScreenProps<Record<string, never>>) {
           const bal = r.lastStatement.balance;
           // Compared with the bank balance per the books on the statement's own date (not the overview date).
           const diff = r.lastStatement.difference;
-          return (
-            <Inline gap={1} wrap={false}>
-              <span>
-                {formatDate(r.lastStatement.date)}
-                {bal !== null ? ` · ${formatDrCr(bal, { keepZero: true })}` : ''}
-              </span>
-              {diff !== null && diff !== 0 ? (
-                <Badge size="sm" tone="warning" title={`Statement − bank as per books on ${formatDate(r.lastStatement.date)}: ${formatDrCr(diff)}`}>
-                  Differs by {formatMoney(Math.abs(diff))}
-                </Badge>
-              ) : diff === 0 ? (
-                <Badge size="sm" tone="success">
-                  Agrees
-                </Badge>
-              ) : null}
-            </Inline>
+          const text = `${formatDate(r.lastStatement.date)}${bal !== null ? ` · ${formatDrCr(bal, { keepZero: true })}` : ''}`;
+          return diff !== null && diff !== 0 ? (
+            <span title={`Statement − bank as per books on ${formatDate(r.lastStatement.date)}: ${formatDrCr(diff)}`}>
+              {text}{' '}
+              <Badge size="sm" tone="warning">
+                Differs by {formatMoney(Math.abs(diff))}
+              </Badge>
+            </span>
+          ) : (
+            <span>
+              {text}
+              {diff === 0 ? <span className="bx-muted"> · agrees</span> : null}
+            </span>
           );
         },
       },
@@ -76,15 +88,13 @@ export function SummaryScreen(_props: ScreenProps<Record<string, never>>) {
               {r.statementLines.unmatched} unmatched
             </Badge>
           ) : r.lastStatement ? (
-            <Badge size="sm" tone="success">
-              All matched
-            </Badge>
+            <span className="bx-muted">All matched</span>
           ) : (
             ''
           ),
       },
     ],
-    [],
+    [inline],
   );
 
   if (!loading && !error && banks.length === 0) {
@@ -95,10 +105,12 @@ export function SummaryScreen(_props: ScreenProps<Record<string, never>>) {
     );
   }
 
-  const totalBooks = banks.reduce((s, b) => s + b.balanceAsPerBooks, 0);
-  const totalBank = banks.reduce((s, b) => s + b.balanceAsPerBank, 0);
-  const openItems = banks.reduce((s, b) => s + b.unreconciled.count, 0);
-  const toMatch = banks.reduce((s, b) => s + b.statementLines.unmatched, 0);
+  // The first bank with lines to match (the stat's link opens Match statement for it).
+  const toMatch = banks.find((b) => b.statementLines.unmatched > 0) ?? null;
+  const stat = bankSummaryStat(banks).map((it) => ({
+    ...it,
+    onClick: it.id === 'match' && canEdit && toMatch ? () => nav.push('banking.match', { ledgerId: toMatch.id }) : undefined,
+  }));
 
   return (
     <ReportScreen
@@ -109,6 +121,8 @@ export function SummaryScreen(_props: ScreenProps<Record<string, never>>) {
       error={error}
       onRetry={() => void refetch()}
       exportDef={() => summaryExport(banks)}
+      graph={reportGraph(spec, { inline })}
+      stat={stat.length > 0 ? <StatLine items={stat} /> : null}
       hint="Enter Reconcile · Alt+I Import statement · Alt+M Match · Alt+Q Cheque register · Alt+T Post-dated cheques · Alt+C Create Bank Ledger · Alt+F2 Date"
       actions={[
         { key: 'Alt+I', label: 'Import statement', icon: 'upload', onClick: () => nav.push('banking.import', { ledgerId: selected?.id }), hidden: !canEdit, disabled: !selected },
@@ -118,32 +132,17 @@ export function SummaryScreen(_props: ScreenProps<Record<string, never>>) {
         { key: 'Alt+C', label: 'Create bank ledger', icon: 'plus', onClick: () => nav.push('accounts.ledger.form', { groupCode: 'BANK_ACCOUNTS' }), hidden: !canCreateLedger, group: 'masters' },
       ]}
     >
-      <Stack gap={3}>
-        <Inline gap={3} wrap>
-          <KpiCard
-            label="Bank balance as per books"
-            value={`₹ ${formatDrCr(totalBooks, { keepZero: true })}`}
-            caption={`${banks.length} account${banks.length === 1 ? '' : 's'} · Dr = money in the bank, Cr = overdrawn (OD / CC)`}
-            icon="bank"
-          />
-          <KpiCard label="Bank balance as per bank" value={`₹ ${formatDrCr(totalBank, { keepZero: true })}`} caption="From bank dates entered so far" icon="building" />
-          <KpiCard label="Entries not yet in the bank" value={String(openItems)} caption="Cheques not presented or cleared" icon="clock" />
-          <KpiCard label="Statement lines to match" value={String(toMatch)} caption={toMatch > 0 ? 'Open Match statement (Alt+M)' : 'Nothing waiting'} icon="link" />
-        </Inline>
-        <div className="bx-bk-table--tall">
-          <DataTable
-            aria-label="Bank accounts"
-            autoFocus
-            columns={columns}
-            rows={banks}
-            getRowKey={(r) => String(r.id)}
-            selectedKey={cursor}
-            onSelect={setCursor}
-            onRowActivate={(r) => nav.push('banking.brs', { ledgerId: r.id })}
-            loading={loading}
-          />
-        </div>
-      </Stack>
+      <DataTable
+        aria-label="Bank accounts"
+        autoFocus
+        columns={columns}
+        rows={banks}
+        getRowKey={(r) => String(r.id)}
+        selectedKey={cursor}
+        onSelect={setCursor}
+        onRowActivate={(r) => nav.push('banking.brs', { ledgerId: r.id })}
+        loading={loading}
+      />
     </ReportScreen>
   );
 }

@@ -143,13 +143,14 @@ export const LedgerCombo = memo(function LedgerCombo(props: LedgerComboProps) {
       getAlias={(l) => l.alias}
       getKeywords={(l) => [l.gstin ?? '', l.groupName, ...(l.otherAliases ?? [])]}
       groupBy={(l) => l.groupName}
-      rightMeta={showBalance ? (l) => <span className="bx-num">{formatDrCr(l.balance) || '—'}</span> : undefined}
+      // 2.1: a party row also shows its GSTIN (it left the entry header, SPEC-21 D15).
+      rightMeta={showBalance ? (l) => <span className="bx-num">{slot === 'party' && l.gstin ? `${l.gstin} · ` : ''}{formatDrCr(l.balance) || '—'}</span> : undefined}
       value={selected}
       onChange={(l) => onChange(l?.id ?? null, l)}
       onCommit={onCommit ? (l) => onCommit(l?.id ?? null, l) : undefined}
       onCreate={canCreate ? (q) => void create(q) : undefined}
       createLabel={(q) => createLabelFor(quickPartyGroup(createGroupCode(slot, baseType, direction)), q)}
-      placeholder={props.placeholder ?? `Type a ${noun} name`}
+      placeholder={props.placeholder}
       emptyText={canCreate ? `No ${noun} matches — press Alt+C to create it` : `No ${noun} matches`}
       invalid={props.invalid}
       required={props.required}

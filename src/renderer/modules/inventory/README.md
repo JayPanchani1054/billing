@@ -11,14 +11,40 @@ Core API: `src/core/modules/inventory/README.md`, DTOs: `src/shared/types/invent
 
 | id | params | what |
 |---|---|---|
-| `inventory.item.list` | `{ groupId?, categoryId? }` | Stock Items: server search (name, alias, part no., barcode), group / category filters, stock as on the working date, virtualised table. Enter alter · Alt+C create · Alt+M multiple · Alt+D delete (Ctrl+D also works) · Alt+E export · Alt+P print |
-| `inventory.item.form` | `{ id? \| initialName?, forResult?, groupId? }` | Stock Item Creation / Alteration (one keyboard-first page: Basic, GST, Prices, Stock, Opening stock). Ctrl+A = **Save & next** (create: the form stays for the next item, keeping group, unit and GST), **Save** (alter) or **Save & return** (`forResult` → `pop({ id, name })`); Alt+S Save & close; Alt+D delete; Alt+L price lists; Alt+H edit history |
+| `inventory.item.list` | `{ groupId?, categoryId? }` | Stock Items: server search (name, alias, part no., barcode), group filter, category filter (only when a category exists or `categoryId` is given), stock as on the working date (in the column header), virtualised table that hides columns blank on every row (exports keep them). Title row: the count · **Create stock item** (Alt+C, the one button) · More ▾: Create several (Alt+M, **Alt+B** alias), Delete (Alt+D / Ctrl+D), Print (Alt+P), Export (Alt+E). Enter alters |
+| `inventory.item.form` | `{ id? \| initialName?, forResult?, groupId? }` | Stock Item Creation / Alteration — one flat column (below). Ctrl+A = the title row's one filled button (`lib/itemEssentials.ts › itemFormActions`): create — **Save & create next** (the same label, and so accessible name, as the ledger form), the form stays for the next item, keeping group, unit and GST; alter — **Save**, saves and goes back; `forResult` — **Save & return** → `pop({ id, name })`. More ▾: Save & close (Alt+S, create only), More details (**Ctrl+I**, **Alt+F1**), Price lists (Alt+L), Edit history (Alt+H), Delete (Alt+D); Alt+F attachments. Context run: alteration = the stock group (or Primary) · "Inactive" |
 | `inventory.item.bulk` | `{ groupId? }` | Multiple Stock Items grid of goods (name, alias, group, unit, HSN, GST %, selling price, opening qty/rate/value). Enter on an empty name finishes; all rows are created or none. Opening cells are read-only (with a note) while the books are locked from the books beginning |
 | `inventory.group.list` / `inventory.group.form` (dialog) | form: `{ id? \| initialName?, forResult?, parentId? }` | Stock groups as a tree; GST details with dated history (a wrong row can be removed) |
 | `inventory.category.list` / `inventory.category.form` (dialog) | same | Stock categories (tree) |
 | `inventory.unit.list` / `inventory.unit.form` (dialog) | form: `{ id? \| initialName?, forResult?, kind?: 'simple' \| 'compound' }` | Simple units (symbol, formal name, UQC suggested from the symbol, decimals) and compound units ("1 Box = 12 Nos") |
 | `inventory.godown.list` / `inventory.godown.form` (dialog) | form: `{ id? \| initialName?, forResult?, parentId? }` | Godowns (tree); Main Location cannot be deleted or marked third-party. With Job work on (F11), "Whose stock" (own / our stock with third party / third-party stock with us) and the job worker or principal replace the third-party switch (mfg module) |
 | `inventory.priceList` | `{ priceLevelId?, itemId?, date? }` | Price level + applicable-from date → per-item quantity slabs (from / up to / rate / discount) with live overlap check; Alt+C create level, Alt+R rename |
+
+### 2.1 layout ("calm", SPEC-21 §1.7–1.8)
+
+- **Lists** (`ItemList.tsx`, `TreeMasterList.tsx` for groups / categories / godowns, `Units.tsx`): the
+  title row's context run is the count ("4 items", "12 stock groups"); the one visible action is
+  "Create …" (`prominent`, Alt+C — secondary, never filled); Print and Export are demoted to More ▾
+  (`ReportScreen outputInMore`, keys kept), as are Create several (Alt+M / Alt+B), Create under selected
+  (Alt+Shift+C), Create compound unit (Alt+U), Items in group / category (Alt+I) and Delete. The
+  actions come from `lib/listActions.ts`. Type columns are plain words ("Compound", "Main location",
+  "Third party"; "Simple" / "Own" muted); "inactive" and "service" are muted words after an item's name.
+  Empty states are one line with a link-style action.
+- **Stock Item form** (`ItemForm.tsx`, `lib/itemEssentials.ts`): "Label : value" rows. Essentials —
+  Name, Unit, Under, *Set GST details here* (*No — inherit*) with the GST rate and HSN/SAC
+  ("Applicable from" only while you change the GST details — `lib/gstDraft.ts › showApplicableFrom`), Selling price, Barcode when POS is on — then the
+  opening stock grid (goods), then the **More details** line (`ui/Disclosure.tsx`, Ctrl+I, Alt+F1 alias)
+  over the rest: aliases, part no., barcode, description, category, service switch, alternate unit,
+  Active, taxability / cess / rate history (`GstFields part="details"`), prices include GST, MRP,
+  purchase price, costing method (Standard cost only for that method or while it holds a figure),
+  reorder, batches, the price-level summary. The section opens by itself when a field inside holds a
+  value other than its default or has an error (`itemDetailsForced`, over `ui/lib/disclosure.ts`), so
+  an alteration never hides data; otherwise its state is remembered in `pevqori.ui` `moreDetails.stockItem`
+  (`setMoreDetailsOpen`); while it is held open Ctrl+I jumps between the line and its first field
+  instead (`detailsToggle`). The collapsed region is `hidden`, so Enter and Tab skip its fields. Field
+  hints show on focus (facts that apply — "Cannot change: the item is used in vouchers", where an
+  inherited rate comes from — stay visible). No footer: Cancel = Esc / ‹.
+- **Multiple Stock Items** and **Price Lists**: one filled Save in the title row (Ctrl+A), no footer.
 
 The stock group, category, unit and godown dialog forms share the master-form keys: Ctrl+A save, Alt+D delete, and in alteration **Alt+H edit history** — the record's history in the Edit Log (`security.audit` `{ entityType: 'stock_group' | 'stock_category' | 'unit' | 'godown', entityId, entityGuid, label }`, `common.tsx › useMasterHistory`, `lib/history.ts`; needs the Edit Log permission).
 
@@ -134,6 +160,8 @@ positive number and `qty ≥ 0`. Cached 30 s; refetches when any argument change
 | `lib/slabs.ts` | price-list slabs: overlap / gap checks, next slab, changes to save, net rate |
 | `lib/gstDraft.ts` | GST block of groups and items: change detection, validation, save fields, rate select |
 | `lib/itemForm.ts` | item draft ↔ DTO, validation, save input, warnings, costing / taxability texts |
+| `lib/itemEssentials.ts` | 2.1 item form: Essentials vs More details per kind, auto-reveal on value/error, Standard cost rule, the More details action (Ctrl+I, Alt+F1) and what the key does (`detailsToggle`), the title-row actions and commit label (`itemFormActions`, `itemSaveLabel`), the alteration context run |
+| `lib/listActions.ts` | 2.1 list title-row actions (Create … button; Create several Alt+M/Alt+B, Create under selected, Delete in More), counts and plurals — keys pinned in `keys21.test.ts` |
 | `lib/bulk.ts` | multiple-items grid validation, inputs, server error → cell mapping |
 | `lib/tree.ts` | tree order for groups / categories / godowns, descendants, path text |
 | `lib/goto.ts` | Go To results and target screen |

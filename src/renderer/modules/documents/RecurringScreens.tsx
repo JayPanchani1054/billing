@@ -37,7 +37,6 @@ import {
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import {
   AmountInput,
-  Badge,
   Banner,
   Button,
   Card,
@@ -52,6 +51,7 @@ import {
   Picker,
   Select,
   Stack,
+  StatLine,
   Switch,
   TextArea,
   TextInput,
@@ -73,6 +73,7 @@ import {
   selectedKeys,
   toggleKey,
 } from './lib/model.ts';
+import { recurringDueStat } from './lib/charts.ts';
 
 const EMPTY_TEMPLATES: readonly RecurringTemplateRow[] = [];
 const EMPTY_DUE: readonly RecurringDueRow[] = [];
@@ -106,12 +107,7 @@ export function RecurringListScreen() {
         key: 'isActive',
         header: 'Status',
         width: 100,
-        value: (r) => (r.isActive ? 'Active' : 'Paused'),
-        render: (r) => (
-          <Badge tone={r.isActive ? (r.nextDate ? 'success' : 'neutral') : 'warning'} size="sm">
-            {r.isActive ? (r.nextDate ? 'Active' : 'Ended') : 'Paused'}
-          </Badge>
-        ),
+        value: (r) => (r.isActive ? (r.nextDate ? 'Active' : 'Ended') : 'Paused'),
       },
     ],
     [],
@@ -147,7 +143,15 @@ export function RecurringListScreen() {
   };
 
   const actions: ScreenActionItem[] = [
-    { key: 'Alt+C', label: 'Create recurring voucher', icon: 'plus', primary: true, onClick: () => nav.push('documents.recurring.form', {}), hidden: !canCreate, group: 'go' },
+    {
+      key: 'Alt+C',
+      label: 'Create recurring voucher',
+      icon: 'plus',
+      onClick: () => nav.push('documents.recurring.form', {}),
+      hidden: !canCreate,
+      group: 'go',
+      prominent: true,
+    },
     { key: 'Alt+R', label: 'Due vouchers', icon: 'clock', onClick: () => nav.push('documents.recurring.due', {}), group: 'go' },
     { key: 'Alt+S', label: current?.isActive === false ? 'Resume' : 'Pause', icon: current?.isActive === false ? 'zap' : 'clock', onClick: () => void toggleActive(), disabled: !current, hidden: !canCreate, group: 'go' },
     { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), disabled: !current, hidden: !canDelete, group: 'danger' },
@@ -156,8 +160,9 @@ export function RecurringListScreen() {
   return (
     <ReportScreen
       title="Recurring Vouchers"
-      subtitle="Rent, retainers, AMC, EMIs — vouchers you post on a schedule"
+      subtitle={q.data ? `${rows.length} template${rows.length === 1 ? '' : 's'}` : undefined}
       periodMode="none"
+      outputInMore
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
@@ -193,7 +198,7 @@ export function RecurringListScreen() {
           <EmptyState
             icon="refresh"
             title="No recurring vouchers yet"
-            body="Open a saved voucher (rent, a retainer invoice, an EMI payment) and press Alt+R to make it recurring — or press Alt+C here and pick the voucher to copy."
+            body="Make one from a saved voucher (rent, a retainer invoice, an EMI payment), or create one here and pick the voucher to copy."
           />
         }
       />
@@ -358,11 +363,8 @@ export function RecurringFormScreen({ params }: ScreenProps<RecurringFormParams>
         key: 'status',
         header: 'Status',
         width: 100,
-        render: (r) => (
-          <Badge tone={r.status === 'posted' ? 'success' : 'neutral'} size="sm">
-            {r.status === 'posted' ? 'Posted' : 'Skipped'}
-          </Badge>
-        ),
+        value: (r) => (r.status === 'posted' ? 'Posted' : 'Skipped'),
+        title: (r) => (r.status === 'posted' ? 'Deleting the posted voucher makes this occurrence due again' : 'Alt+U makes it due again'),
       },
       { key: 'voucher', header: 'Voucher', minWidth: 160, value: (r) => (r.voucher ? `${r.voucher.voucherTypeName} ${r.voucher.number ?? ''} dt ${formatDate(r.voucher.date)}${r.voucher.isCancelled ? ' (cancelled)' : ''}` : '') },
     ],
@@ -379,7 +381,6 @@ export function RecurringFormScreen({ params }: ScreenProps<RecurringFormParams>
     <Screen
       title={title}
       subtitle={loaded ? `${loaded.voucherTypeName}${'partyName' in loaded && loaded.partyName ? ` · ${loaded.partyName}` : ''}` : undefined}
-      icon="refresh"
       width="form"
       dirty={touched}
       loading={loading}
@@ -392,7 +393,12 @@ export function RecurringFormScreen({ params }: ScreenProps<RecurringFormParams>
         <Stack gap={4}>
           {save.error && Object.keys(save.fieldErrors).length === 0 ? <Banner tone="danger">{userMessage(save.error)}</Banner> : null}
           {!isAlter && params.sourceVoucherId === undefined ? (
-            <Field label="Voucher to copy" required error={save.fieldErrors.sourceVoucherId} hint="A saved voucher of any type (memorandum included): the template posts the same lines each time.">
+            <Field
+              label="Voucher to copy"
+              required
+              error={save.fieldErrors.sourceVoucherId}
+              hint="A saved voucher of any type (memorandum included): its lines, party and narration are posted each time. Write {period} in the narration to get “May 2026” in each posting."
+            >
               <Picker<VoucherListRow>
                 loadItems={pickVoucher}
                 getKey={(r) => String(r.id)}
@@ -403,12 +409,9 @@ export function RecurringFormScreen({ params }: ScreenProps<RecurringFormParams>
                   setSource(r);
                   setTouched(true);
                 }}
-                placeholder="Type a voucher number, party or narration"
+                placeholder="Number, party or narration"
               />
             </Field>
-          ) : null}
-          {!isAlter && sourceId === undefined ? (
-            <EmptyState size="sm" icon="refresh" title="Pick the voucher to repeat" body="Its lines, party and narration are copied. Write {period} in the narration to get “May 2026” in each posting." />
           ) : null}
           {suggestion.data && !isAlter && suggestion.data.notes.length > 0 ? (
             <Banner tone="info" title="What is copied">
@@ -417,7 +420,7 @@ export function RecurringFormScreen({ params }: ScreenProps<RecurringFormParams>
           ) : null}
           {form ? (
             <>
-              <FieldGroup legend="Template">
+              <FieldGroup>
                 <Field label="Name" required error={err('name')}>
                   <TextInput value={form.name} onValueChange={(v) => patch({ name: v })} maxLength={100} data-autofocus={params.sourceVoucherId !== undefined || isAlter ? true : undefined} />
                 </Field>
@@ -431,7 +434,7 @@ export function RecurringFormScreen({ params }: ScreenProps<RecurringFormParams>
                   </Field>
                 )}
               </FieldGroup>
-              <FieldGroup legend="Schedule" columns={2}>
+              <FieldGroup columns={2}>
                 <Field label="Frequency" required>
                   <Select<RecurringFrequency> options={FREQUENCY_OPTIONS} value={form.frequency} onChange={(v) => patch({ frequency: v, intervalDays: v === 'every_n_days' ? (form.intervalDays ?? 30) : form.intervalDays })} />
                 </Field>
@@ -451,7 +454,7 @@ export function RecurringFormScreen({ params }: ScreenProps<RecurringFormParams>
                   <DateInput value={form.endDate} onChange={(d) => patch({ endDate: d })} referenceDate={workingDate} minDate={form.startDate ?? undefined} />
                 </Field>
               </FieldGroup>
-              <FieldGroup legend="Status">
+              <FieldGroup>
                 <Field label="Active" hint="A paused template is never listed as due.">
                   <Switch checked={form.isActive} onChange={(v) => patch({ isActive: v })} aria-label="Active" />
                 </Field>
@@ -466,7 +469,7 @@ export function RecurringFormScreen({ params }: ScreenProps<RecurringFormParams>
             </>
           ) : null}
           {isAlter && runs.length > 0 ? (
-            <Card title="Occurrences dealt with" subtitle="Latest first. Deleting a posted voucher makes its occurrence due again." padding="sm">
+            <Card title="Occurrences dealt with" padding="sm">
               <DataTable<RecurringRunRow>
                 aria-label="Occurrences dealt with"
                 columns={runColumns}
@@ -504,7 +507,7 @@ export function RecurringDueScreen() {
   const current = rows.find((r) => r.key === cursor) ?? rows[0] ?? null;
   const selected = useMemo(() => selectedKeys(rows, unticked), [rows, unticked]);
   const items = postItems(rows, selected, overrides);
-  const total = rows.filter((r) => selected.has(r.key)).reduce((a, r) => a + (overrides[r.key] ?? r.amount ?? 0), 0);
+  const stat = recurringDueStat(rows, selected, overrides);
 
   const toggle = (key: string) => setUnticked((u) => toggleKey(u, key));
   const doPost = async () => {
@@ -553,26 +556,29 @@ export function RecurringDueScreen() {
       { key: 'voucherTypeName', header: 'Type', width: 120 },
       { key: 'partyName', header: 'Party', minWidth: 150, value: (r) => r.partyName ?? '' },
       { key: 'periodKey', header: 'Period', width: 100 },
-      { key: 'overdueDays', header: 'Overdue', width: 100, value: (r) => r.overdueDays, render: (r) => (r.overdueDays > 0 ? <Badge tone="warning" size="sm">{`${r.overdueDays} day${r.overdueDays === 1 ? '' : 's'}`}</Badge> : <span className="bx-muted">Today</span>) },
+      { key: 'overdueDays', header: 'Overdue', width: 100, align: 'right', value: (r) => r.overdueDays, render: (r) => (r.overdueDays > 0 ? <span className="bx-num">{`${r.overdueDays} day${r.overdueDays === 1 ? '' : 's'}`}</span> : <span className="bx-muted">Today</span>) },
       {
         key: 'amount',
         header: 'Amount (before tax)',
         kind: 'amount',
         width: 160,
         value: (r) => overrides[r.key] ?? r.amount ?? 0,
-        render: (r) => (
-          <span className="bx-num">
-            {formatMoney(overrides[r.key] ?? r.amount ?? 0)}
-            {overrides[r.key] !== undefined && overrides[r.key] !== r.amount ? ' *' : ''}
-          </span>
-        ),
+        render: (r) =>
+          overrides[r.key] !== undefined && overrides[r.key] !== r.amount ? (
+            <span className="bx-num" title="Amount changed for this posting only">
+              {formatMoney(overrides[r.key] ?? 0)} *
+            </span>
+          ) : (
+            <span className="bx-num">{formatMoney(r.amount ?? 0)}</span>
+          ),
       },
     ],
     [selected, overrides],
   );
   const footer = useMemo<FooterRow[]>(
-    () => (rows.length > 0 ? [{ key: 'total', tone: 'total', cells: { templateName: `${selected.size} of ${rows.length} ticked`, amount: total } }] : []),
-    [rows.length, selected.size, total],
+    // The ticked amount is the stat ("To post ₹x"), so the footer counts the lines only (D24).
+    () => (rows.length > 0 ? [{ key: 'total', tone: 'total', cells: { templateName: `${selected.size} of ${rows.length} ticked` } }] : []),
+    [rows.length, selected.size],
   );
 
   const actions: ScreenActionItem[] = [
@@ -591,8 +597,9 @@ export function RecurringDueScreen() {
   return (
     <ReportScreen
       title="Due Recurring Vouchers"
-      subtitle={`Due up to ${formatDate(date)} (working date, F2) · ₹ ${formatMoney(total)} ticked`}
+      subtitle={`Due up to ${formatDate(date)}`}
       periodMode="none"
+      stat={stat.length > 0 ? <StatLine items={stat} /> : undefined}
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
@@ -604,7 +611,7 @@ export function RecurringDueScreen() {
       <Stack gap={3} grow>
         {q.data?.truncated ? (
           <Banner tone="warning" title="Long catch-up list">
-            Some templates have more than 60 occurrences due; the oldest are listed first. Post or skip these, and the rest will follow.
+            The oldest 60 occurrences of a template are listed; post or skip them and the rest follow.
           </Banner>
         ) : null}
         <DataTable<RecurringDueRow>
@@ -624,9 +631,8 @@ export function RecurringDueScreen() {
           }}
           footerRows={footer.length > 0 ? footer : undefined}
           loading={q.loading}
-          empty={<EmptyState icon="check-circle" title="Nothing is due" body={`No recurring voucher is due up to ${formatDate(date)}. Templates are under Alt+R.`} />}
+          empty={<EmptyState icon="check-circle" title="Nothing is due" body={`No recurring voucher is due up to ${formatDate(date)}.`} />}
         />
-        {Object.keys(overrides).length > 0 ? <p className="bx-muted">* Amount changed for this posting only.</p> : null}
       </Stack>
       {dialog === 'amount' && current ? (
         <AmountDialog

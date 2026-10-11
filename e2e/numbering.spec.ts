@@ -1,4 +1,4 @@
-// Pevqori 2.0 Invoice Numbering through the real UI of the built app (docs/USER_GUIDE.md §3.4):
+// Pevqori 2.0 Invoice Numbering through the real UI of the built app (docs/USER_GUIDE.md §3.4; 2.1 list columns):
 //
 //   wizard company → party + item (window.pevqori.api) → Home › All menus › Invoice Numbering →
 //   Sales: prefix INV/ + the {FY} chip + '/', 4 digits → the next sale is INV/<fy>/0001 →
@@ -125,7 +125,10 @@ test('Sales: prefix INV/{FY}/ with the code chip, 4 digits → the next sale is 
   await page.keyboard.press('Control+a');
   await expect(page.getByText('Sales numbering saved').first()).toBeVisible();
   await expect(drawer).toBeHidden();
-  await expect(salesRow(s)).toContainText(`INV/${FY}/0001`);
+  // 2.1: the list's "Next number" column shows the number the next sale gets, formatted (it replaced
+  // "Example (today)" and the bare "Next no."); "Vouchers this period" reads "Used".
+  await expect(s.getByRole('treegrid', { name: 'Number series' }).getByRole('columnheader')).toContainText(['Series', 'Next number', 'Restarts', 'Used']);
+  await expect(salesRow(s).getByRole('gridcell', { name: `INV/${FY}/0001`, exact: true })).toBeVisible();
 
   expect(await saleNumber()).toBe(`INV/${FY}/0001`);
 });

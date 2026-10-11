@@ -12,9 +12,13 @@ import { userMessage } from '../../app/lib/apiErrors.ts';
 import { useNav } from '../../app/nav.tsx';
 import { Screen } from '../../app/Screen.tsx';
 import { useBooks, usePeriod, useWorkingDate } from '../../app/working.tsx';
-import { Banner, Checkbox, DateInput, Field, FieldGroup, KeyValueList, Panel, Stack, useEnterAdvance } from '../../ui/index.ts';
-import { useSaveFile } from './components.tsx';
+import { Banner, DateInput, Field, FieldGroup, KeyValueList, Panel, Stack, useEnterAdvance } from '../../ui/index.ts';
+import { TipCheckbox, useSaveFile } from './components.tsx';
 import { openingsNote, xmlExportProblem, xmlExportSummary, xmlImportSteps } from './lib/xmlExportView.ts';
+
+/** What the XML interchange cannot carry (2.1: the "Vouchers" tooltip and the result, not a banner before it). */
+const XML_NOT_EXPORTED =
+  'Quotations, proforma invoices and physical stock vouchers are not exported (they are not part of the XML interchange). Amounts in foreign currency are exported in rupees.';
 
 export function XmlExportScreen() {
   const nav = useNav();
@@ -61,12 +65,11 @@ export function XmlExportScreen() {
   return (
     <Screen
       title="XML Data Export"
-      subtitle="Export for another accounting program (XML): masters and vouchers as an import file — for your CA or auditor, or to move the books to another program."
-      icon="export"
+      subtitle="For another accounting program, your CA or auditor"
       width="form"
       hint="Enter Next field · Ctrl+A Export · Alt+B Trial Balance · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Export', icon: 'export', primary: true, onClick: () => void run(), disabled: busy || !!problem },
+        { key: 'Ctrl+A', label: busy ? 'Exporting…' : 'Export', icon: 'export', primary: true, onClick: () => void run(), disabled: busy || !!problem },
         { key: 'Alt+B', label: 'Trial Balance', icon: 'scale', onClick: () => nav.push('reports.trialBalance', { from: from ?? period.from, to: to ?? period.to }), group: 'view' },
       ]}
     >
@@ -79,16 +82,16 @@ export function XmlExportScreen() {
         <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
           <Stack gap={4}>
             <FieldGroup legend="What to export" columns={2}>
-              <Checkbox
+              <TipCheckbox
                 label="Masters"
-                description="Groups, ledgers (GST, party, bank and bill-wise openings), units, godowns, stock groups and items, cost centres, voucher types, aliases"
+                tip="Groups, ledgers (GST, party, bank and bill-wise openings), units, godowns, stock groups and items, cost centres, voucher types, aliases"
                 checked={masters}
                 onChange={setMasters}
                 data-autofocus
               />
-              <Checkbox
+              <TipCheckbox
                 label="Vouchers of the period"
-                description="Accounting and inventory vouchers with bill-wise, cost-centre, bank and GST details, exactly as recorded"
+                tip={`Accounting and inventory vouchers with bill-wise, cost-centre, bank and GST details, exactly as recorded. ${XML_NOT_EXPORTED}`}
                 checked={vouchers}
                 onChange={setVouchers}
               />
@@ -105,10 +108,7 @@ export function XmlExportScreen() {
             ) : null}
           </Stack>
         </form>
-        {problem ? <p className="bx-muted">{problem}</p> : openings ? <p className="bx-muted">{openings}</p> : null}
-        <Banner tone="info" inline>
-          Quotations, proforma invoices and physical stock vouchers are not exported (they are not part of the XML interchange). Amounts in foreign currency are exported in rupees.
-        </Banner>
+        {problem ? <p className="bx-muted" role="status">{problem}</p> : openings ? <p className="bx-muted">{openings}</p> : null}
         {done ? (
           <Panel title="Exported">
             <Stack gap={3}>
@@ -116,6 +116,7 @@ export function XmlExportScreen() {
                 Saved as <strong>{done.savedTo.split(/[\\/]/).pop()}</strong>.
               </p>
               <KeyValueList items={summary.map((r) => ({ key: r.key, label: r.label, value: r.value }))} alignValues="right" />
+              {done.vouchersAsked ? <p className="bx-muted">{XML_NOT_EXPORTED}</p> : null}
               <div>
                 <strong>Loading it in the other program</strong>
                 <ol className="bx-data-howto">

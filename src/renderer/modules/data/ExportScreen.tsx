@@ -12,7 +12,7 @@ import { Screen } from '../../app/Screen.tsx';
 import { useFeatures } from '../../app/state.tsx';
 import { usePeriod, useWorkingDate } from '../../app/working.tsx';
 import { Banner, Button, Checkbox, DateInput, Field, FieldGroup, Inline, SegmentedControl, Stack, Tabs } from '../../ui/index.ts';
-import { useSaveFile } from './components.tsx';
+import { TipCheckbox, useSaveFile } from './components.tsx';
 
 const MASTER_LABELS: Readonly<Record<MasterExportKind, { label: string; description: string; inventory?: boolean }>> = {
   groups: { label: 'Account groups', description: 'Your own groups and sub-groups' },
@@ -93,9 +93,9 @@ export function ExportScreen() {
 
   const mastersTab = (
     <Stack gap={4}>
-      <FieldGroup legend="What to export" description="Sheets use the same columns as the import templates." columns={2}>
+      <FieldGroup legend="What to export" columns={2}>
         {availableKinds.map((k) => (
-          <Checkbox key={k} label={MASTER_LABELS[k].label} description={MASTER_LABELS[k].description} checked={kinds.includes(k)} onChange={(on) => setKinds((l) => toggle(l, k, on))} />
+          <TipCheckbox key={k} label={MASTER_LABELS[k].label} tip={MASTER_LABELS[k].description} checked={kinds.includes(k)} onChange={(on) => setKinds((l) => toggle(l, k, on))} />
         ))}
       </FieldGroup>
       <Inline gap={2}>
@@ -106,15 +106,10 @@ export function ExportScreen() {
           Clear
         </Button>
       </Inline>
-      <Field label="Format" hint={mFormat === 'csv' && kinds.length > 1 ? 'Several CSV files come as one .zip file.' : undefined}>
+      <Field label="Format" hint={mFormat === 'csv' && kinds.length > 1 ? 'Several CSV files come as one .zip file.' : 'Sheets use the same columns as the import templates.'}>
         <SegmentedControl aria-label="Masters file format" options={FORMAT_OPTIONS} value={mFormat} onChange={setMFormat} />
       </Field>
-      {mastersProblem ? <p className="bx-muted">{mastersProblem}</p> : null}
-      <div>
-        <Button variant="primary" icon="export" loading={busy} disabled={!!mastersProblem} shortcut="Ctrl+A" onClick={() => void exportMasters()}>
-          Export masters
-        </Button>
-      </div>
+      {mastersProblem ? <p className="bx-muted" role="status">{mastersProblem}</p> : null}
     </Stack>
   );
 
@@ -135,30 +130,24 @@ export function ExportScreen() {
           : null}
       </FieldGroup>
       <FieldGroup legend="Include" columns={2}>
-        <Checkbox label="Optional vouchers" description="Entries marked optional (not in the books)" checked={includeOptional} onChange={setIncludeOptional} />
-        <Checkbox label="Cancelled vouchers" description="Kept for the number series, with no amounts" checked={includeCancelled} onChange={setIncludeCancelled} />
+        <TipCheckbox label="Optional vouchers" tip="Entries marked optional (not in the books)" checked={includeOptional} onChange={setIncludeOptional} />
+        <TipCheckbox label="Cancelled vouchers" tip="Kept for the number series, with no amounts" checked={includeCancelled} onChange={setIncludeCancelled} />
       </FieldGroup>
       <Field label="Format" hint={vFormat === 'csv' ? 'Three CSV files (vouchers, ledger entries, stock lines) in one .zip file.' : 'One workbook with three sheets: Vouchers, Ledger Entries, Inventory Entries.'}>
         <SegmentedControl aria-label="Vouchers file format" options={FORMAT_OPTIONS} value={vFormat} onChange={setVFormat} />
       </Field>
-      {vouchersProblem ? <p className="bx-muted">{vouchersProblem}</p> : null}
-      <div>
-        <Button variant="primary" icon="export" loading={busy} disabled={!!vouchersProblem} shortcut="Ctrl+A" onClick={() => void exportVouchers()}>
-          Export vouchers
-        </Button>
-      </div>
+      {vouchersProblem ? <p className="bx-muted" role="status">{vouchersProblem}</p> : null}
     </Stack>
   );
 
   return (
     <Screen
       title="Export Data"
-      subtitle="Take your masters and vouchers to Excel — for your CA, another company, or your own analysis."
-      icon="export"
+      subtitle="Masters and vouchers to Excel or CSV"
       width="form"
       hint="Ctrl+A Export · Alt+M Masters · Alt+V Vouchers · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: tab === 'masters' ? 'Export masters' : 'Export vouchers', icon: 'export', primary: true, onClick: run, disabled: busy || !!(tab === 'masters' ? mastersProblem : vouchersProblem) },
+        { key: 'Ctrl+A', label: busy ? 'Exporting…' : tab === 'masters' ? 'Export masters' : 'Export vouchers', icon: 'export', primary: true, onClick: run, disabled: busy || !!(tab === 'masters' ? mastersProblem : vouchersProblem) },
         { key: 'Alt+M', label: 'Masters', icon: 'book', onClick: () => setTab('masters'), group: 'view' },
         { key: 'Alt+V', label: 'Vouchers', icon: 'journal', onClick: () => setTab('vouchers'), group: 'view' },
       ]}
@@ -174,8 +163,8 @@ export function ExportScreen() {
           value={tab}
           onChange={(id) => setTab(id === 'vouchers' ? 'vouchers' : 'masters')}
           items={[
-            { id: 'masters', label: 'Masters', icon: 'book', content: mastersTab },
-            { id: 'vouchers', label: 'Vouchers', icon: 'journal', content: vouchersTab },
+            { id: 'masters', label: 'Masters', content: mastersTab },
+            { id: 'vouchers', label: 'Vouchers', content: vouchersTab },
           ]}
         />
       </Stack>

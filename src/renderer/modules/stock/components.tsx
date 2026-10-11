@@ -6,8 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNav, usePeriod } from '../../app/index.ts';
 import type { Period } from '../../app/index.ts';
-import { EmptyState } from '../../ui/index.ts';
+import { EmptyState, Field, FiltersPopover, Inline, StatLine } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
+import type { StockStatItem } from './lib/charts.ts';
 import { keysUpToLevel, paramsPeriod, parentKeys, qtyText, rateText, signedAmountText } from './lib/model.ts';
 import type { DrillTarget, Range, TreeRowLike } from './lib/model.ts';
 
@@ -110,6 +111,58 @@ export function amountColumn<T>(key: string, header: string, get: (r: T) => numb
 
 export function rateColumn<T>(key: string, header: string, get: (r: T) => number | null | undefined, opts: { width?: number; hidden?: boolean } = {}): Column<T> {
   return { key, header, kind: 'number', width: opts.width ?? 110, hidden: opts.hidden, value: (r) => get(r) ?? null, render: (r) => rateText(get(r)) };
+}
+
+/**
+ * The column with the report's inline bars (2.1, D26): a 4 px bar under the value cell of the rows the
+ * graph has one bar for (`value` returns null for the others), slot 1 — or slot 2 for a negative under
+ * 'polarity'. Only when the screen's graph is drawn inline (`inline`); otherwise the column is unchanged.
+ */
+export function withBar<T>(col: Column<T>, inline: boolean, value: (r: T) => number | null, slot: 1 | 'polarity' = 'polarity'): Column<T> {
+  return inline ? { ...col, bar: { value, slot } } : col;
+}
+
+// ───────────────────────────── Toolbar row ─────────────────────────────
+
+export interface StockFilter {
+  key: string;
+  /** Shown above the control inside the Filters popover (the control keeps its own accessible name). */
+  label: string;
+  /** Narrows the report (counted on the "Filters (n)" button). */
+  active: boolean;
+  /** Back to "All …" (the popover's "Clear filters" link clears every active filter). */
+  clear: () => void;
+  node: ReactNode;
+}
+
+/**
+ * The toolbar row's filters (SPEC-21 §1.2: at most one filter on the row): one filter sits on the row
+ * as it is; two or more go behind one quiet "Filters ▾" button that counts the active ones.
+ */
+export function StockFilters({ filters }: { filters: readonly StockFilter[] }): ReactNode {
+  if (filters.length === 0) return null;
+  if (filters.length === 1) return filters[0].node;
+  const active = filters.filter((f) => f.active);
+  return (
+    <FiltersPopover count={active.length} onClear={() => active.forEach((f) => f.clear())}>
+      {filters.map((f) => (
+        <Field key={f.key} label={f.label}>
+          {f.node}
+        </Field>
+      ))}
+    </FiltersPopover>
+  );
+}
+
+/** View tabs and filters side by side on the toolbar row. */
+export function ToolbarLeft({ children }: { children: ReactNode }): ReactNode {
+  return <Inline gap={3}>{children}</Inline>;
+}
+
+/** A stock report's answer in words on the toolbar row (lib/charts.ts `…Stat`); nothing when there is nothing to say. */
+export function StockStat({ items }: { items: readonly StockStatItem[] }): ReactNode {
+  if (items.length === 0) return null;
+  return <StatLine items={items.map((it) => ({ label: it.label, value: it.value, tone: it.tone }))} />;
 }
 
 /** Empty state with what to do next. */

@@ -1,10 +1,13 @@
 /**
  * 'accounts.group.list' — the group tree (built-in and your own groups) with ledger counts.
  *   Enter alter · Alt+C create (under the highlighted group) · Alt+D (or Ctrl+D) delete · Alt+H edit history ·
- *   Alt+T chart of accounts · Alt+E export.
+ *   Alt+T chart of accounts · Alt+E / Alt+P export / print (More ▾, 2.1).
  * 'accounts.group.form' — Group Creation / Alteration.
  *   Params { id? | initialName?, parentId?, forResult? }. Opened for a result (Alt+C in a group
  *   picker) it saves and returns { id, name }; otherwise create keeps the form open for the next.
+ *   2.1: Name, Under and Nature on screen; the alias and "Display and behaviour" behind the "More details"
+ *   line (opens by itself on an alias, a switch turned on or an error — lib/formReveal.ts; remembered per
+ *   computer profile as 'group').
  */
 import { useMemo, useRef, useState } from 'react';
 import type { GroupNature } from '../../../shared/constants.ts';
@@ -19,11 +22,13 @@ import { useNav, useScreenResult } from '../../app/nav.tsx';
 import { invalidate } from '../../app/queryClient.ts';
 import type { ScreenProps } from '../../app/registry.ts';
 import { ReadOnlyNotice, ReportScreen, Screen } from '../../app/Screen.tsx';
+import { setMoreDetailsOpen, useUiPrefs } from '../../app/preferences.ts';
 import { useCan } from '../../app/state.tsx';
-import { Badge, Banner, Button, DataTable, EmptyState, Field, FieldGroup, NumberInput, Select, Stack, Switch, TextInput, useDebouncedValue, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Banner, DataTable, DisclosureLine, EmptyState, Field, NumberInput, Select, Switch, TextInput, useDebouncedValue, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { focusFirstInvalid, NameCell } from './components.tsx';
 import { LEDGER_DEPENDENTS } from './hooks.ts';
+import { groupMoreRevealed } from './lib/formReveal.ts';
 import { NATURE_LABELS, natureHint } from './lib/groupClass.ts';
 import { GroupPicker, groupTrail, useGroups } from './pickers.tsx';
 
@@ -45,7 +50,7 @@ export function GroupListScreen() {
 
   const columns = useMemo<Column<GroupRow>[]>(
     () => [
-      { key: 'name', header: 'Group', tree: true, render: (r) => <NameCell name={r.name} alias={r.alias} predefined={r.isPredefined} />, title: (r) => r.path.join(' › ') },
+      { key: 'name', header: 'Group', tree: true, render: (r) => <NameCell name={r.name} alias={r.alias} />, title: (r) => r.path.join(' › ') },
       { key: 'nature', header: 'Nature', width: 120, value: (r) => NATURE_LABELS[r.nature] },
       { key: 'gp', header: 'Gross profit', width: 120, value: (r) => (r.nature === 'income' || r.nature === 'expenses' ? (r.affectsGrossProfit ? 'Affects' : '—') : '') },
       { key: 'totalLedgerCount', header: 'Ledgers', kind: 'number', width: 100, blankZero: true },
@@ -79,15 +84,16 @@ export function GroupListScreen() {
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
+      outputInMore
       hint="Enter Alter · Alt+C Create · Alt+D Delete · Alt+H Edit History · Alt+T Chart · Alt+E Export · Esc Back"
       actions={[
         {
           key: 'Alt+C',
           label: 'Create group',
           icon: 'plus',
-          primary: true,
           disabled: !canCreate,
           onClick: () => nav.push('accounts.group.form', current ? { parentId: current.id } : {}),
+          prominent: true,
         },
         { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), disabled: !canDelete || !current, group: 'danger' },
         {
@@ -122,7 +128,8 @@ export function GroupListScreen() {
         onSelect={(k) => setCursor(k)}
         onRowActivate={(r) => nav.push('accounts.group.form', { id: r.id })}
         loading={q.loading}
-        empty={<EmptyState icon="search" title="No group matches" body="Change the search, or press Alt+C to create the group." />}
+        hideEmptyColumns
+        empty={<EmptyState title="No group matches" body="Change the search, or press Alt+C to create the group." />}
       />
     </ReportScreen>
   );
@@ -140,7 +147,7 @@ export interface GroupFormParams {
 export function GroupFormScreen({ params }: ScreenProps<GroupFormParams>) {
   const isAlter = typeof params.id === 'number';
   const q = useApiQuery('accounts.group.get', { id: params.id ?? 0 }, { enabled: isAlter });
-  if (isAlter && !q.data) return <Screen title="Group Alteration" icon="layers" width="form" loading={q.loading} error={q.error} onRetry={() => void q.refetch()} />;
+  if (isAlter && !q.data) return <Screen title="Group Alteration" width="form" loading={q.loading} error={q.error} onRetry={() => void q.refetch()} />;
   return <GroupForm key={q.data ? `${q.data.id}:${q.data.updatedAt}` : 'new'} original={q.data ?? null} params={params} />;
 }
 
@@ -297,6 +304,11 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
 
   const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => void submit() });
   const saveLabel = forResult ? 'Save & return' : original ? 'Save' : 'Save & create next';
+  // 2.1: the alias and "Display and behaviour" sit behind "More details"; a value chosen there (not the
+  // position the books give every group) or an error opens it (lib/formReveal.ts).
+  const prefs = useUiPrefs();
+  const revealed = groupMoreRevealed(d, errors);
+  const moreOpen = prefs.moreDetails[GROUP_FORM_KIND] === true || revealed;
 
   return (
     <Screen
@@ -308,10 +320,8 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
             ? `${created} created in this session`
             : 'Groups arrange ledgers for the Balance Sheet and Profit & Loss.'
       }
-      icon="layers"
       width="form"
       dirty={dirty}
-      meta={predefined ? <Badge tone="neutral" variant="outline">Built-in</Badge> : undefined}
       hint={`Enter Next field · Ctrl+A ${saveLabel} · Esc Back`}
       actions={[
         { key: 'Ctrl+A', label: saveLabel, icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly },
@@ -326,72 +336,65 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
           group: 'more',
         },
       ]}
-      footer={
-        readOnly ? undefined : (
-          <>
-            <Button onClick={() => void nav.back()}>Cancel</Button>
-            <Button variant="primary" icon="save" loading={save.pending} onClick={() => void submit()} shortcut="Ctrl+A">
-              {saveLabel}
-            </Button>
-          </>
-        )
-      }
     >
       <div ref={formBox}>
-      <div ref={formRef}>
-        <Stack gap={6}>
+        <div ref={formRef} className="bx-acc-form">
           {readOnly ? <ReadOnlyNotice what="groups" /> : null}
           {predefined ? (
             <Banner tone="info" inline>
-              This is a built-in group: its name, position and nature are fixed. You can give it an alias and change how it is shown.
+              A built-in group: its name, position and nature are fixed. You can give it an alias and change how it is shown.
             </Banner>
           ) : null}
-          <FieldGroup legend="Group" columns={2}>
-            <Field label="Name" required error={errors.name || undefined}>
-              <TextInput ref={nameRef} data-autofocus value={d.name} onChange={(e) => set('name', e.target.value)} readOnly={readOnly || predefined} maxLength={100} placeholder="e.g. Mumbai Customers, Office Expenses" />
+          <Field layout="inline" label="Name" required error={errors.name || undefined}>
+            <TextInput ref={nameRef} data-autofocus value={d.name} onChange={(e) => set('name', e.target.value)} readOnly={readOnly || predefined} maxLength={100} />
+          </Field>
+          <Field
+            layout="inline"
+            label="Under"
+            error={errors.parentId || undefined}
+            hint={parent ? `${groupTrail(parent) ? `${groupTrail(parent)} › ` : ''}${parent.name} · ${natureHint(parent.nature, parent.affectsGrossProfit)}` : 'Leave blank for a primary group (top level).'}
+          >
+            <GroupPicker value={d.parentId} onChange={(id) => set('parentId', id)} excludeSubtreeOf={original?.id ?? null} allowCreate={false} readOnly={readOnly || predefined} placeholder="Primary (top level)" />
+          </Field>
+          {primary ? (
+            <Field layout="inline" label="Nature" required={!predefined} error={errors.nature || undefined} hint={nature ? natureHint(nature, d.affectsGrossProfit) : 'Where its ledgers appear in the final accounts.'}>
+              <Select<GroupNature> value={d.nature} onChange={(v) => set('nature', v)} disabled={readOnly || predefined} placeholder="Choose…" options={NATURE_OPTIONS} />
             </Field>
-            <Field label="Alias" optional error={errors.alias || undefined}>
+          ) : (
+            <Field layout="inline" label="Nature" hint="Taken from the parent group.">
+              <TextInput value={nature ? NATURE_LABELS[nature] : ''} readOnly tabIndex={-1} />
+            </Field>
+          )}
+          {showGp ? (
+            <Field layout="inline" label="Affects gross profit" hint="Yes for trading items (direct income/expenses) shown above gross profit.">
+              <Switch checked={d.affectsGrossProfit} onChange={(v) => set('affectsGrossProfit', v)} disabled={readOnly || predefined} aria-label="Affects gross profit" />
+            </Field>
+          ) : null}
+          <DisclosureLine summary="alias, display and behaviour" open={moreOpen} forceOpen={revealed} onToggle={(open) => setMoreDetailsOpen(GROUP_FORM_KIND, open)} className="bx-acc-form__more" regionClassName="bx-acc-form">
+            <Field layout="inline" label="Alias" optional error={errors.alias || undefined}>
               <TextInput value={d.alias} onChange={(e) => set('alias', e.target.value)} readOnly={readOnly} maxLength={100} />
             </Field>
-            <Field
-              label="Under"
-              error={errors.parentId || undefined}
-              hint={parent ? `${groupTrail(parent) ? `${groupTrail(parent)} › ` : ''}${parent.name} · ${natureHint(parent.nature, parent.affectsGrossProfit)}` : 'Leave blank for a primary group (top level).'}
-            >
-              <GroupPicker value={d.parentId} onChange={(id) => set('parentId', id)} excludeSubtreeOf={original?.id ?? null} allowCreate={false} readOnly={readOnly || predefined} placeholder="Primary (top level)" />
-            </Field>
-            {primary ? (
-              <Field label="Nature" required={!predefined} error={errors.nature || undefined} hint={nature ? natureHint(nature, d.affectsGrossProfit) : 'Where its ledgers appear in the final accounts.'}>
-                <Select<GroupNature> value={d.nature} onChange={(v) => set('nature', v)} disabled={readOnly || predefined} placeholder="Choose…" options={NATURE_OPTIONS} />
+            <section className="bx-acc-form" aria-label="Display and behaviour">
+              <h2 className="bx-acc-form__title">Display and behaviour</h2>
+              <Field layout="inline" label="Behaves like a sub-ledger" hint="Reports show the group total instead of its ledgers.">
+                <Switch checked={d.isSubledger} onChange={(v) => set('isSubledger', v)} disabled={readOnly} aria-label="Behaves like a sub-ledger" />
               </Field>
-            ) : (
-              <Field label="Nature" hint="Taken from the parent group.">
-                <TextInput value={nature ? NATURE_LABELS[nature] : ''} readOnly tabIndex={-1} />
+              <Field layout="inline" label="Net debit/credit balances" hint="Show one net balance in reports instead of separate debit and credit totals.">
+                <Switch checked={d.netBalances} onChange={(v) => set('netBalances', v)} disabled={readOnly} aria-label="Net debit/credit balances" />
               </Field>
-            )}
-            {showGp ? (
-              <Field label="Affects gross profit" hint="Yes for trading items (direct income/expenses) shown above gross profit.">
-                <Switch checked={d.affectsGrossProfit} onChange={(v) => set('affectsGrossProfit', v)} disabled={readOnly || predefined} aria-label="Affects gross profit" />
+              <Field layout="inline" label="Used for calculation" hint="For groups of ledgers that compute on invoices, e.g. taxes and discounts.">
+                <Switch checked={d.usedForCalculation} onChange={(v) => set('usedForCalculation', v)} disabled={readOnly} aria-label="Used for calculation" />
               </Field>
-            ) : null}
-          </FieldGroup>
-          <FieldGroup legend="Display and behaviour" columns={2}>
-            <Field label="Behaves like a sub-ledger" hint="Reports show the group total instead of its ledgers.">
-              <Switch checked={d.isSubledger} onChange={(v) => set('isSubledger', v)} disabled={readOnly} aria-label="Behaves like a sub-ledger" />
-            </Field>
-            <Field label="Net debit/credit balances" hint="Show one net balance in reports instead of separate debit and credit totals.">
-              <Switch checked={d.netBalances} onChange={(v) => set('netBalances', v)} disabled={readOnly} aria-label="Net debit/credit balances" />
-            </Field>
-            <Field label="Used for calculation" hint="For groups of ledgers that compute on invoices, e.g. taxes and discounts.">
-              <Switch checked={d.usedForCalculation} onChange={(v) => set('usedForCalculation', v)} disabled={readOnly} aria-label="Used for calculation" />
-            </Field>
-            <Field label="Position in reports" optional hint="Lower numbers are listed first among groups at the same level.">
-              <NumberInput value={d.sortOrder} onChange={(v) => set('sortOrder', v)} min={0} max={9999} readOnly={readOnly} />
-            </Field>
-          </FieldGroup>
-        </Stack>
-      </div>
+              <Field layout="inline" label="Position in reports" optional hint="Lower numbers are listed first among groups at the same level.">
+                <NumberInput value={d.sortOrder} onChange={(v) => set('sortOrder', v)} min={0} max={9999} readOnly={readOnly} />
+              </Field>
+            </section>
+          </DisclosureLine>
+        </div>
       </div>
     </Screen>
   );
 }
+
+/** The ui-preference key of the group form's "More details" (`moreDetails`). */
+const GROUP_FORM_KIND = 'group';

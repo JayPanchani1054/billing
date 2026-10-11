@@ -319,8 +319,6 @@ function ConfigForm({ saved, tab, setTab }: { saved: CompanyConfig; tab: ConfigT
   return (
     <Screen
       title="Configuration"
-      subtitle="Round-off, GST settings, warnings, display and backups. Invoice printing has its own screen."
-      icon="settings"
       width="form"
       dirty={dirty}
       hint="Enter Next field · Ctrl+Tab Next tab · Alt+I Invoice printing · Ctrl+A Save · Esc Back"
@@ -329,16 +327,6 @@ function ConfigForm({ saved, tab, setTab }: { saved: CompanyConfig; tab: ConfigT
         { key: 'Alt+I', label: 'Invoice printing', icon: 'print', onClick: openPrinting, hidden: !canOpenPrinting, group: 'more' },
         { key: 'F11', label: 'Features', icon: 'sliders', onClick: () => nav.push('company.features'), group: 'more' },
       ]}
-      footer={
-        canEdit ? (
-          <>
-            <Button onClick={() => void nav.back()}>Cancel</Button>
-            <Button variant="primary" icon="save" disabled={!dirty} loading={save.pending} onClick={() => void submit()} shortcut="Ctrl+A">
-              Save
-            </Button>
-          </>
-        ) : undefined
-      }
     >
       <Stack gap={4}>
         {readOnly ? <ReadOnlyNotice what="the configuration" /> : null}

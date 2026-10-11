@@ -1,6 +1,8 @@
 /**
  * 'reports.statistics' — voucher counts by type for the period (regular / optional / cancelled /
  * post-dated) and the number of masters. Enter on a voucher type opens its register.
+ *
+ * 2.1: deliberately no graph (housekeeping counts); two plain sections, no title bands.
  */
 import { useMemo } from 'react';
 import type { VoucherStatRow } from '../../../shared/types/reports.ts';
@@ -58,7 +60,6 @@ export function StatisticsScreen({ params }: ScreenProps<{ from?: string; to?: s
       {d ? (
         <div className="bx-rep-sides">
           <section className="bx-rep-side" aria-label="Vouchers">
-            <div className="bx-rep-side__title">Vouchers</div>
             <DataTable<VoucherStatRow>
               aria-label="Voucher counts by type"
               columns={columns}
@@ -71,7 +72,6 @@ export function StatisticsScreen({ params }: ScreenProps<{ from?: string; to?: s
             />
           </section>
           <section className="bx-rep-side" aria-label="Masters">
-            <div className="bx-rep-side__title">Masters</div>
             <DataTable<MasterRow> aria-label="Master counts" columns={masterColumns} rows={d.masters} getRowKey={(r) => r.key} virtualize={false} />
           </section>
         </div>

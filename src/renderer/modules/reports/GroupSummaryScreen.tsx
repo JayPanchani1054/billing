@@ -5,14 +5,21 @@
  * summary, ledger → Ledger Vouchers, voucher → the voucher; Alt+A alters it).
  * `basis: 'profitLoss'` (drilled from the P&L): income/expense groups show this period only, so the
  * total agrees with the P&L line; sub-groups opened from here keep that basis.
+ *
+ * 2.1 (graph class 'detail'): the summary view answers "what makes up this group?" — each direct member's
+ * closing on the group's own side, drawn as bars inside the table's single Closing column when there are
+ * ≤ 7 members, else a Top 6 + Other strip (lib/charts.ts). The vouchers view has no graph.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { GroupSummaryBasis, GroupVoucherRow, TbRow } from '../../../shared/types/reports.ts';
 import { ReportScreen, useApiQuery } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { DataTable, EmptyState, SegmentedControl, Stack } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { TbTable, useDrill, useReportPeriod, useTreeExpansion } from './components.tsx';
+import { groupSummaryChart, natureSign } from './lib/charts.ts';
 import { currentRow, drillForRow, tbExport, voucherTarget } from './lib/model.ts';
 import { visibleRows } from './lib/tree.ts';
 
@@ -50,6 +57,11 @@ export function GroupSummaryScreen({ params }: ScreenProps<GroupSummaryParams>) 
   const title = summary.data ? summary.data.group.name : 'Group Summary';
   const v = vouchers.data;
   const selected = currentRow(cursor, v?.rows, (r) => r.voucherId);
+  const spec = useMemo(() => (view === 'summary' ? groupSummaryChart(summary.data) : null), [view, summary.data]);
+  const inline = inlineBars(spec, rows.filter((r) => r.level === 0).length);
+  const sign = natureSign(summary.data?.group.nature ?? 'assets');
+  // Inline bars on the members (level 0) only, on the group's own side.
+  const barValue = useCallback((r: TbRow): number | null => (r.level === 0 ? r.closing * sign : null), [sign]);
 
   const actions: ScreenActionItem[] = [
     { key: 'Alt+V', label: view === 'summary' ? 'Group vouchers' : 'Group summary', icon: 'list', onClick: () => setView(view === 'summary' ? 'vouchers' : 'summary'), group: 'view' },
@@ -101,6 +113,8 @@ export function GroupSummaryScreen({ params }: ScreenProps<GroupSummaryParams>) 
       error={q.error}
       onRetry={q.refetch}
       actions={actions}
+      graph={reportGraph(spec, { inline })}
+      graphKind="detail"
       hint={view === 'summary' ? 'Enter Drill down · →/← Expand/collapse · Alt+V Vouchers · Alt+M Monthly' : 'Enter Open voucher · Alt+A Alter · Alt+V Summary'}
       filters={
         <SegmentedControl<View>
@@ -140,15 +154,15 @@ export function GroupSummaryScreen({ params }: ScreenProps<GroupSummaryParams>) 
           expansion={expansion}
           showOpening={showOpening}
           showTransactions
+          closing={{ bar: inline ? { value: barValue, slot: 'polarity' } : null }}
           onActivate={(r: TbRow) => drill(drillForRow(r, p.period, { basis }))}
           loading={summary.loading}
           totalLabel="Total"
         />
       ) : (
-        <Stack gap={2} grow>
+        <Stack gap={2}>
           <DataTable<GroupVoucherRow>
             aria-label={`${title} — vouchers`}
-            className="bx-rep-fill"
             columns={vColumns}
             rows={v?.rows ?? []}
             getRowKey={(r) => String(r.voucherId)}

@@ -1,66 +1,42 @@
-/* Reports module screens. Semantic design tokens only (no raw colours). Prefix: bx-rep- */
+/* Reports module. Semantic tokens only. Prefix: bx-rep- */
 
-/* A table that takes the remaining height of the report body. */
-.bx-rep-fill {
-  flex: 1;
-  min-height: 240px;
-}
-
-/* Horizontal statement: two equal columns (Expenses | Income, Liabilities | Assets). */
+/* Two sides on one flat sheet; one column when narrow. */
 .bx-rep-sides {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-3);
-  align-items: stretch;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-3) var(--space-6);
 }
-@media (max-width: 900px) {
-  .bx-rep-sides {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .bx-rep-side {
-  display: flex;
-  flex-direction: column;
   min-width: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-  overflow: hidden;
 }
-.bx-rep-side__title {
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border-subtle);
-  font-weight: var(--fw-semibold);
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-/* Section captions inside a statement (Trading Account / Profit & Loss Account). */
-.bx-rep-section-title {
+.bx-rep-side__title,
+.bx-rep-caption {
+  margin: var(--space-2) 0 0;
   font-size: var(--fs-13);
   font-weight: var(--fw-semibold);
+}
+/* One column header per sheet (still read aloud). */
+.bx-rep-cont .bx-thead {
+  position: absolute;
+  clip-path: inset(50%);
+}
+.bx-rep-child,
+.bx-rep-caption {
   color: var(--text-secondary);
 }
-
-/* Child lines of a statement are quieter than the group lines carrying the totals. */
-.bx-rep-child {
-  color: var(--text-secondary);
-}
-
-/* Fixed lines (Gross Profit c/o, Net Profit, Opening/Closing Stock) stand out a little. */
-.bx-rep-key-line {
-  font-weight: var(--fw-semibold);
-}
-
-/* Notes under a report (opening difference, year start, …). */
-.bx-rep-note,
-.bx-rep-formula {
+.bx-rep-note {
   font-size: var(--fs-12);
   color: var(--text-muted);
 }
-
-/* Ratio formula text. */
+/* Net loss, overdrawn. */
+.bx-rep-danger {
+  color: var(--danger-text);
+}
+/* The register picker as a title-row token. */
+.bx-rep-token {
+  display: inline-flex;
+}
+.bx-rep-token .bx-select__field:not(:hover, :focus-visible) {
+  border-color: transparent;
+  background: transparent;
+}

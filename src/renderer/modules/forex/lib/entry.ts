@@ -144,3 +144,13 @@ export function estimatedDifference(bill: PendingForexBill, forex: number, rate:
   // A Cr entry (receipt) getting more rupees than booked is a gain (Cr to gain/loss).
   return side === 'cr' ? -d : d;
 }
+
+/**
+ * 2.1 (D16): voucher entry's side column holds the foreign-currency panel only when something on the
+ * voucher is in a foreign currency AND there is a figure to show — the invoice's currency and rate, or a
+ * foreign line the last server check priced. Otherwise the grid keeps the full width (Alt+Y, registered
+ * by the entry screen, still opens the dialog).
+ */
+export function entryPanelShown(p: { relevant: boolean; invoiceCurrency: boolean; lines: number }): boolean {
+  return p.relevant && (p.invoiceCurrency || p.lines > 0);
+}

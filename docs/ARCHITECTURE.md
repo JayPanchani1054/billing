@@ -448,7 +448,7 @@ One calm visual language for every screen, defined once in `src/renderer/styles/
   swept once unread. Status tones only on badges, banners and inline validation; money is never red
   for "negative" (Dr/Cr rule, §7).
 - **Type** (Segoe UI Variable → Segoe UI → system): the 2.1 scale above. `--fs-11` is for boxed key
-  chips (and chart axis text, laid out for 11px) only; `--text-display` is retired (aliases 24).
+  chips (and chart axis text, laid out for 11px) only; `--text-display` was removed in 2.1 (use `--text-heading`).
   Numeric and right-aligned table cells use tabular figures. Classed lists lose markers through a
   zero-specificity reset; prose lists set their own `list-style`.
 - **Depth.** Resting elevation only through roles: `--elev-popover` (menus, popovers, listboxes,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { PosRegister, PosSummary } from '../../../../shared/types/pos.ts';
-import { drawerDifference, drillCounter, drillTender, drillUser, expectedDrawer, signed, summaryExport, summaryTiles } from './summary.ts';
+import { drawerDifference, drillCounter, drillTender, drillUser, expectedDrawer, signed, summaryExport } from './summary.ts';
 
 const s: PosSummary = {
   from: '2026-10-09',
@@ -30,15 +30,8 @@ const s: PosSummary = {
 };
 
 describe('POS summary helpers', () => {
-  it('tiles and drawer', () => {
-    const tiles = summaryTiles(s);
-    assert.deepEqual(tiles.map((t) => [t.label, t.value]), [
-      ['Net sales', 34_100],
-      ['Cash in drawer from POS', 12_300],
-      ['Sold on credit', 13_600],
-      ['GST on sales', 4_100],
-    ]);
-    assert.match(tiles[1].caption, /change given ₹ 27\.00/);
+  // 2.1: the day's figures are the toolbar-row stat (charts.ts summaryStat, tested in charts.test.ts).
+  it('drawer', () => {
     assert.equal(expectedDrawer(s, 2_000_00), 2_123_00);
     assert.equal(drawerDifference(2_120_00, 2_123_00), -300);
     assert.equal(drawerDifference(null, 2_123_00), null);

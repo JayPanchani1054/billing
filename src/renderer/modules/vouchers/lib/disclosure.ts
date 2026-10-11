@@ -10,9 +10,10 @@
  * - Purchase-side documents keep "Supplier invoice no. / date" and "Reverse charge" inline (input credit
  *   and GSTR-2B matching depend on them); payments / receipts keep their reference inline (they have no
  *   More details).
- * - Place of supply: a chip "Gujarat (24) · intra-state ✎" when it is derived (automatic and known);
- *   the existing select when it was chosen by hand, cannot be derived or would only be assumed (a
- *   party without a state, overseas) or has an error.
+ * - Place of supply (2.1): plain text when it is derived (automatic and known) — "Maharashtra" within the
+ *   state, "Gujarat · inter-state" across states; no state code, no ✎ (the full text "Gujarat · inter-state
+ *   (24)", which starts with the words shown, is the accessible name and the tooltip). The existing select shows when it was chosen by
+ *   hand, cannot be derived or would only be assumed (a party without a state, overseas) or has an error.
  */
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { stateName } from '../../../../shared/gst/states.ts';
@@ -68,8 +69,10 @@ export function disclosedHasValue(f: { referenceNo: string; referenceDate: strin
 }
 
 export interface PlaceOfSupplyChip {
-  /** "Gujarat (24) · intra-state" — the chip text (the screen adds the ✎). */
+  /** What the header shows: "Maharashtra" (within the state) or "Gujarat · inter-state". */
   label: string;
+  /** The full words for the accessible name and the tooltip — the label first: "Gujarat · inter-state (24)". */
+  full: string;
   code: string;
 }
 
@@ -84,7 +87,7 @@ export function placeOfSupplyAssumed(a: { direction: 'outward' | 'inward'; party
 }
 
 /**
- * The derived place of supply as a chip, or null when the select must show: chosen by hand (`chosen`
+ * The derived place of supply as plain text, or null when the select must show: chosen by hand (`chosen`
  * not ''), not derivable (`computed` null), only assumed (`assumed`, see placeOfSupplyAssumed), outside
  * India ('96'), or the field has an error.
  */
@@ -92,5 +95,6 @@ export function placeOfSupplyChip(a: { chosen: string; computed: string | null; 
   if (a.hasError || a.assumed === true || a.chosen !== '' || a.computed === null || a.computed === '' || a.computed === '96' || a.interState === null) return null;
   const name = stateName(a.computed);
   if (!name) return null;
-  return { label: `${name} (${a.computed}) · ${a.interState ? 'inter-state' : 'intra-state'}`, code: a.computed };
+  // The full text starts with what is shown (label in name, WCAG 2.5.3), then says what is implied.
+  return { label: a.interState ? `${name} · inter-state` : name, full: `${name} · ${a.interState ? 'inter-state' : 'intra-state'} (${a.computed})`, code: a.computed };
 }

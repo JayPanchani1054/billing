@@ -16,6 +16,7 @@ import type {
   TaxValue,
 } from '../../../../shared/types/gst-returns.ts';
 import type { TableExportDef } from '../../../app/export.ts';
+import { formatMoney } from '../../../../shared/format.ts';
 import { hsnExport } from './reports.ts';
 
 export type Gstr1TileId = '4A' | '4B' | '5' | '6A' | '6B' | '6C' | '7' | '8' | '9B' | '11' | '12' | '13';
@@ -135,6 +136,32 @@ export function issuesForSections(issues: readonly GstIssue[], sections: readonl
 export function countText(count: number, label: Gstr1SectionSummary['countLabel']): string {
   const unit = label === 'documents' ? 'document' : label === 'rows' ? 'row' : 'series';
   return `${count} ${unit}${count === 1 || unit === 'series' ? '' : 's'}`;
+}
+
+/**
+ * The accessible name of a table's row button — exactly the 2.0 tile's name (e2e first-day reads it):
+ * "Table 4A, B2B invoices: 1 document, taxable 1,000.00, tax 180.00" (+ ", 2 errors", ", 1 warnings").
+ */
+export function tileName(tile: Pick<Gstr1Tile, 'table' | 'title' | 'count' | 'countLabel' | 'taxable' | 'tax' | 'errors' | 'warnings'>): string {
+  return `Table ${tile.table}, ${tile.title}: ${countText(tile.count, tile.countLabel)}, taxable ${formatMoney(tile.taxable)}, tax ${formatMoney(tile.tax)}${
+    tile.errors ? `, ${tile.errors} errors` : ''
+  }${tile.warnings ? `, ${tile.warnings} warnings` : ''}`;
+}
+
+/** Tables 12 (HSN summary) and 13 (documents issued) restate the others — they sit below the Total row. */
+export const CHECK_TILES: readonly Gstr1TileId[] = ['12', '13'];
+
+/**
+ * The GSTR-1 screen's rows (2.1): the non-empty tables (every table with "Show empty tables"), split into
+ * the supply tables the Total row adds up (4A … 11) and the check tables after it (12, 13).
+ */
+export function gstr1Rows(tiles: readonly Gstr1Tile[], showEmpty: boolean): { supply: Gstr1Tile[]; checks: Gstr1Tile[]; hidden: number } {
+  const shown = tiles.filter((t) => showEmpty || !t.empty);
+  return {
+    supply: shown.filter((t) => !CHECK_TILES.includes(t.id)),
+    checks: shown.filter((t) => CHECK_TILES.includes(t.id)),
+    hidden: tiles.length - shown.length,
+  };
 }
 
 /** How a section's drill-down is laid out. */

@@ -1,19 +1,20 @@
-/* Voucher entry: screen, grids, side panels, entry dialogs. Semantic tokens only. Prefix: bx-vch- */
+/* Voucher entry (2.1 calm): flat header, grids, totals strip, side column only with work, entry dialogs. Prefix: bx-vch- */
 
-/* ── Entry layout: main column + summary side ─────────────────────── */
-.bx-vch {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-  gap: var(--space-4);
-  align-items: start;
+/* ── Layout: the side column shows only when it holds the work (D16) ── */
+.bx-screen-layout__body:has(> .bx-vch) {
+  display: flex;
+  flex-direction: column;
 }
-@media (max-width: 1100px) {
-  .bx-vch {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.bx-vch {
+  display: flex;
+  flex: 1 0 auto;
+  gap: var(--space-6);
+  align-items: flex-start;
 }
 .bx-vch__main {
   display: flex;
+  flex: 1;
+  align-self: stretch;
   flex-direction: column;
   gap: var(--space-3);
   min-width: 0;
@@ -21,62 +22,99 @@
 .bx-vch__side {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  flex-shrink: 0;
+  gap: var(--space-4);
+  width: 264px;
   position: sticky;
   top: var(--space-2);
 }
+.bx-vch__side:empty {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .bx-vch {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .bx-vch__side {
+    width: auto;
+  }
+}
 
-/* ── Header fields ────────────────────────────────────────────────── */
+/* ── Header: flat; party line; place of supply as text; More details link ── */
 .bx-vch-head {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: var(--space-2) var(--space-3);
-  padding: var(--space-3);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  gap: var(--space-2) var(--space-4);
 }
 .bx-vch-head__wide {
   grid-column: span 2;
+  min-width: 0;
+}
+.bx-vch-head__more {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+.bx-vch-partyline {
+  margin: var(--space-1) 0 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bx-vch-pos {
+  max-width: 100%;
+  min-height: var(--control-h-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bx-vch-mode {
+  display: inline-flex;
+  align-items: center;
+}
+.bx-vch-partyline__link:hover,
+.bx-vch-pos:hover,
+.bx-vch-mode:hover,
+.bx-vch-saved__ref:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.bx-vch-warn {
+  color: var(--warning-text);
 }
 
-/* ── Grids ────────────────────────────────────────────────────────── */
+/* ── Grids: flat; row tools on hover / focus ── */
 .bx-vch-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
 .bx-vch-grid {
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
   overflow-x: auto;
 }
-/* Also used by VoucherViewScreen. */
 .bx-vch-grid__title {
   margin: 0;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--fs-12);
+  padding: var(--space-2) 0;
+  font-size: var(--fs-14);
   font-weight: var(--fw-semibold);
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--surface-2);
 }
 .bx-vch-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: var(--text-base);
+  font-size: var(--fs-14);
 }
 .bx-vch-table th {
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
   padding: var(--space-1-5) var(--space-2);
-  background: var(--surface-2);
+  background: var(--surface-1);
   color: var(--text-secondary);
-  font-size: var(--fs-12);
-  font-weight: var(--fw-medium);
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
   text-align: left;
   border-bottom: 1px solid var(--border-default);
   white-space: nowrap;
@@ -87,15 +125,14 @@
 }
 .bx-vch-table td {
   padding: var(--space-0-5) var(--space-1);
-  border-bottom: 1px solid var(--border-subtle);
   vertical-align: top;
+  scroll-margin-bottom: 48px;
 }
 .bx-vch-row:focus-within {
   background: var(--row-selected);
-  box-shadow: inset 3px 0 0 var(--row-selected-indicator);
 }
-.bx-vch-row.is-blank td {
-  border-bottom-color: transparent;
+.bx-vch-row:not(:hover, :focus-within) .bx-vch-rowtools button:not([aria-pressed="true"]) {
+  opacity: 0;
 }
 .bx-vch-table__no {
   width: 40px;
@@ -138,18 +175,10 @@
 .bx-vch-col--lnarr {
   width: 220px;
 }
-.bx-vch-cell-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-0-5);
-}
-.bx-vch-cell-item__ref {
-  display: inline-flex;
-}
+.bx-vch-cell-item,
 .bx-vch-cell-amount {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
   gap: var(--space-0-5);
 }
 .bx-vch-cell-note {
@@ -178,71 +207,102 @@
 .bx-vch-rowtools {
   display: inline-flex;
   gap: var(--space-0-5);
-  justify-content: flex-end;
 }
 .bx-vch-total td {
   padding: var(--space-1-5) var(--space-2);
-  background: var(--surface-2);
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-  border-bottom: none;
-}
-.bx-vch-total.is-strong td {
-  color: var(--text-primary);
+  border-top: 1px solid var(--border-default);
   font-weight: var(--fw-semibold);
 }
 .bx-vch-total.is-diff td {
-  background: var(--warning-bg);
-  color: var(--warning-text);
+  border-top: 0;
+  color: var(--danger-text);
 }
 .bx-vch-sj {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
   gap: var(--space-3);
 }
+.bx-vch-charges {
+  align-self: flex-start;
+}
 
-/* ── Side panels ──────────────────────────────────────────────────── */
-.bx-vch-side {
-  padding: var(--space-3);
+/* ── Totals strip (D13): sticky, one line, right-aligned ── */
+.bx-vch-strip {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  z-index: var(--z-sticky);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border-subtle);
   background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  text-align: right;
+}
+.bx-vch-strip__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1) var(--space-6);
+  margin: 0;
+}
+.bx-vch-strip__row div {
+  display: flex;
+  gap: var(--space-2);
+}
+.bx-vch-strip__row dt {
+  color: var(--text-secondary);
+}
+.bx-vch-strip__row dd {
+  margin: 0;
+}
+.bx-vch-strip__total {
+  font-size: var(--text-title);
+  font-weight: var(--fw-semibold);
+}
+.bx-vch-strip__notes {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+}
+
+/* ── Saved bar (D20): one neutral line, the ✓ is the only colour ── */
+.bx-vch-saved {
+  padding-inline: 0;
+  background: none;
+}
+.bx-vch-saved .bx-banner__title {
+  color: var(--text-primary);
+}
+.bx-vch-saved__ok {
+  color: var(--success-icon);
+}
+
+/* ── Side column: plain text, no card ── */
+.bx-vch-side {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
-.bx-vch-side__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+.bx-vch-side p {
+  margin: 0;
 }
 .bx-vch-side__title {
   margin: 0;
   font-size: var(--fs-14);
   font-weight: var(--fw-semibold);
-  color: var(--text-primary);
 }
 .bx-vch-side__subtitle {
   margin: 0;
+  color: var(--text-secondary);
   font-size: var(--fs-12);
   font-weight: var(--fw-semibold);
-  color: var(--text-secondary);
-}
-.bx-vch-side__bills {
-  border-top: 1px solid var(--border-subtle);
-  padding-top: var(--space-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
 }
 .bx-vch-side__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-0-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
   font-size: var(--fs-12);
 }
 .bx-vch-side__list li {
@@ -250,67 +310,8 @@
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: var(--space-2);
 }
-.bx-vch-side__alloc {
-  margin: 0;
-  font-size: var(--fs-12);
-  color: var(--text-secondary);
-}
 .bx-vch-over {
   color: var(--danger-text);
-  font-weight: var(--fw-medium);
-}
-.bx-vch-totals__list {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.bx-vch-totals__row {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-.bx-vch-totals__row dt {
-  color: var(--text-secondary);
-}
-.bx-vch-totals__row dd {
-  margin: 0;
-}
-.bx-vch-totals__row.is-muted dt,
-.bx-vch-totals__row.is-muted dd {
-  color: var(--text-muted);
-}
-.bx-vch-totals__row.is-grand {
-  border-top: 1px solid var(--border-default);
-  padding-top: var(--space-1-5);
-  margin-top: var(--space-0-5);
-  font-size: var(--fs-16);
-  font-weight: var(--fw-semibold);
-}
-.bx-vch-totals__row.is-grand dt {
-  color: var(--text-primary);
-}
-/* Also used by VoucherViewScreen. */
-.bx-vch-totals__words {
-  margin: 0;
-  font-size: var(--fs-12);
-  color: var(--text-secondary);
-  font-style: italic;
-}
-.bx-vch-totals__note,
-.bx-vch-totals__meta {
-  margin: 0;
-  font-size: var(--fs-12);
-  color: var(--text-muted);
-  display: flex;
-  gap: var(--space-1);
-  align-items: center;
-}
-.bx-vch-totals__notes {
-  margin: 0;
-  padding-left: var(--space-4);
-  font-size: var(--fs-12);
-  color: var(--text-secondary);
 }
 .bx-vch-checks {
   list-style: none;
@@ -341,22 +342,6 @@
 .bx-vch-banner-list {
   margin: 0;
   padding-left: var(--space-4);
-}
-.bx-vch-keys {
-  margin: 0;
-  font-size: var(--text-caption);
-  color: var(--text-muted);
-}
-.bx-vch-foot {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-.bx-vch-foot__sum {
-  margin-right: auto;
-  color: var(--text-secondary);
-  font-weight: var(--fw-medium);
 }
 
 /* ── Dialog tables (bills, cost centres) ──────────────────────────── */

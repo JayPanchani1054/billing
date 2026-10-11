@@ -5,6 +5,10 @@
  * printing. Right: the letter preview (plain React text — never HTML). Print / PDF one letter or
  * every included letter (one page each), copy the letter text for WhatsApp or e-mail, export the
  * follow-up list (Alt+E).
+ *
+ * 2.1 (SPEC-21 §5): no graph — a letter-printing workflow. The stat says how many letters are selected
+ * ("2 of 4", the amount asked for in its tooltip); the amount to ask for is the table's total; Print,
+ * PDF and Copy text are title-row actions only (no second set beside the letter).
  */
 import { useMemo, useRef, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
@@ -20,9 +24,9 @@ import type { ScreenProps } from '../../app/registry.ts';
 import { EXPORT_DENIED_HINT, ExportDialog, ReportScreen } from '../../app/Screen.tsx';
 import { usePeriod } from '../../app/working.tsx';
 import { useAppState } from '../../app/state.tsx';
-import { Badge, Button, DataTable, EmptyState, Field, Grid, Icon, Inline, KpiCard, NumberInput, Tag, useDebouncedValue, useToast } from '../../ui/index.ts';
+import { DataTable, EmptyState, Field, Icon, Inline, NumberInput, StatLine, Tag, useDebouncedValue, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { GroupSelect, OverdueBadge, VGap, printedOn, useDocumentOutput, useGroupOptions } from './components.tsx';
+import { GroupSelect, OverdueDays, VGap, printedOn, useDocumentOutput, useGroupOptions } from './components.tsx';
 import { buildLettersHtml, pdfName } from './lib/printHtml.ts';
 import { TONE_TEXT, clampMinDays, letterNumericColumns, remindersExport, remindersQuery, selectedParties, toggleAll, toggleExcluded } from './lib/reminders.ts';
 
@@ -77,18 +81,14 @@ export function RemindersScreen({ params }: ScreenProps<RemindersParams>) {
           ),
       },
       { key: 'ledgerName', header: 'Customer', minWidth: 160, sortable: true },
-      { key: 'oldestOverdueDays', header: 'Oldest', width: 100, align: 'right', sortable: true, render: (r) => <OverdueBadge days={r.oldestOverdueDays} /> },
+      { key: 'oldestOverdueDays', header: 'Oldest', width: 100, align: 'right', sortable: true, render: (r) => <OverdueDays days={r.oldestOverdueDays} /> },
       { key: 'amountDue', header: 'Amount due', kind: 'amount', width: 130, sortable: true, total: true },
       {
         key: 'tone',
         header: 'Letter',
         width: 90,
         value: (r) => TONE_TEXT[r.tone].label,
-        render: (r) => (
-          <Badge size="sm" tone={TONE_TEXT[r.tone].tone}>
-            {TONE_TEXT[r.tone].label}
-          </Badge>
-        ),
+        title: (r) => TONE_TEXT[r.tone].description,
       },
     ],
     [excluded],
@@ -164,6 +164,11 @@ export function RemindersScreen({ params }: ScreenProps<RemindersParams>) {
         error={q.error}
         onRetry={() => void q.refetch()}
         actions={actions}
+        stat={
+          d && parties.length > 0 ? (
+            <StatLine items={[{ label: 'Selected', value: `${chosen.length} of ${parties.length}`, title: `${formatMoney(chosenDue, { symbol: true })} asked for in the selected letters · Space includes or skips, Alt+A everyone` }]} />
+          ) : undefined
+        }
         hint={`Enter Party · Space Include/skip · Alt+P Print · Alt+S PDF · Alt+T Copy text · Alt+B Print all${ledgerId !== undefined ? ' · Alt+W All customers' : ''} · Alt+F2 As on · Esc Back`}
         filters={
           <Inline gap={2}>
@@ -182,18 +187,6 @@ export function RemindersScreen({ params }: ScreenProps<RemindersParams>) {
       >
         {d && parties.length > 0 ? (
           <>
-            <Grid minItemWidth={170} gap={3}>
-              <KpiCard label="Amount to ask for" value={d.totals.amountDue} amount icon="rupee" caption="Overdue bills less unadjusted receipts" />
-              <KpiCard label="Customers" value={String(d.totals.partyCount)} icon="users" caption={`Overdue by ${min}+ ${min === 1 ? 'day' : 'days'}`} />
-              <KpiCard label="Selected for printing" value={String(chosen.length)} icon="print" caption={formatMoney(chosenDue, { symbol: true })} />
-              <KpiCard
-                label="Firm reminders"
-                value={String(parties.filter((x) => x.tone === 'firm').length)}
-                icon="alert"
-                caption={TONE_TEXT.firm.description}
-              />
-            </Grid>
-            <VGap />
             <div className="bx-os-split">
               <div>
                 <DataTable<ReminderParty>
@@ -217,25 +210,12 @@ export function RemindersScreen({ params }: ScreenProps<RemindersParams>) {
               <div>
                 {current ? (
                   <>
-                    <Inline gap={2} justify="between">
-                      <span className="bx-muted">
-                        {current.overdueBills.length} overdue {current.overdueBills.length === 1 ? 'bill' : 'bills'}
-                        {current.unadjustedCredits !== 0 ? ` · ${formatMoney(-current.unadjustedCredits, { symbol: true })} received but not yet adjusted` : ''}
-                        {current.mobile ? ` · ${current.mobile}` : ''}
-                        {current.email ? ` · ${current.email}` : ''}
-                      </span>
-                      <Inline gap={1}>
-                        <Button size="sm" icon="copy" shortcut="Alt+T" onClick={copyOne}>
-                          Copy text
-                        </Button>
-                        <Button size="sm" icon="download" shortcut="Alt+S" onClick={pdfOne}>
-                          PDF
-                        </Button>
-                        <Button size="sm" variant="primary" icon="print" shortcut="Alt+P" onClick={printOne}>
-                          Print
-                        </Button>
-                      </Inline>
-                    </Inline>
+                    <p className="bx-muted">
+                      {current.overdueBills.length} overdue {current.overdueBills.length === 1 ? 'bill' : 'bills'}
+                      {current.unadjustedCredits !== 0 ? ` · ${formatMoney(-current.unadjustedCredits, { symbol: true })} received but not yet adjusted` : ''}
+                      {current.mobile ? ` · ${current.mobile}` : ''}
+                      {current.email ? ` · ${current.email}` : ''}
+                    </p>
                     <VGap />
                     <LetterPreview letter={current.letter} label={`Reminder letter to ${current.ledgerName}`} />
                   </>

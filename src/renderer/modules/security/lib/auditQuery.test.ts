@@ -246,3 +246,15 @@ describe('edit log navigation and output', () => {
     assert.deepEqual(printRows([row], (ts) => ts.slice(0, 10)), [['2026-10-05', '—', 'Deleted', 'Ledger', '#7', 'Deleted']]);
   });
 });
+
+describe('edit log Filters ▾ count (2.1)', () => {
+  it('counts the popover choices that narrow the list, not the search box', async () => {
+    const { activeFilterCount } = await import('./auditQuery.ts');
+    assert.equal(activeFilterCount(DEFAULT_FILTERS), 0);
+    assert.equal(activeFilterCount({ ...DEFAULT_FILTERS, search: 'sharma' }), 0);
+    assert.equal(activeFilterCount({ ...DEFAULT_FILTERS, dates: 'all' }), 1);
+    // A group and an exact action are one choice.
+    assert.equal(activeFilterCount({ ...DEFAULT_FILTERS, group: 'changes', action: 'delete' }), 1);
+    assert.equal(activeFilterCount({ ...DEFAULT_FILTERS, dates: 'all', userId: 3, group: 'logins', entityType: 'ledger' }), 4);
+  });
+});

@@ -9,6 +9,9 @@
  * Matched lines: Enter opens the voucher, Alt+U unmatches.
  * Alt+D deletes the chosen imported statement (wrong bank or wrong column mapping), after a confirmation that
  * can also unmatch its reconciled lines — then the corrected file can be imported again (lib/batches.ts).
+ * 2.1: a worksheet, no graph (SPEC-21 §5); the bank and the imported statement are the toolbar row's two
+ * selects (not repeated in the title row), the matching window (days after the voucher) is under Filters ▾,
+ * the tab counts are plain numbers (only suggestions waiting for a choice are marked).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FromLineKind, MatchCandidate, StatementBatch, StatementLineView } from '../../../shared/types/banking.ts';
@@ -31,6 +34,7 @@ import {
   DataTable,
   EmptyState,
   Field,
+  FiltersPopover,
   Inline,
   Modal,
   NumberInput,
@@ -73,6 +77,8 @@ export interface MatchParams {
 const BOOK_ROUTES = ['vouchers', 'reports', 'outstanding', 'dashboard', 'gst'];
 const TAB_ORDER: readonly MatchTab[] = ['matched', 'suggestions', 'unmatched', 'ignored'];
 const NO_LINES: readonly StatementLineView[] = [];
+/** How many days a statement line may fall after its voucher's date when matching (the Filters ▾ setting). */
+const DEFAULT_WINDOW_DAYS = 7;
 
 export function MatchScreen({ params }: ScreenProps<MatchParams>) {
   const nav = useNav();
@@ -84,7 +90,7 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
   const [ledgerId, setLedgerId] = useState<number | null>(params.ledgerId ?? null);
   useDefaultBank(banks, ledgerId, setLedgerId);
   const [batchId, setBatchId] = useState<number | null>(params.batchId ?? null);
-  const [windowDays, setWindowDays] = useState<number | null>(7);
+  const [windowDays, setWindowDays] = useState<number | null>(DEFAULT_WINDOW_DAYS);
   const [tab, setTab] = useState<MatchTab>('unmatched');
   const [cursor, setCursor] = useState<Record<MatchTab, string | null>>({ matched: null, suggestions: null, unmatched: null, ignored: null });
   const [suggested, setSuggested] = useState<Map<number, MatchCandidate[]>>(() => new Map());
@@ -300,7 +306,6 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
   return (
     <ReportScreen
       title="Match Bank Statement"
-      subtitle={bank ? `${bank.name}${batch ? ` · ${batch.fileName ?? 'statement'} (${formatDate(batch.from)} – ${formatDate(batch.to)})` : ''}` : undefined}
       periodMode="range"
       period={{ from: rangeFrom, to: rangeTo }}
       loading={banksLoading || (lines.loading && !lines.data)}
@@ -357,10 +362,12 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
               setSuggested(new Map());
             }}
           />
-          <Inline gap={1} align="center" wrap={false}>
-            <span className="bx-muted">Days after voucher</span>
-            <NumberInput size="sm" aria-label="Days a statement line may fall after the voucher date" value={windowDays} min={0} max={60} step={1} onChange={setWindowDays} style={{ width: 64 }} />
-          </Inline>
+          {/* The matching window is a rare setting: behind "Filters ▾" (the label counts it once changed). */}
+          <FiltersPopover count={windowDays === DEFAULT_WINDOW_DAYS ? 0 : 1} onClear={() => setWindowDays(DEFAULT_WINDOW_DAYS)}>
+            <Field label="Days a statement line may fall after the voucher date">
+              <NumberInput size="sm" value={windowDays} min={0} max={60} step={1} onChange={setWindowDays} style={{ width: 64 }} />
+            </Field>
+          </FiltersPopover>
         </Inline>
       }
       actions={[
@@ -397,7 +404,7 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
             body="Import the statement downloaded from net banking (Alt+O), then match it with your vouchers here."
             action={
               canEdit ? (
-                <Button variant="primary" icon="upload" onClick={() => nav.push('banking.import', { ledgerId: ledgerId ?? undefined })}>
+                <Button onClick={() => nav.push('banking.import', { ledgerId: ledgerId ?? undefined })}>
                   Import statement
                 </Button>
               ) : undefined
@@ -411,7 +418,15 @@ export function MatchScreen({ params }: ScreenProps<MatchParams>) {
             items={TAB_ORDER.map((t) => ({
               id: t,
               label: TAB_TITLE[t],
-              badge: <Badge size="sm" tone={t === 'suggestions' && counts[t] > 0 ? 'warning' : 'neutral'}>{counts[t]}</Badge>,
+              // A count in plain words; only suggestions waiting for a choice are marked.
+              badge:
+                t === 'suggestions' && counts[t] > 0 ? (
+                  <Badge size="sm" tone="warning">
+                    {counts[t]}
+                  </Badge>
+                ) : (
+                  <span className="bx-muted">{counts[t]}</span>
+                ),
               content: (
                 <div className="bx-bk-table--tall">
                   <DataTable

@@ -51,6 +51,12 @@ must be paid in full; a customer's may leave the rest on account.
   engine re-attaches the saved tenders.
 - Recalling a held bill restores its customer and the place of supply it was held with
   (`lib/cart.ts › deliveryFromDraft`).
+- Day-end summary (2.1): the view tabs on the toolbar row; on the right the StatLine *Cash in drawer ·
+  Net sales · On credit · GST* (`lib/charts.ts › summaryStat`: a figure equal to a total the visible table
+  shows is dropped — net sales on the cashier / counter views, whose Net total it is; bills, returns, change given, exchange credit and MRP savings are the drawer figure's tooltip);
+  the *By tender* view draws *Takings by tender* (`tenderChart`) as inline bars under the Net cells when
+  there are 3–7 tenders, else a Top 6 + Other strip (Enter on a bar = Enter on the row). Ctrl+5 / Ctrl+6
+  (working date / report period) are ticked More items. The four KPI tiles of 2.0 became the stat.
 - Day-end summary: Enter on a tender / cashier / counter row lists just those bills
   (`lib/summary.ts › drillTender / drillUser / drillCounter` → `pos.register` filters); choosing a view
   (Ctrl+1…4) clears it. The bill list shows at most 1,000 rows (the footer says so when there are more).
@@ -61,6 +67,9 @@ must be paid in full; a customer's may leave the rest on account.
   template and paper (Compact on the 80 / 58 mm roll set under Invoice Printing, voucher-type overrides)
   and printed with the roll printer chosen on this computer (Print Preview › Printer) — silently when
   chosen, else through the print dialog. One copy.
+- 2.1 calm: no icon tiles; the counter's side panel is flat (no card borders); the scan box placeholder
+  is short ("Scan or type item code", the rest in its tooltip); no key hints printed in the panel or in
+  dialog footers (keys are in tooltips, More and F1); tender kinds are plain words.
 - The counter name ("Till 1") is remembered per computer (`lib/counter.ts`, localStorage) and stored on
   each bill for the day-end summary.
 - Place of supply: the company's state (over the counter); a customer from another state can be marked
@@ -71,6 +80,8 @@ must be paid in full; a customer's may leave the rest on account.
 | `lib/cart.ts` | scan parsing, add / increment, quantity slabs, line values, MRP, bill input, held drafts |
 | `lib/tender.ts` | tender rows, balance row, exchange row, change, problems, posBill |
 | `lib/returns.ts` | returnable quantities, credit note input |
-| `lib/summary.ts` | KPI tiles, cash drawer count, export tables |
+| `lib/summary.ts` | cash drawer count, drills, export tables |
+| `lib/keys21.test.ts` | every screen file still registers each key it had in 2.0, nothing hidden by a literal |
+| `lib/charts.ts` | day-end stat (`summaryStat`, `visibleTotals`) and graph (`tenderChart`) — tested in `charts.test.ts` |
 | `lib/print.ts` | printed "Paid by" rows |
 | `lib/counter.ts` | counter name (per computer) |

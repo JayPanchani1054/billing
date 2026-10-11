@@ -1,28 +1,18 @@
 /**
- * Shared pieces of the GST screens: return-period selector, one-line help, uncertain-transaction
- * panel with fix links, saving generated JSON files and the "file saved" result dialog.
+ * Shared pieces of the GST screens: return-period selector (a title-row token on the returns, 2.1),
+ * "About this return" body, uncertain-transaction panel with fix links, saving generated JSON files and
+ * the "file saved" result dialog. (2.1: the one-line help under the header is gone — screens put that
+ * sentence in More › "About this return".)
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import type { GstIssue, GstJsonFile, GstPeriodsResult } from '../../../shared/types/gst-returns.ts';
 import { formatDateTime, native, showInFolder, useApiQuery, useNav, usePeriod, userMessage } from '../../app/index.ts';
-import { Badge, Banner, Button, Drawer, EmptyState, Icon, Inline, Modal, Panel, ScrollArea, Select, Stack } from '../../ui/index.ts';
+import { Badge, Banner, Button, Drawer, EmptyState, Inline, Modal, Panel, ScrollArea, Select, Stack } from '../../ui/index.ts';
 import type { SelectOptionGroup } from '../../ui/index.ts';
 import { periodOptionGroups, initialPeriodKey, findPeriod } from './lib/periods.ts';
 import { countIssues, fixLinks, issueKey, issueSummaryText, ISSUE_CODE_LABELS } from './lib/issues.ts';
 import { docEventDetail, docEventLabel } from './lib/compliance.ts';
-
-// ───────────────────────────── Help line ─────────────────────────────
-
-/** One plain-language sentence under the report header saying what the screen is for. */
-export function GstHelp({ children }: { children: ReactNode }) {
-  return (
-    <p className="bx-gst-help">
-      <Icon name="info" size="sm" />
-      <span>{children}</span>
-    </p>
-  );
-}
 
 // ───────────────────────────── Return period ─────────────────────────────
 
@@ -62,26 +52,90 @@ export interface PeriodSelectProps {
   onChange: (key: string) => void;
   selectRef?: RefObject<HTMLSelectElement | null>;
   label?: string;
+  /**
+   * (2.1) The return's period token in the title row's context run (GST returns): no visible label — the
+   * select keeps its accessible name ("Return period") and its tooltip names the key.
+   */
+  token?: boolean;
 }
 
 /** Return-period dropdown grouped by GST financial year (Alt+F2 focuses it). */
-export function PeriodSelect({ periods, value, onChange, selectRef, label = 'Return period' }: PeriodSelectProps) {
+export function PeriodSelect({ periods, value, onChange, selectRef, label = 'Return period', token = false }: PeriodSelectProps) {
   const groups = useMemo<SelectOptionGroup[]>(() => (periods ? periodOptionGroups(periods) : []), [periods]);
+  const select = (
+    <Select
+      ref={selectRef}
+      size="sm"
+      aria-label={label}
+      aria-keyshortcuts="Alt+F2"
+      title={token ? `${label} · Alt+F2` : undefined}
+      options={groups}
+      value={value ?? ''}
+      placeholder={periods ? 'Choose a period' : 'Loading periods…'}
+      disabled={!periods || groups.length === 0}
+      onChange={(v) => onChange(v)}
+    />
+  );
+  if (token) return <span className="bx-gst-token">{select}</span>;
   return (
     <label className="bx-gst-period">
       <span className="bx-gst-period__label">{label}</span>
+      {select}
+    </label>
+  );
+}
+
+/**
+ * (2.1) A year / quarter select as the period token of a return's context run (GSTR-9, GSTR-4): no visible
+ * label, the accessible name and an Alt+F2 tooltip.
+ */
+export function TokenSelect({
+  label,
+  value,
+  options,
+  placeholder,
+  onChange,
+  selectRef,
+}: {
+  label: string;
+  value: string | null;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  placeholder: string;
+  onChange: (v: string) => void;
+  selectRef?: RefObject<HTMLSelectElement | null>;
+}) {
+  return (
+    <span className="bx-gst-token">
       <Select
         ref={selectRef}
         size="sm"
         aria-label={label}
         aria-keyshortcuts="Alt+F2"
-        options={groups}
+        title={`${label} · Alt+F2`}
         value={value ?? ''}
-        placeholder={periods ? 'Choose a period' : 'Loading periods…'}
-        disabled={!periods || groups.length === 0}
+        placeholder={placeholder}
+        disabled={options.length === 0}
+        options={[...options]}
         onChange={(v) => onChange(v)}
       />
-    </label>
+    </span>
+  );
+}
+
+/** (2.1) The body of "About this return" (More ▾): one sentence of what the screen is for, then notes. */
+export function ReturnAbout({ lead, notes = [], children }: { lead: ReactNode; notes?: readonly string[]; children?: ReactNode }) {
+  return (
+    <Stack gap={3}>
+      <p>{lead}</p>
+      {children}
+      {notes.length > 0 ? (
+        <ul className="bx-gst-list">
+          {notes.map((n, i) => (
+            <li key={i}>{n}</li>
+          ))}
+        </ul>
+      ) : null}
+    </Stack>
   );
 }
 

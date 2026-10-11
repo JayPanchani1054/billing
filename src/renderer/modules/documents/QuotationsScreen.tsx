@@ -10,16 +10,16 @@
  * 'documents.quotation.status' {id} (dialog) — mark accepted / rejected (with a reason) / open again.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { formatMoney } from '../../../shared/format.ts';
 import type { DocumentBaseType, DocumentDecision, DocumentRow, DocumentStatus } from '../../../shared/types/documents.ts';
 import { DialogScreen, ReportScreen, useApiMutation, useApiQuery, useCan, useFeatures, useNav, usePeriod, userMessage, useShell, useWorkingDate } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, DataTable, EmptyState, Field, RadioGroup, SegmentedControl, Stack, TextArea, useHotkeys, useToast } from '../../ui/index.ts';
+import { Banner, Button, DataTable, EmptyState, Field, RadioGroup, Select, Stack, StatLine, TextArea, useHotkeys, useToast } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { quotationsShown, quotationsStat } from './lib/charts.ts';
 import { canConvert, defaultDecision, DOC_LABEL, DOCUMENTS_INVALIDATES, documentsExport, expiryText, STATUS_META } from './lib/model.ts';
 
 const STATUS_FILTERS: ReadonlyArray<{ value: DocumentStatus | 'all'; label: string }> = [
-  { value: 'all', label: 'All' },
+  { value: 'all', label: 'All statuses' },
   { value: 'open', label: 'Open' },
   { value: 'accepted', label: 'Accepted' },
   { value: 'expired', label: 'Expired' },
@@ -59,14 +59,15 @@ export function QuotationsScreen({ params }: ScreenProps<QuotationsParams>) {
         header: 'Status',
         width: 200,
         value: (r) => STATUS_META[r.status].label,
-        render: (r) => (
-          <span>
-            <Badge tone={STATUS_META[r.status].tone} size="sm">
+        render: (r) => {
+          const more = expiryText(r) ?? r.statusReason ?? '';
+          return (
+            <span>
               {STATUS_META[r.status].label}
-            </Badge>{' '}
-            <span className="bx-muted">{expiryText(r) ?? r.statusReason ?? ''}</span>
-          </span>
-        ),
+              {more ? <span className="bx-muted"> · {more}</span> : null}
+            </span>
+          );
+        },
       },
       {
         key: 'convertedTo',
@@ -79,22 +80,12 @@ export function QuotationsScreen({ params }: ScreenProps<QuotationsParams>) {
     [],
   );
   const s = q.data?.summary;
-  const footer = useMemo<FooterRow[]>(
-    () =>
-      s && rows.length > 0
-        ? [
-            {
-              key: 'summary',
-              tone: 'total',
-              cells: {
-                partyName: `${s.count} document${s.count === 1 ? '' : 's'} · converted ${s.byStatus.converted.count}${s.conversionRatePct !== null ? ` (${s.conversionRatePct}%)` : ''}`,
-                amount: s.value,
-              },
-            },
-          ]
-        : [],
-    [s, rows.length],
-  );
+  // The total row adds up the documents the filter lists (the whole register under "All statuses").
+  const footer = useMemo<FooterRow[]>(() => {
+    if (!s || rows.length === 0) return [];
+    const shown = quotationsShown(s, status);
+    return [{ key: 'summary', tone: 'total', cells: { partyName: `${shown.count} document${shown.count === 1 ? '' : 's'}`, amount: shown.value } }];
+  }, [s, rows.length, status]);
 
   const avail = shell.voucherAvailability(base);
   const convertible = current !== null && canConvert(current.status) && canCreate;
@@ -103,9 +94,19 @@ export function QuotationsScreen({ params }: ScreenProps<QuotationsParams>) {
     { key: 'Ctrl+1', label: 'Quotations', icon: 'file', onClick: () => setBase('quotation'), disabled: base === 'quotation', group: 'view' },
     { key: 'Ctrl+2', label: 'Proforma invoices', icon: 'invoice', onClick: () => setBase('proforma'), disabled: base === 'proforma', group: 'view' },
     ...STATUS_FILTERS.map(
-      (f, i): ScreenActionItem => ({ key: `Ctrl+${i + 3}`, label: `Show ${f.label.toLowerCase()}`, icon: 'filter', onClick: () => setStatus(f.value), disabled: status === f.value, group: 'filter' }),
+      (f, i): ScreenActionItem => ({ key: `Ctrl+${i + 3}`, label: `Show ${f.value === 'all' ? 'all' : f.label.toLowerCase()}`, icon: 'filter', onClick: () => setStatus(f.value), group: 'filter', checked: status === f.value }),
     ),
-    { key: 'Alt+C', label: `Create ${L.one.toLowerCase()}`, icon: 'plus', primary: true, onClick: () => shell.openVoucher(base), hidden: !canCreate, disabled: !avail.ok, hint: avail.reason, group: 'go' },
+    {
+      key: 'Alt+C',
+      label: `Create ${L.one.toLowerCase()}`,
+      icon: 'plus',
+      onClick: () => shell.openVoucher(base),
+      hidden: !canCreate,
+      disabled: !avail.ok,
+      hint: avail.reason,
+      group: 'go',
+      prominent: true,
+    },
     { key: 'Alt+V', label: 'Convert to Sales Invoice', icon: 'invoice', onClick: () => convert('sales'), disabled: !convertible, group: 'go' },
     { key: 'Alt+O', label: 'Convert to Sales Order', icon: 'cart', onClick: () => convert('sales_order'), hidden: base !== 'quotation', disabled: !convertible || !features.orderProcessing, hint: features.orderProcessing ? undefined : 'Turn on Order processing in Features (F11).', group: 'go' },
     { key: 'Alt+S', label: 'Accept / reject', icon: 'check-circle', onClick: () => current && nav.push('documents.quotation.status', { id: current.id }), disabled: !current || current.status === 'cancelled' || current.status === 'converted', hidden: !canAlter, group: 'go' },
@@ -114,21 +115,17 @@ export function QuotationsScreen({ params }: ScreenProps<QuotationsParams>) {
   return (
     <ReportScreen
       title={L.register}
-      subtitle={s ? `Open ₹ ${formatMoney(s.byStatus.open.value + s.byStatus.accepted.value)} · conversion rate ${s.conversionRatePct === null ? '—' : `${s.conversionRatePct}%`}` : undefined}
+      stat={s ? <StatLine items={quotationsStat(s, status)} /> : undefined}
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={q.refetch}
       actions={actions}
       hint="Enter View · Alt+V Convert to invoice · Alt+S Accept or reject · Alt+C Create · Ctrl+1/2 Quotations or proforma · Alt+E Export"
-      filters={
-        <Stack gap={2}>
-          <SegmentedControl<DocumentStatus | 'all'> aria-label="Status" size="sm" options={STATUS_FILTERS} value={status} onChange={setStatus} />
-        </Stack>
-      }
+      filters={<Select<DocumentStatus | 'all'> aria-label="Status" size="sm" options={STATUS_FILTERS} value={status} onChange={setStatus} />}
       exportDef={() => ({ subtitle: status === 'all' ? undefined : STATUS_META[status].label, ...documentsExport(rows, base) })}
     >
-      {q.data?.truncated ? <Banner tone="info">Only the first 5,000 documents are listed. Narrow the period (Alt+F2).</Banner> : null}
+      {q.data?.truncated ? <Banner tone="info">Only the first 5,000 documents are listed — narrow the period.</Banner> : null}
       <DataTable<DocumentRow>
         aria-label={L.register}
         autoFocus
@@ -144,7 +141,7 @@ export function QuotationsScreen({ params }: ScreenProps<QuotationsParams>) {
           <EmptyState
             icon="file"
             title={`No ${L.many.toLowerCase()} in this period`}
-            body={`Press Alt+C to create one, or change the period with Alt+F2. A ${L.one.toLowerCase()} never touches the books or the GST invoice series.`}
+            body={`A ${L.one.toLowerCase()} never touches the books or the GST invoice series.`}
           />
         }
       />

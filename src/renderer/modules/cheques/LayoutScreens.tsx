@@ -12,11 +12,13 @@
  * Calibration: print the grid on plain paper, hold it against a real leaf in front of a light, read
  * where each box falls on the leaf's printed lines, and correct the positions — or, when everything is
  * off by the same amount, the shift. The presets are starting points (core: cheques/layouts.ts).
+ * 2.1: masters, no graph; the list's Print / Export in More (keys kept); the form's actions live once, in
+ * the title row (Save, Print calibration sheet as a button, Test print in More).
  */
 import { useMemo, useState } from 'react';
 import type { ChequeLayout, ChequeLayoutSpec, ChequePreset } from '../../../shared/types/cheques.ts';
 import { fieldErrorsOf, native, ReadOnlyNotice, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useCompany, useConfirm, useNav, userMessage, type ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, DataTable, EmptyState, Field, FieldGroup, Inline, NumberInput, SegmentedControl, Select, Stack, Switch, TextInput, useEnterAdvance, useToast, type Column } from '../../ui/index.ts';
+import { Banner, DataTable, EmptyState, Field, FieldGroup, NumberInput, SegmentedControl, Select, Stack, Switch, TextInput, useEnterAdvance, useToast, type Column } from '../../ui/index.ts';
 import { ChequeSheets, ChequesOff, useChequesOn } from './components.tsx';
 import { buildChequeHtml, calibrationMarks, chequeMarks, chequePage, chequePagesMarkup } from './lib/cheque.ts';
 import { CHEQUE_INVALIDATES, LAYOUT_FIELDS, PLACEMENT_LABELS, pointError, SAMPLE_CHEQUE, suggestedLayoutName, withPoint, type LayoutPointKey } from './lib/model.ts';
@@ -60,7 +62,7 @@ function LayoutList() {
         header: 'Used by',
         minWidth: 200,
         value: (r) => r.usedBy.join(', '),
-        render: (r) => (r.usedBy.length === 0 ? <Badge size="sm">Not used</Badge> : r.usedBy.join(', ')),
+        render: (r) => (r.usedBy.length === 0 ? <span className="bx-muted">Not used</span> : r.usedBy.join(', ')),
       },
     ],
     [],
@@ -69,13 +71,14 @@ function LayoutList() {
     <ReportScreen
       title="Cheque Layouts"
       periodMode="none"
+      outputInMore
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Enter Alter · Alt+C Create layout · Alt+D Delete · Alt+S Bank print settings · Alt+E Export"
       actions={[
-        { key: 'Alt+C', label: 'Create layout', icon: 'plus', primary: true, onClick: () => nav.push('cheques.layout.form', {}), hidden: !canAlter },
+        { key: 'Alt+C', label: 'Create layout', icon: 'plus', onClick: () => nav.push('cheques.layout.form', {}), hidden: !canAlter },
         { key: 'Alt+A', label: 'Alter', icon: 'edit', onClick: () => current && nav.push('cheques.layout.form', { id: current.id }), disabled: !current },
         { key: 'Alt+S', label: 'Bank print settings', icon: 'settings', onClick: () => nav.push('cheques.bank', {}), group: 'go' },
         { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => current && void remove(current), disabled: !current || current.usedBy.length > 0 || del.pending, hidden: !canAlter, group: 'danger' },
@@ -96,7 +99,7 @@ function LayoutList() {
         onSelect={(k) => setCursor(k)}
         onRowActivate={(r) => nav.push('cheques.layout.form', { id: r.id })}
         loading={q.loading}
-        empty={<EmptyState icon="layers" title="No cheque layouts yet" body="Until you create one, cheques print with the CTS-2010 standard preset. Press Alt+C, start from a preset and calibrate it against one of your leaves." />}
+        empty={<EmptyState title="No cheque layouts yet" body="Until you create one, cheques print with the CTS-2010 standard preset. Press Alt+C, start from a preset and calibrate it against one of your leaves." />}
       />
     </ReportScreen>
   );
@@ -114,8 +117,8 @@ export function ChequeLayoutFormScreen({ params }: ScreenProps<{ id?: number; pr
   const loading = presets.loading || (id !== undefined && layouts.loading);
   if (!presets.data || (id !== undefined && !saved)) {
     return (
-      <Screen title="Cheque Layout" icon="layers" loading={loading} error={presets.error ?? layouts.error} onRetry={() => { void presets.refetch(); void layouts.refetch(); }}>
-        {!loading && id !== undefined && !saved ? <EmptyState icon="layers" title="This layout no longer exists" body="It may have been deleted. Press Esc to go back." /> : null}
+      <Screen title="Cheque Layout" loading={loading} error={presets.error ?? layouts.error} onRetry={() => { void presets.refetch(); void layouts.refetch(); }}>
+        {!loading && id !== undefined && !saved ? <EmptyState title="This layout no longer exists" body="It may have been deleted. Press Esc to go back." /> : null}
       </Screen>
     );
   }
@@ -188,12 +191,19 @@ function LayoutForm({ saved, presets, preset }: { saved: ChequeLayout | null; pr
     <Screen
       title={saved ? 'Cheque Layout Alteration' : 'Cheque Layout Creation'}
       subtitle={saved?.usedBy.length ? `Used by ${saved.usedBy.join(', ')}` : undefined}
-      icon="layers"
       dirty={dirty}
       hint="Enter Next field · Ctrl+A Save · Alt+K Print calibration sheet · Alt+T Test print · Ctrl+1 Sample / Ctrl+2 Grid · Esc Back"
       actions={[
         { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly || !dirty || save.pending, hidden: readOnly },
-        { key: 'Alt+K', label: 'Print calibration sheet', icon: 'grid', onClick: () => void printPage('calibration'), disabled: printing, group: 'output' },
+        {
+          key: 'Alt+K',
+          label: 'Print calibration sheet',
+          icon: 'grid',
+          onClick: () => void printPage('calibration'),
+          disabled: printing,
+          group: 'output',
+          prominent: true,
+        },
         { key: 'Alt+T', label: 'Test print (sample cheque)', icon: 'print', onClick: () => void printPage('sample'), disabled: printing, group: 'output' },
         { key: 'Ctrl+1', label: 'Sample cheque', onClick: () => setMode('sample'), disabled: mode === 'sample', group: 'view' },
         { key: 'Ctrl+2', label: 'Calibration grid', onClick: () => setMode('calibration'), disabled: mode === 'calibration', group: 'view' },
@@ -246,12 +256,7 @@ function LayoutForm({ saved, presets, preset }: { saved: ChequeLayout | null; pr
             </ul>
           </Banner>
         ) : null}
-        <Inline gap={3} align="center">
-          <SegmentedControl<PreviewMode> aria-label="Preview" size="sm" value={mode} onChange={setMode} options={[{ value: 'sample', label: 'Sample cheque' }, { value: 'calibration', label: 'Calibration grid' }]} />
-          <Button icon="grid" onClick={() => void printPage('calibration')} disabled={printing} shortcut="Alt+K">
-            Print calibration sheet
-          </Button>
-        </Inline>
+        <SegmentedControl<PreviewMode> aria-label="Preview" size="sm" value={mode} onChange={setMode} options={[{ value: 'sample', label: 'Sample cheque' }, { value: 'calibration', label: 'Calibration grid' }]} />
         <ChequeSheets pages={pages} spec={spec} rootRef={null} label={mode === 'sample' ? 'Preview of a sample cheque' : 'Calibration grid'} />
       </Stack>
     </Screen>

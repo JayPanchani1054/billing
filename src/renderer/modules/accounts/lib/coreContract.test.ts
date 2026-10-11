@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { createTestCompany, makeGstin } from '../../../../core/testing/fixtures.ts';
-import { listGroups } from '../../../../core/modules/accounts/groups.ts';
+import { getGroup, listGroups, saveGroup } from '../../../../core/modules/accounts/groups.ts';
 import { getLedger, listLedgers, saveLedger } from '../../../../core/modules/accounts/ledgers.ts';
 import { getVoucherType, listVoucherTypes, saveVoucherType } from '../../../../core/modules/accounts/voucherTypes.ts';
 import { getFeatures } from '../../../../core/modules/company/service.ts';
@@ -20,8 +20,23 @@ import { applyGstin, gstinProblem } from './gstin.ts';
 import { applyGroupDefaults, buildSaveInput, draftFromDetail, emptyLedgerDraft, validateLedgerDraft } from './ledgerDraft.ts';
 import type { LedgerDraft } from './ledgerDraft.ts';
 import { ledgerSections } from './ledgerSections.ts';
+import { revealingMoreDetails } from './ledgerEssentials.ts';
+import { groupMoreRevealed, voucherTypeMoreRevealed, voucherTypeUsual } from './formReveal.ts';
 import { numberingStatus, setNextNumber } from '../../../../core/modules/accounts/numbering.ts';
-import { buildSeriesRows, checkNumbering, draftFromNumbering, draftNumbering, monthFix, newSeriesNumbering, newTypeNumbering, nextNumberProblem, numberingPatch, previewNextSeq } from './numbering.ts';
+import {
+  buildSeriesRows,
+  checkNumbering,
+  datedRowsPatch,
+  draftFromNumbering,
+  draftNumbering,
+  mergeNumberingPatches,
+  monthFix,
+  newSeriesNumbering,
+  newTypeNumbering,
+  nextNumberProblem,
+  numberingPatch,
+  previewNextSeq,
+} from './numbering.ts';
 
 const TODAY = '2026-06-15';
 const t = createTestCompany({ gst: true, stateCode: '27', today: TODAY });
@@ -259,5 +274,107 @@ describe('Invoice Numbering editor ↔ accounts core (2.0)', () => {
     const created = saveVoucherType(t.ctx, { parentId: sales.id, name: d.name, numbering: draftNumbering(plain, d) });
     assert.deepEqual([created.baseType, created.parentId, created.numbering.prefix, created.numbering.width, created.numbering.restart], ['sales', sales.id, 'EXP/', parent.width, parent.restart]);
     assert.equal(created.numbering.prefixRows, undefined);
+  });
+});
+
+describe('2.1: the editor\'s dated prefix / suffix rows ↔ accounts core', () => {
+  it('rows added, then removed, in the editor reach the core through the key-level patch; untouched rows are not sent', () => {
+    const v = listVoucherTypes(t.db).rows.find((x) => x.isPredefined && x.baseType === 'credit_note');
+    assert.ok(v);
+    const base = getVoucherType(t.db, v.id).numbering;
+    const rows = [{ applicableFrom: '2027-04-01', text: 'CN2/' }];
+    const patch = mergeNumberingPatches(numberingPatch(base, draftFromNumbering(base, 1)), datedRowsPatch(base, rows, []));
+    assert.deepEqual(patch, { prefixRows: rows });
+    saveVoucherType(t.ctx, { id: v.id, numbering: patch ?? {} });
+    const stored = getVoucherType(t.db, v.id).numbering;
+    assert.deepEqual(stored.prefixRows, rows);
+    assert.equal(datedRowsPatch(stored, stored.prefixRows ?? [], stored.suffixRows ?? []), null);
+    // A prefix change alone keeps the rows (they are not sent).
+    const prefixOnly = mergeNumberingPatches(numberingPatch(stored, { ...draftFromNumbering(stored, 1), prefix: 'CN/' }), datedRowsPatch(stored, rows, []));
+    assert.deepEqual(prefixOnly, { prefix: 'CN/' });
+    saveVoucherType(t.ctx, { id: v.id, numbering: prefixOnly ?? {} });
+    assert.deepEqual(getVoucherType(t.db, v.id).numbering.prefixRows, rows);
+    // Removing every row sends an empty list: the core deletes them.
+    saveVoucherType(t.ctx, { id: v.id, numbering: datedRowsPatch(getVoucherType(t.db, v.id).numbering, [], []) ?? {} });
+    assert.equal(getVoucherType(t.db, v.id).numbering.prefixRows, undefined);
+  });
+});
+
+/**
+ * 2.1 (SPEC-21 D23): "More details" opens by itself only for data someone chose — never for what the books
+ * fill in by themselves, or the line would be open on every alteration. Checked on the real seeded books.
+ */
+describe('2.1: "More details" stays closed on untouched masters ↔ accounts core', () => {
+  const groupDraft = (id: number) => {
+    const g = getGroup(t.db, id);
+    return { alias: g.alias ?? '', isSubledger: g.isSubledger, netBalances: g.netBalances, usedForCalculation: g.usedForCalculation, sortOrder: g.sortOrder };
+  };
+  const vtDraft = (id: number) => {
+    const v = getVoucherType(t.db, id);
+    return {
+      name: v.name,
+      alias: v.alias ?? '',
+      abbreviation: v.abbreviation ?? '',
+      isActive: v.isActive,
+      preventDuplicates: v.preventDuplicates,
+      useEffectiveDate: v.useEffectiveDate,
+      allowZeroValue: v.allowZeroValue,
+      optionalByDefault: v.optionalByDefault,
+      narrationPerEntry: v.narrationPerEntry,
+      printAfterSave: v.printAfterSave,
+      config: { ...v.config },
+    };
+  };
+
+  it('ledgers: every built-in ledger, and a new ledger under every group saved with its usual defaults', () => {
+    const open: string[] = [];
+    const check = (id: number) => {
+      const det = getLedger(t.db, id, TODAY);
+      const c = classOfGroup(index, det.groupId);
+      const defaults = applyGroupDefaults(emptyLedgerDraft('', det.groupId), null, c, defaultsCtx);
+      const r = revealingMoreDetails(c, secOf(det.groupId, det.billWise), draftFromDetail(det), {}, defaults);
+      if (r.length > 0) open.push(`${det.name}: ${r.join(', ')}`);
+    };
+    for (const l of listLedgers(t.db, { limit: 1000 }, TODAY).rows) if (l.isPredefined) check(l.id);
+    for (const g of listGroups(t.db).rows) {
+      const d = fresh(`Reveal probe ${g.id}`, g.id);
+      if (classOfGroup(index, g.id)?.isDutyTax) d.taxType = 'OTHER';
+      check(save(d).id);
+    }
+    assert.deepEqual(open, []);
+  });
+
+  it('groups: no built-in or new group opens it (the position the books give is not a reason); an alias or a switch does', () => {
+    const rows = listGroups(t.db).rows;
+    assert.deepEqual(rows.filter((g) => groupMoreRevealed(groupDraft(g.id), {})).map((g) => g.name), []);
+    const made = saveGroup(t.ctx, { name: 'Reveal probe group', parentId: rows[0].id });
+    assert.ok(made.sortOrder !== null, 'the books number every group');
+    assert.equal(groupMoreRevealed(groupDraft(made.id), {}), false);
+    saveGroup(t.ctx, { id: made.id, alias: 'RPG' });
+    assert.equal(groupMoreRevealed(groupDraft(made.id), {}), true);
+    assert.equal(groupMoreRevealed({ ...groupDraft(made.id), alias: '', netBalances: true }, {}), true);
+    assert.equal(groupMoreRevealed({ ...groupDraft(made.id), alias: '' }, { sortOrder: 'Enter 0 to 9999' }), true);
+  });
+
+  it('voucher types: no built-in type opens it; a series made by Create series neither; a print title or an alias does', () => {
+    const rows = listVoucherTypes(t.db).rows;
+    const opened = (id: number) => {
+      const v = getVoucherType(t.db, id);
+      return voucherTypeMoreRevealed(vtDraft(id), {}, voucherTypeUsual(v, v.name));
+    };
+    assert.deepEqual(rows.filter((v) => v.isPredefined && opened(v.id)).map((v) => v.name), []);
+    const sales = rows.find((v) => v.isPredefined && v.baseType === 'sales');
+    assert.ok(sales);
+    const series = saveVoucherType(t.ctx, { parentId: sales.id, name: 'Reveal Probe Sales', numbering: newSeriesNumbering(sales.numbering) });
+    assert.equal(opened(series.id), false, `${series.abbreviation} / ${series.preventDuplicates}`);
+    saveVoucherType(t.ctx, { id: series.id, config: { printTitle: 'Export Invoice' } });
+    assert.equal(opened(series.id), true);
+    // The built-in Sales type: an alias, "Do not print MRP", a default party or duplicates allowed is a choice.
+    const s = getVoucherType(t.db, sales.id);
+    const usual = voucherTypeUsual(s, s.name);
+    assert.equal(voucherTypeMoreRevealed({ ...vtDraft(sales.id), config: { ...s.config, defaultPartyLedgerId: 1 } }, {}, usual), true);
+    assert.equal(voucherTypeMoreRevealed({ ...vtDraft(sales.id), alias: 'Tax invoices' }, {}, usual), true);
+    assert.equal(voucherTypeMoreRevealed({ ...vtDraft(sales.id), config: { ...s.config, showMrp: false } }, {}, usual), true);
+    assert.equal(voucherTypeMoreRevealed({ ...vtDraft(sales.id), preventDuplicates: false }, {}, usual), true);
   });
 });

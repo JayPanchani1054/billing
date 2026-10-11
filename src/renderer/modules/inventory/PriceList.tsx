@@ -21,7 +21,6 @@ import {
   useConfirm,
   useDirty,
   useFeatures,
-  useNav,
   useWorkingDate,
   userMessage,
 } from '../../app/index.ts';
@@ -69,7 +68,7 @@ export function PriceListScreen({ params }: ScreenProps<PriceListParams>) {
   const levels = useApiQuery('inventory.priceLevel.list', { limit: 5000 }, { enabled: on });
   if (!on) {
     return (
-      <Screen title="Price Lists" icon="tag">
+      <Screen title="Price Lists">
         <FeatureOff
           title={features.inventory ? 'Price levels are turned off' : 'Inventory is turned off'}
           body="Turn on Price levels in Features (F11) to keep separate rates for wholesale, retail or other customer groups."
@@ -77,12 +76,11 @@ export function PriceListScreen({ params }: ScreenProps<PriceListParams>) {
       </Screen>
     );
   }
-  if (levels.error || !levels.data) return <Screen title="Price Lists" icon="tag" loading={!levels.error} error={levels.error ?? undefined} onRetry={() => void levels.refetch()} />;
+  if (levels.error || !levels.data) return <Screen title="Price Lists" loading={!levels.error} error={levels.error ?? undefined} onRetry={() => void levels.refetch()} />;
   return <PriceListBody levels={levels.data.rows} params={params} />;
 }
 
 function PriceListBody({ levels, params }: { levels: readonly PriceLevelDto[]; params: PriceListParams }) {
-  const nav = useNav();
   const toast = useToast();
   const confirm = useConfirm();
   const { date: workingDate } = useWorkingDate();
@@ -240,18 +238,22 @@ function PriceListBody({ levels, params }: { levels: readonly PriceLevelDto[]; p
 
   if (levels.length === 0 || levelId === null) {
     return (
-      <Screen title="Price Lists" icon="tag" actions={[{ key: 'Alt+C', label: 'Create price level', icon: 'plus', primary: true, onClick: () => setLevelDialog({ name: '' }), hidden: !canCreate }]}>
+      <Screen
+        title="Price Lists"
+        actions={[
+          {
+            key: 'Alt+C',
+            label: 'Create price level',
+            onClick: () => setLevelDialog({ name: '' }),
+            hidden: !canCreate,
+            prominent: true,
+          },
+        ]}
+      >
         <EmptyState
-          icon="tag"
           title="No price levels yet"
           body="A price level is a set of rates for a kind of customer — for example Wholesale, Retail or Dealer. Create one to start."
-          action={
-            canCreate ? (
-              <Button variant="primary" icon="plus" shortcut="Alt+C" onClick={() => setLevelDialog({ name: '' })}>
-                Create price level
-              </Button>
-            ) : undefined
-          }
+          action={canCreate ? <Button onClick={() => setLevelDialog({ name: '' })}>Create price level</Button> : undefined}
         />
         {levelDialog ? <LevelDialog initial={levelDialog} onClose={(created) => { setLevelDialog(null); if (created) setLevelId(created.id); }} /> : null}
       </Screen>
@@ -261,24 +263,15 @@ function PriceListBody({ levels, params }: { levels: readonly PriceLevelDto[]; p
   return (
     <Screen
       title="Price Lists"
-      subtitle={level ? `${level.name} — rates from ${formatDate(date)}` : undefined}
-      icon="tag"
+      subtitle={level ? `${level.name} · from ${formatDate(date)}` : undefined}
       dirty={dirty}
       hint="Enter Next cell · Ctrl+Enter Add slab · Ctrl+Delete Remove slab · Ctrl+A Save · Esc Back"
       actions={[
-        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: !dirty || (!canAlter && !canCreate) },
+        { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: () => void submit(), disabled: !dirty || save.pending || (!canAlter && !canCreate), hint: dirty ? `Saves the rates of ${changes.changedItemIds.length} item${changes.changedItemIds.length === 1 ? '' : 's'}` : undefined },
         { key: 'Alt+C', label: 'Create price level', icon: 'plus', onClick: () => setLevelDialog({ name: '' }), hidden: !canCreate, group: 'levels' },
         { key: 'Alt+R', label: 'Rename price level', icon: 'edit', onClick: () => level && setLevelDialog({ id: level.id, name: level.name }), hidden: !canAlter || !level, group: 'levels' },
         { key: 'Alt+D', label: 'Delete price level', icon: 'trash', onClick: () => void removeLevel(), hidden: !canDelete || !level, group: 'danger' },
       ]}
-      footer={
-        <>
-          <Button onClick={() => void nav.back()}>Close</Button>
-          <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()} disabled={!dirty}>
-            Save {dirty ? `${changes.changedItemIds.length} item${changes.changedItemIds.length === 1 ? '' : 's'}` : ''}
-          </Button>
-        </>
-      }
     >
       <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Price list">
         <Stack gap={3}>
@@ -495,7 +488,7 @@ function LevelDialog({ initial, onClose }: { initial: { id?: number; name: strin
       footer={
         <>
           <Button onClick={() => onClose(null)}>Cancel</Button>
-          <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()}>
+          <Button variant="primary" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()}>
             Save
           </Button>
         </>

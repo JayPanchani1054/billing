@@ -132,7 +132,6 @@ function UserForm({
   return (
     <DialogScreen
       title={user ? `${title} — ${user.username}` : title}
-      description={creating ? 'The new user logs in with this username and password.' : undefined}
       size="md"
       footerStart={user ? <UserStatusBadges user={user} now={now} /> : undefined}
       footer={

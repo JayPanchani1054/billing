@@ -13,7 +13,7 @@ import { formatMoney } from '../../../shared/format.ts';
 import type { VoucherRef } from '../../../shared/types/documents.ts';
 import { useApiMutation, useApiQuery, useCan, useCompany, useFeatures, useNav, userMessage, useScreenActions, useWorkingDate } from '../../app/index.ts';
 import type { ScreenActionItem, VoucherPanelProps } from '../../app/index.ts';
-import { Badge, Banner, Button, Card, DataTable, Inline, KeyValueList, Stack, useToast } from '../../ui/index.ts';
+import { Banner, Button, Card, DataTable, Inline, KeyValueList, Stack, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import type { OrderClosureRow } from '../../../shared/types/documents.ts';
 import { canConvert, DOCUMENTS_INVALIDATES, noticeStorageKey, qtyText, STATUS_META } from './lib/model.ts';
@@ -50,19 +50,18 @@ export function RecurringDueNotice() {
   return (
     <Banner
       tone="info"
-      icon="clock"
       title={`${s.recurringDue} recurring voucher${s.recurringDue === 1 ? ' is' : 's are'} due`}
       onDismiss={() => {
         writeFlag(key);
         setDismissed(true);
       }}
       action={
-        <Button size="sm" variant="primary" onClick={() => nav.push('documents.recurring.due')}>
+        <Button size="sm" variant="link" onClick={() => nav.push('documents.recurring.due')}>
           Review &amp; post
         </Button>
       }
     >
-      Rent, retainers and other repeating entries up to {formatDate(date)} — ₹ {formatMoney(s.recurringDueValue)} before tax. Nothing is posted until you review them.
+      ₹ {formatMoney(s.recurringDueValue)} before tax — posted only after you review them
     </Banner>
   );
 }
@@ -77,12 +76,12 @@ export function DocumentsCard({ className }: { className?: string }) {
   const s = q.data;
   if (!can) return null;
   const go = (screen: string, params?: Record<string, unknown>) => (nav.canOpen(screen) ? () => nav.push(screen, params ?? {}) : undefined);
-  const row = (label: string, value: string, onClick: (() => void) | undefined, tone?: 'warning' | 'info') => (
+  const row = (label: string, value: string, onClick: (() => void) | undefined, title?: string) => (
     <Inline gap={2} justify="between" key={label}>
-      <span>{label}</span>
+      <span title={title}>{label}</span>
       {onClick ? (
         <Button size="sm" variant="link" onClick={onClick}>
-          {tone ? <Badge tone={tone} size="sm">{value}</Badge> : value}
+          {value}
         </Button>
       ) : (
         <span className="bx-num">{value}</span>
@@ -90,14 +89,16 @@ export function DocumentsCard({ className }: { className?: string }) {
     </Inline>
   );
   return (
-    <Card className={className} title="Documents" subtitle="Recurring vouchers, quotations, unbilled challans" padding="sm">
+    <Card className={className} title="Documents" padding="sm">
       {s ? (
         <Stack gap={2}>
-          {row('Recurring vouchers due', String(s.recurringDue), go('documents.recurring.due'), s.recurringDue > 0 ? 'warning' : undefined)}
+          {row('Recurring vouchers due', String(s.recurringDue), go('documents.recurring.due'))}
           {row('Open quotations / proforma', String(s.quotationsOpen), go('documents.quotations'))}
-          {row('Expiring within 7 days', String(s.quotationsExpiringSoon), go('documents.quotations', { status: 'open' }), s.quotationsExpiringSoon > 0 ? 'info' : undefined)}
-          {row('Challans unbilled over 7 days', String(s.unbilledDeliveryNotes), go('documents.billsPending', { kind: 'sales' }), s.unbilledDeliveryNotes > 0 ? 'warning' : undefined)}
-          {s.unbilledValue > 0 ? <p className="bx-muted">Unbilled challan value ₹ {formatMoney(s.unbilledValue)} — a tax invoice is due on removal of goods (CGST s.31).</p> : null}
+          {row('Expiring within 7 days', String(s.quotationsExpiringSoon), go('documents.quotations', { status: 'open' }))}
+          {row('Challans unbilled over 7 days', String(s.unbilledDeliveryNotes), go('documents.billsPending', { kind: 'sales' }))}
+          {s.unbilledValue > 0
+            ? row('Unbilled challan value', `₹ ${formatMoney(s.unbilledValue)}`, go('documents.billsPending', { kind: 'sales' }), 'A tax invoice is due on removal of the goods (CGST s.31)')
+            : null}
         </Stack>
       ) : (
         <p className="bx-muted">{q.error ? userMessage(q.error) : 'Loading…'}</p>
@@ -162,7 +163,7 @@ export function VoucherDocumentsPanel({ voucherId, baseType, isCancelled, isOpti
   if (!l) return null;
   const lines: Array<{ label: string; value: ReactNode }> = [];
   if (l.document) {
-    lines.push({ label: 'Status', value: <Badge tone={STATUS_META[l.document.status].tone}>{STATUS_META[l.document.status].label}</Badge> });
+    lines.push({ label: 'Status', value: STATUS_META[l.document.status].label });
     if (l.document.validUntil) lines.push({ label: 'Valid until', value: formatDate(l.document.validUntil) });
     if (l.document.reason) lines.push({ label: 'Reason', value: l.document.reason });
   }

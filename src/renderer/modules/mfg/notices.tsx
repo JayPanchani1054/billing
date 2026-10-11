@@ -10,7 +10,7 @@ import { formatMoney } from '../../../shared/format.ts';
 import { STOCK_JOURNAL_CLASS_LABELS } from '../../../shared/types/mfg.ts';
 import { useApiQuery, useCan, useCompany, useFeatures, useNav, userMessage, useWorkingDate } from '../../app/index.ts';
 import type { VoucherPanelProps } from '../../app/index.ts';
-import { Badge, Banner, Button, Card, Inline, KeyValueList, Stack } from '../../ui/index.ts';
+import { Banner, Button, Card, Inline, KeyValueList, Stack } from '../../ui/index.ts';
 import { useEffect, useRef, useState } from 'react';
 import { alertText } from './lib/model.ts';
 
@@ -46,14 +46,13 @@ export function JobWorkAlertNotice() {
   return (
     <Banner
       tone={a.overdue > 0 ? 'danger' : 'warning'}
-      icon="truck"
       title={a.overdue > 0 ? 'Job work goods past the return date' : 'Job work goods due back soon'}
       onDismiss={() => {
         writeFlag(key);
         setDismissed(true);
       }}
       action={
-        <Button size="sm" variant="primary" onClick={() => nav.push('mfg.jobWork.pending', { direction: 'out' })}>
+        <Button size="sm" variant="link" onClick={() => nav.push('mfg.jobWork.pending', { direction: 'out' })}>
           Review
         </Button>
       }
@@ -75,12 +74,12 @@ export function MfgCard({ className }: { className?: string }) {
   const a = alerts.data;
   const openOrders = orders.data?.rows ?? [];
   const overdueOrders = openOrders.filter((o) => o.overdue).length;
-  const row = (label: string, value: string, onClick: (() => void) | undefined, tone?: 'danger' | 'warning') => (
+  const row = (label: string, value: string, onClick: (() => void) | undefined, title?: string) => (
     <Inline gap={2} justify="between" key={label}>
-      <span>{label}</span>
+      <span title={title}>{label}</span>
       {onClick ? (
         <Button size="sm" variant="link" onClick={onClick}>
-          {tone ? <Badge tone={tone} size="sm">{value}</Badge> : value}
+          {value}
         </Button>
       ) : (
         <span className="bx-num">{value}</span>
@@ -89,19 +88,21 @@ export function MfgCard({ className }: { className?: string }) {
   );
   const go = (screen: string, params: Record<string, unknown> = {}) => (nav.canOpen(screen) ? () => nav.push(screen, params) : undefined);
   return (
-    <Card className={className} title="Job work" subtitle="CGST s.143 return limits and open orders" padding="sm">
+    <Card className={className} title="Job work" padding="sm">
       <Stack gap={2}>
         {a ? (
           <>
-            {row('Challan lines overdue', String(a.overdue), go('mfg.jobWork.pending', { direction: 'out' }), a.overdue > 0 ? 'danger' : undefined)}
-            {row('Due back within 30 days', String(a.dueSoon), go('mfg.jobWork.pending', { direction: 'out' }), a.dueSoon > 0 ? 'warning' : undefined)}
-            {a.overdueValue > 0 ? <p className="bx-muted">Overdue value ₹ {formatMoney(a.overdueValue)} — deemed supplied on the day sent; GST with interest is payable.</p> : null}
-            {a.nextDue ? <p className="bx-muted">Next return date {formatDate(a.nextDue)}.</p> : null}
+            {row('Challan lines overdue', String(a.overdue), go('mfg.jobWork.pending', { direction: 'out' }))}
+            {a.overdueValue > 0
+              ? row('Overdue value', `₹ ${formatMoney(a.overdueValue)}`, go('mfg.jobWork.pending', { direction: 'out' }), 'Deemed supplied on the day sent (CGST s.143); GST with interest is payable')
+              : null}
+            {row('Due back within 30 days', String(a.dueSoon), go('mfg.jobWork.pending', { direction: 'out' }))}
+            {a.nextDue ? row('Next return date', formatDate(a.nextDue), undefined) : null}
           </>
         ) : canReports ? (
           <p className="bx-muted">{alerts.error ? userMessage(alerts.error) : 'Loading…'}</p>
         ) : null}
-        {canVouchers ? row('Open job work orders', String(openOrders.length), go('mfg.jobWorkOrder.list'), overdueOrders > 0 ? 'warning' : undefined) : null}
+        {canVouchers ? row('Open job work orders', overdueOrders > 0 ? `${openOrders.length} · ${overdueOrders} late` : String(openOrders.length), go('mfg.jobWorkOrder.list')) : null}
       </Stack>
     </Card>
   );
@@ -124,7 +125,7 @@ export function MfgVoucherPanel({ voucherId, baseType, updatedAt }: VoucherPanel
   const ledgers = new Map(d.ledgers.map((l) => [l.id, l.name]));
   const costs = d.block.additionalCosts ?? [];
   return (
-    <Card title={STOCK_JOURNAL_CLASS_LABELS[d.class]} subtitle="Manufacturing and job work details" padding="sm">
+    <Card title={STOCK_JOURNAL_CLASS_LABELS[d.class]} padding="sm">
       <KeyValueList
         items={[
           { label: 'Bill of materials', value: d.bomName ?? '', hideEmpty: true },

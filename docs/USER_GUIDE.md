@@ -101,11 +101,17 @@ A new installation starts on Essentials; if you used Pevqori before 2.0, Home ke
 shortcut bar you know, and offers once to *Try the simpler Home*. Your choice is remembered on this
 computer (also in the user menu › *Appearance…*).
 
-On the right is the **dashboard**: four tiles — To collect, To pay, Cash & bank and Sales this month —
-what needs your attention and your last five vouchers, with *Show more insights* for the rest, plus a
-**Get started** card for a new company (section 2, *Get started and the Home dashboard*; Alt+S on the
-full dashboard, *Reports › **Dashboard***, brings the card back if you hid it). A user who may not see
-the dashboard gets a short greeting instead.
+On the right is your business at a glance. At the top, the period (click it, or press **Alt+F2**, to
+change it — the only period on Home); then three figures — **To collect**, **To pay** and **Cash & bank**,
+each with one short line only when it needs you (*₹4.66 L overdue*) and the rest in its tooltip; then the
+graph **Sales — last 12 months**, one column per month from the month your books begin, this month's
+column in colour and labelled *so far*, with this month's sales against the same days last year in its
+header (**Ctrl+J** or *Hide graphs* folds it to that one line). Enter or a click on a column opens the
+Sales Accounts monthly summary of that month's year (a user who may not see the account groups gets that
+month's Sales Register). Below: **Needs your attention** (the three most
+important lines, *N more* for the rest), the one-line **Setup** while your company is new (section 2,
+*Get started and the Home dashboard*) and the link **Full dashboard**. A user who may not see the
+dashboard gets a short greeting instead.
 
 ### The top bar and the title row
 
@@ -160,9 +166,10 @@ your work and nothing at the bottom.
 ### Settings: every setting in one place
 
 The gear in the top bar (or *Company › **Settings*** on Home, or Go To "settings") opens **Settings**:
-topics on the left, the settings of the chosen topic on the right, each with one line saying what you
-change there and — where it is known — how it is set now (*Modern template*, *Not locked*, *No backup
-folder chosen*…). Choosing a setting opens its usual screen; **Esc** brings you back to Settings.
+topics on the left, the settings of the chosen topic on the right — one line each: its name and, in grey,
+how it is set now where that is known (*Modern template*, *Not locked*, *No backup folder chosen*…).
+What a setting changes, and its key (F11, F12), is in its tooltip. Choosing a setting opens its usual
+screen; **Esc** brings you back to Settings.
 
 | Topic | Settings |
 |---|---|
@@ -245,23 +252,32 @@ path is unchanged. Everything can be changed later (F11, F12, *Security Settings
 
 ### Get started and the Home dashboard
 
-On Home, the right-hand panel shows your business in four tiles — **To collect** (what customers owe
-you, and how much of it is overdue), **To pay** (what you owe suppliers), **Cash & bank** and **Sales
-this month** (against the same month last year) — then **Needs your attention** (overdue bills, GST
-due, low stock, backups…) and your last five vouchers. Click a tile or a line to open the report behind
-it. **Show more insights** adds the sales and purchases chart, receivables ageing, the cash and bank
-accounts, the GST estimate and the cards of the features you use; Pevqori remembers whether you left it
-open. *Full dashboard* (or *Reports › **Dashboard***) shows everything on one page.
+On Home, the right-hand panel shows your business in three figures — **To collect** (what customers owe
+you; when more is overdue than is owed, the line under it says how much was paid in advance or on account
+and is not yet matched to bills), **To pay** (what you owe suppliers) and **Cash & bank** — then the graph
+**Sales — last 12 months** (this month so far, against the same days last year), **Needs your attention**
+(overdue bills, GST due, low stock, backups… — three lines, *N more* for the rest; nothing a figure already
+says) and the link **Full dashboard**. Click a figure, a column or a line to open the report behind it.
 
-Until your company is set up, a **Get started** card lists the first steps, each with a button that
-opens the right screen: check your company details, switch on the features you need (F11), **set your
-invoice number series** (*Invoice Numbering*), **choose what prints on your invoice** (*Invoice
-Printing*), add your customers, suppliers and bank, add the items you sell, record your first sale
-(F8), **record a payment** you receive (*Receipt*, F6) and set up backups — plus, while the books are
-empty, importing from another accounting program. A step ticks itself off when the books show it is
-done (for example once a receipt exists, or once the Sales series has a prefix, a padding width or
-another starting number); you can also tick a step by hand (*Mark as done*) or *Hide* the card (*Show
-Get started* brings it back).
+The **full dashboard** (*Full dashboard* on Home, or *Reports › **Dashboard***) shows four figures (sales
+against last year, gross profit and its margin, receivables, cash & bank), the sales and purchases of the
+last 12 months as a line (purchases in grey), receivables by age, everything that needs your attention,
+and one line each for cash and bank, GST, your top customer and item, low stock, post-dated cheques and
+the last voucher entered — *Show all cards* shows those cards in full (with the cards of the features you
+use) and is remembered on this computer. **Ctrl+J** folds its graphs to their one-line answer; **Alt+R**
+refreshes; **Alt+E** / **Alt+P** export or print the figures.
+
+Until your company is set up, Home shows **Setup** as one line — *Setup 4 of 9 · Next: Choose what prints
+on your invoice · Continue · ×*. *Continue* opens the next step; *Setup 4 of 9* opens the list of first
+steps in place, one line each with the button that opens the right screen: check your company details,
+switch on the features you need (F11), **set your invoice number series** (*Invoice Numbering*), **choose
+what prints on your invoice** (*Invoice Printing*), add your customers, suppliers and bank, add the items
+you sell, record your first sale (F8), **record a payment** you receive (*Receipt*, F6) and set up backups —
+plus, while the books are empty, importing from another accounting program. A step ticks itself off when
+the books show it is done (for example once a receipt exists, or once the Sales series has a prefix, a
+padding width or another starting number); you can also tick a step by hand (its tick box). **×** hides
+Setup; *Show Get started* (**Alt+S** on the full dashboard) brings it back. While the books are empty
+Setup also reminds you: hold **Ctrl** to see the keys of the buttons on screen.
 
 ## 3. Masters
 
@@ -272,24 +288,46 @@ the spot; it is then selected for you.
 ### 3.1 Groups and ledgers
 
 - *Masters › **Groups*** — the 28 predefined groups (Capital Account, Current Assets, Sundry Debtors,
-  Duties & Taxes, Sales Accounts, …) and your own sub-groups. **Alt+C** creates under the highlighted
-  group.
+  Duties & Taxes, Sales Accounts, …) and your own sub-groups. **Alt+C** (*Create group*, the one button)
+  creates under the highlighted group. The group form shows **Name, Under** and **Nature**; the alias and
+  *Display and behaviour* (sub-ledger, net balances, used for calculation, position in reports) are behind
+  its **More details** line, which opens by itself when the group has an alias or one of those switches on
+  (not for the position in reports, which every group has).
 - *Masters › **Ledgers*** — every account: parties, banks, sales and purchase ledgers, expenses, taxes.
-  Chips filter parties, cash and bank, sales, purchase, duties and taxes, income and expense. **Alt+C**
-  creates, **Alt+B** creates several at once (*Masters › **Multiple Ledgers***), **Alt+D** deletes (a
-  ledger with vouchers cannot be deleted — Pevqori explains and offers to deactivate it), **Alt+H** shows its
-  edit history, **Alt+T** opens the *Masters › **Chart of Accounts***.
-- *Masters › **Create Ledger*** opens the form directly. The form shows only the sections that fit the
-  group: opening balance (Dr / Cr); bill-wise details with opening bills (they must add up to the
-  opening balance) and the credit period; party details and GST registration for debtors and creditors
-  (a valid GSTIN fills in the state, PAN and registration type); bank details for bank accounts; tax type
-  and duty head for Duties & Taxes; GST details (taxability, rate, HSN/SAC, input credit, reverse charge)
-  for sales, purchase, income, expense and fixed-asset ledgers, with an "applies from" date when a rate
-  changes; and other settings (cost centres, TDS / TCS). The currency (with F11 multiple currencies) is in the
-  basic section. **Ctrl+A** saves and starts the next
-  ledger in the same group; **Alt+S** saves and closes.
-- *Masters › **Opening Balances*** lists every opening balance with the Dr and Cr totals and explains
-  any difference (with *Stock value in accounts* on, the opening stock is part of it).
+  One search (name, alias or GSTIN) and one type filter, **All types ▾** (parties, cash and bank, sales,
+  purchase, duties and taxes, income, expense). The title row reads "Ledgers · As on … · 27 ledgers" with
+  one button, **Create ledger** (**Alt+C**); everything else is under **More ▾** with its key: *Create
+  several* (**Alt+B**, or **Alt+M** as on the Stock Items list — *Masters › **Multiple Ledgers***), *Hide
+  inactive ledgers* (a tick; inactive ledgers read "inactive" after their name), *Edit history*
+  (**Alt+H**), *Chart of accounts* (**Alt+T**), *Delete* (**Alt+D** or **Ctrl+D** — a built-in ledger, or
+  one with vouchers, cannot be deleted: Pevqori explains and offers to deactivate it), *Print* (**Alt+P**)
+  and *Export* (**Alt+E**). The GSTIN column shows only when some ledger has one (unregistered parties are
+  blank); exports keep every column.
+- *Masters › **Create Ledger*** opens the form directly — one column of fields. On screen: **Name,
+  Under** and the **Opening balance** (Dr / Cr, as on the day the books begin), plus what the group needs
+  every time: **GSTIN, PAN, State, Address** and **Mobile** for customers and suppliers (a valid GSTIN fills
+  in the state, PAN and registration type); the **account number** and **IFSC** for bank accounts; the
+  **type of duty** (and the GST duty head) for Duties & Taxes; the **GST rate** and **HSN/SAC** for sales and
+  purchase ledgers (with an "applies from" date when a rate changes). With bill-wise details on and an
+  opening balance, the **opening bills** grid follows it (the bills must add up to the opening balance).
+  Everything else is behind the **More details** line — **Ctrl+I** (or **Alt+F1**) opens and closes it:
+  aliases, *Active*, the currency (with F11 multiple currencies), notes; bill-wise details, credit period,
+  credit limit and interest; mailing name, contact person, PIN, phone, e-mail; the registration type and
+  e-commerce operator; branch, UPI ID and cheque book of a bank; the other GST details (taxability, cess,
+  goods or services, input credit, reverse charge, the dated rate history); cost centres, inventory and
+  TDS / TCS. The line opens by itself whenever a field inside holds something other than the group's usual
+  setting (an alteration never hides data) or needs correcting, and otherwise stays as you left it —
+  remembered on this computer (per Windows user). Enter moves through the fields on screen only; a
+  field's hint shows while you are in it. The title row has one filled button: **Save & create next**
+  (**Ctrl+A**) saves and starts the next ledger in the same group; **Alt+S** (*Save & close*, under
+  More ▾) saves and closes. On an alteration the title row says the group and the closing balance.
+- *Masters › **Opening Balances*** lists every opening balance with the Dr and Cr totals (with *Stock
+  value in accounts* on, the opening stock is a row of its own). When debits and credits differ, the
+  **Difference** shows on the right of the screen; *More ▾ › About this report* explains it in plain
+  words.
+- *Masters › **Chart of Accounts*** — every group and ledger as a tree with closing balances; **Alt+C**
+  creates a ledger and **Alt+U** a group under the highlighted one, **Alt+F1** switches detailed /
+  condensed; *Expand all*, *Collapse all* and *Hide inactive ledgers* are under More ▾.
 - *Masters › **Cost Centres*** (with F11 cost centres) — categories and centres; allocate amounts on
   ledger lines with **Alt+O** in voucher entry.
 - *Masters › **Currencies*** (with F11 multiple currencies) — section 11.
@@ -305,17 +343,35 @@ import / export keeps them all.
 
 With F11 *Maintain stock* on:
 
-- *Masters › **Stock Items*** (and *Masters › **Create Stock Item***) — name, aliases, part number,
-  barcode, description, stock group and category, unit (and an alternate unit), whether it is a service,
-  GST details (inherited from the group or its own, with dated history), whether prices include GST,
-  **MRP**, selling, purchase and standard prices, the costing method (average cost by default; FIFO,
-  LIFO, last purchase cost, standard cost), reorder level and minimum order quantity, batches with
-  manufacturing / expiry dates, price levels and the opening stock. **Ctrl+A** saves and starts the next
-  item with the same group, unit and GST; **Alt+S** saves and closes.
-- *Masters › **Multiple Stock Items*** — a grid to create many items at once (all or none are saved).
+- *Masters › **Stock Items*** — one search (name, alias, part number or barcode), the stock group filter,
+  and the category filter once you have categories. The title row reads "Stock Items · 4 items" with one
+  button, **Create stock item** (**Alt+C**); everything else is under **More ▾** with its key: *Create
+  several* (**Alt+M**, or **Alt+B** as on the Ledgers list), *Delete* (**Alt+D** or **Ctrl+D**), *Print*
+  (**Alt+P**) and *Export* (**Alt+E**). The stock column is headed with the working date (F2); columns
+  that are empty for every item are not shown (exports keep every column).
+- *Masters › **Create Stock Item*** — one column of fields. On screen: **Name, Unit, Under** (the stock
+  group), **Set GST details here** (*No — inherit* takes the rate from the group, or else the ledger; switch
+  it on for the item's own **GST rate**), **HSN code** (SAC for a service; an "applicable from" date joins
+  them while you change a saved item's GST details), **Selling price**, the
+  **Barcode** when POS is on, and the **opening stock** grid. Everything else is behind the
+  **More details** line — **Ctrl+I** (or **Alt+F1**) opens and closes it: aliases, part number, the barcode
+  (when POS is off), description, category, *Is this a service?*, an alternate unit, *Active*, taxability and cess, the dated
+  GST rate history, *Prices include GST*, **MRP**, purchase price, the costing method (average cost by
+  default; FIFO, LIFO, last purchase cost, standard cost — the **Standard cost** field appears with that
+  method), reorder level and minimum order quantity, batches with manufacturing / expiry dates and the
+  price levels. The line opens by itself whenever a field inside holds something (an alteration never hides
+  data) or needs correcting — then **Ctrl+I** jumps into it and back — and otherwise stays as you left it,
+  remembered on this computer (per Windows user). Enter moves through the fields on screen only; a field's
+  hint shows while you are in it. The title row has one filled button, **Save & create next** (**Ctrl+A**):
+  the item is saved and the form starts the next item with the same group, unit and GST; **Alt+S** (*Save &
+  close*, under More ▾) saves and closes. On an alteration the button is **Save** and the title row says
+  the stock group (and *Inactive* for an inactive item).
+- *Masters › **Multiple Stock Items*** — a grid to create many items at once (all or none are saved;
+  **Ctrl+A**).
 - *Masters › **Stock Groups***, *Masters › **Stock Categories*** — trees for grouping and reporting.
+  **Alt+C** creates; *Create under selected* (**Alt+Shift+C**) is under More ▾.
 - *Masters › **Units of Measure*** — simple units with the GST unit code (UQC) suggested from the
-  symbol, and compound units such as "1 Box = 12 Nos" (**Alt+U**).
+  symbol, and compound units such as "1 Box = 12 Nos" (**Alt+U**, *Create compound unit* under More ▾).
 - *Masters › **Godowns*** (with F11 multiple godowns) — locations; *Main Location* always exists. With
   Job work on, *Whose stock* says whether a godown holds your goods at a job worker or a principal's goods
   with you (section 5.3).
@@ -324,21 +380,30 @@ With F11 *Maintain stock* on:
 
 ### 3.3 Voucher types and numbering
 
-*Masters › **Voucher Types*** lists the predefined types (Sales, Purchase, Payment, …) and your own.
+*Masters › **Voucher Types*** lists the predefined types (Sales, Purchase, Payment, …) and your own,
+with how each is numbered (*Hide inactive types*, *Print* and *Export* are under More ▾).
 For prefixes, the next number and a yearly restart the simpler *Company › **Invoice Numbering*** screen
-(section 3.4) is enough; the voucher type form keeps every option.
+(section 3.4) is enough.
 **Alt+C** creates a type based on the highlighted one — for example *Cash Sales* or *Export Invoice*
 with its own series. A predefined type you deactivate disappears from the Transactions menu and Go To.
 
-In **Numbering** (the preview under the fields shows the next number):
+The voucher type form shows **Name**, **Based on** and one **Numbering** line — for example
+"INV/26-27/0001 · every financial year" (and the next voucher's number on an alteration). Click it to
+change the numbering in the same editor as Invoice Numbering (section 3.4); the change is kept when you
+save the voucher type (**Ctrl+A**). Abbreviation, alias, *Active*, the behaviour switches, the defaults
+and the printing settings are behind **More details**, which opens by itself when one of them holds
+something you chose — not for what Pevqori fills in itself (a type's short abbreviation, *Prevent
+duplicate numbers* on a built-in type, the default sales or purchase ledger).
+
+In the numbering editor:
 
 - **Prefix / Suffix** may contain codes filled in from the voucher date: `{FY}` → `26-27`, `{FYYYYY}` →
   `2026-27`, `{YY}` → `26`, `{MM}` → `04`, `{MMM}` → `Apr`. Example: prefix `INV/{FY}/`, zero padding 4,
   starts again every year → `INV/26-27/0001`, and on 1 April 2027 `INV/27-28/0001` without touching the
   voucher type.
-- **Prefix / suffix from a date** — add a row with an "applicable from" date to change the prefix or
-  suffix from that date on (for example a new branch code from 1 October). Leave the text empty to stop
-  using a prefix from that date.
+- **Prefix / suffix from a date** (under **Advanced**, which opens by itself when a series has such
+  rows) — add a row with an "applicable from" date to change the prefix or suffix from that date on (for
+  example a new branch code from 1 October). Leave the text empty to stop using a prefix from that date.
 - **Starts again**: every year, every month or never. For GST invoices, credit and debit notes a monthly
   restart needs `{MM}` or `{MMM}` in the prefix or suffix, otherwise numbers would repeat within the year.
 - **GST rule** (CGST Rule 46(b)): a tax invoice number may have at most **16 characters**, only letters,
@@ -356,9 +421,11 @@ column, bank details, declaration and terms printed on the document, and whether
 
 *Company › **Invoice Numbering*** (also on Home, in Settings › Invoices & printing and in Go To — type
 "invoice number", "prefix" or "series") is the simple way to set up your number series. It lists every
-series — one per voucher type — with an example number for today, when it starts again, the **next
-number** and how many vouchers it has this period. *Invoices & notes* (sales, credit and debit notes)
-come first; *Other vouchers* are folded away (→ or Enter opens the group).
+series — one per voucher type — with its **Next number** as it will be printed (e.g. `INV/26-27/0033`),
+when it starts again, and how many numbers it has **Used** this period. *Invoices & notes* (sales,
+credit and debit notes) come first; *Other vouchers* are folded away (→ or Enter opens the group). The
+title row has one button, **Create series**; *Alter* (**Alt+A**), *Voucher Types* and *Edit history*
+(**Alt+H**) are under More ▾.
 
 Highlight a series and press **Enter** (or **Alt+A**) to change it:
 
@@ -374,8 +441,8 @@ Highlight a series and press **Enter** (or **Alt+A**) to change it:
   shows it.
 - **Advanced** — *Start again every month* (for a GST series the month must be part of the number: the
   **Add month to prefix** button does it, e.g. `INV/{FY}/{MM}/`), and how numbers are given: automatic,
-  automatic but can be typed while entering, typed by hand, or no numbers. *More options* opens the full
-  voucher type (dated prefix / suffix, behaviour, printing).
+  automatic but can be typed while entering, typed by hand, or no numbers, and the **prefix / suffix from
+  a date** rows (section 3.3). *More options* opens the full voucher type (behaviour, defaults, printing).
 - **Next number** — the number the next voucher gets, e.g. 41 to continue from a paper bill book.
   **Set** applies it at once (Save does too). It cannot go below **Start at**. Lowering it below a number
   already used asks you to confirm (used numbers are skipped automatically); jumping ahead asks too,
@@ -424,23 +491,38 @@ another voucher key (or F10) to switch type; the date is kept.
 
 ### 4.2 Entering a voucher
 
+The screen is kept calm on purpose: the title row holds the voucher type, the entry mode (*Item invoice ▾*)
+and one **Save** button (**More ▾** lists every other action with its key); below it are the number, the
+date, the party with **one line** of facts under it (*Cur bal 54,356.00 Cr · Overdue 14,644.00 (190 d)* —
+overdue only when there is some, *Limit exceeded* when this invoice would cross the credit limit,
+*Unregistered* for a purchase from a supplier without GSTIN; click the balance to open the party's ledger),
+the lines, the narration and, at the bottom, the **totals strip**: *Taxable · CGST · SGST* (or *IGST*,
+then *Cess*) *· Round off · Total ₹*. Point at the total to read the kind of supply, the GSTR-1 table and
+the amount in words. Keys are not printed on the screen (the *More details  Ctrl+I* link is the one
+exception): hold **Ctrl** for a moment to see them on the buttons, or press **F1**.
+
 - **Enter** moves to the next field or cell and **Shift+Enter** back. Enter on an empty grid row moves on
-  to the next part (items → additional ledgers such as freight or discounts → narration); Enter in the
-  narration asks *Accept?*. **Ctrl+A** saves at any time. **Esc** leaves (asking first).
+  to the next part (items → **Charges & discounts** such as freight, packing or a discount entered as a
+  minus amount → narration); *Charges & discounts* is a closed line until you reach it this way (or click
+  it) and stays open once a charge is entered. Enter in the narration asks *Accept?* — the question reads
+  the amount back in figures and in words. **Ctrl+A** saves at any time. **Esc** (or the **‹** button)
+  leaves, asking first.
 - **F2** inside voucher entry changes the voucher date. Back-dated vouchers need the *create / alter
   vouchers dated before today* permission when security is on.
 - **Alt+I** switches a sales / purchase / note between **item invoice** (stock items with quantity and
   rate) and **accounting invoice** (ledgers only, for services or for a credit note that only reduces the
-  price). **Ctrl+H** switches a payment, receipt or contra between **single entry** (one cash / bank
+  price); the *Item invoice ▾* menu in the title row offers the same choice (and *As voucher (Dr/Cr)* where
+  the voucher type allows it). **Ctrl+H** switches a payment, receipt or contra between **single entry** (one cash / bank
   account at the top) and the **Dr / Cr** layout.
-- **Ctrl+I** opens *More details*: buyer and consignee, dispatch and e-way bill details, order
+- **Ctrl+I** (or the *More details ›* link at the right of the header) opens *More details*: buyer and consignee, dispatch and e-way bill details, order
   references, export details (shipping bill, port, LUT or with IGST) and the effective date. On a sales
   invoice (and the other documents you issue: credit notes, sales orders, delivery notes, quotations)
   the buyer's **Reference no.**, **Reference date** and **Reverse charge** are on its first tab,
   *Reference*; once one of them holds a value it also shows in the voucher header. A purchase keeps the
   *Supplier invoice no. / date* and *Reverse charge* in the header — input credit is matched on them.
-- **Place of supply** shows as a chip such as *Gujarat (24) · intra-state ✎* when Pevqori can work it
-  out from the party (and the consignee). Click it (or Tab to it and press Enter) to choose another
+- **Place of supply** shows as plain text — *Maharashtra* within your state, *Gujarat · inter-state*
+  across states — when Pevqori can work it out from the party (and the consignee); point at it to see
+  the state code and the party's GSTIN. Click it (or Tab to it and press Enter) to choose another
   state; a party without a state, or an overseas party, shows the list straight away.
 - **Alt+T** fills an invoice from open delivery / receipt notes or orders of the party, so the goods are
   not moved twice and the order shows what is still pending.
@@ -467,28 +549,34 @@ another voucher key (or F10) to switch type; the date is kept.
   number: it is checked as you type (a GST invoice number has at most 16 letters, digits, '/' and '-',
   and must not be used again in the same financial year), add a reason for the edit log and, when the
   number is in the series' format, tick *Continue the series from here* so the next invoices follow it.
-  The number shows in the *No.* field with a **changed** badge and is used when you save. Needs the
+  The number shows in the *No.* field followed by the word **changed** and is used when you save. Needs the
   *Change voucher numbers and the next number* permission (the Owner and Accountant roles have it).
 - **F12** shows the settings of this voucher type.
 
 Totals, GST and round-off are worked out as you type with the same rules the books use. When you pause
-and the voucher looks complete, Pevqori checks it on the server: warnings appear in the **Checks** panel
-and on the rows (negative stock, credit limit, duplicate supplier bill, GST questions, TDS thresholds …).
+and the voucher looks complete, Pevqori checks it on the server: warnings appear on the rows and, when
+one must be fixed or confirmed, in a **Checks** list at the right (negative stock, credit limit,
+duplicate supplier bill, GST questions, TDS thresholds …). The right-hand column appears only when it
+holds work: the **pending bills** of the party of a receipt or payment (the first five, then how many
+more), the checks, and the TDS / TCS or foreign-currency figures when they apply; otherwise the lines
+take the full width.
 Warnings marked *confirm* are asked about when you save; *block* ones must be fixed. The F12 › Checks
 tab decides which checks warn and which block.
 
-After saving, a message shows the voucher number and amount and the screen is ready for the next voucher
-of the same type, keeping the date. A **Saved bar** above the new voucher repeats it — *✓ Saved Sales
-INV/26-27/0042 · ₹ 11,800.00* — with **Print** (Alt+P), **Share** (Alt+W, by e-mail or WhatsApp) and,
+After saving, the screen is ready for the next voucher of the same type, keeping the date, and one
+**Saved** line above it says what happened — *✓ Saved Sales INV/26-27/0042 · ₹ 11,800.00 · Asha Retail*
+(click the voucher to open it) — with **Print** (Alt+P), **Share** (Alt+W, by e-mail or WhatsApp) and,
 after a sales invoice to a customer, **Record payment**: it opens a Receipt with the customer already on
-the first line, so you only type the amount (after a purchase it opens a Payment to the supplier). The
-bar goes away when you start the next voucher or press ×. **Alt+P** prints the voucher just saved (or
-the one being altered) and **Alt+W** shares it.
+the first line, so you only type the amount (after a purchase it opens a Payment to the supplier). It is
+said once: no separate pop-up message appears while this line shows (notes from the save, if any, still
+pop up). The line goes away when you start the next voucher or press ×. **Alt+P** prints the voucher just
+saved (or the one being altered) and **Alt+W** shares it. A quotation converted into an invoice goes back
+to its register and says *Sales 12 saved* there.
 
 **Sales invoices in short.** Party (or a cash ledger for cash sales), then items with quantity, rate and
 discount; GST is CGST + SGST within your state and IGST for another state, exports and SEZ, based on the
-place of supply (the consignee's state for goods, else the buyer's). Additional ledgers (freight,
-packing, discount, round-off) go below the items. The party is debited with the grand total, the sales
+place of supply (the consignee's state for goods, else the buyer's). Charges and discounts (freight,
+packing, discount, round-off — the additional ledgers) go below the items. The party is debited with the grand total, the sales
 ledger credited with the taxable value and the output tax ledgers with the tax. A purchase is the mirror
 image with input tax; a reverse-charge purchase posts the tax to the input ledgers and the reverse-charge
 liability instead of to the supplier.
@@ -504,15 +592,34 @@ re-reads the book quantity.
 
 ### 4.3 Day Book, viewing, altering, cancelling
 
-*Transactions › **Day Book*** shows every voucher of the working date (it follows F2) or of a period
-(**Alt+F2**; **Alt+T** back to today). **Enter** or **Alt+A** alters the highlighted voucher,
-**Alt+Enter** views it read-only, **Ctrl+P** prints it, **Alt+P** prints the Day Book itself, **Alt+2**
-duplicates it and **Alt+D** deletes it.
+*Transactions › **Day Book*** shows every voucher of the working date (it follows F2). The date sits
+next to the title: type another date there to see that day. For several days press **Alt+F2** (or
+*More › Date range…*) and a second date appears (*From* – *To*; it
+stays until **Alt+T**); *More › Whole period* shows the whole period at once (choose it again to go back
+to the working date), and **Alt+T** goes back to today. Under the title, *All vouchers ▾* picks the voucher
+types to show (tick several — the button then reads *Sales, Receipt* or *3 types*), the search box
+(**Ctrl+F**) finds a number, party, narration or exact amount, and the count of vouchers is on the
+right. Optional and cancelled vouchers are listed (flagged) unless you untick *Show optional vouchers* /
+*Show cancelled vouchers* under *More*; the **Total** row never counts them (its tooltip says so).
+**Enter** or **Alt+A** alters the highlighted voucher, **Alt+Enter** views it read-only, **Ctrl+P** prints
+it, **Alt+P** prints the Day Book itself, **Alt+E** exports it, **Alt+2** duplicates the voucher and
+**Alt+D** deletes it — *More* lists all of them. The same search (**Ctrl+F**), count and keys work on every
+other voucher list (for example the vouchers behind a report's figure).
 
-The read-only view (Alt+Enter, or Enter on any report row that is a voucher) shows the header, party,
-items, Dr / Cr entries with bills, cost centres and bank details, GST by rate, e-invoice / e-way bill
-details and who created and changed it. Its keys: **Alt+A** alter, **Alt+P** print, **Alt+W** share
-(section 12.4), **Ctrl+R** change the number, **Alt+2** duplicate, **Alt+X** cancel, **Alt+D** delete,
+The read-only view (Alt+Enter, or Enter on any report row that is a voucher) reads like the document: the
+title is the voucher type and number, followed by its date and any state (*Optional*, *Post-dated*,
+*Not in the books*, the e-invoice status, or *Cancelled* in red). Below it: the party and its GSTIN in one
+line with the references (Ref. no., the original invoice of a note, the e-way bill) on the right; the item
+lines (a column shows only when it says something — the godown when there are several, Disc % when there
+is a discount, GST % when the rates differ); for an item invoice the totals (Taxable, each tax by name
+with its rate, other charges, round off and **Total ₹**, which is the invoice amount — reverse-charge
+tax, or IGST paid at customs on an import, shows muted beside the total, not in it); the amount in words and
+the narration. A voucher without item lines (a receipt, a payment, a journal) shows its Dr / Cr entries
+with bills, cost centres and bank details. **Alt+F1** (*More › Detailed*) adds the Dr / Cr entries of an
+invoice, the GST table by rate, HSN/SAC, the party's address and state, place of supply, dispatch and
+e-invoice details and who created and changed the voucher; Pevqori remembers the choice on this computer
+(per Windows user). Its keys: **Alt+A** alter, **Alt+P** print, **Alt+W** share (section 12.4), **Alt+F1**
+detailed, **Ctrl+R** change the number, **Alt+2** duplicate, **Alt+X** cancel, **Alt+D** delete,
 **Alt+H** edit history, plus the
 panels other features add (Alt+F attachments, Alt+K print cheque, Alt+T POS return, Alt+U TDS / TCS,
 Alt+Y currency, Alt+V / Alt+O convert a quotation, Alt+S quotation status, Alt+R make recurring, Alt+L
@@ -578,8 +685,12 @@ your GST invoice numbers stay consecutive (CGST Rule 46).
 - **Print:** Alt+P. The title reads *Quotation* or *Proforma Invoice*; a proforma always says
   **"This is not a tax invoice"** and prints your bank details / UPI QR for the advance.
 - **Track:** *Reports › **Quotation Register*** shows every document with its status — *Open*,
-  *Accepted*, *Rejected*, *Expired* (open past its validity), *Converted* or *Cancelled* — the value by
-  status and your conversion rate. Ctrl+1 / Ctrl+2 switch between quotations and proforma invoices.
+  *Accepted*, *Rejected*, *Expired* (open past its validity), *Converted* or *Cancelled*. Above the table
+  on the right, the value still open (open and accepted, shown when it is not simply the total) and your
+  conversion rate. The *All statuses ▾* filter (or Ctrl+3 … Ctrl+8, also in More) narrows the list and
+  its total row;
+  Ctrl+1 / Ctrl+2 switch between quotations and proforma invoices. There is deliberately no graph: two
+  numbers say it.
 - **Record the customer's answer:** Alt+S → Accepted, or Rejected with a reason (price, delivery time …).
 - **Convert with one key:** on the register or the opened document, **Alt+V** makes a Sales Invoice and
   **Alt+O** a Sales Order (quotations only; needs Sales and purchase orders in F11). The new voucher opens
@@ -603,13 +714,15 @@ Pevqori never posts behind your back. When you open the company, a notice says *
 due"** (it is also on the dashboard). Press *Review & post*, or *Transactions › **Due Recurring
 Vouchers***:
 
-- Everything due up to the working date (F2) is ticked. **Space** (or Alt+T) unticks a line, **Alt+O**
-  changes the amount for this posting only, **Alt+S** skips it (with a reason), **Enter** opens it in
-  voucher entry to change anything before saving.
+- Everything due up to the working date (F2) is ticked; *To post ₹…* above the table is the ticked amount
+  before tax. **Space** (or Alt+T) unticks a line, **Alt+O** changes the amount for this posting only
+  (marked \* — point at it to read why), **Alt+S** skips it (with a reason), **Enter** opens it in voucher
+  entry to change anything before saving.
 - **Ctrl+A** posts the ticked vouchers. Each becomes an ordinary voucher with its own number, in the Day
   Book and the edit log. A month can never be posted twice; if you delete a posted voucher, that month
   becomes due again.
-- Pause a template (Alt+S on the list) when the arrangement stops for a while.
+- Pause a template (Alt+S on the list) when the arrangement stops for a while. On a template, the
+  *Occurrences dealt with* table lists what was posted or skipped; Alt+U makes a skipped one due again.
 - Changing a template's day of the month or end date is always safe. If you change *how often* it runs
   (say quarterly to monthly, or every 7 days from another date), Pevqori asks you to start the new schedule
   on or after the date the old one would have posted next — so a month, quarter or week already posted
@@ -697,12 +810,18 @@ If you open a POS bill or return from the Day Book and alter it as an ordinary v
 (and the bill it returns) are kept and checked again; to change what was paid, alter the bill on the
 counter.
 
-**Day-end.** *Reports › **POS Day-end Summary*** shows, for the working date (Ctrl+5) or the report
-period (Ctrl+6): bills, returns, net sales, GST, what was sold on credit, the **cash** that should be in
-the drawer, change given, and the split by payment mode (Ctrl+1), by cashier (Ctrl+2) and by counter
-(Ctrl+3). Type the opening float and the cash you counted to see whether the drawer tallies. **Ctrl+4**
-lists every bill and return (Enter opens one); Enter on a payment mode, cashier or counter lists just
-their bills. Alt+E exports, Alt+P prints.
+**Day-end.** *Reports › **POS Day-end Summary*** shows the working date (Ctrl+5) or the report period
+(Ctrl+6; both are ticked items under More). The tabs above the table split the day by payment mode
+(Ctrl+1), by cashier (Ctrl+2) and by counter (Ctrl+3); **Ctrl+4** lists every bill and return (Enter opens
+one), and Enter on a payment mode, cashier or counter lists just their bills. On the right, in plain
+words: **Cash in drawer** (the opening float you type + cash received − refunded), the **Net sales**
+(sales − returns), what was sold **On credit** and the **GST** on sales — a figure the table's total row
+already shows is not repeated (by cashier or counter, the Net total is the net sales); point at
+*Cash in drawer* for the number of bills and returns, the change given, exchange credit and MRP savings.
+The *By tender* view answers "how was I paid?": *Takings by tender* draws a thin bar under each mode's Net
+amount (with three or more modes; more than seven become the six largest and *Other*); Ctrl+J folds it to
+its one line. Type the opening float and the cash you counted to see whether the drawer tallies. Alt+E
+exports, Alt+P prints — always the table, never the graph.
 
 ## 5. Inventory and manufacturing
 
@@ -722,13 +841,13 @@ All under *Inventory Reports* (Alt+F2 changes the period or date, Alt+E exports,
 
 | Report | What it shows | Useful keys |
 |---|---|---|
-| ***Stock Summary*** | Groups → items with closing quantity, rate and value; *Detailed* adds opening, inward and outward | Enter drills down · Alt+F1 detailed · Alt+V quantities only · Alt+Z all items · Alt+X expand / collapse |
+| ***Stock Summary*** | Groups → items with closing quantity, rate and value; *Detailed* adds opening, inward and outward. Filter by category (and godown — both behind *Filters* when you keep godowns) | Enter drills down · Alt+F1 detailed · Alt+V quantities only · Alt+Z all items · Alt+X expand / collapse |
 | ***Stock Item Vouchers*** | One item's vouchers with running balance | Enter opens the voucher · Alt+M item master |
 | ***Godown Summary*** | Stock per godown (with Multiple godowns) | Alt+Z empty godowns |
 | ***Batch Summary*** | Batches with manufacturing / expiry dates and days left (with Batches) | Alt+W expiry filter |
 | ***Category Summary*** | Stock by stock category | |
-| ***Movement Analysis*** | Inward / outward by party and item | Alt+I inward · Alt+O outward |
-| ***Stock Ageing*** | Stock by age buckets | Alt+Q values ↔ quantities |
+| ***Movement Analysis*** | Inward / outward by party and item; item and group under *Filters* | Alt+I inward · Alt+O outward |
+| ***Stock Ageing*** | Stock by age buckets; choose the age periods under *More* | Alt+Q values ↔ quantities |
 | ***Reorder Status*** | Items below their reorder level, on order, shortfall | Alt+O new purchase order |
 | ***Negative Stock*** | Items and godowns below zero, since when | |
 | ***Physical Stock Register*** | Counted vs books, gain or loss at cost | Alt+C new count |
@@ -736,6 +855,28 @@ All under *Inventory Reports* (Alt+F2 changes the period or date, Alt+E exports,
 | ***Pending Sales Orders*** / ***Pending Purchase Orders*** | Orders not yet delivered / received | Alt+C create order · Alt+L pre-close |
 | ***Sales Bills Pending*** / ***Purchase Bills Pending*** | Notes not yet invoiced (section 4.4) | Alt+I invoice now |
 | ***Production Register*** / ***Pending Job Work*** | Manufacturing and job work (below) | |
+
+**Graphs and answers (2.1).** Each stock report answers its question above the table, in one line you can
+fold with **Ctrl+J** (section 10.4):
+
+- *Stock Summary* — where money is locked in stock: a bar for each top-level row by closing value
+  ("Wood Primer 1L holds 70 % of stock value"). With seven rows or fewer the bars are drawn as thin bars
+  under the *Closing value* cells; with more, the six largest and *Other*. None in *Quantities only*.
+  *Category Summary* does the same by category (*Not categorised* in grey when the graph is drawn above
+  the table); *Godown Summary* by godown;
+  *Movement Analysis* shows the biggest buyers (Outward) or suppliers (Inward).
+- *Stock Ageing* — the value on hand by age, from the youngest to the oldest period, with how much is over
+  the middle period ("Of ₹3.94 L in stock, ₹43.7 K is over 90 days"). Always values; Alt+Q switches only the
+  table.
+- *Item Profitability* — gross profit per item: the six biggest earners, up to three items sold at a loss
+  (in the second colour) and the rest as *Other* (seven items or fewer: thin bars under *Gross profit*).
+- *Stock Item Vouchers* — the quantity in stock over the period, in the item's unit. It opens folded to
+  its one line, like the other drill-down reports; Ctrl+J (or *Show graphs*) opens it.
+- No graph where it would not help, but the answer in words: *Pending Orders* "Overdue 3 lines", *Batch
+  Summary* "Expired 2 batches · Expiring in 30 days 1 batch", *Negative Stock* "Below zero 3 items",
+  *Reorder Status* "Order now 2 of 12 items". *Physical Stock Register* has its gain and loss in the total
+  rows. The explanations that used to sit above these tables are under *More › About this report*.
+- Enter on a bar opens what Enter on its row opens. Graphs never print: Print and Export stay the table.
 
 ### 5.3 Manufacturing and job work
 
@@ -748,7 +889,8 @@ types under *Masters › **Voucher Types***).
 #### Bills of materials (BOM)
 
 A BOM lists what goes into an item you make. *Masters › **Bills of Materials*** (Alt+C to create, or
-*Masters › **Create BOM***).
+*Masters › **Create BOM***). The list shows active BOMs; *More › All BOMs, inactive too* (Ctrl+2) shows the
+rest, Ctrl+1 goes back; Ctrl+F searches; Print and Export are under More (Alt+P / Alt+E).
 
 - Choose the **finished item**, give the BOM a name (an item can have several — *Standard*, *Export
   pack* …) and say what quantity the lines are for, e.g. "components are for 10 Nos".
@@ -772,9 +914,11 @@ Sub-assemblies are not exploded automatically: make them first with their own Ma
    it; **Alt+B** fills it from the BOM again.
 3. Add **additional costs** (labour, power, overheads) as an amount or as a % of the components' cost,
    naming the expense ledger.
-4. The panel shows the cost as you type: **components consumed** (valued by each item's costing method
-   as on the voucher date) **+ additional costs − by-products/scrap = cost of the finished goods**, and
-   the **rate per unit**. **Ctrl+A** saves.
+4. The line under the tables shows the **cost of the finished goods** and the **rate per unit** as you
+   type; point at the cost to read how it is made up: **components consumed** (valued by each item's
+   costing method as on the voucher date) **+ additional costs − by-products/scrap**. **Ctrl+A** saves
+   (the title row's *Accept* / *Save* is the only Save button; Esc goes back); Ctrl+Enter in the
+   narration asks *Accept this voucher?* with the cost, as an invoice does — Y or Ctrl+A accepts.
 
 **Ctrl+L** makes the journal optional (a memo that moves no stock) and **Ctrl+T** post-dated, as on other
 vouchers; altering an optional journal keeps it optional until you press Ctrl+L again.
@@ -783,7 +927,10 @@ The journal moves stock only. Additional costs raise the value of the finished g
 posted to the expense ledgers** (the usual convention) — record the actual expense with a Payment or Journal
 voucher as usual. If a purchase is entered later with an earlier date, the cost of the finished goods is
 recomputed automatically in every report. *Inventory Reports › **Production Register*** lists what was
-made, at what cost, against the BOM's estimate today.
+made, at what cost, against the BOM's estimate today; above the table, *Cost of production by month* (with
+three or more months that made something; a longer period folds into quarters or years, the running month
+is marked "so far") names the best month. The note about where the values come from is under *More › About
+this report*.
 
 #### Godowns for job work
 
@@ -833,15 +980,21 @@ tools have no limit. Goods not back in time are treated as **supplied by you on 
 *Inventory Reports › **Pending Job Work*** lists every challan still (partly) with a job worker, its
 return-by date and status (*Overdue*, *Due in n days*, *No time limit*); Home and the dashboard warn
 you about overdue and soon-due goods. If the Commissioner has extended the time, enter the new date in the
-challan line's *Return extended to* field. Ctrl+2 shows principals' goods lying with you.
+challan line's *Return extended to* field. Ctrl+2 shows principals' goods lying with you. When goods with
+a job worker are late, one red line says how many challan lines and their value; above the table
+*Due within 30 days m* (and, for principals' goods, *Overdue n*) counts the challan lines, and *Pending job work by return date* is one
+bar of the value with the job workers — *Later*, *Due within 30 days* and *Overdue* from light to dark
+(*No time limit* in grey). *More › Only overdue / due soon* (Ctrl+3) lists just those lines (the bar then
+goes: it would show only part of the whole). The law is under *More › About this report*.
 
 #### ITC-04
 
-*GST › **ITC-04***. Choose the period — **half-yearly** (Apr–Sep, Oct–Mar) if your previous year's
-aggregate turnover was above ₹5 crore (Ctrl+3 switches *AATO above ₹5 crore*; the choice is remembered on
-this computer only), otherwise **annual** — and review **Table 4** (goods sent, Ctrl+1) and **Tables
-5A–5C** (received back with the original challan, sent on to another job worker, sold from the job
-worker's premises, Ctrl+2). Alt+E exports each table to CSV or Excel in the form's column order, to key
+*GST › **ITC-04***. Choose the period in the *Period* list — **half-yearly** (Apr–Sep, Oct–Mar) if your
+previous year's aggregate turnover was above ₹5 crore (*More › Turnover above ₹5 crore*, Ctrl+3, a ticked
+item; the choice is remembered on this computer only), otherwise **annual** — and review **Table 4**
+(goods sent, Ctrl+1) and **Tables 5A–5C** (received back with the original challan, sent on to another
+job worker, sold from the job worker's premises, Ctrl+2); the line count of each is above the table on
+the right, the due date beside the title. It is a statutory form, so there is no graph. Alt+E exports each table to CSV or Excel in the form's column order, to key
 into the GST portal's ITC-04 offline tool; Pevqori does not create the portal's upload file. Check the due
 date on the portal — it is often extended — and fill in losses and wastes yourself where they apply.
 Moulds, dies, jigs, fixtures and tools are listed as *Inputs* in table 4 (the form has only inputs and
@@ -886,13 +1039,13 @@ before you file, because the portal is the legal record.
 
 | Menu item | What it is |
 |---|---|
-| *GST › **GSTR-1*** | Outward supplies for the return period (Alt+F2): tiles for tables 4A, 4B, 5, 6A, 6B, 6C, 7, 8, 9B, 11, 12 and 13, uncertain transactions with links to fix them, **Alt+J** saves the portal JSON (asking first when there are errors), **Alt+F** marks the return filed, **Alt+M** amendments, **Alt+X** GST exceptions. Enter on a tile opens its documents (Alt+← / Alt+→ moves between parts) |
-| *GST › **GSTR-3B*** | Portal-style form 3.1, 3.1.1, 3.2, 4, 5, 5.1 and 6.1 with the ITC set-off explained; *Your entries* for figures the books do not hold (ISD credit, interest, late fee, credit on the portal when the books began — **Ctrl+A** saves only the changed cells); **Alt+J** JSON, **Alt+F** mark filed, **Alt+S** GST set-off, **Alt+P** print |
-| *GST › **GSTR-9*** | Annual summary prepared from the books (tables 4, 5, 6, 9, months, 17 / 18) — verify before filing; Enter on a month opens its GSTR-3B |
-| *GST › **HSN/SAC Summary*** | Outward / inward HSN summary (Ctrl+1 / Ctrl+2) |
-| *GST › **GST Register*** | Sales / purchase register with GST (purchases show the supplier's invoice number and date) |
-| *GST › **Input Tax Credit*** | ITC by supplier and by type |
-| *GST › **GST Exceptions*** | Every uncertain transaction (missing GSTIN, place of supply, HSN, rate, original invoice …) with Alt+A to alter the voucher and Alt+M to fix the master |
+| *GST › **GSTR-1*** | Outward supplies for the return period — the period is beside the title (click it, or **Alt+F2**). The portal's tables as one list: a row for each table with something to report (4A, 4B, 5, 6A, 6B, 6C, 7, 8, 9B, 11), the **Total** row (point at it for the IGST / CGST / SGST / cess split; it is the return's net as GSTR-3B 3.1 reads it, so when 4B or 8 is listed, or advances and amendments count, it reads *Net total* and says why), then the HSN summary (12) and documents issued (13), which restate the others and are not added. *More › Show empty tables* lists every table. ↑ / ↓ and Enter open a table's documents (Alt+← / Alt+→ moves between its parts). No graph: the tables are the filing. The line above says whether you can file — *Nothing blocking*, or *2 documents block the JSON · Review ›* (opens GST exceptions, as **Alt+X** does); the uncertain transactions with links to fix them are under the tables. **Alt+J** saves the portal JSON (asking first when there are errors), **Alt+F** marks the return filed (then *Filed 12-Oct-26* shows beside the title), **Alt+M** amendments; *More › About this return* holds the notes |
+| *GST › **GSTR-3B*** | Starts with the answer: **Cash to pay ₹…** and when it is due (*Due 20-Oct-26 (in 10 days)* — the 20th for monthly filers, the 22nd or 24th by state after a quarter, PMT-06 on the 25th for the first two months of a quarter), with a link to the period's warnings. When part of the tax is paid from credit and part in cash, a bar shows the split (*From credit ₹… · In cash ₹…*; **Ctrl+J** folds it). Then the portal-style form 3.1, 3.1.1, 3.2, 4, 5, 5.1 and 6.1, and *How your ITC is used* (folded); *Your entries* for figures the books do not hold (ISD credit, interest, late fee, credit on the portal when the books began — **Ctrl+A** saves only the changed cells); **Alt+J** JSON, **Alt+F** mark filed, **Alt+S** GST set-off, **Alt+P** print; *More › About this return* explains the form |
+| *GST › **GSTR-9*** | Annual summary prepared from the books (tables 4, 5, 6, 9, months, 17 / 18) — verify before filing. The year is beside the title (**Alt+F2**). The graph shows each month's tax on outward supplies less its net ITC — tax payable after credit above the line, credit left over below it; the month table has the same figure as *After credit*. Enter on a month (row or column) opens its GSTR-3B |
+| *GST › **HSN/SAC Summary*** | Outward / inward HSN summary (Ctrl+1 / Ctrl+2). The graph is the taxable value by HSN/SAC code — drawn as thin bars inside the table when it has seven rows or fewer, one per code |
+| *GST › **GST Register*** | Sales / purchase register with GST (Ctrl+1 / Ctrl+2; purchases show the supplier's invoice number and date). The graph is the taxable value by GST rate; *More › Totals by rate* lists the tax heads of each rate |
+| *GST › **Input Tax Credit*** | ITC by supplier. The graph is the eligible credit by supplier (the six largest and *Other*; Enter on a bar opens that supplier's ledger, as on its row); the credit blocked under s.17(5) is said on the line above it (*Blocked ₹…*); *More › By type of credit* splits it into inputs, capital goods, input services and blocked |
+| *GST › **GST Exceptions*** | Every uncertain transaction (missing GSTIN, place of supply, HSN, rate, original invoice …) with Alt+A to alter the voucher and Alt+M to fix the master; *Errors · Warnings* counts on the line above the graph of the problems by type (types with an error in the problem colour — click or Enter on a bar lists only that type); under the table, how to fix the highlighted problem with links to what to open. On these four reports *More › About this report* explains the figures and **Ctrl+J** folds the graph to its one-line answer (section 10.4) |
 | *GST › **GST Reconciliation*** | GSTR-2B / GSTR-2A against your purchases and GSTR-1 against your sales (section 6.6) |
 
 GSTR-1 and GSTR-3B JSON files are written for upload in the portal's offline utility. Credit notes and
@@ -955,10 +1108,13 @@ alter the voucher later.
 
 ### 6.5 GST set-off, challans and electronic ledgers
 
-*GST › **GST Set-off*** shows, for the return period (Alt+F2), how your input tax credit pays the tax in
+*GST › **GST Set-off*** shows, for the return period (beside the title; **Alt+F2**), how your input tax credit pays the tax in
 the order the law requires (IGST credit first; CGST credit never for SGST and vice versa; cess only for
 cess), the cash still needed per head (tax, interest, penalty, fee, others), what is already in your
-electronic cash ledger and what is still to deposit.
+electronic cash ledger and what is still to deposit. The line above says *To deposit ₹…* (or *Covered by
+the cash ledger*); when the ledger holds part of the cash needed, a bar shows *Cash in ledger ₹… of ₹…
+needed*. Once posted, *Set-off posted 20-Oct-26* shows beside the title; *More › About this set-off*
+repeats the rules.
 
 1. Create the challan on the GST portal and pay it.
 2. Press **Alt+C** and record it: voucher date, the bank you paid from, CPIN, CIN, BRN, challan date. The
@@ -974,7 +1130,9 @@ electronic cash ledger and what is still to deposit.
 
 *GST › **Electronic Cash Ledger*** and *GST › **Electronic Credit Ledger*** show the balances per head as
 kept in your books (opening, deposited / accrued, utilised, reversed, closing) with every voucher behind
-them (Enter opens it). Compare them with the ledgers on the portal; if the portal shows less credit than
+them (Enter opens it); the *Closing balance* row of the cash ledger totals the heads. Each has a line of
+its running balance — folded to its one-line answer until you press **Ctrl+J** or *Show graphs* (detail
+reports, section 10.4). Compare them with the ledgers on the portal; if the portal shows less credit than
 the books, pass a reversal journal (section 6.4).
 
 **Advances (GSTR-1 Table 11).** *GST › **Advances (GST)*** lists, for the period, advances received
@@ -992,18 +1150,31 @@ your books or missing in GSTR-2B. Claim credit only for bills of entry that appe
 ### 6.6 GST reconciliation (GSTR-2B, GSTR-2A, GSTR-1)
 
 *GST › **GST Reconciliation*** compares the portal's documents with your books, document by document.
+The title row says what you are looking at: the view (*GSTR-2B vs purchases*, *GSTR-2A vs purchases*,
+*Supplier-wise*, *GSTR-1 vs sales* or *Imported files*) and the return period, both chosen right there.
 
 1. Choose the return period (**Alt+F2**) and the source with **Alt+S** (GSTR-2B or GSTR-2A); download the
    file from the portal (JSON, the ZIP of a large return, or the Excel download) and press **Alt+O** to
    import it. The reconciliation runs after the import (**Alt+R** runs it again).
 2. Each portal document is paired with its purchase (by GSTIN, document number — tolerant of prefixes,
-   zeros and separators — date and value) and every difference is explained field by field. **Enter**
-   opens the comparison: **Ctrl+A** accept, **Alt+I** ignore, **Alt+U** undo a link. Your decisions are
-   kept when you import the file again. **Alt+T** sets the matching rules (tolerances).
-3. The *Supplier-wise* tab lists suppliers with the most to fix; **Alt+M** prepares an e-mail asking a
+   zeros and separators — date and value) and every difference is explained field by field. The line
+   above the table answers the question — *ITC at risk ₹… · Reconciled …% · ITC not booked ₹…* (for
+   GSTR-1: *Tax not reported ₹…*) — and the graph shows the documents by status in one bar: matched (with
+   the ones whose differences you accepted) in grey, *Amount differs*, *Not in books* and *Not on portal*
+   in the problem colour; click a part (or Enter on it) to list those documents (the grey part lists the
+   matched ones; *Show › Differences accepted by you* the accepted ones). *Show* picks any status, the search finds a number, GSTIN, name
+   or remark, and *Filters* holds the supplier. **Enter** on a row opens the comparison: **Ctrl+A**
+   accept, **Alt+I** ignore, **Alt+U** undo a link. Your decisions are kept when you import the file
+   again. **Alt+T** sets the matching rules (tolerances).
+3. *Supplier-wise* lists suppliers with the most to fix, with the tax difference of each as a bar (it
+   says whether the portal shows less or more than your books); **Alt+M** prepares an e-mail asking a
    supplier to correct their GSTR-1. **Alt+E** exports the result to Excel, **Alt+P** prints the rows
    shown.
-4. The *GSTR-1* tab compares a GSTR-1 file (the portal's download or Pevqori's own) with your sales.
+4. *GSTR-1 vs sales* compares a GSTR-1 file (the portal's download or Pevqori's own) with your sales.
+5. *More › About this reconciliation* shows the file and when it was imported, when it was reconciled
+   and with which rules, the notes on the file and the tax per head (portal against books).
+   *Imported files* lists every file; **Alt+D** deletes the highlighted import (your links and
+   decisions are kept for the next import).
 
 Only vouchers in the books count (not optional, cancelled or future post-dated ones). The portal's IMS
 (accept / reject / pending) actions are not imported or exported.
@@ -1054,11 +1225,12 @@ the year); the government sometimes extends these dates, so check the portal.
   rate with its effective date (Alt+C); older documents keep the old rate. Once the books are locked, a
   rate (or the category) that would change the tax of a locked quarter cannot be added, altered or
   deleted — add the new rate from a date after the lock.
-- *GST › **CMP-08*** (quarterly): table 3 — your turnover and the composition tax on it, plus tax on
+- *GST › **CMP-08*** (quarterly; the quarter is beside the title, **Alt+F2**): table 3 — your turnover and the composition tax on it, plus tax on
   purchases under reverse charge (including import of services), interest (Alt+I) — and table 4, the tax
   paid. Pay through GST Set-off (Alt+S): record the challan, then post the set-off. Save the figures as
   CSV / JSON (Alt+K / Alt+J) — the portal has no CMP-08 upload, so type them in — and mark it filed
-  (Alt+F).
+  (Alt+F; *Filed …* then shows beside the title). The turnover, the rate and the tax base are the line
+  under table 3's title; *More › About this return* explains the statement.
 - *GST › **GSTR-4*** (annual): purchases (4A registered, 4B registered under reverse charge, 4C
   unregistered, 4D import of services), your four CMP-08s (table 5; Enter opens a quarter), rate-wise
   supplies (table 6) and the tax paid (table 8). The file it saves is Pevqori's own CSV / JSON to help you
@@ -1155,6 +1327,13 @@ deductor, Section, Transaction date, Amount paid/credited, Tax deducted). Each c
 your books against 26AS; differences are the ones to follow up.
 
 Reports open with Enter down to the voucher, and export (Alt+E) or print (Alt+P) like every other report.
+Each one answers its question with one small graph above the table (Ctrl+J folds the graphs): the
+Computation shows what is **not yet deposited, by section**; Outstanding what is **left to deposit, by
+month** — months with an overdue balance in orange (Enter on a month opens its lines); the Challan
+Register what you **deposited each month**, a month with a late challan in orange; TDS Receivable vs 26AS
+the **difference per customer** (none when your books agree with 26AS — the line above the table then says
+so); the Quarterly Return how much of the quarter's tax the challans cover. The rules behind each report
+(due dates, interest, the late fee, the 26AS CSV columns) are under More › About this report.
 Home reminds you when a deposit is overdue or due within a week. Form 16A / 27D certificates come
 from TRACES; Pevqori does not produce them.
 
@@ -1163,31 +1342,43 @@ from TRACES; Pevqori does not produce them.
 ### 8.1 Bank reconciliation and statements
 
 - *Banking › **Bank Overview*** — every bank account with its book balance, the last imported statement
-  and the difference. **Enter** reconciles, **Alt+I** imports a statement, **Alt+M** matches, **Alt+Q**
-  cheque register, **Alt+T** post-dated cheques, **Alt+C** creates a bank ledger.
+  and the difference. The line above the table says how many entries are not in the bank yet and links
+  the statement lines still to match. With three or more accounts a bar per account shows where the money
+  sits — inside the table up to seven accounts, an overdrawn OD / CC account to the left of zero (Ctrl+J
+  folds the graphs to their one sentence). **Enter** reconciles, **Alt+I** imports a statement, **Alt+M**
+  matches, **Alt+Q** cheque register, **Alt+T** post-dated cheques, **Alt+C** creates a bank ledger.
 - *Banking › **Bank Reconciliation*** — choose the bank and the *as on* date. Type the **bank date**
   of each entry as it appears in your passbook or statement (Ctrl+1 unreconciled, Ctrl+2 reconciled,
   Ctrl+3 all; **Alt+R** sets all shown to the statement date, **Alt+X** discards typed dates, **Ctrl+A**
-  saves). The summary shows the balance as per books, cheques issued but not presented, cheques deposited
-  but not cleared, and the balance as per bank — and, once a statement is imported, the difference from
-  the statement's balance and what explains it.
+  saves). The *Books and bank* panel shows the balance as per books, cheques issued but not presented,
+  cheques deposited but not cleared, and the balance as per bank — and, once a statement is imported, the
+  difference from the statement's balance and what explains it. The verdict sits on the line above the
+  entries: *Agrees ✓*, or the difference (red while nothing explains it).
 - *Banking › **Import Statement*** — choose the bank and the file the bank gave you: Excel (`.xlsx`) or
   CSV / text. Layouts of SBI, HDFC, ICICI, Axis, Kotak, Yes Bank, PNB, Bank of Baroda and Canara Bank are
   recognised, and other banks' columns are matched by their names; you can correct the mapping, and it is
   remembered for that bank. Old `.xls`, HTML disguised as `.xls` and PDF statements are refused — save the
   statement as `.xlsx` or CSV first. Lines already imported are skipped, so overlapping downloads are
-  safe; lines dated before your books begin are left out (they are in the opening balance).
+  safe; lines dated before your books begin are left out (they are in the opening balance). The title
+  row says which of the three steps you are on (bank and file, check the columns, imported) and holds
+  every action of the step: **Alt+O** chooses the file, **Ctrl+A** imports, then **Alt+M** auto-matches.
 - *Banking › **Match Statement*** — **Alt+M** auto-matches statement lines with your vouchers (same
   amount, close date, cheque / UTR number, party name); doubtful ones become *Suggestions* (Ctrl+2) to
   confirm (**Alt+L** looks for a match for one line). For lines with no voucher (bank charges, interest, a customer's direct transfer) **Alt+V**
   creates the receipt, payment or contra (**Alt+B** for many at once) — Pevqori first checks that no
   existing voucher could be the same transaction. **Alt+I** ignores a line, **Alt+U** unmatches, **Alt+D**
   deletes an imported statement (to import it again into the right bank or with other columns). Matching
-  sets the bank date.
+  sets the bank date. How many days a statement line may fall after its voucher (7 unless you change it)
+  is under *Filters ▾*.
 - *Banking › **Cheque Register*** — cheques and DDs issued and received with their status (cleared,
-  uncleared, post-dated, stale after 3 months). *Banking › **Post-dated Cheques*** lists post-dated
-  vouchers on bank ledgers by maturity. *Banking › **Deposit Slip*** lists the cheques and cash
-  deposited on a date with totals and the amount in words, ready to print.
+  uncleared, post-dated, stale after 3 months); only stale ones are marked. The line above the table
+  says what is not cleared — issued and received — and how many are stale. Ctrl+1 / 2 / 3 show all, not
+  cleared or cleared; *More ▾ › Issued only / Received only* narrows the list. *Banking › **Post-dated
+  Cheques*** lists post-dated vouchers on bank ledgers by maturity, cheques received under *In* and
+  issued under *Out*; its graph shows the net coming in (up) or going out (down) week by week — due now,
+  weeks 1 to 8, later. Alt+T (also *More ▾ › Include matured*) lists the matured ones too. *Banking ›
+  **Deposit Slip*** lists the cheques and cash deposited on a date with totals and the amount in words,
+  ready to print.
 
 **Bank dates in a locked period.** When the books are locked up to a date, a bank date on or before that
 date is part of a closed reconciliation. Setting, moving or clearing such a bank date — in the BRS, by
@@ -1238,16 +1429,21 @@ Pevqori ships generic CTS-2010 positions, not bank-specific presets: calibrate o
 
 ### 8.4 Cheque leaf register
 
-*Banking › **Cheque Leaf Register*** shows every leaf of a bank's books as on a date: **issued**
+*Banking › **Cheque Leaf Register*** shows every leaf of a bank's books as on a date — the bank is the one
+choice beside the view tabs; one cheque book and the *as on* date are chosen under *Filters ▾* and named in
+the title row: **issued**
 (post-dated ones marked PDC), **cleared** (the bank date you entered in Bank Reconciliation — Alt+R opens
 it), **stale** (not cleared three months after the cheque date — banks will not pay it; issue a fresh
 cheque), **cancelled** and **unused**. Ctrl+1…6 switch the view. A spoilt or lost leaf: **Alt+X**, with
 the reason, so it is never used; Alt+U re-opens one cancelled by mistake (neither works for a date in a
 locked period). Cancelling a payment cancels its leaf; deleting a payment frees it unless it was printed.
 Enter opens the payment. Change the *as on* date to see the register on an earlier day (a cheque cleared
-later shows as issued then); the "Issued, not cleared" total is the same figure as "cheques issued but not
-presented" in Bank Reconciliation on that date (optional payments and cheques dated later are listed but
-not counted).
+later shows as issued then); the "Issued, not cleared" figure on the line above the table is the same as
+"cheques issued but not presented" in Bank Reconciliation on that date (optional payments and cheques
+dated later are listed but not counted; it is left out when the table's Total already shows that amount),
+next to the number of stale cheques — and, with all books shown, the number of unused leaves. Choose one
+cheque book under *Filters ▾* and a meter shows how many of its leaves are used, with a reminder to order a
+new book when five or fewer are left.
 
 ### 8.5 Bulk e-payment file (NEFT / RTGS / IMPS)
 
@@ -1271,24 +1467,39 @@ With *Bill-wise details* on (the default), every invoice is a **bill** with a du
 credit period); receipts and payments settle bills (Alt+B in voucher entry), and anything not set against
 a bill stays *On Account*. For a party not kept bill-wise, Pevqori settles the oldest balance first (FIFO).
 
-- *Reports › **Receivables*** and *Reports › **Payables*** — as on the period end (Alt+F2). **Ctrl+1**
-  parties (total, overdue, not yet due, advances and on-account amounts, credit-limit use), **Ctrl+2**
-  bills (Alt+O overdue only, Ctrl+F search), **Ctrl+3** ageing (Alt+B changes the periods, e.g. `30, 60,
-  90, 180`; Alt+U due-date or bill-date basis). **Enter** on a party opens its bills; **Alt+S** statement
-  of account, **Alt+L** ledger, **Alt+I** interest, **Alt+R** reminder letter (receivables). **Alt+W**
-  switches between receivables and payables on these two screens.
+- *Reports › **Receivables*** and *Reports › **Payables*** — as on the period end (Alt+F2). One line at the
+  top answers the question in words: *To collect ₹99,953 · Overdue ₹4,65,953 · ₹3,66,000 not matched to
+  bills ›* (*To pay* on Payables; a zero is left out). *To collect* is what the parties owe after their
+  advances and on-account amounts; click *Overdue* for the ageing, or the *not matched* link for those
+  advances and on-account lines. "3 over credit limit" after the date warns of parties above their limit
+  (More › *Only parties over their credit limit* lists them). **Ctrl+1** parties (overdue, not due,
+  advances and on account, net outstanding, oldest overdue in days — "190 d", in red only beyond the last
+  ageing period; More › *Columns…* adds the group and the credit limit used), **Ctrl+2** bills (Alt+O
+  overdue only, Ctrl+F search; *Filters* holds "overdue by at least" and "only advances and on account"),
+  **Ctrl+3** ageing — the graph of unpaid bills by age (Not due in grey, older money darker; Enter on a
+  column lists the bills overdue at least that long — when ageing by due date) above the party table;
+  *Periods* (Alt+B) changes the periods, e.g. `30, 60, 90, 180` (Enter applies, Esc cancels), Alt+U ages
+  by bill date instead of due date. **Enter** on a party opens its bills; **Alt+S**
+  statement of account, **Alt+L** ledger, **Alt+I** interest, **Alt+R** reminder letter (receivables).
+  **Alt+W** switches between receivables and payables on these two screens (it is under More).
 - *Reports › **Receivables Ageing***, *Reports › **Payables Ageing*** and *Reports › **Overdue Bills***
   open those views directly.
 - A party's bills (Enter on a party) show each bill with its history (Ctrl+1) and the on-account entries
-  (Ctrl+2); **Alt+F1** shows or hides settled bills; **Alt+Y** shows the bills in the party's foreign
-  currency (section 11).
-- *Reports › **Statement of Account*** — a party's transactions (Ctrl+1) or pending bills (Ctrl+2) for a
-  period, to print (Alt+P), save as PDF / Excel (Alt+E) or share by e-mail / WhatsApp (**Alt+W**).
+  (Ctrl+2), with bills pending, the overdue part, advances, on account and the balance as the table's last
+  lines; the credit days and limit follow the party's name, and a party with a credit limit has a small
+  graph of its balance against the limit (Ctrl+J shows it). **Alt+F1** shows or hides settled bills;
+  **Alt+Y** shows the bills in the party's foreign currency (section 11).
+- *Reports › **Statement of Account*** — a party's transactions (Ctrl+1, with the running balance as a
+  graph: Ctrl+J shows it; it never prints) or pending bills (Ctrl+2, aged in the table's last lines) for a
+  period, to print (Alt+P), save as PDF / Excel (Alt+E) or share by e-mail / WhatsApp (**Alt+W**). The
+  party's address, GSTIN and contact are in More › *Party details*.
 - *Reports › **Interest Calculation*** (with F11 *Interest calculation*) — simple interest on overdue
-  bills for one party, a group or all debtors and creditors (Alt+R sets the rate), 365-day year.
+  bills for one party, a group or all debtors and creditors (Alt+R sets the rate), 365-day year. The
+  interest to charge customers and the interest payable to suppliers are the table's total lines.
 - *Reports › **Payment Reminders*** — reminder letters for customers with overdue bills: Space includes or
-  skips a customer, Alt+P prints the letter, Alt+S saves it as PDF, Alt+T copies its text, Alt+B prints all
-  chosen letters and Alt+M saves them all as one PDF. Letters are in English.
+  skips a customer ("Selected 2 of 4" at the top), Alt+P prints the letter, Alt+S saves it as PDF, Alt+T
+  copies its text, Alt+B prints all chosen letters and Alt+M saves them all as one PDF. Letters are in
+  English.
 
 The dashboard shows receivables and payables with their ageing, and bills falling due in the next seven
 days.
@@ -1297,29 +1508,34 @@ days.
 
 ### 10.1 Financial reports
 
-All reports follow the same rules: **Alt+F2** changes the period (or the *as on* date), **Enter** (or a
-double-click) drills down — group → ledgers → vouchers → the voucher itself — and **Esc** comes back up,
-**Alt+F1** switches detailed / condensed, **Alt+E** exports (Excel, CSV or PDF — press X, C or P in the
-dialog) and **Alt+P** prints. Amounts carry Dr / Cr instead of a minus sign.
+All reports follow the same rules: **Alt+F2** (or a click on the period next to the title) changes the
+period (or the *as on* date), **Enter** (or a double-click) drills down — group → ledgers → vouchers →
+the voucher itself — and **Esc** comes back up, **Alt+F1** switches detailed / condensed, **Alt+E**
+exports (Excel, CSV or PDF — press X, C or P in the dialog) and **Alt+P** prints. Amounts carry Dr / Cr
+instead of a minus sign. Notes that used to sit under a report are in *More ▾ › About this report*, or
+in the tooltip of the line they explain.
 
 | Report | Notes and keys |
 |---|---|
-| *Reports › **Balance Sheet*** | As on the period end; **Alt+C** adds last year's column for comparison |
-| *Reports › **Profit & Loss A/c*** | Trading and P&L for the period; **Alt+V** switches horizontal ↔ vertical (Schedule III) |
-| *Reports › **Trial Balance*** | **Alt+L** ledger-wise ↔ group-wise, **Alt+O** opening balances, **Alt+T** period transactions, **Alt+Z** zero balances, **Alt+X** expand / collapse |
-| *Reports › **Ledger*** | One ledger's vouchers with running balance; **Alt+L** another ledger, **Alt+M** ledger master, **Alt+Y** monthly summary, **Alt+A** alter the voucher, **Alt+R** both currencies for a foreign-currency ledger |
-| *Reports › **Cash/Bank Books*** | Cash and bank accounts with their balances; **Alt+F** cash flow |
-| *Reports › **Sales Register*** (and Purchase, Receipt, Payment, Contra, Journal, Credit Note, Debit Note registers) | Month by month; Enter on a month lists its vouchers; **Alt+V** voucher list ↔ monthly view |
-| *Reports › **Cash Flow*** | Money into and out of cash and bank, month by month |
-| *Reports › **Funds Flow*** | Sources and uses of funds, change in working capital |
+| *Reports › **Balance Sheet*** | As on the period end; Liabilities and Assets side by side on one sheet; **Alt+C** (*Compare*) adds last year's column. No graph on purpose: a balance sheet always balances. The Profit & Loss A/c line's tooltip shows its opening and current-period parts. If the openings do not agree, one line says by how much, with *Correct openings* |
+| *Reports › **Profit & Loss A/c*** | Trading and P&L for the period, Expenses and Income side by side (**Tab** goes to the other side); the title line says *Net profit ₹…* or *Net loss ₹…* (in red). The graph shows the net profit of each month — Enter on a month opens that month's P&L (under the same scenario, if one is chosen with **Alt+S**). It is not drawn with fewer than three months, while a comparison column is shown (**Alt+C**), or when stock is not kept with the accounts (F11) and the period has purchases (each purchase would look like a loss). **Alt+V** (*More ▾ › Schedule III format*) switches to the vertical statement |
+| *Reports › **Trial Balance*** | Groups · Detailed · Ledger-wise above the table; at the right it says *Agrees ✓* or *Differs by ₹…*. **Alt+L** ledger-wise ↔ group-wise, **Alt+O** opening balances, **Alt+T** period transactions, **Alt+Z** zero balances, **Alt+X** expand / collapse. No graph: it is a check |
+| *Reports › **Ledger*** | One ledger's vouchers with running balance; the graph *Balance by date* (folded until you unfold detail reports once — Ctrl+J). **Alt+L** another ledger, **Alt+M** ledger master, **Alt+Y** monthly summary, **Alt+A** alter the voucher, **Alt+R** both currencies for a foreign-currency ledger |
+| *Reports › **Cash/Bank Books*** | Cash and bank accounts with one *Closing* column; an account in credit says *overdrawn*. With three to seven accounts a thin bar under each closing balance compares them; with more, a graph of the largest six. **Alt+F** cash flow |
+| *Reports › **Sales Register*** (and Purchase, Receipt, Payment, Contra, Journal, Credit Note, Debit Note registers) | Month by month, with the graph *Sales before GST, by month* (taxable value for sales, purchases and notes; the amount for receipts, payments, contra and journals; a month still running is marked *so far*). Pick another register from the name next to the title. Enter on a month — in the table or in the graph — lists its vouchers; **Alt+V** voucher list ↔ monthly view. The *Cancelled* column shows only when a month has one |
+| **Monthly Summary** (Alt+Y on a ledger, Alt+M on a group) | Month by month; the graph shows the net movement of an income or expense account, or the month-end balance of any other |
+| **Group Summary** (Enter on a group) | The group's members with one *Closing* column and bars comparing them (detail report) |
+| *Reports › **Cash Flow*** | Money into and out of cash and bank, month by month; the graph shows each month's net flow (in ↑, out ↓) |
+| *Reports › **Funds Flow*** | Sources and uses of funds, change in working capital (in *About this report*) |
 | *Reports › **Ratio Analysis*** | Current and quick ratio, profit margins, receivable days and more |
-| *Reports › **Cost Centre Report*** | Income and expenses by cost centre (with F11 cost centres) |
-| *Reports › **Exception Reports*** | Negative balances, optional, post-dated, cancelled and memorandum vouchers |
+| *Reports › **Cost Centre Report*** | Income and expenses by cost centre (with F11 cost centres); bars compare the centres of the first category |
+| *Reports › **Exception Reports*** | Negative balances, optional, post-dated, cancelled and memorandum vouchers; counts on the tabs |
 | *Reports › **Statistics*** | Number of vouchers and masters |
 | *Reports › **Dashboard*** | The full dashboard (Alt+R refresh) |
 
 The Day Book (section 4.3) and the outstanding, GST, TDS, stock and forex reports are described in their
-own sections. Exporting and printing need the *Export* permission and are recorded in the edit log.
+own sections. Exporting and printing need the *Export* permission and are recorded in the edit log. How
+the graphs work, and how to fold them, is in section 10.4.
 
 ### 10.2 Budgets and budget variance
 
@@ -1330,7 +1546,11 @@ period, or **On closing balance** for where a balance should stand (e.g. debtors
 
 - *Reports › **Budget Variance*** (or Alt+V on the budget list) shows each line's budget, actual, variance
   and variance %, marked *Over budget* or *Within budget*. Enter drills to the ledger, group or cost
-  centres. Ctrl+2 reports a part of the year (Alt+F2): nett budgets are scaled by days (a quarter of an
+  centres. *Over and under budget* answers it at a glance: one bar per line, the amount under budget to
+  the right in the first colour, over budget to the left in the second ("2 of 4 lines over budget; most:
+  Rent ₹10.0 K"). With seven lines or fewer that all count in the total, the bars sit under the
+  *Variance* cells; otherwise the six largest and *Other lines* are drawn above the table. Lines inside
+  another budgeted line and lines without a budget stay in the table only. Ctrl+J folds it. Ctrl+2 reports a part of the year (Alt+F2): nett budgets are scaled by days (a quarter of an
   annual budget for a quarter); closing-balance targets stay as they are. Alt+S runs it under a scenario.
 - On the Trial Balance, P&L and Balance Sheet, **Alt+B** adds a budget column next to the amounts (the
   Trial Balance also shows the variance: a nett budget against the period's debits less credits, a
@@ -1444,6 +1664,11 @@ dollars at the bank's rate.
   outstanding, **Alt+Y** shows its bills in the currency.
 - A voucher opened from any report shows a **Foreign currency** panel with the amounts, rates and any
   exchange difference it posted.
+- Graphs (Ctrl+J folds them): Forex Outstanding shows the unpaid bills of Receivables (Ctrl+2) or Payables
+  (Ctrl+3) by how overdue they are (advances are not counted; none for All), and the line above the table gives each currency's net
+  and its unrealised gain or loss; Forex Revaluation shows the gain or loss per party; Ledger in Foreign
+  Currency draws the balance in the currency over the period (folded until you press Ctrl+J, like every
+  ledger).
 
 ### 11.5 Year end (or quarter end): revaluation
 
@@ -1480,14 +1705,25 @@ saves a PDF, **Alt+W** shares, **Alt+L** customizes what prints (12.5), **PgUp /
 previous / next voucher, **Alt+T** changes the template and **Alt+S** the paper for this print,
 **Ctrl+1/2/3** original / duplicate / triplicate, **Alt+V** opens the voucher.
 
+The preview is kept quiet: the title row names the document and the party ("Sales 33 · Asha Retail"),
+with **‹ ›** beside it for the previous / next voucher and *Print*, *Save as PDF* and *Share* on the right;
+*Customize layout*, *Open voucher*, the template, paper and copy keys are under **More ▾**. One line above
+the sheet holds *Template*, *Paper* and the copies to print; the keys show in each control's tooltip and
+in **F1**. To print straight to one printer without the printer dialog (a counter's
+receipt printer, say), choose **More ▾ › Printer: Ask every time…** and pick it; Pevqori remembers it on
+this computer, separately for sheets and for receipt rolls. Anything to check before printing — an item
+billed above its MRP, a GST particular you hid — is one amber **Before you print** line (in *Print
+Vouchers*, each warning once, followed by the vouchers it applies to); it never stops you printing.
+
 **Modern** and **Classic** print on A4, A5 (portrait or landscape), Letter or Legal; **Compact** is a till
 receipt for 80 mm or 58 mm thermal rolls — item, quantity × rate and amount on narrow lines, a tax
 summary, and a page exactly as long as the receipt. Drivers that cannot print a custom page length use the
 roll's own page size: set it in the printer's settings.
 
-*Utilities › **Print Vouchers*** prints many vouchers at once: tick them (Alt+A all), choose template,
-paper and copies, then **Ctrl+A** to preview and print, **Alt+P** to print all or **Alt+E** to save them
-as one PDF.
+*Utilities › **Print Vouchers*** prints many vouchers at once: tick them (Alt+A all; the period beside the
+title changes with a click or **Alt+F2**), choose template, paper and copies, then **Ctrl+A** to preview
+and print, **Alt+P** to print all or **Alt+E** to save them as one PDF (the printer is under **More ▾**
+here too).
 
 ### 12.3 MRP on invoices
 
@@ -1519,8 +1755,8 @@ nothing over the internet: your mail program or WhatsApp does.
 
 ### 12.5 Customize what prints
 
-In the print preview of any invoice, note, challan, order or voucher press **Alt+L** (or *Customize
-layout* in the command bar). A panel opens beside the preview:
+In the print preview of any invoice, note, challan, order or voucher press **Alt+L** (or **More ▾ ›
+Customize layout**). A panel, *Customize what prints*, opens beside the preview:
 
 - **Show** lists every part this template prints, in groups — header (logo, your name, address, GSTIN,
   PAN, CIN, phone and e-mail, title, copy label …), document details, parties (bill-to, the buyer's
@@ -1528,17 +1764,21 @@ layout* in the command bar). A panel opens beside the preview:
   per-line tax columns, amount), totals rows, amount and tax in words, HSN / tax summaries, bank details,
   UPI QR, the e-invoice IRN and QR, declaration, terms, notes, narration, signature, the
   "computer-generated" line, the footer line and page numbers. Turn a switch off to hide that part (Space
-  toggles, Tab moves on). A lock marks what always prints: the CANCELLED / OPTIONAL stamp, the document
-  number and date, the grand total, the item description and the ledger entries of a voucher. Click a part
-  in the preview to jump to its switch.
+  toggles, Tab moves on). A group's name says how many of its parts are hidden ("Header · 2 hidden"); the
+  notes of a part — the GST rule that asks for it, where its setting comes from ("This print", "Hidden for
+  Sales"), "nothing to print on this document" — show under the part you last moved to or clicked. What always prints is
+  listed on one line at the end of its group, *Always printed: …*: the CANCELLED / OPTIONAL stamp, the
+  document number and date, the grand total, the item description and the ledger entries of a voucher.
+  Click a part in the preview to jump to its switch.
 - **Texts** has a box for every printed wording: the title, the copy labels, the "Bill to" / "Ship to"
   labels, column headings, the "Amount in words" and "Total" labels, declaration, terms, a notes paragraph
   printed above the terms, the signatory label, the "For {company}" line, a footer line and the
   "computer-generated" text. An empty box prints the wording shown in grey; ↺ goes back to it.
 
 Changes apply **to this print only** and show at once in the preview; Print, Save as PDF and Share print
-exactly what you see. If you change the same kind of document again later in the session, the panel offers
-**Apply them** to repeat the earlier changes. To keep them, use **Save for Sales** (for every document of
+exactly what you see. If you change the same kind of document again later in the session, one line at the
+top of the panel, *Earlier changes in this session*, offers **Apply them** to repeat the earlier changes
+(or *Not now*). To keep them, use **Save for Sales** (for every document of
 this voucher type; needs the *Alter masters* permission) or **Save for all documents** (needs *Change
 company settings*). Choices that Invoice Printing already offers — HSN summary, bank details, UPI QR,
 tax on every line, MRP column, declaration, terms and signatory — are saved into those same settings
@@ -1546,7 +1786,8 @@ tax on every line, MRP column, declaration, terms and signatory — are saved in
 removes what is saved for the voucher type (its parts, wording and show / hide choices; its print title,
 declaration and terms stay in *Voucher Types*) or for all documents (the parts and wording; the Invoice
 Printing settings themselves stay — change them there). *Company › **Invoice Printing*** has the same
-panel (**Alt+L**, *Customize layout…*) for all documents; save it there with **Ctrl+A**. There the
+panel (**Alt+L**, *Customize layout…*) for all documents; save it there with **Ctrl+A** or the title row's
+*Save* (the panel itself has *Reset layout* and *Done*). There the
 declaration, terms and signatory boxes are Invoice Printing's own settings: an empty box prints none and ↺
 brings back the built-in wording. Batch printing (*Utilities › **Print Vouchers***) and printing right after
 saving use the saved layouts. Hiding your GSTIN hides the PAN printed with it; turn *Your PAN* back on to
@@ -1564,10 +1805,13 @@ the signature, or the IRN and QR code of an e-invoice — never stops you printi
 *Data › **Backup*** makes a complete copy of the company in one `.pvqbak` file named after the company,
 date and time. Type an optional note ("Before filing GSTR-3B") and, if the file will leave your control,
 a **password** of at least 8 characters — the backup is then encrypted (AES-256-GCM) and cannot be
-restored without it. **Ctrl+A** backs up now; you can keep working meanwhile. The list below shows the
+restored without it. **Ctrl+A** (or **Enter** on the last field) backs up now; you can keep working
+meanwhile. The line beside the title says when the last backup was made and whether automatic backups are
+on; when the company has never been backed up, or not for a day or more, a one-line warning says so
+instead (red after a week). The list below shows the
 backups in the folder; **Alt+V** checks one (checksums, password, database integrity), **Alt+R**
 restores, **Alt+K** checks the books, **Alt+F** changes the folder and **Alt+S** opens the backup
-settings.
+settings (all under **More ▾**).
 
 **Automatic backups** (*F12 › Backup*, on by default): when the last backup is more than 24 hours old,
 Pevqori backs up a few seconds after you open the company (or log in) and again when you close it (F3,
@@ -1611,7 +1855,10 @@ version of Pevqori is refused until you upgrade. Attached files come back with t
 *Data › **Check Books*** runs read-only checks: database integrity, every voucher balanced, bill-wise and
 cost-centre allocations adding up, stock directions, GST postings matching the tax ledgers, openings
 balanced, duplicate voucher numbers, the edit-log hash chain and every attached file present and
-unchanged. Each problem is explained in plain words; **Alt+R** checks again.
+unchanged. When every check passes the line above the list says *Your books are in order ✓*; otherwise a
+one-line warning counts the problems and **Enter** on a check lists them in plain words. **Alt+R** checks
+again; *More ▾ › About this report* says what the checks cover and what to do if the database itself is
+damaged.
 
 ### 13.4 Export and import (Excel / CSV)
 
@@ -1621,9 +1868,11 @@ unchanged. Each problem is explained in plain words; **Alt+R** checks again.
   is refused with the advice to export as CSV or a shorter period.
 - *Data › **Import from Excel*** — groups, ledgers, stock groups, units, godowns, cost centres, stock
   items, opening balances, opening stock, sales invoices, purchase invoices and vouchers (ledger lines).
-  Choose the kind, download its template (**Alt+T**; an *Instructions* sheet explains every column), fill
-  it in and choose the file (**Alt+O**). The preview checks every row through the same rules as manual
-  entry and marks it *Ready*, *Check* (warning), *Exists* or *Error*. **Ctrl+A** imports. By default it is
+  The line beside the title says which step you are on (*Step 2 of 4 · Choose file*). Choose the kind,
+  download its template (**Download template**, **Alt+T**; an *Instructions* sheet explains every column),
+  fill it in and choose the file (**Choose file…**: **Enter** or **Ctrl+A**; **Alt+O** picks another one later). The
+  preview checks every row through the same rules as manual entry and marks it *Ready*, *Check* (warning),
+  *Exists* or *Error*. **Import N records** (**Ctrl+A**) imports. By default it is
   all or nothing; tick *Skip rows with errors* to import the good rows, *Update existing records* to alter
   masters that already exist, and *Save vouchers with warnings* to accept non-blocking warnings. Amounts
   are in rupees, dates `DD-MM-YYYY`. Invoices are posted exactly as if typed (GST, round-off and stock
@@ -1639,13 +1888,13 @@ previous accounting program, if it can export them as XML:
 
 1. In your previous accounting program, open the company and export its **masters** and **transactions**
    as XML (see that program's help for its export command). Copy the `.xml` files to this computer.
-2. Choose the file (**Alt+O**). The preview shows what is in it — masters by kind, vouchers by type and
+2. Choose the file (**Enter** or **Ctrl+A**; **Alt+O** picks another one from the preview). The preview shows what is in it — masters by kind, vouchers by type and
    date range, how many already exist here, and issues — without writing anything.
 3. Choose masters and / or vouchers, the period and what to do with vouchers already imported (skip, or
    update those that came from the earlier import — a voucher entered in Pevqori is never overwritten).
    **Alt+B** backs up first. **Ctrl+A** imports; a progress bar shows the vouchers.
 4. Compare: **Alt+T** opens Pevqori's Trial Balance for the same period, to check against the Trial
-   Balance of your previous program.
+   Balance of your previous program; **Ctrl+A** runs Check Books.
 
 Vouchers are imported **as recorded** — amounts, tax, round-off and numbers are never recalculated.
 Unbalanced vouchers, unknown ledgers or items, dates before the books begin or inside a locked period are
@@ -1719,7 +1968,8 @@ with the payment, the agreement with the party's ledger:
   in the locked period can be added but not removed. A voucher, ledger or item with files cannot be
   deleted until the files are removed (so a bill scan can never disappear with a deleted entry);
   cancelling a voucher keeps its files.
-- *Reports › **Attachment Register*** lists every attached file with what it belongs to; **Alt+M** opens
+- *Reports › **Attachment Register*** lists every attached file with what it belongs to (search it, or narrow
+  it with the *Attached to* filter: all files, vouchers, ledgers or stock items); **Alt+M** opens
   the voucher or master. **Alt+U** removes stored files nothing is attached to any more (left by an
   attach that could not finish) after showing how many and how large — attached files are never touched,
   and the removal is in the edit log.
@@ -1738,7 +1988,9 @@ an Owner to type their password.
 *Security › **Security Settings*** also sets the password rules (minimum length 8–64, mixed case, a
 symbol, expiry after 0–365 days; a password may not be the username or one of the last three), the
 **lockout** after 3–10 wrong tries (default 5) for 1–60 minutes (default 5), and the **idle timeout**
-(default 30 minutes; 5–240, or 0 for never). When the idle timeout ends a session, the company is locked
+(default 30 minutes; 5–240, or 0 for never). What each setting does shows when you move to it; the line
+beside the title says whether security is on, and **Recommendations** (when there are any) opens the
+advice for your settings. When the idle timeout ends a session, the company is locked
 behind a login screen; logging in again as the same user resumes exactly where you were, unsaved work
 included.
 
@@ -1748,7 +2000,8 @@ does not stop someone who can copy the files. See [SECURITY.md](SECURITY.md) for
 ### 14.2 Users and roles
 
 *Security › **Users & Roles*** — **Ctrl+1** users, **Ctrl+2** roles; **Alt+C** creates, **Alt+A**
-alters, **Alt+K** copies a role as a new one. The built-in roles:
+alters, **Alt+K** copies a role as a new one. Deactivated users are listed too; untick *More ▾ › Show
+deactivated users* to hide them. The built-in roles:
 
 | Role | Can do |
 |---|---|
@@ -1777,7 +2030,9 @@ which permission they need.
 
 Every create, alter, cancel and delete of a master, voucher, user or setting — and every import, export,
 print, share, backup and restore — is written to the **edit log** in the same step. *Security › **Edit
-Log*** lists it with filters (date, user, action, record type) and search (**Ctrl+F**); **Enter** shows
+Log*** lists it with a search (**Ctrl+F**) and **Filters ▾** beside it (dates — the period or all dates —,
+user, action, record type; the button counts the filters in use, **Alt+X** clears them); the line beside
+the title says what is listed. **Enter** shows
 what changed, field by field; **Alt+H** shows the whole history of one record (also **Alt+H** on any
 voucher or master); **Alt+E** exports and **Alt+P** prints. The log cannot be edited: each entry carries
 a fingerprint of the one before (a hash chain). **Alt+V** (*Verify edit log*) recomputes the chain and
@@ -1885,17 +2140,17 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 
 | Key | Action |
 |---|---|
-| **Enter** / **Shift+Enter** | Next / previous field or cell; Enter on an empty row moves to the next part; Enter in the narration asks *Accept?* |
+| **Enter** / **Shift+Enter** | Next / previous field or cell; Enter on an empty row moves to the next part (an empty item row opens *Charges & discounts*); Enter in the narration asks *Accept?* (with the amount in words) |
 | **↑** / **↓** | Same column, previous / next row |
 | **Ctrl+A** | Save (*Save changes* when altering); **Ctrl+S** does the same |
 | **F2** | Voucher date |
 | **F4–F9**, **Ctrl+F8**, **F10** … | Change the voucher type (new vouchers; the date is kept) |
-| **Alt+I** | Item invoice ↔ accounting invoice |
+| **Alt+I** | Item invoice ↔ accounting invoice (also the *Item invoice ▾* menu in the title row) |
 | **Ctrl+H** | Single entry ↔ Dr / Cr layout (payment, receipt, contra) |
-| **Ctrl+I** | More details (sales-side documents: reference and reverse charge first; buyer, consignee, dispatch and e-way bill, orders, export, effective date) |
+| **Ctrl+I** | More details — also the *More details ›* link in the header (sales-side documents: reference and reverse charge first; buyer, consignee, dispatch and e-way bill, orders, export, effective date) |
 | **Ctrl+R** | Change the voucher number (also in the voucher view; needs *Change voucher numbers*) |
 | **Alt+T** | Fill lines from open delivery / receipt notes or orders |
-| **Alt+B** | Bill-wise details |
+| **Alt+B** | Bill-wise details (listed under More ▾) |
 | **Alt+O** / **Alt+K** | Cost centres / bank instrument of the line |
 | **Alt+J** | GST details (section 6.4) |
 | **Alt+U** | TDS / TCS (section 7) |
@@ -1905,8 +2160,8 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 | **Alt+C** | Create the ledger or item typed in a picker (a customer or supplier in a small dialog) |
 | **Ctrl+L** / **Ctrl+T** | Optional / post-dated |
 | **F12** | Voucher type settings |
-| **Alt+P** | Print the voucher being altered, or the one just saved |
-| **Alt+W** | Share (e-mail / WhatsApp) the voucher being altered, or the one just saved |
+| **Alt+P** | Print the voucher being altered, or the one just saved (also *Print* on the Saved line) |
+| **Alt+W** | Share (e-mail / WhatsApp) the voucher being altered, or the one just saved (More ▾; *Share* on the Saved line) |
 | **Alt+D**, **Alt+X**, **Alt+2**, **Alt+H** | (when altering) delete, cancel, duplicate, edit history |
 
 ### 15.4 Keys of particular screens
@@ -1993,7 +2248,7 @@ backup folder chosen on the old computer must be confirmed on the new one (secti
 **Other small things worth knowing.**
 
 - **Party outstanding** — **Alt+F1** shows or hides settled bills (Alt+H means edit history everywhere).
-- **Create ledger** from the dashboard's Get started card opens under Sundry Debtors; from a bank
+- **Create ledger** from Home's Setup list opens under Sundry Debtors; from a bank
   statement line it opens under Sundry Debtors (deposit), Indirect Incomes (interest the bank credited),
   Sundry Creditors (payment), Indirect Expenses (bank charges / fees) or Bank Accounts (contra). You can
   still change "Under".
@@ -2012,7 +2267,8 @@ Pevqori goes online only when you ask it to (or after you turn on the weekly che
 3. Click **Restart to update**. Pevqori first backs up the open company to its usual backup folder (untick
    *Back up the open company first* to skip it), asks about unsaved changes, closes, installs and opens
    again — about a minute. Or click **Install when I quit** to install the next time you close Pevqori.
-   When an update is ready, Home also shows "Pevqori x.y.z is ready — Restart to update".
+   When an update is ready, Home also shows one line — "Pevqori x.y.z is ready" with the link **Restart
+   to update**, which asks before it restarts.
 
 Your companies, data folder, backups and settings are kept. The first time you open About, Pevqori asks
 whether to **check automatically once a week** — turn it on there or later with the switch in the same panel;

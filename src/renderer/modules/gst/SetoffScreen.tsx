@@ -8,8 +8,13 @@
  *   - Alt+C Create challan (PMT-06: CPIN, CIN, BRN …) → a Payment voucher into "GST Electronic Cash Ledger",
  *   - Ctrl+A Post set-off → one Journal (Dr Output / RCM payable / interest …, Cr Input, Cr cash ledger).
  * Enter on a challan opens its voucher.
+ * 2.1 (SPEC-21 §5 `gst.setoff`): the meter "Cash in ledger ₹A of ₹B needed" (both above 0) and the stat
+ * "To deposit ₹x" answer "is there enough cash?"; "Set-off posted …" is the title row's state word; the
+ * rules and notes are in More › "About this set-off"; the return period (or quarter) is the title row's
+ * token, as on the returns.
  */
 import { useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { CashHeadAmount, CashMinorHead, GstChallanRow, GstSetoffResult } from '../../../shared/types/gst-plus.ts';
 import { CASH_MINOR_HEADS } from '../../../shared/types/gst-plus.ts';
 import type { LedgerPickerRow } from '../../../shared/types/accounts.ts';
@@ -17,10 +22,12 @@ import type { TaxAmounts, TaxHead } from '../../../shared/types/gst-returns.ts';
 import { TAX_HEADS } from '../../../shared/types/gst-returns.ts';
 import { formatDate, formatMoney, ReportScreen, useApiMutation, useApiQuery, useCan, useDirty, useNav, useWorkingDate, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { AmountInput, Banner, Button, DataTable, DateInput, EmptyState, Field, Hotkeys, Modal, Panel, Select, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { AmountInput, Button, DataTable, DateInput, EmptyState, Field, Hotkeys, Modal, Panel, Select, Stack, StatLine, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { GstHelp, WideTable } from './components.tsx';
+import { ReturnAbout, WideTable } from './components.tsx';
 import { challanDefaults, challanFieldErrors, challanGrid, gridToHeads, HEAD_NAMES, MINOR_LABELS, setoffDirty, setoffExport } from './lib/gstplus.ts';
+import { setoffMeter, setoffStat } from './lib/returnCharts.ts';
 import { usePlusPeriod } from './plusComponents.tsx';
 
 const money = (p: number): string => formatMoney(p);
@@ -37,6 +44,8 @@ export function SetoffScreen({ params }: ScreenProps<{ period?: string }>) {
   const [dialog, setDialog] = useState<'challan' | 'post' | null>(null);
   const s = q.data;
   const posted = s?.posted ?? null;
+  const meter = useMemo(() => (s ? setoffMeter(s) : null), [s]);
+  const stat = s ? setoffStat(s) : null;
   // Penalty / other amounts typed here live only until the set-off is posted: Esc asks before dropping them.
   useDirty(setoffDirty(penalty, others, s ? posted : null));
 
@@ -62,9 +71,13 @@ export function SetoffScreen({ params }: ScreenProps<{ period?: string }>) {
     <>
       <ReportScreen
         title="GST Set-off"
-        subtitle={pp.label ? `${pp.composition ? 'CMP-08' : 'GSTR-3B'} · ${pp.label}` : undefined}
         periodMode="none"
-        filters={pp.select(selectRef)}
+        context={<span className="bx-gst-token">{pp.select(selectRef)}</span>}
+        meta={posted ? `Set-off posted ${formatDate(posted.date, 'D-MMM-YY')}` : undefined}
+        graph={reportGraph(meter)}
+        stat={stat ? <StatLine items={[stat]} /> : undefined}
+        about={s ? <SetoffAbout s={s} /> : undefined}
+        aboutLabel="About this set-off"
         actions={actions}
         exportDef={s ? () => ({ ...setoffExport(s), title: 'GST Set-off', period: s.period.label }) : undefined}
         loading={pp.loading || (q.loading && !s)}
@@ -90,6 +103,28 @@ export function SetoffScreen({ params }: ScreenProps<{ period?: string }>) {
       {dialog === 'challan' && s ? <ChallanDialog s={s} onClose={() => setDialog(null)} /> : null}
       {dialog === 'post' && s ? <PostDialog s={s} penalty={penalty} others={others} onClose={() => setDialog(null)} /> : null}
     </>
+  );
+}
+
+/** More › "About this set-off": the order credit is used in, how to pay, what is posted, the notes. */
+function SetoffAbout({ s }: { s: GstSetoffResult }): ReactNode {
+  return (
+    <ReturnAbout
+      lead={
+        s.composition
+          ? 'Composition tax and reverse-charge tax are paid in cash. Deposit the cash by challan (Alt+C), then post the set-off (Ctrl+A) when you file CMP-08.'
+          : 'Credit is used in the order the law requires (IGST credit first; CGST credit never for SGST and vice versa; cess only for cess). Deposit the cash by challan (Alt+C), then post the set-off (Ctrl+A) when you file GSTR-3B.'
+      }
+      notes={s.notes}
+    >
+      <p>Penalty and others are typed in "Cash by head"; interest and late fee come from the return's own entries. Enter on a challan opens its payment voucher.</p>
+      {s.posted ? (
+        <p>
+          Set-off posted on {formatDate(s.posted.date)}: journal {s.posted.number ?? ''} squares the GST accounts for this period. Alter or delete that journal (Alt+V) to post
+          again.
+        </p>
+      ) : null}
+    </ReturnAbout>
   );
 }
 
@@ -123,105 +158,89 @@ function SetoffBody({
   );
   return (
     <div className="bx-gst-scroll">
-      <GstHelp>
-        {s.composition
-          ? 'Composition tax and reverse-charge tax are paid in cash. Deposit the cash by challan (Alt+C), then post the set-off (Ctrl+A) when you file CMP-08.'
-          : 'Credit is used in the order the law requires (IGST credit first; CGST credit never for SGST and vice versa; cess only for cess). Deposit the cash by challan (Alt+C), then post the set-off (Ctrl+A) when you file GSTR-3B.'}
-      </GstHelp>
-      {s.posted ? (
-        <Banner tone="success" title={`Set-off posted on ${formatDate(s.posted.date)}`}>
-          Journal {s.posted.number ?? ''} squares the GST accounts for this period. Alter or delete that journal (Alt+V) to post again.
-        </Banner>
-      ) : null}
-      {s.notes.length > 0 ? (
-        <Banner tone="info" inline>
-          {s.notes.join(' ')}
-        </Banner>
-      ) : null}
-      <div className="bx-gst-cashline" role="status" aria-live="polite">
-        <span>Cash needed for {s.period.label}</span>
-        <span className="bx-gst-cashline__amount">{formatMoney(s.cashTotal, { symbol: true })}</span>
-        <span>{s.toDepositTotal > 0 ? `Still to deposit ${formatMoney(s.toDepositTotal, { symbol: true })}` : 'Covered by the electronic cash ledger'}</span>
-      </div>
       {!s.composition ? (
         <Panel title="Credit used (input tax credit → tax head)" headingLevel={2}>
           <WideTable label="Credit utilisation">
-            <thead>
-              <tr>
-                <th scope="col">Head</th>
-                <th scope="col" className="is-num">Liability</th>
-                <th scope="col" className="is-num">Credit available</th>
-                {TAX_HEADS.map((h) => (
-                  <th key={h} scope="col" className="is-num">
-                    Paid by {HEAD_NAMES[h]} credit
-                  </th>
-                ))}
-                <th scope="col" className="is-num">Credit carried forward</th>
-              </tr>
-            </thead>
-            <tbody>
-              {TAX_HEADS.map((to) => (
-                <tr key={to}>
-                  <th scope="row">{HEAD_NAMES[to]}</th>
-                  <td className="is-num">{money(s.liability[to])}</td>
-                  <td className="is-num">{money(s.creditAvailable[to])}</td>
-                  {TAX_HEADS.map((from) => (
-                    <td key={from} className="is-num">
-                      {money(s.credit.find((c) => c.from === from && c.to === to)?.amount ?? 0)}
-                    </td>
+            <table className="bx-gst-form" aria-label="Credit utilisation">
+              <thead>
+                <tr>
+                  <th scope="col">Head</th>
+                  <th scope="col" className="is-num">Liability</th>
+                  <th scope="col" className="is-num">Credit available</th>
+                  {TAX_HEADS.map((h) => (
+                    <th key={h} scope="col" className="is-num">
+                      Paid by {HEAD_NAMES[h]} credit
+                    </th>
                   ))}
-                  <td className="is-num">{money(s.creditBalance[to])}</td>
+                  <th scope="col" className="is-num">Credit carried forward</th>
                 </tr>
-              ))}
-            </tbody>
+              </thead>
+              <tbody>
+                {TAX_HEADS.map((to) => (
+                  <tr key={to}>
+                    <th scope="row">{HEAD_NAMES[to]}</th>
+                    <td className="is-num">{money(s.liability[to])}</td>
+                    <td className="is-num">{money(s.creditAvailable[to])}</td>
+                    {TAX_HEADS.map((from) => (
+                      <td key={from} className="is-num">
+                        {money(s.credit.find((c) => c.from === from && c.to === to)?.amount ?? 0)}
+                      </td>
+                    ))}
+                    <td className="is-num">{money(s.creditBalance[to])}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </WideTable>
         </Panel>
       ) : null}
-      <Panel title="Cash by head (electronic cash ledger)" headingLevel={2} description="Penalty and others are typed here; interest and late fee come from the return's own entries.">
+      <Panel title="Cash by head (electronic cash ledger)" headingLevel={2}>
         <WideTable label="Cash by head">
-          <thead>
-            <tr>
-              <th scope="col">Major head</th>
-              {CASH_MINOR_HEADS.map((m) => (
-                <th key={m} scope="col" className="is-num">
-                  {MINOR_LABELS[m]}
-                </th>
-              ))}
-              <th scope="col" className="is-num">Total</th>
-              <th scope="col" className="is-num">In cash ledger</th>
-              <th scope="col" className="is-num">To deposit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {s.cash.map((r) => (
-              <tr key={r.head}>
-                <th scope="row">{HEAD_NAMES[r.head]}</th>
-                <td className="is-num">{money(r.tax)}</td>
-                <td className="is-num">{money(r.interest)}</td>
-                <td className="is-num">
-                  {canEdit ? (
-                    <AmountInput size="sm" aria-label={`Penalty ${HEAD_NAMES[r.head]}`} value={penalty[r.head] || null} onChange={(v) => onPenalty({ ...penalty, [r.head]: v ?? 0 })} />
-                  ) : (
-                    money(r.penalty)
-                  )}
-                </td>
-                <td className="is-num">{money(r.fee)}</td>
-                <td className="is-num">
-                  {canEdit ? (
-                    <AmountInput size="sm" aria-label={`Others ${HEAD_NAMES[r.head]}`} value={others[r.head] || null} onChange={(v) => onOthers({ ...others, [r.head]: v ?? 0 })} />
-                  ) : (
-                    money(r.others)
-                  )}
-                </td>
-                <td className="is-num">{money(r.total)}</td>
-                <td className="is-num">{money(r.available)}</td>
-                <td className="is-num bx-gst-cash">{money(r.toDeposit)}</td>
+          <table className="bx-gst-form" aria-label="Cash by head">
+            <thead>
+              <tr>
+                <th scope="col">Major head</th>
+                {CASH_MINOR_HEADS.map((m) => (
+                  <th key={m} scope="col" className="is-num">
+                    {MINOR_LABELS[m]}
+                  </th>
+                ))}
+                <th scope="col" className="is-num">Total</th>
+                <th scope="col" className="is-num">In cash ledger</th>
+                <th scope="col" className="is-num">To deposit</th>
               </tr>
-            ))}
-          </tbody>
+            </thead>
+            <tbody>
+              {s.cash.map((r) => (
+                <tr key={r.head}>
+                  <th scope="row">{HEAD_NAMES[r.head]}</th>
+                  <td className="is-num">{money(r.tax)}</td>
+                  <td className="is-num">{money(r.interest)}</td>
+                  <td className="is-num">
+                    {canEdit ? (
+                      <AmountInput size="sm" aria-label={`Penalty ${HEAD_NAMES[r.head]}`} value={penalty[r.head] || null} onChange={(v) => onPenalty({ ...penalty, [r.head]: v ?? 0 })} />
+                    ) : (
+                      money(r.penalty)
+                    )}
+                  </td>
+                  <td className="is-num">{money(r.fee)}</td>
+                  <td className="is-num">
+                    {canEdit ? (
+                      <AmountInput size="sm" aria-label={`Others ${HEAD_NAMES[r.head]}`} value={others[r.head] || null} onChange={(v) => onOthers({ ...others, [r.head]: v ?? 0 })} />
+                    ) : (
+                      money(r.others)
+                    )}
+                  </td>
+                  <td className="is-num">{money(r.total)}</td>
+                  <td className="is-num">{money(r.available)}</td>
+                  <td className="is-num">{money(r.toDeposit)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </WideTable>
       </Panel>
-      <Panel title="Challans for this period" headingLevel={2} description="Enter opens the payment voucher.">
+      <Panel title="Challans for this period" headingLevel={2}>
         <DataTable<GstChallanRow>
           aria-label="Challans"
           autoFocus
@@ -342,28 +361,30 @@ function ChallanDialog({ s, onClose }: { s: GstSetoffResult; onClose: () => void
             </Field>
           </div>
           <WideTable label="Challan amounts">
-            <thead>
-              <tr>
-                <th scope="col">Major head</th>
-                {CASH_MINOR_HEADS.map((m) => (
-                  <th key={m} scope="col" className="is-num">
-                    {MINOR_LABELS[m]}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {TAX_HEADS.map((h) => (
-                <tr key={h}>
-                  <th scope="row">{HEAD_NAMES[h]}</th>
+            <table className="bx-gst-form" aria-label="Challan amounts">
+              <thead>
+                <tr>
+                  <th scope="col">Major head</th>
                   {CASH_MINOR_HEADS.map((m) => (
-                    <td key={m} className="is-num">
-                      <AmountInput size="sm" aria-label={`${HEAD_NAMES[h]} ${MINOR_LABELS[m]}`} value={grid[h][m] || null} onChange={(v) => setCell(h, m, v)} />
-                    </td>
+                    <th key={m} scope="col" className="is-num">
+                      {MINOR_LABELS[m]}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
+              </thead>
+              <tbody>
+                {TAX_HEADS.map((h) => (
+                  <tr key={h}>
+                    <th scope="row">{HEAD_NAMES[h]}</th>
+                    {CASH_MINOR_HEADS.map((m) => (
+                      <td key={m} className="is-num">
+                        <AmountInput size="sm" aria-label={`${HEAD_NAMES[h]} ${MINOR_LABELS[m]}`} value={grid[h][m] || null} onChange={(v) => setCell(h, m, v)} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </WideTable>
         </Stack>
       </div>

@@ -17,11 +17,10 @@ import {
   useCompany,
   useCompanyConfig,
   useFeatures,
-  useNav,
   useWorkingDate,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { AmountInput, Banner, Button, Field, FieldGroup, IconButton, NumberInput, PercentInput, QuantityInput, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { AmountInput, Banner, Field, FieldGroup, IconButton, NumberInput, PercentInput, QuantityInput, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import { FeatureOff, focusField, INVENTORY_INVALIDATES, splitApiError } from './common.tsx';
 import type { BulkContext, BulkRow } from './lib/bulk.ts';
 import { bulkErrorTarget, bulkInputs, bulkWarnings, emptyBulkRow, isBlankBulkRow, validateBulkRows } from './lib/bulk.ts';
@@ -40,7 +39,7 @@ export function ItemBulkScreen({ params }: ScreenProps<{ groupId?: number }>) {
   const godowns = useApiQuery('inventory.godown.list', { limit: 5000 }, { enabled: features.inventory, staleTime: 60_000 });
   if (!features.inventory) {
     return (
-      <Screen title="Multiple Stock Items" icon="layers">
+      <Screen title="Multiple Stock Items">
         <FeatureOff title="Inventory is turned off" body="Turn on Inventory in Features (F11) to keep stock items." />
       </Screen>
     );
@@ -50,7 +49,6 @@ export function ItemBulkScreen({ params }: ScreenProps<{ groupId?: number }>) {
     return (
       <Screen
         title="Multiple Stock Items"
-        icon="layers"
         loading={!error}
         error={error ?? undefined}
         onRetry={() => {
@@ -82,7 +80,6 @@ interface BulkProps {
 }
 
 function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, unitSymbols }: BulkProps) {
-  const nav = useNav();
   const toast = useToast();
   const company = useCompany();
   const features = useFeatures();
@@ -193,19 +190,10 @@ function ItemBulk({ initialGroupId, defaultUnitId, mainGodownId, unitDecimals, u
   return (
     <Screen
       title="Multiple Stock Items"
-      subtitle={created ? `${created} created in this session` : 'Create many items at once'}
-      icon="layers"
+      subtitle={created ? `${created} created in this session` : undefined}
       dirty={dirty}
       hint="Enter Next cell · Enter on an empty name to finish · Ctrl+A Save all · Alt+C Create in a list · Esc Back"
-      actions={[{ key: 'Ctrl+A', label: `Save ${used.length || ''} item${used.length === 1 ? '' : 's'}`.replace('  ', ' '), icon: 'save', primary: true, onClick: () => void submit(), disabled: !used.length }]}
-      footer={
-        <>
-          <Button onClick={() => void nav.back()}>Cancel</Button>
-          <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()} disabled={!used.length}>
-            Save {used.length || ''} item{used.length === 1 ? '' : 's'}
-          </Button>
-        </>
-      }
+      actions={[{ key: 'Ctrl+A', label: `Save ${used.length || ''} item${used.length === 1 ? '' : 's'}`.replace('  ', ' '), icon: 'save', primary: true, onClick: () => void submit(), disabled: !used.length || save.pending }]}
     >
       <form ref={formRef} onSubmit={(e) => e.preventDefault()} aria-label="Multiple stock items">
         <Stack gap={3}>

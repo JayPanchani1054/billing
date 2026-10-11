@@ -108,3 +108,21 @@ export function initialFocusId(o: {
   }
   return headerId('date');
 }
+
+/**
+ * 2.1 (SPEC-21 D17): the additional ledgers of an item invoice — "Charges & discounts" — are a disclosure
+ * line, closed while no charge is entered. Only the item-invoice layout has it (in an accounting invoice
+ * or a ledger voucher the ledger lines ARE the voucher).
+ */
+export function chargesCollapsible(mode: 'item_invoice' | 'accounting_invoice' | 'ledger' | 'inventory', baseType: string): boolean {
+  return mode === 'item_invoice' && baseType !== 'stock_journal';
+}
+
+/**
+ * The Enter chain keeps its 2.0 stops: entering the charges section — Enter on an empty item row, or
+ * Shift+Enter from the narration — opens the closed disclosure first, then the cursor goes to its row as
+ * before. True when `target` is that closed section.
+ */
+export function opensBeforeFocus(target: EntrySection | 'header' | 'accept', o: { collapsible: boolean; open: boolean }): boolean {
+  return target === 'ledgers' && o.collapsible && !o.open;
+}

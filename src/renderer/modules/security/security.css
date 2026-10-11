@@ -51,12 +51,6 @@
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: var(--space-4);
 }
-.bx-sec-perm-group {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-  padding: var(--space-3);
-}
 .bx-sec-perm-group__head {
   display: flex;
   align-items: center;
@@ -168,20 +162,10 @@
   user-select: all;
 }
 
-/* Edit log filters */
-.bx-sec-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-2) var(--space-3);
-}
+/* Edit log / users: the search in the toolbar row */
 .bx-sec-filters__search {
-  flex: 1 1 220px;
+  flex: 0 1 360px;
   min-width: 180px;
-}
-.bx-sec-filters__select {
-  flex: 0 1 180px;
-  min-width: 140px;
 }
 .bx-sec-table {
   flex: 1 1 auto;
@@ -273,47 +257,10 @@
 .bx-sec-setting__label {
   font-weight: var(--fw-medium);
 }
-.bx-sec-setting__explain {
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-  margin-top: var(--space-1);
-}
 @media (max-width: 720px) {
   .bx-sec-setting {
     grid-template-columns: 1fr;
   }
-}
-
-.bx-sec-state {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
-.bx-sec-state__icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-full);
-  background: var(--neutral-bg);
-  color: var(--neutral-icon);
-}
-.bx-sec-state__icon.is-on {
-  background: var(--success-bg);
-  color: var(--success-icon);
-}
-.bx-sec-state__body {
-  flex: 1;
-  min-width: 0;
-}
-.bx-sec-state__title {
-  font-size: var(--fs-16);
-  font-weight: var(--fw-semibold);
-  margin: 0 0 var(--space-1);
-}
-.bx-sec-state__text {
-  color: var(--text-secondary);
 }
 
 .bx-sec-countdown {
@@ -334,9 +281,6 @@
 }
 
 /* Edit log: verify banner, rows, drawer */
-.bx-sec-verify {
-  border-width: 2px;
-}
 .bx-sec-verify__hash {
   display: flex;
   flex-direction: column;
@@ -378,16 +322,9 @@
   outline-offset: 1px;
 }
 
-/* History timeline cards */
+/* History timeline entries: flat (2.1), separated by the timeline's line */
 .bx-sec-timeline__card {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-  padding: var(--space-3);
-  cursor: default;
-}
-.bx-sec-timeline__card:hover {
-  border-color: var(--border-default);
+  padding: var(--space-2) 0;
 }
 
 /* Session */

@@ -12,6 +12,7 @@ import type { DeducteeType, TdsLedgerDetails, TdsNature } from '../../../shared/
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
+import { checkItem } from '../../app/lib/moreItems.ts';
 import { useNav } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
 import { Screen } from '../../app/Screen.tsx';
@@ -104,19 +105,18 @@ export function LedgersScreen({ params }: ScreenProps<{ role?: Role }>) {
   return (
     <Screen
       title="TDS / TCS Details of Ledgers"
-      subtitle="Who is a deductee, which expenses attract TDS and which sales attract TCS."
-      icon="ledger"
       loading={q.loading && !q.data}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Enter Alter · Ctrl+1 Parties · Ctrl+2 Expenses · Ctrl+3 Sales · Ctrl+F Search · Alt+M Ledger master · Esc Back"
       actions={[
-        { key: 'Alt+A', label: 'Alter', icon: 'edit', primary: true, disabled: !current, onClick: () => current && nav.push('tds.ledger.form', { ledgerId: current.ledgerId }) },
+        { key: 'Alt+A', label: 'Alter', icon: 'edit', disabled: !current, onClick: () => current && nav.push('tds.ledger.form', { ledgerId: current.ledgerId }) },
         { key: 'Alt+M', label: 'Ledger master', icon: 'ledger', disabled: !current, onClick: () => current && nav.push('accounts.ledger.form', { id: current.ledgerId }) },
         { key: 'Ctrl+1', label: 'Parties', group: 'view', disabled: role === 'party', onClick: () => setRole('party') },
         { key: 'Ctrl+2', label: 'Expenses & assets', group: 'view', hidden: !features.tds, disabled: role === 'expense', onClick: () => setRole('expense') },
         { key: 'Ctrl+3', label: 'Sales & income', group: 'view', hidden: !features.tcs, disabled: role === 'income', onClick: () => setRole('income') },
         { key: 'Ctrl+F', label: 'Search', icon: 'search', group: 'view', onClick: () => searchRef.current?.focus() },
+        checkItem('Only ledgers with TDS/TCS details', onlyConfigured, setOnlyConfigured),
       ]}
     >
       <Stack gap={3}>
@@ -131,7 +131,6 @@ export function LedgersScreen({ params }: ScreenProps<{ role?: Role }>) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <Switch checked={onlyConfigured} onChange={setOnlyConfigured} label="Only ledgers with TDS/TCS details" showState={false} />
         </Inline>
         <DataTable<TdsLedgerDetails>
           aria-label="TDS / TCS details of ledgers"
@@ -206,7 +205,6 @@ export function LedgerFormScreen({ params }: ScreenProps<{ ledgerId: number }>) 
     <Screen
       title={title}
       subtitle={loaded ? `Under ${loaded.groupName}` : undefined}
-      icon="ledger"
       width="form"
       dirty={draft !== null}
       loading={q.loading}

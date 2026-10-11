@@ -7,6 +7,8 @@
  *                      after their GSTR-1 was filed, reported in the chosen return period: original as
  *                      filed, amended now and the difference. Ctrl+2 shows every period. Enter opens the
  *                      voucher.
+ * 2.1 (SPEC-21 §5, WP-J2): no graph (a log and a change log); the help sentences are under More ▾ ›
+ * About this report.
  */
 import { useMemo, useRef, useState } from 'react';
 import type { GstAmendmentRow, GstFiling } from '../../../shared/types/gst-plus.ts';
@@ -14,7 +16,7 @@ import { ReportScreen, useApiMutation, useApiQuery, useCan, useConfirm, useNav, 
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Badge, Banner, DataTable, EmptyState, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { GstHelp, PeriodSelect, useReturnPeriod } from './components.tsx';
+import { PeriodSelect, useReturnPeriod } from './components.tsx';
 import { amendmentsExport, amendmentTableLabel, filingRoute, filingsExport, FORM_LABELS, taxSum } from './lib/gstplus.ts';
 
 // ───────────────────────────── Filing status ─────────────────────────────
@@ -67,6 +69,12 @@ export function FilingsScreen() {
       title="Return Filing Status"
       periodMode="none"
       actions={actions}
+      about={
+        <p>
+          Mark a return filed (Alt+F on the return) after filing it on the portal. A filed GSTR-1 is protected: its documents cannot be deleted or cancelled, and changes
+          to them are reported as amendments in the next GSTR-1 instead of silently changing the filed period.
+        </p>
+      }
       exportDef={q.data ? () => ({ ...filingsExport(rows), title: 'Return Filing Status' }) : undefined}
       loading={q.loading}
       refreshing={q.refreshing}
@@ -74,26 +82,20 @@ export function FilingsScreen() {
       onRetry={() => void q.refetch()}
       hint="Enter Open return · Alt+U Unmark · Alt+M Amendments · Alt+E Export · Esc Back"
     >
-      <div className="bx-gst-fill">
-        <GstHelp>
-          Mark a return filed (Alt+F on the return) after filing it on the portal. A filed GSTR-1 is protected: its documents cannot be deleted or cancelled, and changes
-          to them are reported as amendments in the next GSTR-1 instead of silently changing the filed period.
-        </GstHelp>
-        <DataTable<GstFiling>
-          aria-label="Returns marked filed"
-          autoFocus
-          columns={cols}
-          rows={rows}
-          getRowKey={keyOf}
-          selectedKey={current ? keyOf(current) : null}
-          onSelect={(k) => setSelected(k)}
-          onRowActivate={(r) => {
-            const to = filingRoute(r);
-            nav.push(to.screen, to.params);
-          }}
-          empty={<EmptyState icon="check" title="No return is marked filed" body="Open a return (GSTR-1, GSTR-3B, CMP-08 or GSTR-4) and press Alt+F after filing it on the portal." />}
-        />
-      </div>
+      <DataTable<GstFiling>
+        aria-label="Returns marked filed"
+        autoFocus
+        columns={cols}
+        rows={rows}
+        getRowKey={keyOf}
+        selectedKey={current ? keyOf(current) : null}
+        onSelect={(k) => setSelected(k)}
+        onRowActivate={(r) => {
+          const to = filingRoute(r);
+          nav.push(to.screen, to.params);
+        }}
+        empty={<EmptyState icon="check" title="No return is marked filed" body="Open a return (GSTR-1, GSTR-3B, CMP-08 or GSTR-4) and press Alt+F after filing it on the portal." />}
+      />
     </ReportScreen>
   );
 }
@@ -132,10 +134,16 @@ export function AmendmentsScreen({ params }: ScreenProps<{ period?: string; all?
   return (
     <ReportScreen
       title="GSTR-1 Amendments"
-      subtitle={all ? 'All periods' : rp.label ? `Reported in ${rp.label}` : undefined}
+      subtitle={all ? 'All periods' : undefined}
       periodMode="none"
       filters={all ? undefined : <PeriodSelect periods={rp.periods} value={rp.key} onChange={rp.setKey} selectRef={selectRef} />}
       actions={actions}
+      about={
+        <p>
+          Invoices and notes changed after their GSTR-1 was filed are reported here as amendments (9A invoices, 9C credit / debit notes, 10 B2C small) in the next GSTR-1
+          you file; documents dated in a filed period but missing from it are reported as added. The filed period keeps its figures.
+        </p>
+      }
       exportDef={q.data ? () => ({ ...amendmentsExport(rows), title: 'GSTR-1 Amendments', period: all ? 'All periods' : rp.label }) : undefined}
       loading={rp.loading || (q.loading && !q.data)}
       refreshing={q.refreshing}
@@ -144,10 +152,6 @@ export function AmendmentsScreen({ params }: ScreenProps<{ period?: string; all?
       hint="Enter Open voucher · Ctrl+1 This period · Ctrl+2 All · Alt+F2 Period · Alt+E Export · Esc Back"
     >
       <div className="bx-gst-fill">
-        <GstHelp>
-          Invoices and notes changed after their GSTR-1 was filed are reported here as amendments (9A invoices, 9C credit / debit notes, 10 B2C small) in the next GSTR-1
-          you file; documents dated in a filed period but missing from it are reported as added. The filed period keeps its figures.
-        </GstHelp>
         {rows.some((r) => r.amended === null) ? (
           <Banner tone="info" inline>
             Rows without an amended value: the document no longer counts (made optional). Report it on the portal with zero values.

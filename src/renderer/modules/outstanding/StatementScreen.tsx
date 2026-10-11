@@ -3,11 +3,16 @@
  * opening balance, every voucher with running balance, closing balance, and the pending bills aged
  * as on the end date. Print (Alt+P) and PDF use a dedicated A4 layout (lib/printHtml.ts, every value
  * HTML-escaped); Excel/CSV export the transactions. Without a ledgerId, pick the party first.
+ *
+ * 2.1 (SPEC-21 §5): the running balance as a line (detail class: folded until Ctrl+J; on screen only —
+ * the printed statement never carries a graph); the opening, period totals and closing are the table's
+ * footer; the ageing totals are footer lines of the pending bills; the party's address, GSTIN, contact
+ * and credit terms are in More › Party details.
  */
 import { useMemo, useRef, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
-import { formatDrCr, formatMoney } from '../../../shared/format.ts';
-import type { StatementBillRow, StatementLine } from '../../../shared/types/outstanding.ts';
+import { formatMoney } from '../../../shared/format.ts';
+import type { StatementBillRow, StatementLine, StatementResult } from '../../../shared/types/outstanding.ts';
 import { api } from '../../app/api.ts';
 import { EXPORT_PERMISSION, exportTable, showInFolder } from '../../app/export.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
@@ -18,9 +23,11 @@ import type { ScreenProps } from '../../app/registry.ts';
 import { EXPORT_DENIED_HINT, ExportDialog, ReportScreen } from '../../app/Screen.tsx';
 import { useCan } from '../../app/state.tsx';
 import { usePeriod } from '../../app/working.tsx';
-import { Card, DataTable, EmptyState, Grid, Inline, KeyValueList, SegmentedControl, useToast } from '../../ui/index.ts';
+import { DataTable, EmptyState, Inline, KeyValueList, SegmentedControl, useToast } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
-import { OverdueBadge, PartyPicker, VGap, printedOn, useDocumentOutput, usePartyOptions } from './components.tsx';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { OverdueDays, PartyPicker, printedOn, useDocumentOutput, usePartyOptions } from './components.tsx';
+import { statementChart } from './lib/charts.ts';
 import { refTypeLabel, statementExport, statementPeriod } from './lib/model.ts';
 import { buildStatementHtml, pdfName } from './lib/printHtml.ts';
 // print group: Share (Alt+W) by e-mail / WhatsApp.
@@ -77,7 +84,7 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
       { key: 'billName', header: 'Bill no.', minWidth: 140, render: (r) => (r.refType === 'new' ? r.billName : `${r.billName} (${refTypeLabel(r.refType)})`) },
       { key: 'billDate', header: 'Bill date', kind: 'date', width: 110 },
       { key: 'dueDate', header: 'Due date', kind: 'date', width: 110 },
-      { key: 'overdueDays', header: 'Overdue', width: 110, align: 'right', render: (r) => <OverdueBadge days={r.overdueDays} notDueText={r.dueDate ? 'Not due' : ''} /> },
+      { key: 'overdueDays', header: 'Overdue', width: 110, align: 'right', render: (r) => <OverdueDays days={r.overdueDays} notDueText={r.dueDate ? 'Not due' : ''} /> },
       { key: 'bucket', header: 'Age', width: 120, value: (r) => (r.bucketIndex === null ? '' : (bucketLabels[r.bucketIndex] ?? '')) },
       { key: 'pendingAmount', header: 'Pending', kind: 'drcr', width: 160 },
     ],
@@ -94,11 +101,16 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
     : [];
   const billFooter: FooterRow[] = s
     ? [
+        // The ageing of the pending bills (the printed statement's ageing table), one line per non-empty period.
+        ...s.pendingBills.buckets.flatMap((b, i) => (s.pendingBills.bucketTotals[i] ? [{ key: `b${i}`, tone: 'subtle' as const, cells: { billName: b.label, pendingAmount: s.pendingBills.bucketTotals[i] } }] : [])),
         ...(s.pendingBills.advance !== 0 ? [{ key: 'adv', tone: 'subtle' as const, cells: { billName: 'Advances', pendingAmount: s.pendingBills.advance } }] : []),
         ...(s.pendingBills.onAccount !== 0 ? [{ key: 'oa', tone: 'subtle' as const, cells: { billName: 'On account', pendingAmount: s.pendingBills.onAccount } }] : []),
         { key: 'total', tone: 'total', cells: { billName: 'Total outstanding', pendingAmount: s.pendingBills.total } },
       ]
     : [];
+
+  // The running balance (screen only): the printed statement is built by lib/printHtml.ts, never with a graph.
+  const spec = useMemo(() => (s ? statementChart(s) : null), [s]);
 
   const html = (): string | null => (s ? buildStatementHtml(s, { printedOn: printedOn() }) : null);
   /** Print / PDF of the statement: same data.export rule and edit-log entry as Excel/CSV (core). */
@@ -149,7 +161,6 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
       },
       disabled: !s || !canExport,
       group: 'output',
-      primary: true,
       hint: canExport ? undefined : EXPORT_DENIED_HINT,
     },
   ];
@@ -159,6 +170,10 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
       <ReportScreen
         title="Statement of Account"
         subtitle={s?.party.name}
+        graph={section === 'transactions' ? reportGraph(spec) : null}
+        graphKind="detail"
+        about={s ? <PartyDetails s={s} /> : undefined}
+        aboutLabel="Party details"
         period={pinned ? period : undefined}
         periodMode="range"
         loading={q.loading && !s && ledgerId !== null}
@@ -191,69 +206,27 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
             title={ledgerId === null ? 'Choose a party' : 'Preparing the statement…'}
             body={ledgerId === null ? 'Type the customer or supplier name above (Alt+N). The statement covers the period shown at the top (Alt+F2).' : undefined}
           />
+        ) : section === 'transactions' ? (
+          <DataTable<StatementLine>
+            aria-label="Transactions"
+            autoFocus
+            columns={txColumns}
+            rows={s.transactions}
+            getRowKey={(r) => String(r.voucherId)}
+            footerRows={txFooter}
+            onRowActivate={(r) => nav.push('vouchers.view', { id: r.voucherId })}
+            empty={<EmptyState icon="calendar" title="No transactions in this period" body="Change the period with Alt+F2." />}
+          />
         ) : (
-          <>
-            <Grid columns={2} gap={3}>
-              <Card title={s.party.mailingName || s.party.name} subtitle={s.party.groupName} padding="sm">
-                <KeyValueList
-                  items={[
-                    { label: 'Address', value: [s.party.address?.replace(/\s*\n\s*/g, ', '), [s.party.stateName, s.party.pincode].filter(Boolean).join(' - ')].filter(Boolean).join(', '), hideEmpty: true },
-                    { label: 'GSTIN', value: s.party.gstin ?? '', hideEmpty: true },
-                    { label: 'Contact', value: [s.party.contactPerson, s.party.mobile || s.party.phone, s.party.email].filter(Boolean).join(' · '), hideEmpty: true },
-                    {
-                      label: 'Credit terms',
-                      value: [s.party.creditDays !== null ? `${s.party.creditDays} days` : '', s.party.creditLimit !== null ? `limit ${formatMoney(s.party.creditLimit, { symbol: true })}` : ''].filter(Boolean).join(', '),
-                      hideEmpty: true,
-                    },
-                  ]}
-                />
-              </Card>
-              <Card title={`${formatDate(s.from)} to ${formatDate(s.to)}`} padding="sm">
-                <KeyValueList
-                  alignValues="right"
-                  items={[
-                    { label: 'Opening balance', value: formatDrCr(s.openingBalance, { keepZero: true }) },
-                    { label: 'Debits', value: formatMoney(s.totals.debit) },
-                    { label: 'Credits', value: formatMoney(s.totals.credit) },
-                    { label: 'Closing balance', value: formatDrCr(s.closingBalance, { keepZero: true }), strong: true },
-                  ]}
-                />
-              </Card>
-            </Grid>
-            <VGap />
-            {section === 'transactions' ? (
-              <DataTable<StatementLine>
-                aria-label="Transactions"
-                autoFocus
-                columns={txColumns}
-                rows={s.transactions}
-                getRowKey={(r) => String(r.voucherId)}
-                footerRows={txFooter}
-                onRowActivate={(r) => nav.push('vouchers.view', { id: r.voucherId })}
-                empty={<EmptyState icon="calendar" title="No transactions in this period" body="Change the period with Alt+F2." />}
-              />
-            ) : (
-              <>
-                <KeyValueList
-                  layout="inline"
-                  columns={3}
-                  items={[
-                    ...s.pendingBills.buckets.map((b, i) => ({ key: `b${i}`, label: b.label, value: formatDrCr(s.pendingBills.bucketTotals[i]) || '—' })),
-                  ]}
-                />
-                <VGap />
-                <DataTable<StatementBillRow>
-                  aria-label={`Pending bills as on ${formatDate(s.to)}`}
-                  autoFocus
-                  columns={billColumns}
-                  rows={s.pendingBills.rows}
-                  getRowKey={(r, i) => `${i}|${r.billName}`}
-                  footerRows={billFooter}
-                  empty={<EmptyState icon="check-circle" title={`No pending bills on ${formatDate(s.to)}`} />}
-                />
-              </>
-            )}
-          </>
+          <DataTable<StatementBillRow>
+            aria-label={`Pending bills as on ${formatDate(s.to)}`}
+            autoFocus
+            columns={billColumns}
+            rows={s.pendingBills.rows}
+            getRowKey={(r, i) => `${i}|${r.billName}`}
+            footerRows={billFooter}
+            empty={<EmptyState icon="check-circle" title={`No pending bills on ${formatDate(s.to)}`} />}
+          />
         )}
       </ReportScreen>
       {exportOpen ? <ExportDialog title="Statement of Account" onClose={() => setExportOpen(false)} onPick={(f) => void exportAs(f)} /> : null}
@@ -268,5 +241,25 @@ export function StatementScreen({ params }: ScreenProps<StatementParams>) {
         />
       ) : null}
     </>
+  );
+}
+
+/** More › Party details: who the statement is for (it prints in the statement's address block). */
+function PartyDetails({ s }: { s: StatementResult }) {
+  return (
+    <KeyValueList
+      items={[
+        { label: 'Name', value: s.party.mailingName || s.party.name },
+        { label: 'Group', value: s.party.groupName },
+        { label: 'Address', value: [s.party.address?.replace(/\s*\n\s*/g, ', '), [s.party.stateName, s.party.pincode].filter(Boolean).join(' - ')].filter(Boolean).join(', '), hideEmpty: true },
+        { label: 'GSTIN', value: s.party.gstin ?? '', hideEmpty: true },
+        { label: 'Contact', value: [s.party.contactPerson, s.party.mobile || s.party.phone, s.party.email].filter(Boolean).join(' · '), hideEmpty: true },
+        {
+          label: 'Credit terms',
+          value: [s.party.creditDays !== null ? `${s.party.creditDays} days` : '', s.party.creditLimit !== null ? `limit ${formatMoney(s.party.creditLimit, { symbol: true })}` : ''].filter(Boolean).join(', '),
+          hideEmpty: true,
+        },
+      ]}
+    />
   );
 }

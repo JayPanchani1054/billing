@@ -145,10 +145,10 @@ function CompareDrawerBody({ row, period, source, onClose, onRowChange, onFollow
             <Badge tone={STATUS_TONES[row.status]} dot>
               {statusLabel(row.status, source)}
             </Badge>
-            {row.status !== row.baseStatus && row.baseStatus !== 'pending' ? <span className="bx-gr-meta">Found as: {statusLabel(row.baseStatus, source)}</span> : null}
+            {row.status !== row.baseStatus && row.baseStatus !== 'pending' ? <span className="bx-muted">Found as: {statusLabel(row.baseStatus, source)}</span> : null}
             {row.manual ? <Badge tone="brand">Linked manually</Badge> : null}
           </Inline>
-          <p className="bx-gr-help">{rowExplanation(row, source)}</p>
+          <p>{rowExplanation(row, source)}</p>
           {!canFile ? <Banner tone="info">You can view this reconciliation. Linking, accepting and ignoring need the “Prepare GST filings” permission.</Banner> : null}
         </Stack>
 
@@ -185,7 +185,7 @@ function CompareDrawerBody({ row, period, source, onClose, onRowChange, onFollow
         </table>
 
         {row.books ? (
-          <p className="bx-gr-meta">
+          <p className="bx-muted">
             Voucher: {row.books.voucherType} {row.books.voucherNumber ?? ''} dated {formatDate(row.books.voucherDate)}
             {row.books.docNoBasis === 'voucher_number' && source !== 'gstr1' ? ' · supplier invoice no. not entered' : ''}
           </p>
@@ -201,13 +201,13 @@ function CompareDrawerBody({ row, period, source, onClose, onRowChange, onFollow
 
         {actions.canLink ? (
           <Stack gap={2}>
-            <h3 className="bx-gr-bar__label">{row.kind === 'portal' ? 'Probable vouchers' : `Probable documents in the ${source === 'gstr1' ? 'GSTR-1' : 'portal'} file`}</h3>
+            <h3>{row.kind === 'portal' ? 'Probable vouchers' : `Probable documents in the ${source === 'gstr1' ? 'GSTR-1' : 'portal'} file`}</h3>
             {sugg.loading ? (
               <Spinner size="sm" label="Looking for probable matches" />
             ) : sugg.error ? (
               <Banner tone="warning">{userMessage(sugg.error)}</Banner>
             ) : (sugg.data ?? []).length === 0 ? (
-              <p className="bx-gr-meta">
+              <p className="bx-muted">
                 No probable match: nothing with the same {party.toLowerCase()}, amount within the tolerance and a similar number or the same date.
                 {row.kind === 'portal' && source !== 'gstr1' ? ' Enter the purchase with this supplier invoice number, then reconcile again.' : ''}
               </p>
@@ -247,7 +247,7 @@ function CompareDrawerBody({ row, period, source, onClose, onRowChange, onFollow
             <TextArea value={remarks} onValueChange={setRemarks} rows={2} maxLength={500} disabled={!canFile} />
           </Field>
         ) : row.remarks ? (
-          <p className="bx-gr-meta">Remarks: {row.remarks}</p>
+          <p className="bx-muted">Remarks: {row.remarks}</p>
         ) : null}
       </Stack>
     </Drawer>

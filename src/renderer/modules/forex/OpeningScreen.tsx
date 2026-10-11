@@ -65,9 +65,9 @@ export function OpeningScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
     const ledgers = ctxQ.data?.ledgers ?? [];
     const symbols = new Map((ctxQ.data?.currencies ?? []).map((c) => [c.id, c.symbol]));
     return (
-      <Screen title="Opening Balance in Currency" icon="ledger" width="form" hint="Type a ledger name · Enter Open · Esc Back" loading={ctxQ.loading} error={ctxQ.error} onRetry={() => void ctxQ.refetch()}>
+      <Screen title="Opening Balance in Currency" width="form" hint="Type a ledger name · Enter Open · Esc Back" loading={ctxQ.loading} error={ctxQ.error} onRetry={() => void ctxQ.refetch()}>
         {ctxQ.data && ledgers.length === 0 ? (
-          <EmptyState icon="ledger" title="No ledger is kept in a foreign currency" body="Set a Currency on the ledger master (Ledger › Currency) of a party or bank account kept in a foreign currency." />
+          <EmptyState title="No ledger is kept in a foreign currency" body="Set a Currency on the ledger master (Ledger › Currency) of a party or bank account kept in a foreign currency." />
         ) : (
           <Field label="Ledger" htmlFor="fx-opening-ledger" hint="A party or bank account kept in a foreign currency.">
             <ForexLedgerPicker id="fx-opening-ledger" ledgers={ledgers} symbolOf={(id) => symbols.get(id) ?? ''} value={null} onChange={(id) => id !== null && setPicked(id)} autoFocus />
@@ -87,7 +87,6 @@ export function OpeningScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
     <Screen
       title="Opening Balance in Currency"
       subtitle={d ? `${d.ledgerName} · kept in ${d.currency.formalName} (${d.currency.symbol})` : undefined}
-      icon="ledger"
       width="form"
       dirty={dirty}
       loading={q.loading}
@@ -127,7 +126,9 @@ export function OpeningScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
             </Field>
             {d.bills.length > 0 ? (
               <table className="bx-fx-bills" aria-label="Opening bills">
-                <caption className="bx-rep-note">Opening bills — the foreign amount of each (they must add up to the balance above)</caption>
+                <caption className="bx-muted" title="They must add up to the balance above">
+                  Opening bills in {d.currency.symbol}
+                </caption>
                 <thead>
                   <tr>
                     <th>Bill</th>

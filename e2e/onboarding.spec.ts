@@ -1,12 +1,12 @@
 // Pevqori 2.0 onboarding through the real UI of the built app (WP-09):
 //
 //   first launch → Create Company: business, GST & tax → "Create with recommended settings" (≤ 3 clicks
-//   after the GST details: recommended, password protection off, Create company) → Home (Get started
-//   lists the 2.0 steps; "Show more insights" mounts the other cards) → ⚙ Settings hub: topics, Ctrl+F
+//   after the GST details: recommended, password protection off, Create company) → Home (three figures,
+//   the sales graph, the Setup line opens "First steps"; "Full dashboard" holds the insights) → ⚙ Settings hub: topics, Ctrl+F
 //   search, keyboard moves between the search box, topics and settings, Invoice numbering opens its screen.
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { lit, pick, screen, stubNativeDialogs, toGateway } from './flows.ts';
+import { lit, localToday, pick, screen, stubNativeDialogs, toGateway } from './flows.ts';
 import { captureFailures, closeApp, launchApp } from './support.ts';
 import type { LaunchedApp } from './support.ts';
 
@@ -64,31 +64,41 @@ test('create a company with recommended settings: three clicks after the GST det
   await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
 });
 
-test('Home: Get started lists the 2.0 steps; "Record a payment" opens a Receipt; more insights on demand', async () => {
+test('Home: three figures and the sales graph; Setup opens "First steps"; the insights live on the full Dashboard', async () => {
   await toGateway(page);
+  const home = screen(page, 'app.gateway');
+  // Setup is ONE line (2.1, D11); its disclosure expands the same list "First steps" in place.
+  const setup = home.getByRole('button', { name: /^Setup( \d+ of \d+)?$/ });
+  await expect(setup).toHaveAttribute('aria-expanded', 'false');
+  await setup.click();
+  await expect(setup).toHaveAttribute('aria-expanded', 'true');
   const steps = page.getByRole('list', { name: 'First steps' });
   await expect(steps).toBeVisible();
   await expect(steps).toContainText('Choose what prints on your invoice');
   await expect(steps).toContainText('Record a payment');
-  // The four tiles of the Home variant.
-  const tiles = page.getByRole('group', { name: 'Key figures' });
-  for (const label of ['To collect', 'To pay', 'Cash & bank', 'Sales this month']) await expect(tiles).toContainText(label);
+  // The three figures of Home ("Sales this month" became the graph's header).
+  const figures = page.getByRole('group', { name: 'Key figures' });
+  for (const label of ['To collect', 'To pay', 'Cash & bank']) await expect(figures).toContainText(label);
+  await expect(figures).not.toContainText('Sales this month');
+  // "Sales — last 12 months" from the month the books begin (1-Apr of this financial year): a graph from 3 months on.
+  const month = Number(localToday().slice(5, 7));
+  const months = ((month - 4 + 12) % 12) + 1;
+  const graph = page.getByRole('listbox', { name: 'Sales — last 12 months' });
+  if (months >= 3) await expect(graph).toBeVisible();
+  else await expect(graph).toHaveCount(0);
 
   const payment = steps.getByRole('listitem').filter({ hasText: 'Record a payment' });
   await payment.getByRole('button', { name: /^Receipt/ }).click();
   await expect(screen(page, 'vouchers.entry')).toBeVisible();
   await toGateway(page);
 
-  // The chart card's heading (the chart itself repeats the title in its SVG once it has data).
-  const trend = page.getByRole('heading', { name: 'Sales and purchases — last 12 months' });
-  const more = page.getByRole('button', { name: 'Show more insights' });
-  await expect(more).toHaveAttribute('aria-expanded', 'false');
-  await expect(trend).toHaveCount(0);
-  await more.click();
-  await expect(page.getByRole('button', { name: 'Show fewer insights' })).toHaveAttribute('aria-expanded', 'true');
-  await expect(trend).toBeVisible();
-  await page.getByRole('button', { name: 'Show fewer insights' }).click();
-  await expect(trend).toHaveCount(0);
+  // The insights moved to the full Dashboard (one quiet link on Home): the trend card's heading is there.
+  await home.getByRole('button', { name: 'Full dashboard' }).click();
+  const full = screen(page, 'dashboard.home');
+  await expect(full).toBeVisible();
+  await expect(full.getByRole('heading', { name: 'Sales and purchases — last 12 months' })).toBeVisible();
+  await toGateway(page);
+  await expect(page.getByRole('button', { name: 'Show more insights' })).toHaveCount(0);
 });
 
 test('Settings hub (⚙): topics, search, and Invoice numbering opens its screen', async () => {

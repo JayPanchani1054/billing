@@ -5,16 +5,23 @@
  *   'stock.negative'               Negative Stock — items / godowns below zero and since when
  *   'stock.batches'  { itemId? }   Batch Summary — batch balances with expiry status (Alt+W expiring only)
  * Enter on an item opens its stock vouchers.
+ *
+ * 2.1: Ageing draws "Stock value by age" (ordinal columns; its age presets are checkable More items);
+ * the other three have no graph (SPEC-21 §5) — their answer is a stat on the toolbar row ("Order now:
+ * 2 of 12 items", "Below zero 3 items", "Expired 2 batches · Expiring in 30 days 1 batch"), and their
+ * explanations live in More › About this report.
  */
 import { useMemo, useState } from 'react';
 import type { BatchRow, ReorderRow, StockAgeingRow } from '../../../shared/types/stock.ts';
 import { addDays, financialYear } from '../../../shared/dates.ts';
 import { formatDate, ReportScreen, useApiQuery, useBooks, usePeriod, useShell } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, DataTable, Field, Inline, SegmentedControl, Stack } from '../../ui/index.ts';
+import { Badge, DataTable, NO_KEY, SegmentedControl } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { ItemPicker, StockGroupPicker } from '../inventory/pickers.tsx';
-import { amountColumn, NothingHere, qtyColumn, useDrill, useExpansion } from './components.tsx';
+import { amountColumn, NothingHere, qtyColumn, StockStat, ToolbarLeft, useDrill, useExpansion } from './components.tsx';
+import { batchesStat, negativeStat, reorderStat, stockAgeingChart } from './lib/charts.ts';
 import {
   AGEING_PRESETS,
   ageingExport,
@@ -58,6 +65,7 @@ export function AgeingScreen({ params }: ScreenProps<{ groupId?: number }>) {
   const q = useApiQuery('stock.ageing', { asOf: period.to, buckets, groupId }, { keepPrevious: true });
   const d = q.data;
   const rows = useMemo(() => d?.rows ?? [], [d]);
+  const spec = useMemo(() => (d ? stockAgeingChart(d) : null), [d]);
 
   const columns = useMemo<Column<StockAgeingRow>[]>(() => {
     const cols: Column<StockAgeingRow>[] = [
@@ -84,12 +92,13 @@ export function AgeingScreen({ params }: ScreenProps<{ groupId?: number }>) {
   }, [d, rows.length, show]);
   const actions: ScreenActionItem[] = [
     { key: 'Alt+Q', label: show === 'value' ? 'Show quantities' : 'Show values', icon: 'columns', onClick: () => setShow(show === 'value' ? 'qty' : 'value'), group: 'view' },
+    // The age presets: checkable, keyless More items (2.0: a segmented control on the toolbar).
+    ...AGEING_PRESETS.map((x) => ({ key: NO_KEY, label: `Ages ${x.label}`, onClick: () => setPreset(x.id), checked: preset === x.id, group: 'ages', id: `ages-${x.id}` })),
   ];
 
   return (
     <ReportScreen
       title="Stock Ageing"
-      subtitle="Stock on hand by how long ago it came in (first in, first out)"
       periodMode="asOn"
       loading={q.loading}
       refreshing={q.refreshing}
@@ -97,14 +106,14 @@ export function AgeingScreen({ params }: ScreenProps<{ groupId?: number }>) {
       onRetry={q.refetch}
       actions={actions}
       hint="Enter Item vouchers · Alt+Q Values / quantities · Alt+F2 Date · Alt+E Export · Alt+P Print"
-      filters={
-        <Inline gap={2}>
-          <SegmentedControl aria-label="Age buckets" size="sm" options={AGEING_PRESETS.map((x) => ({ value: x.id, label: x.label }))} value={preset} onChange={setPreset} />
-          <Field label="Group" layout="inline" labelWidth={48}>
-            <StockGroupPicker size="sm" value={groupId ?? null} onChange={(id) => setGroupId(id ?? undefined)} allowCreate={false} placeholder="All groups" aria-label="Stock group" />
-          </Field>
-        </Inline>
+      graph={reportGraph(spec)}
+      about={
+        <p>
+          Stock on hand by how long ago it came in (first in, first out): each item's closing stock is matched with its most recent inwards, and each part is aged from the
+          day it came in. The graph always shows values; Alt+Q switches the table between values and quantities. Choose the age periods under More.
+        </p>
       }
+      filters={<StockGroupPicker size="sm" value={groupId ?? null} onChange={(id) => setGroupId(id ?? undefined)} allowCreate={false} placeholder="All groups" aria-label="Stock group" />}
       exportDef={d ? () => ageingExport(d, show) : undefined}
     >
       <DataTable<StockAgeingRow>
@@ -160,7 +169,6 @@ export function ReorderScreen() {
   return (
     <ReportScreen
       title="Reorder Status"
-      subtitle="Items below their reorder level"
       periodMode="asOn"
       loading={q.loading}
       refreshing={q.refreshing}
@@ -168,29 +176,31 @@ export function ReorderScreen() {
       onRetry={q.refetch}
       actions={actions}
       hint="Enter Item vouchers · Alt+O Purchase Order · Alt+F2 Date · Alt+E Export · Alt+P Print"
+      stat={d ? <StockStat items={reorderStat(d)} /> : undefined}
+      about={
+        <p>
+          Items below their reorder level. Net available = in stock + on order from suppliers − promised to customers. Order now = reorder level − net available (at least the
+          item’s minimum order quantity).
+        </p>
+      }
       exportDef={() => reorderExport(rows)}
     >
-      <Stack gap={3} grow>
-        <p className="bx-stock-note">
-          Net available = in stock + on order from suppliers − promised to customers. Order now = reorder level − net available (at least the item’s minimum order quantity).
-        </p>
-        <DataTable<ReorderRow>
-          aria-label="Reorder Status"
-          autoFocus
-          columns={columns}
-          rows={rows}
-          getRowKey={(r) => String(r.itemId)}
-          onRowActivate={(r) => openItem(r.itemId)}
-          loading={q.loading}
-          empty={
-            d && d.itemsWithLevel === 0 ? (
-              <NothingHere title="No reorder levels set" body="Set a reorder level (and minimum order quantity) in the stock item master to be warned before you run out." />
-            ) : (
-              <NothingHere icon="check-circle" title="Every item is above its reorder level" body={`Stock on ${formatDate(period.to)} covers all reorder levels.`} />
-            )
-          }
-        />
-      </Stack>
+      <DataTable<ReorderRow>
+        aria-label="Reorder Status"
+        autoFocus
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => String(r.itemId)}
+        onRowActivate={(r) => openItem(r.itemId)}
+        loading={q.loading}
+        empty={
+          d && d.itemsWithLevel === 0 ? (
+            <NothingHere title="No reorder levels set" body="Set a reorder level (and minimum order quantity) in the stock item master to be warned before you run out." />
+          ) : (
+            <NothingHere icon="check-circle" title="Every item is above its reorder level" body={`Stock on ${formatDate(period.to)} covers all reorder levels.`} />
+          )
+        }
+      />
     </ReportScreen>
   );
 }
@@ -216,7 +226,6 @@ export function NegativeStockScreen() {
   return (
     <ReportScreen
       title="Negative Stock"
-      subtitle="Items sold or issued beyond what was in stock"
       periodMode="asOn"
       loading={q.loading}
       refreshing={q.refreshing}
@@ -224,30 +233,30 @@ export function NegativeStockScreen() {
       onRetry={q.refetch}
       actions={actions}
       hint="Enter Item vouchers · →/← Godowns · Alt+F2 Date · Alt+E Export · Alt+P Print"
+      stat={<StockStat items={negativeStat(q.data?.rows ?? [])} />}
+      about={
+        <p>
+          Items sold or issued beyond what was in stock. Usually a purchase or receipt was not entered, or was entered after the sale with a later date. Enter the missing inward
+          (or correct its date) so stock values are right.
+        </p>
+      }
       exportDef={() => negativeExport(visibleRows(rows, expansion.expandedKeys))}
     >
-      <Stack gap={3} grow>
-        {rows.length > 0 ? (
-          <Banner tone="warning" inline title="Stock below zero">
-            Usually a purchase or receipt was not entered, or was entered after the sale with a later date. Enter the missing inward (or correct its date) so stock values are right.
-          </Banner>
-        ) : null}
-        <DataTable<NegativeTreeRow>
-          aria-label="Negative Stock"
-          autoFocus
-          columns={columns}
-          rows={rows}
-          getRowKey={(r) => r.key}
-          getRowLevel={(r) => r.level}
-          isGroupRow={(r) => r.kind === 'item'}
-          expandable
-          expandedKeys={expansion.expandedKeys}
-          onExpandedChange={expansion.onExpandedChange}
-          onRowActivate={(r) => openItem(r.itemId, r.godownId)}
-          loading={q.loading}
-          empty={<NothingHere icon="check-circle" title="No negative stock" body={`Every item has stock of zero or more on ${formatDate(period.to)}.`} />}
-        />
-      </Stack>
+      <DataTable<NegativeTreeRow>
+        aria-label="Negative Stock"
+        autoFocus
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => r.key}
+        getRowLevel={(r) => r.level}
+        isGroupRow={(r) => r.kind === 'item'}
+        expandable
+        expandedKeys={expansion.expandedKeys}
+        onExpandedChange={expansion.onExpandedChange}
+        onRowActivate={(r) => openItem(r.itemId, r.godownId)}
+        loading={q.loading}
+        empty={<NothingHere icon="check-circle" title="No negative stock" body={`Every item has stock of zero or more on ${formatDate(period.to)}.`} />}
+      />
     </ReportScreen>
   );
 }
@@ -285,10 +294,13 @@ export function BatchesScreen({ params }: ScreenProps<{ itemId?: number }>) {
         value: (r) => batchStatusInfo(r.status).label,
         render: (r) => {
           const s = batchStatusInfo(r.status);
-          return (
+          // A badge only for the exceptions (expired, expiring); the rest are plain words.
+          return r.status === 'expired' || r.status === 'expiring' ? (
             <Badge tone={s.tone} size="sm">
               {s.label}
             </Badge>
+          ) : (
+            <span className="bx-muted">{s.label}</span>
           );
         },
       },
@@ -297,7 +309,6 @@ export function BatchesScreen({ params }: ScreenProps<{ itemId?: number }>) {
   );
   const cycle = (): void => setWin(WINDOWS[(WINDOWS.findIndex((w) => w.value === win) + 1) % WINDOWS.length].value);
   const actions: ScreenActionItem[] = [{ key: 'Alt+W', label: 'Expiry filter', icon: 'filter', onClick: cycle, hint: 'All → expiring in 30 days → 90 days', group: 'view' }];
-  const expired = rows.filter((r) => r.status === 'expired').length;
   return (
     <ReportScreen
       title="Batch Summary"
@@ -309,50 +320,43 @@ export function BatchesScreen({ params }: ScreenProps<{ itemId?: number }>) {
       onRetry={q.refetch}
       actions={actions}
       hint="Enter Item vouchers · Alt+W Expiry filter · Alt+F2 Date · Alt+E Export · Alt+P Print"
+      stat={q.data ? <StockStat items={batchesStat(q.data)} /> : undefined}
+      about={<p>Expired stock should not be sold. Record a rejection or a stock journal to write it off. Alt+W shows only the batches expiring within 30, then 90 days.</p>}
       filters={
-        <Inline gap={2}>
+        <ToolbarLeft>
           <SegmentedControl aria-label="Expiry filter" size="sm" options={WINDOWS} value={win} onChange={setWin} />
-          <Field label="Item" layout="inline" labelWidth={40}>
-            <ItemPicker
-              size="sm"
-              value={itemId !== undefined ? { id: itemId, name: shownItem ?? '' } : null}
-              onChange={(row) => {
-                setItemId(row?.id);
-                setItemName(row?.name ?? null);
-              }}
-              allowCreate={false}
-              goodsOnly
-              placeholder="All items"
-              aria-label="Stock item"
-            />
-          </Field>
-        </Inline>
+          <ItemPicker
+            size="sm"
+            value={itemId !== undefined ? { id: itemId, name: shownItem ?? '' } : null}
+            onChange={(row) => {
+              setItemId(row?.id);
+              setItemName(row?.name ?? null);
+            }}
+            allowCreate={false}
+            goodsOnly
+            placeholder="All items"
+            aria-label="Stock item"
+          />
+        </ToolbarLeft>
       }
       exportDef={() => batchesExport(rows)}
     >
-      <Stack gap={3} grow>
-        {expired > 0 ? (
-          <Banner tone="danger" inline title={`${expired} expired batch${expired === 1 ? '' : 'es'} in stock`}>
-            Expired stock should not be sold. Record a rejection or a stock journal to write it off.
-          </Banner>
-        ) : null}
-        <DataTable<BatchRow>
-          aria-label="Batch Summary"
-          autoFocus
-          columns={columns}
-          rows={rows}
-          getRowKey={(r) => r.key}
-          onRowActivate={(r) => openItem(r.itemId)}
-          loading={q.loading}
-          empty={
-            win === 'all' ? (
-              <NothingHere title="No batches in stock" body="Batch-wise stock appears here for items that keep batches (F11 › Batches, then Maintain in batches on the item)." />
-            ) : (
-              <NothingHere icon="check-circle" title="Nothing expiring soon" body={`No batch in stock expires by ${formatDate(addDays(period.to, Number(win)))}.`} />
-            )
-          }
-        />
-      </Stack>
+      <DataTable<BatchRow>
+        aria-label="Batch Summary"
+        autoFocus
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => r.key}
+        onRowActivate={(r) => openItem(r.itemId)}
+        loading={q.loading}
+        empty={
+          win === 'all' ? (
+            <NothingHere title="No batches in stock" body="Batch-wise stock appears here for items that keep batches (F11 › Batches, then Maintain in batches on the item)." />
+          ) : (
+            <NothingHere icon="check-circle" title="Nothing expiring soon" body={`No batch in stock expires by ${formatDate(addDays(period.to, Number(win)))}.`} />
+          )
+        }
+      />
     </ReportScreen>
   );
 }

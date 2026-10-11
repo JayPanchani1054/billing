@@ -2,13 +2,16 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { AgeingResult, InterestBillRow, InterestResult, LedgerBillsResult, OutstandingBillRow, PartySummaryResult } from '../../../../shared/types/outstanding.ts';
 import {
+  NO_BILL_FILTER,
+  ageColumnFilter,
   ageingExport,
+  billFilterCount,
   billsExport,
+  billsInView,
   bucketText,
   interestExport,
+  isUnmatched,
   keyBills,
-  overdueText,
-  overdueTone,
   parseBucketText,
   partiesExport,
   partiesInView,
@@ -16,8 +19,10 @@ import {
   partyTreeRows,
   refTypeLabel,
   statementPeriod,
-  summaryKpis,
   utilisationTone,
+  withMinDays,
+  withOverdueOnly,
+  withUnmatchedOnly,
 } from './model.ts';
 
 const bill = (over: Partial<OutstandingBillRow> = {}): OutstandingBillRow => ({
@@ -54,9 +59,7 @@ describe('ageing periods text', () => {
 });
 
 describe('labels and tones', () => {
-  it('maps overdue days and credit-limit use to tones', () => {
-    assert.deepEqual([0, 1, 60, 61].map(overdueTone), ['neutral', 'warning', 'warning', 'danger']);
-    assert.deepEqual([0, 1, 45].map(overdueText), ['', '1 day', '45 days']);
+  it('maps credit-limit use to tones (overdue days: charts.test.ts, "190 d")', () => {
     assert.deepEqual([null, 79.99, 80, 100, 100.01].map(utilisationTone), ['brand', 'brand', 'warning', 'warning', 'danger']);
     assert.equal(refTypeLabel('on_account'), 'On Account');
   });
@@ -162,6 +165,50 @@ describe('exports and KPIs', () => {
     assert.equal(e.totals?.[2], 1_15_000_00); // the export's total is the visible rows' total, not 1,45,000
   });
 
+  it('shows only advances and on-account lines when asked ("not matched to bills"), totals recomputed', () => {
+    const r = {
+      side: 'receivable' as const,
+      asOf: '2026-09-30',
+      rows: [bill(), bill({ billName: 'ADV-1', refType: 'advance', pendingAmount: -20_000_00, overdueDays: 0, dueDate: null }), bill({ billName: 'On Account', refType: 'on_account', pendingAmount: -5_000_00, overdueDays: 0, dueDate: null, billDate: null, voucherId: null })],
+      total: 3,
+      totals: { pending: 43_000_00, overdue: 68_000_00, notDue: 0, advance: -20_000_00, onAccount: -5_000_00, billCount: 1, overdueCount: 1 },
+    };
+    assert.equal(billsInView(r, false), r);
+    const v = billsInView(r, true);
+    assert.deepEqual(v.rows.map((b) => b.billName), ['ADV-1', 'On Account']);
+    assert.equal(v.total, 2);
+    // The same figure the stat links from: advances + on account of the full list.
+    assert.equal(v.totals.pending, r.totals.advance + r.totals.onAccount);
+    assert.deepEqual([v.totals.advance, v.totals.onAccount, v.totals.overdue], [-20_000_00, -5_000_00, 0]);
+    assert.equal(billsExport(v).totals?.[7], -25_000_00);
+    assert.deepEqual([isUnmatched({ refType: 'fifo' }), isUnmatched({ refType: 'advance' })], [false, true]);
+  });
+
+  it('bill filters: "only advances and on account" never combines with the overdue filters (it would always be empty)', () => {
+    const unmatched = withUnmatchedOnly(NO_BILL_FILTER, true);
+    assert.deepEqual(unmatched, { overdueOnly: false, minDays: null, unmatchedOnly: true });
+    // Alt+O (or the switch) on clears it; off leaves the rest alone.
+    assert.deepEqual(withOverdueOnly(unmatched, true), { overdueOnly: true, minDays: null, unmatchedOnly: false });
+    assert.deepEqual(withOverdueOnly(unmatched, false), unmatched);
+    // A minimum clears it too; a blank or non-positive minimum is no minimum (and keeps it).
+    assert.deepEqual(withMinDays(unmatched, 45.4), { overdueOnly: false, minDays: 45, unmatchedOnly: false });
+    assert.deepEqual(withMinDays(unmatched, 0), unmatched);
+    assert.deepEqual(withMinDays(unmatched, null), unmatched);
+    // Turning it on clears both overdue filters; off clears only itself.
+    const overdue = withMinDays(withOverdueOnly(NO_BILL_FILTER, true), 31);
+    assert.deepEqual(withUnmatchedOnly(overdue, true), unmatched);
+    assert.deepEqual(withUnmatchedOnly(overdue, false), overdue);
+    assert.deepEqual([billFilterCount(NO_BILL_FILTER), billFilterCount(overdue), billFilterCount(unmatched)], [0, 2, 1]);
+  });
+
+  it('Enter on an ageing column: due-date columns map onto "overdue by at least"; Not due and the bill-date basis do not filter', () => {
+    assert.deepEqual(ageColumnFilter(1, 'due_date'), { overdueOnly: true, minDays: null, unmatchedOnly: false });
+    assert.deepEqual(ageColumnFilter(31, 'due_date'), { overdueOnly: true, minDays: 31, unmatchedOnly: false });
+    assert.deepEqual(ageColumnFilter(null, 'due_date'), NO_BILL_FILTER);
+    // The bills list filters by days past DUE: a bill-date column has no exact match there.
+    assert.deepEqual(ageColumnFilter(31, 'bill_date'), NO_BILL_FILTER);
+  });
+
   it('builds bill-wise and ageing exports aligned with their columns', () => {
     const b = billsExport({ side: 'payable', asOf: '2026-09-30', rows: [bill()], total: 1, totals: { pending: 68_000_00, overdue: 68_000_00, notDue: 0, advance: 0, onAccount: 0, billCount: 1, overdueCount: 1 } });
     assert.equal(b.columns[2].header, 'Supplier');
@@ -184,22 +231,6 @@ describe('exports and KPIs', () => {
     assert.deepEqual(a.columns.map((c) => c.header), ['Customer', 'Not due', '1–30 days', '> 30 days', 'Advance', 'On account', 'Total']);
     assert.deepEqual(a.rows[0], ['Acme Traders', 1, 2, 3, -1, 0, 5]);
     assert.deepEqual(a.totals, ['Total', 1, 2, 3, -1, 0, 5]);
-  });
-
-  it('summarises the KPI strip', () => {
-    const k = summaryKpis(summary);
-    assert.deepEqual(
-      k.map((x) => [x.id, x.value, x.amount]),
-      [
-        ['total', 1_15_000_00, true],
-        ['overdue', 80_000_00, true],
-        ['notDue', 40_000_00, true],
-        ['unadjusted', -5_000_00, true],
-        ['overLimit', 1, false],
-      ],
-    );
-    assert.equal(k[0].label, 'Total receivable');
-    assert.equal(k[1].caption, '67% of bills'); // 80,000 ÷ 1,20,000
   });
 });
 

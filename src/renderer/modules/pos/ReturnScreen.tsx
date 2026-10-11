@@ -141,8 +141,7 @@ function Returns({ billId }: { billId?: number }) {
   return (
     <Screen
       title="POS Return / Exchange"
-      subtitle={ctx ? `${ctx.voucherTypeName} ${ctx.billNumber ?? ''} dated ${formatDate(ctx.billDate)}` : 'Goods coming back from a POS bill'}
-      icon="undo"
+      subtitle={ctx ? `${ctx.voucherTypeName} ${ctx.billNumber ?? ''} dated ${formatDate(ctx.billDate)}` : undefined}
       dirty={hasPicks(picks)}
       hint="Enter Find the bill / next quantity · Ctrl+A Refund · Alt+R Return everything · Alt+V View the bill · Esc Back"
       actions={[
@@ -183,7 +182,7 @@ function Returns({ billId }: { billId?: number }) {
               <Field label="Reason" htmlFor="pos-ret-reason">
                 <TextInput id="pos-ret-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} />
               </Field>
-              <div className="pos-total pos-total--small" aria-live="polite">
+              <div aria-live="polite">
                 <div className="pos-total__label">Return value (incl. GST)</div>
                 <div className="pos-total__amount bx-num">{value !== null ? rupees(value) : ok ? '…' : rupees(pickedValue(ctx, picks))}</div>
               </div>

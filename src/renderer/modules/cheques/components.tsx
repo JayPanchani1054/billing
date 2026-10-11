@@ -157,17 +157,8 @@ export function ChequeBankSelect({
 export function ChequesOff({ title }: { title: string }) {
   const nav = useNav();
   return (
-    <Screen title={title} icon="bank">
-      <EmptyState
-        icon="bank"
-        title="Cheque printing is turned off"
-        body={CHEQUES_OFF}
-        action={
-          <Button variant="primary" onClick={() => nav.push('company.features')}>
-            Open Features (F11)
-          </Button>
-        }
-      />
+    <Screen title={title}>
+      <EmptyState title="Cheque printing is turned off" body={CHEQUES_OFF} action={<Button onClick={() => nav.push('company.features')}>Open Features (F11)</Button>} />
     </Screen>
   );
 }
@@ -177,14 +168,9 @@ export function NoChequeBanks() {
   const nav = useNav();
   return (
     <EmptyState
-      icon="bank"
       title="No bank accounts yet"
       body="Cheque books belong to a bank ledger (under Bank Accounts or Bank OD A/c). Create the bank ledger first."
-      action={
-        <Button variant="primary" icon="plus" onClick={() => nav.push('accounts.ledger.form', { groupCode: 'BANK_ACCOUNTS' })}>
-          Create bank ledger
-        </Button>
-      }
+      action={<Button onClick={() => nav.push('accounts.ledger.form', { groupCode: 'BANK_ACCOUNTS' })}>Create bank ledger</Button>}
     />
   );
 }

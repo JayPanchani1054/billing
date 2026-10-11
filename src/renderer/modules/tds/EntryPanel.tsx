@@ -1,7 +1,9 @@
 /**
  * TDS / TCS panel of voucher entry (rendered by vouchers.entry in its side column when F11 › TDS is
  * on for purchase / journal / payment, or TCS for sales). Shows what the server computed in the last
- * check (vouchers.preview › tds): section, base, rate, amount, threshold notes. Alt+U ("TDS / TCS")
+ * check (vouchers.preview › tds): section, base, rate, amount, threshold notes — and renders nothing
+ * (2.1, D16) while no line is computed and the voucher is no challan. Alt+U ("TDS / TCS", registered
+ * above that return, so it always works)
  * opens a dialog to change an amount (with a reason — audited and listed in TDS/TCS › Exceptions) or
  * choose the nature for an advance / a journal without TDS-applicable ledgers.
  */
@@ -13,8 +15,8 @@ import type { VoucherMode } from '../../../shared/types/vouchers.ts';
 import { useApiQuery } from '../../app/hooks/useApiQuery.ts';
 import { useScreenActions } from '../../app/nav.tsx';
 import { useFeatures } from '../../app/state.tsx';
-import { AmountInput, Badge, Button, Field, Hotkeys, Kbd, Modal, Select, Stack, TextInput, useEnterAdvance } from '../../ui/index.ts';
-import { applyOverrideEdits, KIND_LABEL, lineSummary, overrideEditsOf, overrideErrors, STATUS_LABEL, tdsApplies, type OverrideEdit } from './lib/model.ts';
+import { AmountInput, Badge, Button, Field, Hotkeys, Modal, Select, Stack, TextInput, useEnterAdvance } from '../../ui/index.ts';
+import { applyOverrideEdits, entryPanelShown, KIND_LABEL, lineSummary, overrideEditsOf, overrideErrors, STATUS_LABEL, tdsApplies, type OverrideEdit } from './lib/model.ts';
 
 export interface TdsEntryPanelProps {
   baseType: VoucherBaseType;
@@ -35,12 +37,16 @@ export function TdsEntryPanel(props: TdsEntryPanelProps) {
   const applies = tdsApplies(props.baseType, features);
   const [open, setOpen] = useState(false);
   const isChallan = !!props.value?.challan;
+  // Registered whenever TDS / TCS can apply — also while the panel is not drawn (an advance: Alt+U picks the nature).
   useScreenActions(
     applies && !isChallan ? [{ key: 'Alt+U', label: 'TDS / TCS', icon: 'percent', group: 'details', disabled: props.readOnly, onClick: () => setOpen(true) }] : [],
   );
-  if (!applies) return null;
   const lines = props.preview?.lines ?? [];
   const kind = props.baseType === 'sales' ? 'tcs' : 'tds';
+  const dialog = applies && open ? <TdsDialog {...props} lines={lines} kind={kind} onClose={() => setOpen(false)} /> : null;
+  // D16: the side column holds the panel only when it applies and has something to say (a computed line or
+  // the challan); otherwise the grid keeps the full width — the dialog (Alt+U) still opens.
+  if (!entryPanelShown({ applies, isChallan, lines: lines.length })) return dialog;
   const total = kind === 'tcs' ? (props.preview?.tcs ?? 0) : (props.preview?.tds ?? 0);
   return (
     <section className="bx-vch-side" aria-label={`${KIND_LABEL[kind]} on this voucher`} aria-live="polite">
@@ -50,13 +56,7 @@ export function TdsEntryPanel(props: TdsEntryPanelProps) {
       <Stack gap={1}>
         {isChallan ? (
           <span className="bx-muted">
-            Challan {props.value?.challan?.challanNo} (BSR {props.value?.challan?.bsrCode}) for {props.value?.challan?.section}, {props.value?.challan?.period}. Alter it in TDS/TCS ›
-            Challan Register.
-          </span>
-        ) : lines.length === 0 ? (
-          <span className="bx-muted">
-            {kind === 'tcs' ? 'No sales ledger with a TCS nature on this invoice.' : 'No TDS-applicable ledger on this voucher.'}
-            {kind === 'tds' && (props.baseType === 'payment' || props.baseType === 'journal') ? ' Alt+U to deduct under a nature (e.g. an advance).' : ''}
+            Challan {props.value?.challan?.challanNo} (BSR {props.value?.challan?.bsrCode}) for {props.value?.challan?.section}, {props.value?.challan?.period}
           </span>
         ) : (
           <>
@@ -69,12 +69,12 @@ export function TdsEntryPanel(props: TdsEntryPanelProps) {
           </>
         )}
         {!isChallan && !props.readOnly ? (
-          <Button size="sm" variant="ghost" icon="edit" onClick={() => setOpen(true)}>
-            Change <Kbd keys="Alt+U" size="sm" />
+          <Button size="sm" variant="link" shortcut="Alt+U" onClick={() => setOpen(true)}>
+            Change
           </Button>
         ) : null}
       </Stack>
-      {open ? <TdsDialog {...props} lines={lines} kind={kind} onClose={() => setOpen(false)} /> : null}
+      {dialog}
     </section>
   );
 }

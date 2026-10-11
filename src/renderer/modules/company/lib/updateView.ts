@@ -159,18 +159,31 @@ export function shouldAskAutomatic(status: UpdateStatus | null, answered: boolea
   return !status.policy.locked && status.policy.mode === 'manual';
 }
 
-/** The Home notice for a status, unless dismissed for this version. */
-export function noticeFor(status: UpdateStatus | null, dismissedVersion: string | null): { version: string; title: string; ready: boolean } | null {
+/**
+ * The Home notice for a status, unless dismissed for this version — ONE line (2.1): the title, then its
+ * action as a link at the end of the line ("Pevqori 2.1.1 is ready   Restart to update ×"). The title
+ * ends without punctuation: the link sits at the far end of the banner, so a dash would dangle.
+ */
+export function noticeFor(status: UpdateStatus | null, dismissedVersion: string | null): { version: string; title: string; action: string; ready: boolean } | null {
   if (!status) return null;
   if (status.state === 'ready') {
     if (dismissedVersion === `ready:${status.version}`) return null;
-    return { version: status.version, title: `Pevqori ${status.version} is ready — Restart to update`, ready: true };
+    return { version: status.version, title: `Pevqori ${status.version} is ready`, action: 'Restart to update', ready: true };
   }
   if (status.state === 'available') {
     if (dismissedVersion === `available:${status.version}` || dismissedVersion === `ready:${status.version}`) return null;
-    return { version: status.version, title: `Pevqori ${status.version} is available`, ready: false };
+    return { version: status.version, title: `Pevqori ${status.version} is available`, action: "See what's new", ready: false };
   }
   return null;
+}
+
+/** The confirm dialog behind the notice's "Restart to update" (the reassurance moved here from Home, 2.1). */
+export function restartConfirm(canBackup: boolean): { title: string; message: string; confirmLabel: string } {
+  return {
+    title: 'Restart to update?',
+    message: `Pevqori closes and opens again in about a minute. Your companies and settings are kept${canBackup ? ', and the open company is backed up first' : ''}.`,
+    confirmLabel: 'Restart to update',
+  };
 }
 
 /** The value stored when the notice is dismissed (per version and stage). */

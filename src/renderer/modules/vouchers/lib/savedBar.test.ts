@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { recordPaymentTarget, savedBarTitle, savedBarVisible } from './savedBar.ts';
+import { recordPaymentTarget, savedBarDetails, savedBarTitle, savedBarVisible, barToast } from './savedBar.ts';
 import type { SavedBarState } from './savedBar.ts';
 
 const bar = (over: Partial<SavedBarState> = {}): SavedBarState => ({
@@ -36,5 +36,17 @@ describe('Saved bar after creating a voucher', () => {
     assert.equal(savedBarVisible(bar(), false), true);
     assert.equal(savedBarVisible(bar(), true), false);
     assert.equal(savedBarVisible(null, false), false);
+  });
+});
+
+describe('2.1: the Saved bar is one line and "saved" is said once (D20)', () => {
+  it('the line reads the voucher, the amount and the party back', () => {
+    assert.equal(`${savedBarTitle(bar({ number: '33' }))}${savedBarDetails(bar({ amount: 27_140_00, partyName: 'Asha Retail' }))}`, 'Saved Sales 33 · ₹ 27,140.00 · Asha Retail');
+    assert.equal(savedBarDetails(bar({ partyName: null })), ' · ₹ 1,180.00');
+  });
+
+  it('no "saved" toast while the bar shows; the save\'s notes still get one', () => {
+    assert.equal(barToast([]), null);
+    assert.deepEqual(barToast(['B2C large: report in GSTR-1 table 5.', 'Check stock.']), { title: 'Please note', message: 'B2C large: report in GSTR-1 table 5. Check stock.' });
   });
 });

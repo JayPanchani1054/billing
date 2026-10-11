@@ -1,7 +1,8 @@
 /**
  * 'banking.depositSlip' — Bank pay-in slip for a day. Params: { ledgerId?, date? }.
  * Cheques/DDs received into the bank on the date plus cash deposited, with totals and amount in words.
- * Alt+P prints it (printReport), Alt+E exports; Enter on a cheque opens its voucher.
+ * Alt+P prints it (printReport), Alt+E exports; Enter on a cheque opens its voucher. A document, not a
+ * report: no graph (SPEC-21 §5). The bank and the date are the toolbar row's two controls (shown once).
  */
 import { useMemo, useState } from 'react';
 import type { DepositSlipCheque } from '../../../shared/types/banking.ts';
@@ -11,7 +12,7 @@ import { useNav } from '../../app/nav.tsx';
 import type { ScreenProps } from '../../app/registry.ts';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { useWorkingDate } from '../../app/working.tsx';
-import { Card, DataTable, DateInput, EmptyState, Field, Inline, KeyValueList, Stack } from '../../ui/index.ts';
+import { Card, DataTable, DateInput, EmptyState, Inline, KeyValueList, Stack } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { BankSelect, NoBanks, useBanks, useDefaultBank } from './components.tsx';
 import { depositSlipExport } from './lib/exports.ts';
@@ -50,7 +51,6 @@ export function DepositSlipScreen({ params }: ScreenProps<{ ledgerId?: number; d
   return (
     <ReportScreen
       title="Deposit Slip"
-      subtitle={slip ? `${slip.bank.name} · ${formatDate(slip.date)}` : undefined}
       periodMode="none"
       loading={banksLoading || (q.loading && !slip)}
       refreshing={q.refreshing}
@@ -59,19 +59,15 @@ export function DepositSlipScreen({ params }: ScreenProps<{ ledgerId?: number; d
       exportDef={slip ? () => depositSlipExport(slip) : undefined}
       hint="Alt+P Print the slip · Enter Open voucher · Change the date to see another day's deposits"
       filters={
-        <Inline gap={2} wrap align="end">
-          <Field label="Bank account">
-            <BankSelect banks={banks} value={ledgerId} onChange={(id) => id !== null && setLedgerId(id)} />
-          </Field>
-          <Field label="Deposit date">
-            <DateInput size="sm" value={date} onChange={setDate} referenceDate={workingDate} />
-          </Field>
+        <Inline gap={2} wrap align="center">
+          <BankSelect banks={banks} value={ledgerId} onChange={(id) => id !== null && setLedgerId(id)} />
+          <DateInput aria-label="Deposit date" size="sm" value={date} onChange={setDate} referenceDate={workingDate} />
         </Inline>
       }
     >
       {slip ? (
         <Stack gap={3} className="bx-bk-slip">
-          <Card padding="sm" title={slip.bank.bankName ?? slip.bank.name} subtitle={[slip.bank.branch, slip.bank.ifsc ? `IFSC ${slip.bank.ifsc}` : null].filter(Boolean).join(' · ') || undefined}>
+          <Card padding="sm" title={[slip.bank.bankName ?? slip.bank.name, slip.bank.branch, slip.bank.ifsc ? `IFSC ${slip.bank.ifsc}` : null].filter(Boolean).join(' · ')}>
             <KeyValueList
               layout="inline"
               columns={2}
@@ -98,7 +94,6 @@ export function DepositSlipScreen({ params }: ScreenProps<{ ledgerId?: number; d
               empty={
                 <EmptyState
                   size="sm"
-                  icon="receipt"
                   title={`No cheques received into this bank on ${formatDate(slip.date)}`}
                   body="Cheques and DDs entered in Receipt vouchers dated this day appear here. Pick another date."
                 />

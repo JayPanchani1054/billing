@@ -23,10 +23,11 @@ import {
   userMessage,
 } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, DataTable, EmptyState, Field, FieldGroup, Inline, NumberInput, SegmentedControl, Select, Stack, TextInput, useDebouncedValue, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { Banner, Button, DataTable, EmptyState, Field, FieldGroup, Inline, NumberInput, SegmentedControl, Select, Stack, TextInput, useDebouncedValue, useEnterAdvance, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { AcceptKey, FeatureOff, focusFirstError, HistoryButton, HistoryKey, INVENTORY_INVALIDATES, splitApiError, useMasterHistory } from './common.tsx';
 import { DeleteKey } from './Groups.tsx';
+import { countText } from './lib/listActions.ts';
 import { compoundSymbolPreview, conversionText, uqcSelectOptions, uqcSuggestion, validateCompoundUnit, validateSimpleUnit } from './lib/units.ts';
 import { isShownValue } from './lib/opening.ts';
 import { UnitPicker } from './pickers.tsx';
@@ -58,19 +59,7 @@ export function UnitListScreen() {
         render: (u) => (u.isCompound ? conversionText(u.firstUnitSymbol, u.conversion, u.secondUnitSymbol) : (u.formalName ?? '')),
         value: (u) => (u.isCompound ? conversionText(u.firstUnitSymbol, u.conversion, u.secondUnitSymbol) : (u.formalName ?? '')),
       },
-      {
-        key: 'kind',
-        header: 'Type',
-        width: 110,
-        render: (u) =>
-          u.isCompound ? (
-            <Badge size="sm" tone="info">
-              Compound
-            </Badge>
-          ) : (
-            <span className="bx-muted">Simple</span>
-          ),
-      },
+      { key: 'kind', header: 'Type', width: 110, value: (u) => (u.isCompound ? 'Compound' : 'Simple'), render: (u) => (u.isCompound ? 'Compound' : <span className="bx-muted">Simple</span>) },
       { key: 'uqc', header: 'GST UQC', width: 100, value: (u) => u.uqc ?? '' },
       { key: 'decimalPlaces', header: 'Decimals', kind: 'number', decimals: 0, width: 90 },
       { key: 'itemCount', header: 'Items', kind: 'number', decimals: 0, width: 80 },
@@ -103,15 +92,23 @@ export function UnitListScreen() {
   return (
     <ReportScreen
       title="Units of Measure"
+      subtitle={q.data ? countText(rows.length, 'unit', 'units') : undefined}
       periodMode="none"
+      outputInMore
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Type to search · Enter Alter · Alt+C Simple unit · Alt+U Compound unit · Alt+D Delete"
       actions={[
-        { key: 'Alt+C', label: 'Create unit', icon: 'plus', primary: true, onClick: () => nav.push('inventory.unit.form', { kind: 'simple', ...(search.trim() ? { initialName: search.trim() } : {}) }), hidden: !canCreate },
-        { key: 'Alt+U', label: 'Compound unit', icon: 'layers', onClick: () => nav.push('inventory.unit.form', { kind: 'compound' }), hidden: !canCreate },
+        {
+          key: 'Alt+C',
+          label: 'Create unit',
+          onClick: () => nav.push('inventory.unit.form', { kind: 'simple', ...(search.trim() ? { initialName: search.trim() } : {}) }),
+          hidden: !canCreate,
+          prominent: true,
+        },
+        { key: 'Alt+U', label: 'Create compound unit', onClick: () => nav.push('inventory.unit.form', { kind: 'compound' }), hidden: !canCreate, group: 'create' },
         { key: 'Alt+D, Ctrl+D', label: 'Delete', icon: 'trash', onClick: () => void remove(current), hidden: !canDelete, disabled: !current, hint: current && current.itemCount > 0 ? 'Used by stock items' : undefined, group: 'danger' },
       ]}
       filters={
@@ -140,21 +137,15 @@ export function UnitListScreen() {
         onSelect={(k) => setSelected(k ?? undefined)}
         onRowActivate={(u) => nav.push('inventory.unit.form', { id: u.id })}
         loading={q.loading}
+        hideEmptyColumns
         empty={
           term ? (
-            <EmptyState icon="search" title="No units match" body="Change the search, or press Alt+C to create the unit." />
+            <EmptyState title="No units match" body="Change the search, or press Alt+C to create the unit." />
           ) : (
             <EmptyState
-              icon="scale"
               title="No units yet"
               body="Units say how you count stock: Nos, Kg, Mtr, Box. Press Alt+C to create one."
-              action={
-                canCreate ? (
-                  <Button variant="primary" icon="plus" shortcut="Alt+C" onClick={() => nav.push('inventory.unit.form', { kind: 'simple' })}>
-                    Create unit
-                  </Button>
-                ) : undefined
-              }
+              action={canCreate ? <Button onClick={() => nav.push('inventory.unit.form', { kind: 'simple' })}>Create unit</Button> : undefined}
             />
           )
         }
@@ -322,7 +313,7 @@ function UnitForm({ title, saved, params }: { title: string; saved: UnitDto | nu
           <Inline gap={2}>
             <HistoryButton onOpen={history} />
             {saved && canDelete ? (
-              <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
+              <Button variant="danger" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
                 Delete
               </Button>
             ) : null}
@@ -332,7 +323,7 @@ function UnitForm({ title, saved, params }: { title: string; saved: UnitDto | nu
       footer={
         <>
           <Button onClick={() => void nav.back()}>Cancel</Button>
-          <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()} disabled={readOnly}>
+          <Button variant="primary" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()} disabled={readOnly}>
             {forResult ? 'Save & return' : 'Save'}
           </Button>
         </>

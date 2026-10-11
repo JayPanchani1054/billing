@@ -118,7 +118,7 @@ export function MarkFiledDialog({ form, period, periodLabel, onClose }: { form: 
       open
       onClose={() => onClose(false)}
       title={`Mark ${FORM_LABELS[form]} as filed`}
-      description={`${periodLabel}. Record the date and the ARN shown on the portal after filing.`}
+      description={periodLabel}
       initialFocusRef={first}
       footer={
         <>

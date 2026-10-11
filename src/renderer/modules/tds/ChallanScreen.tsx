@@ -23,11 +23,9 @@ import { useWorkingDate } from '../../app/working.tsx';
 import {
   AmountInput,
   Banner,
-  Button,
   DateInput,
   Field,
   FieldGroup,
-  Inline,
   KeyValueList,
   Select,
   Stack,
@@ -55,7 +53,7 @@ export function ChallanScreen({ params }: ScreenProps<ChallanParams>) {
   const existing = useApiQuery('tds.challan.get', { voucherId: p.voucherId ?? 0 }, { enabled: p.voucherId !== undefined, staleTime: 0 });
   if (kinds.length === 0) return <TdsOff title="TDS / TCS Challan" />;
   if (p.voucherId !== undefined && !existing.data) {
-    return <Screen title="Alter Challan" icon="receipt" loading={existing.loading} error={existing.error} onRetry={() => void existing.refetch()} />;
+    return <Screen title="Alter Challan" loading={existing.loading} error={existing.error} onRetry={() => void existing.refetch()} />;
   }
   return <ChallanForm params={p} existing={existing.data ?? null} kinds={kinds} />;
 }
@@ -179,8 +177,8 @@ function ChallanForm({ params: p, existing, kinds }: { params: ChallanParams; ex
   return (
     <Screen
       title={existing ? `Alter ${KIND_LABEL[draft.kind]} Challan` : `Create ${KIND_LABEL[draft.kind]} Challan`}
-      subtitle={existing ? `Payment ${existing.number ?? ''}${existing.cancelled ? ' — cancelled' : ''}` : 'ITNS 281 — records the Payment voucher'}
-      icon="receipt"
+      subtitle={existing ? `Payment ${existing.number ?? ''}` : undefined}
+      meta={existing?.cancelled ? 'Cancelled' : undefined}
       width="form"
       dirty={touched}
       hint="Enter Next field · Alt+S Fill suggested amounts · Ctrl+A Save · Esc Back"
@@ -189,17 +187,6 @@ function ChallanForm({ params: p, existing, kinds }: { params: ChallanParams; ex
         { key: 'Alt+S', label: 'Fill suggested amounts', icon: 'calculator', hidden: readOnly, disabled: readOnly || !s, onClick: fillSuggested },
         { key: 'Alt+Enter', label: 'View voucher', icon: 'eye', hidden: !existing, onClick: () => existing && nav.push('vouchers.view', { id: existing.voucherId }) },
       ]}
-      footer={
-        <Inline gap={2} justify="end">
-          <span className="bx-num" aria-live="polite">
-            Total {inr(total)}
-          </span>
-          <Button onClick={() => void nav.back()}>Back</Button>
-          <Button variant="primary" shortcut="Ctrl+A" loading={save.pending} disabled={readOnly} onClick={accept}>
-            Save
-          </Button>
-        </Inline>
-      }
     >
       <div ref={formRef}>
         <Stack gap={4}>
@@ -283,6 +270,9 @@ function ChallanForm({ params: p, existing, kinds }: { params: ChallanParams; ex
               <AmountInput value={draft.others} onChange={(v) => setAmount({ others: v })} symbol blankZero readOnly={readOnly} />
             </Field>
           </FieldGroup>
+          <p className="bx-num" aria-live="polite">
+            Total <strong>{inr(total)}</strong>
+          </p>
           <Field label="Narration" optional hint="Blank: challan number, BSR code and month are written for you.">
             <TextInput value={narration} onValueChange={(v) => { setNarration(v.slice(0, 4000)); setTouched(true); }} readOnly={readOnly} />
           </Field>

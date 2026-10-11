@@ -1,48 +1,53 @@
 /**
- * 'dashboard.home' {embedded?} — the business at a glance: KPI tiles (sales vs last year with a
- * 12-month sparkline, purchases, gross profit, receivables, payables, cash & bank), the 12-month sales /
- * purchases chart, receivables ageing, cash & bank balances, the GST estimate for the month, top
- * customers and items, alerts, low stock, recent vouchers and post-dated cheques. Every card drills
- * down to its report — when the viewer may open it (useDrill: nav.canOpen); otherwise it is not
- * clickable. A "Get started" card (company details, features, invoice number series, what prints on the
- * invoice, ledgers, items, first sale, first receipt, backups; steps done from the books via
- * `summary.setup`) shows until done or hidden.
+ * 'dashboard.home' {embedded?} — the business at a glance (2.1, SPEC-21 §1.3, §5).
  *
- * Embedded (Home's right panel) = the 2.0 Home variant: four tiles (To collect, To pay, Cash & bank,
- * Sales this month), Needs your attention, Get started and the last five vouchers; "Show more insights"
- * mounts the other cards (remembered per user profile). Its own small header; it binds NO hotkeys
- * (plain letters belong to the Home menu). Standalone (Reports › Dashboard, unchanged): a ReportScreen —
- * Alt+F2 period, Alt+E export, Alt+P print, Alt+R refresh, Esc back.
+ * Embedded (Home's right panel, D10): the period (a link: Alt+F2), three figures — To collect, To pay,
+ * Cash & bank — the "Sales — last 12 months" graph (Ctrl+J folds it to its one-sentence answer),
+ * "Needs your attention" (top 3 + N more), Setup as one line (D11) and one quiet link "Full dashboard".
+ * No title, refresh or period button of its own: Home refetches when it is shown, Alt+F2 opens the
+ * period anywhere. Its only key is Ctrl+J (while the graph exists); plain letters belong to the menu.
+ *
+ * Full (Reports › Dashboard, Go To): a ReportScreen — four figures (Sales ▲ %, Gross profit, Receivables,
+ * Cash & bank), the trend (Sales with Purchases as grey context) and receivables by age (both through
+ * LazyChart; Ctrl+J), the attention list, then the other cards as one line each — "Show all cards"
+ * (remembered, `pevqori.ui` dashboardAllCards) shows the cards themselves. Keys: Alt+F2 period, Alt+E
+ * export, Alt+P print, Alt+R refresh, Alt+S Show Get started, Ctrl+J graphs, Esc back.
  *
  * Reads 'dashboard.summary' { asOf: working date (F2), from/to: period (Alt+F2) }.
  */
-import { Fragment, useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import type { DashboardSummary } from '../../../shared/types/dashboard.ts';
 import { ReportScreen, useApiQuery, useModules, useNav, useOptionalScreen, usePeriod, userMessage, useWorkingDate } from '../../app/index.ts';
 import type { ApiQueryResult, ScreenProps } from '../../app/index.ts';
-import { Button, EmptyState, IconButton } from '../../ui/index.ts';
+import { useGraphsToggle } from '../../app/graphStrip.tsx';
+import { GRAPHS_ARIA_KEY, graphsLabel, graphsTooltip } from '../../app/lib/graphsToggle.ts';
+import { setUiPrefs, useUiPrefs } from '../../app/preferences.ts';
+import { Button } from '../../ui/index.ts';
 import {
   AgeingCard,
   AlertsCard,
+  CardLines,
   CashBankCard,
-  GettingStarted,
   GstCard,
-  HomeKpiRow,
+  HomeAlerts,
+  HomeFigures,
+  HomeGraph,
   KpiRow,
   LowStockCard,
   PostDatedCard,
   RecentVouchersCard,
+  SetupLine,
   TopCustomersCard,
   TopItemsCard,
   TrendCard,
+  useGraphFold,
   useStartSteps,
 } from './components.tsx';
-import { exportTable, HOME_INSIGHTS_KEY, HOME_RECENT_LIMIT, homeSections, parseInsightsOpen, summaryInput } from './lib/model.ts';
-import type { HomeSection } from './lib/model.ts';
+import { ageingSpec, exportTable, setupLine, summaryInput, trendSpec } from './lib/model.ts';
 
 export interface DashboardParams {
-  /** Rendered inline by the Gateway (compact, no hotkeys). */
+  /** Rendered inline by the Gateway (Home's panel). */
   embedded?: boolean;
 }
 
@@ -69,14 +74,65 @@ function useSummary(): { q: ApiQueryResult<DashboardSummary>; asOf: string; work
 }
 
 export function DashboardScreen({ params }: ScreenProps<DashboardParams>) {
-  return params?.embedded ? <EmbeddedDashboard /> : <FullDashboard />;
+  return params?.embedded ? <HomePanel /> : <FullDashboard />;
+}
+
+/** Home's right panel (D10): period · figures · graph · attention · Setup · Full dashboard. */
+function HomePanel() {
+  const nav = useNav();
+  const period = usePeriod();
+  const { q, asOf, workingDate } = useSummary();
+  const s = q.data;
+  const start = useStartSteps(s);
+  const loading = q.loading && !s;
+  const setupShown = start.mode === 'steps';
+  return (
+    <section className="bx-db bx-db--home" aria-label="Business at a glance" aria-busy={q.refreshing || undefined}>
+      <div>
+        <Button size="sm" variant="link" title="Period · Alt+F2" aria-keyshortcuts="Alt+F2" onClick={period.openDialog}>
+          {period.label}
+        </Button>
+        {asOf !== workingDate ? <span className="bx-db__muted"> · balances as on {formatDate(asOf)}</span> : null}
+      </div>
+      {q.error && !s ? (
+        <p className="bx-db__note">
+          The dashboard could not be loaded: {userMessage(q.error)}{' '}
+          <Button size="sm" variant="link" onClick={() => void q.refetch()}>
+            Try again
+          </Button>
+        </p>
+      ) : (
+        <>
+          <HomeFigures s={s} loading={loading} />
+          {s ? <HomeGraph s={s} /> : null}
+          {s ? <HomeAlerts s={s} setupBackupOpen={setupShown && setupLine(start.steps).backupOpen} /> : null}
+          <SetupLine start={start} hasVouchers={s?.hasVouchers ?? true} />
+        </>
+      )}
+      <div>
+        <Button size="sm" variant="link" onClick={() => nav.push('dashboard.home', {})}>
+          Full dashboard
+        </Button>
+      </div>
+    </section>
+  );
 }
 
 function FullDashboard() {
   const { q, workingDate } = useSummary();
   const s = q.data;
-  // Undo "Hide" on the Get started card (kept per company in this browser).
   const start = useStartSteps(s);
+  const graphs = useGraphsToggle('report');
+  const allCards = useUiPrefs().dashboardAllCards;
+  // Ctrl+J (and its More item) only while the screen has a graph to fold; the text button sits on the first graph card.
+  const has = useMemo(() => ({ trend: s ? trendSpec(s.trend, undefined, s.asOf) !== null : false, ageing: s ? ageingSpec(s.receivables.ageing) !== null : false }), [s]);
+  const hasGraph = has.trend || has.ageing;
+  const fold = useGraphFold(graphs.shown);
+  const toggle = (
+    <button ref={fold.toggleRef} type="button" className="bx-report__graph-toggle" onClick={graphs.toggle} title={graphsTooltip(graphs.shown, 'report')} aria-keyshortcuts={GRAPHS_ARIA_KEY}>
+      {graphsLabel(graphs.shown)}
+    </button>
+  );
   return (
     <ReportScreen
       title="Dashboard"
@@ -88,194 +144,55 @@ function FullDashboard() {
       actions={[
         { key: 'Alt+R', label: 'Refresh', icon: 'refresh', onClick: () => void q.refetch(), group: 'view' },
         { key: 'Alt+S', label: 'Show Get started', icon: 'eye', onClick: start.show, hidden: !start.canShow, group: 'view' },
+        ...(hasGraph && graphs.action ? [graphs.action] : []),
       ]}
       exportDef={s ? () => exportTable(s) : undefined}
-      hint="Tab Move between cards · Enter Open · Alt+F2 Period · F2 Date · Alt+E Export · Alt+P Print · Esc Back"
+      hint="Tab Move · Enter Open · Alt+F2 Period · F2 Date · Alt+E Export · Alt+P Print · Esc Back"
     >
-      <div className="bx-db bx-db--full">
-        <DashboardBody s={s} loading={q.loading && !s} workingDate={workingDate} />
-      </div>
+      {s ? (
+        <div className="bx-db bx-db--full">
+          <SetupLine start={start} hasVouchers={s.hasVouchers} />
+          <KpiRow s={s} loading={false} workingDate={workingDate} />
+          <div className="bx-db__grid">
+            <TrendCard s={s} fold={fold} toggle={has.trend ? toggle : undefined} className="bx-db__wide" />
+            <AgeingCard s={s} fold={fold} toggle={has.trend ? undefined : toggle} />
+          </div>
+          <span className="bx-sr-only" aria-live="polite">
+            {fold.announcement}
+          </span>
+          <AlertsCard s={s} />
+          {allCards ? (
+            <div className="bx-db__grid">
+              <CashBankCard s={s} />
+              <GstCard s={s} />
+              <TopCustomersCard s={s} />
+              <TopItemsCard s={s} />
+              <LowStockCard s={s} />
+              <PostDatedCard s={s} />
+              <ModuleCards />
+              <RecentVouchersCard s={s} className="bx-db__wide" />
+            </div>
+          ) : (
+            <CardLines s={s} />
+          )}
+          <div>
+            <Button size="sm" variant="link" aria-expanded={allCards} onClick={() => setUiPrefs({ dashboardAllCards: !allCards })}>
+              {allCards ? 'Show fewer cards' : 'Show all cards'}
+              <span aria-hidden="true">{allCards ? ' ▴' : ' ▾'}</span>
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </ReportScreen>
   );
 }
 
-/** "Show more insights" on Home, remembered per user profile (storage may be blocked: then per session). */
-function useInsightsOpen(): [boolean, (open: boolean) => void] {
-  const [open, setOpen] = useState<boolean>(() => {
-    try {
-      return parseInsightsOpen(window.localStorage.getItem(HOME_INSIGHTS_KEY));
-    } catch {
-      return false;
-    }
-  });
-  const set = (next: boolean) => {
-    setOpen(next);
-    try {
-      window.localStorage.setItem(HOME_INSIGHTS_KEY, next ? '1' : '0');
-    } catch {
-      // not remembered (storage blocked)
-    }
-  };
-  return [open, set];
-}
-
-/**
- * The Home variant (2.0): four tiles, Needs your attention, Get started and the last five vouchers;
- * the other cards (and the cards other modules contribute, which run their own queries) mount only
- * after "Show more insights" (lib/model.ts homeSections). No hotkeys: Home's letters belong to its menu.
- */
-function EmbeddedDashboard() {
-  const nav = useNav();
-  const period = usePeriod();
-  const { q, asOf, workingDate } = useSummary();
-  const s = q.data;
-  const titleId = useId();
-  const insightsId = useId();
-  const start = useStartSteps(s);
-  const [insightsOpen, setInsightsOpen] = useInsightsOpen();
-  const loading = q.loading && !s;
-  const sections = homeSections({ hasVouchers: s?.hasVouchers ?? true, insightsOpen });
-  const render = (id: HomeSection) => {
-    switch (id) {
-      case 'start':
-        return <GettingStarted key={id} s={s} />;
-      case 'kpis':
-        return <HomeKpiRow key={id} s={s} loading={loading} workingDate={workingDate} />;
-      case 'attention':
-        return <AlertsCard key={id} s={s} loading={loading} className="bx-db__card" />;
-      case 'recent':
-        return <RecentVouchersCard key={id} s={s} loading={loading} limit={HOME_RECENT_LIMIT} className="bx-db__card" />;
-      case 'trend':
-        return <TrendCard key={id} s={s} loading={loading} layout="compact" className="bx-db__card bx-db__wide" />;
-      case 'ageing':
-        return <AgeingCard key={id} s={s} loading={loading} className="bx-db__card" />;
-      case 'cashBank':
-        return <CashBankCard key={id} s={s} loading={loading} className="bx-db__card" />;
-      case 'gst':
-        return <GstCard key={id} s={s} className="bx-db__card" />;
-      case 'moduleCards':
-        return <ModuleCards key={id} />;
-    }
-  };
-  // Tiles and Get started span the panel; the cards sit two to a row.
-  const wide = (id: HomeSection) => id === 'start' || id === 'kpis';
-  return (
-    <section className="bx-db bx-db--embedded" aria-labelledby={titleId} aria-busy={q.refreshing || undefined}>
-      <header className="bx-db__head">
-        <div>
-          <h2 id={titleId} className="bx-db__title">
-            Dashboard
-          </h2>
-          <p className="bx-db__sub">
-            {period.label} · balances as on {formatDate(asOf)}
-          </p>
-        </div>
-        <div className="bx-db__head-actions">
-          <Button size="sm" variant="ghost" icon="calendar" onClick={period.openDialog} aria-keyshortcuts="Alt+F2">
-            Change period
-          </Button>
-          {start.canShow ? (
-            // No hotkey here: plain letters and Alt keys on the Gateway belong to its menu.
-            <Button size="sm" variant="ghost" icon="eye" onClick={start.show}>
-              Show Get started
-            </Button>
-          ) : null}
-          <IconButton size="sm" icon="refresh" aria-label="Refresh dashboard" loading={q.refreshing} onClick={() => void q.refetch()} />
-          <Button size="sm" iconRight="arrow-right" onClick={() => nav.push('dashboard.home', {})}>
-            Full dashboard
-          </Button>
-        </div>
-      </header>
-      {q.error && !s ? (
-        <EmptyState
-          icon="alert"
-          title="The dashboard could not be loaded"
-          body={userMessage(q.error)}
-          action={
-            <Button icon="refresh" onClick={() => void q.refetch()}>
-              Try again
-            </Button>
-          }
-        />
-      ) : (
-        <>
-          {groupSections(sections.main, wide).map((g) =>
-            g.wide ? (
-              <Fragment key={g.ids.join('+')}>{g.ids.map(render)}</Fragment>
-            ) : (
-              <div key={g.ids.join('+')} className="bx-db__grid">
-                {g.ids.map(render)}
-              </div>
-            ),
-          )}
-          <div className="bx-db__more">
-            <Button size="sm" variant="ghost" icon={insightsOpen ? 'chevron-up' : 'chevron-down'} aria-expanded={insightsOpen} aria-controls={insightsId} onClick={() => setInsightsOpen(!insightsOpen)}>
-              {insightsOpen ? 'Show fewer insights' : 'Show more insights'}
-            </Button>
-          </div>
-          <div id={insightsId} className="bx-db__grid" hidden={!insightsOpen}>
-            {sections.insights.map(render)}
-          </div>
-        </>
-      )}
-    </section>
-  );
-}
-
-/** Consecutive sections grouped: full-width ones alone, the others into one two-column grid. */
-function groupSections(ids: readonly HomeSection[], wide: (id: HomeSection) => boolean): Array<{ wide: boolean; ids: HomeSection[] }> {
-  const out: Array<{ wide: boolean; ids: HomeSection[] }> = [];
-  for (const id of ids) {
-    const w = wide(id);
-    const last = out[out.length - 1];
-    if (last && last.wide === w) last.ids.push(id);
-    else out.push({ wide: w, ids: [id] });
-  }
-  return out;
-}
-
-/** Cards other modules contribute (ModuleDef.dashboardCards), after the dashboard's own. */
+/** Cards other modules contribute (ModuleDef.dashboardCards) — with "Show all cards" only (they run their own queries). */
 function ModuleCards() {
   const modules = useModules();
   return (
     <>
-      {modules.flatMap((m) => (m.dashboardCards ?? []).map((C, i) => <C key={`${m.id}:${i}`} className="bx-db__card" />))}
-    </>
-  );
-}
-
-/** The full Dashboard (Reports menu, Go To) — unchanged by the 2.0 Home variant. */
-function DashboardBody({ s, loading, workingDate }: { s: DashboardSummary | undefined; loading: boolean; workingDate: string }) {
-  // Getting started (one list for the app: company details, features, invoice printing, ledgers,
-  // items, first sale, backups) stays — also after the first voucher — until done or hidden.
-  if (s && !s.hasVouchers) {
-    return (
-      <>
-        <GettingStarted s={s} />
-        <div className="bx-db__grid">
-          <AlertsCard s={s} loading={false} className="bx-db__card" />
-          <CashBankCard s={s} loading={false} className="bx-db__card" />
-        </div>
-      </>
-    );
-  }
-  return (
-    <>
-      <GettingStarted s={s} />
-      <KpiRow s={s} loading={loading} layout="full" workingDate={workingDate} />
-      <div className="bx-db__grid">
-        <TrendCard s={s} loading={loading} layout="full" className="bx-db__card bx-db__wide" />
-        <AlertsCard s={s} loading={loading} className="bx-db__card" />
-        <AgeingCard s={s} loading={loading} className="bx-db__card" />
-        <CashBankCard s={s} loading={loading} className="bx-db__card" />
-        <GstCard s={s} className="bx-db__card" />
-        <TopCustomersCard s={s} loading={loading} className="bx-db__card" />
-        <TopItemsCard s={s} loading={loading} className="bx-db__card" />
-        <LowStockCard s={s} loading={loading} className="bx-db__card" />
-        <PostDatedCard s={s} loading={loading} className="bx-db__card" />
-        <ModuleCards />
-        <RecentVouchersCard s={s} loading={loading} className="bx-db__card bx-db__wide" />
-      </div>
+      {modules.flatMap((m) => (m.dashboardCards ?? []).map((C, i) => <C key={`${m.id}:${i}`} />))}
     </>
   );
 }

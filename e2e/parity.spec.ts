@@ -185,7 +185,9 @@ test('purchase (F9) in accounting-invoice mode gets the TDS auto-line', async ()
   await page.keyboard.press('F9');
   const entry = screen(page, 'vouchers.entry');
   await expect(entry).toBeVisible();
-  await entry.getByRole('radiogroup', { name: 'Entry mode' }).getByRole('radio', { name: 'Accounting invoice' }).click();
+  // 2.1: the entry mode is a menu button in the title row's context run ("Item invoice ▾", Alt+I unchanged).
+  await entry.getByRole('button', { name: 'Entry mode' }).click();
+  await page.getByRole('menuitemradio', { name: 'Accounting invoice' }).click();
 
   // A purchase names its party field after the supplier (sales-side documents: "Party A/c name").
   const supplier = entry.getByLabel(/^Supplier \(party A\/c\)/);
@@ -209,7 +211,8 @@ test('purchase (F9) in accounting-invoice mode gets the TDS auto-line', async ()
 
   await page.keyboard.press('Control+a');
   await saveAnywayIfAsked(page);
-  await expect(page.getByText('Purchase 1 saved')).toBeVisible();
+  // 2.1 (D20): "saved" is said once — by the Saved bar (no toast while it shows).
+  await expect(entry.getByRole('status', { name: 'Voucher saved' })).toContainText('Saved Purchase 1');
   await toGateway(page);
 });
 

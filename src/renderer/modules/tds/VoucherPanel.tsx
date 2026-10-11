@@ -36,7 +36,7 @@ export function TdsVoucherPanel({ voucherId, updatedAt }: VoucherPanelProps) {
   void updatedAt;
   if (challan) {
     return (
-      <Panel title={`${KIND_LABEL[challan.kind]} challan`} description={`u/s ${challan.section} for ${formatMonth(challan.period)} · Alt+U alter`}>
+      <Panel title={`${KIND_LABEL[challan.kind]} challan`} description={`u/s ${challan.section} for ${formatMonth(challan.period)}`}>
         <Stack gap={1}>
           <span>
             BSR {challan.bsrCode} · challan {challan.challanNo} · deposited {formatDate(challan.depositDate)} {challan.late ? <Badge size="sm" tone="warning">After the due date</Badge> : null}
@@ -50,7 +50,7 @@ export function TdsVoucherPanel({ voucherId, updatedAt }: VoucherPanelProps) {
     );
   }
   return (
-    <Panel title="TDS / TCS" description="Computed when the voucher was saved · Alt+U lines">
+    <Panel title="TDS / TCS">
       <Stack gap={1}>
         {lines.map((l) => (
           <div key={l.id}>

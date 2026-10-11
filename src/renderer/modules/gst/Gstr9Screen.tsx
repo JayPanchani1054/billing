@@ -2,19 +2,25 @@
  * 'gst.gstr9' {fy?} — GSTR-9 annual return summary for a GST financial year, prepared from the books
  * (tables 4, 5, 6, 9, month-wise figures and the HSN tables 17 / 18). Enter on a month opens its
  * GSTR-3B. Always labelled "Prepared from books — verify before filing".
+ *
+ * 2.1 (SPEC-21 §5 `gst.gstr9`): one graph — tax payable after credit, month by month (polarity columns;
+ * Enter on a month opens its GSTR-3B, like Enter on its row) — a question the annual form's tables do not
+ * answer. The year is the title row's token (Alt+F2); explanations and notes are in "About this return".
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Gstr9MonthRow, Gstr9Row, Gstr9Summary } from '../../../shared/types/gst-returns.ts';
 import { TAX_HEADS } from '../../../shared/types/gst-returns.ts';
 import { formatMoney, ReportScreen, useApiQuery, useNav, useWorkingDate } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Banner, DataTable, EmptyState, Panel, Select } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { Banner, DataTable, EmptyState, Panel } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { GstHelp } from './components.tsx';
+import { ReturnAbout, TokenSelect } from './components.tsx';
 import { HsnTable } from './Gstr1SectionScreen.tsx';
 import { creditMayPay, HEAD_LABELS } from './lib/gstr3b.ts';
 import { fyList, initialFy } from './lib/periods.ts';
 import { gstr9Export, sumTax } from './lib/reports.ts';
+import { afterCredit, gstr9Chart } from './lib/returnCharts.ts';
 
 const money = (p: number): string => formatMoney(p);
 
@@ -30,29 +36,30 @@ export function Gstr9Screen({ params }: ScreenProps<{ fy?: string }>) {
   const q = useApiQuery('gst.gstr9.summary', { fy: fy ?? '' }, { enabled: fy !== null, keepPrevious: true });
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const s = q.data;
+  const months = s?.months;
+  // Enter on a column = Enter on its row: that month's GSTR-3B (read through a ref, so the spec stays memoised).
+  const navRef = useRef(nav);
+  navRef.current = nav;
+  const spec = useMemo(() => (months ? gstr9Chart({ months }, (i) => navRef.current.push('gst.gstr3b', { period: months[i].period })) : null), [months]);
 
   const actions: ScreenActionItem[] = [{ key: 'Alt+F2', label: 'Financial year', icon: 'calendar', onClick: () => selectRef.current?.focus(), group: 'period' }];
   return (
     <ReportScreen
       title="GSTR-9"
-      subtitle={fy ? `Annual return · FY ${fy}` : 'Annual return'}
       periodMode="none"
-      filters={
-        <label className="bx-gst-period">
-          <span className="bx-gst-period__label">Financial year</span>
-          <Select
-            ref={selectRef}
-            size="sm"
-            aria-label="Financial year"
-            aria-keyshortcuts="Alt+F2"
-            value={fy ?? ''}
-            placeholder={periods.data ? 'Choose a year' : 'Loading…'}
-            disabled={years.length === 0}
-            options={years.map((y) => ({ value: y, label: `FY ${y}` }))}
-            onChange={(v) => setFy(v)}
-          />
-        </label>
+      context={
+        <TokenSelect
+          label="Financial year"
+          selectRef={selectRef}
+          value={fy}
+          placeholder={periods.data ? 'Choose a year' : 'Loading…'}
+          options={years.map((y) => ({ value: y, label: `FY ${y}` }))}
+          onChange={setFy}
+        />
       }
+      graph={reportGraph(spec)}
+      about={s ? <ReturnAbout lead="The yearly summary of what you supplied, the credit you took and the tax you paid — the basis for filling GSTR-9 on the portal. The graph shows each month's tax on outward supplies less its net ITC: above the line is tax payable after credit, below it credit left over." notes={s.notes} /> : undefined}
+      aboutLabel="About this return"
       actions={actions}
       exportDef={s ? () => ({ ...gstr9Export(s), title: 'GSTR-9 Summary', period: `FY ${s.fy}` }) : undefined}
       loading={periods.loading || (q.loading && !s)}
@@ -77,6 +84,7 @@ function Gstr9Body({ summary: s, onMonth }: { summary: Gstr9Summary; onMonth: (m
       { key: 'outwardTaxable', header: 'Outward taxable', kind: 'amount', width: 150, total: true },
       { key: 'outTax', header: 'Tax on outward', kind: 'amount', width: 140, total: true, value: (m) => sumTax(m.outwardTax) },
       { key: 'itc', header: 'Net ITC', kind: 'amount', width: 140, total: true, value: (m) => sumTax(m.itc) },
+      { key: 'after', header: 'After credit', kind: 'amount', width: 140, total: true, value: afterCredit },
       { key: 'cash', header: 'Paid in cash', kind: 'amount', width: 140, total: true, value: (m) => sumTax(m.cash) },
     ],
     [],
@@ -84,20 +92,9 @@ function Gstr9Body({ summary: s, onMonth }: { summary: Gstr9Summary; onMonth: (m
   return (
     <div className="bx-gst-scroll">
       <Banner tone="warning" title={s.caption}>
-        These figures are worked out from your books and your saved GSTR-3B entries. Compare them with GSTR-1, GSTR-3B and GSTR-2B on the portal and with your
-        audited accounts before you file.
+        Compare with GSTR-1, GSTR-3B, GSTR-2B and your audited accounts.
       </Banner>
-      <GstHelp>The yearly summary of what you supplied, the credit you took and the tax you paid — the basis for filling GSTR-9 on the portal.</GstHelp>
-      {s.notes.length > 0 ? (
-        <Banner tone="info" title="Notes">
-          <ul className="bx-gst-list">
-            {s.notes.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-        </Banner>
-      ) : null}
-      <Panel title="Month by month" headingLevel={2} description="Enter on a month opens its GSTR-3B.">
+      <Panel title="Month by month" headingLevel={2}>
         <DataTable<Gstr9MonthRow>
           aria-label="Month-wise figures"
           autoFocus
@@ -110,16 +107,16 @@ function Gstr9Body({ summary: s, onMonth }: { summary: Gstr9Summary; onMonth: (m
         />
       </Panel>
       <Panel title="Pt. II · 4 Outward supplies on which tax is payable (and inward supplies under reverse charge)" headingLevel={2}>
-        <G9Table rows={s.table4} />
+        <G9Table rows={s.table4} label="Table 4" />
       </Panel>
       <Panel title="Pt. II · 5 Outward supplies on which tax is not payable" headingLevel={2}>
-        <G9Table rows={s.table5} />
+        <G9Table rows={s.table5} label="Table 5" />
       </Panel>
       <Panel title="Pt. III · 6 ITC availed during the year" headingLevel={2}>
-        <G9Table rows={s.table6} taxable={false} />
+        <G9Table rows={s.table6} label="Table 6" taxable={false} />
       </Panel>
       <Panel title="Pt. IV · 9 Tax paid" headingLevel={2}>
-        <table className="bx-gst-form">
+        <table className="bx-gst-form" aria-label="Table 9 tax paid">
           <thead>
             <tr>
               <th scope="col">Tax</th>
@@ -141,7 +138,7 @@ function Gstr9Body({ summary: s, onMonth }: { summary: Gstr9Summary; onMonth: (m
               <tr key={p.head}>
                 <th scope="row">{p.label}</th>
                 <td className="is-num">{money(p.payable)}</td>
-                <td className="is-num bx-gst-cash">{money(p.paidCash)}</td>
+                <td className="is-num">{money(p.paidCash)}</td>
                 {TAX_HEADS.map((h) =>
                   creditMayPay(h, p.head) ? (
                     <td key={h} className="is-num">
@@ -166,9 +163,9 @@ function Gstr9Body({ summary: s, onMonth }: { summary: Gstr9Summary; onMonth: (m
   );
 }
 
-function G9Table({ rows, taxable = true }: { rows: readonly Gstr9Row[]; taxable?: boolean }) {
+function G9Table({ rows, label, taxable = true }: { rows: readonly Gstr9Row[]; label: string; taxable?: boolean }) {
   return (
-    <table className="bx-gst-form">
+    <table className="bx-gst-form" aria-label={label}>
       <thead>
         <tr>
           <th scope="col" className="bx-gst-form__row">

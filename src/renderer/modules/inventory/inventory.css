@@ -1,4 +1,4 @@
-/* Inventory module screens. Semantic design tokens only (no raw colours). Prefix: bx-inv- */
+/* Inventory screens (2.1: flat, no boxes). Tokens only. Prefix: bx-inv- */
 
 /* Picker rows */
 .bx-inv-pick {
@@ -22,9 +22,6 @@
 .bx-inv-grid {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
 }
 .bx-inv-grid__table {
   width: 100%;
@@ -39,10 +36,9 @@
   height: var(--row-h);
   padding: 0 var(--space-2);
   border-bottom: 1px solid var(--border-default);
-  background: var(--surface-2);
+  background: var(--surface-1);
   color: var(--text-secondary);
   font-size: var(--fs-12);
-  font-weight: var(--fw-medium);
   text-align: left;
   white-space: nowrap;
 }
@@ -70,8 +66,7 @@
   font-variant-numeric: tabular-nums;
 }
 .bx-inv-grid__row.is-group > .bx-inv-grid__td {
-  background: var(--surface-2);
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-semibold);
 }
 .bx-inv-grid__error {
   display: block;
@@ -84,7 +79,6 @@
 .bx-inv-grid__foot > .bx-inv-grid__td {
   border-top: 1px solid var(--border-default);
   border-bottom: 0;
-  background: var(--surface-2);
   font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
@@ -127,17 +121,18 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Lists */
+/* Lists: one search, then the filters */
 .bx-inv-filters {
-  display: grid;
-  grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) minmax(160px, 1fr);
-  gap: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
   align-items: end;
+  gap: var(--space-2);
 }
-@media (max-width: 900px) {
-  .bx-inv-filters {
-    grid-template-columns: 1fr;
-  }
+.bx-inv-filters > * {
+  flex: 0 1 200px;
+}
+.bx-inv-filters > :first-child {
+  flex-basis: 320px;
 }
 .bx-inv-name {
   display: flex;

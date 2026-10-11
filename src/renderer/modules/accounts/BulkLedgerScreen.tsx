@@ -8,10 +8,9 @@ import { useMemo, useRef, useState } from 'react';
 import { formatMoney } from '../../../shared/format.ts';
 import { useApiMutation } from '../../app/hooks/useApiMutation.ts';
 import { fieldErrorsOf, userMessage } from '../../app/lib/apiErrors.ts';
-import { useNav } from '../../app/nav.tsx';
 import { ReadOnlyNotice, Screen } from '../../app/Screen.tsx';
 import { useCan } from '../../app/state.tsx';
-import { AmountInput, Banner, Button, Field, IconButton, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
+import { AmountInput, Banner, Field, IconButton, Stack, TextInput, useEnterAdvance, useToast } from '../../ui/index.ts';
 import { StatePicker } from './components.tsx';
 import { LEDGER_DEPENDENTS } from './hooks.ts';
 import { applyRowGstin, bulkInput, bulkTotals, cellDescribedBy, cellErrorId, isBlankRow, mapBulkServerErrors, newBulkRow, validateBulkRows } from './lib/bulkRows.ts';
@@ -23,7 +22,6 @@ import { GroupPicker, useGroups, useLedgerPicker } from './pickers.tsx';
 const START_ROWS = 8;
 
 export function BulkLedgerScreen() {
-  const nav = useNav();
   const toast = useToast();
   const canCreate = useCan('masters.create');
   const groups = useGroups();
@@ -113,27 +111,17 @@ export function BulkLedgerScreen() {
   return (
     <Screen
       title="Multiple Ledger Creation"
-      subtitle="Type one ledger per row. All rows are created together when you press Ctrl+A."
-      icon="list"
+      subtitle={
+        totals.count > 0
+          ? `${totals.count} ledger${totals.count === 1 ? '' : 's'} · openings Dr ₹ ${formatMoney(totals.debit)} · Cr ₹ ${formatMoney(totals.credit)}`
+          : 'One ledger per row; all are created together with Ctrl+A.'
+      }
       dirty={dirty}
       hint="Enter Next cell · Ctrl+A Create all · Esc Back"
       actions={[
         { key: 'Ctrl+A', label: totals.count > 0 ? `Create ${totals.count} ledger${totals.count === 1 ? '' : 's'}` : 'Create ledgers', icon: 'save', primary: true, onClick: () => void submit(), disabled: !canCreate || totals.count === 0 },
         { key: 'Alt+N', label: 'Add row', icon: 'plus', onClick: () => setRows((rs) => [...rs, newBulkRow(defaultGroup)]), disabled: !canCreate },
       ]}
-      footer={
-        canCreate ? (
-          <>
-            <span className="bx-muted">
-              {totals.count} ledger{totals.count === 1 ? '' : 's'} · openings Dr ₹ {formatMoney(totals.debit)} · Cr ₹ {formatMoney(totals.credit)}
-            </span>
-            <Button onClick={() => void nav.back()}>Cancel</Button>
-            <Button variant="primary" icon="save" loading={create.pending} disabled={totals.count === 0} onClick={() => void submit()} shortcut="Ctrl+A">
-              Create all
-            </Button>
-          </>
-        ) : undefined
-      }
     >
       <div ref={formRef}>
         <Stack gap={4}>
@@ -203,9 +191,6 @@ export function BulkLedgerScreen() {
               </tbody>
             </table>
           </div>
-          <span className="bx-muted">
-            Parties get bill-wise details and the rest of their settings from the group; open a ledger later (Ledgers → Enter) to add address, bank or GST details.
-          </span>
         </Stack>
       </div>
     </Screen>

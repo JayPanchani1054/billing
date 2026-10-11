@@ -17,6 +17,7 @@ import {
   payeeDraft,
   payeeErrors,
   payeeInput,
+  registerContext,
   pointError,
   readyPayments,
   REGISTER_VIEWS,
@@ -166,5 +167,12 @@ describe('payment file: save or discard (review regression)', () => {
   it('a failing discard does not hide the outcome', async () => {
     const r = await makeAndSavePaymentFile({ make: async () => file, save: async () => null, discard: async () => { throw new Error('offline'); } });
     assert.equal(r.saved, null);
+  });
+});
+
+describe('leaf register context run (2.1)', () => {
+  it('names the date and, once one is chosen under Filters, the cheque book', () => {
+    assert.equal(registerContext('2026-10-11', null), 'As on 11-Oct-26');
+    assert.equal(registerContext('2026-10-11', '000501–000525'), 'As on 11-Oct-26 · Book 000501–000525');
   });
 });

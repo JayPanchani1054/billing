@@ -1,7 +1,9 @@
 /**
- * 'company.settings' {category?} — Settings (2.0): every setting of the app in one place. Topics on
- * the left, the topic's settings on the right; each row opens the existing screen (nav.push) — the hub
- * never embeds a form. Rows are data in lib/settingsIndex.ts (shown only when their screen is
+ * 'company.settings' {category?} — Settings (2.0; calm in 2.1, SPEC-21 §1.10): every setting of the app
+ * in one place. Topics on the left (words only), the topic's settings on the right — one line each: the
+ * title and, muted, its current value; what a setting changes is its tooltip (and `aria-describedby`),
+ * its key (F11, F12) the tooltip and `aria-keyshortcuts`. Each row opens the existing screen (nav.push) —
+ * the hub never embeds a form. Rows are data in lib/settingsIndex.ts (shown only when their screen is
  * registered and the viewer may open it; a topic with nothing left is hidden). Appearance is inline
  * (app/AppearancePanel.tsx), Data & backup also shows the data folder.
  *
@@ -10,12 +12,12 @@
  * opens, ← back to the topics. Typing a letter in either list continues in the search box. Ctrl+F
  * search · Esc back.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { native, Screen, useAppState, useCompany, useCompanyConfig, useNav, useSession } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
 import { AppearancePanel } from '../../app/AppearancePanel.tsx';
-import { Button, Card, EmptyState, Icon, Kbd, Stack, TextInput, useRovingFocus } from '../../ui/index.ts';
+import { Button, Card, EmptyState, Stack, TextInput, useRovingFocus } from '../../ui/index.ts';
 import { searchSettings, searchTopics, SETTINGS_INDEX, settingStatus, visibleSettings } from './lib/settingsIndex.ts';
 import type { SettingsCategory, SettingsCategoryId, SettingsFacts, SettingsRow } from './lib/settingsIndex.ts';
 
@@ -55,6 +57,7 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
     },
   });
   const rows = useRovingFocus(rowsRef, { orientation: 'vertical' });
+  const descId = useId();
 
   const open = (row: SettingsRow) => nav.push(row.screen, row.params ?? {});
   /** A topic found by the search: show it (the search is cleared). */
@@ -119,8 +122,6 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
   return (
     <Screen
       title="Settings"
-      subtitle="Every setting in one place. Pick a topic, then open the setting you want to change."
-      icon="settings"
       actions={[{ key: 'Ctrl+F', label: 'Search', icon: 'search', onClick: () => searchRef.current?.focus(), group: 'view' }]}
       hint="Type to search · ↑↓ Move · → Settings of a topic · Enter Open · Ctrl+F Search · Esc Back"
     >
@@ -131,7 +132,7 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onSearchKey}
-            placeholder="Search settings — e.g. logo, prefix, backup"
+            placeholder="Search"
             leadingIcon="search"
             aria-label="Search settings"
             data-autofocus=""
@@ -154,7 +155,6 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
                       setQuery('');
                     }}
                   >
-                    <Icon name={c.icon} size="sm" />
                     {c.title}
                   </button>
                 </li>
@@ -163,12 +163,12 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
           </nav>
         </Stack>
 
-        <Card headingLevel={2} padding="sm" title={searching ? `Results for “${query.trim()}”` : (current?.title ?? 'Settings')} subtitle={searching ? undefined : current?.description}>
+        <Card headingLevel={2} padding="none" title={searching ? `Results for “${query.trim()}”` : (current?.title ?? 'Settings')}>
           {searching && matches.length === 0 && topicMatches.length === 0 ? (
             <EmptyState
               icon="search"
               title={`No results for “${query.trim()}”`}
-              body="Try another word — e.g. GSTIN, logo, prefix, password or backup. Go To (Ctrl+G) searches every screen."
+              body="Try another word — e.g. logo, prefix, backup, GSTIN or password. Go To (Ctrl+G) searches every screen."
               action={
                 <Button
                   onClick={() => {
@@ -185,29 +185,35 @@ export function SettingsScreen({ params }: ScreenProps<SettingsParams>) {
               {searching
                 ? topicMatches.map((c) => (
                     <li key={`topic:${c.id}`}>
-                      <button type="button" className="bx-settings__item bx-settings__row" data-roving-item="" data-topic={c.id} onClick={() => showTopic(c)}>
-                        <span className="bx-settings__text">
-                          <span className="bx-settings__title">{c.title}</span>
-                          <span className="bx-settings__note">{c.description}</span>
-                        </span>
-                        <Icon name="chevron-right" size="sm" />
+                      <button type="button" className="bx-settings__item" data-roving-item="" data-topic={c.id} title={c.description} onClick={() => showTopic(c)}>
+                        <span className="bx-settings__title">{c.title}</span>
+                        <span className="bx-settings__note">Topic</span>
                       </button>
                     </li>
                   ))
                 : null}
               {shownRows.map(({ row, category }) => {
                 const status = settingStatus(row.id, facts);
+                const value = [searching ? category.title : null, status].filter(Boolean).join(' · ');
+                const id = `${descId}-${category.id}-${row.id}`;
                 return (
                   <li key={`${category.id}:${row.id}`}>
-                    <button type="button" className="bx-settings__item bx-settings__row" data-roving-item="" data-setting={row.id} onClick={() => open(row)}>
-                      <span className="bx-settings__text">
-                        <span className="bx-settings__title">{row.title}</span>
-                        <span className="bx-settings__note">{searching ? `${category.title} · ${row.description}` : row.description}</span>
-                        {status ? <span className="bx-settings__note">{status}</span> : null}
-                      </span>
-                      {row.shortcut ? <Kbd keys={row.shortcut} size="sm" tone="subtle" /> : null}
-                      <Icon name="chevron-right" size="sm" />
+                    <button
+                      type="button"
+                      className="bx-settings__item"
+                      data-roving-item=""
+                      data-setting={row.id}
+                      title={row.shortcut ? `${row.description} · ${row.shortcut}` : row.description}
+                      aria-describedby={id}
+                      aria-keyshortcuts={row.shortcut}
+                      onClick={() => open(row)}
+                    >
+                      <span className="bx-settings__title">{row.title}</span>
+                      {value ? <span className="bx-settings__note">{value}</span> : null}
                     </button>
+                    <span id={id} hidden>
+                      {row.description}
+                    </span>
                   </li>
                 );
               })}

@@ -2,14 +2,20 @@
  * 'reports.monthlySummary' {ledgerId? | groupId?, from?, to?} — month-wise debit, credit and closing
  * balance of a ledger or group. Enter on a month opens that month's ledger vouchers (or the group's
  * summary for the month).
+ *
+ * 2.1 (graph class 'detail'): an income / expense subject draws its net movement per month as columns,
+ * an asset / liability its month-end balance as a line (lib/charts.ts); Enter on a month in the graph =
+ * Enter on its row.
  */
 import { useMemo } from 'react';
 import type { MonthRow } from '../../../shared/types/reports.ts';
 import { ReportScreen, useApiQuery } from '../../app/index.ts';
 import type { ScreenProps } from '../../app/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { DataTable, EmptyState } from '../../ui/index.ts';
 import type { Column, FooterRow } from '../../ui/index.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
+import { monthlySummaryChart } from './lib/charts.ts';
 import { monthLabel } from './lib/model.ts';
 
 export interface MonthlySummaryParams {
@@ -17,6 +23,8 @@ export interface MonthlySummaryParams {
   groupId?: number;
   from?: string;
   to?: string;
+  /** 'YYYY-MM': the month row to start on (Home's sales graph opens the summary on the clicked month). */
+  month?: string;
 }
 
 export function MonthlySummaryScreen({ params }: ScreenProps<MonthlySummaryParams>) {
@@ -43,10 +51,14 @@ export function MonthlySummaryScreen({ params }: ScreenProps<MonthlySummaryParam
         { key: 'total', tone: 'total', cells: { month: 'Grand Total', debit: d.totals.debit, credit: d.totals.credit, closing: d.closing } },
       ]
     : [];
-  const open = (r: MonthRow): void => {
+  const open = (r: Pick<MonthRow, 'from' | 'to'>): void => {
     if (ledgerId !== undefined) drill({ screen: 'reports.ledger', params: { ledgerId, from: r.from, to: r.to } });
     else if (groupId !== undefined) drill({ screen: 'reports.groupSummary', params: { groupId, from: r.from, to: r.to } });
   };
+  const spec = useMemo(
+    () => monthlySummaryChart(d, { activate: (r) => (ledgerId !== undefined ? drill({ screen: 'reports.ledger', params: { ledgerId, from: r.from, to: r.to } }) : groupId !== undefined ? drill({ screen: 'reports.groupSummary', params: { groupId, from: r.from, to: r.to } }) : undefined) }),
+    [d, drill, ledgerId, groupId],
+  );
   return (
     <ReportScreen
       title={d ? `${d.subject.name} — Monthly Summary` : 'Monthly Summary'}
@@ -56,6 +68,8 @@ export function MonthlySummaryScreen({ params }: ScreenProps<MonthlySummaryParam
       error={has ? q.error : null}
       onRetry={q.refetch}
       hint="Enter Vouchers of the month"
+      graph={has ? reportGraph(spec) : null}
+      graphKind="detail"
       exportDef={() => ({
         columns: [{ header: 'Month' }, { header: 'Vouchers', kind: 'number' }, { header: 'Debit', kind: 'amount' }, { header: 'Credit', kind: 'amount' }, { header: 'Closing Balance', kind: 'drcr' }],
         rows: d ? [['Opening Balance', null, null, null, d.opening], ...d.rows.map((r) => [monthLabel(r.month), r.count, r.debit || null, r.credit || null, r.closing])] : [],
@@ -65,10 +79,10 @@ export function MonthlySummaryScreen({ params }: ScreenProps<MonthlySummaryParam
       {has ? (
         <DataTable<MonthRow>
           aria-label="Monthly summary"
-          className="bx-rep-fill"
           columns={columns}
           rows={d?.rows ?? []}
           getRowKey={(r) => r.month}
+          defaultSelectedKey={typeof params?.month === 'string' ? params.month : null}
           onRowActivate={open}
           footerRows={footer}
           loading={q.loading}

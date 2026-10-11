@@ -6,12 +6,14 @@
  *   'cheques.payee.form'  {ledgerId?} beneficiary name, account number (typed twice), IFSC, bank, branch,
  *                                     account type, name on cheque, preferred payment mode. Ctrl+A save.
  * Used by bulk e-payment files and as the payee name on cheques; every change is in the edit log.
+ * 2.1: a master list — no graph; Print / Export in More (keys kept), Create a secondary button; the form
+ * has one Save, in the title row.
  */
 import { useMemo, useRef, useState } from 'react';
 import type { PayeeAccountType, PayeeBankDetails, PayeeListRow, PayeePaymentMode } from '../../../shared/types/cheques.ts';
 import { PAYEE_ACCOUNT_TYPES, PAYEE_PAYMENT_MODES } from '../../../shared/types/cheques.ts';
 import { fieldErrorsOf, ReadOnlyNotice, ReportScreen, Screen, useApiMutation, useApiQuery, useCan, useNav, userMessage, type ScreenProps } from '../../app/index.ts';
-import { Banner, Button, DataTable, EmptyState, Field, FieldGroup, SegmentedControl, Select, Stack, TextInput, useDebouncedValue, useEnterAdvance, useToast, type Column } from '../../ui/index.ts';
+import { Banner, DataTable, EmptyState, Field, FieldGroup, Inline, SegmentedControl, Select, Stack, TextInput, useDebouncedValue, useEnterAdvance, useToast, type Column } from '../../ui/index.ts';
 import { LedgerPicker } from '../accounts/pickers.tsx';
 import { ACCOUNT_TYPE_LABELS, CHEQUE_INVALIDATES, ifscBank, PAYMENT_MODE_LABELS, payeeDraft, payeeErrors, payeeInput, type PayeeDraft } from './lib/model.ts';
 
@@ -44,23 +46,24 @@ export function PayeeListScreen() {
     <ReportScreen
       title="Payee Bank Details"
       periodMode="none"
+      outputInMore
       loading={q.loading}
       refreshing={q.refreshing}
       error={q.error}
       onRetry={q.refetch}
       hint="Enter Alter · Alt+C Create bank details · Ctrl+F Search · Ctrl+1 With details / Ctrl+2 All parties · Alt+E Export"
       actions={[
-        { key: 'Alt+C', label: 'Create bank details', icon: 'plus', primary: true, onClick: () => nav.push('cheques.payee.form', {}), hidden: !canAlter },
+        { key: 'Alt+C', label: 'Create bank details', icon: 'plus', onClick: () => nav.push('cheques.payee.form', {}), hidden: !canAlter },
         { key: 'Alt+A', label: 'Alter', icon: 'edit', onClick: () => current && nav.push('cheques.payee.form', { ledgerId: current.ledgerId }), disabled: !current },
         { key: 'Ctrl+1', label: 'With details', icon: 'filter', onClick: () => setView('details'), disabled: view === 'details', group: 'view' },
         { key: 'Ctrl+2', label: 'All parties', icon: 'filter', onClick: () => setView('all'), disabled: view === 'all', group: 'view' },
         { key: 'Ctrl+F', label: 'Search', icon: 'search', onClick: () => searchRef.current?.focus(), group: 'view' },
       ]}
       filters={
-        <Stack gap={2}>
-          <TextInput ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Search ledger, beneficiary or account" aria-label="Search payees" size="sm" />
+        <Inline gap={4} wrap align="center">
           <SegmentedControl<'details' | 'all'> aria-label="Show" size="sm" value={view} onChange={setView} options={[{ value: 'details', label: 'With bank details' }, { value: 'all', label: 'All parties' }]} />
-        </Stack>
+          <TextInput ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)} leadingIcon="search" placeholder="Search" title="Ledger, beneficiary or account number · Ctrl+F" aria-label="Search payees" size="sm" />
+        </Inline>
       }
       exportDef={() => ({
         title: 'Payee Bank Details',
@@ -80,7 +83,6 @@ export function PayeeListScreen() {
         loading={q.loading}
         empty={
           <EmptyState
-            icon="bank"
             title={view === 'details' ? 'No payee bank details yet' : 'No parties found'}
             body="Bank details of suppliers and other payees go into bulk payment files and on cheques. Press Alt+C to add them for a ledger."
           />
@@ -96,7 +98,7 @@ export function PayeeFormScreen({ params }: ScreenProps<{ ledgerId?: number }>) 
   const [ledgerId, setLedgerId] = useState<number | null>(typeof params.ledgerId === 'number' ? params.ledgerId : null);
   const q = useApiQuery('cheques.payee.get', { ledgerId: ledgerId ?? 0 }, { enabled: ledgerId !== null, staleTime: 0 });
   if (ledgerId === null) return <ChooseLedger onChoose={setLedgerId} />;
-  if (!q.data) return <Screen title="Payee Bank Details" icon="bank" width="form" loading={!q.error} error={q.error} onRetry={() => void q.refetch()} />;
+  if (!q.data) return <Screen title="Payee Bank Details" width="form" loading={!q.error} error={q.error} onRetry={() => void q.refetch()} />;
   return <PayeeForm key={`${q.data.ledgerId}:${q.data.updatedAt ?? ''}`} saved={q.data} />;
 }
 
@@ -106,7 +108,6 @@ function ChooseLedger({ onChoose }: { onChoose: (id: number) => void }) {
     <Screen
       title="Payee Bank Details"
       subtitle="Choose the party or expense ledger"
-      icon="bank"
       width="form"
       hint="Type the ledger name · Enter Continue · Esc Back"
       actions={[{ key: 'Ctrl+A', label: 'Continue', icon: 'arrow-right', primary: true, onClick: () => id !== null && onChoose(id), disabled: id === null }]}
@@ -162,7 +163,6 @@ function PayeeForm({ saved }: { saved: PayeeBankDetails }) {
     <Screen
       title="Payee Bank Details"
       subtitle={saved.ledgerName}
-      icon="bank"
       width="form"
       dirty={dirty}
       hint="Enter Next field · Ctrl+A Save · Esc Back"
@@ -208,13 +208,6 @@ function PayeeForm({ saved }: { saved: PayeeBankDetails }) {
               <TextInput value={d.chequeName} readOnly={readOnly} maxLength={80} onChange={(e) => patch({ chequeName: e.target.value })} />
             </Field>
           </FieldGroup>
-          {!readOnly ? (
-            <div>
-              <Button variant="primary" shortcut="Ctrl+A" loading={save.pending} disabled={!dirty} onClick={() => void submit()} data-enter-target="">
-                Save
-              </Button>
-            </div>
-          ) : null}
         </Stack>
       </form>
     </Screen>

@@ -3,17 +3,20 @@
  * the e-way bill limit and that have no e-way bill yet. Select (Space / Alt+S) and save the bulk JSON
  * for the EWB portal (Alt+J); record the e-way bill number, date and validity the portal gives
  * (Alt+N); history per voucher (Alt+H). Enter opens the voucher, Alt+A alters it.
+ * 2.1 (SPEC-21 §5, WP-J2): a work queue — no graph; "Pending N · Ready M" on the toolbar row, the
+ * explanation under More ▾ › About this report.
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { EwayPendingRow } from '../../../shared/types/gst-returns.ts';
 import { formatMoney, isApiError, ReportScreen, useApiMutation, useApiQuery, useCan, useNav, userMessage, useWorkingDate, fieldErrorsOf } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, Checkbox, DataTable, DateInput, EmptyState, Field, Modal, Panel, Stack, TextInput, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
+import { Badge, Banner, Button, Checkbox, DataTable, DateInput, EmptyState, Field, Modal, Panel, Stack, StatLine, TextInput, useEnterAdvance, useHotkeys, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { DocEventsDrawer, FileResultDialog, GstHelp, RejectedDocsDialog, saveJsonFile, useGstRange } from './components.tsx';
+import { DocEventsDrawer, FileResultDialog, RejectedDocsDialog, saveJsonFile, useGstRange } from './components.tsx';
 import type { FileResult } from './components.tsx';
 import { MAX_BULK, normaliseEwbNo, pruneSelection, rejectedFromDetails, selectionState, toggleAllReady, toggleSelection, validateEwbForm } from './lib/compliance.ts';
 import type { EwbFormErrors } from './lib/compliance.ts';
+import { pendingStat } from './lib/registerCharts.ts';
 import { bulkFileMessage } from './lib/reports.ts';
 
 export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: string }>) {
@@ -125,13 +128,21 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
   ];
 
   const enabled = q.data?.enabled ?? true;
+  const stat = q.data ? pendingStat(rows) : [];
   return (
     <>
       <ReportScreen
         title="e-Way Bills"
-        subtitle={q.data ? `${rows.length} pending · ${readyCount} ready${selected.size ? ` · ${selected.size} selected` : ''}` : undefined}
+        subtitle={selected.size ? `${selected.size} selected` : undefined}
         period={override}
         actions={actions}
+        stat={stat.length ? <StatLine items={stat} /> : undefined}
+        about={
+          <p>
+            Sales and sales returns whose goods value is more than {threshold} need an e-way bill before the goods move. Select the ready ones (Space, or Alt+S for all),
+            save the JSON for the EWB portal (Alt+J), then record the e-way bill number it gives you (Alt+N).
+          </p>
+        }
         exportDef={
           q.data
             ? () => ({
@@ -171,10 +182,6 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
         hint="Space Select · Alt+S All ready · Alt+A Alter voucher · Alt+J JSON · Alt+N Record EWB no. · Enter Open · Esc Back"
       >
         <div className="bx-gst-fill">
-          <GstHelp>
-            Sales and sales returns whose goods value is more than {threshold} need an e-way bill before the goods move. Save the JSON for the EWB portal, then
-            record the e-way bill number it gives you.
-          </GstHelp>
           {!enabled ? (
             <Banner tone="info" title="e-Way Bills are turned off">
               Turn on e-Way Bill under Features (F11) to track them. Invoices above the limit are still listed below.
@@ -205,16 +212,7 @@ export function EwaybillScreen({ params }: ScreenProps<{ from?: string; to?: str
             empty={<EmptyState icon="check-circle" title="No e-Way Bills pending" body={`No invoice in this period is above ${threshold} without an e-way bill. Change the period with Alt+F2.`} />}
           />
           {current && (current.errors.length > 0 || current.warnings.length > 0) ? (
-            <Panel
-              title={`${current.voucherTypeName} ${current.number ?? ''} · ${current.partyName ?? ''}`}
-              headingLevel={2}
-              description={current.ready ? 'Ready — but check these notes.' : 'Fix these before generating the e-way bill:'}
-              actions={
-                <Button size="sm" icon="edit" onClick={() => nav.push('vouchers.entry', { id: current.voucherId })}>
-                  Alter voucher (Alt+A)
-                </Button>
-              }
-            >
+            <Panel title={`${current.voucherTypeName} ${current.number ?? ''} · ${current.partyName ?? ''} — ${current.ready ? 'ready, check the notes' : 'fix before generating'}`} headingLevel={2}>
               <ul className="bx-gst-list">
                 {current.errors.map((e, i) => (
                   <li key={`e${i}`}>

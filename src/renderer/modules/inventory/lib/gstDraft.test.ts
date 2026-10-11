@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyGstDraft, gstChanged, gstDraftFrom, gstSaveFields, validateGstDraft } from './gstDraft.ts';
+import { emptyGstDraft, gstChanged, gstDraftFrom, gstSaveFields, showApplicableFrom, validateGstDraft } from './gstDraft.ts';
 import type { GstMaster } from './gstDraft.ts';
 
 const group: GstMaster = { gstApplicable: true, taxability: 'taxable', gstRate: 18, cessRate: null, cessPerUnit: 0, hsnSac: '8517' };
@@ -58,4 +58,21 @@ test('rate select: slabs first, then other notified rates, then another rate', a
   assert.equal(rateSelectValue({ gstRate: null, allowNonStandardRate: false }), '');
   assert.deepEqual(patchFromRateSelect('5'), { gstRate: 5, allowNonStandardRate: false });
   assert.deepEqual(patchFromRateSelect(OTHER_RATE), { allowNonStandardRate: true });
+});
+
+test('"Applicable from": on alteration of own or dated GST details; in the item Essentials only while it can matter', () => {
+  const base = { gstApplicable: true, existing: true, savedOwn: true, historyCount: 0, changed: false, value: null };
+  // The group dialog (2.0 rule): always on an alteration of own details, never on a new master or while inheriting.
+  assert.equal(showApplicableFrom(base), true);
+  assert.equal(showApplicableFrom({ ...base, existing: false }), false);
+  assert.equal(showApplicableFrom({ ...base, gstApplicable: false }), false);
+  assert.equal(showApplicableFrom({ ...base, savedOwn: false }), false);
+  assert.equal(showApplicableFrom({ ...base, savedOwn: false, historyCount: 2 }), true);
+  // The item's Essentials: hidden until the details change (or a date / an error is there).
+  const ess = { ...base, onlyWhenNeeded: true };
+  assert.equal(showApplicableFrom(ess), false);
+  assert.equal(showApplicableFrom({ ...ess, changed: true }), true);
+  assert.equal(showApplicableFrom({ ...ess, value: '2026-10-01' }), true);
+  assert.equal(showApplicableFrom({ ...ess, error: 'Say from which date' }), true);
+  assert.equal(showApplicableFrom({ ...ess, changed: true, existing: false }), false);
 });

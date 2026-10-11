@@ -1,24 +1,33 @@
 /**
- * 'vouchers.view' {id} — read-only rendering of a saved voucher: header, party, item lines,
- * ledger entries (Dr / Cr) with bills, cost centres and bank details, GST breakup, e-invoice and
- * e-way bill status, cancellation and audit stamps.
+ * 'vouchers.view' {id} — read-only rendering of a saved voucher.
  *
- * Keys: Alt+A alter · Alt+P print · Alt+2 duplicate · Alt+X cancel · Alt+D delete · Alt+H history ·
- * Ctrl+R change the number (2.0: vouchers.renumber + vouchers.alter → 'vouchers.renumber'; the voucher is
- * re-saved as entered, so its entries are unchanged) · Esc back.
+ * 2.1 (SPEC-21 §1.5, D21): the voucher is the document. Title row: the h1 (type and number), the date and
+ * state words only (Cancelled the one danger word). Then the party in one line (with its GSTIN) and the
+ * references in one line; the item lines (columns empty or the same on every line hidden); the totals
+ * block of an item invoice (Taxable · tax heads · Round off · Total ₹); the amount in words and the
+ * narration; then the panels of other modules. The Dr / Cr entries (with bills, cost centres and bank
+ * details) are shown by default for vouchers without item lines and behind **Alt+F1 Detailed** for
+ * invoices; Detailed also adds the GST rate-wise table, addresses, dispatch / e-invoice details and the
+ * "Entered by … · last changed by …" line. The choice is remembered (`pevqori.ui` `voucherDetailed`).
+ *
+ * Keys: Alt+A alter · Alt+P print · Alt+F1 detailed · Alt+2 duplicate · Alt+X cancel · Alt+D delete ·
+ * Alt+H history · Ctrl+R change the number (2.0: vouchers.renumber + vouchers.alter → 'vouchers.renumber';
+ * the voucher is re-saved as entered, so its entries are unchanged) · Esc back.
  */
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney, formatPercent, formatQty, formatRate } from '../../../shared/format.ts';
 import { stateLabel } from '../../../shared/gst/index.ts';
 import type { GstLineView, PreviewInventoryLine, VoucherDetailEntry, VoucherNumberOverride } from '../../../shared/types/vouchers.ts';
 import { ApiError, formatDateTime, isApiError, Screen, useApiMutation, useApiQuery, useCan, useCompany, useConfirm, useModules, useNav, userMessage, withConfirmation } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
+import { setUiPrefs, useUiPrefs } from '../../app/preferences.ts';
 import { amountInWords } from '../../../shared/words.ts';
-import { Badge, Banner, Card, DataTable, KeyValueList, Stack, useToast } from '../../ui/index.ts';
-import type { Column } from '../../ui/index.ts';
+import { Banner, DataTable, Inline, KeyValueList, Panel, Stack, useToast } from '../../ui/index.ts';
+import type { Column, KeyValueItem } from '../../ui/index.ts';
 import { REF_TYPE_LABEL } from './lib/bills.ts';
-import { MODE_LABEL } from './lib/kinds.ts';
+import { hiddenItemColumns, partyLine, referenceLine, viewSections, viewStateWords, viewTotals } from './lib/daybook.ts';
 import { INSTRUMENT_LABEL, ReasonDialog } from './entry/dialogs.tsx';
 import { VOUCHER_INVALIDATES } from './entry/VoucherEntryScreen.tsx';
 import { ChangeNumberDialog } from './ChangeNumberDialog.tsx';
@@ -79,6 +88,8 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   const confirm = useConfirm();
   const q = useApiQuery('vouchers.get', { id: params.id }, { staleTime: 0 });
   const v = q.data;
+  // Alt+F1 Detailed / condensed, remembered on this computer (SPEC-21 §4.5).
+  const detailed = useUiPrefs().voucherDetailed;
   // Other modules' panels for this voucher (ModuleDef.voucherPanels: conversion links, recurring, pre-close).
   const modules = useModules();
   const panels = useMemo(() => modules.flatMap((m) => (m.voucherPanels ?? []).map((C, i) => ({ key: `${m.id}:${i}`, C }))), [modules]);
@@ -107,6 +118,7 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   const gstRows = useMemo(() => gstByRate(v?.gstLines ?? []), [v]);
 
   const physical = v?.voucherType.baseType === 'physical_stock';
+  const invoiceTotals = v ? viewSections(v, false).totals : false;
   const itemColumns = useMemo<Column<PreviewInventoryLine>[]>(
     () => [
       { key: 'lineNo', header: '#', width: 44, kind: 'number', decimals: 0 },
@@ -132,9 +144,10 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
       { key: 'discountPct', header: 'Disc %', width: 80, align: 'right', render: (r) => (r.discountPct ? <span className="bx-num">{formatPercent(r.discountPct)}</span> : '') },
       { key: 'hsnSac', header: 'HSN/SAC', width: 100 },
       { key: 'gstRate', header: 'GST %', width: 80, align: 'right', render: (r) => (r.gstRate === null ? '' : <span className="bx-num">{formatPercent(r.gstRate)}</span>) },
-      { key: 'amount', header: 'Amount', kind: 'amount', width: 140, total: true },
+      // An item invoice says its totals in the block under the lines (Taxable … Total ₹), not in a total row.
+      { key: 'amount', header: 'Amount', kind: 'amount', width: 140, total: !invoiceTotals },
     ],
-    [physical],
+    [physical, invoiceTotals],
   );
   const entryColumns = useMemo<Column<EntryRow>[]>(
     () => [
@@ -142,10 +155,10 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
         key: 'name',
         header: 'Particulars',
         render: (r) => (
-          <span className="bx-vch-view__entry">
-            <span>{r.name}</span>
-            {r.detail ? <span className="bx-muted bx-vch-view__detail">{r.detail}</span> : null}
-          </span>
+          <>
+            <div>{r.name}</div>
+            {r.detail ? <div className="bx-muted bx-vch-view__detail">{r.detail}</div> : null}
+          </>
         ),
       },
       { key: 'debit', header: 'Debit', kind: 'amount', width: 150, blankZero: true, total: true },
@@ -248,35 +261,56 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
     { key: 'Ctrl+R', label: 'Change number', icon: 'hash', onClick: () => setRenumbering(true), hidden: !v || renumberAction.hidden, disabled: renumberAction.disabled, hint: renumberAction.hint, group: 'output' },
     { key: 'Alt+X', label: 'Cancel voucher', icon: 'x-circle', onClick: () => setCancelling(true), hidden: !live || !canAlter, group: 'danger' },
     { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), hidden: !v || !canDelete || irnGenerated, group: 'danger' },
+    // 2.1 (SPEC-21 D21): Detailed adds the Dr / Cr entries of an invoice, the GST table, addresses and the audit line; remembered.
+    { key: 'Alt+F1', label: 'Detailed', icon: 'list', onClick: () => setUiPrefs({ voucherDetailed: !detailed }), hidden: !v, group: 'view', checked: detailed },
   ];
 
   const title = v ? `${v.voucherType.name} ${v.number ?? ''}`.trim() : 'Voucher';
   const consignee = v?.consignee;
   const dispatch = v?.dispatch;
+  const state = v ? viewStateWords(v) : null;
+  const sections = v ? viewSections(v, detailed) : null;
+  const party = v ? partyLine(v) : '';
+  const refs = v ? referenceLine(v) : '';
+  // Detailed: the party's address and state, dispatch and e-invoice details (only those with a value).
+  const details: KeyValueItem[] = v
+    ? [
+        { label: 'Ledger', value: v.partyLedgerName && v.partyLedgerName !== v.party.name ? v.partyLedgerName : '' },
+        { label: 'Address', value: v.party.address ?? '' },
+        { label: 'State', value: v.party.stateCode ? stateLabel(v.party.stateCode) : '' },
+        { label: 'Place of supply', value: v.placeOfSupply ? stateLabel(v.placeOfSupply) : '' },
+        { label: 'Effective date', value: v.effectiveDate ?? '', kind: 'date' as const },
+        { label: 'Reason', value: v.noteReason ?? '' },
+        { label: 'Consignee', value: [consignee?.name, consignee?.stateCode ? stateLabel(consignee.stateCode) : ''].filter(Boolean).join(', ') },
+        { label: 'Vehicle', value: dispatch?.vehicleNo ?? '' },
+        { label: 'Transporter', value: dispatch?.transporterName ?? '' },
+        { label: 'Distance', value: dispatch?.distanceKm ? `${dispatch.distanceKm} km` : '' },
+        { label: 'e-Way Bill valid up to', value: v.ewayBill.validUpto ?? '', kind: 'date' as const },
+        { label: 'IRN', value: v.irn.irn ?? '' },
+        { label: 'Ack no.', value: v.irn.ackNo ? `${v.irn.ackNo}${v.irn.ackDate ? ` · ${formatDate(v.irn.ackDate.slice(0, 10))}` : ''}` : '' },
+      ].filter((d) => d.value !== '')
+    : [];
   return (
     <Screen
       title={title}
-      subtitle={v ? `${formatDate(v.date)} · ${MODE_LABEL[v.mode]}` : undefined}
-      icon="invoice"
+      subtitle={v ? formatDate(v.date) : undefined}
       width="full"
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
       actions={actions}
-      hint="Alt+A Alter · Alt+P Print · Alt+2 Duplicate · Esc Back"
+      hint="Alt+A Alter · Alt+P Print · Alt+F1 Detailed · Alt+2 Duplicate · Esc Back"
       meta={
-        v ? (
+        state && (state.danger || state.words.length > 0) ? (
           <>
-            {v.isCancelled ? <Badge tone="danger">Cancelled</Badge> : null}
-            {v.isOptional ? <Badge tone="warning">Optional</Badge> : null}
-            {v.isPostDated ? <Badge tone="info">Post-dated</Badge> : null}
-            {!v.affectsBooks && !v.isCancelled && !v.isOptional ? <Badge tone="neutral">Not in the books</Badge> : null}
-            {v.irn.status ? <Badge tone={v.irn.status === 'generated' ? 'success' : 'info'}>e-Invoice: {v.irn.status}</Badge> : null}
+            {state.danger ? <span className="bx-vch-view__danger">{state.danger}</span> : null}
+            {state.danger && state.words.length > 0 ? ' · ' : ''}
+            {state.words.join(' · ')}
           </>
         ) : undefined
       }
     >
-      {v ? (
+      {v && sections ? (
         <Stack gap={4}>
           {v.cancellation ? (
             <Banner tone="warning" title="This voucher is cancelled">
@@ -284,93 +318,75 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
               {v.cancellation.by ? ` by ${v.cancellation.by}` : ''}. Reason: {v.cancellation.reason}
             </Banner>
           ) : null}
-          <div className="bx-vch-view__head">
-            <Card title="Voucher" padding="sm">
-              <KeyValueList
-                items={[
-                  { label: 'Type', value: v.voucherType.name },
-                  { label: 'Number', value: v.number ?? '—' },
-                  { label: 'Date', value: v.date, kind: 'date' },
-                  { label: 'Effective date', value: v.effectiveDate ?? '', kind: 'date', hideEmpty: true },
-                  { label: 'Reference', value: [v.referenceNo, v.referenceDate ? formatDate(v.referenceDate) : ''].filter(Boolean).join(' dated '), hideEmpty: true },
-                  { label: 'Against invoice', value: [v.originalInvoiceNo, v.originalInvoiceDate ? formatDate(v.originalInvoiceDate) : ''].filter(Boolean).join(' dated '), hideEmpty: true },
-                  { label: 'Reason', value: v.noteReason ?? '', hideEmpty: true },
-                  { label: 'Amount', value: v.totals.amount, kind: 'amount', strong: true },
-                ]}
-              />
-            </Card>
-            {v.partyLedgerName || v.party.name ? (
-              <Card title="Party" padding="sm">
-                <KeyValueList
-                  items={[
-                    { label: 'Name', value: v.party.name ?? v.partyLedgerName ?? '' },
-                    { label: 'Ledger', value: v.partyLedgerName && v.partyLedgerName !== v.party.name ? v.partyLedgerName : '', hideEmpty: true },
-                    { label: 'GSTIN', value: v.party.gstin ?? '', hideEmpty: true },
-                    { label: 'Address', value: v.party.address ?? '', hideEmpty: true },
-                    { label: 'State', value: v.party.stateCode ? stateLabel(v.party.stateCode) : '', hideEmpty: true },
-                    { label: 'Place of supply', value: v.placeOfSupply ? stateLabel(v.placeOfSupply) : '', hideEmpty: true },
-                    { label: 'Reverse charge', value: v.isReverseCharge ? 'Yes' : '', hideEmpty: true },
-                  ]}
-                />
-              </Card>
-            ) : null}
-            {consignee || dispatch || v.ewayBill.number || v.irn.irn ? (
-              <Card title="Dispatch & e-documents" padding="sm">
-                <KeyValueList
-                  items={[
-                    { label: 'Consignee', value: [consignee?.name, consignee?.stateCode ? stateLabel(consignee.stateCode) : ''].filter(Boolean).join(', '), hideEmpty: true },
-                    { label: 'Vehicle', value: dispatch?.vehicleNo ?? '', hideEmpty: true },
-                    { label: 'Transporter', value: dispatch?.transporterName ?? '', hideEmpty: true },
-                    { label: 'Distance', value: dispatch?.distanceKm ? `${dispatch.distanceKm} km` : '', hideEmpty: true },
-                    { label: 'e-Way Bill', value: v.ewayBill.number ? `${v.ewayBill.number}${v.ewayBill.validUpto ? ` (valid up to ${formatDate(v.ewayBill.validUpto)})` : ''}` : '', hideEmpty: true },
-                    { label: 'IRN', value: v.irn.irn ?? '', hideEmpty: true },
-                    { label: 'Ack no.', value: v.irn.ackNo ? `${v.irn.ackNo}${v.irn.ackDate ? ` · ${formatDate(v.irn.ackDate.slice(0, 10))}` : ''}` : '', hideEmpty: true },
-                  ]}
-                />
-              </Card>
-            ) : null}
-          </div>
+          {party || refs ? (
+            <Inline justify="between" gap={6} rowGap={2}>
+              <span>{party}</span>
+              {refs ? <span className="bx-muted">{refs}</span> : null}
+            </Inline>
+          ) : null}
+          {detailed && details.length > 0 ? <KeyValueList columns={2} items={details} /> : null}
 
           {v.inventory.length > 0 ? (
             <section aria-label="Items">
-              <h2 className="bx-vch-grid__title">Items</h2>
-              <DataTable<PreviewInventoryLine> aria-label="Items" columns={itemColumns} rows={v.inventory} getRowKey={(r) => `${r.lineNo}-${r.itemId}-${r.isConsumption ? 'c' : 'p'}`} density="compact" />
+              <DataTable<PreviewInventoryLine>
+                aria-label="Items"
+                columns={itemColumns}
+                rows={v.inventory}
+                getRowKey={(r) => `${r.lineNo}-${r.itemId}-${r.isConsumption ? 'c' : 'p'}`}
+                hiddenColumns={hiddenItemColumns(v.inventory, detailed)}
+                density="compact"
+                autoFocus={sections.focus === 'items'}
+              />
             </section>
           ) : null}
 
-          {entries.length > 0 ? (
-            <section aria-label="Accounting entries">
-              <h2 className="bx-vch-grid__title">Accounting entries</h2>
-              <DataTable<EntryRow> aria-label="Accounting entries" columns={entryColumns} rows={entries} getRowKey={(r) => r.key} density="compact" autoFocus />
-            </section>
-          ) : v.isCancelled ? null : (
+          {sections.totals ? (
+            <KeyValueList
+              className="bx-vch-view__totals"
+              alignValues="right"
+              items={viewTotals(v).map((r) =>
+                // Tax the party is not paid (reverse charge, IGST at customs) is shown muted, outside the Total.
+                r.muted
+                  ? { key: r.key, label: <span className="bx-muted">{r.label}</span>, value: <span className="bx-muted">{formatMoney(r.amount)}</span>, kind: 'amount' as const }
+                  : { key: r.key, label: r.label, value: r.amount, kind: 'amount' as const, strong: r.grand },
+              )}
+            />
+          ) : null}
+
+          {sections.entries ? (
+            // An invoice's entries (Detailed) get a section title; a voucher's own Dr / Cr lines are the document.
+            <Section title={v.inventory.length > 0 ? 'Accounting entries' : null} label="Accounting entries">
+              <DataTable<EntryRow> aria-label="Accounting entries" columns={entryColumns} rows={entries} getRowKey={(r) => r.key} density="compact" autoFocus={sections.focus === 'entries'} />
+            </Section>
+          ) : detailed && entries.length === 0 && !v.isCancelled ? (
             <p className="bx-muted">This voucher records stock only — it has no accounting entries.</p>
-          )}
-
-          {gstRows.length > 0 ? (
-            <section aria-label="GST breakup">
-              <h2 className="bx-vch-grid__title">GST</h2>
-              <DataTable<GstRateRow> aria-label="GST breakup" columns={gstColumns} rows={gstRows} getRowKey={(r) => r.key} density="compact" />
-            </section>
           ) : null}
 
-          {panels.map(({ key, C }) => (
-            <C key={key} voucherId={v.id} baseType={v.voucherType.baseType} isCancelled={v.isCancelled} isOptional={v.isOptional} updatedAt={v.updatedAt} />
-          ))}
+          {sections.gst ? (
+            <Panel title="GST" padded={false}>
+              <DataTable<GstRateRow> aria-label="GST breakup" columns={gstColumns} rows={gstRows} getRowKey={(r) => r.key} density="compact" hideEmptyColumns />
+            </Panel>
+          ) : null}
 
-          <div className="bx-vch-view__foot">
-            {v.totals.amount > 0 && !v.isCancelled ? <p className="bx-vch-totals__words">{amountInWords(v.totals.amount)}</p> : null}
+          <Stack gap={1}>
+            {v.totals.amount > 0 && !v.isCancelled ? <p>{amountInWords(v.totals.amount)}</p> : null}
             {v.narration ? (
               <p>
                 <span className="bx-muted">Narration: </span>
                 {v.narration}
               </p>
             ) : null}
-            <p className="bx-muted">
-              Entered by {v.createdBy.name ?? 'unknown'} on {formatDateTime(v.createdAt)}
-              {v.updatedAt !== v.createdAt ? ` · last changed by ${v.updatedBy.name ?? 'unknown'} on ${formatDateTime(v.updatedAt)}` : ''}
-            </p>
-          </div>
+            {detailed ? (
+              <p className="bx-muted">
+                Entered by {v.createdBy.name ?? 'unknown'} on {formatDateTime(v.createdAt)}
+                {v.updatedAt !== v.createdAt ? ` · last changed by ${v.updatedBy.name ?? 'unknown'} on ${formatDateTime(v.updatedAt)}` : ''}
+              </p>
+            ) : null}
+          </Stack>
+
+          {panels.map(({ key, C }) => (
+            <C key={key} voucherId={v.id} baseType={v.voucherType.baseType} isCancelled={v.isCancelled} isOptional={v.isOptional} updatedAt={v.updatedAt} />
+          ))}
         </Stack>
       ) : null}
       {renumbering && v ? (
@@ -409,5 +425,16 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
         />
       ) : null}
     </Screen>
+  );
+}
+
+/** A titled section (Panel) or, without a title, a plain section named for screen readers. */
+function Section({ title, label, children }: { title: string | null; label: string; children: ReactNode }) {
+  return title ? (
+    <Panel title={title} padded={false}>
+      {children}
+    </Panel>
+  ) : (
+    <section aria-label={label}>{children}</section>
   );
 }

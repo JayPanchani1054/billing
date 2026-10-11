@@ -1,4 +1,4 @@
-/* Multi-currency (forex) screens. Semantic design tokens only (no raw colours). Prefix: bx-fx- */
+/* Multi-currency screens (prefix bx-fx-). The two small tables are flat, like DataTable in 2.1. */
 
 .bx-fx-rates {
   display: grid;
@@ -10,31 +10,22 @@
 .bx-fx-bills {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--fs-12);
+}
+.bx-fx-preview :is(th, td),
+.bx-fx-bills :is(th, td) {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
 }
 .bx-fx-preview th,
 .bx-fx-bills th {
-  position: sticky;
-  top: 0;
-  z-index: var(--z-sticky);
-  padding: var(--space-1) var(--space-2);
-  background: var(--surface-2);
   color: var(--text-secondary);
-  font-weight: var(--fw-medium);
-  text-align: left;
-  border-bottom: 1px solid var(--border-default);
-  white-space: nowrap;
-}
-.bx-fx-preview td,
-.bx-fx-bills td {
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--border-subtle);
-  vertical-align: middle;
+  font-weight: var(--fw-semibold);
+  border-bottom-color: var(--border-default);
 }
 .bx-fx-preview .bx-num,
 .bx-fx-bills .bx-num {
   text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 .bx-fx-bills tfoot td {
   font-weight: var(--fw-semibold);

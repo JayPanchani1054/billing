@@ -6,6 +6,8 @@
  *      date order, parsed transactions with "already imported" marks, skipped rows with reasons, balance check.
  *   3. Import (Ctrl+A) → summary, then Auto-match (Alt+M) or open the BRS (Alt+B).
  * Nothing is written before Ctrl+A; the mapping is remembered for the bank so next month needs no changes.
+ * 2.1: the step is a word of the title row's context run; every action lives once, in the title row (no
+ * in-page copies of Choose file / Import / Auto-match). A worksheet, not a report: no graph (SPEC-21 §5).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { StatementColumnRole, StatementImportResult, StatementPreview, ParsedStatementLine } from '../../../shared/types/banking.ts';
@@ -218,17 +220,18 @@ export function ImportScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
 
   if (!banksLoading && !banksError && banks.length === 0) {
     return (
-      <Screen title="Import Bank Statement" icon="upload">
+      <Screen title="Import Bank Statement">
         <NoBanks />
       </Screen>
     );
   }
 
+  const newLines = preview ? preview.summary.lineCount - preview.summary.duplicates : 0;
+  const stepWords = step === 'choose' ? 'Step 1 of 3: bank and file' : step === 'review' ? 'Step 2 of 3: check the columns' : 'Step 3 of 3: imported';
   return (
     <Screen
       title="Import Bank Statement"
-      subtitle={bank ? `Into ${bank.name}` : 'CSV or Excel statement from net banking'}
-      icon="upload"
+      subtitle={stepWords}
       dirty={step === 'review' && !!file}
       loading={banksLoading}
       error={banksError}
@@ -236,40 +239,35 @@ export function ImportScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
       hint={step === 'review' ? 'Change a column role to re-read the file · Ctrl+A Import · Alt+O another file · Esc back' : 'Alt+O Choose the statement file'}
       actions={[
         { key: 'Alt+O', label: file ? 'Choose another file' : 'Choose file', icon: 'folder', primary: step === 'choose', onClick: () => void chooseFile(), hidden: step === 'done' },
-        { key: 'Ctrl+A', label: 'Import', icon: 'save', primary: true, onClick: () => void submit(), disabled: !canImport || doImport.pending, hidden: step !== 'review' },
+        { key: 'Ctrl+A', label: 'Import', icon: 'save', primary: true, onClick: () => void submit(), disabled: !canImport || doImport.pending, hidden: step !== 'review', hint: newLines > 0 ? `Imports ${newLines.toLocaleString('en-IN')} new transaction${newLines === 1 ? '' : 's'}` : undefined },
         { key: 'Alt+M', label: 'Auto-match now', icon: 'link', primary: true, hidden: step !== 'done', onClick: () => nav.replace('banking.match', { ledgerId: ledgerId ?? undefined, batchId, autorun: true }) },
-        { key: 'Alt+B', label: 'Open reconciliation', icon: 'bank', hidden: step !== 'done', onClick: () => nav.replace('banking.brs', { ledgerId: ledgerId ?? undefined }) },
-        { key: 'Alt+N', label: 'Import another file', icon: 'plus', hidden: step !== 'done', onClick: reset },
+        {
+          key: 'Alt+B',
+          label: 'Open reconciliation',
+          icon: 'bank',
+          hidden: step !== 'done',
+          onClick: () => nav.replace('banking.brs', { ledgerId: ledgerId ?? undefined }),
+          prominent: true,
+        },
+        {
+          key: 'Alt+N',
+          label: 'Import another file',
+          icon: 'plus',
+          hidden: step !== 'done',
+          onClick: reset,
+          prominent: true,
+        },
       ]}
     >
       <Stack gap={3}>
-        <ol className="bx-bk-steps" aria-label="Import steps">
-          <li aria-current={step === 'choose' ? 'step' : undefined}>1. Bank and file</li>
-          <li aria-hidden="true">›</li>
-          <li aria-current={step === 'review' ? 'step' : undefined}>2. Check columns and transactions</li>
-          <li aria-hidden="true">›</li>
-          <li aria-current={step === 'done' ? 'step' : undefined}>3. Imported</li>
-        </ol>
-
-        <Card padding="sm">
-          <Inline gap={3} align="end" wrap>
-            <Field label="Bank account" required>
-              <BankSelect banks={banks} value={ledgerId} onChange={changeLedger} autoFocus={step === 'choose'} />
-            </Field>
-            <Field label="Statement file">
-              <Inline gap={2} align="center" wrap={false}>
-                <Button icon="folder" shortcut="Alt+O" onClick={() => void chooseFile()} disabled={step === 'done'}>
-                  {file ? 'Choose another file' : 'Choose file…'}
-                </Button>
-                {file ? (
-                  <span className="bx-truncate" title={file.name}>
-                    {file.name} · {(file.size / 1024).toLocaleString('en-IN', { maximumFractionDigits: 0 })} KB
-                  </span>
-                ) : null}
-              </Inline>
-            </Field>
-          </Inline>
-        </Card>
+        <Inline gap={3} align="center" wrap>
+          <BankSelect banks={banks} value={ledgerId} onChange={changeLedger} autoFocus={step === 'choose'} />
+          {file ? (
+            <span className="bx-truncate" title={file.name}>
+              {file.name} · {(file.size / 1024).toLocaleString('en-IN', { maximumFractionDigits: 0 })} KB
+            </span>
+          ) : null}
+        </Inline>
 
         {step === 'choose' ? (
           <EmptyState
@@ -294,9 +292,6 @@ export function ImportScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
             onEdit={edit}
             onSheet={chooseSheet}
             stale={!previewCurrent}
-            onImport={() => void submit()}
-            canImport={canImport}
-            importing={doImport.pending}
           />
         ) : null}
 
@@ -316,23 +311,6 @@ export function ImportScreen({ params }: ScreenProps<{ ledgerId?: number }>) {
                   { label: 'Duplicates skipped', value: String(result.duplicates) },
                 ]}
               />
-              <Inline gap={2}>
-                <Button
-                  variant="primary"
-                  icon="link"
-                  shortcut="Alt+M"
-                  data-autofocus
-                  onClick={() => nav.replace('banking.match', { ledgerId: ledgerId ?? undefined, batchId, autorun: true })}
-                >
-                  Auto-match with vouchers
-                </Button>
-                <Button icon="bank" shortcut="Alt+B" onClick={() => nav.replace('banking.brs', { ledgerId: ledgerId ?? undefined })}>
-                  Open reconciliation
-                </Button>
-                <Button icon="plus" shortcut="Alt+N" onClick={reset}>
-                  Import another file
-                </Button>
-              </Inline>
             </Stack>
           </Card>
         ) : null}
@@ -357,9 +335,6 @@ interface ReviewProps {
   onSheet: (sheet: string) => void;
   /** The mapping was edited and the preview is being read again. */
   stale: boolean;
-  onImport: () => void;
-  canImport: boolean;
-  importing: boolean;
 }
 
 function ReviewStep({
@@ -376,9 +351,6 @@ function ReviewStep({
   onEdit,
   onSheet,
   stale,
-  onImport,
-  canImport,
-  importing,
 }: ReviewProps) {
   const lineColumns = useMemo<Column<ParsedStatementLine>[]>(
     () => [
@@ -569,9 +541,6 @@ function ReviewStep({
                   },
                 ]}
               />
-              <Button variant="primary" icon="save" shortcut="Ctrl+A" onClick={onImport} disabled={!canImport} loading={importing}>
-                Import {s.lineCount - s.duplicates > 0 ? `${(s.lineCount - s.duplicates).toLocaleString('en-IN')} new transactions` : ''}
-              </Button>
             </Stack>
           </Card>
           {warnings.map((w) => (

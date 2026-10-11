@@ -201,54 +201,6 @@ export const GRAPH_CATALOGUE: readonly CatalogueRow[] = [
  * `reportCharts.test.ts` does not require its screen to pass `graph=`.
  */
 export const PENDING_GRAPH: readonly string[] = [
-  'app.gateway',
-  'banking.pdc',
-  'banking.summary',
-  'cheques.register',
-  'dashboard.home',
-  'documents.billsPending',
-  'documents.budget.variance',
-  'forex.ledger',
-  'forex.outstanding',
-  'forex.revaluation',
-  'gst.boe',
-  'gst.exceptions',
-  'gst.gstr3b',
-  'gst.gstr9',
-  'gst.hsn',
-  'gst.itc',
-  'gst.ledger.cash',
-  'gst.ledger.credit',
-  'gst.register',
-  'gst.setoff',
-  'gstrecon.home',
-  'mfg.jobWork.pending',
-  'mfg.production',
-  'outstanding.party',
-  'outstanding.payables',
-  'outstanding.receivables',
-  'outstanding.statement',
-  'pos.summary',
-  'reports.cashBank',
-  'reports.cashFlow',
-  'reports.costCentres',
-  'reports.groupSummary',
-  'reports.ledger',
-  'reports.monthlySummary',
-  'reports.profitLoss',
-  'reports.register',
-  'stock.ageing',
-  'stock.categories',
-  'stock.godowns',
-  'stock.item',
-  'stock.movement',
-  'stock.profitability',
-  'stock.summary',
-  'tds.challans',
-  'tds.computation',
-  'tds.outstanding',
-  'tds.receivable',
-  'tds.return',
 ];
 
 /**
@@ -263,7 +215,7 @@ export const STAT_TOTAL_ALLOWED: Readonly<Record<string, string>> = {
 };
 
 /** Set by the integrator once PENDING_GRAPH is empty: every graph row must then be wired. */
-export const GRAPHS_STRICT = false;
+export const GRAPHS_STRICT = true;
 
 export function catalogueRows(id: string): CatalogueRow[] {
   return GRAPH_CATALOGUE.filter((r) => r.id === id);

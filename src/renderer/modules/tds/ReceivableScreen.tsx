@@ -17,9 +17,12 @@ import type { ScreenProps } from '../../app/registry.ts';
 import { ReportScreen } from '../../app/Screen.tsx';
 import { useCan, useFeatures } from '../../app/state.tsx';
 import { useWorkingDate } from '../../app/working.tsx';
-import { Badge, Banner, DataTable, EmptyState, Grid, KpiCard, Select, Stack, useToast } from '../../ui/index.ts';
+import { Badge, Banner, Button, DataTable, EmptyState, Select, StatLine, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
 import { openCsvFile, TdsOff } from './components.tsx';
+import { receivableChart, receivableStat } from './lib/charts.ts';
 import { fyLabel, quarterChoices, RECEIVABLE_STATUS, receivableExport } from './lib/model.ts';
 
 export function ReceivableScreen({ params }: ScreenProps<{ fyStart?: number }>) {
@@ -37,6 +40,10 @@ export function ReceivableScreen({ params }: ScreenProps<{ fyStart?: number }>) 
   const current = rows.find((r) => r.key === cursor) ?? null;
   const importer = useApiMutation('tds.26as.import', { invalidates: ['tds'] });
   const years = [...new Set([...choice.years, fyStart])].sort((a, b) => b - a);
+  const spec = useMemo(() => (d ? receivableChart(d) : null), [d]);
+  // A short table carries the bars under its Difference cells (D26).
+  const inline = inlineBars(spec, rows.length);
+  const stat = d ? receivableStat(d) : [];
 
   const columns = useMemo<Column<TdsReceivableRow>[]>(
     () => [
@@ -45,20 +52,32 @@ export function ReceivableScreen({ params }: ScreenProps<{ fyStart?: number }>) 
       { key: 'books', header: 'TDS in books', kind: 'amount', width: 140, total: true, sortable: true },
       { key: 'form26as', header: 'TDS in 26AS', kind: 'amount', width: 140, total: true, sortable: true },
       { key: 'amountPaid', header: 'Paid / credited (26AS)', kind: 'amount', width: 160, blankZero: true },
-      { key: 'difference', header: 'Difference', kind: 'amount', width: 130, total: true, blankZero: true, title: () => '26AS minus books' },
+      {
+        key: 'difference',
+        header: 'Difference',
+        kind: 'amount',
+        width: 130,
+        total: true,
+        blankZero: true,
+        title: () => '26AS minus books',
+        ...(inline ? { bar: { value: (r: TdsReceivableRow) => (r.status === 'matched' ? 0 : Math.abs(r.difference)), slot: 1 as const } } : {}),
+      },
       {
         key: 'status',
         header: 'Status',
         width: 120,
         value: (r) => RECEIVABLE_STATUS[r.status],
-        render: (r) => (
-          <Badge size="sm" tone={r.status === 'matched' ? 'success' : r.status === 'mismatch' ? 'danger' : 'warning'}>
-            {RECEIVABLE_STATUS[r.status]}
-          </Badge>
-        ),
+        render: (r) =>
+          r.status === 'matched' ? (
+            <span className="bx-muted">{RECEIVABLE_STATUS[r.status]}</span>
+          ) : (
+            <Badge size="sm" tone={r.status === 'mismatch' ? 'danger' : 'warning'}>
+              {RECEIVABLE_STATUS[r.status]}
+            </Badge>
+          ),
       },
     ],
-    [],
+    [inline],
   );
 
   const importCsv = async (): Promise<void> => {
@@ -90,8 +109,23 @@ export function ReceivableScreen({ params }: ScreenProps<{ fyStart?: number }>) 
   return (
     <ReportScreen
       title={`TDS Receivable vs Form 26AS — FY ${fyLabel(fyStart)}`}
-      subtitle={d?.imported.rows ? `${d.imported.rows} 26AS row(s), imported ${d.imported.importedAt ? formatDateTime(d.imported.importedAt) : ''}` : 'No 26AS rows imported for this year yet (Alt+I)'}
+      subtitle={d?.imported.rows ? `${d.imported.rows} 26AS row(s), imported ${d.imported.importedAt ? formatDateTime(d.imported.importedAt) : ''}` : 'No 26AS rows imported yet'}
       periodMode="none"
+      graph={reportGraph(spec, { inline })}
+      stat={stat.length ? <StatLine items={stat} /> : undefined}
+      about={
+        <>
+          <p>
+            TDS your customers deducted: the TDS Receivable ledger{d && d.receivableLedgers.length > 1 ? 's' : ''} in the books
+            {d && d.receivableLedgers.length > 0 ? ` (${d.receivableLedgers.map((l) => l.name).join(', ')})` : ''}, per customer, against the rows of Form 26AS / AIS you imported. A customer is
+            matched by its deductor TAN (TDS details, Alt+M), else by name. Differences are the ones to follow up.
+          </p>
+          <p>
+            The CSV to import (Alt+I) has these columns, first row = headings: TAN of deductor, Name of deductor, Section, Transaction date, Amount paid/credited, Tax deducted. Prepare it from Form
+            26AS Part I / AIS (TRACES downloads are text or PDF files whose layout changes). Dates DD-MM-YYYY or DD-Mon-YYYY.
+          </p>
+        </>
+      }
       loading={q.loading && !d}
       refreshing={q.refreshing}
       error={q.error}
@@ -99,25 +133,36 @@ export function ReceivableScreen({ params }: ScreenProps<{ fyStart?: number }>) 
       filters={<Select aria-label="Financial year" size="sm" value={String(fyStart)} options={years.map((y) => ({ value: String(y), label: `FY ${fyLabel(y)}` }))} onChange={(v) => setFyStart(Number(v))} />}
       exportDef={() => (d ? receivableExport(d) : { columns: [], rows: [] })}
       actions={[
-        { key: 'Alt+I', label: 'Import 26AS CSV', icon: 'upload', primary: true, hidden: !canManage, disabled: !canManage || importer.pending, onClick: () => void importCsv() },
+        {
+          key: 'Alt+I',
+          label: 'Import 26AS CSV',
+          icon: 'upload',
+          hidden: !canManage,
+          disabled: !canManage || importer.pending,
+          onClick: () => void importCsv(),
+          // A secondary button of the title row (2.1: no filled button on a report).
+          prominent: true,
+        },
         { key: 'Alt+M', label: 'Customer TDS details', icon: 'ledger', disabled: !current?.partyLedgerId, onClick: () => current?.partyLedgerId && nav.push('tds.ledger.form', { ledgerId: current.partyLedgerId }) },
         { key: 'Alt+R', label: 'Create TDS Receivable', icon: 'plus', hidden: !canManage || ((d?.receivableLedgers.length ?? 1) > 0), disabled: !canManage, onClick: () => void createLedger() },
       ]}
       hint="Enter Customer ledger · Alt+I Import 26AS CSV · Alt+M Customer TDS details · Alt+E Export · Esc Back"
     >
-      <Stack gap={3}>
+      <>
         {d && d.receivableLedgers.length === 0 ? (
-          <Banner tone="info" title="No TDS Receivable ledger yet">
-            Press Alt+R to create one (under Loans & Advances (Asset)). In a Receipt voucher debit it with the TDS the customer deducted: Dr Bank, Dr TDS
-            Receivable, Cr Customer.
+          <Banner
+            tone="info"
+            title="No TDS Receivable ledger yet"
+            action={
+              canManage ? (
+                <Button variant="link" onClick={() => void createLedger()}>
+                  Create it
+                </Button>
+              ) : undefined
+            }
+          >
+            Debit it in Receipt vouchers with the TDS a customer deducted (Dr Bank, Dr TDS Receivable, Cr Customer).
           </Banner>
-        ) : null}
-        {d ? (
-          <Grid columns={3} gap={3}>
-            <KpiCard label="TDS in books" value={d.totals.books} amount caption={d.receivableLedgers.map((l) => l.name).join(', ')} />
-            <KpiCard label="TDS in Form 26AS" value={d.totals.form26as} amount />
-            <KpiCard label="Difference" value={d.totals.difference} amount caption={d.totals.difference === 0 ? 'Books agree with 26AS' : 'Follow up with the customers below'} />
-          </Grid>
         ) : null}
         <DataTable<TdsReceivableRow>
           aria-label="TDS receivable reconciliation"
@@ -130,11 +175,7 @@ export function ReceivableScreen({ params }: ScreenProps<{ fyStart?: number }>) 
           onRowActivate={(r) => r.partyLedgerId && nav.push('reports.ledger', { ledgerId: r.partyLedgerId })}
           empty={<EmptyState title="Nothing to reconcile" body="No TDS receivable in the books and no 26AS rows for this year." />}
         />
-        <span className="bx-muted">
-          CSV columns (first row = headings): TAN of deductor, Name of deductor, Section, Transaction date, Amount paid/credited, Tax deducted. Prepare it
-          from Form 26AS Part I / AIS (TRACES downloads are text or PDF whose layout changes). Dates DD-MM-YYYY or DD-Mon-YYYY.
-        </span>
-      </Stack>
+      </>
     </ReportScreen>
   );
 }

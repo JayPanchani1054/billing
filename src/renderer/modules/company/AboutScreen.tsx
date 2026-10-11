@@ -38,8 +38,6 @@ export function AboutScreen() {
   return (
     <Screen
       title="About Pevqori"
-      subtitle="Offline GST accounting, invoicing and inventory for Indian businesses."
-      icon="info"
       width="form"
       actions={[{ key: 'F1', label: 'Shortcuts', icon: 'keyboard', onClick: () => nav.push('company.shortcuts') }]}
     >
@@ -89,11 +87,12 @@ export function ShortcutsScreen() {
   const [query, setQuery] = useState('');
   const rows = useShortcutRows();
   return (
-    <Screen title="Keyboard Shortcuts" subtitle="Everything in Pevqori works from the keyboard." icon="keyboard" width="form">
-      <Stack gap={4}>
-        <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search shortcuts — e.g. sales, period, print" leadingIcon="search" aria-label="Search shortcuts" autoFocus />
+    <Screen title="Keyboard Shortcuts" width="form">
+      {/* The full-page form of the F1 card: the one place keys are boxed (D32), so the same container. */}
+      <div className="bx-shortcuts-overlay">
+        <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a key" leadingIcon="search" aria-label="Search shortcuts" autoFocus />
         <ShortcutsTable rows={rows} query={query} />
-      </Stack>
+      </div>
     </Screen>
   );
 }

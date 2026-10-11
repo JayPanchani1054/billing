@@ -5,15 +5,19 @@
  *   'gst.ledger.credit' {from?, to?} — Electronic Credit Ledger: per head opening, ITC accrued, reversed,
  *                       utilised, closing (from the Input tax ledgers); transactions below.
  * Enter on a transaction opens its voucher. The portal's ledgers are the legal record — the screens say so.
+ * 2.1 (SPEC-21 §5): each draws the line of its running balance — a detail graph, folded until Ctrl+J (or
+ * "Show graphs") opens it; the closing is the Total row of "Balance by head"; notes are in More › About.
  */
 import { useMemo } from 'react';
 import type { CashLedgerTxn, CreditLedgerRow, CreditLedgerTxn } from '../../../shared/types/gst-plus.ts';
 import { formatMoney, ReportScreen, useApiQuery, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
-import { Banner, DataTable, EmptyState, Grid, KpiCard, Panel } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { Banner, DataTable, EmptyState, Panel } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
-import { GstHelp, useGstRange, WideTable } from './components.tsx';
+import { ReturnAbout, useGstRange, WideTable } from './components.tsx';
 import { cashLedgerExport, cashLedgerMatrix, creditLedgerExport, HEAD_NAMES, MINOR_LABELS, txnTotal } from './lib/gstplus.ts';
+import { cashLedgerChart, creditLedgerChart } from './lib/returnCharts.ts';
 import { CASH_MINOR_HEADS } from '../../../shared/types/gst-plus.ts';
 
 const money = (p: number): string => formatMoney(p);
@@ -42,6 +46,7 @@ export function CashLedgerScreen({ params }: ScreenProps<{ from?: string; to?: s
   const l = q.data;
   const columns = useMemo(() => txnColumns<CashLedgerTxn>((r) => (r.kind === 'deposit' ? 'Deposit' : 'Utilised')), []);
   const matrix = useMemo(() => (l ? cashLedgerMatrix(l) : []), [l]);
+  const spec = useMemo(() => (l ? cashLedgerChart(l) : null), [l]);
   const actions: ScreenActionItem[] = [
     { key: 'Alt+S', label: 'GST set-off', icon: 'gst', onClick: () => nav.push('gst.setoff'), group: 'go' },
     { key: 'Alt+L', label: 'Credit ledger', icon: 'book', onClick: () => nav.push('gst.ledger.credit', override ?? {}), group: 'go' },
@@ -51,6 +56,15 @@ export function CashLedgerScreen({ params }: ScreenProps<{ from?: string; to?: s
       title="Electronic Cash Ledger"
       subtitle="As kept in the books"
       period={override}
+      graph={reportGraph(spec)}
+      graphKind="detail"
+      about={
+        <ReturnAbout
+          lead="Cash you deposited with the government by GST challan (PMT-06) and how it was used to pay tax, interest, penalty, fee and others. The portal's ledger is the legal record."
+          notes={l?.notes ?? []}
+        />
+      }
+      aboutLabel="About this ledger"
       actions={actions}
       exportDef={l ? () => ({ ...cashLedgerExport(l), title: 'Electronic Cash Ledger', period: { from: l.from, to: l.to } }) : undefined}
       loading={q.loading}
@@ -60,49 +74,53 @@ export function CashLedgerScreen({ params }: ScreenProps<{ from?: string; to?: s
       hint="Enter Open voucher · Alt+S GST set-off · Alt+L Credit ledger · Alt+F2 Period · Alt+E Export · Esc Back"
     >
       <div className="bx-gst-scroll">
-        <GstHelp>Cash you deposited with the government by GST challan (PMT-06) and how it was used to pay tax, interest, penalty, fee and others.</GstHelp>
         {l ? (
           <>
-            <Grid minItemWidth={180} gap={3}>
-              <KpiCard label="Opening balance" value={l.totals.opening} amount />
-              <KpiCard label="Deposited" value={l.totals.deposited} amount caption="Challans in the period" />
-              <KpiCard label="Utilised" value={l.totals.utilised} amount caption="Set-off journals" />
-              <KpiCard label="Closing balance" value={l.totals.closing} amount caption={l.booksBalance !== l.totals.closing ? `Books account: ${money(l.booksBalance)}` : 'Agrees with the books account'} />
-            </Grid>
-            {l.notes.length > 0 ? (
-              <Banner tone="info" inline>
-                {l.notes.join(' ')}
+            {l.booksBalance !== l.totals.closing ? (
+              <Banner tone="warning" inline>
+                The books account "GST Electronic Cash Ledger" shows {money(l.booksBalance)}, not the closing {money(l.totals.closing)}.
               </Banner>
             ) : null}
             <Panel title="Balance by head" headingLevel={2}>
               <WideTable label="Cash ledger by head">
-                <thead>
-                  <tr>
-                    <th scope="col">Major head</th>
-                    {CASH_MINOR_HEADS.map((m) => (
-                      <th key={m} scope="col" className="is-num">
-                        {MINOR_LABELS[m]}
-                      </th>
+                <table className="bx-gst-form" aria-label="Cash ledger by head">
+                  <thead>
+                    <tr>
+                      <th scope="col">Major head</th>
+                      {CASH_MINOR_HEADS.map((m) => (
+                        <th key={m} scope="col" className="is-num">
+                          {MINOR_LABELS[m]}
+                        </th>
+                      ))}
+                      <th scope="col" className="is-num">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrix.map((r) => (
+                      <tr key={r.head}>
+                        <th scope="row">{HEAD_NAMES[r.head]}</th>
+                        {CASH_MINOR_HEADS.map((m) => (
+                          <td key={m} className="is-num">
+                            {money(r.closing[m])}
+                          </td>
+                        ))}
+                        <td className="is-num">{money(r.total)}</td>
+                      </tr>
                     ))}
-                    <th scope="col" className="is-num">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {matrix.map((r) => (
-                    <tr key={r.head}>
-                      <th scope="row">{HEAD_NAMES[r.head]}</th>
+                    <tr className="is-total" title={`Opening ${money(l.totals.opening)} · deposited ${money(l.totals.deposited)} · utilised ${money(l.totals.utilised)}`}>
+                      <th scope="row">Closing balance</th>
                       {CASH_MINOR_HEADS.map((m) => (
                         <td key={m} className="is-num">
-                          {money(r.closing[m])}
+                          {money(matrix.reduce((a, r) => a + r.closing[m], 0))}
                         </td>
                       ))}
-                      <td className="is-num">{money(r.total)}</td>
+                      <td className="is-num">{money(l.totals.closing)}</td>
                     </tr>
-                  ))}
-                </tbody>
+                  </tbody>
+                </table>
               </WideTable>
             </Panel>
-            <Panel title="Transactions" headingLevel={2} description="Enter opens the challan or set-off voucher.">
+            <Panel title="Transactions" headingLevel={2}>
               <DataTable<CashLedgerTxn>
                 aria-label="Cash ledger transactions"
                 autoFocus
@@ -128,6 +146,7 @@ export function CreditLedgerScreen({ params }: ScreenProps<{ from?: string; to?:
   const { from, to, override } = useGstRange(params);
   const q = useApiQuery('gst.ledger.credit', { from, to }, { keepPrevious: true });
   const l = q.data;
+  const spec = useMemo(() => (l ? creditLedgerChart(l) : null), [l]);
   const columns = useMemo(
     () => txnColumns<CreditLedgerTxn>((r) => (r.kind === 'accrued' ? 'Accrued' : r.kind === 'reversed' ? 'Reversed' : 'Utilised'), 'drcr'),
     [],
@@ -153,6 +172,15 @@ export function CreditLedgerScreen({ params }: ScreenProps<{ from?: string; to?:
       title="Electronic Credit Ledger"
       subtitle="As kept in the books"
       period={override}
+      graph={reportGraph(spec)}
+      graphKind="detail"
+      about={
+        <ReturnAbout
+          lead="Input tax credit per head: booked on purchases, reverse charge and bills of entry, reversed (Rules 37, 37A, 42, 43, s.17(5), returns) and used in set-off. Transactions show Dr for credit booked and Cr for credit reversed or used, as on the Input tax ledgers. The portal's ledger is the legal record."
+          notes={l?.notes ?? []}
+        />
+      }
+      aboutLabel="About this ledger"
       actions={actions}
       exportDef={l ? () => ({ ...creditLedgerExport(l), title: 'Electronic Credit Ledger', period: { from: l.from, to: l.to } }) : undefined}
       loading={q.loading}
@@ -162,14 +190,8 @@ export function CreditLedgerScreen({ params }: ScreenProps<{ from?: string; to?:
       hint="Enter Open voucher · Alt+S GST set-off · Alt+L Cash ledger · Alt+F2 Period · Alt+E Export · Esc Back"
     >
       <div className="bx-gst-scroll">
-        <GstHelp>Input tax credit per head: booked on purchases, reverse charge and bills of entry, reversed (Rules 37, 37A, 42, 43, s.17(5), returns) and used in set-off.</GstHelp>
         {l ? (
           <>
-            {l.notes.length > 0 ? (
-              <Banner tone="info" inline>
-                {l.notes.join(' ')}
-              </Banner>
-            ) : null}
             <Panel title="Balance by head" headingLevel={2}>
               <DataTable<CreditLedgerRow>
                 aria-label="Credit ledger by head"
@@ -179,7 +201,7 @@ export function CreditLedgerScreen({ params }: ScreenProps<{ from?: string; to?:
                 height={40 + 32 * (l.rows.length + 2)}
               />
             </Panel>
-            <Panel title="Transactions" headingLevel={2} description="Enter opens the voucher.">
+            <Panel title="Transactions" headingLevel={2}>
               <DataTable<CreditLedgerTxn>
                 aria-label="Credit ledger transactions"
                 autoFocus

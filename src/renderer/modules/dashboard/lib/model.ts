@@ -1,9 +1,10 @@
 /**
- * Pure presentation logic for the dashboard (tested in model.test.ts): KPI deltas and captions, the
- * 12-month chart series, ageing mini-bars, the alerts list, drill-down targets and the export table.
+ * Pure presentation logic for the dashboard (tested in model.test.ts): figures and their captions, the
+ * graph specs (Home's sales columns, the full Dashboard's trend line and receivables by age), the
+ * alerts list, the Setup line, the one-line cards, drill-down targets and the export table.
  * Amounts are paise. Text is plain English for small-business owners.
  */
-import { diffDays, formatDate, MONTH_NAMES } from '../../../../shared/dates.ts';
+import { diffDays, endOfMonth, financialYear, formatDate, MONTH_NAMES } from '../../../../shared/dates.ts';
 import { formatCompactINR, formatMoney } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import type {
@@ -16,6 +17,8 @@ import type {
   DashboardSummaryInput,
   DateRange,
 } from '../../../../shared/types/dashboard.ts';
+import { clipTakeaway, drawnTotal, enoughData, take } from '../../../ui/lib/chartSpec.ts';
+import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
 
 /** A screen to open (canonical ids, see the feature brief). */
 export interface DrillTarget {
@@ -135,66 +138,113 @@ export function salesSpark(trend: readonly DashboardMonth[]): number[] {
   return trend.map((m) => m.sales);
 }
 
-// ───────────────────────────── Trend chart ─────────────────────────────
+// ───────────────────────────── Full Dashboard graphs (2.1) ─────────────────────────────
 
 export interface TrendChart {
   categories: string[];
-  series: Array<{ name: string; values: number[]; slot: 1 | 2 }>;
-  /** Accessible takeaway: 'Sales peaked in Sep 2026 at ₹2,500.00. 12-month sales ₹4.8 K, purchases ₹8.8 K.' */
+  /**
+   * Sales is the measured series (slot 1); Purchases is context (grey, D29) — never a second colour.
+   * A month after `upTo` (the rest of a period that has not happened yet) has no mark (null), never a 0.
+   */
+  series: Array<{ name: string; values: Array<number | null>; slot: 1 | 'other' }>;
+  /** The one-sentence takeaway: 'Best month Sep 2026 ₹2.5 K · 12 months: sales ₹4.8 K, purchases ₹8.8 K'. */
   description: string;
   empty: boolean;
 }
 
-export function trendChart(trend: readonly DashboardMonth[]): TrendChart {
-  const sales = trend.map((m) => m.sales);
-  const purchases = trend.map((m) => m.purchases);
-  const totalS = sales.reduce((a, b) => a + b, 0);
-  const totalP = purchases.reduce((a, b) => a + b, 0);
-  const empty = trend.every((m) => m.sales === 0 && m.purchases === 0);
-  let description = 'No sales or purchases in the last 12 months.';
+/**
+ * `upTo` ('YYYY-MM-DD', the balances date): the trend runs to the period end (core `trendMonths`), so with
+ * a period that ends later — the whole financial year — its last months have not happened yet. They are
+ * drawn as no mark instead of a fall to zero, and left out of the takeaway.
+ */
+export function trendChart(trend: readonly DashboardMonth[], upTo?: string): TrendChart {
+  const last = upTo ? upTo.slice(0, 7) : null;
+  const past = (m: DashboardMonth): boolean => last === null || m.month <= last;
+  const shown = trend.filter(past);
+  const sales = trend.map((m) => (past(m) ? m.sales : null));
+  const purchases = trend.map((m) => (past(m) ? m.purchases : null));
+  const totalS = shown.reduce((a, m) => a + m.sales, 0);
+  const totalP = shown.reduce((a, m) => a + m.purchases, 0);
+  const empty = shown.every((m) => m.sales === 0 && m.purchases === 0);
+  let description = 'No sales or purchases in the last 12 months';
   if (!empty) {
     let best = 0;
-    for (let i = 1; i < sales.length; i++) if (sales[i] > sales[best]) best = i;
-    const peak = sales[best] > 0 ? `Sales peaked in ${monthLong(trend[best].month)} at ${exact(sales[best])}. ` : '';
-    description = `${peak}12-month sales ${compact(totalS)}, purchases ${compact(totalP)}.`;
+    for (let i = 1; i < shown.length; i++) if (shown[i].sales > shown[best].sales) best = i;
+    const peak = shown[best].sales > 0 ? `Best month ${monthLong(shown[best].month)} ${compact(shown[best].sales)} · ` : '';
+    description = clipTakeaway(`${peak}${shown.length} months: sales ${compact(totalS)}, purchases ${compact(totalP)}`);
   }
   return {
     categories: trend.map((m) => shortMonth(m.month)),
-    // Colour follows the entity: Sales is always slot 1, Purchases slot 2.
     series: [
       { name: 'Sales', values: sales, slot: 1 },
-      { name: 'Purchases', values: purchases, slot: 2 },
+      { name: 'Purchases', values: purchases, slot: 'other' },
     ],
     description,
     empty,
   };
 }
 
+/**
+ * The full Dashboard's trend (§5 dashboard.home): a line of Sales (slot 1, area) with Purchases as grey
+ * context; Enter on a month opens that month's Sales Register. Null when there is nothing to draw.
+ * `upTo`: months after it have no mark (see trendChart).
+ */
+export function trendSpec(trend: readonly DashboardMonth[], activate?: (index: number) => void, upTo?: string): ChartSpec | null {
+  const c = trendChart(trend, upTo);
+  if (c.empty) return null;
+  const spec: ChartSpec = {
+    kind: 'line',
+    title: 'Sales and purchases — last 12 months',
+    takeaway: c.description,
+    categories: c.categories,
+    series: c.series,
+    label: 'last',
+    total: 0,
+    activate,
+  };
+  spec.total = drawnTotal(spec);
+  return enoughData(spec) ? spec : null;
+}
+
+/**
+ * Receivables by age (§5 dashboard.home, the AgeingCard): ordinal columns — "Not due" grey, the overdue
+ * buckets o1…o5 (more than five fold into the oldest). Total = Σ buckets = the bills outstanding.
+ */
+export function ageingSpec(buckets: readonly DashboardAgeingBucket[], activate?: (index: number) => void): ChartSpec | null {
+  if (buckets.length < 2) return null;
+  const notDue = buckets.filter((b) => b.index === 0);
+  const overdue = buckets.filter((b) => b.index > 0);
+  const kept = overdue.slice(0, 4);
+  const rest = overdue.slice(4);
+  const categories = [...notDue, ...kept].map((b) => b.label);
+  const values = [...notDue, ...kept].map((b) => b.amount);
+  if (rest.length > 0) {
+    categories.push(rest.length === 1 ? rest[0].label : `Over ${(rest[0].minDays ?? 1) - 1} days`);
+    values.push(rest.reduce((t, b) => t + b.amount, 0));
+  }
+  const total = values.reduce((a, b) => a + b, 0);
+  const old = buckets.filter((b) => (b.minDays ?? 0) > 90).reduce((t, b) => t + b.amount, 0);
+  const late = overdue.reduce((t, b) => t + b.amount, 0);
+  const takeaway =
+    old > 0 ? take.ordinal(compact(old), `${compact(total)} in unpaid bills`, '90 days') : late > 0 ? `Of ${compact(total)} in unpaid bills, ${compact(late)} is overdue` : `${compact(total)} in unpaid bills, none overdue`;
+  const spec: ChartSpec = {
+    kind: 'column',
+    title: 'Receivables by age',
+    takeaway,
+    categories,
+    series: [{ name: 'Unpaid bills', values }],
+    color: 'ordinal',
+    greyBefore: notDue.length > 0 ? 1 : 0,
+    label: 'max',
+    total,
+    activate,
+  };
+  return enoughData(spec) ? spec : null;
+}
+
 function monthLong(month: string): string {
   const m = Number(month.slice(5, 7));
   return `${MONTH_NAMES[m - 1] ?? ''} ${month.slice(0, 4)}`;
-}
-
-// ───────────────────────────── Ageing mini-bars ─────────────────────────────
-
-export interface AgeingBar {
-  index: number;
-  label: string;
-  amount: Paise;
-  /** Bar length 0–100 (% of the largest positive bucket). */
-  percent: number;
-  overdue: boolean;
-}
-
-export function ageingBars(buckets: readonly DashboardAgeingBucket[]): AgeingBar[] {
-  const max = buckets.reduce((m, b) => Math.max(m, b.amount), 0);
-  return buckets.map((b) => ({
-    index: b.index,
-    label: b.label,
-    amount: b.amount,
-    percent: max > 0 && b.amount > 0 ? Math.max(1, Math.round((b.amount / max) * 1000) / 10) : 0,
-    overdue: b.index > 0,
-  }));
 }
 
 // ───────────────────────────── Drill-down targets ─────────────────────────────
@@ -600,100 +650,224 @@ export function toggleTicked(prefs: StartPrefs, id: string, on: boolean): StartP
   return { ...prefs, ticked: on ? [...ticked, id] : ticked };
 }
 
-// ───────────────────────────── Home variant (2.0) ─────────────────────────────
+// ───────────────────────────── Home panel (2.1) ─────────────────────────────
 
-/** One of the four Home tiles: To collect, To pay, Cash & bank, Sales this month. */
-export interface HomeKpi {
-  id: 'collect' | 'pay' | 'cashBank' | 'salesMonth';
+/** One of Home's three figures: To collect, To pay, Cash & bank (SPEC-21 §1.3, D10). */
+export interface HomeFigure {
+  id: 'collect' | 'pay' | 'cashBank';
   /** Relabelled instead of a minus sign when the figure is negative ('Advances from customers'). */
   label: string;
-  icon: 'users' | 'truck' | 'wallet' | 'rupee';
   /** Never negative (see label). */
   value: Paise;
-  caption: string;
-  /** Sales this month only: % vs the same month last year (null when last year was 0). */
-  delta?: number | null;
-  /** Where the tile drills (nav.canOpen still decides whether it is clickable). */
+  /** At most one caption, and only when it asks for action ('₹4.66 L overdue'); null otherwise. */
+  caption: string | null;
+  /** The quieter facts (who is overdue, what falls due, the cash / bank split) — the figure's tooltip. */
+  tooltip: string;
+  /** Where the figure drills (nav.canOpen still decides whether it is clickable). */
   target: DrillTarget;
+  /** Alert ids (buildAlerts) the caption already says — "Needs your attention" leaves them out. */
+  covers: string[];
 }
 
 /**
- * The Home tiles, in this order: who owes you, whom you owe, the money you have, and this month's
- * sales. `workingDate`: when the balances are as on a past period end (summaryInput) the month tile
- * names that month instead of "this month".
+ * Home's three figures, in this order: who owes you, whom you owe, the money you have. To collect is
+ * the net outstanding (bills + advances + on account); when what is overdue is more than that, the
+ * caption reconciles it: '₹4.66 L overdue · ₹3.66 L not matched' (advances and on-account receipts not
+ * yet matched to bills).
  */
-export function homeKpis(s: DashboardSummary, workingDate?: string): HomeKpi[] {
+export function homeFigures(s: DashboardSummary): HomeFigure[] {
   const r = s.receivables;
   const p = s.payables;
   const collect = signedKpi('To collect', r.total, 'Advances from customers');
   const pay = signedKpi('To pay', p.total, 'Advances to suppliers');
   const money = signedKpi('Cash & bank', s.cashBank.cashTotal + s.cashBank.bankTotal, 'Cash & bank (overdrawn)');
-  const past = workingDate !== undefined && s.asOf !== workingDate;
-  const monthLabel = past ? `Sales in ${monthLong(s.asOf.slice(0, 7))}` : 'Sales this month';
-  const sales = signedKpi(monthLabel, s.sales.mtd, past ? `Net returns in ${monthLong(s.asOf.slice(0, 7))}` : 'Net returns this month');
-  const lastYear = s.sales.lastYear.mtd;
+  const unmatched = Math.abs(r.advance + r.onAccount);
+  const collectCaption = r.overdue > 0 ? (r.overdue > r.total && unmatched > 0 ? `${compact(r.overdue)} overdue · ${compact(unmatched)} not matched` : `${compact(r.overdue)} overdue`) : null;
+  const overdrawn = s.cashBank.banks.filter((b) => !b.isOverdraft && b.balance < 0);
+  let cashCaption: string | null = null;
+  let cashCovers: string[] = [];
+  if (s.cashBank.cashTotal < 0) {
+    cashCaption = 'Cash in hand is negative';
+    cashCovers = ['cash-negative'];
+  } else if (overdrawn.length > 0) {
+    cashCaption = overdrawn.length === 1 ? `${overdrawn[0].name} overdrawn` : `${overdrawn.length} banks overdrawn`;
+    cashCovers = overdrawn.map((b) => `bank-overdrawn-${b.ledgerId}`);
+  }
   return [
     {
       id: 'collect',
       label: collect.label,
-      icon: 'users',
       value: collect.value,
-      caption: r.overdue > 0 ? `${compact(r.overdue)} overdue from ${plural(r.overduePartyCount, 'customer')}` : 'Nothing overdue',
+      caption: collectCaption,
+      tooltip: r.overdue > 0 ? `${compact(r.overdue)} overdue from ${plural(r.overduePartyCount, 'customer')} · ${compact(r.notDue)} not yet due` : `Nothing overdue · ${plural(r.partyCount, 'customer')}`,
       target: DRILL.receivables(),
+      covers: r.overdue > 0 ? ['receivables-overdue'] : [],
     },
     {
       id: 'pay',
       label: pay.label,
-      icon: 'truck',
       value: pay.value,
-      caption:
-        p.overdue > 0
-          ? `${compact(p.overdue)} overdue`
-          : p.dueSoon.count > 0
-            ? `${compact(p.dueSoon.amount)} due in ${p.dueSoon.days} days`
-            : `Nothing due in ${p.dueSoon.days} days`,
+      caption: p.overdue > 0 ? `${compact(p.overdue)} overdue` : null,
+      tooltip: p.dueSoon.count > 0 ? `${compact(p.dueSoon.amount)} due in ${p.dueSoon.days} days` : `Nothing due in ${p.dueSoon.days} days`,
       target: DRILL.payables(),
+      covers: p.overdue > 0 ? ['payables-overdue'] : [],
     },
-    { id: 'cashBank', label: money.label, icon: 'wallet', value: money.value, caption: cashBankCaption(s.cashBank), target: DRILL.cashBank(balanceRange(s)) },
-    {
-      id: 'salesMonth',
-      label: sales.label,
-      icon: 'rupee',
-      value: sales.value,
-      caption: lastYear === 0 ? 'Nothing in the same month last year' : `Same month last year ${compact(lastYear)}`,
-      delta: deltaPercent(s.sales.mtd, lastYear),
-      target: DRILL.salesRegister(s.ranges.mtd),
-    },
+    { id: 'cashBank', label: money.label, value: money.value, caption: cashCaption, tooltip: cashBankCaption(s.cashBank), target: DRILL.cashBank(balanceRange(s)), covers: cashCovers },
   ];
 }
 
-/** Recent vouchers listed on Home (the full dashboard lists all the summary returns). */
-export const HOME_RECENT_LIMIT = 5;
+/** Home's graph (§1.3): "Sales — last 12 months", the working-date month emphasised. */
+export interface HomeSalesGraph {
+  title: string;
+  /** 'Apr' … 'Oct' — ticks and option names (≤ 12, so a name never repeats). */
+  months: string[];
+  /** 'YYYY-MM' of each column. */
+  keys: string[];
+  /** trend[i].sales (net movement of the Sales Accounts), paise. */
+  values: number[];
+  /** The column of the working-date month (slot 1), or null when that month is not in the series. */
+  emphasis: number | null;
+  /** Its direct label: '₹35.8 K so far'. */
+  label: string;
+  /** The header's answer: '₹35.8 K so far in Oct · ▲ 12 % vs 1–10 Oct 2025'. */
+  takeaway: string;
+  /** Σ values (what the columns add up to). */
+  total: number;
+}
 
-export type HomeSection = 'start' | 'kpis' | 'attention' | 'recent' | 'trend' | 'ageing' | 'cashBank' | 'gst' | 'moduleCards';
+export const HOME_GRAPH_TITLE = 'Sales — last 12 months';
 
-/** Mounted only after "Show more insights" (each one reads more data; module cards run their own queries). */
-export const HOME_INSIGHTS: readonly HomeSection[] = ['trend', 'ageing', 'cashBank', 'gst', 'moduleCards'];
+/** '1–10 Oct 2025' (or '1 Oct 2025' for one day). */
+function dayRange(r: DateRange): string {
+  const d1 = Number(r.from.slice(8, 10));
+  const d2 = Number(r.to.slice(8, 10));
+  const tail = `${MONTH_NAMES[Number(r.to.slice(5, 7)) - 1] ?? ''} ${r.to.slice(0, 4)}`;
+  return r.from === r.to ? `${d1} ${tail}` : `${d1}–${d2} ${tail}`;
+}
 
 /**
- * What the Home variant of the dashboard mounts: the four tiles, Needs your attention, Get started
- * (it hides itself once complete) and the last five vouchers — Get started first while the books are
- * empty — and, only while "Show more insights" is open, the remaining cards. The full Dashboard
- * (Reports menu) is unchanged.
+ * One column per month of `s.trend` from the month the books begin (or eleven months before the
+ * working-date month, whichever is later) to the working-date month — at least 3 months, else null
+ * (no graph, no Ctrl+J). The drawn value is `trend[i].sales`; the label and the takeaway use
+ * `sales.mtd` (1st of the month → the working date) and compare it with the same days a year earlier.
  */
-export function homeSections(o: { hasVouchers: boolean; insightsOpen: boolean }): { main: HomeSection[]; insights: HomeSection[] } {
+export function homeSalesGraph(s: DashboardSummary): HomeSalesGraph | null {
+  const end = s.asOf.slice(0, 7);
+  const first = s.booksFrom.slice(0, 7);
+  const window = (() => {
+    const y = Number(end.slice(0, 4));
+    const m = Number(end.slice(5, 7)) - 11;
+    const back = m <= 0 ? `${y - 1}-${String(m + 12).padStart(2, '0')}` : `${y}-${String(m).padStart(2, '0')}`;
+    return back > first ? back : first;
+  })();
+  const shown = s.trend.filter((t) => t.month >= window && t.month <= end);
+  if (shown.length < 3) return null;
+  const emphasisAt = shown.findIndex((t) => t.month === end);
+  const emphasis = emphasisAt >= 0 ? emphasisAt : null;
+  const running = s.asOf !== endOfMonth(s.asOf);
+  const monthName = MONTH_NAMES[Number(end.slice(5, 7)) - 1] ?? end;
+  const now = `${compactSigned(s.sales.mtd, 'net returns')}${running ? ' so far' : ''}`;
+  const last = s.sales.lastYear.mtd;
+  const delta = deltaPercent(s.sales.mtd, last);
+  const range = dayRange(s.ranges.lastYear.mtd);
+  const vs =
+    last === 0 ? `${range}: nothing` : delta === null || Math.round(delta) === 0 ? `same as ${range}` : `${delta > 0 ? '▲' : '▼'} ${Math.abs(Math.round(delta))} % vs ${range}`;
+  const values = shown.map((t) => t.sales);
   return {
-    main: o.hasVouchers ? ['kpis', 'attention', 'start', 'recent'] : ['start', 'kpis', 'attention'],
-    insights: o.insightsOpen ? [...HOME_INSIGHTS] : [],
+    title: HOME_GRAPH_TITLE,
+    months: shown.map((t) => MONTH_NAMES[Number(t.month.slice(5, 7)) - 1] ?? t.month),
+    keys: shown.map((t) => t.month),
+    values,
+    emphasis,
+    label: emphasis === null ? '' : now,
+    takeaway: clipTakeaway(`${now} in ${monthName} · ${vs}`),
+    total: values.reduce((a, b) => a + b, 0),
   };
 }
 
-/** "Show more insights" is remembered per user profile (localStorage). */
-export const HOME_INSIGHTS_KEY = 'pevqori.home.insights';
-
-export function parseInsightsOpen(raw: string | null | undefined): boolean {
-  return raw === '1';
+/**
+ * Where a Home column drills: the Sales Accounts monthly summary over that month's financial year
+ * (never before the books begin), with that month's row active — the same ledger movement the column
+ * draws (core tie-out, reports/tieouts.test.ts).
+ */
+export function homeSalesDrill(month: string, booksFrom: string, groupId: number, fyStartMonth = 4): DrillTarget {
+  const fy = financialYear(`${month}-01`, fyStartMonth);
+  return { screen: 'reports.monthlySummary', params: { groupId, from: fy.start < booksFrom ? booksFrom : fy.start, to: fy.end, month } };
 }
+
+/** Rows of "Needs your attention" on Home before "N more". */
+export const HOME_ALERTS_SHOWN = 3;
+
+/**
+ * "Needs your attention" on Home: the alerts, minus what a figure's caption already says, and minus
+ * the backup alert while the Setup line is showing with its backup step still open (D10).
+ */
+export function homeAlerts(s: DashboardSummary, o: { viewer?: AlertViewer; figures?: readonly HomeFigure[]; setupBackupOpen?: boolean } = {}): DashboardAlert[] {
+  const covered = new Set((o.figures ?? homeFigures(s)).flatMap((f) => f.covers));
+  if (o.setupBackupOpen) covered.add('backup');
+  return buildAlerts(s, o.viewer).filter((a) => !covered.has(a.id));
+}
+
+/** The Setup line (D11): 'Setup 4 of 9 · Next: Choose what prints on your invoice'. */
+export interface SetupLine {
+  done: number;
+  total: number;
+  /** The first step not done (counted steps first, then an optional one). */
+  next: StartStep | null;
+  /** The backup step is listed and not done (the backup alert then stays out of Home's list). */
+  backupOpen: boolean;
+}
+
+export function setupLine(steps: readonly StartStep[]): SetupLine {
+  const p = startProgress(steps);
+  const next = steps.find((x) => !x.done && !x.optional) ?? steps.find((x) => !x.done) ?? null;
+  return { done: p.done, total: p.total, next, backupOpen: steps.some((x) => x.id === 'backup' && !x.done) };
+}
+
+/** What the Home panel shows, top to bottom (each part hides itself when it has nothing to say). */
+export const HOME_PANEL: readonly string[] = ['period', 'figures', 'graph', 'attention', 'setup', 'fullDashboard'];
+
+// ───────────────────────────── Full Dashboard (2.1) ─────────────────────────────
+
+/** One quiet line standing for a card of the full Dashboard ("Show all cards" shows the cards). */
+export interface CardLine {
+  id: 'cashBank' | 'gst' | 'topCustomer' | 'topItem' | 'lowStock' | 'postDated' | 'recent';
+  title: string;
+  text: string;
+  link: string;
+  target: DrillTarget;
+}
+
+/** The secondary cards as one line each, in card order; a card with nothing to say has no line. */
+export function cardLines(s: DashboardSummary): CardLine[] {
+  const out: CardLine[] = [];
+  out.push({ id: 'cashBank', title: 'Cash & bank', text: cashBankCaption(s.cashBank), link: 'Cash/Bank books', target: DRILL.cashBank(balanceRange(s)) });
+  const g = s.gstDue ?? s.gst;
+  if (g) {
+    out.push({
+      id: 'gst',
+      title: 'GST',
+      text: `${g.label}: ${g.netPayable > 0 ? `${compact(g.netPayable)} to pay in cash` : 'nothing to pay in cash'} · ${gstDueLine(g, s.asOf)}`,
+      link: g.dueForm,
+      target: DRILL.gstr3b(g.period),
+    });
+  }
+  const c = s.topCustomers[0];
+  if (c) out.push({ id: 'topCustomer', title: 'Top customer', text: `${c.name} ${compact(c.amount)}${c.sharePercent === null ? '' : ` · ${Math.round(c.sharePercent)} % of sales`}`, link: 'Ledger', target: DRILL.ledger(c.ledgerId, s.ranges.period) });
+  if (s.features.inventory) {
+    const i = s.topItems[0];
+    if (i) out.push({ id: 'topItem', title: 'Top item', text: `${i.name} ${compact(i.amount)}${i.sharePercent === null ? '' : ` · ${Math.round(i.sharePercent)} % of sales`}`, link: 'Stock item', target: DRILL.stockItem(i.itemId) });
+    out.push({ id: 'lowStock', title: 'Low stock', text: s.lowStock.count > 0 ? `${plural(s.lowStock.count, 'item')} below the reorder level` : 'Stock levels are fine', link: 'Reorder status', target: DRILL.reorder() });
+  }
+  if (s.postDated.count > 0) out.push({ id: 'postDated', title: 'Post-dated cheques', text: `To receive ${compact(s.postDated.inflow)} · to pay ${compact(s.postDated.outflow)}`, link: 'All cheques', target: DRILL.pdc() });
+  // The Day Book of the voucher's own date: the last voucher entered may be dated any day.
+  const v = s.recentVouchers[0];
+  if (v) out.push({ id: 'recent', title: 'Last entry', text: `${v.typeName}${v.number ? ` ${v.number}` : ''}${v.partyName ? ` · ${v.partyName}` : ''} · ${exact(v.amount)}`, link: 'Day Book', target: DRILL.dayBook({ from: v.date, to: v.date }) });
+  return out;
+}
+
+/** The full Dashboard's four figures (§5): Sales (▲ % vs last year), Gross profit (margin %), Receivables, Cash & bank. */
+export const DASHBOARD_FIGURES: readonly string[] = ['Sales', 'Gross profit', 'Receivables', 'Cash & bank'];
 
 // ───────────────────────────── Export ─────────────────────────────
 

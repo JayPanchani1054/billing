@@ -69,8 +69,8 @@ function uiPairs(): [string, string][] {
   for (const bg of ['--surface-0', '--surface-1', '--surface-2', '--surface-3', '--row-selected', '--surface-overlay']) pairs.push(['--focus-ring', bg]);
   pairs.push(['--row-selected-indicator', '--row-selected'], ['--switch-off', '--surface-1'], ['--brand', '--surface-1']);
   for (const t of TONES) pairs.push([`--${t}-icon`, '--surface-1'], [`--${t}-icon`, `--${t}-bg`]);
-  for (let i = 1; i <= 5; i++) pairs.push([`--chart-${i}`, '--surface-1']);
-  // 2.1 graphs sit on the canvas too: the three slots and the grey context mark (D29), both surfaces.
+  // Graph marks (2.1, D29): the three slots and the grey context mark, on the canvas and on panels
+  // (`--chart-4/5` retired with the 2.0 ageing bars).
   for (const fg of ['--chart-1', '--chart-2', '--chart-3', '--chart-other']) for (const bg of ['--surface-0', '--surface-1']) pairs.push([fg, bg]);
   return pairs;
 }

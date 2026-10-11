@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 import { stateOptions } from '../../../shared/gst/states.ts';
 import type { StateOption } from '../../../shared/gst/states.ts';
 import { isApiError, userMessage } from '../../app/lib/apiErrors.ts';
-import { Badge, Icon, Picker, useHotkeys } from '../../ui/index.ts';
+import { Icon, Picker, useHotkeys } from '../../ui/index.ts';
 import type { ControlSize } from '../../ui/index.ts';
 import { cx } from '../../ui/lib/cx.ts';
 
@@ -59,22 +59,18 @@ export function StatePicker({
   );
 }
 
-/** Name with alias and status badges, for list/tree cells. */
+/**
+ * Name with its alias, for list/tree cells (2.1, SPEC-21 §1.7): an inactive master reads "inactive" in
+ * muted text after the name; there is no "Built-in" badge (`predefined` is accepted and ignored — the
+ * delete refusal and the alteration form explain what is built in).
+ */
 export function NameCell({ name, alias, inactive, predefined, extra }: { name: string; alias?: string | null; inactive?: boolean; predefined?: boolean; extra?: ReactNode }) {
+  void predefined;
   return (
     <span className={cx('bx-acc-name', inactive && 'is-inactive')}>
       <span className="bx-truncate">{name}</span>
       {alias ? <span className="bx-acc-name__alias">({alias})</span> : null}
-      {inactive ? (
-        <Badge size="sm" tone="neutral">
-          Inactive
-        </Badge>
-      ) : null}
-      {predefined ? (
-        <Badge size="sm" tone="neutral" variant="outline">
-          Built-in
-        </Badge>
-      ) : null}
+      {inactive ? <span className="bx-acc-name__alias">inactive</span> : null}
       {extra}
     </span>
   );

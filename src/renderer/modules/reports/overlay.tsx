@@ -28,10 +28,14 @@ export interface ReportOverlay {
   dialogs: ReactNode;
 }
 
-export function useReportOverlay(period: { from: string; to: string }): ReportOverlay {
+/**
+ * `initialScenarioId`: a drill-down from a report under a scenario (a month of the P&L graph, the Balance
+ * Sheet's P&L A/c line) opens under the same scenario; Alt+S still changes it.
+ */
+export function useReportOverlay(period: { from: string; to: string }, initialScenarioId?: number): ReportOverlay {
   const canMasters = useCan('reports.view');
   const [picking, setPicking] = useState<'scenario' | 'budget' | null>(null);
-  const [scenarioId, setScenarioId] = useState<number | null>(null);
+  const [scenarioId, setScenarioId] = useState<number | null>(initialScenarioId ?? null);
   const [budgetId, setBudgetId] = useState<number | null>(null);
   const scenarios = useApiQuery('documents.scenario.list', {}, { enabled: canMasters && (picking === 'scenario' || scenarioId !== null), staleTime: 60_000 });
   const budgets = useApiQuery('documents.budget.list', {}, { enabled: canMasters && (picking === 'budget' || budgetId !== null), staleTime: 60_000 });

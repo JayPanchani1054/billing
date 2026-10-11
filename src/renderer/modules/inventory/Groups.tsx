@@ -276,7 +276,7 @@ function GroupForm({ title, saved, params, groups, hsnDigits }: { title: string;
           <Inline gap={2}>
             <HistoryButton onOpen={history} />
             {saved && canDelete ? (
-              <Button variant="danger" icon="trash" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
+              <Button variant="danger" shortcut="Alt+D" onClick={() => void remove()} loading={del.pending}>
                 Delete
               </Button>
             ) : null}
@@ -286,7 +286,7 @@ function GroupForm({ title, saved, params, groups, hsnDigits }: { title: string;
       footer={
         <>
           <Button onClick={() => void nav.back()}>Cancel</Button>
-          <Button variant="primary" icon="save" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()} disabled={readOnly}>
+          <Button variant="primary" shortcut="Ctrl+A" loading={save.pending} onClick={() => void submit()} disabled={readOnly}>
             {forResult ? 'Save & return' : 'Save'}
           </Button>
         </>
@@ -317,7 +317,7 @@ function GroupForm({ title, saved, params, groups, hsnDigits }: { title: string;
             </Field>
           </FieldGroup>
           {company.gstEnabled ? (
-            <FieldGroup legend="GST details" description="Items under this group use these unless they set their own.">
+            <FieldGroup legend="GST details">
               <GstFields
                 value={d}
                 onChange={patch}
