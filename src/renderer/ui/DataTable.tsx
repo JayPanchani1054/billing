@@ -16,6 +16,7 @@ import { computeTreeInfo, visibleTreeIndices } from './lib/tree.ts';
 import { computeVirtualWindow, pageSize, scrollTopToReveal } from './lib/virtual.ts';
 import type { Align, Density } from './types.ts';
 import { formatDrCr, formatIndianNumber, formatMoney, formatQty } from '../../shared/format.ts';
+import { FIT_SCAN_LIMIT, fitColWidth, fitPx, longestChars } from './lib/numericFit.ts';
 import { formatDate } from '../../shared/dates.ts';
 
 export type ColumnKind = 'text' | 'amount' | 'drcr' | 'qty' | 'date' | 'number';
@@ -685,7 +686,28 @@ export function DataTable<T>(props: DataTableProps<T>) {
   }, [footerRows, columns, rows, levels, isGroupRow]);
 
   // ── Widths ──
-  const minTableWidth = columns.reduce((sum, c) => sum + (typeof c.width === 'number' ? c.width : c.minWidth ?? 120), 0);
+  // Money and quantities are never cut off: a numeric column is at least as wide as its longest value
+  // (rows and totals; lib/numericFit.ts). The Dr/Cr suffix box is 2.4em, about two characters more than " Dr".
+  const fitChars = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const c of columns) {
+      if (!c.kind || !NUMERIC_KINDS.has(c.kind) || c.render) continue;
+      const texts: string[] = [];
+      for (let i = 0; i < rows.length && i < FIT_SCAN_LIMIT; i++) texts.push(formatByKind(c, rawValue(c, rows[i]), rows[i]).text);
+      for (const f of footer ?? []) {
+        const v = f.cells[c.key];
+        if (typeof v === 'number') texts.push(formatByKind(c, v, null).text);
+        else if (typeof v === 'string') texts.push(v);
+      }
+      const n = longestChars(texts);
+      if (n > 0) out.set(c.key, n + (c.kind === 'drcr' ? 2 : 0));
+    }
+    return out;
+  }, [columns, rows, footer]);
+  const minTableWidth = columns.reduce((sum, c) => {
+    const fit = fitPx(fitChars.get(c.key) ?? 0);
+    return sum + Math.max(typeof c.width === 'number' ? c.width : c.minWidth ?? 120, fit);
+  }, 0);
   const treegrid = canExpand;
   const showEmpty = !loading && visible.length === 0;
   const activeInWindow = activePos >= win.start && activePos < win.end;
@@ -726,7 +748,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
         >
           <colgroup>
             {columns.map((c) => (
-              <col key={c.key} style={c.width !== undefined ? { width: c.width } : undefined} />
+              <col key={c.key} style={c.width !== undefined ? { width: fitColWidth(c.width, fitChars.get(c.key) ?? 0) } : undefined} />
             ))}
           </colgroup>
           <thead ref={theadRef} className="bx-thead">
