@@ -201,7 +201,9 @@ async function openFirstDayBookVoucher(): Promise<void> {
   const grid = topScreen(page).getByRole('grid').first();
   await grid.getByRole('row').nth(1).click();
   await page.keyboard.press('Alt+Enter');
-  await expect(page.locator('[data-screen="vouchers.view"]')).toBeVisible({ timeout: 8_000 });
+  // The view's own heading, not just its frame: keys typed while a lazy screen's code loads are not delivered.
+  await expect(page.locator('[data-screen="vouchers.view"] h1').first()).toBeVisible({ timeout: 8_000 });
+  await settle();
 }
 
 /** Sales entry with Asha Retail and two item lines (party line, totals strip); the voucher is never saved. */
@@ -358,14 +360,21 @@ const SHOTS: Shot[] = [
       await page.keyboard.press('Alt+y');
     },
   },
-  // Last on purpose: it moves the working period (Alt+F2 › Last month), which every later shot would inherit.
+  // Last on purpose: it changes the return period, which later GST shots would inherit.
   {
     name: '35-gstr3b-meter',
     open: async () => {
       await viaGoto('GSTR-3B');
       await settle();
+      // GSTR-3B's Alt+F2 focuses its own return-period select (not the working-period dialog): pick the
+      // return before the current one.
       await page.keyboard.press('Alt+F2');
-      await page.getByRole('group', { name: 'Quick periods' }).getByRole('button', { name: 'Last month', exact: true }).click();
+      const select = topScreen(page).getByRole('combobox', { name: 'Return period' });
+      await expect(select).toBeFocused();
+      const current = await select.inputValue();
+      const values = await select.locator('option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
+      const earlier = values.filter((v) => v !== '' && v < current).sort();
+      if (earlier.length > 0) await select.selectOption(earlier[earlier.length - 1]);
     },
   },
 ];

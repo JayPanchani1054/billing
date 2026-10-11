@@ -712,7 +712,7 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
   to load shows the screen's error boundary; its "Try again" re-arms every failed load (`retryLazyScreens`) and
   imports the chunk again — if the engine keeps refusing that chunk (a damaged installation), only reinstalling
   helps. After `pevqori:shell-ready` the shell prefetches the lazy targets of Home ›
-  Essentials (`PREFETCH_SCREENS`), one chunk per idle slot (`requestIdleCallback`, 2 s timeout), skipping
+  Essentials, then the voucher view (`PREFETCH_SCREENS`), one chunk per idle slot (`requestIdleCallback`, 2 s timeout), skipping
   screens the user cannot open. **Stay eager**: menus, Go To providers, dashboard cards, voucher panels, Home
   notices, print blocks and module CSS (still imported by `index.ts`); dialog screens (`presentation: 'dialog'`,
   which open over a live screen in the same frame as their key) and the screens sharing their file;

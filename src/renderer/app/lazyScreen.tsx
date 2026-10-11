@@ -57,8 +57,10 @@ export function retryLazyScreens(): number {
 
 /**
  * Screens prefetched in idle time once the workspace is up (`pevqori:shell-ready`): the lazy targets of
- * Home › Essentials (app/lib/essentials.ts), in Essentials order. Eager screens in the list cost nothing
- * (no `preload`); screens the user cannot open (F11 off, no permission) are skipped by nav.tsx.
+ * Home › Essentials (app/lib/essentials.ts), in Essentials order, then the voucher view (2.1.2: lazy for the
+ * initial-JS budget; every Day Book, register and ledger opens it with Alt+Enter or a drill-down). Eager
+ * screens in the list cost nothing (no `preload`); screens the user cannot open (F11 off, no permission) are
+ * skipped by nav.tsx.
  */
 export const PREFETCH_SCREENS: readonly string[] = [
   'inventory.item.list',
@@ -74,4 +76,5 @@ export const PREFETCH_SCREENS: readonly string[] = [
   'gst.cmp08',
   'gst.gstr4',
   'data.backup',
+  'vouchers.view',
 ];

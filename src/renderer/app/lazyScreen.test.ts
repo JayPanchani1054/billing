@@ -420,7 +420,7 @@ describe('idle prefetch of the Essentials screens', () => {
     for (const id of prefetch) assert.ok(lazyScreenIds.has(id), `${id} is not a lazy screen`);
   });
 
-  test('every lazy screen of Home › Essentials is prefetched, in Essentials order', () => {
+  test('every lazy screen of Home › Essentials is prefetched, in Essentials order, then the voucher view', () => {
     const wanted: string[] = [];
     for (const group of ESSENTIALS) {
       for (const ref of group.entries) {
@@ -429,7 +429,8 @@ describe('idle prefetch of the Essentials screens', () => {
       }
     }
     assert.ok(wanted.length >= 5, `only ${wanted.length} lazy Essentials screens resolved`);
-    assert.deepEqual(prefetch, wanted);
+    // …then the voucher view (2.1.2): lazy, and the target of every Day Book's Alt+Enter and drill-down.
+    assert.deepEqual(prefetch, [...wanted, 'vouchers.view']);
   });
 
   test('ScreenStack shows the screen skeleton inside the error boundary and prefetches when idle', () => {
