@@ -820,7 +820,7 @@ words: **Cash in drawer** (the opening float you type + cash received − refund
 already shows is not repeated (by cashier or counter, the Net total is the net sales); point at
 *Cash in drawer* for the number of bills and returns, the change given, exchange credit and MRP savings.
 The *By tender* view answers "how was I paid?": *Takings by tender* draws a thin bar under each mode's Net
-amount (with three or more modes; more than seven become the six largest and *Other*); Ctrl+J folds it to
+amount (with two or more modes; more than seven become the six largest and *Other*); Ctrl+J folds it to
 its one line. Type the opening float and the cash you counted to see whether the drawer tallies. Alt+E
 exports, Alt+P prints — always the table, never the graph.
 
@@ -871,8 +871,8 @@ fold with **Ctrl+J** (section 10.4):
   table.
 - *Item Profitability* — gross profit per item: the six biggest earners, up to three items sold at a loss
   (in the second colour) and the rest as *Other* (seven items or fewer: thin bars under *Gross profit*).
-- *Stock Item Vouchers* — the quantity in stock over the period, in the item's unit. It opens folded to
-  its one line, like the other drill-down reports; Ctrl+J (or *Show graphs*) opens it.
+- *Stock Item Vouchers* — the quantity in stock over the period, in the item's unit. Like the other
+  drill-down reports it shows its graph; Ctrl+J (or *Hide graphs*) folds it to its one line.
 - No graph where it would not help, but the answer in words: *Pending Orders* "Overdue 3 lines", *Batch
   Summary* "Expired 2 batches · Expiring in 30 days 1 batch", *Negative Stock* "Below zero 3 items",
   *Reorder Status* "Order now 2 of 12 items". *Physical Stock Register* has its gain and loss in the total
@@ -928,8 +928,8 @@ The journal moves stock only. Additional costs raise the value of the finished g
 posted to the expense ledgers** (the usual convention) — record the actual expense with a Payment or Journal
 voucher as usual. If a purchase is entered later with an earlier date, the cost of the finished goods is
 recomputed automatically in every report. *Inventory Reports › **Production Register*** lists what was
-made, at what cost, against the BOM's estimate today; above the table, *Cost of production by month* (with
-three or more months that made something; a longer period folds into quarters or years, the running month
+made, at what cost, against the BOM's estimate today; above the table, *Cost of production by month* (from
+the first month that made something; a longer period folds into quarters or years, the running month
 is marked "so far") names the best month. The note about where the values come from is under *More › About
 this report*.
 
@@ -1132,8 +1132,8 @@ repeats the rules.
 *GST › **Electronic Cash Ledger*** and *GST › **Electronic Credit Ledger*** show the balances per head as
 kept in your books (opening, deposited / accrued, utilised, reversed, closing) with every voucher behind
 them (Enter opens it); the *Closing balance* row of the cash ledger totals the heads. Each has a line of
-its running balance — folded to its one-line answer until you press **Ctrl+J** or *Show graphs* (detail
-reports, section 10.4). Compare them with the ledgers on the portal; if the portal shows less credit than
+its running balance — **Ctrl+J** or *Hide graphs* folds it to its one-line answer (detail reports,
+section 10.4). Compare them with the ledgers on the portal; if the portal shows less credit than
 the books, pass a reversal journal (section 6.4).
 
 **Advances (GSTR-1 Table 11).** *GST › **Advances (GST)*** lists, for the period, advances received
@@ -1344,7 +1344,7 @@ from TRACES; Pevqori does not produce them.
 
 - *Banking › **Bank Overview*** — every bank account with its book balance, the last imported statement
   and the difference. The line above the table says how many entries are not in the bank yet and links
-  the statement lines still to match. With three or more accounts a bar per account shows where the money
+  the statement lines still to match. With two or more accounts a bar per account shows where the money
   sits — inside the table up to seven accounts, an overdrawn OD / CC account to the left of zero (Ctrl+J
   folds the graphs to their one sentence). **Enter** reconciles, **Alt+I** imports a statement, **Alt+M**
   matches, **Alt+Q** cheque register, **Alt+T** post-dated cheques, **Alt+C** creates a bank ledger.
@@ -1442,9 +1442,9 @@ Enter opens the payment. Change the *as on* date to see the register on an earli
 later shows as issued then); the "Issued, not cleared" figure on the line above the table is the same as
 "cheques issued but not presented" in Bank Reconciliation on that date (optional payments and cheques
 dated later are listed but not counted; it is left out when the table's Total already shows that amount),
-next to the number of stale cheques — and, with all books shown, the number of unused leaves. Choose one
-cheque book under *Filters ▾* and a meter shows how many of its leaves are used, with a reminder to order a
-new book when five or fewer are left.
+next to the number of stale cheques — and, with several books shown, the number of unused leaves. With one
+cheque book (chosen under *Filters ▾*, or the bank's only book) a meter shows how many of its leaves are used,
+with a reminder to order a new book when five or fewer are left.
 
 ### 8.5 Bulk e-payment file (NEFT / RTGS / IMPS)
 
@@ -1519,12 +1519,12 @@ in the tooltip of the line they explain.
 | Report | Notes and keys |
 |---|---|
 | *Reports › **Balance Sheet*** | As on the period end; Liabilities and Assets side by side on one sheet; **Alt+C** (*Compare*) adds last year's column. No graph on purpose: a balance sheet always balances. The Profit & Loss A/c line's tooltip shows its opening and current-period parts. If the openings do not agree, one line says by how much, with *Correct openings* |
-| *Reports › **Profit & Loss A/c*** | Trading and P&L for the period, Expenses and Income side by side (**Tab** goes to the other side); the title line says *Net profit ₹…* or *Net loss ₹…* (in red). The graph shows the net profit of each month — Enter on a month opens that month's P&L (under the same scenario, if one is chosen with **Alt+S**). It is not drawn with fewer than three months, while a comparison column is shown (**Alt+C**), or when stock is not kept with the accounts (F11) and the period has purchases (each purchase would look like a loss). **Alt+V** (*More ▾ › Schedule III format*) switches to the vertical statement |
+| *Reports › **Profit & Loss A/c*** | Trading and P&L for the period, Expenses and Income side by side (**Tab** goes to the other side); the title line says *Net profit ₹…* or *Net loss ₹…* (in red). The graph shows the net profit of each month — Enter on a month opens that month's P&L (under the same scenario, if one is chosen with **Alt+S**). It is drawn from the first month with a result, but not while a comparison column is shown (**Alt+C**), or when stock is not kept with the accounts (F11) and the period has purchases (each purchase would look like a loss). **Alt+V** (*More ▾ › Schedule III format*) switches to the vertical statement |
 | *Reports › **Trial Balance*** | Groups · Detailed · Ledger-wise above the table; at the right it says *Agrees ✓* or *Differs by ₹…* (*Agrees only with the opening difference* while the opening balances do not agree). **Alt+L** ledger-wise ↔ group-wise, **Alt+O** opening balances, **Alt+T** period transactions, **Alt+Z** zero balances, **Alt+X** expand / collapse. No graph: it is a check |
-| *Reports › **Ledger*** | One ledger's vouchers with running balance; the graph *Balance by date* (folded until you unfold detail reports once — Ctrl+J). **Alt+L** another ledger, **Alt+M** ledger master, **Alt+Y** monthly summary, **Alt+A** alter the voucher, **Alt+R** both currencies for a foreign-currency ledger |
-| *Reports › **Cash/Bank Books*** | Cash and bank accounts with one *Closing* column; an account in credit says *overdrawn*. With three to seven accounts a thin bar under each closing balance compares them; with more, a graph of the largest six. **Alt+F** cash flow |
+| *Reports › **Ledger*** | One ledger's vouchers with running balance; the graph *Balance by date* (Ctrl+J folds it to its one line). **Alt+L** another ledger, **Alt+M** ledger master, **Alt+Y** monthly summary, **Alt+A** alter the voucher, **Alt+R** both currencies for a foreign-currency ledger |
+| *Reports › **Cash/Bank Books*** | Cash and bank accounts with one *Closing* column; an account in credit says *overdrawn*. With two to seven accounts a thin bar under each closing balance compares them; with more, a graph of the largest six. **Alt+F** cash flow |
 | *Reports › **Sales Register*** (and Purchase, Receipt, Payment, Contra, Journal, Credit Note, Debit Note registers) | Month by month, with the graph *Sales before GST, by month* (taxable value for sales, purchases and notes; the amount for receipts, payments, contra and journals; a month still running is marked *so far*). Pick another register from the name next to the title. Enter on a month — in the table or in the graph — lists its vouchers; **Alt+V** voucher list ↔ monthly view. The *Cancelled* column shows only when a month has one |
-| **Monthly Summary** (Alt+Y on a ledger, Alt+M on a group) | Month by month; the graph shows the net movement of an income or expense account, or the month-end balance of any other |
+| **Monthly Summary** (Alt+Y on a ledger, Alt+M on a group) | Month by month, always with a bar graph by month (from the first month with an amount; the running month is marked *so far*): for an income or expense account the net movement of each month; for any other account or group its closing balance at each month end — a month on the other side (a bank overdrawn, a customer in credit) in the second colour and said *Cr* / *Dr*. Enter on a bar opens that month, the same as Enter on its row |
 | **Group Summary** (Enter on a group) | The group's members with one *Closing* column and bars comparing them (detail report) |
 | *Reports › **Cash Flow*** | Money into and out of cash and bank, month by month; the graph shows each month's net flow (in ↑, out ↓) |
 | *Reports › **Funds Flow*** | Sources and uses of funds, change in working capital (in *About this report*) |
@@ -1582,10 +1582,15 @@ Balance, the Day Book, masters and statutory forms such as GSTR-1 — have none 
 
 - **Ctrl+J** (or the *Hide graphs* / *Show graphs* button at the right of the header line, or
   *More ▾ › Hide graphs*) folds the graphs to their header line, which keeps the one-sentence answer.
-  Pressed on a report it folds or unfolds the graphs of **all reports and Home**; pressed on a detail
-  report (a ledger, a monthly or group summary, a stock item, a party statement, the GST e-ledgers, a
-  foreign-currency ledger) it changes **the detail reports** only. Detail reports open folded until you
-  unfold them once.
+  Pressed on a report (a Monthly Summary too) it folds or unfolds the graphs of **all reports and Home**;
+  pressed on a detail report (a ledger, a group summary, a stock item, a party statement, the GST
+  e-ledgers, a foreign-currency ledger) it changes **the detail reports** only. Both kinds show their
+  graphs until you fold them.
+- **Graphs from your first month.** A graph by month (the Profit & Loss, a register, a Monthly Summary,
+  Home's *Sales — last 12 months*…) appears as soon as one month has an amount, so a new company sees its
+  graphs from its first month of entries. A graph that compares things (accounts, items, ages of bills,
+  GST rates) appears once there are two of them to compare, and a running balance once there are two
+  points (the opening and one entry).
 - The choice is remembered on this computer (per Windows user), like the theme. *Appearance…* (user
   menu, or *Settings › Appearance*) has the same two switches: *Show graphs on reports and Home* and
   *Show graphs on detail reports*.
@@ -1668,7 +1673,7 @@ dollars at the bank's rate.
 - Graphs (Ctrl+J folds them): Forex Outstanding shows the unpaid bills of Receivables (Ctrl+2) or Payables
   (Ctrl+3) by how overdue they are (advances are not counted; none for All), and the line above the table gives each currency's net
   and its unrealised gain or loss; Forex Revaluation shows the gain or loss per party; Ledger in Foreign
-  Currency draws the balance in the currency over the period (folded until you press Ctrl+J, like every
+  Currency draws the balance in the currency over the period (Ctrl+J folds it to its one line, like every
   ledger).
 
 ### 11.5 Year end (or quarter end): revaluation
@@ -2113,7 +2118,7 @@ with the screen (15.4 and the sections above).
 | **Alt+M** | Open the report subject's master (ledger, item) |
 | **Alt+F1** | Detailed / condensed (on the voucher view: *Detailed*, the accounting entries of an invoice; on ledger and stock item forms: the same as **Ctrl+I**) |
 | **Ctrl+I** | More details — the fields kept out of sight on voucher entry and on the ledger and stock item forms (fields that hold a value open by themselves) |
-| **Ctrl+J** | Hide / show the graphs: on a report, Home or the Dashboard it folds the graphs of every report, Home and the Dashboard to their one-line answer; on a detail report (a ledger, a monthly summary…) those of the detail reports. Remembered on this computer |
+| **Ctrl+J** | Hide / show the graphs: on a report, Home or the Dashboard it folds the graphs of every report, Home and the Dashboard to their one-line answer; on a detail report (a ledger, a group summary…) those of the detail reports. Both are shown until you fold them. Remembered on this computer |
 | **Hold Ctrl** | Shows the key of every button on screen while you hold it (Ctrl alone, about a second) |
 | **Ctrl+1**, **Ctrl+2**, **Ctrl+3** … **Ctrl+9** | Switch view or tab (on Home: **Ctrl+1** Essentials, **Ctrl+2** All menus) |
 | **Ctrl+F** | The screen's search box (lists, reports, the Day Book and the voucher lists) |

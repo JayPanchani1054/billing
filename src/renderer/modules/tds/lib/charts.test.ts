@@ -85,9 +85,10 @@ describe('tds.computation — not yet deposited, by section', () => {
     assert.equal(inlineBars(spec, d.rows.length), false);
   });
 
-  test('null when fewer than 3 sections have something left to deposit (or nothing at all)', () => {
+  test('null when fewer than 2 sections have something left to deposit (or nothing at all) — 2.1.1 D2', () => {
     assert.equal(computationChart(computation([])), null);
-    assert.equal(computationChart(computation([compRow(1, '194C', 100_00, 0), compRow(2, '194J(b)', 100_00, 0), compRow(3, '194H', 100_00, 100_00)])), null);
+    assert.equal(computationChart(computation([compRow(1, '194C', 100_00, 0), compRow(3, '194H', 100_00, 100_00)])), null, 'one section left: no graph');
+    assert.equal(computationChart(computation([compRow(1, '194C', 100_00, 0), compRow(2, '194J(b)', 100_00, 0), compRow(3, '194H', 100_00, 100_00)]))?.total, 200_00, 'two sections: a graph');
   });
 
   test('10,000 rows in well under 50 ms', () => {
@@ -183,9 +184,14 @@ describe('tds.outstanding — left to deposit, by month', () => {
     assert.deepEqual(spec.emphasis, [0]);
   });
 
-  test('null with fewer than 3 months holding a balance', () => {
+  test('one month holding a balance draws (a time series, 2.1.1 D2); none → null', () => {
     assert.equal(outstandingChart(outstanding([])), null);
-    assert.equal(outstandingChart(outstanding([outRow('2026-07', '194C', 100_00, 0, 'due'), outRow('2026-08', '194C', 100_00, 0, 'due')])), null);
+    assert.equal(outstandingChart(outstanding([outRow('2026-07', '194C', 100_00, 100_00, 'paid')])), null, 'nothing left to deposit: no graph');
+    const one = outstandingChart(outstanding([outRow('2026-07', '194C', 100_00, 0, 'due')]));
+    assert.ok(one, 'one month: a graph');
+    assert.equal(one.xKind, 'time');
+    assert.equal(one.total, 100_00);
+    assert.equal(outstandingChart(outstanding([outRow('2026-07', '194C', 100_00, 0, 'due'), outRow('2026-08', '194C', 100_00, 0, 'due')]))?.total, 200_00);
   });
 
   test('stat: interest still to pay, only once some interest was paid (else the Interest total says it)', () => {
@@ -250,9 +256,13 @@ describe('tds.challans — deposited, by month', () => {
     assert.match(spec.takeaway, /on time/);
   });
 
-  test('null with no challans or fewer than 3 months paid', () => {
+  test('null with no challans; one month paid draws (a time series, 2.1.1 D2)', () => {
     assert.equal(challansChart({ rows: [], totals: {} }, '2026-04-01', '2027-03-31'), null);
-    assert.equal(challansChart({ rows: [challan(1, '2026-04-07', 100_00, false), challan(2, '2026-05-07', 100_00, true)], totals: {} }, '2026-04-01', '2027-03-31'), null);
+    const one = challansChart({ rows: [challan(1, '2026-04-07', 100_00, false)], totals: {} }, '2026-04-01', '2027-03-31');
+    assert.ok(one, 'one month paid: a graph');
+    assert.equal(one.xKind, 'time');
+    assert.equal(one.total, 100_00);
+    assert.equal(challansChart({ rows: [challan(1, '2026-04-07', 100_00, false), challan(2, '2026-05-07', 100_00, true)], totals: {} }, '2026-04-01', '2027-03-31')?.total, 200_00);
   });
 });
 

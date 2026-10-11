@@ -86,8 +86,10 @@ describe('Bills pending by age (documents.billsPending)', () => {
     assert.match(billsPendingChart(rows, 'purchase')?.title ?? '', /Bills awaited/);
   });
 
-  test('fewer than 3 ages with a value: no graph', () => {
-    assert.equal(billsPendingChart([bill(1, 10_00), bill(40, 10_00)], 'sales'), null);
+  test('fewer than 2 ages with a value: no graph (2.1.1 D2)', () => {
+    assert.equal(billsPendingChart([bill(1, 10_00)], 'sales'), null);
+    assert.equal(billsPendingChart([bill(1, 10_00), bill(2, 5_00)], 'sales'), null, 'two bills, one age');
+    assert.equal(billsPendingChart([bill(1, 10_00), bill(40, 10_00)], 'sales')?.total, 20_00, 'two ages: a graph');
     assert.equal(billsPendingChart([], 'sales'), null);
   });
 });

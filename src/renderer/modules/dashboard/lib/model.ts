@@ -198,13 +198,17 @@ export function trendChart(trend: readonly DashboardMonth[], upTo?: string): Tre
 /**
  * The full Dashboard's trend (§5 dashboard.home): a line of Sales (slot 1, area) with Purchases as grey
  * context; Enter on a month opens that month's Sales Register. Null when there is nothing to draw.
- * `upTo`: months after it have no mark (see trendChart).
+ * `upTo`: months after it have no mark (see trendChart). A time series (2.1.1 D2): drawn from one month
+ * with a sale — while only one month has happened (the first month of a whole-year period) a line has a
+ * single point, so that month is drawn as columns (Sales slot 1, Purchases grey beside it).
  */
 export function trendSpec(trend: readonly DashboardMonth[], activate?: (index: number) => void, upTo?: string): ChartSpec | null {
   const c = trendChart(trend, upTo);
   if (c.empty) return null;
+  const points = c.series[0].values.filter((v) => v !== null).length;
   const spec: ChartSpec = {
-    kind: 'line',
+    kind: points >= 2 ? 'line' : 'column',
+    xKind: 'time',
     title: 'Sales and purchases — last 12 months',
     takeaway: c.description,
     categories: c.categories,
@@ -218,7 +222,7 @@ export function trendSpec(trend: readonly DashboardMonth[], activate?: (index: n
 }
 
 /**
- * The trend card's one sentence — the graph's takeaway, also when there is too little to draw (fewer than three
+ * The trend card's one sentence — the graph's takeaway, also when there is too little to draw (fewer than two
  * months up to `upTo`, early in a whole-year period): then the card still names the months there were, and says
  * "No sales or purchases…" only when there were none.
  */
@@ -768,8 +772,8 @@ function dayRange(r: DateRange): string {
 
 /**
  * One column per month of `s.trend` from the month the books begin (or eleven months before the
- * working-date month, whichever is later) to the working-date month — at least 3 months, else null
- * (no graph, no Ctrl+J). The drawn value is `trend[i].sales`; the label and the takeaway use
+ * working-date month, whichever is later) to the working-date month, drawn from the first month with a
+ * sale (2.1.1 D2: a time series needs one non-zero month; no sale at all → null, no graph, no Ctrl+J). The drawn value is `trend[i].sales`; the label and the takeaway use
  * `sales.mtd` (1st of the month → the working date) and compare it with the same days a year earlier.
  */
 export function homeSalesGraph(s: DashboardSummary): HomeSalesGraph | null {
@@ -783,7 +787,7 @@ export function homeSalesGraph(s: DashboardSummary): HomeSalesGraph | null {
   })();
   const shown = s.trend.filter((t) => t.month >= window && t.month <= end);
   // Nothing sold yet (a new company): an empty plot says nothing — no graph, as on every report.
-  if (shown.length < 3 || shown.every((t) => t.sales === 0)) return null;
+  if (shown.length === 0 || shown.every((t) => t.sales === 0)) return null;
   const emphasisAt = shown.findIndex((t) => t.month === end);
   const emphasis = emphasisAt >= 0 ? emphasisAt : null;
   const running = s.asOf !== endOfMonth(s.asOf);

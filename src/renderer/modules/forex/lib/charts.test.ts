@@ -109,8 +109,9 @@ describe('forex.outstanding — bills of one side by age', () => {
     assert.equal(outstandingChart(p, 'payable')?.total, 6_000_00);
   });
 
-  test('null with fewer than 3 buckets holding bills', () => {
-    assert.equal(outstandingChart(outstanding([bill(7, 'A1', 100_00, null, 100_00), bill(7, 'A2', 100_00, 5, 100_00)]), 'receivable'), null);
+  test('null with fewer than 2 buckets holding bills (2.1.1 D2)', () => {
+    assert.equal(outstandingChart(outstanding([bill(7, 'A1', 100_00, null, 100_00), bill(7, 'A2', 50_00, null, 50_00)]), 'receivable'), null, 'one bucket');
+    assert.equal(outstandingChart(outstanding([bill(7, 'A1', 100_00, null, 100_00), bill(7, 'A2', 100_00, 5, 100_00)]), 'receivable')?.total, 200_00, 'two buckets: a graph');
   });
 
   test('buckets', () => {
@@ -182,8 +183,10 @@ describe('forex.revaluation — unrealised gain / loss by party', () => {
     assert.equal(revaluationChart(revaluation([line(7, 100), line(9, 200), line(11, 300)]))?.takeaway, 'Gain on all 3 parties');
   });
 
-  test('null with fewer than 3 parties to restate', () => {
-    assert.equal(revaluationChart(revaluation([line(7, 100), line(9, -100)])), null);
+  test('null with fewer than 2 parties to restate (2.1.1 D2)', () => {
+    assert.equal(revaluationChart(revaluation([line(7, 100)])), null);
+    assert.equal(revaluationChart(revaluation([line(7, 100), line(9, 0)])), null);
+    assert.equal(revaluationChart(revaluation([line(7, 100), line(9, -100)]))?.total, 0, 'two parties: a graph (gain and loss net to 0)');
     assert.equal(revaluationChart(revaluation([])), null);
   });
 });
@@ -236,8 +239,10 @@ describe('forex.ledger — balance in the currency', () => {
     assert.equal(f.full(0), '$ 0.00');
   });
 
-  test('fewer than 3 voucher rows: no graph; 5,000 rows decimated to ≤ 480 points ending on the closing', () => {
-    assert.equal(ledgerChart(statement([row(1, '2026-05-02', 1, 501), row(2, '2026-05-03', 1, 502)])), null);
+  test('no voucher row: no graph; one draws (2.1.1 D2); 5,000 rows decimated to ≤ 480 points ending on the closing', () => {
+    assert.equal(ledgerChart(statement([])), null);
+    assert.equal(ledgerChart(statement([row(1, '2026-05-02', 1, 501)]))?.total, 501, 'opening + one voucher: two points');
+    assert.equal(ledgerChart(statement([row(1, '2026-05-02', 1, 501), row(2, '2026-05-03', 1, 502)]))?.total, 502);
     const rows: ForexLedgerRow[] = [];
     let bal = 500;
     for (let i = 0; i < 5_000; i++) {

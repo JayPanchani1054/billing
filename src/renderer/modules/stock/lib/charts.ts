@@ -1,8 +1,8 @@
 /**
  * The graphs and stat lines of the stock reports (2.1, SPEC-21 §5 "Outstanding and stock", D24, D26).
  * Pure — no React — so every builder's "graph total = table total" is tested in node (charts.test.ts).
- * A builder returns null when the data cannot carry the graph (Quantities only, < 3 non-zero
- * categories / points): the screen then shows no strip and no Ctrl+J.
+ * A builder returns null when the data cannot carry the graph (Quantities only, < 2 non-zero
+ * categories / points — 2.1.1 D2): the screen then shows no strip and no Ctrl+J.
  *
  *   stock.summary        bar of the level-0 rows by closing value (inline in the table for ≤ 7 rows)
  *   stock.categories     the same by category, "Not categorised" grey (emphasis)
@@ -34,7 +34,7 @@ import type {
   StockSummaryRow,
 } from '../../../../shared/types/stock.ts';
 import { formatDate } from '../../../../shared/dates.ts';
-import { clipTakeaway, compactValue, decimate, drawnTotal, enoughData, INLINE_MAX_ROWS, inlineBars, MAX_LINE_POINTS, OTHER_LABEL, take } from '../../../ui/lib/chartSpec.ts';
+import { clipTakeaway, compactValue, decimate, drawnTotal, enoughData, INLINE_MAX_ROWS, inlineBars, MAX_LINE_POINTS, MIN_LINE_POINTS, OTHER_LABEL, take } from '../../../ui/lib/chartSpec.ts';
 import type { ChartColor, ChartSpec, ValueFormat } from '../../../ui/lib/chartSpec.ts';
 import { qtyText } from './model.ts';
 import type { MovementTreeRow } from './model.ts';
@@ -142,7 +142,7 @@ export function summaryTopRows(d: StockSummaryResult): StockSummaryRow[] {
 /**
  * stock.summary / stock.categories — "Where money is locked in stock": one bar per level-0 row by its
  * closing value (Top 6 + Other beyond 7 rows). Categories mode greys "Not categorised" (key 'c:none').
- * null in Quantities only (no values) and with fewer than 3 non-zero rows. Enter = Enter on the row.
+ * null in Quantities only (no values) and with fewer than 2 non-zero rows. Enter = Enter on the row.
  */
 export function stockSummaryChart(d: StockSummaryResult, mode: 'group' | 'category' = 'group', open?: (row: StockSummaryRow) => void): ChartSpec | null {
   if (!d.valuesShown) return null;
@@ -229,7 +229,7 @@ function dayLabel(date: string, withYear: boolean): string {
 /**
  * stock.item — "Is this item running down?": the running closing quantity in the item's unit — the
  * opening on the first day, the closing at the end of every day with a voucher, and the period's
- * closing on its last day — on a zero baseline. Needs ≥ 3 points. Its total (the last point) is the
+ * closing on its last day — on a zero baseline. Needs ≥ 2 points (2.1.1 D2). Its total (the last point) is the
  * footer's closing quantity.
  */
 export function stockItemChart(d: StockItemVouchersResult): ChartSpec | null {
@@ -239,7 +239,7 @@ export function stockItemChart(d: StockItemVouchersResult): ChartSpec | null {
   for (const r of d.rows) if (r.date >= d.from && r.date <= d.to) byDay.set(r.date, r.closing.qty);
   byDay.set(d.to, d.closing.qty);
   const days = [...byDay.keys()].sort();
-  if (days.length < 3) return null;
+  if (days.length < MIN_LINE_POINTS) return null;
   const withYear = d.from.slice(0, 4) !== d.to.slice(0, 4);
   let points = days.map((day, i) => ({ x: i, y: byDay.get(day) ?? 0 }));
   if (points.length > MAX_LINE_POINTS) points = decimate(points, MAX_LINE_POINTS);

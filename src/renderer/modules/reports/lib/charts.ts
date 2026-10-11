@@ -4,8 +4,9 @@
  * instead of a graph (the Trial Balance check, the P&L's net word). Pure — no React — so
  * charts.test.ts proves "graph total = table total" and every null gate in node.
  *
- * A builder returns null when the data cannot carry the graph (`enoughData`: ≥ 3 non-zero categories or
- * ≥ 3 line points, or a §5 gate); the screen then shows no strip and registers no graph key. Money stays
+ * A builder returns null when the data cannot carry the graph (`enoughData`: one non-zero period on a time
+ * axis, two non-zero categories, two line points — 2.1.1 D2 — or a §5 gate); the screen then shows no
+ * strip and registers no graph key. Money stays
  * integer paise; folds preserve the sum (ui/lib/chartSpec.ts). Colour follows meaning (D29): slot 1 is
  * the measured thing, slot 2 only the negative pole (loss, overdrawn, cash out), never red/green.
  */
@@ -22,7 +23,7 @@ import type {
 } from '../../../../shared/types/reports.ts';
 import { endOfMonth, formatDate } from '../../../../shared/dates.ts';
 import { formatDrCr } from '../../../../shared/format.ts';
-import { clipTakeaway, compactValue, decimate, enoughData, foldMonths, foldTop, fyLabel, INLINE_MAX_ROWS, MAX_LINE_POINTS, monthName, quarterLabel, take } from '../../../ui/lib/chartSpec.ts';
+import { clipTakeaway, compactValue, decimate, enoughData, foldMonths, foldTop, fyLabel, INLINE_MAX_ROWS, MAX_LINE_POINTS, MIN_LINE_POINTS, monthName, quarterLabel, take } from '../../../ui/lib/chartSpec.ts';
 import type { ChartSpec, ValueFormat } from '../../../ui/lib/chartSpec.ts';
 import { statMoney } from '../../../ui/lib/statLine.ts';
 
@@ -36,7 +37,7 @@ type Grain = 'month' | 'quarter' | 'year';
 
 const sum = (values: readonly number[]): number => values.reduce((a, b) => a + b, 0);
 const grainWord = (g: Grain): string => (g === 'month' ? 'month' : g === 'quarter' ? 'quarter' : 'year');
-/** Only a spec the kit can draw: null below the minimum data (D26). */
+/** Only a spec the kit can draw: null below the minimum data (D26, 2.1.1 D2). */
 const drawable = (spec: ChartSpec): ChartSpec | null => (enoughData(spec) ? spec : null);
 
 /**
@@ -92,10 +93,11 @@ export function profitTrendGate(t: ProfitTrendResult | null | undefined, compare
 /**
  * "Net profit by month" (reports.profitLoss): polarity columns — profit slot 1 above the zero line, loss
  * slot 2 below it — with the axis captions "Profit ↑" / "Loss ↓"; Enter on a month opens the P&L of that
- * month. Total = Σ months = the P&L's net profit (core tie-out). Null with < 3 months or under a gate.
+ * month. Total = Σ months = the P&L's net profit (core tie-out). A time series (2.1.1 D2): drawn from one
+ * month with a result; null without one or under a gate.
  */
 export function profitTrendChart(t: ProfitTrendResult | null | undefined, opts: { compare?: boolean; activate?: (range: DrillRange) => void } = {}): ChartSpec | null {
-  if (!t || t.months.length < 3 || profitTrendGate(t, !!opts.compare) !== null) return null;
+  if (!t || t.months.length === 0 || profitTrendGate(t, !!opts.compare) !== null) return null;
   const f = foldMonthRows(
     t.months,
     t.months.map((m) => m.netProfit),
@@ -118,6 +120,7 @@ export function profitTrendChart(t: ProfitTrendResult | null | undefined, opts: 
     // Months with no result (still ahead in a whole-year period) are neither profit nor loss.
     takeaway: take.polarity(losses, profits + losses, best, f.grain),
     categories: f.categories,
+    xKind: 'time',
     series: [{ name: 'Net profit', values: f.values }],
     color: 'polarity',
     axisCaptions: { up: 'Profit ↑', down: 'Loss ↓' },
@@ -199,6 +202,7 @@ export function registerChart(r: RegisterResult | null | undefined, opts: { acti
     title: measure === 'taxable' ? `${noun} before GST, ${by}` : `${noun} ${by}`,
     takeaway: '',
     categories: f.categories,
+    xKind: 'time',
     series: [{ name: measure === 'taxable' ? 'Taxable value' : 'Amount', values: f.values }],
     partialLast,
     label: 'max',
@@ -217,13 +221,14 @@ export function isOverdrawn(row: { kind: string; closing: number }): boolean {
 
 /**
  * "Closing balance by account" (reports.cashBank): one bar per cash/bank ledger, an overdrawn one (Cr)
- * left of zero in slot 2. Drawn inline in the table when there are ≤ 7 ledgers; none with fewer than 3.
+ * left of zero in slot 2. Drawn inline in the table when there are ≤ 7 ledgers; none with fewer than 2
+ * (categories: two non-zero balances, 2.1.1 D2).
  * Total = Σ ledgers = the book's total closing.
  */
 export function cashBankChart(d: CashBankResult | null | undefined): ChartSpec | null {
   if (!d) return null;
   const ledgers = d.rows.filter((r) => r.kind === 'ledger');
-  if (ledgers.length < 3) return null;
+  if (ledgers.length < 2) return null;
   const f = foldTop(
     ledgers,
     6,
@@ -286,7 +291,7 @@ const lastAt = (p: { at?: string }): string | null => (p.at ? formatDate(p.at, '
  * label "Jun 26", which reads as 26 June.
  */
 function balanceLine(title: string, points: readonly { label: string; value: number; at?: string }[], sign: 1 | -1, firstLabel: string, activate?: (i: number) => void): ChartSpec | null {
-  if (points.length < 3) return null;
+  if (points.length < MIN_LINE_POINTS) return null;
   const kept = decimate(
     points.map((p, i) => ({ x: i, y: p.value })),
     MAX_LINE_POINTS,
@@ -337,42 +342,110 @@ export function ledgerChart(d: LedgerReportResult | null | undefined, monthly?: 
 }
 
 /**
- * reports.monthlySummary (detail class): an income / expense subject (`isNominal`) → columns of each
- * month's net movement on its natural side (total = the period's net movement); an asset / liability (or
- * old data without the flag) → a line of month-end balances, opening first (total = the closing).
- * Enter on a month opens that month (the same as Enter on its row).
+ * The months a monthly report draws and where its last column ends: a period that runs past the working
+ * date (the whole financial year) stops at the working date's month — no empty future months — unless a
+ * later (post-dated) month has entries; `partialLast` when that last column is still running ("so far").
  */
-export function monthlySummaryChart(d: MonthlySummaryResult | null | undefined, opts: { activate?: (range: DrillRange) => void } = {}): ChartSpec | null {
+function runningMonths<T extends { month: string; from: string; to: string }>(rows: readonly T[], from: string, to: string, workingDate: string | undefined, moved: (r: T) => boolean): { rows: readonly T[]; end: string } {
+  if (workingDate && workingDate >= from && workingDate < to) {
+    const running = workingDate.slice(0, 7);
+    if (!rows.some((r) => r.month > running && moved(r))) return { rows: rows.filter((r) => r.month <= running), end: workingDate };
+  }
+  return { rows, end: to };
+}
+
+/** −0 → 0 (a sign flip of a zero balance stays a plain zero). */
+const plain = (v: number): number => (v === 0 ? 0 : v);
+
+/**
+ * reports.monthlySummary (2.1.1 D1: report class, always columns by month, drawn from one month with a
+ * non-zero value; a running month is "so far"). Enter on a column = Enter on that month's row.
+ *  - An income / expense subject (`isNominal`): each month's net movement on its natural side (the side of
+ *    the period's net), one series — total = Σ months = the table's net movement (Debit − Credit totals).
+ *  - An asset / liability (bank, party, group; or old data without the flag): each month's closing balance
+ *    as a column (each equals that row's Closing), polarity by the subject's nature — slot 1 on the natural
+ *    side, slot 2 for a month on the other side (a bank overdrawn, a customer in credit), said with the
+ *    words Dr / Cr, never a bare minus. Its `total` is Σ drawn (the kit's rule); the tie is per month.
+ */
+export function monthlySummaryChart(d: MonthlySummaryResult | null | undefined, opts: { activate?: (range: DrillRange) => void; workingDate?: string } = {}): ChartSpec | null {
   if (!d || d.rows.length === 0) return null;
   const activate = opts.activate;
-  if (d.subject.isNominal === true) {
-    const net = d.rows.map((r) => r.debit - r.credit);
-    const sign: 1 | -1 = d.totals.debit - d.totals.credit < 0 ? -1 : 1;
-    const f = foldMonthRows(
-      d.rows,
-      net.map((v) => v * sign),
-    );
-    const spec: ChartSpec = {
+  const shown = runningMonths(d.rows, d.from, d.to, opts.workingDate, (r) => r.count !== 0 || r.debit !== 0 || r.credit !== 0);
+  const rows = shown.rows;
+  if (rows.length === 0) return null;
+  const nominal = d.subject.isNominal === true;
+  const sign: 1 | -1 = nominal ? (d.totals.debit - d.totals.credit < 0 ? -1 : 1) : d.subject.nature ? natureSign(d.subject.nature) : naturalSign(d.closing, d.opening);
+  const f = foldMonthRows(
+    rows,
+    rows.map((r) => plain((r.debit - r.credit) * sign)),
+  );
+  const partialLast = shown.end < grainEnd(shown.end, f.grain);
+  const last = f.categories.length - 1;
+  const drill = activate ? (i: number) => activate(f.ranges[i]) : undefined;
+  if (nominal) {
+    return drawable({
       kind: 'column',
       title: `Net movement by ${grainWord(f.grain)}`,
-      takeaway: '',
+      takeaway: movementTakeaway(f.categories, f.values, partialLast, sign),
       categories: f.categories,
+      xKind: 'time',
       series: [{ name: sign > 0 ? 'Net debit' : 'Net credit', values: f.values }],
+      partialLast,
       label: 'max',
       valueFormat: 'inr',
       total: sum(f.values),
-      activate: activate ? (i) => activate(f.ranges[i]) : undefined,
-    };
-    return drawable({ ...spec, takeaway: take.max(spec) });
+      activate: drill,
+    });
   }
-  const sign = naturalSign(d.closing, d.opening);
-  return balanceLine(
-    'Month-end balance',
-    [{ label: 'Opening', value: d.opening * sign }, ...d.rows.map((r) => ({ label: `${monthName(r.month)} ${r.month.slice(2, 4)}`, value: r.closing * sign, at: r.to }))],
-    sign,
-    formatDate(d.from, 'D-MMM-YY'),
-    activate ? (i) => i > 0 && activate({ from: d.rows[i - 1].from, to: d.rows[i - 1].to }) : undefined,
-  );
+  // A folded category (quarter / year) shows the closing of its last month.
+  const closingAt = new Map(rows.map((r) => [r.to, r.closing]));
+  const closings = f.ranges.map((r) => closingAt.get(r.to) ?? 0);
+  const values = closings.map((c) => plain(c * sign));
+  const natural = sign > 0 ? 'Dr' : 'Cr';
+  const other = sign > 0 ? 'Cr' : 'Dr';
+  const end = closings[last];
+  const amount = end === 0 ? compactValue(0) : `${compactValue(Math.abs(end))} ${end < 0 ? 'Cr' : 'Dr'}`;
+  const head = partialLast ? `Closing ${amount} in ${f.categories[last]} so far` : `Closing ${amount} at the end of ${f.categories[last]}`;
+  const flipped = values.filter((v) => v < 0).length;
+  // "· Cr in 2 of 7 months" — not for a single column: the head already says its side.
+  const tail = flipped > 0 && values.length > 1 ? ` · ${other} in ${flipped} of ${values.length} ${grainWord(f.grain)}s` : '';
+  return drawable({
+    kind: 'column',
+    title: `Closing balance by ${grainWord(f.grain)}`,
+    takeaway: clipTakeaway(`${head}${tail}`),
+    categories: f.categories,
+    xKind: 'time',
+    series: [{ name: 'Closing balance', values }],
+    color: 'polarity',
+    axisCaptions: { up: `${natural} ↑`, down: `${other} ↓` },
+    partialLast,
+    label: 'last',
+    total: sum(values),
+    activate: drill,
+  });
+}
+
+/** "Highest in Sep ₹74.1 K · Oct so far ₹43.0 K" (the running month is never the highest). */
+function movementTakeaway(categories: readonly string[], values: readonly number[], partial: boolean, sign: 1 | -1): string {
+  const last = values.length - 1;
+  let best = -1;
+  values.forEach((v, i) => {
+    if (partial && i === last) return;
+    if (v > 0 && (best < 0 || v > values[best])) best = i;
+  });
+  const parts: string[] = [];
+  if (best >= 0) parts.push(`Highest in ${categories[best]} ${compactValue(values[best])}`);
+  else {
+    // Every finished month moved the other way (only returns or reversals): name the largest.
+    const i = argMax(
+      values.slice(0, partial ? last : values.length),
+      Math.abs,
+    );
+    if (i >= 0 && values[i] !== 0) parts.push(`Largest net ${sign > 0 ? 'credit' : 'debit'} in ${categories[i]} ${compactValue(Math.abs(values[i]))}`);
+  }
+  // A running month that moved the other way says so in words (a return, a reversal), never a bare minus.
+  if (partial) parts.push(`${categories[last]} so far ${compactValue(Math.abs(values[last]))}${values[last] < 0 ? ` net ${sign > 0 ? 'credit' : 'debit'}` : ''}`);
+  return clipTakeaway(parts.join(' · ') || `Nothing moved in ${categories.length} ${categories.length === 1 ? 'month' : 'months'}`);
 }
 
 // ───────────────────────────── Group summary ─────────────────────────────
@@ -450,6 +523,7 @@ export function cashFlowChart(d: CashFlowResult | null | undefined, opts: { acti
     title: `Net cash flow by ${grainWord(f.grain)}`,
     takeaway: clipTakeaway(takeaway),
     categories: f.categories,
+    xKind: 'time',
     series: [{ name: 'Net flow', values: f.values }],
     color: 'polarity',
     axisCaptions: { up: 'In ↑', down: 'Out ↓' },

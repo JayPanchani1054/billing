@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { ChequeLeafStatus, ChequeRegisterResult, ChequeRegisterRow } from '../../../../shared/types/cheques.ts';
 import { assertSpec, enoughData, statRepeatsTotal } from '../../../ui/lib/chartSpec.ts';
-import { leafMeter, leafStat, leafTableTotal, leafTakeaway } from './charts.ts';
+import { leafMeter, leafStat, leafTableTotal, leafTakeaway, meterBook } from './charts.ts';
 
 function leaf(n: number, status: ChequeLeafStatus, amount: number | null = null): ChequeRegisterRow {
   return {
@@ -62,6 +62,25 @@ describe('Cheque Leaf Register — meter "Leaves used N of M"', () => {
     assert.equal(spec.series[0].values[0], r.totals.issued + r.totals.stale + r.totals.cleared + r.totals.cancelled);
     assert.equal(spec.takeaway, '11 of 25 leaves left in 000501–000525');
     assert.equal(spec.activate, undefined, 'a meter is static (role=img)');
+  });
+
+  test("2.1.1: a bank's only book is the meter's book without choosing it — unless the register holds other leaves", () => {
+    const r = book();
+    const only = [{ id: 7, name: '000501–000525', leaves: 25 }];
+    // The young shop's one cheque book: the register opens on all leaves of the bank and still draws.
+    assert.equal(meterBook(only, null, r.totals), '000501–000525');
+    const spec = leafMeter(r, meterBook(only, null, r.totals));
+    assert.ok(spec && enoughData(spec));
+    assert.equal(spec.total, r.totals.leaves);
+    // A cheque issued outside the book (typed by hand): the register is not one stock of leaves.
+    assert.equal(meterBook(only, null, { leaves: 26 }), null);
+    // Two books together are not one stock of leaves; a chosen book always is.
+    const two = [...only, { id: 8, name: '000526–000550', leaves: 25 }];
+    assert.equal(meterBook(two, null, { leaves: 50 }), null);
+    assert.equal(meterBook(two, 8, { leaves: 25 }), '000526–000550');
+    assert.equal(meterBook(two, 9, { leaves: 25 }), null, 'a book id not (yet) in the list');
+    assert.equal(meterBook([], null, { leaves: 0 }), null);
+    assert.equal(meterBook([{ id: 7, name: 'Empty', leaves: 0 }], null, { leaves: 0 }), null);
   });
 
   test('none while no leaf is used (both meter parts must be > 0) or the book is empty', () => {

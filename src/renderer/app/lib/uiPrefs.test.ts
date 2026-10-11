@@ -3,8 +3,8 @@ import { beforeEach, describe, test } from 'node:test';
 import { decideUiPrefs, defaultUiPrefs, getUiPrefs, initUiPrefs, parseMoreDetails, parseUiPrefs, resetUiPrefsForTests, setMoreDetailsOpen, setUiPrefs, showTryHome, subscribeUiPrefs, UI_PREFS_KEY } from './uiPrefs.ts';
 import type { UiPrefs, UiPrefsStorage } from './uiPrefs.ts';
 
-/** The 2.1 fields at their defaults (SPEC-21 §4.5): graphs shown, detail graphs folded, the rest off / empty. */
-const V21 = { graphs: true, detailGraphs: false, voucherDetailed: false, moreDetails: {}, dashboardAllCards: false } as const;
+/** The 2.1 fields at their defaults (SPEC-21 §4.5; 2.1.1 D3): graphs and detail graphs shown, the rest off / empty. */
+const V21 = { graphs: true, detailGraphsShown: true, voucherDetailed: false, moreDetails: {}, dashboardAllCards: false } as const;
 
 class MemoryStorage implements UiPrefsStorage {
   readonly map = new Map<string, string>();
@@ -141,11 +141,11 @@ describe('store', () => {
 describe('2.1 fields (SPEC-21 §4.5)', () => {
   beforeEach(() => resetUiPrefsForTests(new MemoryStorage()));
 
-  test('defaults: graphs shown, detail graphs folded, voucher view not detailed, no More details, not all cards — for new and upgraded profiles', () => {
+  test('defaults: graphs shown, detail graphs shown (2.1.1 D3), voucher view not detailed, no More details, not all cards — for new and upgraded profiles', () => {
     for (const upgraded of [false, true]) {
       const d = defaultUiPrefs(upgraded);
       assert.equal(d.graphs, true);
-      assert.equal(d.detailGraphs, false);
+      assert.equal(d.detailGraphsShown, true);
       assert.equal(d.voucherDetailed, false);
       assert.deepEqual(d.moreDetails, {});
       assert.equal(d.dashboardAllCards, false);
@@ -159,7 +159,7 @@ describe('2.1 fields (SPEC-21 §4.5)', () => {
   });
 
   test('a 2.1 record keeps every field it can read (a 2.0 build reading it ignores the new ones)', () => {
-    const rec: UiPrefs = { v: 1, homeView: 'essentials', shortcutBar: true, upgraded: false, tryHomeDismissed: false, graphs: false, detailGraphs: true, voucherDetailed: true, moreDetails: { ledger: true, item: false }, dashboardAllCards: true };
+    const rec: UiPrefs = { v: 1, homeView: 'essentials', shortcutBar: true, upgraded: false, tryHomeDismissed: false, graphs: false, detailGraphsShown: false, voucherDetailed: true, moreDetails: { ledger: true, item: false }, dashboardAllCards: true };
     assert.deepEqual(parseUiPrefs(JSON.stringify(rec)), rec);
     // What 2.0's parser reads of it: the same five fields, the record stays valid (v 1).
     const asRead = JSON.parse(JSON.stringify(rec)) as Record<string, unknown>;
@@ -169,12 +169,12 @@ describe('2.1 fields (SPEC-21 §4.5)', () => {
 
   test('garbage in one field falls back to that field\'s default and never invalidates the record', () => {
     for (const bad of ['yes', 1, 0, null, [], {}, 'true']) {
-      const raw = JSON.stringify({ v: 1, homeView: 'all', shortcutBar: true, upgraded: true, tryHomeDismissed: false, graphs: bad, detailGraphs: bad, voucherDetailed: bad, dashboardAllCards: bad, moreDetails: bad });
+      const raw = JSON.stringify({ v: 1, homeView: 'all', shortcutBar: true, upgraded: true, tryHomeDismissed: false, graphs: bad, detailGraphsShown: bad, voucherDetailed: bad, dashboardAllCards: bad, moreDetails: bad });
       const p = parseUiPrefs(raw);
       assert.ok(p, JSON.stringify(bad));
       assert.equal(p.homeView, 'all');
       assert.equal(p.graphs, true);
-      assert.equal(p.detailGraphs, false);
+      assert.equal(p.detailGraphsShown, true);
       assert.equal(p.voucherDetailed, false);
       assert.equal(p.dashboardAllCards, false);
       assert.deepEqual(p.moreDetails, {});
@@ -201,14 +201,14 @@ describe('2.1 fields (SPEC-21 §4.5)', () => {
     let calls = 0;
     subscribeUiPrefs(() => calls++);
     setUiPrefs({ graphs: false });
-    setUiPrefs({ detailGraphs: true });
+    setUiPrefs({ detailGraphsShown: false });
     setUiPrefs({ voucherDetailed: true });
     setUiPrefs({ dashboardAllCards: true });
     setUiPrefs({ graphs: false }); // no change
     assert.equal(calls, 4);
     assert.equal(s.writes, writes + 4);
     const stored = JSON.parse(s.map.get(UI_PREFS_KEY) ?? '');
-    assert.deepEqual(stored, { v: 1, homeView: 'essentials', shortcutBar: false, upgraded: false, tryHomeDismissed: false, graphs: false, detailGraphs: true, voucherDetailed: true, moreDetails: {}, dashboardAllCards: true });
+    assert.deepEqual(stored, { v: 1, homeView: 'essentials', shortcutBar: false, upgraded: false, tryHomeDismissed: false, graphs: false, detailGraphsShown: false, voucherDetailed: true, moreDetails: {}, dashboardAllCards: true });
     setUiPrefs({ graphs: true });
     assert.equal(getUiPrefs().graphs, true);
     assert.equal(calls, 5);
@@ -249,9 +249,35 @@ describe('2.1 fields (SPEC-21 §4.5)', () => {
   test('storage that throws: the 2.1 choices still apply for the session', () => {
     resetUiPrefsForTests(throwing);
     initUiPrefs(state(1));
-    setUiPrefs({ detailGraphs: true });
+    setUiPrefs({ detailGraphsShown: false });
     setMoreDetailsOpen('item', true);
-    assert.equal(getUiPrefs().detailGraphs, true);
+    assert.equal(getUiPrefs().detailGraphsShown, false);
     assert.deepEqual(getUiPrefs().moreDetails, { item: true });
+  });
+
+  test('2.1.1 D3: a 2.1.0 record\'s `detailGraphs` (stored merely as its default) is ignored — drill-down graphs show; the new key is kept', () => {
+    for (const old of [false, true]) {
+      const v210 = JSON.stringify({ v: 1, homeView: 'all', shortcutBar: false, upgraded: true, tryHomeDismissed: true, graphs: true, detailGraphs: old, voucherDetailed: false, moreDetails: {}, dashboardAllCards: false });
+      const p = parseUiPrefs(v210);
+      assert.ok(p);
+      assert.equal(p.detailGraphsShown, true, `detailGraphs: ${old} is not read`);
+      assert.equal('detailGraphs' in p, false, 'the old field is not carried');
+      assert.equal(decideUiPrefs(v210, 1).write, false, 'a valid record is not rewritten on start');
+    }
+    // A user who folds drill-down graphs in 2.1.1 keeps that choice (stored under the new key).
+    const folded = JSON.stringify({ v: 1, homeView: 'essentials', shortcutBar: false, upgraded: false, tryHomeDismissed: false, graphs: true, detailGraphs: false, detailGraphsShown: false });
+    assert.equal(parseUiPrefs(folded)?.detailGraphsShown, false);
+    // The next write drops the old key; the report class is untouched by the detail class.
+    const s = new MemoryStorage();
+    s.map.set(UI_PREFS_KEY, JSON.stringify({ v: 1, homeView: 'essentials', shortcutBar: false, upgraded: false, tryHomeDismissed: false, graphs: false, detailGraphs: false }));
+    resetUiPrefsForTests(s);
+    initUiPrefs(state(1));
+    assert.equal(getUiPrefs().detailGraphsShown, true);
+    assert.equal(getUiPrefs().graphs, false, 'a folded report class stays folded');
+    setUiPrefs({ detailGraphsShown: false });
+    const stored = JSON.parse(s.map.get(UI_PREFS_KEY) ?? '') as Record<string, unknown>;
+    assert.equal(stored.detailGraphsShown, false);
+    assert.equal(stored.graphs, false);
+    assert.equal('detailGraphs' in stored, false);
   });
 });

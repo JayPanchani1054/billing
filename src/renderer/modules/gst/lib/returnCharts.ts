@@ -12,7 +12,7 @@
 import type { CashLedgerTxn, CreditLedgerTxn, ElectronicCashLedger, ElectronicCreditLedger, GstSetoffResult } from '../../../../shared/types/gst-plus.ts';
 import type { GstIssue, Gstr1Summary, Gstr3bSummary, Gstr9MonthRow, Gstr9Summary, ReturnPeriodRef } from '../../../../shared/types/gst-returns.ts';
 import { addDays, diffDays, formatDate } from '../../../../shared/dates.ts';
-import { clipTakeaway, compactValue, enoughData, monthName, take } from '../../../ui/lib/chartSpec.ts';
+import { clipTakeaway, compactValue, enoughData, MIN_LINE_POINTS, monthName, take } from '../../../ui/lib/chartSpec.ts';
 import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
 import type { Gstr1Tile } from './gstr1.ts';
 import { sumTax } from './reports.ts';
@@ -194,6 +194,7 @@ export function gstr9Chart(s: Pick<Gstr9Summary, 'months'>, activate?: (index: n
     title: 'Tax payable after credit, by month',
     takeaway: clipTakeaway(takeaway),
     categories,
+    xKind: 'time',
     series: [{ name: 'After credit', values }],
     color: 'polarity',
     axisCaptions: { up: 'Payable ↑', down: 'Credit left ↓' },
@@ -265,7 +266,7 @@ function runningBalance<T extends { date: string }>(from: string, opening: numbe
 }
 
 function ledgerLine(title: string, from: string, points: Point[]): ChartSpec | null {
-  if (points.length < 3) return null;
+  if (points.length < MIN_LINE_POINTS) return null;
   const first = points[0];
   const last = points[points.length - 1];
   const change = last.value - first.value;

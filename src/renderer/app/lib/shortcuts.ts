@@ -97,7 +97,7 @@ export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   // 2.1 (SPEC-21 §3.3). Documentation rows: the bindings live with the screens (the graph strip, the forms)
   // and in the shell (the key peek); nothing here registers a key.
   { keys: 'Ctrl+I', label: 'More details (voucher entry, ledger and stock item forms)', group: 'Forms', global: false, description: 'Opens or closes the “More details” fields; Alt+F1 does the same on the forms' },
-  { keys: GRAPHS_KEY, label: 'Hide / show the graphs', group: 'Lists & reports', global: false, description: 'Folds every graph of the same kind — all reports, Home and the Dashboard, or the detail reports (ledger, monthly summary…); the one-line answer stays. Remembered on this computer' },
+  { keys: GRAPHS_KEY, label: 'Hide / show the graphs', group: 'Lists & reports', global: false, description: 'Folds every graph of the same kind — all reports (a monthly summary too), Home and the Dashboard, or the detail reports (ledger, group summary…); both are shown until you fold them, and the one-line answer stays. Remembered on this computer' },
   { keys: 'Hold Ctrl', label: 'Show the key of every button on screen', group: 'Help', global: false, description: 'Hold Ctrl alone for about a second; release it to hide the keys again' },
 ];
 

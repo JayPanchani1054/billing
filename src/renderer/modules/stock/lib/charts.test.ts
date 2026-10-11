@@ -152,10 +152,11 @@ describe('stock.summary — where money is locked in stock', () => {
     assert.equal(stockSummaryInline(d, null), false, 'no graph (Quantities only): no bars');
   });
 
-  test('none in Quantities only, and with fewer than 3 non-zero rows', () => {
+  test('none in Quantities only, and with fewer than 2 non-zero rows (2.1.1 D2)', () => {
     assert.equal(stockSummaryChart({ ...SHOP, valuesShown: false }), null);
-    assert.equal(stockSummaryChart(summary(summaryTopRows(SHOP).slice(0, 2))), null);
-    assert.equal(stockSummaryChart(summary([...summaryTopRows(SHOP).slice(0, 2), sRow('i:5', 'Zero', 0)])), null);
+    assert.equal(stockSummaryChart(summary(summaryTopRows(SHOP).slice(0, 1))), null, 'one row: no graph');
+    assert.equal(stockSummaryChart(summary([...summaryTopRows(SHOP).slice(0, 1), sRow('i:5', 'Zero', 0)])), null, 'one non-zero row: no graph');
+    assert.ok(stockSummaryChart(summary(summaryTopRows(SHOP).slice(0, 2))), 'two rows: a graph');
     assert.equal(stockSummaryChart(summary([])), null);
   });
 
@@ -312,9 +313,11 @@ describe('stock.item — is this item running down', () => {
     assert.deepEqual(valid(stockItemChart(span)).categories, ['1-Oct-26', '2-Dec-26', '31-Jan-27']);
   });
 
-  test('≥ 3 points; never for a service; ≤ 480 points with the closing kept', () => {
-    assert.equal(stockItemChart(itemResult([], 10, 10)), null, 'opening + closing only');
-    assert.equal(stockItemChart(itemResult([vRow('2026-10-10', 0, 1, 9)], 10, 9)), null, 'a voucher on the last day: 2 points');
+  test('≥ 2 points (2.1.1 D2); never for a service; ≤ 480 points with the closing kept', () => {
+    assert.equal(stockItemChart(itemResult([], 10, 10))?.categories.length, 2, 'opening + closing: a line of two points');
+    const last = stockItemChart(itemResult([vRow('2026-10-10', 0, 1, 9)], 10, 9));
+    assert.deepEqual(last?.series[0].values, [10, 9], 'a voucher on the last day: 2 points, ending on the closing');
+    assert.equal(stockItemChart(itemResult([], 10, 10, { from: '2026-10-10', to: '2026-10-10' })), null, 'a one-day period: one point, no line');
     const svc = itemResult([vRow('2026-05-02', 1, 0, 1), vRow('2026-06-02', 1, 0, 2)], 0, 2);
     assert.equal(stockItemChart({ ...svc, item: { ...svc.item, isService: true } }), null);
     const many: StockItemVoucherRow[] = [];
@@ -382,7 +385,8 @@ describe('stock.profitability — which items make or lose money', () => {
   test('a single leftover keeps its name; gates', () => {
     const rows = [...Array.from({ length: 7 }, (_, i) => pRow(i + 1, `E${i + 1}`, (8 - i) * 100_00)), pRow(9, 'L', -50_00)];
     assert.deepEqual(profitabilitySlots(rows).map((s) => s.label), ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'L']);
-    assert.equal(profitabilityChart(profit([pRow(1, 'A', 100), pRow(2, 'B', 200)])), null);
+    assert.equal(profitabilityChart(profit([pRow(1, 'A', 100)])), null, 'one item: no graph (2.1.1 D2)');
+    assert.ok(profitabilityChart(profit([pRow(1, 'A', 100), pRow(2, 'B', 200)])), 'two items: a graph');
     assert.equal(profitabilityChart(profit([])), null);
   });
 });
@@ -465,7 +469,8 @@ describe('stock.movement — biggest buyers / suppliers', () => {
     const opened: string[] = [];
     valid(movementChart(d, 'outward', (r) => opened.push(r.partyName))).activate?.(1);
     assert.deepEqual(opened, ['Kumar Builders']);
-    assert.equal(movementChart({ ...d, outward: { ...d.outward, rows: out.slice(0, 2) } }, 'outward'), null);
+    assert.equal(movementChart({ ...d, outward: { ...d.outward, rows: out.slice(0, 1) } }, 'outward'), null, 'one party: no graph (2.1.1 D2)');
+    assert.ok(movementChart({ ...d, outward: { ...d.outward, rows: out.slice(0, 2) } }, 'outward'), 'two parties: a graph');
     assert.equal(movementChart({ ...d, outward: { rows: [], qty: null, value: 0, avgRate: null } }, 'outward'), null);
   });
 });

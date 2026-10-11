@@ -249,7 +249,22 @@ test('Monthly Summary subject.isNominal: income / expense ledgers and groups (su
   assert.equal(nominal({ groupId: sub }), true);
   assert.equal(nominal({ groupId: g.CURRENT_ASSETS }), false);
   assert.equal(nominal({ groupId: g.SUNDRY_CREDITORS }), false);
-  // Additive: every other field is what it was (subject name/kind/id unchanged).
+  // Additive: every other field is what it was (subject name/kind/id unchanged); 2.1.1 adds the nature.
   const r = monthlySummary(env, { ...APR, ledgerId: b.L.cash });
-  assert.deepEqual(r.subject, { kind: 'ledger', id: b.L.cash, name: 'Cash', isNominal: false });
+  assert.deepEqual(r.subject, { kind: 'ledger', id: b.L.cash, name: 'Cash', isNominal: false, nature: 'assets' });
+});
+
+test('Monthly Summary subject.nature (2.1.1): the side a balance belongs on, for ledgers and groups (sub-groups too)', () => {
+  const b = makeBooks();
+  const g = b.t.ids.groups;
+  const sub = saveGroup(b.t.ctx, { name: 'Office Costs', parentId: g.INDIRECT_EXPENSES }).id;
+  const APR = { from: '2026-04-01', to: '2026-04-30' };
+  const nature = (q: { ledgerId?: number; groupId?: number }) => monthlySummary(b.env(), { ...APR, ...q }).subject.nature;
+  assert.equal(nature({ ledgerId: b.L.cash }), 'assets');
+  assert.equal(nature({ ledgerId: b.L.capital }), 'liabilities');
+  assert.equal(nature({ ledgerId: b.L.sales }), 'income');
+  assert.equal(nature({ ledgerId: b.L.rent }), 'expenses');
+  assert.equal(nature({ groupId: g.SUNDRY_CREDITORS }), 'liabilities');
+  assert.equal(nature({ groupId: g.CURRENT_ASSETS }), 'assets');
+  assert.equal(nature({ groupId: sub }), 'expenses');
 });

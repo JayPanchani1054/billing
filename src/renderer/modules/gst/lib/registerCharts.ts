@@ -17,7 +17,7 @@
  *   pendingStat      'gst.einvoice', 'gst.ewaybill'   "Pending N · Ready M" (counts, never money)
  *   advancesStat     'gst.advances'    "Net tax in 3.1(a) ₹x" (received − adjusted, all heads)
  *
- * A builder returns null when the data cannot carry the graph (`enoughData`: ≥ 3 non-zero categories,
+ * A builder returns null when the data cannot carry the graph (`enoughData`: ≥ 2 non-zero categories,
  * or a gate named on the builder); the screen then shows no strip and no Ctrl+J item.
  */
 import { formatMoney, formatPercent } from '../../../../shared/format.ts';
@@ -71,7 +71,7 @@ function shareTakeaway(categories: readonly string[], values: readonly number[],
 /**
  * Taxable value by GST rate (cess variants of a rate added together), lowest rate first — the
  * question "how much of what I sell is at which rate". Σ = `totals.taxable` (the register's Taxable
- * value total). Null with fewer than 3 rates, or when a rate is negative (its returns exceed its
+ * value total). Null with fewer than 2 rates, or when a rate is negative (its returns exceed its
  * sales: a column of it could not be read as a part of the whole).
  */
 export function rateChart(r: Pick<GstRegisterResult, 'kind' | 'rateTotals'>): ChartSpec | null {
@@ -108,7 +108,7 @@ export function hsnLabel(hsn: string, description: string): string {
 /**
  * Taxable value by HSN/SAC code (the rows of one code — units, rates — added together). Σ = the
  * Taxable value total of the table. Drawn inline (`inlineBars(spec, rows.length)`) when every code is
- * one row and there are ≤ 7; else a strip of Top 6 + Other. Null with fewer than 3 codes, or when a
+ * one row and there are ≤ 7; else a strip of Top 6 + Other. Null with fewer than 2 codes, or when a
  * code is negative (inward returns larger than purchases).
  */
 export function hsnChart(r: Pick<GstHsnSummaryResult, 'direction' | 'rows'>): ChartSpec | null {
@@ -185,7 +185,7 @@ export function itcStat(r: Pick<GstItcResult, 'totals'>): StatItem[] {
  * Problems by type — what blocks filing. One bar per problem type (most frequent first), Top 6 +
  * Other; a type with an error is the problem pole (slot 2), a warning-only type is grey. Σ = the number
  * of rows of the table (every issue). `activate(code)` = filter the table to that type ("Other" clears
- * it: `null`). Null with fewer than 3 types — and with no issue at all (the success line says it).
+ * it: `null`). Null with fewer than 2 types — and with no issue at all (the success line says it).
  */
 export function exceptionsChart(issues: readonly GstIssue[], activate?: (code: GstIssueCode | null) => void): ChartSpec | null {
   const byCode = new Map<GstIssueCode, { count: number; error: boolean }>();
@@ -241,8 +241,8 @@ const BOE_SEGMENTS = [
 
 /**
  * The reconcile view as one share bar: Matched in grey, the three gaps (Mismatch, Not in books, Not
- * in GSTR-2B) as the problem pole. Σ = the rows of the reconciliation table. Null with fewer than 3
- * non-zero segments (two parts read better as the stat).
+ * in GSTR-2B) as the problem pole. Σ = the rows of the reconciliation table. Null with fewer than 2
+ * non-zero segments (one part is a sentence — the stat says it; 2.1.1 D2).
  */
 export function boeChart(r: Pick<BoeReconResult, 'counts' | 'rows'>): ChartSpec | null {
   const values = BOE_SEGMENTS.map(([k]) => r.counts[k] ?? 0);

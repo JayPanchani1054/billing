@@ -4,7 +4,7 @@
  * closing balance. Alt+L (or the picker) switches ledger, Alt+F1 adds narration and reference
  * columns, Alt+Y opens the monthly summary, Alt+M the ledger master, Enter opens the voucher and Alt+A alters it.
  *
- * 2.1: a drill-down report (graph class 'detail', folded to its one-line answer by default): "Balance by
+ * 2.1: a drill-down report (graph class 'detail'; shown by default since 2.1.1, Ctrl+J folds it): "Balance by
  * date" — the running balance on the account's own side, the last point the closing balance
  * (lib/charts.ts; a truncated ledger draws its month-end balances from the monthly summary).
  */

@@ -184,8 +184,11 @@ export function drawnTotal(spec: ChartSpec): number {
 }
 
 /**
- * Minimum data (D26): bar / column / share need ≥ 3 categories with a non-zero value; a line ≥ 3
- * points; a meter both parts (the fill and the track) > 0. Below that a builder returns null.
+ * Minimum data (D26, 2.1.1 D2): a time series (`xKind: 'time'` — one column per month, quarter or period)
+ * draws from ONE period with a non-zero value, so a company with a month of entries sees its graph;
+ * category bars, columns and share bars (Top-N, ageing buckets, rates, suppliers…) need TWO non-zero
+ * values (one category is a sentence, not a comparison); a line needs two points; a meter both parts
+ * (the fill and the track) > 0. Below that a builder returns null.
  */
 export function enoughData(spec: ChartSpec): boolean {
   const s = measuredSeries(spec);
@@ -195,8 +198,16 @@ export function enoughData(spec: ChartSpec): boolean {
     return typeof v === 'number' && v > 0 && (spec.max ?? 0) > 0;
   }
   const vals = drawn(s.values);
-  if (spec.kind === 'line') return vals.length >= 3;
-  return vals.filter((v) => v !== 0).length >= 3;
+  if (spec.kind === 'line') return vals.length >= MIN_LINE_POINTS;
+  return vals.filter((v) => v !== 0).length >= minNonZero(spec);
+}
+
+/** Points a line needs (2.1.1 D2). */
+export const MIN_LINE_POINTS = 2;
+
+/** Non-zero values a column, bar or share needs: 1 for a time series, 2 for categories (2.1.1 D2). */
+export function minNonZero(spec: Pick<ChartSpec, 'xKind'>): number {
+  return spec.xKind === 'time' ? 1 : 2;
 }
 
 /**

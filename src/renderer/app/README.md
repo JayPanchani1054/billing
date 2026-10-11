@@ -119,7 +119,7 @@ scope (active only while it is on top), an error boundary, and handles Esc / foc
   ]}
   toolbar={<Button …/>}             // title-row controls after the command bar (optional)
   graph={reportGraph(spec)}         // 2.1, optional: the graph strip above the content + Ctrl+J (app/graphStrip.tsx)
-  graphKind="report"                // 'report' (default, shown) | 'detail' (folded by default)
+  graphKind="report"                // 'report' (default) | 'detail' (drill-down); both shown by default, each folds on its own
   stat={<StatLine …/>}              // 2.1, optional: the answer in words, right of a toolbar row
   loading={q.loading} error={q.error} onRetry={q.refetch}   // skeleton / friendly error + Retry
   footer={<><Button onClick={() => void nav.back()}>Cancel</Button><Button variant="primary" shortcut="Ctrl+A" onClick={save}>Save</Button></>}

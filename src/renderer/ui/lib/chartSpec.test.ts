@@ -15,6 +15,8 @@ import {
   foldTop,
   fyLabel,
   inlineBars,
+  MIN_LINE_POINTS,
+  minNonZero,
   markColor,
   monthRange,
   ordinalSteps,
@@ -205,13 +207,26 @@ describe('drawnTotal and enoughData', () => {
     }
   });
 
-  test('≥ 3 non-zero categories / ≥ 3 points / both meter parts > 0', () => {
-    assert.equal(enoughData(col([1, 2])), false);
-    assert.equal(enoughData(col([1, 2, 0])), false, 'a zero is not a category with data');
-    assert.equal(enoughData(col([1, 2, 3])), true);
+  test('2.1.1 D2: a time series from 1 non-zero period / categories from 2 non-zero / lines from 2 points / both meter parts > 0', () => {
+    // Categories (the default x): one is a sentence, two are a comparison.
+    assert.equal(enoughData(col([1])), false);
+    assert.equal(enoughData(col([1, 0, 0])), false, 'a zero is not a category with data');
+    assert.equal(enoughData(col([1, 2])), true);
+    assert.equal(enoughData(col([1, 0, 2])), true);
+    assert.equal(enoughData({ kind: 'bar', title: 'B', takeaway: 't', categories: ['a', 'b'], series: [{ name: 'v', values: [5, 0] }], total: 5 }), false, 'one bar: no graph');
+    assert.equal(enoughData({ kind: 'share', title: 'S', takeaway: 't', categories: ['a', 'b'], series: [{ name: 'v', values: [5, 3] }], total: 8 }), true);
+    // A time series (one column per month / quarter / period): a young company's one month draws.
+    assert.equal(enoughData(col([0, 0, 0], { xKind: 'time' })), false, 'no period with data: no graph');
+    assert.equal(enoughData(col([0, 0, 5], { xKind: 'time' })), true, 'one period with data draws');
+    assert.equal(enoughData(col([5], { xKind: 'time' })), true, 'one month on its own draws');
+    assert.equal(enoughData(col([5], { xKind: 'category' })), false, "'category' is the default rule");
+    assert.equal(minNonZero({ xKind: 'time' }), 1);
+    assert.equal(minNonZero({}), 2);
     const line = (values: (number | null)[]): ChartSpec => ({ kind: 'line', title: 'L', takeaway: 't', categories: values.map(String), series: [{ name: 'B', values }], total: 0 });
-    assert.equal(enoughData(line([0, 0, 0])), true, 'a flat line of 3 points is data');
-    assert.equal(enoughData(line([1, null, 2])), false);
+    assert.equal(enoughData(line([0, 0])), true, 'a flat line of 2 points is data');
+    assert.equal(enoughData(line([1, null, 2])), true, 'two drawn points');
+    assert.equal(enoughData(line([1, null, null])), false, 'one point is not a line');
+    assert.equal(MIN_LINE_POINTS, 2);
     const meter = (v: number, max: number): ChartSpec => ({ kind: 'meter', title: 'M', takeaway: 't', categories: ['x'], series: [{ name: 'x', values: [v] }], max, total: max });
     assert.equal(enoughData(meter(5, 10)), true);
     assert.equal(enoughData(meter(0, 10)), false);
@@ -243,8 +258,16 @@ describe('assertSpec', () => {
   test('rejects partialLast on a bar or a two-series column', () => {
     rejects({ kind: 'bar', title: 'B', takeaway: 't', categories: ['a', 'b', 'c'], series: [{ name: 'v', values: [1, 2, 3] }], partialLast: true, total: 6 }, /partialLast/);
     rejects(col([1, 2, 3], { series: [{ name: 'Sales', values: [1, 2, 3] }, { name: 'P', values: [1, 1, 1], slot: 'other' }], partialLast: true, total: 6 }), /partialLast/);
-    rejects(col([1, 2, 3], { color: 'polarity', axisCaptions: { up: 'Profit ↑', down: 'Loss ↓' }, partialLast: true }), /partialLast/);
     assert.doesNotThrow(() => assertSpec(col([1, 2, 3], { partialLast: true })));
+  });
+
+  test('2.1.1: partialLast on a polarity column — the running period in --chart-partial, slot 2 kept below zero', () => {
+    const up = col([1, -2, 3], { color: 'polarity', axisCaptions: { up: 'Dr ↑', down: 'Cr ↓' }, partialLast: true });
+    assert.doesNotThrow(() => assertSpec(up));
+    assert.deepEqual([0, 1, 2].map((i) => markColor(up, i)), [1, 2, 'partial']);
+    const down = col([1, 2, -3], { color: 'polarity', axisCaptions: { up: 'Dr ↑', down: 'Cr ↓' }, partialLast: true });
+    assert.equal(markColor(down, 2), 2, 'the problem pole wins over "running"');
+    rejects({ kind: 'bar', title: 'B', takeaway: 't', categories: ['a', 'b', 'c'], series: [{ name: 'v', values: [1, -2, 3] }], color: 'polarity', partialLast: true, total: 2 }, /partialLast/);
   });
 
   test('rejects 5 share segments and 6 ordinal buckets', () => {
@@ -260,7 +283,10 @@ describe('assertSpec', () => {
   });
 
   test('rejects too little data, a wrong total, fractional paise and mismatched lengths', () => {
-    rejects(col([1, 2]), /not enough data/);
+    rejects(col([1, 0]), /not enough data/);
+    rejects(col([0, 0], { xKind: 'time' }), /not enough data/);
+    assert.doesNotThrow(() => assertSpec(col([0, 4], { xKind: 'time' })), 'one month with data');
+    rejects({ kind: 'bar', title: 'B', takeaway: 't', categories: ['a', 'b'], series: [{ name: 'v', values: [1, 2] }], xKind: 'time', total: 3 }, /xKind 'time'/);
     rejects(col([1, 2, 3], { total: 7 }), /total 7/);
     rejects(col([1.5, 2, 3]), /integer paise/);
     assert.doesNotThrow(() => assertSpec(col([1.5, 2, 3], { valueFormat: 'number' })));

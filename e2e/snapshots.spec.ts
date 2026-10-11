@@ -340,13 +340,24 @@ const SHOTS: Shot[] = [
   { name: '40-laptop-sales-entry', open: salesEntryFilled, viewport: LAPTOP },
   { name: '41-laptop-profit-loss', open: () => viaGoto('Profit & Loss A/c'), viewport: LAPTOP },
   {
-    name: '42-ledger-detail-folded',
+    // 2.1.1 D3: a drill-down report shows its graph by default (it was folded in 2.1.0).
+    name: '42-ledger-with-graph',
     open: async () => {
       await openAshaLedgerForm();
       await page.keyboard.press('Alt+l');
     },
   },
   { name: '43-stock-item-create', open: () => viaGoto('Create Stock Item') },
+  {
+    // 2.1.1 D1: every Monthly Summary is a column graph by month (the customer's month-end balances).
+    name: '44-monthly-summary-graph',
+    open: async () => {
+      await openAshaLedgerForm();
+      await page.keyboard.press('Alt+l');
+      await settle();
+      await page.keyboard.press('Alt+y');
+    },
+  },
   // Last on purpose: it moves the working period (Alt+F2 › Last month), which every later shot would inherit.
   {
     name: '35-gstr3b-meter',

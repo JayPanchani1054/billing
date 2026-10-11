@@ -43,7 +43,7 @@ export function segmentLabels(source: ReconSummary['source']): string[] {
 
 /**
  * The documents of the period by status, as one share bar (counts). Null before the first run and
- * with fewer than 3 non-zero segments. `activate(status)` filters the table to that status.
+ * with fewer than 2 non-zero segments. `activate(status)` filters the table to that status.
  */
 export function reconChart(s: Pick<ReconSummary, 'source' | 'run'>, activate?: (status: ReconStatus) => void): ChartSpec | null {
   if (!s.run) return null;
@@ -94,7 +94,7 @@ export function supplierLabel(r: Pick<SupplierReconRow, 'name' | 'gstin' | 'taxD
 /**
  * Whom to chase: the tax difference (portal − books) per supplier, as a size (|difference|); the bar
  * name says the side. Σ = Σ |difference| of the table's rows. `activate(row)` = Enter on that
- * supplier (its documents); "Other" opens nothing. Null with fewer than 3 suppliers that differ.
+ * supplier (its documents); "Other" opens nothing. Null with fewer than 2 suppliers that differ.
  */
 export function supplierChart(rows: readonly SupplierReconRow[], activate?: (row: SupplierReconRow) => void): ChartSpec | null {
   const ranked = rows.map((r, i) => ({ r, v: Math.abs(r.taxDifference), i })).sort((a, b) => b.v - a.v || a.i - b.i);

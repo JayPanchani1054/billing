@@ -76,8 +76,9 @@ describe('Takings by tender (pos.summary)', () => {
     assert.deepEqual(opened, [2]);
   });
 
-  test('fewer than 3 tenders with takings: no graph (the seeded two-tender shop)', () => {
-    assert.equal(tenderChart({ byTender: day.byTender.slice(0, 2) }), null);
+  test('fewer than 2 tenders with takings: no graph; two draw (2.1.1 D2)', () => {
+    assert.equal(tenderChart({ byTender: day.byTender.slice(0, 1) }), null, 'one tender: no graph');
+    assert.ok(tenderChart({ byTender: day.byTender.slice(0, 2) }), 'two tenders: a graph');
     assert.equal(tenderChart({ byTender: [] }), null);
   });
 });

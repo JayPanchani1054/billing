@@ -3,12 +3,13 @@
  * Pure — no React — so "graph total = table total" and "a stat never repeats a visible total" are tested
  * in node (charts.test.ts).
  *
- *   cheques.register   meter "Leaves used N of M" (static, role=img) — only with one cheque book chosen
- *                      (a bank's books together are not one stock of leaves); none otherwise, or while no
+ *   cheques.register   meter "Leaves used N of M" (static, role=img) — only for one cheque book: the
+ *                      one chosen, or (2.1.1) a bank's only book when nothing else is in its register
+ *                      (`meterBook`); a bank's books together are not one stock of leaves. None while no
  *                      leaf is used. Stat: issued, not cleared ₹x · stale N · (no book chosen) unused N.
  *   every other cheques screen: masters and printing workflows, deliberately no graph.
  */
-import type { ChequeRegisterResult } from '../../../../shared/types/cheques.ts';
+import type { ChequeBook, ChequeRegisterResult } from '../../../../shared/types/cheques.ts';
 import { clipTakeaway, drawnTotal } from '../../../ui/lib/chartSpec.ts';
 import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
 
@@ -51,6 +52,19 @@ export function leafMeter(result: Pick<ChequeRegisterResult, 'totals'>, bookName
     total: 0,
   };
   return { ...spec, total: drawnTotal(spec) };
+}
+
+/**
+ * The book the meter measures (2.1.1, "a young company sees its graphs"): the chosen book; or, with none
+ * chosen, the bank's ONLY book when the register holds nothing else — its leaf count equals the register's
+ * (no cheque issued outside the book). A shop with one cheque book thus sees "Leaves used" without first
+ * picking the book in Filters ▾. Null otherwise (several books, or leaves outside the book).
+ */
+export function meterBook(books: readonly Pick<ChequeBook, 'id' | 'name' | 'leaves'>[], bookId: number | null, totals: Pick<ChequeRegisterResult['totals'], 'leaves'>): string | null {
+  if (bookId !== null) return books.find((b) => b.id === bookId)?.name ?? null;
+  if (books.length !== 1) return null;
+  const only = books[0];
+  return only.leaves > 0 && only.leaves === totals.leaves ? only.name : null;
 }
 
 /** "7 of 25 leaves left in 000501–000525" · "… — order a new book" · "No leaf left in …". */

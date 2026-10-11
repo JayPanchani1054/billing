@@ -219,11 +219,15 @@ describe('graph catalogue — data', () => {
     }
   });
 
-  test('the catalogue matches §5: 50 graph rows, 16 inline bars, 9 in the detail class', () => {
+  test('the catalogue matches §5: 50 graph rows, 16 inline bars, 8 in the detail class (2.1.1 D1: Monthly Summary is a report)', () => {
     const g = graphRows();
     assert.equal(g.length, 50);
     assert.equal(g.filter((r) => r.inline).length, 16);
-    assert.equal(g.filter((r) => r.graphClass === 'detail').length, 9);
+    assert.equal(g.filter((r) => r.graphClass === 'detail').length, 8);
+    const ms = catalogueRows('reports.monthlySummary');
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].form, 'column', 'Monthly Summary is always a column graph');
+    assert.equal(ms[0].graphClass, 'report', 'Monthly Summary is shown and folded with the reports');
   });
 
   test('deliberate "none" for checks and statutory forms (D26)', () => {
@@ -323,5 +327,14 @@ describe('graph catalogue — screen sources', () => {
       if (!ids.some((id) => graphClassOf(id) === 'detail')) offenders.push(`${rel(f)} (${ids.join(', ') || 'no screen'})`);
     }
     assert.deepEqual(offenders, []);
+  });
+
+  test('2.1.1: the Monthly Summary is opened with the keys its empty state names (Alt+Y on a ledger, Alt+M on a group)', () => {
+    const src = (f: string) => code(path.join(modulesDir, 'reports', f));
+    // On the Ledger, Alt+M is the ledger master: the monthly summary (and its bar graph) is Alt+Y.
+    assert.match(src('LedgerScreen.tsx'), /key: 'Alt\+Y', label: 'Monthly summary'[^\n]*screen: 'reports\.monthlySummary'/);
+    assert.match(src('LedgerScreen.tsx'), /key: 'Alt\+M', label: 'Ledger master'/);
+    assert.match(src('GroupSummaryScreen.tsx'), /key: 'Alt\+M', label: 'Monthly summary'[^\n]*screen: 'reports\.monthlySummary'/);
+    assert.match(src('MonthlySummaryScreen.tsx'), /from a ledger \(Alt\+Y\) or a group summary \(Alt\+M\)/);
   });
 });

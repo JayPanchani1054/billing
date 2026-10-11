@@ -28,7 +28,7 @@
  * liability's Cr, an asset's Dr); a negative value means the line has the opposite balance.
  * Dates are 'YYYY-MM-DD'.
  */
-import type { VoucherBaseType } from '../constants.ts';
+import type { GroupNature, VoucherBaseType } from '../constants.ts';
 import type { Paise } from '../money.ts';
 
 // ───────────────────────────── Common ─────────────────────────────
@@ -390,8 +390,10 @@ export interface MonthlySummaryResult {
   /**
    * `isNominal` (2.1): true for an income / expense ledger or group (its months are movements that
    * restart every year), false for an asset / liability. Optional: older data may lack it.
+   * `nature` (2.1.1): the group nature the subject sits under — the side its balance belongs on (assets /
+   * expenses Dr, liabilities / income Cr), so the graph can say which months are on the other side.
    */
-  subject: { kind: 'ledger' | 'group'; id: number; name: string; isNominal?: boolean };
+  subject: { kind: 'ledger' | 'group'; id: number; name: string; isNominal?: boolean; nature?: GroupNature };
   opening: Paise;
   rows: MonthRow[];
   totals: DrCrTotals;

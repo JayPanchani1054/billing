@@ -3,7 +3,7 @@
  * hook is `useUiPrefs()` in app/preferences.ts.
  *
  *   localStorage['pevqori.ui'] = { v: 1, homeView, shortcutBar, upgraded, tryHomeDismissed,
- *                                  graphs, detailGraphs, voucherDetailed, moreDetails, dashboardAllCards }
+ *                                  graphs, detailGraphsShown, voucherDetailed, moreDetails, dashboardAllCards }
  *
  * - `homeView`: Home shows the short Essentials list or All menus (the full 1.0 Gateway).
  * - `shortcutBar`: the 1.0 right-hand rail of every screen action ("Shortcut bar"). The command bar in
@@ -16,10 +16,14 @@
  * - 2.1 (SPEC-21 §4.5), extend-only — `v` stays 1, so 2.0 reads a 2.1 record (it ignores unknown
  *   fields) and 2.1 reads a 2.0 record (missing fields take their defaults):
  *   `graphs` (true) — graphs on Home, the Dashboard and every report (Ctrl+J, app/lib/graphsToggle.ts);
- *   `detailGraphs` (false) — graphs on drill-down reports; `voucherDetailed` (false) — the voucher view
+ *   `detailGraphsShown` (true, 2.1.1) — graphs on drill-down reports; `voucherDetailed` (false) — the voucher view
  *   opens Detailed (Alt+F1); `moreDetails` ({}) — form kind → "More details" open; `dashboardAllCards`
  *   (false) — the full Dashboard shows every card. Each field is parsed on its own: a wrong type falls
  *   back to its default and never invalidates the record.
+ * - 2.1.1 (D3): drill-down graphs are shown by default. 2.1.0 stored `detailGraphs: false` in every record
+ *   merely as its default, so that value says nothing about the user's choice: it is ignored (and dropped on
+ *   the next write), and the choice lives under the new key `detailGraphsShown`. Ctrl+J / Hide graphs on a
+ *   drill-down report still folds that class only, and is remembered.
  * - Remembered per computer profile (the Windows user account), not per Pevqori user.
  * - Storage may be unavailable (blocked, private profile): everything still works for the session.
  */
@@ -34,8 +38,8 @@ export interface UiPrefs {
   tryHomeDismissed: boolean;
   /** 2.1: graphs shown on Home, the full Dashboard and every report ('report' class). */
   graphs: boolean;
-  /** 2.1: graphs shown on drill-down reports ('detail' class; folded by default). */
-  detailGraphs: boolean;
+  /** 2.1.1: graphs shown on drill-down reports ('detail' class; shown by default — D3). */
+  detailGraphsShown: boolean;
   /** 2.1: the voucher view opens Detailed (Accounting entries; Alt+F1). */
   voucherDetailed: boolean;
   /** 2.1: master / entry form kind → its "More details" section is open (Ctrl+I). */
@@ -45,7 +49,7 @@ export interface UiPrefs {
 }
 
 /** The 2.1 fields and their defaults (the same for new and upgraded profiles). */
-const DEFAULTS_21 = { graphs: true, detailGraphs: false, voucherDetailed: false, dashboardAllCards: false } as const;
+const DEFAULTS_21 = { graphs: true, detailGraphsShown: true, voucherDetailed: false, dashboardAllCards: false } as const;
 
 export const UI_PREFS_KEY = 'pevqori.ui';
 
@@ -104,7 +108,8 @@ export function parseUiPrefs(raw: string | null | undefined): UiPrefs | null {
     upgraded,
     tryHomeDismissed: r.tryHomeDismissed === true,
     graphs: bool(r.graphs, d.graphs),
-    detailGraphs: bool(r.detailGraphs, d.detailGraphs),
+    // 2.1.1 D3: the 2.1.0 field `detailGraphs` is deliberately not read (see the header).
+    detailGraphsShown: bool(r.detailGraphsShown, d.detailGraphsShown),
     voucherDetailed: bool(r.voucherDetailed, d.voucherDetailed),
     moreDetails: parseMoreDetails(r.moreDetails),
     dashboardAllCards: bool(r.dashboardAllCards, d.dashboardAllCards),
@@ -209,7 +214,7 @@ function samePrefs(a: UiPrefs, b: UiPrefs): boolean {
     a.shortcutBar === b.shortcutBar &&
     a.tryHomeDismissed === b.tryHomeDismissed &&
     a.graphs === b.graphs &&
-    a.detailGraphs === b.detailGraphs &&
+    a.detailGraphsShown === b.detailGraphsShown &&
     a.voucherDetailed === b.voucherDetailed &&
     a.dashboardAllCards === b.dashboardAllCards
   );

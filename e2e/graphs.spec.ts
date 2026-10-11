@@ -12,8 +12,11 @@
 //   Profit & Loss ... the monthly graph is drawn (no purchases) and its total equals the Net Profit row;
 //                     Tab goes to the other side of the same block (Trading Expenses → Trading Income →
 //                     P&L Expenses), as in 2.0, although each side is now one named section
-//   Ledger .......... a drill-down report (detail class): the graph's header line shows, the plot is
-//                     folded by default
+//   Ledger .......... a drill-down report (detail class): the graph's header line shows and, since
+//                     2.1.1 (D3, the owner's request), the plot is drawn by default
+//   Monthly Summary . (Alt+Y on the customer's ledger) a report-class column graph by month, shown by
+//                     default (2.1.1 D1); each column of its hidden data table equals that month's
+//                     Closing Balance in the table
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { PARITY } from '../src/core/testing/e2e/parityFlow.ts';
@@ -272,7 +275,7 @@ test('Profit & Loss: the monthly graph is drawn and adds up to the Net Profit ro
   await toGateway(page);
 });
 
-test('Ledger (a drill-down report): the header line shows, the plot is folded by default', async () => {
+test('Ledger (a drill-down report): the header line shows, the plot is drawn by default (2.1.1 D3)', async () => {
   await toGateway(page);
   await openGotoItem(page, { id: `ledger:${customerId}`, label: CUSTOMER.name });
   const ledger = screen(page, 'reports.ledger');
@@ -280,8 +283,46 @@ test('Ledger (a drill-down report): the header line shows, the plot is folded by
   await expect(ledger.getByRole('heading', { name: CUSTOMER.name, level: 1 })).toBeVisible();
   const head = ledger.locator('.bx-report__graph-head');
   await expect(head).toContainText('Balance by date');
-  await expect(head.getByRole('button', { name: 'Show graphs' })).toBeVisible();
-  await expect(ledger.getByRole('listbox')).toHaveCount(0);
+  // The owner's request (2.1.1): drill-down graphs are shown until folded — never folded by default.
+  await expect(head.getByRole('button', { name: 'Hide graphs' })).toBeVisible();
+  await expect(ledger.getByRole('listbox', { name: 'Balance by date' })).toBeVisible();
+  await toGateway(page);
+});
+
+test('Monthly Summary (Alt+Y on the ledger): a column graph by month, shown by default, each column = that month\'s Closing', async () => {
+  await toGateway(page);
+  await openGotoItem(page, { id: `ledger:${customerId}`, label: CUSTOMER.name });
+  const ledger = screen(page, 'reports.ledger');
+  await expect(ledger).toBeVisible();
+  await page.keyboard.press('Alt+y');
+  const ms = screen(page, 'reports.monthlySummary');
+  await expect(ms).toBeVisible();
+  await expect(ms.getByRole('heading', { name: `${CUSTOMER.name} — Monthly Summary`, level: 1 })).toBeVisible();
+  // A customer (an asset): its month-end closing balance as columns, report class — drawn by default.
+  const title = 'Closing balance by month';
+  const head = ms.locator('.bx-report__graph-head');
+  await expect(head).toContainText(title);
+  await expect(head.getByRole('button', { name: 'Hide graphs' })).toBeVisible();
+  const graph = ms.getByRole('listbox', { name: title });
+  await expect(graph).toBeVisible();
+  await expect(graph.getByRole('option')).toHaveCount(12);
+  // The hidden twin ties to the table, month by month (the same order: April first).
+  const twin = ms.locator('table.bx-sr-only').filter({ has: page.locator('caption', { hasText: new RegExp(`^${lit(title)}$`) }) });
+  await expect(twin).toHaveCount(1);
+  const drawn = (await twin.locator('tbody td').allTextContents()).map((c) => paise(c));
+  const grid = ms.getByRole('grid', { name: 'Monthly summary' });
+  const headers = (await grid.getByRole('columnheader').allTextContents()).map((h) => h.trim());
+  const col = headers.indexOf('Closing Balance');
+  expect(col, `columns: ${headers.join(' | ')}`).toBeGreaterThan(0);
+  const rows = grid.locator('tbody tr[data-pos]');
+  await expect(rows).toHaveCount(12);
+  const closing: number[] = [];
+  for (let i = 0; i < 12; i++) closing.push(paise((await rows.nth(i).locator('td').nth(col).textContent()) ?? ''));
+  expect(drawn).toEqual(closing);
+  // The last column is the Grand Total's closing balance; every sale is on the Dr side (slot 1).
+  const grand = paise((await grid.locator('tfoot tr').last().locator('td').nth(col).textContent()) ?? '');
+  expect(drawn[11]).toBe(grand);
+  expect(grand).toBeGreaterThan(0);
   await toGateway(page);
 });
 

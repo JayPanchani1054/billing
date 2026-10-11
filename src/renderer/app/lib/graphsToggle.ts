@@ -4,8 +4,9 @@
  *
  * Two classes of graph, each remembered on this computer (`pevqori.ui`, lib/uiPrefs.ts):
  * - 'report' — Home, the full Dashboard and every report: shown by default (`graphs`);
- * - 'detail' — drill-down reports (ledger, monthly / group summary, stock item, party statement, GST
- *   e-ledgers, forex ledger): folded by default (`detailGraphs`).
+ * - 'detail' — drill-down reports (ledger, group summary, stock item, party statement, party meter, GST
+ *   e-ledgers, forex ledger): shown by default since 2.1.1 (`detailGraphsShown`, D3).
+ * The two classes fold on their own: hiding the graph of a drill-down report keeps the reports' graphs.
  * Folded = the strip keeps its one-line header (title · takeaway · "Show graphs"); the answer never goes.
  *
  * This file holds the ONLY literal of the toggle key in the renderer (keyConventions.test.ts guards it).
@@ -20,12 +21,12 @@ export const GRAPHS_KEY = 'Ctrl+J';
 export const GRAPHS_ARIA_KEY = 'Control+J';
 
 /** The `pevqori.ui` field that remembers a class. */
-export function graphsPrefKey(kind: GraphKind): 'graphs' | 'detailGraphs' {
-  return kind === 'detail' ? 'detailGraphs' : 'graphs';
+export function graphsPrefKey(kind: GraphKind): 'graphs' | 'detailGraphsShown' {
+  return kind === 'detail' ? 'detailGraphsShown' : 'graphs';
 }
 
 /** Whether graphs of this class are shown (unfolded), from the stored preferences. */
-export function graphsShown(prefs: { graphs: boolean; detailGraphs: boolean }, kind: GraphKind): boolean {
+export function graphsShown(prefs: { graphs: boolean; detailGraphsShown: boolean }, kind: GraphKind): boolean {
   return prefs[graphsPrefKey(kind)];
 }
 

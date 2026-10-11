@@ -70,7 +70,7 @@ export function AppearancePanel() {
       </Row>
       <Row label="Graphs" hint={`${GRAPHS_KEY} on a report does the same. Folded, a graph keeps its one-line answer.`}>
         <Switch checked={ui.graphs} onChange={(graphs) => setUiPrefs({ graphs })} label="Show graphs on reports and Home" />
-        <Switch checked={ui.detailGraphs} onChange={(detailGraphs) => setUiPrefs({ detailGraphs })} label="Show graphs on detail reports" />
+        <Switch checked={ui.detailGraphsShown} onChange={(detailGraphsShown) => setUiPrefs({ detailGraphsShown })} label="Show graphs on detail reports" />
       </Row>
     </div>
   );

@@ -3,6 +3,28 @@
 All notable changes to Pevqori are recorded here. Versions follow [Semantic Versioning](https://semver.org/);
 a release is published by tagging `v<version>` (see [docs/BUILD.md](docs/BUILD.md#6-releasing)).
 
+## [2.1.1]
+
+A small update to the graphs of 2.1, after the first owners used it on new companies. Install it over 2.1
+— your companies, data and settings are kept.
+
+- **Bars on every Monthly Summary.** Alt+Y on a ledger or Alt+M on a group now always shows a bar for each
+  month: how much an income or expense account moved, or the balance at each month's end for any other
+  account (a bank, a customer, a supplier, a group). A month on the other side — a bank overdrawn, a
+  customer in credit — is in the second colour and says *Cr* or *Dr*; the month still running is marked
+  *so far*. Enter on a bar opens that month, the same as Enter on its row.
+- **Graphs from your first month of entries.** A graph by month (Profit & Loss, the registers, cash flow,
+  GSTR-9, TDS, production, Home's *Sales — last 12 months*) now appears as soon as one month has an
+  amount, instead of waiting for three. A graph that compares things (accounts, items, ages of bills, GST
+  rates) appears once there are two of them; a running balance once there are two points.
+- **Drill-down reports show their graph too** — a ledger, a group summary, a stock item, a party statement,
+  the GST e-ledgers, a foreign-currency ledger. They were folded to one line in 2.1.
+- **The Cheque Leaf Register shows its meter for a bank with one cheque book** without first choosing the
+  book under *Filters ▾*.
+- **Ctrl+J still hides graphs**, as before: on a report it folds the graphs of all reports and Home, on a
+  drill-down report those of the drill-down reports, and Pevqori remembers it on this computer.
+  *Appearance…* has the same two switches.
+
 ## [2.1.0]
 
 Pevqori 2.1 makes every screen calmer and puts a small graph on the reports. Nothing is taken away: every

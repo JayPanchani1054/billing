@@ -122,8 +122,12 @@ describe('Production Register by month (mfg.production)', () => {
     assert.equal(spec.total, r.totals.productValue);
   });
 
-  test('fewer than 3 months with production: no graph', () => {
-    assert.equal(productionChart(register([made('2026-04-10', 1_00), made('2026-05-10', 1_00)])), null);
+  test('one month with production draws (a time series, 2.1.1 D2); none → no graph', () => {
+    assert.equal(productionChart(register([made('2026-04-10', 1_00), made('2026-05-10', 1_00)]))?.total, 2_00);
+    const one = productionChart(register([made('2026-05-10', 7_00)]));
+    assert.ok(one, 'one month with production: a graph');
+    assert.equal(one.xKind, 'time');
+    assert.equal(one.total, 7_00);
     assert.equal(productionChart(register([])), null);
   });
 });
@@ -162,9 +166,10 @@ describe('Pending job work by return date (mfg.jobWork.pending)', () => {
     assert.equal(spec.takeaway, "Of ₹160 of principals' goods with us, ₹50 is due back within 30 days");
   });
 
-  test('gates: "only overdue / due soon" (Ctrl+3) and fewer than 3 statuses with a value', () => {
+  test('gates: "only overdue / due soon" (Ctrl+3) and fewer than 2 statuses with a value (2.1.1 D2)', () => {
     assert.equal(jobWorkChart(pendingResult(rows), 'out', true), null);
-    assert.equal(jobWorkChart(pendingResult([pending('ok', 100_00), pending('overdue', 10_00)]), 'out', false), null);
+    assert.equal(jobWorkChart(pendingResult([pending('ok', 100_00), pending('ok', 10_00)]), 'out', false), null, 'one status: no graph');
+    assert.equal(jobWorkChart(pendingResult([pending('ok', 100_00), pending('overdue', 10_00)]), 'out', false)?.total, 110_00, 'two statuses: a graph');
   });
 
   test('stat: counts of challan lines, never a money total', () => {

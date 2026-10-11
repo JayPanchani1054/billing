@@ -257,9 +257,13 @@ describe('GSTR-9 — tax payable after credit, by month (core gstr9)', () => {
     assert.match(allDue.takeaway, /^Tax due after credit in \d+ of 12 months; most in Apr/);
   });
 
-  test('null below 3 months with a value (a year just begun)', () => {
+  test('a year just begun draws from its first month with a value; none without one (2.1.1 D2)', () => {
     const empty = (m: Gstr9MonthRow): Gstr9MonthRow => ({ ...m, outwardTax: tax(0, 0, 0), itc: tax(0, 0, 0) });
-    assert.equal(gstr9Chart({ months: g.months.map((m, i) => (i < 2 ? m : empty(m))) }), null);
+    const first = gstr9Chart({ months: g.months.map((m, i) => (i < 1 ? m : empty(m))) });
+    assert.ok(first, 'one month with a value: a graph');
+    assert.equal(first.xKind, 'time');
+    assert.equal(first.total, afterCredit(g.months[0]));
+    assert.equal(gstr9Chart({ months: g.months.map(empty) }), null, 'no month with a value: no graph');
     assert.equal(gstr9Chart({ months: [] }), null);
   });
 });
@@ -331,8 +335,8 @@ describe('Electronic cash ledger — running balance (detail class)', () => {
     assert.equal(spec.takeaway, '₹1.7 K on 20-Jun, up ₹1.5 K since 1-Apr');
   });
 
-  test('null with fewer than 3 points', () => {
-    assert.equal(cashLedgerChart(cashLedger([cashTxn('2026-05-20', 'deposit', 100, 100)], 0)), null);
+  test('null with fewer than 2 points (2.1.1 D2)', () => {
+    assert.equal(cashLedgerChart(cashLedger([cashTxn('2026-05-20', 'deposit', 100, 100)], 0))?.categories.length, 2, 'opening + one deposit: a line');
     assert.equal(cashLedgerChart(cashLedger([], 0)), null);
   });
 

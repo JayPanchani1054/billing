@@ -192,15 +192,29 @@ test('trend: months after the balances date have no mark (never a fall to zero) 
   assert.equal(trendSpec(year.map((m) => (m.month <= '2026-10' ? { ...m, sales: 0, purchases: 0 } : { ...m, sales: 5 })), undefined, '2026-10-08'), null);
 });
 
-test('trend card: too little to draw (two months into a whole-year period) never says "no sales or purchases"', () => {
-  // A whole-year period (Apr–Mar) on 10-May: only Apr and May have happened — a line needs three points, so no graph,
-  // but the card's one sentence must still tell the truth about those two months.
+test('trend card: two months into a whole-year period draw (2.1.1 D2) and never say "no sales or purchases"', () => {
+  // A whole-year period (Apr–Mar) on 10-May: only Apr and May have happened — a line needs two points (2.1.1 D2),
+  // so the graph is drawn, and the card's one sentence tells the truth about those two months.
   const year = Array.from({ length: 12 }, (_, i) => {
     const m = ((3 + i) % 12) + 1;
     const month = `${m >= 4 ? 2026 : 2027}-${String(m).padStart(2, '0')}`;
     return { month, from: `${month}-01`, to: `${month}-28`, sales: m === 4 ? 100_000 : m === 5 ? 50_000 : 0, purchases: m === 4 ? 30_000 : 0 };
   });
-  assert.equal(trendSpec(year, undefined, '2026-05-10'), null, 'two months: no graph');
+  const two = trendSpec(year, undefined, '2026-05-10');
+  assert.ok(two, 'two months: a graph');
+  assertSpec(two);
+  assert.equal(two.kind, 'line');
+  assert.equal(two.total, 50_000, 'the line ends on May');
+  // One month (10-Apr): a line of one point cannot be drawn, so the month is columns — Sales slot 1, Purchases grey.
+  const one = trendSpec(year, undefined, '2026-04-10');
+  assert.ok(one, 'one month with a sale: a graph (a time series draws from one period)');
+  assertSpec(one);
+  assert.equal(one.kind, 'column');
+  assert.equal(one.xKind, 'time');
+  assert.equal(one.total, 100_000, 'Σ drawn Sales = April');
+  assert.equal(markColor(one, 0, 1), 'other');
+  // One month with purchases only: Sales (the measured series) has nothing to draw.
+  assert.equal(trendSpec(year.map((m) => ({ ...m, sales: 0 })), undefined, '2026-04-10'), null);
   const text = trendCardText(year, '2026-05-10');
   assert.doesNotMatch(text, /^No sales/);
   assert.equal(text, trendChart(year, '2026-05-10').description);
@@ -621,9 +635,14 @@ test('Home graph: months from the books-beginning month to the working-date mont
   const young = homeSalesGraph(sample({ booksFrom: '2026-06-01' }));
   assert.deepEqual(young?.months, ['Jun', 'Jul', 'Aug', 'Sep', 'Oct']);
   assert.equal(young?.emphasis, 4);
-  // Fewer than three months: no graph (and so no Ctrl+J on Home).
-  assert.equal(homeSalesGraph(sample({ booksFrom: '2026-09-01' })), null);
-  assert.ok(homeSalesGraph(sample({ booksFrom: '2026-08-15' })), 'three months: a graph');
+  // 2.1.1 D2: drawn from the first month with a sale — two months (Sep, Oct), or the books' very first month.
+  assert.deepEqual(homeSalesGraph(sample({ booksFrom: '2026-09-01' }))?.months, ['Sep', 'Oct'], 'two months: a graph');
+  const first = homeSalesGraph(sample({ booksFrom: '2026-10-01' }));
+  assert.deepEqual(first?.months, ['Oct'], 'one month with a sale: a graph');
+  assert.deepEqual(first?.values, [s.trend[11].sales]);
+  assert.equal(first?.emphasis, 0);
+  // That one month without a sale: no graph (and so no Ctrl+J on Home).
+  assert.equal(homeSalesGraph(sample({ booksFrom: '2026-10-01', trend: s.trend.map((t) => (t.month === '2026-10' ? { ...t, sales: 0 } : t)) })), null);
   // The working-date month absent from the series: nothing emphasised, no label.
   const shifted = homeSalesGraph(sample({ asOf: '2026-11-03', trend: sample().trend }));
   assert.equal(shifted?.emphasis, null);

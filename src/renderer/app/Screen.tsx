@@ -49,7 +49,7 @@ export interface ScreenLayoutProps {
    * the graph strip; Ctrl+J (from app/graphStrip.tsx) folds it. Null or absent: no strip, no Ctrl+J.
    */
   graph?: ReportGraph | null;
-  /** (2.1) The graph's class: 'report' (shown by default, the default) or 'detail' (folded by default). */
+  /** (2.1) The graph's class: 'report' (the default) or 'detail' (drill-down); both shown by default since 2.1.1, each folds on its own. */
   graphKind?: GraphKind;
   /** (2.1) The screen's answer in words (a StatLine), right of the toolbar row — never a visible total. */
   stat?: ReactNode;

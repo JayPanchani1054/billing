@@ -19,7 +19,7 @@ import { formatDate } from '../../../../shared/dates.ts';
 import { formatDrCr } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import type { AgeingBucket, AgeingResult, LedgerBillsResult, PartySummaryResult, StatementResult } from '../../../../shared/types/outstanding.ts';
-import { MAX_LINE_POINTS, compactValue, decimate, take } from '../../../ui/lib/chartSpec.ts';
+import { MAX_LINE_POINTS, MIN_LINE_POINTS, compactValue, decimate, take } from '../../../ui/lib/chartSpec.ts';
 import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
 
 // ───────────────────────────── The stat (Receivables / Payables) ─────────────────────────────
@@ -119,14 +119,15 @@ export function oldThreshold(buckets: readonly AgeingBucket[]): number | null {
 /**
  * The Ageing view's graph: unpaid bills by age (advances and on-account amounts are not age — the
  * table shows them in their own columns). Its total is Σ of the table's age-range columns
- * (= totals.total − advance − on account). Null below three non-zero columns or when nothing is unpaid.
+ * (= totals.total − advance − on account). Null below two non-zero columns (age buckets are categories,
+ * 2.1.1 D2) or when nothing is unpaid.
  * `onColumn` (Enter on a column) receives the column's first overdue day (null = Not due).
  */
 export function ageingChart(r: AgeingResult, onColumn?: (minDays: number | null) => void): ChartSpec | null {
   const cols = ageingColumns(r.buckets, r.totals.amounts);
   const values = cols.map((c) => c.amount);
   const total = values.reduce((s, v) => s + v, 0);
-  if (total <= 0 || values.filter((v) => v !== 0).length < 3) return null;
+  if (total <= 0 || values.filter((v) => v !== 0).length < 2) return null;
   const threshold = oldThreshold(r.buckets);
   const old = threshold === null ? 0 : cols.reduce((s, c) => s + (c.minDays !== null && c.minDays > threshold ? c.amount : 0), 0);
   const base = `${compactValue(total)} in unpaid bills`;
@@ -217,11 +218,11 @@ export function statementPoints(s: Pick<StatementResult, 'from' | 'openingBalanc
 
 /**
  * The statement's graph: its running balance from the opening to the closing, on the party's side.
- * The last point is the table's closing balance (the line's total). Null below three points.
+ * The last point is the table's closing balance (the line's total). Null below two points (2.1.1 D2).
  */
 export function statementChart(s: Pick<StatementResult, 'from' | 'to' | 'openingBalance' | 'closingBalance' | 'transactions'>): ChartSpec | null {
   let points = statementPoints(s);
-  if (points.length < 3) return null;
+  if (points.length < MIN_LINE_POINTS) return null;
   if (points.length > MAX_LINE_POINTS) {
     const keep = decimate(points.map((p, x) => ({ x, y: p.balance })), MAX_LINE_POINTS).map((p) => p.x);
     points = keep.map((x) => points[x]);

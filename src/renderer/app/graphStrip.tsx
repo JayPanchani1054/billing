@@ -1,13 +1,13 @@
 /**
  * The graph strip of a report (2.1, SPEC-21 §1.9, §4.1, §4.5): one header line — the graph's title, its
  * one-sentence takeaway and a "Hide graphs" / "Show graphs" text button — and, while graphs of the
- * screen's class are shown, the plot. Folded (the toggle key, or a detail report by default) the header line
- * stays, so the answer never disappears. A graph drawn inline in the table (short tables, D26) shows the
+ * screen's class are shown, the plot. Folded (the toggle key) the header line stays, so the answer never
+ * disappears. A graph drawn inline in the table (short tables, D26) shows the
  * header line only; `data-graphs="on|off"` on the report body hides or shows those inline bars.
  *
  * The class decides which remembered preference folds it (`pevqori.ui`, lib/uiPrefs.ts): 'report'
- * (Home, the full Dashboard, every report — shown by default) or 'detail' (drill-down reports — folded
- * by default). The toggle key and every text about it come from lib/graphsToggle.ts.
+ * (Home, the full Dashboard, every report) or 'detail' (drill-down reports); both are shown by default
+ * since 2.1.1 (D3) and fold on their own. The toggle key and every text about it come from lib/graphsToggle.ts.
  *
  * No skeleton and no aria-busy here: while the lazy chart loads, its own placeholder holds the height;
  * while the report refetches, the body (and so the strip) dims to 0.6 and keeps the last render.
@@ -30,7 +30,7 @@ export interface ReportGraph {
   render: (ids: { describedBy: string }) => ReactNode;
 }
 
-/** Which preference folds the graph: 'report' (shown by default) or 'detail' (folded by default). */
+/** Which preference folds the graph: 'report' or 'detail' (both shown by default since 2.1.1, D3). */
 export type GraphKind = 'report' | 'detail';
 
 export interface GraphsToggle {
@@ -97,7 +97,7 @@ export function useGraphsToggle(kind: GraphKind): GraphsToggle {
   const toggle = useCallback(() => {
     const field = graphsPrefKey(kind);
     // Read the store, not the render: two quick presses must flip twice.
-    setUiPrefs(field === 'graphs' ? { graphs: !getUiPrefs().graphs } : { detailGraphs: !getUiPrefs().detailGraphs });
+    setUiPrefs(field === 'graphs' ? { graphs: !getUiPrefs().graphs } : { detailGraphsShown: !getUiPrefs().detailGraphsShown });
   }, [kind]);
   const action = useMemo<ScreenActionItem>(() => graphsAction(shown, kind, toggle), [shown, kind, toggle]);
   return { shown, toggle, action };

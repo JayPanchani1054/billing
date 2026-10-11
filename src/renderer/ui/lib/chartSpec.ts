@@ -11,7 +11,7 @@ import { TAKEAWAY_MAX, drawnTotal, enoughData } from './chartCore.ts';
 
 // The helpers eager screens need (Home, Bills pending, Quotations) live in chartCore.ts so that this
 // module loads only with the lazy report screens; they are re-exported here, the one import path for builders.
-export { OTHER_LABEL, TAKEAWAY_MAX, clipTakeaway, compactValue, drawnTotal, enoughData, foldTop, legacySpec, measuredSeries, statRepeatsTotal, take } from './chartCore.ts';
+export { MIN_LINE_POINTS, OTHER_LABEL, TAKEAWAY_MAX, clipTakeaway, compactValue, drawnTotal, enoughData, foldTop, legacySpec, measuredSeries, minNonZero, statRepeatsTotal, take } from './chartCore.ts';
 
 export type ChartKind = 'column' | 'bar' | 'line' | 'share' | 'meter';
 
@@ -46,6 +46,12 @@ export interface ChartSpec {
   takeaway: string;
   /** Already folded (Top-N + "Other", months / quarters / years). */
   categories: readonly string[];
+  /**
+   * What the categories are (2.1.1 D2): 'time' = one column per month, quarter or period in order, drawn
+   * from ONE non-zero period; 'category' (default) = things compared with each other (Top-N, ageing
+   * buckets, rates, statuses), drawn from TWO non-zero values. See `enoughData`.
+   */
+  xKind?: 'time' | 'category';
   /** column/line: 1, or 1 + one 'other' context series; bar/share/meter: 1. */
   series: readonly ChartSeries[];
   /** Default 'series'. */
@@ -55,8 +61,9 @@ export interface ChartSpec {
   /** 'ordinal': indexes < greyBefore use --chart-other. */
   greyBefore?: number;
   /**
-   * Only kind 'column', one series, colour 'series': the last category is still running → drawn in
-   * --chart-partial with "so far" in its direct label and tooltip.
+   * Only kind 'column', one series, colour 'series' or 'polarity': the last category is still running →
+   * drawn in --chart-partial (a polarity column below zero keeps slot 2) with "so far" in its direct
+   * label and tooltip.
    */
   partialLast?: boolean;
   /** Direct labels: the extreme, the endpoint, every bar tip (bar ≤ 7 rows), none. */
@@ -243,7 +250,8 @@ export function specProblems(spec: ChartSpec): string[] {
   const cap = spec.kind === 'line' ? MAX_LINE_POINTS : spec.kind === 'bar' ? MAX_BAR_ROWS : spec.kind === 'share' ? MAX_SHARE_SEGMENTS : spec.kind === 'meter' ? 1 : MAX_CATEGORIES;
   const unit = spec.kind === 'line' ? 'points' : spec.kind === 'bar' ? 'rows' : spec.kind === 'share' ? 'segments' : spec.kind === 'meter' ? 'values (a meter is one value against max)' : 'categories';
   if (n > cap) p.push(`${spec.kind} has ${n} ${unit} (max ${cap}${spec.kind === 'share' ? ': 3 named + Other' : spec.kind === 'meter' ? '' : '; fold first'})`);
-  if (!enoughData(spec)) p.push('not enough data (≥ 3 non-zero categories / ≥ 3 points / both meter parts > 0) — return null instead');
+  if (!enoughData(spec)) p.push("not enough data (≥ 1 non-zero period on a 'time' axis / ≥ 2 non-zero categories / ≥ 2 points / both meter parts > 0) — return null instead");
+  if (spec.xKind === 'time' && spec.kind !== 'column' && spec.kind !== 'line') p.push(`xKind 'time' is for columns or lines (one per period), not ${spec.kind}`);
 
   // Colour rules.
   if (color === 'ordinal') {
@@ -260,7 +268,9 @@ export function specProblems(spec: ChartSpec): string[] {
   if (spec.axisCaptions && !(color === 'polarity' && spec.kind === 'column')) p.push('axis captions belong to polarity columns');
   // §4.2: polarity columns read up/down from one baseline with absolute ticks — the captions carry the sign.
   if (color === 'polarity' && spec.kind === 'column' && !(spec.axisCaptions?.up.trim() && spec.axisCaptions.down.trim())) p.push('a polarity column needs axisCaptions ("Profit ↑" / "Loss ↓"): ticks are absolute, never a bare minus');
-  if (spec.partialLast && !(spec.kind === 'column' && spec.series.length === 1 && color === 'series')) p.push("partialLast is only for a one-series 'series' column");
+  // 2.1.1: a polarity column may run too (a Monthly Summary of balances): its running period on the natural
+  // side is drawn in --chart-partial, on the other side it keeps slot 2 (the problem pole wins); "so far" either way.
+  if (spec.partialLast && !(spec.kind === 'column' && spec.series.length === 1 && (color === 'series' || color === 'polarity'))) p.push("partialLast is only for a one-series 'series' or 'polarity' column");
 
   // Labels and kind-specific fields.
   if (spec.label === 'tips' && !(spec.kind === 'bar' && n <= INLINE_MAX_ROWS)) p.push("label 'tips' is for bar graphs of ≤ 7 rows");
@@ -313,13 +323,14 @@ export function markColor(spec: ChartSpec, categoryIndex: number, seriesIndex = 
   const color = spec.color ?? 'series';
   if (color === 'emphasis') return (spec.emphasis ?? []).includes(categoryIndex) ? 1 : 'other';
   if (color === 'problem') return (spec.emphasis ?? []).includes(categoryIndex) ? 2 : 'other';
-  if (color === 'polarity') return (s.values[categoryIndex] ?? 0) < 0 ? 2 : 1;
+  const running = !!spec.partialLast && spec.kind === 'column' && categoryIndex === spec.categories.length - 1;
+  if (color === 'polarity') return (s.values[categoryIndex] ?? 0) < 0 ? 2 : running ? 'partial' : 1;
   if (color === 'ordinal') {
     const grey = spec.greyBefore ?? 0;
     if (categoryIndex < grey) return 'other';
     const step = ordinalSteps(spec.categories.length - grey)[categoryIndex - grey] ?? 5;
     return `o${step}` as MarkColor;
   }
-  if (spec.partialLast && spec.kind === 'column' && categoryIndex === spec.categories.length - 1) return 'partial';
+  if (running) return 'partial';
   return 1;
 }

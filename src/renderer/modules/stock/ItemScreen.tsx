@@ -4,7 +4,7 @@
  * closing balance, totals and closing. Enter opens the voucher. Another item can be chosen in the
  * toolbar; Alt+M opens the item master.
  *
- * 2.1 graph (detail class — folded to its one-line answer by default, Ctrl+J): "Quantity in stock",
+ * 2.1 graph (detail class — shown by default since 2.1.1, Ctrl+J folds it to its one-line answer): "Quantity in stock",
  * the running closing quantity in the item's unit.
  */
 import { useMemo, useState } from 'react';

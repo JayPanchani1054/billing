@@ -64,13 +64,13 @@ describe('scope, tooltip and announcement per class', () => {
 });
 
 describe('preference per class', () => {
-  test('report → graphs, detail → detailGraphs', () => {
+  test('report → graphs, detail → detailGraphsShown (2.1.1 D3)', () => {
     assert.equal(graphsPrefKey('report'), 'graphs');
-    assert.equal(graphsPrefKey('detail'), 'detailGraphs');
-    assert.equal(graphsShown({ graphs: true, detailGraphs: false }, 'report'), true);
-    assert.equal(graphsShown({ graphs: true, detailGraphs: false }, 'detail'), false);
-    assert.equal(graphsShown({ graphs: false, detailGraphs: true }, 'report'), false);
-    assert.equal(graphsShown({ graphs: false, detailGraphs: true }, 'detail'), true);
+    assert.equal(graphsPrefKey('detail'), 'detailGraphsShown');
+    assert.equal(graphsShown({ graphs: true, detailGraphsShown: false }, 'report'), true);
+    assert.equal(graphsShown({ graphs: true, detailGraphsShown: false }, 'detail'), false);
+    assert.equal(graphsShown({ graphs: false, detailGraphsShown: true }, 'report'), false);
+    assert.equal(graphsShown({ graphs: false, detailGraphsShown: true }, 'detail'), true);
   });
 });
 

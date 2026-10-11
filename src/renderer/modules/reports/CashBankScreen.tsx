@@ -4,7 +4,7 @@
  *
  * 2.1: one "Closing" column; a ledger in credit says "overdrawn" in its cell (no banner, no stat). The
  * graph "Closing balance by account" (lib/charts.ts) is drawn as 4 px bars inside the table when there
- * are 3–7 accounts, as a Top 6 + Other strip with more, and not at all with fewer than 3.
+ * are 2–7 accounts, as a Top 6 + Other strip with more, and not at all with fewer than 2 (2.1.1 D2).
  */
 import { useMemo } from 'react';
 import type { TbRow } from '../../../shared/types/reports.ts';

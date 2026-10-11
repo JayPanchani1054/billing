@@ -2,11 +2,12 @@
  * The graphs and stat lines of the banking screens (2.1, SPEC-21 §5 "Banking and cheques", D24, D26).
  * Pure — no React — so every builder's "graph total = table total" and every stat's "never a visible
  * total" are tested in node (charts.test.ts). A builder returns null when the data cannot carry the
- * graph (< 3 accounts, < 3 weeks with cheques): the screen then shows no strip and no Ctrl+J.
+ * graph (< 2 accounts, < 2 weeks with cheques — categories need two non-zero values, 2.1.1 D2): the
+ * screen then shows no strip and no Ctrl+J.
  *
  *   banking.summary   bar per bank account of the balance as per books (polarity: an overdrawn OD / CC
  *                     account is left of 0 in slot 2) — inline in the table for ≤ 7 accounts, a Top-6 +
- *                     Other strip beyond; none with fewer than 3 accounts. Stat: entries not in the bank
+ *                     Other strip beyond; none with fewer than 2 accounts. Stat: entries not in the bank
  *                     yet · statement lines to match ›
  *   banking.pdc       columns of the post-dated cheques by week (Due now, Week 1 … Week 8, Later), the
  *                     net of what comes in (↑ slot 1) and goes out (↓ slot 2)
@@ -80,13 +81,13 @@ export function bankBars(banks: readonly BankSummaryRow[]): BankBar[] {
 /**
  * "Where is my money sitting, bank by bank?" — the balance as per books of every account (polarity: an
  * overdrawn account is drawn left of 0 in slot 2, and the takeaway says "overdrawn"). Null with fewer
- * than 3 accounts (§5: the seeded shop's single bank needs no graph) or fewer than 3 non-zero balances.
+ * than 2 accounts (a single bank needs no graph) or fewer than 2 non-zero balances (2.1.1 D2).
  * `open(id)` = Enter on that account's row (the reconciliation); "Other" opens nothing.
  */
 export function bankBalancesChart(banks: readonly BankSummaryRow[], open?: (ledgerId: number) => void): ChartSpec | null {
-  if (banks.length < 3) return null;
+  if (banks.length < 2) return null;
   const bars = bankBars(banks);
-  if (bars.filter((b) => b.value !== 0).length < 3) return null;
+  if (bars.filter((b) => b.value !== 0).length < 2) return null;
   return withTotal({
     kind: 'bar',
     title: 'Money in each bank',
@@ -162,12 +163,12 @@ export const pdcSigned = (r: Pick<PdcRow, 'kind' | 'amount'>): number => (r.kind
 /**
  * "What comes in and goes out, week by week?" — the net of the post-dated cheques maturing in each week
  * (in ↑ slot 1, out ↓ slot 2; captions In ↑ / Out ↓). Its total is In − Out of the table's totals.
- * Null with fewer than 3 weeks that have a non-zero net.
+ * Null with fewer than 2 weeks that have a non-zero net (maturity buckets are categories, 2.1.1 D2).
  */
 export function pdcChart(result: Pick<PdcResult, 'rows'>): ChartSpec | null {
   const values = PDC_BUCKETS.map(() => 0);
   for (const r of result.rows) values[pdcBucket(r)] += pdcSigned(r);
-  if (values.filter((v) => v !== 0).length < 3) return null;
+  if (values.filter((v) => v !== 0).length < 2) return null;
   return withTotal({
     kind: 'column',
     title: 'Post-dated cheques by week',

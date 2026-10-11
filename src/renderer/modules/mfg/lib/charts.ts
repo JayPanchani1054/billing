@@ -45,6 +45,7 @@ export function productionChart(res: Pick<ProductionRegisterResult, 'from' | 'to
     title: `Cost of production by ${folded.grain}`,
     takeaway: '',
     categories: folded.categories,
+    xKind: 'time',
     series: [{ name: 'Cost of production', values: folded.values }],
     label: 'max',
     ...(partialLast ? { partialLast: true } : {}),

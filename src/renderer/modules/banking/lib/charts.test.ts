@@ -31,10 +31,14 @@ function bank(name: string, balance: number, extra: Partial<BankSummaryRow> = {}
 const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
 
 describe('Bank Overview — bar per account (polarity)', () => {
-  test('no graph with fewer than 3 accounts (§5: the seeded shop has one bank) or fewer than 3 non-zero balances', () => {
+  test('no graph with fewer than 2 accounts (a single bank) or fewer than 2 non-zero balances (2.1.1 D2)', () => {
     assert.equal(bankBalancesChart([]), null);
-    assert.equal(bankBalancesChart([bank('HDFC Bank', 1_00_000_00), bank('SBI', 50_000_00)]), null);
+    assert.equal(bankBalancesChart([bank('HDFC Bank', 1_00_000_00)]), null, 'one bank: no graph');
     assert.equal(bankBalancesChart([bank('HDFC Bank', 1_00_000_00), bank('SBI', 0), bank('ICICI', 0)]), null);
+    const two = bankBalancesChart([bank('HDFC Bank', 1_00_000_00), bank('SBI', 50_000_00)]);
+    assert.ok(two, 'two banks: a graph');
+    assertSpec(two);
+    assert.equal(two.total, 1_50_000_00);
   });
 
   test('graph total = the table total of "As per books"; inline in the table for ≤ 7 accounts', () => {

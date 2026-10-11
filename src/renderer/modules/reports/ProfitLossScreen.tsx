@@ -135,7 +135,7 @@ export function ProfitLossScreen({ params }: ScreenProps<ProfitLossParams>) {
               : 'Stock is not integrated with accounts (F11), so opening and closing stock are not counted.'}
           </p>
           <p>
-            The graph shows the net profit of each month (Enter on a month opens the P&amp;L of that month). It needs at least three months and is not drawn while a comparison
+            The graph shows the net profit of each month (Enter on a month opens the P&amp;L of that month). It is drawn from the first month with a result and not while a comparison
             column is shown.
             {stockGate ? ' Monthly profit needs stock valued each month — switch on inventory (F11): until then a month with purchases would look like a loss.' : ''}
           </p>

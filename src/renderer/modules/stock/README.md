@@ -33,7 +33,7 @@ screen is registered), so no provider is registered here.
 Built by the pure `lib/charts.ts` (tested in `lib/charts.test.ts`: every graph's total equals the table's
 total), passed as `graph={reportGraph(spec, { inline })}` (`ui/lazyChart.tsx`, so the chart kit stays out of
 the start-up bundle). A builder returns null — no strip, no Ctrl+J — when the data cannot carry a graph
-(fewer than 3 non-zero bars / points, Quantities only).
+(fewer than 2 non-zero bars, fewer than 2 points on a line — 2.1.1 D2 — or Quantities only).
 
 | Screen | Graph (class) | Total it equals |
 |---|---|---|
@@ -43,7 +43,7 @@ the start-up bundle). A builder returns null — no strip, no Ctrl+J — when th
 | `stock.movement` | "Biggest buyers" / "Biggest suppliers": parties by value, one colour on both sides (report) | the side's Total |
 | `stock.profitability` | "Gross profit by item": top 6 earners + up to 3 loss items + Other, polarity (report) | Total gross profit |
 | `stock.ageing` | "Stock value by age": columns per age bucket, ordinal ramp, always value (report) | Σ bucket values = Value total |
-| `stock.item` | "Quantity in stock": the running closing quantity in the item's unit (detail — folded by default) | the closing quantity (last point) |
+| `stock.item` | "Quantity in stock": the running closing quantity in the item's unit (detail — shown by default since 2.1.1) | the closing quantity (last point) |
 
 No graph (§5 "none"), a stat on the toolbar row instead (`StockStat` over `…Stat` builders):
 `stock.pendingOrders` "Overdue N lines", `stock.batches` "Expired N · Expiring in 30 days M",

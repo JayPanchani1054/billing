@@ -20,7 +20,7 @@ import { fieldErrorsOf, ReportScreen, Screen, useApiMutation, useApiQuery, useCa
 import { Badge, Button, DataTable, DateInput, Dialog, EmptyState, Field, FiltersPopover, Hotkeys, Inline, SegmentedControl, Select, StatLine, TextInput, useToast, type Column } from '../../ui/index.ts';
 import { reportGraph } from '../../ui/lazyChart.tsx';
 import { ChequeBankSelect, ChequesOff, NoChequeBanks, useChequeBanks, useChequesOn } from './components.tsx';
-import { leafMeter, leafStat } from './lib/charts.ts';
+import { leafMeter, leafStat, meterBook } from './lib/charts.ts';
 import { CHEQUE_INVALIDATES, leafActions, REGISTER_VIEWS, registerContext, registerExport, STATUS_LABELS, type RegisterView } from './lib/model.ts';
 
 export interface ChequeRegisterParams {
@@ -55,8 +55,10 @@ function Register({ params }: { params: ChequeRegisterParams }) {
   const toast = useToast();
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
   const bookName = bookId === null ? null : ((books.data ?? []).find((b) => b.id === bookId)?.name ?? null);
-  const spec = useMemo(() => (q.data ? leafMeter(q.data, bookName) : null), [q.data, bookName]);
-  const stat = q.data ? leafStat(q.data, bookId !== null) : [];
+  // The meter's book: the chosen one, or a bank's only book when nothing else is in the register (2.1.1).
+  const meterName = q.data ? meterBook(books.data ?? [], bookId, q.data.totals) : null;
+  const spec = useMemo(() => (q.data ? leafMeter(q.data, meterName) : null), [q.data, meterName]);
+  const stat = q.data ? leafStat(q.data, meterName !== null) : [];
   const today = todayLocal();
   const current = rows.find((r) => r.key === cursor) ?? rows[0] ?? null;
   const can = leafActions(current);

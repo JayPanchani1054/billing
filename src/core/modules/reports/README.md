@@ -236,6 +236,9 @@ period (`month`, `from`, `to`, debit, credit, closing, voucher `count`), totals,
 `subject.isNominal` (2.1) is true for an income / expense ledger or group (sub-groups included): its
 months are movements that restart every year, so the screen's graph shows the month's net movement;
 otherwise it shows the month-end closing balance. Optional in the type (absent on older data).
+`subject.nature` (2.1.1) is the nature of the subject's group (`assets` / `liabilities` / `income` /
+`expenses`): the side its balance belongs on, so the graph can colour a month on the other side (a bank
+overdrawn, a customer in credit). Optional too; read-only.
 
 Tie-out (`tieouts.test.ts`): the Home graph's `dashboard.summary` `trend[i].sales` equals credit − debit
 of the same month of the Sales Accounts monthly summary, except the books-beginning month, which also

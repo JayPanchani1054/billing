@@ -87,8 +87,9 @@ describe('Sales before GST, by rate (gst.register)', () => {
     assert.match(spec?.takeaway ?? '', /taxable purchases$/);
   });
 
-  test('null with fewer than 3 rates, and when a rate is negative (returns larger than sales)', () => {
-    assert.equal(rateChart(register([regRow(1, [split(5, 1_000_00), split(18, 2_000_00)])])), null);
+  test('null with fewer than 2 rates (2.1.1 D2), and when a rate is negative (returns larger than sales)', () => {
+    assert.equal(rateChart(register([regRow(1, [split(18, 2_000_00)])])), null, 'one rate: no graph');
+    assert.equal(rateChart(register([regRow(1, [split(5, 1_000_00), split(18, 2_000_00)])]))?.total, 3_000_00, 'two rates: a graph');
     assert.equal(rateChart(register([regRow(1, [split(5, 1_000_00), split(12, 1_000_00), split(18, 2_000_00)]), regRow(2, [split(28, -500_00)], -1)])), null);
     assert.equal(rateChart(register([])), null);
   });
@@ -131,8 +132,9 @@ describe('Taxable value by HSN/SAC (gst.hsn)', () => {
     assert.deepEqual(specProblems(spec), []);
   });
 
-  test('gates: fewer than 3 codes, a negative code', () => {
-    assert.equal(hsnChart({ direction: 'outward', rows: [hsn('1', 'a', 1_00), hsn('2', 'b', 2_00)] }), null);
+  test('gates: fewer than 2 codes (2.1.1 D2), a negative code', () => {
+    assert.equal(hsnChart({ direction: 'outward', rows: [hsn('1', 'a', 1_00)] }), null, 'one code: no graph');
+    assert.equal(hsnChart({ direction: 'outward', rows: [hsn('1', 'a', 1_00), hsn('2', 'b', 2_00)] })?.total, 3_00, 'two codes: a graph');
     assert.equal(hsnChart({ direction: 'inward', rows: [hsn('1', 'a', 1_00), hsn('2', 'b', 2_00), hsn('3', 'c', -5_00)] }), null);
   });
 
@@ -200,8 +202,9 @@ describe('Eligible ITC by supplier (gst.itc)', () => {
     assert.deepEqual(itcStat({ totals: { ...totals, ineligible: NONE } }), []);
   });
 
-  test('null with fewer than 3 suppliers with credit', () => {
-    assert.equal(itcChart({ rows: rows.slice(0, 2) }), null);
+  test('null with fewer than 2 suppliers with credit (2.1.1 D2)', () => {
+    assert.equal(itcChart({ rows: rows.slice(0, 1) }), null, 'one supplier: no graph');
+    assert.ok(itcChart({ rows: rows.slice(0, 2) }), 'two suppliers: a graph');
   });
 });
 
@@ -245,9 +248,11 @@ describe('Problems by type (gst.exceptions)', () => {
     assert.equal(picked[1], null);
   });
 
-  test('none without problems (the success line says it) and with fewer than 3 types', () => {
+  test('none without problems (the success line says it) and with fewer than 2 types (2.1.1 D2)', () => {
     assert.equal(exceptionsChart([]), null);
-    assert.equal(exceptionsChart(issues.slice(0, 4)), null);
+    assert.equal(exceptionsChart(issues.filter((i) => i.code === issues[0].code)), null, 'one type: no graph');
+    const twoTypes = issues.filter((i) => i.code === issues[0].code || i.code === issues.find((x) => x.code !== issues[0].code)?.code);
+    assert.equal(exceptionsChart(twoTypes)?.total, twoTypes.length, 'two types: a graph');
   });
 
   test('stat in counts; the table has no totals to repeat', () => {
@@ -281,8 +286,9 @@ describe('Bills of entry against GSTR-2B (gst.boe, reconcile view)', () => {
     assert.deepEqual(boeStat(r).map((s) => `${s.label} ${s.value}`), ['Matched 3 of 6']);
   });
 
-  test('fewer than 3 non-zero segments: no graph (the stat says it)', () => {
-    assert.equal(boeChart(result(['matched', 'matched', 'mismatch'])), null);
+  test('fewer than 2 non-zero segments: no graph (the stat says it; 2.1.1 D2)', () => {
+    assert.equal(boeChart(result(['matched', 'matched'])), null, 'one segment: no graph');
+    assert.equal(boeChart(result(['matched', 'matched', 'mismatch']))?.total, 3, 'two segments: a graph');
     assert.deepEqual(boeStat(result([])), []);
   });
 });

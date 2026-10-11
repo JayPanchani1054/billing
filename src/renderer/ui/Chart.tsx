@@ -104,7 +104,7 @@ function Plot({ spec, height, active, describedBy, className }: ChartProps): Rea
   const worded = (v: number | null | undefined) => (finite(v) ? polarityValue(spec, v, full) : null);
   const optionLabel = (i: number) => {
     const w = spec.series.length === 1 ? worded(spec.series[0].values[i]) : null;
-    return w ? `${spec.categories[i]}: ${w.value}${w.name ? ` ${w.name}` : ''}` : describeCategory(spec.categories[i], spec.series, i, full, i === partialIdx ? ' so far' : '');
+    return w ? `${spec.categories[i]}: ${w.value}${w.name ? ` ${w.name}` : ''}${i === partialIdx ? ' so far' : ''}` : describeCategory(spec.categories[i], spec.series, i, full, i === partialIdx ? ' so far' : '');
   };
 
   // Keys are local (§4.4): with a modifier they keep their global meaning (Ctrl+J, Alt+←, …).
@@ -129,7 +129,7 @@ function Plot({ spec, height, active, describedBy, className }: ChartProps): Rea
     const rows: TooltipRow[] = spec.series.map((s, si) => {
       const v = s.values[tipIdx];
       const w = si === 0 ? worded(v) : null;
-      if (w) return { name: w.name ?? s.name, color: seriesColor(spec, tipIdx, si), value: w.value };
+      if (w) return { name: w.name ?? s.name, color: seriesColor(spec, tipIdx, si), value: `${w.value}${tipIdx === partialIdx ? ' so far' : ''}` };
       return { name: s.name, color: seriesColor(spec, tipIdx, si), value: finite(v) ? `${full(v)}${tipIdx === partialIdx ? ' so far' : ''}` : '—' };
     });
     return <ChartTooltip title={spec.categories[tipIdx]} rows={rows} x={at.x} y={at.y} alignRight={at.x > geo.w * 0.6} />;

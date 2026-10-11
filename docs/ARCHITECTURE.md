@@ -184,7 +184,7 @@ export const accountsRoutes = {
 - Lists accept `{ search?, limit?, offset? }` where relevant and return `{ rows, total }` for paging.
 - Graph data (2.1) is read-only and additive: `reports.profitTrend` (`{ from, to, scenarioId? }`,
   reports.financial) gives the P&L's figures month by month, Σ months = the P&L exactly (README §5a of
-  core/modules/reports); `reports.monthlySummary` gained `subject.isNominal`. Every other graph reads
+  core/modules/reports); `reports.monthlySummary` gained `subject.isNominal` (and, 2.1.1, `subject.nature`). Every other graph reads
   data its screen already fetches.
 
 ### Contexts (`core/api/context.ts`)
@@ -275,13 +275,14 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   Appearance…, Show shortcut bar, Keyboard shortcuts F1, About and the secured-company rows; theme,
   density and the Home view live in *Appearance…* only.
 - **Layout preferences** (`app/lib/uiPrefs.ts`, `localStorage['pevqori.ui'] = { v: 1, homeView,
-  shortcutBar, upgraded, tryHomeDismissed, graphs, detailGraphs, voucherDetailed, moreDetails,
+  shortcutBar, upgraded, tryHomeDismissed, graphs, detailGraphsShown, voucherDetailed, moreDetails,
   dashboardAllCards }`), remembered **per computer profile** (the Windows user account), not per Pevqori
   user: decided once per profile from the first `app.state` — a profile that already lists companies is an
   upgraded 1.0 profile (All menus + shortcut bar, a one-time "Try the simpler Home" card), otherwise a new
   user (Essentials, no shortcut bar). The 2.1 fields are extend-only (`v` stays 1: 2.0 ignores them, a
-  2.0 record reads with their defaults): `graphs` (true) and `detailGraphs` (false) fold the graphs of the
-  two classes, `voucherDetailed` (false) opens the voucher view Detailed, `moreDetails` (form kind →
+  2.0 record reads with their defaults): `graphs` (true) and `detailGraphsShown` (true, 2.1.1) fold the
+  graphs of the two classes — 2.1.0's `detailGraphs` (stored as `false` by default in every record) is
+  ignored and dropped on the next write, so drill-down graphs show after the update — `voucherDetailed` (false) opens the voucher view Detailed, `moreDetails` (form kind →
   open; only boolean values survive parsing) remembers "More details", `dashboardAllCards` (false). Each
   field is parsed on its own (a wrong type falls back to its default); screens read them with
   `useUiPrefs()` and write them only with `setUiPrefs()` / `setMoreDetailsOpen()` (`app/preferences.ts`),
@@ -384,7 +385,8 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   (column and line graphs are `--graph-h` tall — 168 / 152 compact, header included, `styles/report.css`;
   bar, share and meter graphs take their own height); a graph drawn inline in a short table shows the
   header only. Two classes (`graphKind`): `report` (Home, the Dashboard and every report; preference
-  `graphs`, shown by default) and `detail` (drill-down reports; `detailGraphs`, folded by default).
+  `graphs`) and `detail` (drill-down reports; `detailGraphsShown`); both shown by default since 2.1.1
+  and each folds on its own.
   `useGraphsToggle(kind)` returns the toggle action of `app/lib/graphsToggle.ts` (`Ctrl+J`, group `view`,
   the only place the key is written); a screen adds it **only while it shows a graph**, and a visually
   hidden live region says what changed ("Graphs hidden on all reports and Home"). Graphs never print or
@@ -478,9 +480,14 @@ source of truth.
 
 - **The kit.** `ui/lib/chartSpec.ts` is the pure contract (`ChartSpec`: kind `column | bar | line |
   share | meter`, title, a one-sentence takeaway ≤ 90 chars, folded categories, one measured series
-  plus at most one context series, colour rule, `total`, `activate`), with the Σ-preserving folds
-  (`foldTop`, `byMonth`, `foldMonths`, `decimate`), the gates (`enoughData`: ≥ 3 non-zero categories /
-  ≥ 3 points / both meter parts) and `assertSpec`. `ui/lib/chart.ts` holds the geometry (ticks, bands,
+  plus at most one context series, colour rule, `total`, `activate`, and since 2.1.1 `xKind: 'time' |
+  'category'`), with the Σ-preserving folds (`foldTop`, `byMonth`, `foldMonths`, `decimate`), the gates
+  (`enoughData`, 2.1.1 D2: a time series — one column per month, quarter or period — draws from ONE
+  non-zero period; category bars, columns and shares need TWO non-zero values; a line two points; a meter
+  both parts) and `assertSpec`. A builder sets `xKind: 'time'` on every by-month graph (P&L, registers,
+  cash flow, Monthly Summary, GSTR-9, TDS by month, production, the Dashboard trend), so a company with a
+  month of entries sees them; per-builder gates were relaxed to the same minimums (Home: from the first
+  month with a sale). `ui/lib/chart.ts` holds the geometry (ticks, bands,
   bar paths, `hbarLayout` at a 20 px pitch, `shareSegments` with 2 px gaps and a 4 px floor,
   `polarityTicks` with absolute labels). `ui/Chart.tsx` draws all five kinds as hand-rolled SVG with one
   hover effect, a tooltip, a listbox of category options (`aria-activedescendant`, ←/→ Home/End, Enter =
@@ -511,8 +518,16 @@ source of truth.
   card surface, normal-vision ΔE ≥ 15 and CVD ΔE ≥ 8 between meanings, a monotone single-hue ramp with
   adjacent ΔL ≥ 0.06) using `ui/lib/palette.ts`, a port of the dataviz validator.
 - **Toggle.** Ctrl+J folds the graphs of the screen's class to their one-line answer (report class on
-  Home, the Dashboard and reports — shown by default; detail class on drill-down reports — folded by
-  default), remembered per computer profile in `pevqori.ui` (§7 report template).
+  Home, the Dashboard and reports; detail class on drill-down reports — ledger, group summary, stock item,
+  statements, GST e-ledgers, forex ledger, party meter); both are shown by default since 2.1.1 (D3) and
+  remembered per computer profile in `pevqori.ui` (`graphs`, `detailGraphsShown`; §7 report template).
+- **Monthly Summary (2.1.1 D1).** `reports.monthlySummary` is report class and always a column graph by
+  month: an income / expense subject draws each month's net movement on its natural side (Σ = the table's
+  net movement); any other subject each month-end closing (= that row's Closing) as polarity columns
+  coloured by the subject's nature (`MonthlySummaryResult.subject.nature`, additive) — slot 1 on the
+  natural side, slot 2 for a month on the other side, said "Dr" / "Cr" (axis captions), never a bare
+  minus. A running month is `partialLast` ("so far"; a polarity column below zero keeps slot 2) and the
+  months after the working date are not drawn. Enter on a column = Enter on the month's row.
 - **Never printed.** Invoices, vouchers, statements, cheques, deposit slips and every print source
   import no graph code (`chartImports.test.ts`); report Print / PDF / Excel / CSV stay table-only;
   `@media print` hides `.bx-chart`, `.bx-mini` and `.bx-sparkline`.

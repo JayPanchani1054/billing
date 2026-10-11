@@ -24,8 +24,8 @@ through `reportGraph` of `ui/lazyChart.tsx`; Ctrl+J folds them):
 * `forex.revaluation` — bars of the unrealised adjustment per party (gain indigo, loss orange), inside
   the Adjustment cells when every party is one line (≤ 7); Σ = the net. The takeaway counts parties
   ("Gain on 5 parties, loss on 2; largest loss …"), never the folded "Other" bar.
-* `forex.ledger` — a line of the balance in the currency (opening, then the end of each day; ≥ 3
-  voucher rows; ≤ 480 points), ending on the closing balance. Detail class: folded by default.
+* `forex.ledger` — a line of the balance in the currency (opening, then the end of each day; ≥ 1
+  voucher row; ≤ 480 points), ending on the closing balance. Detail class: shown by default (2.1.1).
 * None for settings and openings. Explanations moved to More › "About this report"; the voucher-entry
   side panel renders nothing until there is an invoice currency or a foreign line the server check
   priced (`entryPanelShown` in `lib/entry.ts`, pinned by `lib/entryPanel.test.ts`).

@@ -6,7 +6,7 @@
  *   forex.outstanding  column, ordinal colour: bills of the chosen side by age (Not due grey, then
  *                      1–30 … over 90 days on the ramp); none for "All" (receivables and payables mixed)
  *   forex.revaluation  bar (inline when each party is one line), polarity: gain slot 1, loss slot 2
- *   forex.ledger       line of the balance in the currency (detail class: folded by default)
+ *   forex.ledger       line of the balance in the currency (detail class: shown by default since 2.1.1)
  *
  * A builder returns null when the data cannot carry its graph (`enoughData`).
  */
@@ -160,11 +160,11 @@ export function currencyFormat(c: ForexCurrency): ValueFormat {
 
 /**
  * forex.ledger — the balance in the currency over the period: the opening, then the balance at the
- * end of each day with vouchers (≥ 3 voucher rows). The last point is the closing balance the table
+ * end of each day with vouchers (≥ 1 voucher row: two points, 2.1.1 D2). The last point is the closing balance the table
  * ends on (the drawn total). Long periods are decimated to ≤ 480 points (peaks and troughs kept).
  */
 export function ledgerChart(d: ForexLedgerStatement): ChartSpec | null {
-  if (d.rows.length < 3) return null;
+  if (d.rows.length < 1) return null;
   const points: Array<{ date: string; balance: number }> = [{ date: d.from, balance: d.openingForex }];
   for (const r of d.rows) {
     const last = points[points.length - 1];

@@ -22,7 +22,7 @@ import type {
   RegisterResult,
   TbRow,
 } from '../../../../shared/types/reports.ts';
-import { statRepeatsTotal, specProblems, drawnTotal, inlineBars } from '../../../ui/lib/chartSpec.ts';
+import { statRepeatsTotal, specProblems, drawnTotal, inlineBars, markColor } from '../../../ui/lib/chartSpec.ts';
 import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
 import { statTotalAllowed } from '../../../app/lib/chartCatalogue.ts';
 import {
@@ -126,8 +126,12 @@ describe('reports.profitLoss — Net profit by month', () => {
     assert.equal(profitTrendChart(trend([-500_000, -200_000, -900_000, 0]))?.takeaway, 'Loss in all 3 months; smallest in May (₹2.0 K)');
   });
 
-  test('gates: fewer than 3 months, Compare mode, stock not valued monthly with purchases', () => {
-    assert.equal(profitTrendChart(trend([100, 200])), null, '2 months');
+  test('gates: no month with a result, Compare mode, stock not valued monthly with purchases', () => {
+    // 2.1.1 D2: a time series draws from one month with a result (a young company's first month).
+    assert.equal(valid(profitTrendChart(trend([100, 200]))).total, 300, '2 months draw');
+    assert.equal(valid(profitTrendChart(trend([-4_000]))).categories.length, 1, 'one month draws');
+    assert.equal(valid(profitTrendChart(trend([-4_000]))).xKind, 'time');
+    assert.equal(profitTrendChart(trend([0, 0])), null, 'no month with a result: no graph');
     assert.equal(profitTrendChart(null), null);
     assert.equal(profitTrendChart(trend(SEVEN), { compare: true }), null, 'Compare mode');
     assert.equal(profitTrendGate(trend(SEVEN), true), 'compare');
@@ -137,8 +141,8 @@ describe('reports.profitLoss — Net profit by month', () => {
     // A service business (no purchases) keeps its graph without integrated stock.
     valid(profitTrendChart(trend(SEVEN, { integrated: false })));
     assert.equal(profitTrendGate(trend(SEVEN, { integrated: false }), false), null);
-    // Three months but only two with a figure: not enough to read a shape.
-    assert.equal(profitTrendChart(trend([0, 100_000, -50_000])), null);
+    // Three months, two with a figure: a time series needs only one (2.1.1 D2).
+    assert.equal(valid(profitTrendChart(trend([0, 100_000, -50_000]))).total, 50_000);
   });
 
   test('Enter on a month opens the P&L of that month; a long period folds into quarters, Σ kept', () => {
@@ -224,10 +228,14 @@ describe('reports.register — Sales before GST, by month', () => {
     assert.equal(valid(registerChart({ ...register('sales', SALES), baseType: null, title: 'Stock Journal Register' })).title, 'Stock Journal by month');
   });
 
-  test('a complete last month is not "so far"; fewer than 3 months with sales → no graph', () => {
+  test('a complete last month is not "so far"; one month with sales draws, none → no graph (2.1.1 D2)', () => {
     assert.equal(valid(registerChart(register('sales', SALES))).partialLast, false);
-    assert.equal(registerChart(register('sales', [100, 0, 200])), null);
-    assert.equal(registerChart(register('sales', [100, 200])), null);
+    assert.equal(valid(registerChart(register('sales', [100, 0, 200]))).total, 300);
+    assert.equal(valid(registerChart(register('sales', [100, 200]))).total, 300);
+    const one = valid(registerChart(register('sales', [0, 0, 4_500])));
+    assert.equal(one.xKind, 'time');
+    assert.equal(one.total, 4_500, 'one month with sales draws');
+    assert.equal(registerChart(register('sales', [0, 0, 0])), null, 'no sales: no graph');
     assert.equal(registerChart(null), null);
   });
 
@@ -321,21 +329,28 @@ describe('reports.cashBank — Closing balance by account', () => {
     assert.equal(isOverdrawn(d.rows[2]), false, 'a group is never "overdrawn"');
   });
 
-  test('no overdraft: the largest share; none with 2 ledgers (the seeded shop)', () => {
+  test('no overdraft: the largest share; 2 ledgers draw, 1 does not (2.1.1 D2)', () => {
     const d = cashBank([
       ['Cash', 3_000_000],
       ['HDFC Bank', 6_000_000],
       ['SBI Current', 1_000_000],
     ]);
     assert.equal(valid(cashBankChart(d)).takeaway, 'HDFC Bank holds 60 % of cash and bank');
+    const two = cashBank([
+      ['Cash', 3_000_000],
+      ['HDFC Bank', 6_000_000],
+    ]);
+    assert.equal(valid(cashBankChart(two)).total, two.totals.closing, 'two ledgers: a graph');
+    assert.equal(cashBankChart(cashBank([['Cash', 3_000_000]])), null, 'one ledger: no graph');
     assert.equal(
       cashBankChart(
         cashBank([
           ['Cash', 3_000_000],
-          ['HDFC Bank', 6_000_000],
+          ['HDFC Bank', 0],
         ]),
       ),
       null,
+      'one non-zero balance: no graph',
     );
   });
 
@@ -381,7 +396,7 @@ function monthly(opening: number, net: readonly number[], isNominal?: boolean): 
   const months = monthsOf('2026-04-01', net.length);
   const rows = months.map((m, i) => {
     bal += net[i];
-    return { month: m, from: `${m}-01`, to: lastDay(m), debit: Math.max(0, net[i]), credit: Math.max(0, -net[i]), closing: bal, count: 1 };
+    return { month: m, from: `${m}-01`, to: lastDay(m), debit: Math.max(0, net[i]), credit: Math.max(0, -net[i]), closing: bal, count: net[i] === 0 ? 0 : 1 };
   });
   return {
     from: '2026-04-01',
@@ -424,8 +439,10 @@ describe('reports.ledger — Balance by date (detail)', () => {
     assert.match(spec.takeaway, /^₹11\.0 K Cr on 2-May-26, up ₹6\.0 K since/);
   });
 
-  test('fewer than 3 points → none; truncated → the month-end balances, or none without them', () => {
-    assert.equal(ledgerChart(ledger(0, [['2026-04-05', 100]])), null);
+  test('fewer than 2 points → none (2.1.1 D2); truncated → the month-end balances, or none without them', () => {
+    assert.equal(ledgerChart(ledger(0, [])), null, 'the opening alone is one point');
+    const one = valid(ledgerChart(ledger(0, [['2026-04-05', 100]])));
+    assert.deepEqual(one.series[0].values, [0, 100], 'opening + one voucher: a line of two points');
     const big = ledger(0, [
       ['2026-04-05', 100_000],
       ['2026-05-05', 100_000],
@@ -439,36 +456,137 @@ describe('reports.ledger — Balance by date (detail)', () => {
   });
 });
 
-describe('reports.monthlySummary (detail)', () => {
+describe('reports.monthlySummary — always columns by month (2.1.1 D1)', () => {
+  const withNature = (d: MonthlySummaryResult, nature: 'assets' | 'liabilities' | 'income' | 'expenses'): MonthlySummaryResult => ({ ...d, subject: { ...d.subject, nature } });
+
   test('income / expense: net movement columns; total = the period\'s net movement on its natural side', () => {
     const d = monthly(0, [-700_000, -800_000, 100_000, -900_000], true);
     const spec = valid(monthlySummaryChart(d));
     assert.equal(spec.kind, 'column');
+    assert.equal(spec.xKind, 'time');
     assert.equal(spec.total, d.totals.credit - d.totals.debit, 'Cr natural (sales)');
+    assert.deepEqual(spec.series[0].values, [700_000, 800_000, -100_000, 900_000]);
     assert.equal(spec.series[0].name, 'Net credit');
+    assert.equal(spec.title, 'Net movement by month');
+    assert.equal(spec.takeaway, 'Highest in Jul ₹9.0 K');
+    // A Dr (expense) subject reads Dr up.
+    const e = valid(monthlySummaryChart(monthly(0, [200_000, 300_000], true)));
+    assert.equal(e.series[0].name, 'Net debit');
+    assert.equal(e.total, 500_000);
   });
 
-  test('asset / liability (or no flag): a line of month-end balances ending on the closing; Enter → month', () => {
+  test('asset / liability (or no flag): month-end closing balance as columns, each = that row\'s Closing; Enter → month', () => {
     const got: DrillRange[] = [];
     for (const flag of [false, undefined]) {
       const d = monthly(1_000_000, [200_000, -100_000, 300_000], flag);
       const spec = valid(monthlySummaryChart(d, { activate: (r) => got.push(r) }));
-      assert.equal(spec.kind, 'line');
-      assert.equal(spec.total, d.closing);
+      assert.equal(spec.kind, 'column', 'never a line any more');
+      assert.equal(spec.xKind, 'time');
+      assert.equal(spec.color, 'polarity');
+      assert.deepEqual(spec.axisCaptions, { up: 'Dr ↑', down: 'Cr ↓' });
+      assert.equal(spec.title, 'Closing balance by month');
+      assert.deepEqual(spec.categories, ['Apr', 'May', 'Jun']);
+      assert.deepEqual(spec.series[0].values, d.rows.map((r) => r.closing), 'each column is the row\'s Closing');
+      assert.equal(spec.series[0].values[spec.series[0].values.length - 1], d.closing, 'the last column is the Grand Total closing');
+      assert.equal(spec.takeaway, 'Closing ₹14.0 K Dr at the end of Jun');
       spec.activate?.(0);
       spec.activate?.(2);
     }
-    assert.deepEqual(got.slice(0, 1), [{ from: '2026-05-01', to: '2026-05-31' }], 'the opening point opens nothing');
+    assert.deepEqual(got.slice(0, 2), [
+      { from: '2026-04-01', to: '2026-04-30' },
+      { from: '2026-06-01', to: '2026-06-30' },
+    ], 'Enter on a column = Enter on that month\'s row');
   });
 
-  test('a month-end line names the date of its last balance, never "on Jun 26" (read as 26 June)', () => {
+  test('colour by meaning: a month on the other side (a bank overdrawn, a customer in credit) is slot 2, said in words', () => {
+    // A bank (assets, natural Dr) overdrawn in May.
+    const bank = withNature(monthly(100_000, [50_000, -400_000, 600_000], false), 'assets');
+    const spec = valid(monthlySummaryChart(bank));
+    assert.deepEqual(spec.series[0].values, [150_000, -250_000, 350_000]);
+    assert.deepEqual([0, 1, 2].map((i) => markColor(spec, i)), [1, 2, 1]);
+    assert.equal(spec.takeaway, 'Closing ₹3.5 K Dr at the end of Jun · Cr in 1 of 3 months');
+    // A supplier (liabilities, natural Cr) — Cr up; a month we paid ahead (Dr) is slot 2. Its closing at the
+    // end is Cr even though the ending heuristic alone would not know the nature.
+    const supplier = withNature(monthly(-500_000, [-200_000, 900_000, -100_000], false), 'liabilities');
+    const s2 = valid(monthlySummaryChart(supplier));
+    assert.deepEqual(s2.axisCaptions, { up: 'Cr ↑', down: 'Dr ↓' });
+    assert.deepEqual(s2.series[0].values, [700_000, -200_000, -100_000], 'natural side up: Cr positive');
+    assert.deepEqual([0, 1, 2].map((i) => markColor(s2, i)), [1, 2, 2], 'the subject\'s nature decides, not where it ended');
+    assert.equal(s2.takeaway, 'Closing ₹1.0 K Dr at the end of Jun · Dr in 2 of 3 months');
+    // The tooltip words come from the captions: absolute value + "Cr" / "Dr", never a bare minus.
+    assert.ok(s2.series[0].values.every((v) => v === null || Number.isInteger(v)));
+  });
+
+  test('young company: one month with a non-zero value draws; nothing at all → none', () => {
+    const one = valid(monthlySummaryChart(monthly(0, [0, 0, 450_000], true)));
+    assert.equal(one.total, 450_000);
+    const bal = valid(monthlySummaryChart(monthly(0, [0, 0, 450_000], false)));
+    assert.deepEqual(bal.series[0].values, [0, 0, 450_000]);
+    assert.equal(monthlySummaryChart(monthly(0, [0, 0, 0], true)), null, 'nothing moved: no graph');
+    assert.equal(monthlySummaryChart(monthly(0, [0, 0], false)), null, 'zero balance throughout: no graph');
+    assert.equal(monthlySummaryChart(null), null);
+    // A single month (books begin this month) on its own.
+    assert.equal(valid(monthlySummaryChart(monthly(0, [120_000], true))).categories.length, 1);
+  });
+
+  test('the running month is "so far" and future months of a whole-year period are not drawn', () => {
+    // FY 2026-27 (Apr–Mar) on 10-Jun: Jul–Mar have not happened.
+    const year = monthly(0, [300_000, 500_000, 200_000, 0, 0, 0, 0, 0, 0, 0, 0, 0], true);
+    const spec = valid(monthlySummaryChart(year, { workingDate: '2026-06-10' }));
+    assert.deepEqual(spec.categories, ['Apr', 'May', 'Jun']);
+    assert.equal(spec.partialLast, true);
+    assert.equal(markColor(spec, 2), 'partial');
+    assert.equal(spec.total, 1_000_000, 'Σ = the table\'s net movement (future months are zero)');
+    assert.equal(spec.takeaway, 'Highest in May ₹5.0 K · Jun so far ₹2.0 K');
+    // Balances: the running month is "so far" too, and keeps slot 2 when on the other side.
+    const bank = withNature(monthly(0, [300_000, 500_000, -900_000, 0, 0, 0, 0, 0, 0, 0, 0, 0], false), 'assets');
+    const b = valid(monthlySummaryChart(bank, { workingDate: '2026-06-10' }));
+    assert.deepEqual(b.series[0].values, [300_000, 800_000, -100_000]);
+    assert.equal(b.partialLast, true);
+    assert.equal(markColor(b, 2), 2, 'overdrawn so far: the problem colour');
+    assert.equal(b.takeaway, 'Closing ₹1.0 K Cr in Jun so far · Cr in 1 of 3 months');
+    // A post-dated entry after the working date keeps the whole period.
+    const post = monthly(0, [300_000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100_000], true);
+    assert.equal(valid(monthlySummaryChart(post, { workingDate: '2026-06-10' })).categories.length, 12);
+    // A month-end working date is not "so far".
+    assert.equal(valid(monthlySummaryChart(year, { workingDate: '2026-06-30' })).partialLast, false);
+  });
+
+  test('takeaways in words: a running month that moved the other way says "net credit/debit", never a bare minus; one column needs no "N of M"', () => {
+    // Sales (Cr natural) on 11-May: April sold ₹1,000, May so far only a ₹300 return (Dr).
+    const sales = withNature(monthly(0, [-100_000, 30_000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], true), 'income');
+    const s = valid(monthlySummaryChart(sales, { workingDate: '2026-05-11' }));
+    assert.deepEqual(s.series[0].values, [100_000, -30_000]);
+    assert.equal(s.takeaway, 'Highest in Apr ₹1.0 K · May so far ₹300 net debit');
+    assert.ok(!/-₹|−₹/.test(s.takeaway), `no bare minus: "${s.takeaway}"`);
+    // A customer who paid an advance in the company's first month (in credit, one column): the head says Cr.
+    const advance = withNature(monthly(0, [-500_000], false), 'assets');
+    const a = valid(monthlySummaryChart(advance));
+    assert.equal(markColor(a, 0), 2);
+    assert.equal(a.takeaway, 'Closing ₹5.0 K Cr at the end of Apr');
+    // Two of two months on the other side read naturally.
+    const two = valid(monthlySummaryChart(withNature(monthly(0, [-500_000, 100_000], false), 'assets')));
+    assert.equal(two.takeaway, 'Closing ₹4.0 K Cr at the end of May · Cr in 2 of 2 months');
+  });
+
+  test('a long period folds into quarters: movement Σ kept, balance = the quarter-end closing', () => {
+    const nets = Array.from({ length: 15 }, (_, i) => (i + 1) * 10_000);
+    const mov = monthly(0, nets, true);
+    const m = valid(monthlySummaryChart(mov));
+    assert.equal(m.title, 'Net movement by quarter');
+    assert.equal(m.total, mov.totals.debit - mov.totals.credit);
+    const bal = monthly(0, nets, false);
+    const b = valid(monthlySummaryChart(bal));
+    assert.equal(b.title, 'Closing balance by quarter');
+    assert.equal(b.series[0].values[b.series[0].values.length - 1], bal.closing);
+    assert.deepEqual(b.series[0].values[0], bal.rows[2].closing, 'Q1 = the closing at the end of June');
+  });
+
+  test('a truncated ledger still draws its month-end balances as a line, dated (never "on Jun 26")', () => {
     const d = monthly(1_000_000, [200_000, -100_000, 300_000], false);
-    const spec = valid(monthlySummaryChart(d));
-    assert.deepEqual(spec.categories, ['Opening', 'Apr 26', 'May 26', 'Jun 26']);
-    assert.equal(spec.takeaway, '₹14.0 K Dr on 30-Jun-26, up ₹4.0 K since 1-Apr-26');
-    // The same for a truncated ledger drawn from its month-end balances.
     const big = ledger(1_000_000, [['2026-04-05', 1], ['2026-05-05', 1], ['2026-06-05', 1]], true);
     const ls = valid(ledgerChart({ ...big, closing: d.closing }, d));
+    assert.deepEqual(ls.categories, ['Opening', 'Apr 26', 'May 26', 'Jun 26']);
     assert.equal(ls.takeaway, '₹14.0 K Dr on 30-Jun-26, up ₹4.0 K since 1-Apr-26');
   });
 });
@@ -496,14 +614,16 @@ describe('reports.groupSummary — Closing balance by account (detail)', () => {
     assert.equal(spec.takeaway, 'Ravi Paints is the largest at ₹20.0 K');
   });
 
-  test('a Dr group, all on its side: the share; fewer than 3 members → none', () => {
+  test('a Dr group, all on its side: the share; 2 members draw, 1 does not (2.1.1 D2)', () => {
     const d = group('assets', [
       ['A', 600_000],
       ['B', 300_000],
       ['C', 100_000],
     ]);
     assert.equal(valid(groupSummaryChart(d)).takeaway, 'A holds 60 % of Sundry Creditors');
-    assert.equal(groupSummaryChart(group('assets', [['A', 1], ['B', 2]])), null);
+    assert.equal(valid(groupSummaryChart(group('assets', [['A', 1], ['B', 2]]))).total, 3);
+    assert.equal(groupSummaryChart(group('assets', [['A', 1]])), null);
+    assert.equal(groupSummaryChart(group('assets', [['A', 1], ['B', 0]])), null);
   });
 });
 
@@ -527,7 +647,10 @@ describe('reports.cashFlow — Net cash flow by month', () => {
     spec.activate?.(1);
     assert.deepEqual(got, [{ from: '2026-05-01', to: '2026-05-31' }]);
     assert.equal(valid(cashFlowChart(flow([-100_000, -50_000, -70_000]))).takeaway, 'Net outflow in all 3 months; smallest in May (₹500)');
-    assert.equal(cashFlowChart(flow([100, 0])), null);
+    // 2.1.1 D2: one month with a flow draws; none does not.
+    assert.equal(valid(cashFlowChart(flow([100, 0]))).total, 100);
+    assert.equal(valid(cashFlowChart(flow([100, 0]))).xKind, 'time');
+    assert.equal(cashFlowChart(flow([0, 0])), null);
     // Months without movement (still ahead in a whole-year period) count neither way.
     assert.equal(valid(cashFlowChart(flow([1_200_000, 300_000, 500_000, 0, 0]))).takeaway, 'More in than out in all 3 months; best Apr (₹12.0 K in)');
     assert.equal(valid(cashFlowChart(flow([-100_000, -50_000, -70_000, 0]))).takeaway, 'Net outflow in all 3 months; smallest in May (₹500)');

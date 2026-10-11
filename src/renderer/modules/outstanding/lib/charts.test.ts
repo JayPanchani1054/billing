@@ -240,8 +240,9 @@ describe('ageingChart: unpaid bills by age (the Ageing view, Ctrl+3)', () => {
     assert.equal(none.takeaway, 'Of ₹60.0 K in unpaid bills, none is over 90 days');
   });
 
-  it('no graph below three non-zero columns, or when nothing is unpaid', () => {
-    assert.equal(ageingChart(ageing([30, 60, 90, 180], [10_000_00, 0, 0, 0, 0, 5_000_00])), null);
+  it('no graph below two non-zero columns (2.1.1 D2), or when nothing is unpaid', () => {
+    assert.equal(ageingChart(ageing([30, 60, 90, 180], [10_000_00, 0, 0, 0, 0, 0])), null, 'all not due: one column, no graph');
+    assert.equal(ageingChart(ageing([30, 60, 90, 180], [10_000_00, 0, 0, 0, 0, 5_000_00]))?.total, 15_000_00, 'two columns: a graph');
     assert.equal(ageingChart(ageing([30, 60, 90, 180], [0, 0, 0, 0, 0, 0], -5_000_00)), null);
     assert.equal(ageingChart(ageing([30, 60, 90, 180], [-10_000_00, -1_00, -2_00, 0, 0, 0])), null);
     const ok = ageingChart(ageing([30, 60, 90, 180], [1_00, 2_00, 3_00, 0, 0, 0]))!;
@@ -369,9 +370,9 @@ describe('statementChart: the running balance (screen only)', () => {
     );
   });
 
-  it('none below three points', () => {
+  it('none below two points (2.1.1 D2)', () => {
     assert.equal(statementChart(statement(10_000_00, [])), null);
-    assert.equal(statementChart(statement(10_000_00, [['2026-04-05', 1_00, 0]])), null);
+    assert.equal(statementChart(statement(10_000_00, [['2026-04-05', 1_00, 0]]))?.categories.length, 2, 'opening + one entry: a line');
     assert.ok(statementChart(statement(0, [['2026-04-05', 1_00, 0], ['2026-04-06', 1_00, 0]])));
   });
 

@@ -91,7 +91,7 @@ bill-wise shows its balance FIFO or as one On Account amount — Alt+N — and t
 `partyEmptyBody`; why, in More › About this report). Footer lines: bills pending, of which overdue,
 advances, on account, balance (2.1: they replace the KPI tiles). Context run: group · "not bill-wise" ·
 "30 days credit" · "limit ₹x"; "Over credit limit" is its danger word. Graph (`partyChart`, detail class —
-folded until Ctrl+J): a meter "balance against the credit limit", only with a limit and a balance on the
+shown by default since 2.1.1, Ctrl+J folds it): a meter "balance against the credit limit", only with a limit and a balance on the
 party's side. Alt+F1 *Show settled bills* (checkable; Alt+H stays edit history), Alt+N FIFO ↔ On Account
 for non-bill-wise ledgers. Actions: Statement (Alt+S, the one extra title-row button — no filled button on
 a report), Interest (Alt+I), Reminder letter (Alt+R, receivable side), Ledger (Alt+L).
@@ -99,7 +99,7 @@ a report), Interest (Alt+I), Reminder letter (Alt+R, receivable side), Ledger (A
 ### Statement of account
 Transactions with running balance (Ctrl+1; footer: opening, period totals, closing) and pending bills
 (Ctrl+2; footer: one line per non-empty ageing period, advances, on account, total). The running balance
-is also a line graph (`statementChart`, detail class — folded until Ctrl+J; on the party's side, Dr/Cr
+is also a line graph (`statementChart`, detail class — shown by default since 2.1.1, Ctrl+J folds it; on the party's side, Dr/Cr
 words, ≤ 480 points, ending on the closing balance) — on screen only: the printed statement never has a
 graph. The party's address, GSTIN, contact and credit terms are in More › *Party details*. Opened with `{ from, to }` it keeps that period until the global period is changed
 (Alt+F2) while it is open, which then applies (`statementPeriod`). Print (Alt+P) and PDF (Alt+E → P)

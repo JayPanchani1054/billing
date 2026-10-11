@@ -54,12 +54,13 @@ describe('Documents by status (gstrecon.home — Purchases and GSTR-1 views)', (
     assert.deepEqual(picked, ['matched', 'partial', 'missing_in_books', 'missing_in_portal']);
   });
 
-  test('GSTR-1 wording; nothing before the first run; fewer than 3 non-zero segments → no graph', () => {
+  test('GSTR-1 wording; nothing before the first run; fewer than 2 non-zero segments → no graph (2.1.1 D2)', () => {
     assert.deepEqual(segmentLabels('gstr1'), ['Matched', 'Amount differs', 'Not in books', 'Not in GSTR-1']);
     assert.equal(reconChart(summary({ run: null })), null);
     const run = summary().run;
     assert.ok(run);
-    assert.equal(reconChart(summary({ run: { ...run, counts: { matched: 10, partial: 1 } } })), null);
+    assert.equal(reconChart(summary({ run: { ...run, counts: { matched: 10 } } })), null, 'one segment: no graph');
+    assert.equal(reconChart(summary({ run: { ...run, counts: { matched: 10, partial: 1 } } }))?.total, 11, 'two segments: a graph');
     const clean = reconChart(summary({ run: { ...run, counts: { matched: 10, partial: 1, missing_in_books: 1 } } }));
     assert.equal(clean?.takeaway, '2 of 12 need action; most: amount differs (1)');
   });
@@ -104,10 +105,11 @@ describe('Tax difference by supplier (gstrecon.home — Supplier-wise view)', ()
     assert.deepEqual(opened, ['27X9']);
   });
 
-  test('labels never carry a minus; fewer than 3 suppliers that differ → no graph', () => {
+  test('labels never carry a minus; fewer than 2 suppliers that differ → no graph (2.1.1 D2)', () => {
     assert.equal(supplierLabel({ name: null, gstin: '', taxDifference: -1 }), '(no GSTIN) · less on portal');
     assert.ok(!supplierChart(rows)?.categories.some((c) => /[−-]\d/.test(c)));
-    assert.equal(supplierChart(rows.slice(1)), null);
+    assert.equal(supplierChart(rows.slice(2)), null, 'one supplier differs (the other is even): no graph');
+    assert.equal(supplierChart(rows.slice(1))?.total, 350_00, 'two differ: a graph');
     // A supplier with neither name nor GSTIN is still named in the takeaway.
     assert.equal(supplierChart([supplier('', null, -5_000_00), ...rows.slice(0, 2)])?.takeaway, '(no GSTIN): ₹5.0 K less on the portal than in your books');
   });

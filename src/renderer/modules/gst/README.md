@@ -59,7 +59,7 @@ defaults / grid, field checks for CPIN / CIN / bill of entry / composition rate 
 **2.1 "calm" (SPEC-21, WP-J1 — the returns).** One graph per report, or deliberately none: GSTR-1, GSTR-4,
 CMP-08 and Composition Rates have none (the tables are the filing / a master); GSTR-3B a meter only when
 credit and cash both pay part of the tax; GSTR-9 the monthly tax after credit; GST Set-off a cash meter;
-the e-ledgers a running-balance line in the *detail* class (folded until Ctrl+J). The return period /
+the e-ledgers a running-balance line in the *detail* class (shown by default since 2.1.1; Ctrl+J folds it). The return period /
 year / quarter is a select token in the title row's context run on every return, set-off included (`PeriodSelect token`,
 `TokenSelect`, or a labelled select wrapped in `.bx-gst-token`, which drops the visible label; accessible names
 "Return period" / "Quarter" / "Financial year" kept, Alt+F2 focuses them). Info sentences and Notes boxes moved
