@@ -64,6 +64,7 @@ function Meter({ spec, describedBy, className }: ChartProps): ReactNode {
           {spec.takeaway}
         </p>
       )}
+      <ChartDataTable caption={spec.title} categories={spec.categories.length ? spec.categories : [spec.title]} series={[{ name: measuredSeries(spec)?.name ?? spec.title, values: [value] }, { name: 'Limit', values: [max] }]} format={full} />
     </>
   );
 }

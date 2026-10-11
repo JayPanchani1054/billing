@@ -261,7 +261,7 @@ is skipped) and focus restore, `aria-modal`, Esc closes unless `dismissible={fal
 | `KeyValueList` | `items: {label, value, kind?: 'text'\|'amount'\|'drcr'\|'date', strong?, hideEmpty?}[]`, `layout?: 'inline'\|'stacked'`, `columns?`, `labelWidth?`, `alignValues?` |
 | `Card` | `title?` (14/600), `subtitle?`, `actions?`, `footer?`, `padding?: 'none'\|'sm'\|'md'`, `elevated?` (accepted; 2.1 cards are always flat), `headingLevel?`, `as?` — flat: no border, radius, fill or horizontal padding |
 | `KpiCard` / `Stat` | A *figure* (2.1): `label` (12 muted), `value` (24/600; node, or paise with `amount` → compact ₹ with the exact value as title/SR), `delta?: {value: %, label?, goodWhen?}` (muted ▲/▼ + sign — never colour alone), `caption?` (one, short), `sparkline?: number[]`, `trend?`, `loading?`, `onClick?` (the whole figure becomes the drill button). `icon` is accepted and ignored — no icon tile, chevron, border or hover lift |
-| `StatLine` | `items: {label, value: paise \| node, onClick?, tone?: 'warning'\|'danger', title?, link?}[]` — the report's answer in exact money ("To collect ₹99,953 · Overdue ₹4,65,953 · ₹3,66,000 not matched to bills ›"); ≤ 3 figures + ≤ 1 `link` item (`statProblems`); drop zero amounts with `dropZeros(items)` |
+| `StatLine` | `items: {label, value: paise \| node, onClick?, tone?: 'warning'\|'danger', title?, link?}[]` — the report's answer in exact money ("To collect ₹99,953 · Overdue ₹4,65,953 · ₹3,66,000 not matched to bills ›"); ≤ 3 figures + ≤ 1 `link` item (`statProblems`; a crowded line logs a console error, which fails the e2e sweep); each item's tooltip carries its label (`statTitle`) because the report hides the labels below 1200 px; drop zero amounts with `dropZeros(items)` |
 | `MiniColumns` | Home only: `title`, `months` (names, oldest first, ≤ 12), `values` (paise), `emphasis` (index or null), `label` (the emphasised column's direct label), `onActivate?` |
 | `Sparkline` | `values`, `width?` 96, `height?` 28, `label?`, `emphasis?: 'muted'\|'brand'`, `area?` |
 | `BarChart` / `LineChart` | 2.0 API kept as thin adapters that render `LazyChart` (`title`, `description?` = takeaway, `categories`, `series: {name, values: (number\|null)[], slot?}[]`, `valueFormat?`, `height?`, `labelMax?` / `endLabels?`, `onCategoryActivate?`, `empty?`). New code builds a `ChartSpec` instead |
@@ -293,12 +293,15 @@ const spec = useMemo(() => (q.data ? registerChart(q.data) : null), [q.data]); /
   (grey) = context (a second series is always context); slot 2 = only the negative or problem pole
   (`'polarity'` negatives, `'problem'` categories); the indigo ramp `--chart-o1…o5` (styles/charts.css) =
   age/lateness; `--chart-partial` = a running period, always labelled "so far". Slots 3–5 are never
-  drawn; status tokens are never a series. `ui/lib/chartPalette.test.ts` re-validates the shipped tokens
+  drawn; status tokens are never a series. (One 2.0 exception until WP-M: the `BarChart` adapter keeps a
+  caller's explicit slot 2 on a second series — the full Dashboard's Purchases.) `ui/lib/chartPalette.test.ts` re-validates the shipped tokens
   (contrast, normal-vision and CVD ΔE, the ordinal ramp) in both themes.
 - **Marks**: columns ≤ 24 px with a 4 px rounded data end, square at the baseline; horizontal bars 12 px
   on a 20 px pitch with the value outside the tip; 2 px lines with an area wash for the measured series
   only and an r 4 end dot ringed in the canvas colour; a share bar of 16 px with 2 px gaps and segments
-  ≥ 4 px; one axis, hairline solid grid, Indian compact ticks (`0 · 50 K · 1 L · 1 Cr`); polarity columns
+  ≥ 4 px. Heights: a column or line plot is the strip's (`--graph-h` − its 20 px header: 148, 132
+  compact — `STRIP_PLOT_HEIGHT`) unless given `height`; bar, share and meter size to their content
+  (bar: 20 px a row). The strip's plot box has no height of its own, so a graph never relies on its host; one axis, hairline solid grid, Indian compact ticks (`0 · 50 K · 1 L · 1 Cr`); polarity columns
   show absolute ticks plus the spec's axis captions ("Profit ↑" / "Loss ↓"). Direct labels are sparing:
   the extreme (`max`), the endpoint (`last`), every bar tip (`tips`, ≤ 7 rows) or none. A legend appears
   only for two series (or a share bar whose names do not fit under it).
@@ -308,7 +311,10 @@ const spec = useMemo(() => (q.data ? registerChart(q.data) : null), [q.data]); /
   category through `aria-activedescendant`; ←/→ (↑/↓ for bars) and Home/End move, Enter calls
   `spec.activate(i)` (= Enter on the matching table row). On focus the highlight starts at the table's
   `active` row when one is passed, else nothing is highlighted until the first arrow (→ = first, ← =
-  last). A meter is static (`role="img"`). A visually hidden data table follows every graph.
+  last). A key with Ctrl, Alt or Meta, and Enter with nothing highlighted, keep their global meaning
+  (Ctrl+J folds the graph you are on). The model is one pure function, `graphKeyStep` (ui/lib/chart.ts),
+  shared with `MiniColumns`. A meter is static (`role="img"`). A visually hidden data table follows
+  every graph (a meter's: value and limit).
 - **Never printed**: `@media print` hides `.bx-chart`, `.bx-mini` and `.bx-sparkline`; printed documents
   import no graph code (`chartImports.test.ts`). `forced-colors`: marks `CanvasText`, grid `GrayText`.
 

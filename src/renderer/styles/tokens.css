@@ -119,7 +119,6 @@
   --fw-bold: 600;
 
   --tracking-tight: -0.01em;
-  --tracking-caps: 0.06em;
 
   /* Spacing (4px base; spaceVar() builds --space-N) */
   --space-0: 0;
@@ -479,7 +478,6 @@
   --cell-px: 12px;
   --form-gap: 16px;
   --field-gap: 6px;
-  --card-p: 16px;
   --toolbar-h: 48px;
   --rail-item-h: 36px;
   --checkbox-size: 16px;
@@ -499,7 +497,6 @@
   --cell-px: 8px;
   --form-gap: 10px;
   --field-gap: 4px;
-  --card-p: 12px;
   --toolbar-h: 40px;
   --rail-item-h: 28px;
   --checkbox-size: 14px;

@@ -484,8 +484,9 @@ source of truth.
   bar paths, `hbarLayout` at a 20 px pitch, `shareSegments` with 2 px gaps and a 4 px floor,
   `polarityTicks` with absolute labels). `ui/Chart.tsx` draws all five kinds as hand-rolled SVG with one
   hover effect, a tooltip, a listbox of category options (`aria-activedescendant`, ←/→ Home/End, Enter =
-  the matching row's drill) and a hidden data-table twin; a meter is a static `role="img"`. No charting
-  dependency.
+  the matching row's drill; keys with a modifier keep their global meaning) and a hidden data-table
+  twin; a meter is a static `role="img"`. A column or line plot carries the strip's height itself
+  (`--graph-h` − 20 px); bar, share and meter size to their content. No charting dependency.
 - **The lazy rule.** `ui/Chart.tsx` is loaded only by `ui/lazyChart.tsx` through `React.lazy(() =>
   import('./Chart.tsx'))`; screens import `reportGraph(spec, { inline })` / `LazyChart` from that file **by
   path**, and the ui barrel exports none of `Chart`, `LazyChart`, `reportGraph` — so the kit never enters
@@ -500,7 +501,9 @@ source of truth.
   context (a second series); slot 2 (`--chart-2`) = only the negative or problem pole (loss, overdue,
   mismatch); the indigo ramp `--chart-o1…o5` = age/lateness, with `--chart-partial` for a running
   period (always labelled "so far"). Slots 3–5 are never drawn, status colours are never a series,
-  money is never red/green. The ramp and `--chart-partial` live in `styles/charts.css`;
+  money is never red/green (until the full Dashboard's trend becomes Sales + context in 2.1 wave 2, the
+  2.0 `BarChart` adapter keeps that caller's explicit slot 2 for Purchases). The ramp and
+  `--chart-partial` live in `styles/charts.css`;
   `ui/lib/chartPalette.test.ts` re-validates the shipped values in both themes (≥ 3:1 on the canvas and
   card surface, normal-vision ΔE ≥ 15 and CVD ΔE ≥ 8 between meanings, a monotone single-hue ramp with
   adjacent ΔL ≥ 0.06) using `ui/lib/palette.ts`, a port of the dataviz validator.
@@ -512,7 +515,8 @@ source of truth.
   `@media print` hides `.bx-chart`, `.bx-mini` and `.bx-sparkline`.
 - **Answers in words.** `ui/StatLine.tsx` states a report's answer in exact money (`statMoney`:
   "₹4,65,953", never compact), ≤ 3 figures + 1 link; a stat never repeats a visible table total unless
-  the catalogue allow-lists it with a reason. `KpiCard` renders a figure (label, 24/600 value, one
+  the catalogue allow-lists it with a reason. A crowded stat line logs a console error (caught by the
+  e2e every-screen sweep). `KpiCard` renders a figure (label, 24/600 value, one
   caption) without a tile.
 - **Tests.** `ui/lib/chartSpec.test.ts`, `palette.test.ts`, `chart.test.ts` (pitch, share gaps, polarity
   ticks), `chartPalette.test.ts`, `statLine.test.ts`, `app/lib/reportCharts.test.ts`,

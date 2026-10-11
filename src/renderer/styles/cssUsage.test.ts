@@ -103,10 +103,7 @@ export const PENDING_OTHER_OWNER: Readonly<Record<string, string>> = {};
  * may be unread until the next wave merge, where the integrator deletes them from tokens.css and empties
  * this list. An entry that tokens.css no longer declares fails the test below: remove it.
  */
-export const RETIRING_TOKENS: Readonly<Record<string, string>> = {
-  '--card-p': 'WP-A: cards are flat (no padding); WP-C1: KPI figures lost their card padding',
-  '--tracking-caps': 'WP-A/WP-B1/WP-B3: no upper-case captions in 2.1 (the wave-1 sweep deletes it)',
-};
+export const RETIRING_TOKENS: Readonly<Record<string, string>> = {};
 
 /** Class names defined by a stylesheet (selectors only; comments, strings and url() ignored). */
 export function definedClasses(css: string): Set<string> {

@@ -216,8 +216,10 @@ html[data-keys='fade'] .bx-btn__kbd {
 }
 
 /* ── Title row (PageHeader) */
+/* wraps, never scrolls */
 .bx-titlebar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
