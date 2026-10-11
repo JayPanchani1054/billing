@@ -32,7 +32,8 @@ export interface DateInputProps extends Omit<TextInputProps, 'value' | 'defaultV
 }
 
 /**
- * Keyboard-first date entry: type `5`, `5-10`, `5/10/26`, `05102026`, `5 oct`, `t` (today) or `y`
+ * Keyboard-first date entry (2.1: the calendar button shows on hover/focus only; `quiet` for a
+ * borderless date in a title or toolbar row): type `5`, `5-10`, `5/10/26`, `05102026`, `5 oct`, `t` (today) or `y`
  * (yesterday) — resolved against `referenceDate` on blur/Enter. Shows the formatted date and
  * weekday; Alt+↓ (or the button) opens a calendar.
  */

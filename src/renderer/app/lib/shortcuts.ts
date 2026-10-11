@@ -5,6 +5,7 @@
 import { PREDEFINED_VOUCHER_TYPES } from '../../../shared/constants.ts';
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { CompanyFeatures } from '../../../shared/settings.ts';
+import { GRAPHS_KEY } from './graphsToggle.ts';
 
 export type ShortcutGroup = 'Navigation' | 'Vouchers' | 'Company' | 'Help' | 'Forms' | 'Lists & reports' | 'Pickers & dates' | 'Dialogs';
 
@@ -80,11 +81,11 @@ export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'Alt+Enter', label: 'View the voucher (read-only)', group: 'Lists & reports', global: false },
   { keys: 'Alt+A', label: 'Alter the selected voucher or master', group: 'Lists & reports', global: false, description: 'Tick lists with nothing to alter (Print Cheques, E-payment File, Print batch, Reminders): tick / untick everything' },
   { keys: 'Alt+M', label: "Open the report subject's master (ledger, item)", group: 'Lists & reports', global: false },
-  { keys: 'Alt+F1', label: 'Detailed / condensed', group: 'Lists & reports', global: false },
+  { keys: 'Alt+F1', label: 'Detailed / condensed', group: 'Lists & reports', global: false, description: 'Also Detailed on the voucher view; on ledger and stock item forms the same as Ctrl+I (More details)' },
   { keys: 'Alt+X', label: 'Expand / collapse all (tree reports)', group: 'Lists & reports', global: false },
   { keys: 'Alt+C', label: 'Comparison column (Balance Sheet, P&L — "New Column")', group: 'Lists & reports', global: false, description: 'Nothing is created from a report, so Alt+C adds a comparison column there' },
   { keys: 'Ctrl+1, Ctrl+2, Ctrl+3', label: 'Switch view or tab (Ctrl+1…9)', group: 'Lists & reports', global: false },
-  { keys: 'Ctrl+F', label: "Search box of the screen", group: 'Lists & reports', global: false },
+  { keys: 'Ctrl+F', label: "Search box of the screen", group: 'Lists & reports', global: false, description: 'Lists, reports, the Day Book and the voucher lists' },
   { keys: 'Alt+E', label: 'Export (Excel / CSV / PDF)', group: 'Lists & reports', global: false, description: 'Needs the Data › Export permission (also for Print)' },
   { keys: 'Alt+P', label: 'Print', group: 'Lists & reports', global: false, description: 'In voucher entry: the voucher being altered, or the one just saved' },
   { keys: 'Ctrl+P', label: 'Print the highlighted voucher (Day Book, voucher lists)', group: 'Lists & reports', global: false },
@@ -93,6 +94,11 @@ export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'N, Escape', label: 'No / cancel', group: 'Dialogs', global: false },
   { keys: 'Ctrl+S', label: 'Accept / save (same as Ctrl+A)', group: 'Forms', global: false, description: 'Works wherever Ctrl+A accepts or saves' },
   { keys: 'Ctrl+R', label: 'Change the voucher number (voucher entry and view)', group: 'Forms', global: false, description: 'Needs the “Change voucher numbers and the next number” permission; kept in the edit log' },
+  // 2.1 (SPEC-21 §3.3). Documentation rows: the bindings live with the screens (the graph strip, the forms)
+  // and in the shell (the key peek); nothing here registers a key.
+  { keys: 'Ctrl+I', label: 'More details (voucher entry, ledger and stock item forms)', group: 'Forms', global: false, description: 'Opens or closes the “More details” fields; Alt+F1 does the same on the forms' },
+  { keys: GRAPHS_KEY, label: 'Hide / show the graphs', group: 'Lists & reports', global: false, description: 'Folds every graph of the same kind — all reports, Home and the Dashboard, or the detail reports (ledger, monthly summary…); the one-line answer stays. Remembered on this computer' },
+  { keys: 'Hold Ctrl', label: 'Show the key of every button on screen', group: 'Help', global: false, description: 'Hold Ctrl alone for about a second; release it to hide the keys again' },
 ];
 
 /** Keys feature screens must NOT bind (they belong to the shell). */
@@ -105,4 +111,63 @@ export function filterShortcuts<T extends ShortcutDef>(list: readonly T[], query
   const q = query.trim().toLowerCase();
   if (!q) return [...list];
   return list.filter((s) => `${s.label} ${s.keys} ${s.group} ${s.description ?? ''}`.toLowerCase().includes(q));
+}
+
+// ── F1 (2.1, SPEC-21 D32): the card's rows and groups — pure; rendered by app/ShortcutsOverlay.tsx ──
+
+export interface ShortcutRow extends ShortcutDef {
+  id: string;
+  /** Overrides the group heading (e.g. "This screen — Day Book"). */
+  groupLabel?: string;
+}
+
+/** The screen on top: its title and its one-line keyboard hint (the 2.0 status-bar text), if any. */
+export interface ThisScreen {
+  title: string;
+  hint?: string;
+}
+
+/** Heading of the first group of F1. */
+export function thisScreenLabel(title: string): string {
+  return `This screen — ${title}`;
+}
+
+/**
+ * Rows of F1: the visible actions of the screen on top that have a key (menu-only items, whose key is
+ * '', register nothing and are left out; hidden actions register no key either), then the global keys
+ * and the conventions. A screen row's description ("<title> screen") is kept for the search only.
+ */
+export function shortcutRows(screenItems: ReadonlyArray<{ key: string; label: string; hidden?: boolean }>, title: string): ShortcutRow[] {
+  const screen: ShortcutRow[] = screenItems
+    .filter((i) => !i.hidden && i.key.trim() !== '')
+    .map((i, n) => ({ id: `screen-${n}`, keys: i.key, label: i.label, group: 'Navigation' as const, global: false, description: `${title} screen`, groupLabel: thisScreenLabel(title) }));
+  return [...screen, ...GLOBAL_SHORTCUTS.map((s, n) => ({ ...s, id: `g-${n}` })), ...CONVENTION_SHORTCUTS.map((s, n) => ({ ...s, id: `c-${n}` }))];
+}
+
+export interface ShortcutGroupView {
+  label: string;
+  /** The screen's hint line (first group only). */
+  hint?: string;
+  rows: ShortcutRow[];
+}
+
+/**
+ * F1's groups for a search: "This screen — <title>" first — with the screen's hint line when it has one
+ * (and the search matches it), even when the screen has no keyed action (Home) — then the groups of the
+ * matching rows in table order.
+ */
+export function shortcutGroups(rows: readonly ShortcutRow[], query: string, thisScreen?: ThisScreen): ShortcutGroupView[] {
+  const groups = new Map<string, ShortcutGroupView>();
+  const q = query.trim().toLowerCase();
+  if (thisScreen) {
+    const label = thisScreenLabel(thisScreen.title);
+    if (thisScreen.hint && (!q || thisScreen.hint.toLowerCase().includes(q))) groups.set(label, { label, hint: thisScreen.hint, rows: [] });
+  }
+  for (const r of filterShortcuts(rows, query)) {
+    const g = r.groupLabel ?? r.group;
+    const entry = groups.get(g);
+    if (entry) entry.rows.push(r);
+    else groups.set(g, { label: g, rows: [r] });
+  }
+  return [...groups.values()];
 }

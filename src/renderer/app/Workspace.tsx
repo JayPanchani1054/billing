@@ -1,32 +1,40 @@
 /**
- * The workspace for an open company: top bar, screen bar (breadcrumbs + command bar) over the screen
- * stack, the optional shortcut bar (the 1.0 right rail) and the status bar. Keyed by company + user so
+ * The workspace for an open company (2.1, SPEC-21 §1.1–§1.2): ONE bar of chrome — the top bar — over the
+ * screen stack, plus the optional shortcut bar (the 1.0 right rail). Each screen draws its own title row
+ * (ui/PageHeader.tsx); the shell renders the top full screen's command bar into that row's
+ * `[data-actions-slot]` (a portal), so exactly one `toolbar "Actions"` exists, none on Home, and a dialog
+ * screen on top adds none (the page under it keeps its own). There is no breadcrumb row and no status bar: the path is the `‹` button's tooltip, the
+ * hint is F1's first line, "Not saved" is a word in the title row and a `•` in the window title, and
+ * "Working…" is a hairline under the top bar (with a hidden live status). Keyed by company + user so
  * everything resets when either changes.
  *
  * Keys are never registered here: screen actions register theirs in `useScreenActions` (nav.tsx) and
  * the globals in shell.tsx. The command bar and the shortcut bar only show the same actions, so a key
- * does the same thing whichever of them is visible.
+ * does the same thing whichever of them is visible. Two pointer/keyboard helpers live here: hold Ctrl to
+ * peek at the keys (`<html data-keys>`, lib/keyPeek.ts) and the mouse Back button (= Esc).
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import type { ModuleDef } from './registry.ts';
-import { formatDate, financialYear } from '../../shared/dates.ts';
-import { ActionRail, CommandBar, DropdownMenu, Icon, IconButton, Kbd, Spinner } from '../ui/index.ts';
+import { financialYear } from '../../shared/dates.ts';
+import { ActionRail, CommandBar, DropdownMenu, Icon, IconButton } from '../ui/index.ts';
 import type { ActionRailItem, MenuEntry } from '../ui/index.ts';
 import { cx } from '../ui/lib/cx.ts';
 import { apiActivity, onApiActivity } from './api.ts';
-import { formatRelative } from './display.ts';
 import { installBuiltinGotoProviders } from './gotoProviders.ts';
 import { commandBarSlots, layoutCommandBar } from './lib/commandBar.ts';
 import { createMenuGroups } from './lib/createMenu.ts';
 import type { CreateTarget } from './lib/createMenu.ts';
-import { NavBreadcrumbs, NavProvider, ScreenStack, useActionLookup, useAnyDirty, useEntryTitle, useNav, useNavStack, useTopScreenActions, useTopScreenHint } from './nav.tsx';
+import { PEEK_DELAY_MS, PEEK_IDLE, peekArmed, peekAttribute, peekReduce } from './lib/keyPeek.ts';
+import type { PeekEvent, PeekState } from './lib/keyPeek.ts';
+import { capTitleRow, NOT_SAVED, windowTitle, WORKING_DELAY_MS, workingDateLabel, workingDateName } from './lib/screenHead.ts';
+import { NavProvider, ScreenStack, useActionLookup, useAnyDirty, useEntryTitle, useNav, useNavStack, useScreenActionItems, useTopActionsSlot, useTopScreenActions } from './nav.tsx';
 import { useUiPrefs } from './preferences.ts';
 import { ShellProvider, useShell } from './shell.tsx';
 import { useAppState, useCompany } from './state.tsx';
 import { UserMenu } from './UserMenu.tsx';
 import { WELL_KNOWN_SCREENS } from './wellKnown.ts';
-import { usePeriod, useWorkingDate, WorkingContextProvider } from './working.tsx';
+import { useWorkingDate, WorkingContextProvider } from './working.tsx';
 
 export function Workspace({ modules }: { modules: readonly ModuleDef[] }) {
   const company = useCompany();
@@ -43,12 +51,12 @@ export function Workspace({ modules }: { modules: readonly ModuleDef[] }) {
 
 function WorkspaceLayout() {
   const mainRef = useRef<HTMLElement | null>(null);
-  const barRef = useRef<HTMLDivElement | null>(null);
   const nav = useNav();
   const stack = useNavStack();
   const top = stack[stack.length - 1];
   const title = useEntryTitle(top);
   const company = useCompany();
+  const dirty = useAnyDirty();
   const ui = useUiPrefs();
 
   useEffect(() => {
@@ -56,11 +64,17 @@ function WorkspaceLayout() {
   }, [nav]);
 
   useEffect(() => {
-    document.title = `${title} · ${company.name} · Pevqori`;
-    return () => {
+    document.title = windowTitle(title, company.name, dirty);
+  }, [title, company.name, dirty]);
+  useEffect(
+    () => () => {
       document.title = 'Pevqori';
-    };
-  }, [title, company.name]);
+    },
+    [],
+  );
+
+  useKeyPeek();
+  useMouseBack();
 
   return (
     <div className={cx('bx-shell', ui.shortcutBar && 'bx-shell--shortcut-bar')}>
@@ -77,36 +91,71 @@ function WorkspaceLayout() {
       <TopBar />
       <div className="bx-shell__body">
         <main id="bx-main" ref={mainRef} className="bx-shell__main" tabIndex={-1} aria-label={title}>
-          <div className="bx-shell__crumbs" ref={barRef}>
-            <NavBreadcrumbs />
-            <ScreenCommandBar barRef={barRef} />
-          </div>
           <div className="bx-shell__screens">
             <ScreenStack />
           </div>
         </main>
         {ui.shortcutBar ? <ShortcutBar /> : null}
       </div>
-      <StatusBar />
+      <TitleRowCommandBar />
     </div>
   );
 }
 
 // ───────────────────────────── Top bar ─────────────────────────────
 
+function useApiActivity(): number {
+  return useSyncExternalStore(onApiActivity, () => apiActivity().inFlight);
+}
+
+/** True once a request has been in flight for WORKING_DELAY_MS (and until none is). */
+function useWorking(): boolean {
+  const inFlight = useApiActivity();
+  const [working, setWorking] = useState(false);
+  useEffect(() => {
+    if (inFlight === 0) {
+      setWorking(false);
+      return undefined;
+    }
+    const t = setTimeout(() => setWorking(true), WORKING_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [inFlight > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+  return working && inFlight > 0;
+}
+
+/**
+ * A top-bar button's key, shown only while Ctrl is held (`html[data-keys]`, the same `.bx-btn__kbd` rule
+ * as every Button's key) — plain text, never a chip; the button's `aria-keyshortcuts` carries it for
+ * assistive technology, so this copy is aria-hidden.
+ */
+function PeekKey({ keys }: { keys: string }) {
+  return (
+    <span className="bx-btn__kbd" aria-hidden="true">
+      {keys}
+    </span>
+  );
+}
+
+/**
+ * The 40 px top bar (SPEC-21 §1.1): Home mark · company ▾ · working date (F2) · ⌕ Go To · Create ▾ · ⚙ ·
+ * user ▾ — seven controls, no key chips, no filled button. The period lives in each report's title row
+ * (Alt+F2 stays global); Help is F1, the user menu and More ▾.
+ */
 function TopBar() {
   const app = useAppState();
   const company = useCompany();
   const shell = useShell();
   const nav = useNav();
   const date = useWorkingDate();
-  const period = usePeriod();
+  const dirty = useAnyDirty();
+  const working = useWorking();
   const fy = financialYear(date.date, company.fyStartMonth);
+  const day = workingDateLabel(date.date);
 
   const companyItems: MenuEntry[] = useMemo(() => {
     const items: MenuEntry[] = [{ type: 'label', key: 'gstin', label: company.gstin ? `GSTIN ${company.gstin}` : 'No GSTIN' }];
-    items.push({ key: 'switch', label: 'Switch company', icon: 'building', shortcut: 'F3', onSelect: () => void shell.closeCompany() });
-    if (nav.canOpen(WELL_KNOWN_SCREENS.companyProfile)) items.push({ key: 'details', label: 'Company details', icon: 'edit', onSelect: () => nav.push(WELL_KNOWN_SCREENS.companyProfile) });
+    items.push({ key: 'switch', label: 'Switch company', shortcut: 'F3', onSelect: () => void shell.closeCompany() });
+    if (nav.canOpen(WELL_KNOWN_SCREENS.companyProfile)) items.push({ key: 'details', label: 'Company details', onSelect: () => nav.push(WELL_KNOWN_SCREENS.companyProfile) });
     return items;
   }, [company.gstin, nav, shell]);
 
@@ -127,7 +176,7 @@ function TopBar() {
     };
     return groups.flatMap((g, i): MenuEntry[] => [
       ...(i > 0 ? [{ type: 'separator' as const, key: `s-${i}` }] : []),
-      ...g.map((it): MenuEntry => ({ key: it.key, label: it.label, icon: it.icon, shortcut: it.shortcut, onSelect: () => open(it.target) })),
+      ...g.map((it): MenuEntry => ({ key: it.key, label: it.label, shortcut: it.shortcut, onSelect: () => open(it.target) })),
     ]);
     // app.company changes when features or permissions change; voucherAvailability reads it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,10 +187,9 @@ function TopBar() {
   return (
     <header className="bx-topbar" role="banner">
       <div className="bx-topbar__brand" aria-label="Pevqori">
-        <span className="bx-topbar__mark" aria-hidden="true">
+        <button type="button" className="bx-topbar__home" aria-label="Home" title="Home" onClick={() => void nav.reset()}>
           <Icon name="book" size="md" />
-        </span>
-        <span className="bx-topbar__wordmark">Pevqori</span>
+        </button>
       </div>
 
       <DropdownMenu
@@ -156,47 +204,45 @@ function TopBar() {
         )}
       />
 
-      <div className="bx-topbar__context" role="group" aria-label="Working date and period">
-        <button type="button" className="bx-chip" onClick={date.openDialog} aria-keyshortcuts="F2" title="Change working date (F2)">
-          <Icon name="calendar" size="sm" />
-          <span className="bx-chip__label bx-num">{formatDate(date.date, 'D-MMM-YY')}</span>
-          {!date.isToday ? <span className="bx-chip__flag">not today</span> : null}
-          <Kbd keys="F2" size="sm" tone="subtle" />
-        </button>
-        <button type="button" className="bx-chip bx-chip--period" onClick={period.openDialog} aria-keyshortcuts="Alt+F2" title="Change period (Alt+F2)">
-          <Icon name="clock" size="sm" />
-          <span className="bx-chip__label bx-num">{period.label}</span>
-          <Kbd keys="Alt+F2" size="sm" tone="subtle" className="bx-hide-narrow" />
-        </button>
-      </div>
+      <button type="button" className="bx-topbar__date" onClick={date.openDialog} aria-keyshortcuts="F2" aria-label={workingDateName(day, date.isToday)} title="Working date · F2">
+        <span className="bx-topbar__weekday">{day.weekday} </span>
+        <span className="bx-num">{day.date}</span>
+        {!date.isToday ? <span className="bx-topbar__not-today"> not today</span> : null}
+        <PeekKey keys="F2" />
+      </button>
 
-      <button type="button" className="bx-topbar__search" onClick={() => shell.openGoto()} aria-keyshortcuts="Control+G" aria-label="Search or jump to (Ctrl+G)">
+      <span className="bx-topbar__spacer" />
+
+      <button type="button" className="bx-topbar__goto" onClick={() => shell.openGoto()} aria-keyshortcuts="Control+G" aria-label="Go To · search or jump to (Ctrl+G)" title="Go To · Ctrl+G">
         <Icon name="search" size="sm" />
-        <span className="bx-topbar__search-text">Search or jump to…</span>
-        <Kbd keys="Ctrl+G" size="sm" tone="subtle" />
+        Go To
+        <PeekKey keys="Ctrl+G" />
       </button>
 
       <div className="bx-topbar__end">
-        {createItems.length > 0 ? <DropdownMenu items={createItems} label="Create" icon="plus" variant="primary" size="sm" placement="bottom-end" aria-label="Create" /> : null}
-        {settingsOpenable ? <IconButton icon="settings" aria-label="Settings" variant="ghost" size="sm" onClick={() => nav.push(WELL_KNOWN_SCREENS.settings)} /> : null}
-        <IconButton icon="help" aria-label="Keyboard shortcuts and help" variant="ghost" size="sm" shortcut="F1" onClick={() => shell.openShortcuts()} />
+        {createItems.length > 0 ? <DropdownMenu items={createItems} label="Create" variant="ghost" size="sm" placement="bottom-end" aria-label="Create" /> : null}
+        {settingsOpenable ? <IconButton icon="settings" aria-label="Settings" title="Settings" variant="ghost" size="sm" onClick={() => nav.push(WELL_KNOWN_SCREENS.settings)} /> : null}
         <UserMenu />
       </div>
+
+      {working ? <span className="bx-topbar__progress" aria-hidden="true" /> : null}
+      <span className="bx-sr-only" role="status" aria-live="polite">
+        {working ? 'Working…' : dirty ? NOT_SAVED : ''}
+      </span>
     </header>
   );
 }
 
-// ───────────────────────────── Screen bar: command bar ─────────────────────────────
+// ───────────────────────────── Title row: command bar ─────────────────────────────
 
-/** The top screen's actions, with clicks calling the latest handler (the store keeps fresh closures). */
-function useTopActionsLive(): ActionRailItem[] {
+/** A screen's actions, with clicks calling the latest handler (the store keeps fresh closures). */
+function useLiveActions(screenKey: string, items: readonly ActionRailItem[]): ActionRailItem[] {
   const lookup = useActionLookup();
-  const { key: screenKey, items } = useTopScreenActions();
   return useMemo(
     () =>
       items.map((it) => ({
         ...it,
-        onClick: () => lookup(screenKey).find((x) => x.key === it.key && (x.id ?? '') === (it.id ?? ''))?.onClick(),
+        onClick: () => lookup(screenKey).find((x) => x.key === it.key && (x.id ?? '') === (it.id ?? '') && x.label === it.label)?.onClick(),
       })),
     [items, screenKey, lookup],
   );
@@ -218,92 +264,129 @@ function useGlobalActions(): ActionRailItem[] {
 }
 
 /**
- * How many secondary command-bar buttons fit the screen bar (commandBarSlots of its width), followed
- * live with a ResizeObserver. Only a change of the count re-renders — not every pixel of a resize.
+ * How many secondary buttons fit (commandBarSlots of the title row's width), followed live with a
+ * ResizeObserver. Only a change of the count re-renders — not every pixel of a resize.
  */
-function useCommandBarSlots(ref: RefObject<HTMLElement | null>): number {
+function useCommandBarSlots(row: HTMLElement | null): number {
   const [slots, setSlots] = useState(() => commandBarSlots(1024));
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
+    if (!row) return undefined;
     const update = (w: number) => {
       if (w > 0) setSlots(commandBarSlots(w));
     };
-    update(el.getBoundingClientRect().width);
+    update(row.getBoundingClientRect().width);
     if (typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
       if (typeof w === 'number') update(w);
     });
-    ro.observe(el);
+    ro.observe(row);
     return () => ro.disconnect();
-  }, [ref]);
+  }, [row]);
   return slots;
 }
 
-function ScreenCommandBar({ barRef }: { barRef: RefObject<HTMLDivElement | null> }) {
-  const screen = useTopActionsLive();
+/**
+ * The command bar, portaled into the title-row slot (or fallback row) of the top full screen; none on Home.
+ * A dialog screen on top leaves the page's bar in place (see useTopActionsSlot).
+ */
+function TitleRowCommandBar() {
+  const target = useTopActionsSlot();
+  if (!target) return null;
+  return createPortal(<ScreenCommandBar slot={target.el} screenKey={target.screenKey} />, target.el);
+}
+
+function ScreenCommandBar({ slot, screenKey }: { slot: HTMLElement; screenKey: string }) {
+  const screen = useLiveActions(screenKey, useScreenActionItems(screenKey));
   const globals = useGlobalActions();
-  const slots = useCommandBarSlots(barRef);
-  const layout = useMemo(() => layoutCommandBar(screen, globals, slots), [screen, globals, slots]);
+  const row = slot.closest<HTMLElement>('.bx-titlebar, .bx-actions-row') ?? slot;
+  const slots = useCommandBarSlots(row);
+  const layout = useMemo(() => capTitleRow(layoutCommandBar(screen, globals, slots)), [screen, globals, slots]);
   return <CommandBar primary={layout.primary} buttons={layout.buttons} more={layout.more} aria-label="Actions" className="bx-shell__cmdbar" />;
 }
 
 // ───────────────────────────── Shortcut bar (the 1.0 rail, optional) ─────────────────────────────
 
 function ShortcutBar() {
-  const screen = useTopActionsLive();
+  const top = useTopScreenActions();
+  const screen = useLiveActions(top.key, top.items);
   const globals = useGlobalActions();
   const all = useMemo<ActionRailItem[]>(() => {
-    // F2, Alt+F2 and Ctrl+G live in the top bar; the rest of the globals close the list.
-    const taken = new Set(screen.filter((s) => !s.hidden).map((s) => s.key));
+    // F2, Alt+F2 and Ctrl+G are globals of their own; the rest of the globals close the list.
+    const taken = new Set(screen.filter((s) => !s.hidden && s.key.trim() !== '').map((s) => s.key));
     return [...screen, ...globals.filter((g) => !taken.has(g.key))];
   }, [screen, globals]);
   return <ActionRail items={all} registerHotkeys={false} aria-label="Shortcut bar" className="bx-shell__rail" />;
 }
 
-// ───────────────────────────── Status bar ─────────────────────────────
+// ───────────────────────────── Hold Ctrl to peek · mouse Back ─────────────────────────────
 
-function useApiActivity(): { inFlight: number; lastMutationAt: number } {
-  const snap = useSyncExternalStore(onApiActivity, () => {
-    const a = apiActivity();
-    return `${a.inFlight}:${a.lastMutationAt}`;
-  });
-  const [inFlight, last] = snap.split(':').map(Number);
-  return { inFlight, lastMutationAt: last };
+/** Feeds window events to the key-peek machine (lib/keyPeek.ts) and writes `<html data-keys>`. */
+function useKeyPeek(): void {
+  useEffect(() => {
+    const root = document.documentElement;
+    let state: PeekState = PEEK_IDLE;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reduced = (): boolean => typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const now = (): number => performance.now();
+    const feed = (ev: PeekEvent) => {
+      const prev = state;
+      state = peekReduce(state, ev);
+      if (state === prev) return;
+      if (peekArmed(prev, state)) {
+        clearTimeout(timer);
+        // A few ms of slack: the machine checks the elapsed time itself.
+        timer = setTimeout(() => feed({ type: 'tick', at: now() }), PEEK_DELAY_MS + 10);
+      } else if (state.phase !== 'armed') clearTimeout(timer);
+      const attr = peekAttribute(state, reduced());
+      if (attr) root.setAttribute('data-keys', attr);
+      else root.removeAttribute('data-keys');
+    };
+    const onKeyDown = (e: KeyboardEvent) => feed({ type: 'keydown', key: e.key, code: e.code, repeat: e.repeat, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, at: now() });
+    const onKeyUp = (e: KeyboardEvent) => feed({ type: 'keyup', key: e.key, at: now() });
+    const cancel = () => feed({ type: 'cancel' });
+    const reset = () => feed({ type: 'reset' });
+    const opts = { capture: true, passive: true } as const;
+    window.addEventListener('keydown', onKeyDown, opts);
+    window.addEventListener('keyup', onKeyUp, opts);
+    window.addEventListener('pointerdown', cancel, opts);
+    window.addEventListener('wheel', cancel, opts);
+    window.addEventListener('blur', reset);
+    document.addEventListener('visibilitychange', reset);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', onKeyDown, opts);
+      window.removeEventListener('keyup', onKeyUp, opts);
+      window.removeEventListener('pointerdown', cancel, opts);
+      window.removeEventListener('wheel', cancel, opts);
+      window.removeEventListener('blur', reset);
+      document.removeEventListener('visibilitychange', reset);
+      root.removeAttribute('data-keys');
+    };
+  }, []);
 }
 
-/** Hint · save state (the data folder in its tooltip) · version. */
-function StatusBar() {
-  const app = useAppState();
-  const dirty = useAnyDirty();
-  const hint = useTopScreenHint();
-  const stack = useNavStack();
-  const { inFlight, lastMutationAt } = useApiActivity();
-  const state = app.state;
-  const defaultHint = stack.length > 1 ? 'Esc Back · Ctrl+G Go To · F1 Help' : '↑↓ Move · Enter Open · Ctrl+G Go To · F1 Help';
-  const savedText = lastMutationAt ? `Saved ${formatRelative(new Date(lastMutationAt).toISOString())}` : 'All changes saved';
-
-  return (
-    <footer className="bx-statusbar" role="contentinfo">
-      <span className="bx-statusbar__hint">{hint ?? defaultHint}</span>
-      <span className="bx-statusbar__spacer" />
-      <span className="bx-statusbar__item bx-statusbar__state" role="status" aria-live="polite" title={state ? `Data folder: ${state.dataDir}` : undefined}>
-        {inFlight > 0 ? (
-          <>
-            <Spinner size="xs" decorative /> Working…
-          </>
-        ) : dirty ? (
-          <>
-            <Icon name="edit" size="xs" /> Unsaved changes
-          </>
-        ) : (
-          <>
-            <Icon name="check" size="xs" /> {savedText}
-          </>
-        )}
-      </span>
-      {state ? <span className="bx-statusbar__item bx-statusbar__version">v{state.appVersion}</span> : null}
-    </footer>
-  );
+/**
+ * The mouse's Back button (button 3) does what Esc does where the pointer's focus is: back one screen
+ * (asking first when the form is dirty), or close the open dialog or menu. Chromium's own history
+ * navigation for it is suppressed.
+ */
+function useMouseBack(): void {
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (e.button === 3) e.preventDefault();
+    };
+    const onUp = (e: MouseEvent) => {
+      if (e.button !== 3) return;
+      e.preventDefault();
+      const target = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
+      target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+    };
+    window.addEventListener('mousedown', onDown, true);
+    window.addEventListener('mouseup', onUp, true);
+    return () => {
+      window.removeEventListener('mousedown', onDown, true);
+      window.removeEventListener('mouseup', onUp, true);
+    };
+  }, []);
 }

@@ -9,7 +9,7 @@ export interface CardProps extends Omit<HTMLAttributes<HTMLElement>, 'title'> {
   footer?: ReactNode;
   /** 'md' (default), 'sm' or 'none' body padding. */
   padding?: 'none' | 'sm' | 'md';
-  /** Raised (shadow) vs flat (border only, default). */
+  /** Accepted for compatibility; 2.1 cards are always flat (D6). */
   elevated?: boolean;
   /** Heading level for the title (default 3). */
   headingLevel?: 2 | 3 | 4;
@@ -17,12 +17,15 @@ export interface CardProps extends Omit<HTMLAttributes<HTMLElement>, 'title'> {
   ref?: Ref<HTMLElement>;
 }
 
-/** Surface container with optional header and footer. */
-export function Card({ title, subtitle, actions, footer, padding = 'md', elevated = false, headingLevel = 3, as = 'section', className, children, ref, ...rest }: CardProps) {
+/**
+ * A titled section with optional header actions and footer. 2.1 (D6): flat — no border, radius, fill
+ * or horizontal padding; the 14/600 title and the space around it do the separating.
+ */
+export function Card({ title, subtitle, actions, footer, padding = 'md', elevated: _elevated, headingLevel = 3, as = 'section', className, children, ref, ...rest }: CardProps) {
   const Tag = as as 'section';
   const H = `h${headingLevel}` as 'h3';
   return (
-    <Tag ref={ref} className={cx('bx-card', elevated && 'bx-card--elevated', className)} {...rest}>
+    <Tag ref={ref} className={cx('bx-card', className)} {...rest}>
       {title || actions ? (
         <header className="bx-card__header">
           <div className="bx-card__titles">

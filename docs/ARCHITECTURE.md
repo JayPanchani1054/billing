@@ -249,34 +249,89 @@ Use `:name` placeholders with an object. Always parameterise — **never interpo
 Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mouse-friendly, dense but calm.
 
 - **Navigation stack**: every screen is pushed on a stack; `Esc` pops (confirming if the form is dirty);
-  breadcrumbs show the stack. `nav.push(screenId, params)`, `nav.replace`, `nav.pop`.
-- **Home** (screen `app.gateway`; nav landmark still named "Gateway menu", h1 and breadcrumb root "Home")
-  lists what the user may open in two views — **Essentials** (`app/lib/essentials.ts`: one central list of
-  ≈23 everyday entries in five groups, matched against All menus by menu label or `vouchers.entry`
-  base type, never gating anything itself, letters assigned over the subset) and **All menus** (the menu
-  sections contributed by modules, `ModuleDef.menu`, exactly the 1.0 Gateway) — switched with
-  **Ctrl+1 / Ctrl+2**, plus notices and the dashboard panel (a greeting for users without it).
-- **Per-user layout preferences** (`app/lib/uiPrefs.ts`, `localStorage['pevqori.ui'] = { v: 1, homeView,
-  shortcutBar, upgraded, tryHomeDismissed }`): decided once per profile from the first `app.state` — a
-  profile that already lists companies is an upgraded 1.0 profile (All menus + shortcut bar, a one-time
-  "Try the simpler Home" card), otherwise a new user (Essentials, no shortcut bar). Storage failures fall
-  back to those defaults for the session.
-- **Screen bar and command bar**: the breadcrumb row hosts the top screen's **command bar**
-  (`ui/CommandBar.tsx`, rule in `app/lib/commandBar.ts`): the `primary` action, up to 3 / 2 / 1 buttons by
-  width (first actions with `prominent: true`, then Alter, Print, Share, Export, More details, Create), and
-  **More ▾** with every other action and its key, then the globals F11 / F12 (when the user may open them) / F1. It never registers
-  keys — `useScreenActions` does — so showing or hiding a button never changes a key. The 1.0 right rail
-  is the optional **shortcut bar** (`aria-label="Shortcut bar"`, preference `shortcutBar`).
+  so do the title row's `‹` button (its tooltip is the stack's path) and the mouse Back button (button 3,
+  dispatched as Esc). `nav.push(screenId, params)`, `nav.replace`, `nav.pop`.
+- **Home, Go To and F1** (2.1). **Home** (screen `app.gateway`; nav landmark still named "Gateway menu",
+  a quiet visible h1 "Home"; no title row and no command bar — its keys stay registered) lists what the
+  user may open in two views — **Essentials** (`app/lib/essentials.ts`: one central list of at most 20
+  everyday entries in five groups — Company is Settings and Backup — matched against All menus by menu
+  label or `vouchers.entry` base type, never gating anything itself, letters assigned over the subset) and
+  **All menus** (the menu sections contributed by modules, `ModuleDef.menu`, exactly the 1.0 Gateway) —
+  switched with **Ctrl+1 / Ctrl+2** or the two text radios "Essentials · All" (`radiogroup "Home view"`,
+  radio names "Essentials" / "All menus"), plus notices and the dashboard panel (a greeting for users
+  without it). Items are one line (`data-text-value` = label, accelerator letter underlined, F-keys as
+  plain text); an item's description is its `aria-describedby` and shows in ONE tooltip beside the
+  column (rendered outside the scrolling column, so it is never clipped and never widens it) on hover
+  or when the item is reached with the keyboard — not when Home focuses its first item by itself
+  (`app/lib/homeTip.ts`). **Go To**: the search box is the header (the input keeps the name "Search screens,
+  reports, masters and vouchers"; placeholder "Go To"; the dialog keeps its name), one line per result
+  (every `option` name still starts with its label; `data-goto-id` unchanged), the description only on
+  the active row, keys as plain text, no key legend (the F10 voucher picker shares these styles).
+  **F1** (`app/ShortcutsOverlay.tsx`; the `company.shortcuts` page reuses its table) is the one complete key card
+  and the only place keys are boxed: "This screen — <title>" first (the screen's hint line from
+  `useStatusHint`, then its actions that have a key), then the global keys and the conventions of
+  `app/lib/shortcuts.ts` (2.1 rows: Ctrl+I, Ctrl+J — the key itself is `GRAPHS_KEY` of
+  `app/lib/graphsToggle.ts` —, Hold Ctrl). The user menu (`app/lib/userMenu.ts`, ≤ 9 rows) keeps
+  Appearance…, Show shortcut bar, Keyboard shortcuts F1, About and the secured-company rows; theme,
+  density and the Home view live in *Appearance…* only.
+- **Layout preferences** (`app/lib/uiPrefs.ts`, `localStorage['pevqori.ui'] = { v: 1, homeView,
+  shortcutBar, upgraded, tryHomeDismissed, graphs, detailGraphs, voucherDetailed, moreDetails,
+  dashboardAllCards }`), remembered **per computer profile** (the Windows user account), not per Pevqori
+  user: decided once per profile from the first `app.state` — a profile that already lists companies is an
+  upgraded 1.0 profile (All menus + shortcut bar, a one-time "Try the simpler Home" card), otherwise a new
+  user (Essentials, no shortcut bar). The 2.1 fields are extend-only (`v` stays 1: 2.0 ignores them, a
+  2.0 record reads with their defaults): `graphs` (true) and `detailGraphs` (false) fold the graphs of the
+  two classes, `voucherDetailed` (false) opens the voucher view Detailed, `moreDetails` (form kind →
+  open; only boolean values survive parsing) remembers "More details", `dashboardAllCards` (false). Each
+  field is parsed on its own (a wrong type falls back to its default); screens read them with
+  `useUiPrefs()` and write them only with `setUiPrefs()` / `setMoreDetailsOpen()` (`app/preferences.ts`),
+  never through `localStorage`. Storage failures fall back to the defaults for the session.
+- **One bar of chrome (2.1)**: the workspace (`app/Workspace.tsx`) is a 40 px **top bar** over the
+  screen stack — no breadcrumb row, no status bar. Top bar: the book mark (`button "Home"`, = `nav.reset()`
+  with the dirty question), company button (Switch company F3, Company details), the working date (F2;
+  "not today" in warning tone), **⌕ Go To** (accessible name "Go To · search or jump to (Ctrl+G)"),
+  **Create ▾** (ghost; `app/lib/createMenu.ts`: the everyday vouchers with their keys, each shown only when
+  its F-key would open it — the same check —, Customer, Supplier, Item, Other voucher… F10; what the user
+  may not create is not listed; no new key), ⚙ Settings (`company.settings`, when registered) and the user
+  menu (`app/UserMenu.tsx`) — seven controls, no key chips, no filled button (`e2e/calm.spec.ts` chrome
+  rules). The period is each report's title-row token (Alt+F2 stays global). States are quiet: a 2 px
+  hairline under the top bar after 400 ms of a request in flight with a visually hidden `role=status`
+  ("Working…" / "Not saved"); unsaved work = "Not saved" in the title row + `• ` before `document.title`;
+  the version and data folder live in About.
+- **Title row and command bar**: every `Screen` and `ReportFrame` renders its heading through
+  `ui/PageHeader.tsx` — `‹` back (stack depth ≥ 2, "Back to <previous title>", tooltip = path + Esc), h1,
+  one context run (subtitle · meta, ellipsized first; "Not saved" after it never ellipsizes), an empty
+  `[data-actions-slot]`. The
+  shell (`ScreenHost` in `app/nav.tsx` provides `TitleBarContext` and publishes each full screen's slot;
+  `Workspace.tsx` portals) renders the top full screen's **command bar** (`ui/CommandBar.tsx`, rule in
+  `app/lib/commandBar.ts`) into that slot only — exactly one `toolbar "Actions"`, none on Home; a dialog
+  screen on top adds none (the page under it keeps its own bar, inert behind the modal, so the title row
+  does not reflow; the dialog's keys are its own); a page screen with no title row gets it in a
+  transitional `.bx-actions-row`.
+  The bar: the `primary` action, up to 3 / 2 / 1 text buttons by the title row's width (first actions
+  with `prominent: true`, then the conventions matched by key **and** verb — Alter Alt+A, Print Alt+P,
+  Share Alt+W, Export Alt+E, More details Ctrl+I, Create Alt+C), and **More ▾** with every other action
+  and its key as plain text, then the globals F11 / F12 (when the user may open them) / F1. Tooltips read
+  "Label · Key". `ActionRailItem.demoted` (2.1) sends an action to More whatever `primary` / `prominent` /
+  a convention key say, its key still registered; `checked` renders a `menuitemcheckbox`; `key: NO_KEY`
+  (`''`) is a menu-only item — no hotkey, no key text, never a button. The bar never registers keys —
+  `useScreenActions` does — so showing or hiding a button never changes a key; moving an action out of
+  sight is `demoted` or dropping `prominent`, never `hidden` (which unregisters its key). The 1.0 right
+  rail is the optional **shortcut bar** (`aria-label="Shortcut bar"`, preference `shortcutBar`).
   `ActionRailItem.prominent` (and any later action field) is written **after `onClick`** in object
   literals, never straight after `label` (`keyConventions.test.ts` reads `key, label, onClick…`;
   `commandBar.test.ts` guards that scan).
-- **Top bar**: company button (Switch company F3, Company details), date / period chips, the Go To search
-  box, **Create ▾** (`app/lib/createMenu.ts`: the everyday vouchers with their keys, each shown only when
-  its F-key would open it — the same check —, Customer, Supplier, Item, Other voucher… F10; what the user
-  may not create is not listed; no new key), ⚙ Settings (`company.settings`, when registered), ?
-  (F1) and the user menu (theme, density, Home view, shortcut bar, *Appearance…* = `app/AppearancePanel.tsx`,
-  About, Lock, Log out). **Status bar**: hint · save state (data folder in its tooltip) · version.
-- **Go To** (`Ctrl+G` / `Alt+G` / `Ctrl+K`) — fuzzy palette over screens, reports, masters and voucher numbers.
+- **Keys on screen**: no key chips at rest. A button's key shows in its tooltip ("Label · Key", then the
+  action's hint), on `:focus-visible`, and — for every button with a key, the top bar's Go To (Ctrl+G) and
+  working date (F2) and the title row's `‹` (Esc) included — while **Ctrl is held alone ≥ 900 ms** (`app/lib/keyPeek.ts`, a tested state machine: Control
+  auto-repeats ignored; any other key incl. AltGr, pointer down or wheel cancels; blur / visibility change
+  reset) — `<html data-keys="fade|static">`, 120 ms fade, static under reduced motion. Never Alt (a bare
+  Alt toggles the native menu bar). Boxed keycaps only in F1.
+- **Load states** (`app/screenParts.tsx`): `aria-busy` at once, the skeleton visual after 300 ms; a load
+  error is one line whose title stays verbatim ("This could not be loaded" / "You don't have access to
+  this", e2e detectors) + "Try again".
+- **Go To** (`Ctrl+G` / `Alt+G` / `Ctrl+K`) — fuzzy palette over screens, reports, masters and voucher numbers
+  (look: see "Home, Go To and F1" above).
 - Global hotkeys (`GLOBAL_SHORTCUTS` in `app/lib/shortcuts.ts`, the single source for the F1 overlay and
   the User Guide's keyboard reference, which `app/lib/userGuide.test.ts` checks): `F2` working date,
   `Alt+F2` period, `F3` company, `F4` Contra, `F5` Payment, `F6` Receipt, `F7` Journal, `F8` Sales, `F9`
@@ -316,6 +371,30 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   export (`Alt+E`) to Excel/CSV/PDF, print (`Alt+P`). Excel, CSV, PDF and Print all need the `data.export`
   permission and are recorded in the edit log — enforced by the core (`data.export.table`,
   `data.export.audit`), never only in the UI.
+- **Report template (2.1)** — `app/ReportScreen.tsx` over `ui/ReportFrame.tsx`, one shape for every report:
+  the title row (`PageHeader`: h1 · context run = the period token — a quiet button, click or `Alt+F2`, or
+  `context` in its place — · `subtitle` · at most one state word `meta`; the command bar sits in its
+  actions slot), an optional toolbar row (`filters` left; `stat` right — the answer in words, never a
+  figure the table's total shows; below 1200 px of row width its labels are visually hidden, still in the
+  accessible name), then the body (`data-graphs="on|off"`): the graph strip and the table, sized to its content. No company name on
+  screen and no in-page Export / Print — they are screen actions (`outputInMore` demotes both to More ▾ on
+  master lists; their keys stay); refresh dims the body to 0.6, no spinner. The **graph strip**
+  (`app/graphStrip.tsx`, prop `graph` = `reportGraph(spec)` of `ui/lazyChart.tsx`) is one 20 px header
+  line (title · takeaway · a "Hide graphs" / "Show graphs" text button) and, while shown, the plot
+  (column and line graphs are `--graph-h` tall — 168 / 152 compact, header included, `styles/report.css`;
+  bar, share and meter graphs take their own height); a graph drawn inline in a short table shows the
+  header only. Two classes (`graphKind`): `report` (Home, the Dashboard and every report; preference
+  `graphs`, shown by default) and `detail` (drill-down reports; `detailGraphs`, folded by default).
+  `useGraphsToggle(kind)` returns the toggle action of `app/lib/graphsToggle.ts` (`Ctrl+J`, group `view`,
+  the only place the key is written); a screen adds it **only while it shows a graph**, and a visually
+  hidden live region says what changed ("Graphs hidden on all reports and Home"). Graphs never print or
+  export (`@media print` hides the strip). `about` adds the keyless More ▾ item "About this report"
+  (notes, legal lines, footnotes) opening a drawer. `app/lib/moreItems.ts` builds the other More items:
+  `aboutItem`, `columnsItem` ("Columns…", a checklist over `DataTable hiddenColumns`, opened by
+  `ColumnsHost` of `app/ReportScreen.tsx` — every ReportScreen renders one; a plain `Screen` offering the
+  item must render it too) and `checkItem` (checkable view options, `menuitemcheckbox`) —
+  menu-only items have `key: ''` (= `NO_KEY`), so they register nothing. The Export dialog is three
+  one-line rows with plain X / C / P letters; the explanations are tooltips.
 - Hidden stacked screens do not refetch on invalidation; they refetch when shown again.
 - Secured companies lock after the idle timeout: the workspace stays mounted, hidden behind a lock
   screen, and resumes (unsaved work included) when the same user logs in again.
@@ -323,10 +402,36 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   Light & dark themes; WCAG AA contrast; visible focus rings; every icon button has `aria-label`.
 - Never render user data as HTML (`dangerouslySetInnerHTML` is banned).
 
-## 7a. Visual language (2.0)
+## 7a. Visual language (2.1)
 
 One calm visual language for every screen, defined once in `src/renderer/styles/tokens.css` and
-`components.css` (details and the full token table: `src/renderer/ui/README.md` §2).
+`components.css` (details and the full token table: `src/renderer/ui/README.md` §2). 2.1 ("calm",
+`design/SPEC-21` §2) keeps every 2.0 rule below except where this list says otherwise:
+
+- **Type (2.1).** Five sizes — 12 captions · 13 tables, menus, context runs · 14 inputs, pickers, the
+  voucher grid and section titles · 18 h1, dialog titles, stat values (`--fs-18`, `--text-title`) · 24
+  Home figures — and two weights, 400 and 600 (`--fw-medium` = 400, `--fw-bold` = 600). No upper-case
+  captions anywhere. Nothing goes below 12 px except boxed F1 key caps and three chart text selectors.
+- **Shape and surfaces (2.1).** Radii 4 (controls, `--radius-md`) and 8 (menus, popovers, dialogs,
+  drawers, `--radius-xl`); pills only for the avatar and the switch. One flat surface: the canvas
+  `--surface-0` is the card colour (`#ffffff` / `#15181f`); cards, panels and tables draw no border,
+  radius or fill (`--elev-card` is gone); separation is a `--border-subtle` hairline and space. Tables
+  are sized to their rows (never taller than their parent; the body scrolls). Banners are one line on
+  the tone fill, no border, no icon; empty states one 13/600 line and ≤ 2 links, left-aligned, no disc.
+- **Focus (2.1).** A 2 px `--focus-ring` around controls; in grids the active row keeps its fill always
+  and the 2 px inset bar shows only while the grid has focus (`.bx-table__grid:focus-within`) — the
+  whole-table focus frame is gone (a focused table with no cursor row shows the bar on its header).
+- **Dr/Cr (2.1).** The suffix is `--text-muted`; `--dr`/`--cr` and the zebra/group tints
+  (`--row-zebra`, `--row-group`) are deleted.
+- **Key display (2.1, D4).** Keys are learned, not printed: a button's `shortcut` sets
+  `aria-keyshortcuts` and its default tooltip ("Print · Alt+P", `keyTip`), and shows as plain text only on
+  `:focus-visible` and while Ctrl is held (`html[data-keys]`); menus print keys as plain right-aligned
+  text (`Kbd tone="subtle"` = one text run); confirm buttons underline Y̲/N̲ when the label starts with
+  the key; boxed key caps (`Kbd tone="default"`) only in the F1 card and the opt-in shortcut bar.
+- **Progressive disclosure (2.1).** Field hints show while the field has focus (errors, icon feedback
+  and `hintApplies` hints — a condition true right now — always); `DisclosureLine` ("More details  Ctrl+I  ›") with the auto-reveal rule `shouldReveal` (a value
+  or an error inside is never hidden); `FiltersPopover` ("Filters (2)"); DataTable `hideEmptyColumns`,
+  `hiddenColumns` and the inline `bar` column (short tables instead of a graph).
 
 - **Themes.** Exactly one light block (`:root, [data-theme="light"]`) and one dark block
   (`[data-theme="dark"]`); tokens identical in both are declared once in `:root`. The user's
@@ -336,21 +441,18 @@ One calm visual language for every screen, defined once in `src/renderer/styles/
   `index.html` keeps `data-theme="system"` only as a pre-bootstrap placeholder (base.css then lets
   the theme-matched native window colour show, so there is no flash).
 - **Colour.** One interactive colour, `--brand` (indigo-600 light / indigo-400 dark, with
-  `--on-brand` white / near-black): primary buttons, focus ring, selected-row bar, checked controls,
-  the selected segmented item and links (`--text-link` is the brand indigo in both themes). Saffron
-  (`--accent*`) only for the brand mark, the "not today" date flag and Get-started progress. Canvas `--surface-0`, cards and tables
-  `--surface-1`. Status tones only on badges, banners and inline validation; money is never red
+  `--on-brand` white / near-black): the single filled button, focus ring, selected-row bar, checked
+  controls, the selected tab's underline and links (`--text-link` is the brand indigo in both themes).
+  Saffron (`--accent*`) retires in 2.1: it keeps `--match-bg` (search-match highlight); its 2.0 uses
+  (brand mark, "not today" date flag, Get-started progress) leave with their screens and the tokens are
+  swept once unread. Status tones only on badges, banners and inline validation; money is never red
   for "negative" (Dr/Cr rule, §7).
-- **Type** (Segoe UI Variable → Segoe UI → system): caption/small 12 · base 13 (tables) · body 14
-  (forms) · subtitle 16/600 (section, panel, card titles) · title 20/600 (one h1 per screen) ·
-  heading 24 (greeting, KPI figures). `--fs-11` is for key chips (and chart axis text, laid out
-  for 11px) only; `--text-display` is retired (aliases 24). Numeric and right-aligned table cells use
-  tabular figures. Classed lists lose markers through a zero-specificity reset; prose lists set
-  their own `list-style`.
-- **Shape and depth.** Radius: controls 6, cards/panels/tables 8, dialogs/drawers/menus/popovers
-  12, chips full. Resting elevation only through roles: `--elev-card` (none; cards are flat with a
-  1px `--border-subtle`), `--elev-popover` (menus, popovers, listboxes, tooltips, toasts),
-  `--elev-dialog` (modals, drawers); interactive tiles may lift with `--shadow-1` on hover.
+- **Type** (Segoe UI Variable → Segoe UI → system): the 2.1 scale above. `--fs-11` is for boxed key
+  chips (and chart axis text, laid out for 11px) only; `--text-display` is retired (aliases 24).
+  Numeric and right-aligned table cells use tabular figures. Classed lists lose markers through a
+  zero-specificity reset; prose lists set their own `list-style`.
+- **Depth.** Resting elevation only through roles: `--elev-popover` (menus, popovers, listboxes,
+  tooltips, toasts) and `--elev-dialog` (modals, drawers); everything else is flat.
 - **Spacing.** 4px base; new CSS uses 4/8/12/16/24/32. Density (comfortable/compact) only changes
   the density tokens.
 - **Weight gates** (unit tests, no extra CI step): `styles/cssUsage.test.ts` fails on any class a
@@ -366,6 +468,55 @@ One calm visual language for every screen, defined once in `src/renderer/styles/
   module `gst-returns.css` + `gst.css`. Every file counts toward the same 180 KB total.
   `ui/lib/contrast.test.ts` keeps every text pair ≥ 4.5:1 and every control/focus/icon pair ≥ 3:1
   in both themes and asserts the system block stays gone.
+
+## 7b. Graphs (2.1)
+
+Every report screen gets the one graph that answers its question, or deliberately none (SPEC-21 §5;
+the catalogue is data in `src/renderer/app/lib/chartCatalogue.ts`, checked by
+`app/lib/reportCharts.test.ts`). The graph reads data the screen already has; the table stays the
+source of truth.
+
+- **The kit.** `ui/lib/chartSpec.ts` is the pure contract (`ChartSpec`: kind `column | bar | line |
+  share | meter`, title, a one-sentence takeaway ≤ 90 chars, folded categories, one measured series
+  plus at most one context series, colour rule, `total`, `activate`), with the Σ-preserving folds
+  (`foldTop`, `byMonth`, `foldMonths`, `decimate`), the gates (`enoughData`: ≥ 3 non-zero categories /
+  ≥ 3 points / both meter parts) and `assertSpec`. `ui/lib/chart.ts` holds the geometry (ticks, bands,
+  bar paths, `hbarLayout` at a 20 px pitch, `shareSegments` with 2 px gaps and a 4 px floor,
+  `polarityTicks` with absolute labels). `ui/Chart.tsx` draws all five kinds as hand-rolled SVG with one
+  hover effect, a tooltip, a listbox of category options (`aria-activedescendant`, ←/→ Home/End, Enter =
+  the matching row's drill) and a hidden data-table twin; a meter is a static `role="img"`. No charting
+  dependency.
+- **The lazy rule.** `ui/Chart.tsx` is loaded only by `ui/lazyChart.tsx` through `React.lazy(() =>
+  import('./Chart.tsx'))`; screens import `reportGraph(spec, { inline })` / `LazyChart` from that file **by
+  path**, and the ui barrel exports none of `Chart`, `LazyChart`, `reportGraph` — so the kit never enters
+  the start-up bundle (`app/lib/chartImports.test.ts`). The only graph code in the entry is Home's
+  `ui/MiniColumns.tsx` (plain HTML columns, ≤ 1.5 KB minified). While the chunk loads, the plot's place
+  is an empty box of its final height — no `.bx-skeleton`, no `aria-busy`; a chunk that fails to load
+  draws nothing. 2.0's `BarChart` / `LineChart` remain as thin adapters over `LazyChart`.
+- **Builders.** One pure `xxxChart(result): ChartSpec | null` per catalogue row in
+  `modules/<m>/lib/charts.ts`, memoised on the query result; null when the data cannot carry the graph
+  (then no strip and no Ctrl+J). Each builder's test proves **graph total = table total**.
+- **Palette rules (D29).** Four meanings: slot 1 (`--chart-1`) = the thing measured; `--chart-other` =
+  context (a second series); slot 2 (`--chart-2`) = only the negative or problem pole (loss, overdue,
+  mismatch); the indigo ramp `--chart-o1…o5` = age/lateness, with `--chart-partial` for a running
+  period (always labelled "so far"). Slots 3–5 are never drawn, status colours are never a series,
+  money is never red/green. The ramp and `--chart-partial` live in `styles/charts.css`;
+  `ui/lib/chartPalette.test.ts` re-validates the shipped values in both themes (≥ 3:1 on the canvas and
+  card surface, normal-vision ΔE ≥ 15 and CVD ΔE ≥ 8 between meanings, a monotone single-hue ramp with
+  adjacent ΔL ≥ 0.06) using `ui/lib/palette.ts`, a port of the dataviz validator.
+- **Toggle.** Ctrl+J folds the graphs of the screen's class to their one-line answer (report class on
+  Home, the Dashboard and reports — shown by default; detail class on drill-down reports — folded by
+  default), remembered per computer profile in `pevqori.ui` (§7 report template).
+- **Never printed.** Invoices, vouchers, statements, cheques, deposit slips and every print source
+  import no graph code (`chartImports.test.ts`); report Print / PDF / Excel / CSV stay table-only;
+  `@media print` hides `.bx-chart`, `.bx-mini` and `.bx-sparkline`.
+- **Answers in words.** `ui/StatLine.tsx` states a report's answer in exact money (`statMoney`:
+  "₹4,65,953", never compact), ≤ 3 figures + 1 link; a stat never repeats a visible table total unless
+  the catalogue allow-lists it with a reason. `KpiCard` renders a figure (label, 24/600 value, one
+  caption) without a tile.
+- **Tests.** `ui/lib/chartSpec.test.ts`, `palette.test.ts`, `chart.test.ts` (pitch, share gaps, polarity
+  ticks), `chartPalette.test.ts`, `statLine.test.ts`, `app/lib/reportCharts.test.ts`,
+  `chartImports.test.ts`, and one `charts.test.ts` per module with graphs.
 
 ## 8. Security
 

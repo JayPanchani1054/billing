@@ -467,3 +467,24 @@ export const take = {
     return clipTakeaway(`Of ${base}, ${old} is over ${threshold}`);
   },
 };
+
+// ---------------------------------------------------------------------------------------------
+// The 2.0 chart props, as a spec (ui/BarChart.tsx and ui/LineChart.tsx adapters)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A 2.0 `BarChart` / `LineChart` call as a spec for the 2.1 kit, or null when there is nothing to
+ * draw (no category, or no finite value — the 2.0 empty rule). The first series is the measured one;
+ * a later series keeps an explicit slot 2 (the full Dashboard's Purchases, until it becomes context)
+ * and is context ('other') otherwise. Not asserted: 2.0 callers predate the 2.1 rules.
+ */
+export function legacySpec(
+  kind: 'column' | 'line',
+  p: { title: string; description?: string; categories: readonly string[]; series: readonly ChartSeries[]; valueFormat?: ValueFormat; label?: 'max' | 'last' | 'none'; activate?: (index: number) => void },
+): ChartSpec | null {
+  const hasData = p.categories.length > 0 && p.series.some((s) => s.values.some((v) => typeof v === 'number' && Number.isFinite(v)));
+  if (!hasData) return null;
+  const series = p.series.map((s, i): ChartSeries => ({ name: s.name, values: s.values, slot: i === 0 ? 1 : s.slot === 2 ? 2 : 'other' }));
+  const spec: ChartSpec = { kind, title: p.title, takeaway: clipTakeaway(p.description ?? ''), categories: p.categories, series, valueFormat: p.valueFormat ?? 'inr', label: p.label, activate: p.activate, total: 0 };
+  return { ...spec, total: drawnTotal(spec) };
+}

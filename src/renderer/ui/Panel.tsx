@@ -18,7 +18,7 @@ export interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, 'title'> {
   ref?: Ref<HTMLElement>;
 }
 
-/** Titled section of a screen ("Statutory details", "Bill-wise details"). */
+/** Titled section of a screen ("Statutory details", "Bill-wise details"). 2.1: flat (no border or fill), title 14/600. */
 export function Panel({ title, description, actions, collapsible = false, defaultCollapsed = false, padded = true, headingLevel = 2, className, children, ref, ...rest }: PanelProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const bodyId = useId();

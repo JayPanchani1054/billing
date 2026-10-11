@@ -1,8 +1,9 @@
 /**
- * Per-user layout preferences of 2.0 (docs/ARCHITECTURE.md §7) — pure store, tested in uiPrefs.test.ts; the React
+ * Layout preferences of 2.0 and 2.1 (docs/ARCHITECTURE.md §7) — pure store, tested in uiPrefs.test.ts; the React
  * hook is `useUiPrefs()` in app/preferences.ts.
  *
- *   localStorage['pevqori.ui'] = { v: 1, homeView, shortcutBar, upgraded, tryHomeDismissed }
+ *   localStorage['pevqori.ui'] = { v: 1, homeView, shortcutBar, upgraded, tryHomeDismissed,
+ *                                  graphs, detailGraphs, voucherDetailed, moreDetails, dashboardAllCards }
  *
  * - `homeView`: Home shows the short Essentials list or All menus (the full 1.0 Gateway).
  * - `shortcutBar`: the 1.0 right-hand rail of every screen action ("Shortcut bar"). The command bar in
@@ -12,6 +13,14 @@
  *   shortcut bar (the layout its user knows) and a one-time "Try the simpler Home" card; otherwise a
  *   new user → Essentials, no shortcut bar. (1.0 wrote `pevqori.prefs` only when the theme or density
  *   was changed, so that key says nothing.) The decision is written at once.
+ * - 2.1 (SPEC-21 §4.5), extend-only — `v` stays 1, so 2.0 reads a 2.1 record (it ignores unknown
+ *   fields) and 2.1 reads a 2.0 record (missing fields take their defaults):
+ *   `graphs` (true) — graphs on Home, the Dashboard and every report (Ctrl+J, app/lib/graphsToggle.ts);
+ *   `detailGraphs` (false) — graphs on drill-down reports; `voucherDetailed` (false) — the voucher view
+ *   opens Detailed (Alt+F1); `moreDetails` ({}) — form kind → "More details" open; `dashboardAllCards`
+ *   (false) — the full Dashboard shows every card. Each field is parsed on its own: a wrong type falls
+ *   back to its default and never invalidates the record.
+ * - Remembered per computer profile (the Windows user account), not per Pevqori user.
  * - Storage may be unavailable (blocked, private profile): everything still works for the session.
  */
 
@@ -23,7 +32,20 @@ export interface UiPrefs {
   shortcutBar: boolean;
   upgraded: boolean;
   tryHomeDismissed: boolean;
+  /** 2.1: graphs shown on Home, the full Dashboard and every report ('report' class). */
+  graphs: boolean;
+  /** 2.1: graphs shown on drill-down reports ('detail' class; folded by default). */
+  detailGraphs: boolean;
+  /** 2.1: the voucher view opens Detailed (Accounting entries; Alt+F1). */
+  voucherDetailed: boolean;
+  /** 2.1: master / entry form kind → its "More details" section is open (Ctrl+I). */
+  moreDetails: Readonly<Record<string, boolean>>;
+  /** 2.1: the full Dashboard shows all its cards. */
+  dashboardAllCards: boolean;
 }
+
+/** The 2.1 fields and their defaults (the same for new and upgraded profiles). */
+const DEFAULTS_21 = { graphs: true, detailGraphs: false, voucherDetailed: false, dashboardAllCards: false } as const;
 
 export const UI_PREFS_KEY = 'pevqori.ui';
 
@@ -36,9 +58,30 @@ export interface UiPrefsStorage {
 /** Defaults for a new user, or for a profile upgraded from 1.0. */
 export function defaultUiPrefs(upgraded: boolean): UiPrefs {
   return upgraded
-    ? { v: 1, homeView: 'all', shortcutBar: true, upgraded: true, tryHomeDismissed: false }
-    : { v: 1, homeView: 'essentials', shortcutBar: false, upgraded: false, tryHomeDismissed: false };
+    ? { v: 1, homeView: 'all', shortcutBar: true, upgraded: true, tryHomeDismissed: false, ...DEFAULTS_21, moreDetails: {} }
+    : { v: 1, homeView: 'essentials', shortcutBar: false, upgraded: false, tryHomeDismissed: false, ...DEFAULTS_21, moreDetails: {} };
 }
+
+/** Names that must never become keys of a plain object (prototype pollution through a stored record). */
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** At most this many form kinds are remembered (a handful exist; a bigger map is not ours). */
+const MORE_DETAILS_MAX = 64;
+
+/** `moreDetails` from anything: only string keys with boolean values survive; anything else → {}. */
+export function parseMoreDetails(raw: unknown): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out;
+  let n = 0;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v !== 'boolean' || k === '' || k.length > 64 || UNSAFE_KEYS.has(k)) continue;
+    if (++n > MORE_DETAILS_MAX) break;
+    out[k] = v;
+  }
+  return out;
+}
+
+const bool = (v: unknown, d: boolean): boolean => (typeof v === 'boolean' ? v : d);
 
 /** Stored text → prefs, or null when absent or not a valid v1 record (then the decision is made again). */
 export function parseUiPrefs(raw: string | null | undefined): UiPrefs | null {
@@ -60,6 +103,11 @@ export function parseUiPrefs(raw: string | null | undefined): UiPrefs | null {
     shortcutBar: typeof r.shortcutBar === 'boolean' ? r.shortcutBar : d.shortcutBar,
     upgraded,
     tryHomeDismissed: r.tryHomeDismissed === true,
+    graphs: bool(r.graphs, d.graphs),
+    detailGraphs: bool(r.detailGraphs, d.detailGraphs),
+    voucherDetailed: bool(r.voucherDetailed, d.voucherDetailed),
+    moreDetails: parseMoreDetails(r.moreDetails),
+    dashboardAllCards: bool(r.dashboardAllCards, d.dashboardAllCards),
   };
 }
 
@@ -138,12 +186,33 @@ export function getUiPrefs(): UiPrefs {
  * Home" card too: it never comes back after the user has picked a view themselves.
  */
 export function setUiPrefs(patch: Partial<Omit<UiPrefs, 'v' | 'upgraded'>>): void {
-  const next: UiPrefs = { ...current, ...patch, v: 1, upgraded: current.upgraded };
+  // Whatever the caller passes, the stored record stays valid (the same rules as parsing it).
+  const merged = { ...current, ...patch } as Record<string, unknown>;
+  const next: UiPrefs = parseUiPrefs(JSON.stringify({ ...merged, v: 1, upgraded: current.upgraded })) ?? current;
   if (patch.homeView !== undefined && patch.homeView !== current.homeView) next.tryHomeDismissed = true;
-  if (next.homeView === current.homeView && next.shortcutBar === current.shortcutBar && next.tryHomeDismissed === current.tryHomeDismissed) return;
+  if (samePrefs(next, current)) return;
   current = next;
   write(next);
   emit();
+}
+
+/** Open or close a form kind's "More details" (2.1, Ctrl+I), remembered with the other preferences. */
+export function setMoreDetailsOpen(kind: string, open: boolean): void {
+  setUiPrefs({ moreDetails: { ...current.moreDetails, [kind]: open } });
+}
+
+function samePrefs(a: UiPrefs, b: UiPrefs): boolean {
+  const ak = Object.keys(a.moreDetails);
+  if (ak.length !== Object.keys(b.moreDetails).length || ak.some((k) => a.moreDetails[k] !== b.moreDetails[k])) return false;
+  return (
+    a.homeView === b.homeView &&
+    a.shortcutBar === b.shortcutBar &&
+    a.tryHomeDismissed === b.tryHomeDismissed &&
+    a.graphs === b.graphs &&
+    a.detailGraphs === b.detailGraphs &&
+    a.voucherDetailed === b.voucherDetailed &&
+    a.dashboardAllCards === b.dashboardAllCards
+  );
 }
 
 export function subscribeUiPrefs(cb: () => void): () => void {

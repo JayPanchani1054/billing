@@ -46,7 +46,9 @@ test('the user menu has its own file, rendered by the top bar', () => {
   const menu = read('./UserMenu.tsx');
   assert.match(menu, /^export function UserMenu\(/m);
   assert.match(menu, /aria-label="User menu"/);
-  assert.match(menu, /label: 'Show shortcut bar'/, 'e2e/home.spec.ts toggles it from the user menu');
+  // 2.1 (WP-B3): the rows are built by the pure lib/userMenu.ts (tested in lib/userMenu.test.ts).
+  assert.match(menu, /buildUserMenu\(/);
+  assert.match(read('./lib/userMenu.ts'), /label: 'Show shortcut bar'/, 'e2e/home.spec.ts toggles it from the user menu');
 });
 
 test('graphStrip.tsx declares the graph strip contract and holds no Ctrl+J literal', () => {

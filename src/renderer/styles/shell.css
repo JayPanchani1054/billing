@@ -1,24 +1,21 @@
-/* Pevqori application shell: top bar, screen bar (breadcrumbs + command bar), screen stack,
-   shortcut bar, status bar, page header, screen layout, gate and company screens.
-   Semantic tokens only. Home, Go To and F1: gateway.css; report frame, Export and Appearance dialogs:
-   report.css. */
+/* Shell (2.1): top bar, title row, toolbar row, screen stack and layout, gate and company screens.
+   Home, Go To, F1: gateway.css; reports: report.css. */
 
 :root {
-  --topbar-h: 48px;
-  --statusbar-h: 24px;
-  --crumbs-h: 40px;
+  --topbar-h: 40px;
+  --titlebar-h: 48px;
+  --toolbar-row-h: 36px;
 }
 
 [data-density='compact'] {
-  --topbar-h: 44px;
-  --statusbar-h: 22px;
-  --crumbs-h: 36px;
+  --topbar-h: 36px;
+  --titlebar-h: 40px;
+  --toolbar-row-h: 32px;
 }
 
-/* Toasts clear the status bar (and the shortcut bar when it is shown). */
 body:has(.bx-shell) {
   --toast-inset-right: var(--space-4);
-  --toast-inset-bottom: calc(var(--statusbar-h) + var(--space-3));
+  --toast-inset-bottom: var(--space-4);
 }
 body:has(.bx-shell--shortcut-bar) {
   --toast-inset-right: calc(var(--rail-width) + var(--space-4));
@@ -37,7 +34,6 @@ body:has(.bx-shell--shortcut-bar) {
   background: var(--surface-0);
 }
 .bx-splash__mark,
-.bx-topbar__mark,
 .bx-gate__mark {
   display: inline-grid;
   place-items: center;
@@ -60,7 +56,7 @@ body:has(.bx-shell--shortcut-bar) {
 /* ── Workspace frame */
 .bx-shell {
   display: grid;
-  grid-template-rows: var(--topbar-h) minmax(0, 1fr) var(--statusbar-h);
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
   height: 100%;
   min-width: 1000px;
   background: var(--surface-0);
@@ -85,58 +81,10 @@ body:has(.bx-shell--shortcut-bar) {
   min-height: 0;
 }
 .bx-shell__main {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-.bx-shell__main:focus {
-  outline: none;
-}
-.bx-shell__crumbs {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: var(--space-4);
-  min-height: var(--crumbs-h);
-  padding: 0 var(--space-2) 0 var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--surface-1);
-}
-.bx-shell__breadcrumbs {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  padding: 2px; /* room for the focus ring of a crumb */
-}
-.bx-shell__cmdbar {
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
-/* ── Command bar (screen bar, right side) */
-.bx-cmdbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.bx-cmdbar__btn.is-disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.bx-cmdbar__btn .bx-kbd {
-  margin-left: var(--space-1);
-}
-.bx-cmdbar__menu {
-  min-width: 260px;
-  max-height: min(70vh, 520px);
-  overflow-y: auto;
-}
-.bx-shell__screens {
   position: relative;
   flex: 1;
-  min-height: 0;
+  min-width: 0;
+  outline: none;
 }
 .bx-shell__rail {
   z-index: var(--z-rail);
@@ -158,129 +106,63 @@ body:has(.bx-shell--shortcut-bar) {
   z-index: var(--z-header);
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
   min-width: 0;
-  padding: 0 var(--space-3) 0 var(--space-4);
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-1);
 }
-.bx-topbar__brand {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: var(--space-2);
-}
-.bx-topbar__mark {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-md);
-  box-shadow: inset 0 -2px 0 var(--accent);
-}
-.bx-topbar__wordmark {
-  font-family: var(--font-display);
-  font-size: var(--fs-16);
-  font-weight: var(--fw-bold);
-  letter-spacing: var(--tracking-tight);
-}
-.bx-topbar__company {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  height: calc(var(--control-h) - 4px);
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-}
-.bx-topbar__company:hover {
-  background: var(--ghost-hover);
-}
-.bx-topbar__company-name {
-  overflow: hidden;
-  max-width: 34ch;
-  font-weight: var(--fw-semibold);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.bx-topbar__fy {
-  color: var(--text-secondary);
-  font-size: var(--text-small);
-  white-space: nowrap;
-}
-.bx-topbar__context {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-left: auto;
-}
-.bx-chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  height: calc(var(--control-h) - 4px);
-  padding: 0 var(--space-2-5);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
-  background: var(--surface-1);
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-.bx-chip:hover {
-  border-color: var(--border-strong);
-  background: var(--ghost-hover);
-}
-.bx-chip__label {
-  font-weight: var(--fw-medium);
-}
-.bx-chip__flag {
-  padding: 0 var(--space-1-5);
-  border-radius: var(--radius-full);
-  background: var(--warning-bg);
-  color: var(--warning-text);
-  font-size: var(--text-caption);
-  font-weight: var(--fw-semibold);
-}
-.bx-topbar__search {
-  display: inline-flex;
-  flex: 0 1 320px;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 200px;
-  height: calc(var(--control-h) - 4px);
-  padding: 0 var(--space-2-5);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--control-fill);
-  color: var(--text-muted);
-}
-.bx-topbar__search:hover {
-  border-color: var(--border-strong);
-}
-.bx-topbar__search-text {
-  flex: 1;
-  overflow: hidden;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.bx-topbar__brand,
 .bx-topbar__end {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: var(--space-1);
 }
+.bx-topbar__home,
+.bx-topbar__company,
+.bx-topbar__date,
+.bx-topbar__goto,
 .bx-topbar__user {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  height: calc(var(--control-h) - 4px);
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-full);
+  gap: var(--space-1-5);
+  min-width: 0;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
+  white-space: nowrap;
 }
+.bx-topbar__home:hover,
+.bx-topbar__company:hover,
+.bx-topbar__date:hover,
+.bx-topbar__goto:hover,
 .bx-topbar__user:hover {
   background: var(--ghost-hover);
+  color: var(--text-primary);
+}
+.bx-topbar__company,
+.bx-topbar__date {
+  color: var(--text-primary);
+}
+.bx-topbar__company-name {
+  overflow: hidden;
+  max-width: 40ch;
+  font-weight: var(--fw-semibold);
+  text-overflow: ellipsis;
+}
+.bx-topbar__fy {
+  color: var(--text-muted);
+}
+.bx-topbar__not-today {
+  color: var(--warning-text);
+}
+.bx-topbar__spacer {
+  flex: 1;
+}
+.bx-topbar__user {
+  padding: 0 var(--space-1);
 }
 .bx-avatar {
   display: inline-grid;
@@ -288,81 +170,164 @@ body:has(.bx-shell--shortcut-bar) {
   width: 28px;
   height: 28px;
   border-radius: var(--radius-full);
-  background: var(--brand-subtle);
-  color: var(--brand-text);
+  background: var(--control-fill);
+  color: var(--text-secondary);
   font-size: var(--text-caption);
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-semibold);
 }
-
-@media (max-width: 1240px) {
-  .bx-hide-narrow,
-  .bx-topbar__wordmark {
+/* Working > 400 ms */
+.bx-topbar__progress {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+}
+.bx-topbar__progress::after {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--brand);
+  animation: bx-indeterminate 1.2s var(--ease-standard) infinite;
+  content: '';
+}
+@media (max-width: 1100px) {
+  .bx-topbar__fy {
     display: none;
   }
-  .bx-topbar__search {
-    flex-basis: 200px;
+}
+@media (max-width: 1040px) {
+  .bx-topbar__weekday {
+    display: none;
   }
-  .bx-topbar__company-name {
-    max-width: 22ch;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bx-topbar__progress::after {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
   }
 }
 
-/* ── Status bar */
-.bx-statusbar {
+/* Hold Ctrl (app/lib/keyPeek.ts) */
+html[data-keys='fade'] .bx-btn__kbd {
+  animation: bx-fade-in 120ms var(--ease-enter);
+}
+
+/* ── Title row (PageHeader) */
+.bx-titlebar {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: 0;
-  padding: 0 var(--space-4);
-  border-top: 1px solid var(--border-subtle);
-  background: var(--surface-2);
+  min-height: var(--titlebar-h);
+}
+.bx-titlebar__back {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
-  font-size: var(--text-small);
+}
+.bx-titlebar__back:hover {
+  background: var(--ghost-hover);
+  color: var(--text-primary);
+}
+.bx-titlebar__title {
+  flex-shrink: 0;
+  max-width: 70%;
+  overflow: hidden;
+  font-size: var(--text-title);
+  font-weight: var(--fw-semibold);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.bx-statusbar__hint {
+.bx-titlebar__context {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  white-space: nowrap;
+}
+/* room for a focused token's ring */
+.bx-titlebar__run {
+  min-width: 0;
+  margin: 0 -4px;
+  padding: 0 4px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.bx-statusbar__spacer {
-  flex: 1;
+.bx-titlebar__state {
+  flex-shrink: 0;
+  color: var(--warning-text);
+  white-space: pre;
 }
-.bx-statusbar__item {
-  display: inline-flex;
+.bx-titlebar__actions,
+.bx-titlebar__extra {
+  display: flex;
+  flex-shrink: 0;
   align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
+  gap: var(--space-2);
 }
-.bx-statusbar__version {
-  color: var(--text-muted);
+.bx-titlebar__actions:empty {
+  display: none;
+}
+/* A screen with no title row (transitional) */
+.bx-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  min-height: var(--topbar-h);
+  padding: var(--space-1) var(--space-6) 0;
 }
 
-/* ── Crash fallback (per-screen error boundary) */
-.bx-crash {
+/* Toolbar row */
+.bx-toolbar-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
   gap: var(--space-3);
-  max-width: 560px;
-  margin: var(--space-12) auto;
-  padding: var(--space-6);
-  text-align: center;
+  min-height: var(--toolbar-row-h);
 }
-.bx-crash__icon {
-  color: var(--danger-icon);
+.bx-toolbar-row__end {
+  margin-left: auto;
+  white-space: nowrap;
 }
-.bx-crash__title {
-  font-size: var(--text-title);
+
+/* ── Command bar */
+.bx-cmdbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
 }
-.bx-crash__body {
-  color: var(--text-secondary);
-  line-height: var(--lh-relaxed);
+.bx-cmdbar__btn.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
+.bx-cmdbar__menu {
+  min-width: 240px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+}
+
+/* ── Crash and load error: one line + links */
+.bx-crash,
+.bx-screen-error,
 .bx-crash__actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-2);
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  color: var(--text-secondary);
+}
+.bx-screen-error,
+.bx-crash__actions {
+  padding: 0;
 }
 
 /* ── Screen layout (Screen component) */
@@ -377,7 +342,7 @@ body:has(.bx-shell--shortcut-bar) {
   flex-direction: column;
   gap: var(--space-4);
   width: 100%;
-  padding: var(--space-4) var(--space-5) var(--space-6);
+  padding: var(--space-2) var(--space-6) var(--space-6);
 }
 .bx-screen-layout--form .bx-screen-layout__inner {
   max-width: 960px;
@@ -398,72 +363,26 @@ body:has(.bx-shell--shortcut-bar) {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-6);
   border-top: 1px solid var(--border-subtle);
   background: var(--surface-1);
 }
+/* aria-busy at once, the bars after 300 ms */
 .bx-screen-skeleton {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-2) 0;
+  animation: bx-skeleton-wait 1ms 300ms backwards;
+}
+@keyframes bx-skeleton-wait {
+  from {
+    visibility: hidden;
+  }
 }
 
-/* ── Page header (PageHeader) */
 .bx-page-header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.bx-page-header__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-4);
-}
-.bx-page-header__titles {
   min-width: 0;
-}
-.bx-page-header__title-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.bx-page-header__icon {
-  display: inline-grid;
-  place-items: center;
-  border-radius: var(--radius-md);
-  background: var(--brand-subtle);
-  color: var(--brand-text);
-  width: 32px;
-  height: 32px;
-}
-.bx-page-header__title {
-  font-family: var(--font-display);
-  font-size: var(--text-title);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-tight);
-}
-.bx-page-header__title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.bx-page-header__meta {
-  display: flex;
-  gap: var(--space-1-5);
-}
-.bx-page-header__subtitle {
-  margin-top: 2px;
-  color: var(--text-secondary);
-}
-.bx-page-header__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
 }
 
 /* Period dialog */
@@ -907,13 +826,16 @@ body:has(.bx-shell--shortcut-bar) {
 /* ── Print: only the active screen */
 @media print {
   .bx-topbar,
-  .bx-statusbar,
-  .bx-shell__crumbs,
+  .bx-titlebar__back,
+  .bx-titlebar__actions,
+  .bx-actions-row,
   .bx-shell__rail,
   .bx-skip-link {
     display: none !important;
   }
-  .bx-shell {
+  .bx-shell,
+  .bx-shell__main {
+    position: static;
     display: block;
     min-width: 0;
   }

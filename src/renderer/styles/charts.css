@@ -1,82 +1,58 @@
-/* KPI figures, sparklines and charts */
+/* Graph kit, MiniColumns, StatLine, figures */
+:root,
+[data-theme="light"] {
+  --chart-o1: #a3aaf6;
+  --chart-o2: #7f86ee;
+  --chart-o3: #5f64e0;
+  --chart-o4: #4b4fcc;
+  --chart-o5: #33368a;
+  --chart-partial: #7f86ee;
+}
+[data-theme="dark"] {
+  --chart-o1: #3e41ad;
+  --chart-o2: #5f64e0;
+  --chart-o3: #7f86ee;
+  --chart-o4: #a3aaf6;
+  --chart-o5: #c6cbfb;
+  --chart-partial: #4b4fcc;
+}
+
 .bx-kpi {
   display: flex;
   flex-direction: column;
+  gap: var(--space-1);
   min-width: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-  box-shadow: var(--elev-card);
-  gap: var(--space-1-5);
-  padding: var(--card-p);
-  color: var(--text-primary);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
   text-align: left;
 }
-.bx-kpi--interactive {
+.bx-kpi--interactive,
+.bx-mini__slot {
   cursor: pointer;
-  transition: var(--dur-fast) var(--ease-standard);
-  transition-property: border-color, box-shadow;
 }
-.bx-kpi--interactive:hover {
-  border-color: var(--border-default);
-  box-shadow: var(--shadow-1);
+.bx-kpi--interactive:hover .bx-kpi__value {
+  text-decoration: underline 1px;
+  text-underline-offset: 4px;
 }
-.bx-kpi__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  color: var(--text-secondary);
-  font-weight: var(--fw-medium);
-}
-.bx-kpi__icon {
-  display: inline-grid;
-  place-items: center;
-  border-radius: var(--radius-md);
-  background: var(--brand-subtle);
-  color: var(--brand-text);
-  width: 24px;
-  height: 24px;
-}
-.bx-kpi__chevron {
-  margin-left: auto;
+.bx-kpi__label,
+.bx-kpi__foot,
+.bx-statline__label {
   color: var(--text-muted);
+  font-size: var(--fs-12);
 }
 .bx-kpi__value {
   font-size: var(--fs-24);
   font-weight: var(--fw-semibold);
   line-height: var(--lh-tight);
-  letter-spacing: var(--tracking-tight);
-  font-variant-numeric: proportional-nums;
 }
 .bx-kpi__foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  min-height: 20px;
-  font-size: var(--fs-12);
-}
-.bx-kpi__delta {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-weight: var(--fw-semibold);
-}
-.bx-kpi__delta--positive {
-  color: var(--positive);
-}
-.bx-kpi__delta--negative {
-  color: var(--negative);
-}
-.bx-kpi__delta--neutral {
-  color: var(--text-secondary);
-}
-.bx-kpi__delta-label {
-  color: var(--text-muted);
-  font-weight: var(--fw-regular);
-}
-.bx-kpi__caption {
-  color: var(--text-muted);
 }
 .bx-kpi__spark {
   margin-left: auto;
@@ -87,26 +63,17 @@
   display: block;
   overflow: visible;
 }
-.bx-sparkline__line {
-  stroke: var(--chart-other);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.bx-sparkline {
+  --series: var(--chart-other);
 }
-.bx-sparkline--brand .bx-sparkline__line {
-  stroke: var(--chart-1);
+.bx-sparkline--brand {
+  --series: var(--chart-1);
 }
 .bx-sparkline__area {
   fill: var(--chart-1);
   opacity: var(--chart-area-opacity);
 }
-.bx-sparkline__dot {
-  fill: var(--chart-1);
-  stroke: var(--surface-1);
-  stroke-width: 2;
-}
 
-/* Charts */
 .bx-chart {
   display: flex;
   flex-direction: column;
@@ -119,55 +86,65 @@
 .bx-chart--s-2 {
   --series: var(--chart-2);
 }
-.bx-chart--s-3 {
-  --series: var(--chart-3);
-}
-.bx-chart--s-4 {
-  --series: var(--chart-4);
-}
-.bx-chart--s-5 {
-  --series: var(--chart-5);
-}
 .bx-chart--s-other {
   --series: var(--chart-other);
 }
+.bx-chart--s-partial {
+  --series: var(--chart-partial);
+}
+.bx-chart--o-1 {
+  --series: var(--chart-o1);
+}
+.bx-chart--o-2 {
+  --series: var(--chart-o2);
+}
+.bx-chart--o-3 {
+  --series: var(--chart-o3);
+}
+.bx-chart--o-4 {
+  --series: var(--chart-o4);
+}
+.bx-chart--o-5 {
+  --series: var(--chart-o5);
+}
 .bx-chart__plot {
   position: relative;
-  width: 100%;
-  border-radius: var(--radius-md);
 }
-.bx-chart__gridline {
-  stroke: var(--chart-grid);
-  stroke-width: 1;
-  shape-rendering: crispEdges;
-}
+.bx-chart__gridline,
 .bx-chart__baseline,
 .bx-chart__crosshair {
   stroke: var(--chart-axis);
-  stroke-width: 1;
   shape-rendering: crispEdges;
+}
+.bx-chart__gridline {
+  stroke: var(--chart-grid);
 }
 .bx-chart__tick,
 .bx-chart__category {
   fill: var(--text-muted);
+  color: var(--text-muted);
   font-size: var(--fs-11);
   font-variant-numeric: tabular-nums;
 }
 .bx-chart__direct-label {
   fill: var(--text-secondary);
+  color: var(--text-secondary);
   font-size: var(--fs-11);
   font-weight: var(--fw-semibold);
 }
-.bx-chart__bar {
-  fill: var(--series);
-  transition: opacity var(--dur-fast) var(--ease-standard);
+.bx-chart__caption,
+.bx-chart__label {
+  fill: var(--text-secondary);
+  font-size: var(--fs-12);
 }
-.bx-chart__group.is-dimmed .bx-chart__bar {
-  opacity: 0.45;
+.bx-chart__bar,
+.bx-chart__seg {
+  fill: var(--series);
 }
 .bx-chart__band-highlight {
   fill: var(--ghost-hover);
 }
+.bx-sparkline__line,
 .bx-chart__line {
   stroke: var(--series);
   stroke-width: 2;
@@ -178,10 +155,14 @@
   fill: var(--series);
   opacity: var(--chart-area-opacity);
 }
+.bx-sparkline__dot,
 .bx-chart__dot {
   fill: var(--series);
-  stroke: var(--surface-1);
+  stroke: var(--surface-0);
   stroke-width: 2;
+}
+.bx-sparkline__dot {
+  fill: var(--chart-1);
 }
 .bx-chart__legend {
   display: flex;
@@ -190,14 +171,10 @@
   color: var(--text-secondary);
   font-size: var(--fs-12);
 }
-.bx-chart__legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-}
 .bx-chart__key {
   display: inline-block;
-  flex-shrink: 0;
+  margin-right: var(--space-1-5);
+  vertical-align: middle;
   background: var(--series);
 }
 .bx-chart__key--bar {
@@ -208,50 +185,111 @@
 .bx-chart__key--line {
   width: 14px;
   height: 2px;
-  border-radius: 1px;
 }
 .bx-chart__tooltip {
   position: absolute;
   z-index: 3;
-  min-width: 150px;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--overlay-border);
   border-radius: var(--radius-md);
   background: var(--surface-overlay);
   box-shadow: var(--elev-popover);
+  color: var(--text-secondary);
   font-size: var(--fs-12);
+  line-height: var(--lh-relaxed);
   pointer-events: none;
 }
-.bx-chart__tooltip-title {
-  margin-bottom: var(--space-1);
-  color: var(--text-secondary);
+.bx-chart__tooltip-title,
+.bx-chart__tooltip-value {
   font-weight: var(--fw-semibold);
-}
-.bx-chart__tooltip-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  line-height: var(--lh-relaxed);
 }
 .bx-chart__tooltip-value {
   color: var(--text-primary);
+}
+.bx-chart__meter-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--chart-o1);
+  overflow: hidden;
+}
+.bx-chart__meter-fill {
+  height: 100%;
+  background: var(--series);
+}
+
+.bx-mini__plot {
+  display: flex;
+  gap: 2px;
+  height: 88px;
+  padding-top: 16px;
+  border-bottom: 1px solid var(--chart-axis);
+}
+.bx-mini__slot {
+  position: relative;
+  flex: 1 1 0;
+}
+.bx-mini__slot:hover,
+.bx-mini__slot.is-active {
+  background: var(--ghost-hover);
+}
+.bx-mini__col {
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: min(24px, 70%);
+  margin: 0 auto;
+  border-radius: 4px 4px 0 0;
+  background: var(--series);
+}
+.bx-mini__ticks {
+  display: flex;
+  justify-content: space-between;
+}
+
+.bx-statline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.bx-statline__item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1-5);
+}
+.bx-statline__item + .bx-statline__item::before {
+  content: "·";
+  color: var(--text-muted);
+}
+.bx-statline__value {
+  font-size: var(--text-title);
   font-weight: var(--fw-semibold);
 }
-.bx-chart__tooltip-name {
-  color: var(--text-secondary);
+.bx-statline__value--warning {
+  color: var(--warning-text);
 }
-.bx-chart__empty {
-  display: grid;
-  place-items: center;
-  height: 100%;
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
+.bx-statline__value--danger {
+  color: var(--danger-text);
+}
+
+@media (forced-colors: active) {
+  [class*="bx-chart--"] {
+    --series: CanvasText;
+  }
+  .bx-chart__gridline {
+    stroke: GrayText;
+  }
+  .bx-mini__col,
+  .bx-chart__meter-fill {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
 }
 
 @media print {
-  .bx-kpi {
-    break-inside: avoid;
-    box-shadow: none;
+  .bx-chart,
+  .bx-mini,
+  .bx-sparkline {
+    display: none !important;
   }
 }

@@ -36,7 +36,7 @@ import { captureFailures, closeApp, launchApp } from './support.ts';
 import type { LaunchedApp } from './support.ts';
 
 /** WP-B1 sets this to false when the 2.1 chrome (one top bar, title row, no status bar) lands. */
-const CHROME_PENDING = true;
+const CHROME_PENDING = false;
 
 /** Screens not yet calm: only "≤ 1 toolbar Actions" and "no horizontal page scroll" are enforced for them. */
 const PENDING_CALM: readonly string[] = [
@@ -52,7 +52,6 @@ const PENDING_CALM: readonly string[] = [
   'accounts.openingBalances',
   'accounts.voucherType.form',
   'accounts.voucherTypes',
-  'app.gateway',
   'attachments.manage',
   'attachments.register',
   'banking.brs',

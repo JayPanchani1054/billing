@@ -28,6 +28,11 @@ export interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElemen
   selectOnFocus?: boolean;
   /** Convenience: receive the string value. */
   onValueChange?: (value: string) => void;
+  /**
+   * Quiet look (2.1): no border or fill until hover or focus — for inputs that live in a title or
+   * toolbar row (Day Book dates). `readOnly` + `quiet` reads as plain text.
+   */
+  quiet?: boolean;
   /** Class for the outer wrapper (the bordered box). */
   wrapperClassName?: string;
   ref?: Ref<HTMLInputElement>;
@@ -68,6 +73,7 @@ export function TextInput({
   uppercase = false,
   selectOnFocus = false,
   onValueChange,
+  quiet = false,
   wrapperClassName,
   className,
   type = 'text',
@@ -108,6 +114,7 @@ export function TextInput({
         field.invalid && 'is-invalid',
         field.disabled && 'is-disabled',
         rest.readOnly && 'is-readonly',
+        quiet && 'bx-input--quiet',
         wrapperClassName,
       )}
     >

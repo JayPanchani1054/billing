@@ -7,6 +7,7 @@ import { TextInput } from './TextInput.tsx';
 import { useHotkeys } from './hooks/useHotkeys.ts';
 import { HotkeyScope } from './HotkeyScope.tsx';
 import { confirmHotkeys } from './lib/confirmKeys.ts';
+import { accelSplit, confirmTips } from './lib/keyText.ts';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -24,6 +25,23 @@ export interface ConfirmDialogProps {
   onCancel: () => void;
   /** Extra content (consequences list, checkbox…). */
   children?: ReactNode;
+}
+
+/**
+ * The label with its accelerator letter underlined when the label starts with it ("Y̲es", "N̲o"); other
+ * labels are returned as they are (the key still works and is in the button's tooltip). The accessible
+ * name is unchanged: the underline is a span inside the same text. `off` (a confirmation text must be
+ * typed, so Y and N are letters, not answers) draws no underline.
+ */
+export function accelLabel(label: string, letter: string, off = false): ReactNode {
+  const parts = off ? null : accelSplit(label, letter);
+  if (!parts) return label;
+  return (
+    <>
+      <span className="bx-accel">{parts[0]}</span>
+      {parts[1]}
+    </>
+  );
 }
 
 /**
@@ -97,6 +115,7 @@ function ConfirmImpl({
   };
 
   const initialFocusRef = confirmText ? inputRef : tone === 'danger' ? cancelRef : confirmRef;
+  const tips = confirmTips(confirmLabel, cancelLabel, !!confirmText);
 
   return (
     <Modal
@@ -111,8 +130,8 @@ function ConfirmImpl({
       initialFocusRef={initialFocusRef}
       footer={
         <>
-          <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={busy}>
-            {cancelLabel}
+          <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={busy} title={tips.cancel}>
+            {accelLabel(cancelLabel, 'N', !!confirmText)}
           </Button>
           <Button
             ref={confirmRef}
@@ -121,8 +140,9 @@ function ConfirmImpl({
             disabled={!matches}
             loading={busy}
             shortcut="Ctrl+A"
+            title={tips.confirm}
           >
-            {confirmLabel}
+            {accelLabel(confirmLabel, 'Y', !!confirmText)}
           </Button>
         </>
       }
@@ -140,11 +160,6 @@ function ConfirmImpl({
           typing={!!confirmText}
         />
         <div className="bx-confirm">
-          {tone === 'danger' ? (
-            <span className="bx-confirm__icon" aria-hidden="true">
-              <Icon name="alert" size="lg" />
-            </span>
-          ) : null}
           <div className="bx-confirm__content">
             {message ? <div className="bx-confirm__message">{message}</div> : null}
             {children}

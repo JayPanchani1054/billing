@@ -1,11 +1,16 @@
 /**
  * Go To palette (Ctrl+G / Alt+G / Ctrl+K): fuzzy search over menu items, screens, vouchers types,
  * shell commands and async providers (ledgers, items, vouchers…). Keyboard only: type, ↑/↓, Enter.
+ *
+ * 2.1 (SPEC-21 §1.12): the search box is the header (the dialog keeps its name "Go To" for assistive
+ * technology; no visible title, no key legend footer). Every result is one line — the label with the
+ * typed letters highlighted, its key as plain text — and only the highlighted result adds its
+ * one-line description.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { VoucherBaseType } from '../../shared/constants.ts';
-import { Icon, Kbd, Modal, Spinner, splitHighlight, useDebouncedValue, useListNavigation } from '../ui/index.ts';
+import { Icon, Modal, Spinner, splitHighlight, useDebouncedValue, useListNavigation } from '../ui/index.ts';
 import { cx } from '../ui/lib/cx.ts';
 import { useInactiveBaseTypes, useVoucherChoices } from './hooks/useVoucherChoices.ts';
 import { getGotoProviders, onGotoProvidersChange, pushRecent, rankGoto, resolveGotoTarget, searchProviders, usableProviders } from './lib/goto.ts';
@@ -227,14 +232,6 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
       hideClose
       initialFocusRef={inputRef}
       className="bx-goto"
-      footerStart={
-        <span className="bx-goto__hints">
-          <Kbd keys="ArrowUp" size="sm" tone="subtle" />
-          <Kbd keys="ArrowDown" size="sm" tone="subtle" /> Move
-          <Kbd keys="Enter" size="sm" tone="subtle" /> Open
-          <Kbd keys="Escape" size="sm" tone="subtle" /> Close
-        </span>
-      }
     >
       <div className="bx-goto__search">
         <Icon name="search" size="md" className="bx-goto__search-icon" />
@@ -248,7 +245,7 @@ export function GotoPalette({ initialQuery = '', onClose }: { initialQuery?: str
           aria-activedescendant={activeId}
           aria-autocomplete="list"
           aria-label="Search screens, reports, masters and vouchers"
-          placeholder="Type a screen, report, ledger or voucher…"
+          placeholder="Go To"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
@@ -307,9 +304,10 @@ function GotoOption({ id, ranked, active, onPick, onHover }: { id: string; ranke
             <span key={i}>{s.text}</span>
           ),
         )}
-        {item.description ? <span className="bx-goto__desc">{item.description}</span> : null}
+        {/* The space keeps the option's name "Day Book All vouchers…" (not "Day BookAll…") for screen readers. */}
+        {active && item.description ? <span className="bx-goto__note">{` ${item.description}`}</span> : null}
       </span>
-      {item.hotkey ? <Kbd keys={item.hotkey} size="sm" tone="subtle" /> : null}
+      {item.hotkey ? <span className="bx-goto__key">{item.hotkey}</span> : null}
     </div>
   );
 }

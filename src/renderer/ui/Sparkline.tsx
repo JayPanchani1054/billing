@@ -17,9 +17,9 @@ export interface SparklineProps {
   ref?: Ref<SVGSVGElement>;
 }
 
-/** Tiny trend line for KPI tiles and table cells. */
+/** Tiny trend line for figures and table cells: 2 px line, r 4 end dot with a 2 px surface ring. */
 export function Sparkline({ values, width = 96, height = 28, label, emphasis = 'muted', area = false, className, ref }: SparklineProps) {
-  const g = useMemo(() => sparkline(values, width, height, 4), [values, width, height]);
+  const g = useMemo(() => sparkline(values, width, height, 5), [values, width, height]);
   return (
     <svg
       ref={ref}
@@ -34,7 +34,7 @@ export function Sparkline({ values, width = 96, height = 28, label, emphasis = '
     >
       {area && g.area ? <path className="bx-sparkline__area" d={g.area} /> : null}
       {g.line ? <path className="bx-sparkline__line" d={g.line} fill="none" /> : null}
-      {g.last ? <circle className="bx-sparkline__dot" cx={g.last.x} cy={g.last.y} r={3} /> : null}
+      {g.last ? <circle className="bx-sparkline__dot" cx={g.last.x} cy={g.last.y} r={4} /> : null}
     </svg>
   );
 }

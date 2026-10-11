@@ -4,6 +4,7 @@ import { Icon } from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
 import { Kbd } from './Kbd.tsx';
 import { Spinner } from './Spinner.tsx';
+import { keyTip } from './lib/keyText.ts';
 import { cx } from './lib/cx.ts';
 import { toAriaKeyShortcut } from './lib/hotkeys.ts';
 import type { ControlSize } from './types.ts';
@@ -19,7 +20,11 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   icon?: IconName | ReactElement;
   /** Trailing icon (e.g. 'chevron-down' for menus). */
   iconRight?: IconName | ReactElement;
-  /** Shortcut hint chip, e.g. 'Ctrl+A' (display + aria-keyshortcuts; register the key with useHotkeys). */
+  /**
+   * The button's key, e.g. 'Ctrl+A' (register it with useHotkeys). 2.1 (D4): not printed at rest —
+   * it is in `aria-keyshortcuts`, in the default tooltip ("Save · Ctrl+A", when the label is text and no
+   * `title` is given), and shown as plain text on :focus-visible and while Ctrl is held (html[data-keys]).
+   */
   shortcut?: string;
   fullWidth?: boolean;
   children?: ReactNode;
@@ -54,6 +59,7 @@ export function Button({
   children,
   type = 'button',
   onClick,
+  title,
   ref,
   ...rest
 }: ButtonProps) {
@@ -81,6 +87,7 @@ export function Button({
       aria-busy={loading || undefined}
       aria-disabled={loading || undefined}
       aria-keyshortcuts={ariaShortcut(shortcut)}
+      title={title ?? (shortcut && typeof children === 'string' ? keyTip(children, shortcut) : undefined)}
       onClick={handleClick}
       {...rest}
     >
@@ -89,23 +96,23 @@ export function Button({
       {hasLabel ? <span className="bx-btn__label">{children}</span> : null}
       {renderIcon(iconRight, size === 'sm' ? 'sm' : 'md', 'bx-btn__icon')}
       {shortcut ? (
-        <Kbd keys={shortcut} size="sm" tone={variant === 'primary' || variant === 'danger' ? 'inverse' : 'subtle'} className="bx-btn__kbd" aria-hidden="true" />
+        <Kbd keys={shortcut} tone="subtle" className="bx-btn__kbd" aria-hidden="true" />
       ) : null}
     </button>
   );
 }
 
 export interface ButtonGroupProps extends HTMLAttributes<HTMLDivElement> {
-  /** Joined borders (segmented look) vs spaced. Default true. */
+  /** Accepted for compatibility; 2.1 groups are always spaced (no joined, segmented look). */
   attached?: boolean;
   'aria-label'?: string;
   ref?: Ref<HTMLDivElement>;
 }
 
 /** Groups related buttons (role="group"). */
-export function ButtonGroup({ attached = true, className, children, ...rest }: ButtonGroupProps) {
+export function ButtonGroup({ attached: _attached, className, children, ...rest }: ButtonGroupProps) {
   return (
-    <div role="group" className={cx('bx-btn-group', attached && 'bx-btn-group--attached', className)} {...rest}>
+    <div role="group" className={cx('bx-btn-group', className)} {...rest}>
       {children}
     </div>
   );

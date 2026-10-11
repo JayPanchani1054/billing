@@ -80,23 +80,26 @@ If the company is password-protected, Pevqori asks for the username and password
 ### Home
 
 **Home** is the first screen of an open company (earlier versions called it the Gateway). Its left
-column lists what you can open, in one of two views — switch with the *Essentials | All menus* control
-at the top, or with **Ctrl+1** / **Ctrl+2**:
+column is a plain list of words, one line per item, in one of two views — switch with *Essentials · All*
+at the top of the column, or with **Ctrl+1** / **Ctrl+2**:
 
-- **Essentials** — about twenty everyday tasks in five groups, each with one line saying what it is
-  for: **Create** (Sales, Receipt, Purchase, Payment, Create Ledger, Create Stock Item), **Look up**
-  (Day Book, Ledgers, Stock Items, Receivables, Payables), **Reports** (Profit & Loss A/c, Balance
-  Sheet, Trial Balance, Stock Summary, Cash/Bank Books), **GST** (GSTR-1 and GSTR-3B, or CMP-08 and
-  GSTR-4 for a composition dealer) and **Company** (settings, invoice numbering and printing, Features,
-  Backup).
+- **Essentials** — twenty everyday tasks in five groups, all on screen at once on a laptop:
+  **Create** (Sales F8, Receipt F6, Purchase F9, Payment F5, Cr*e*ate Ledger, Create St*o*ck Item),
+  **Look up** (*D*ay Book, *L*edgers, Stock *I*tems, *R*eceivables, P*a*yables), **Reports**
+  (*P*rofit & Loss A/c, *B*alance Sheet, *T*rial Balance, Stock *S*ummary, *C*ash/Bank Books),
+  **GST** (*G*STR-1 and GSTR-*3*B, or CMP-08 and GSTR-4 for a composition dealer) and **Company**
+  (Setti*n*gs, Bac*k*up). The letter in italics is the one highlighted on screen. Invoice Numbering,
+  Invoice Printing and Features (F11) are in All menus, in Settings and in the Setup line on Home.
 - **All menus** — every menu section: **Masters**, **Transactions**, **Banking**, **Utilities**,
   **Reports**, **Inventory Reports**, **GST**, **TDS / TCS**, **Data**, **Security** and **Company**.
 
 Either way, items appear only when the features they need are on and you have the permission to use
-them. Use **↑ ↓** and **Enter**, or press the item's highlighted letter. Voucher items show their function
-key instead (F8 for Sales, …). A new installation starts on Essentials; if you used Pevqori before 2.0,
-Home keeps All menus and the shortcut bar you know, and offers once to *Try the simpler Home*. Your choice
-is remembered on this computer.
+them (so a company without inventory, or a composition dealer, sees fewer). Use **↑ ↓** and **Enter**, or
+press the item's highlighted letter. Voucher items show their function key instead (F8 for Sales, …).
+What an item is for appears beside the list when you point at it or reach it with the arrow keys.
+A new installation starts on Essentials; if you used Pevqori before 2.0, Home keeps All menus and the
+shortcut bar you know, and offers once to *Try the simpler Home*. Your choice is remembered on this
+computer (also in the user menu › *Appearance…*).
 
 On the right is the **dashboard**: four tiles — To collect, To pay, Cash & bank and Sales this month —
 what needs your attention and your last five vouchers, with *Show more insights* for the rest, plus a
@@ -104,28 +107,39 @@ what needs your attention and your last five vouchers, with *Show more insights*
 full dashboard, *Reports › **Dashboard***, brings the card back if you hid it). A user who may not see
 the dashboard gets a short greeting instead.
 
-### The top bar, the screen bar and the status bar
+### The top bar and the title row
 
-- **Top bar** (left to right): the company button (name and financial year; its menu has *Switch company*
-  **F3**, *Company details* and the GSTIN), the working date (**F2**) and period (**Alt+F2**), the search
-  box *Search or jump to…* (Go To, **Ctrl+G**), **Create ▾** (Sales invoice, Receipt, Purchase, Payment,
-  Credit note, Customer, Supplier, Item, Other voucher… — each with its usual key; it lists only what you
-  may create), the gear (the
-  *Settings* screen, when available), **?** (every key, **F1**) and your initials (the user menu).
-- **Screen bar**: where you are on the left (*Home › Day Book* — click a step to go back to it) and, on
-  the right, the **command bar** of the screen: its main action as a filled button, the next most useful
-  ones beside it, and **More ▾** with every other action of the screen and its key (plus Features F11,
-  Configure F12 and Help F1). The buttons only show what the keys do — every key works the same whether
-  or not a button shows it.
+Pevqori 2.1 has **one bar** at the top and, on every screen, **one title row** — nothing else above
+your work and nothing at the bottom.
+
+- **Top bar** (left to right): the book mark (**Home** — back to Home from anywhere, asking first if
+  something is not saved), the company button (name and financial year; its menu has *Switch company*
+  **F3**, *Company details* and the GSTIN), the working date (*Sat 10-Oct-26*; click or **F2** to change
+  it — the words *not today* appear when it is not today), **⌕ Go To** (**Ctrl+G**), **Create ▾** (Sales
+  invoice, Receipt, Purchase, Payment, Credit note, Customer, Supplier, Item, Other voucher… — each with
+  its usual key; it lists only what you may create), the gear (the *Settings* screen, when available)
+  and your initials (the user menu). The period is not in the top bar: each report shows its own period
+  in its title row (click it or press **Alt+F2**, which works everywhere).
+- **Title row** of each screen: **‹** (back — point at it to see where you are, e.g. *Home › Profit &
+  Loss A/c*; it does what **Esc** does), the screen's name, one quiet line of context (the period, "As
+  on …", a state such as *Cancelled*, and **Not saved** while you have typed something not yet saved),
+  and on the right the screen's **command bar**: its main action as the one filled button, the next most
+  useful ones beside it, and **More ▾** with every other action of the screen and its key (plus Features
+  F11, Configure F12 and Help F1). The buttons only show what the keys do — every key works the same
+  whether or not a button shows it. Home has no title row of its own and no command bar.
+- **Keys** are not printed on the buttons: point at a button to see its key in the tooltip, or **hold
+  Ctrl** for about a second — every button on screen shows its key until you let go. F1 lists them all.
 - **Shortcut bar** (optional): a column at the right listing every action of the screen with its key, as
   in earlier versions. Turn it on or off with *Show shortcut bar* in the user menu.
-- **Status bar**: a hint for the screen, whether everything is saved (point at it to see the data folder)
-  and the version.
+- **Quiet states**: while Pevqori is working on something that takes a moment, a thin line runs under the
+  top bar; unsaved work shows **Not saved** in the title row and a **•** before the window's title. The
+  version and the data folder are in *About Pevqori* (user menu).
 
 ### Moving around
 
-- **Esc** goes back one screen (asking first if you typed something). The breadcrumb at the top shows
-  where you are; each screen opens on top of the one before it.
+- **Esc** goes back one screen (asking first if you typed something); so do the **‹** button in the title
+  row and the **Back** button of a mouse. Each screen opens on top of the one before it; the **Home**
+  mark in the top bar goes straight back to Home.
 - **Go To** (**Ctrl+G**, **Alt+G** or **Ctrl+K**) finds any screen, report, ledger, stock item or
   voucher (by number, party, reference, narration or exact amount).
 - **F2** changes the *working date* — the default date of new vouchers and of "as on" reports.
@@ -134,10 +148,10 @@ the dashboard gets a short greeting instead.
   a day; **Alt+↓** opens the calendar.
 - **F3** switches company (Pevqori closes the current one, running the automatic backup first if one is
   due). **Ctrl+Q** quits.
-- **F1** (or **Ctrl+H**) shows every key. The menu behind your initials (top right) also has the
-  theme (match Windows, light, dark), density (comfortable / compact), the Home view, *Show shortcut
-  bar*, *Appearance…* (all four in one panel), *About Pevqori* and — for a password-protected company —
-  *Change password*, *Lock* and *Log out*.
+- **F1** (or **Ctrl+H**) shows every key. The menu behind your initials (top right) also has
+  *Appearance…* (theme, density, the Home view and the shortcut bar in one panel), *Show shortcut bar*,
+  *Keyboard shortcuts*, *About Pevqori* and — for a password-protected company — *Change password*,
+  *Lock* and *Log out*.
 - **Ctrl+S** saves wherever **Ctrl+A** accepts or saves (forms, voucher entry, dialogs). It never answers
   a question such as "Discard unsaved changes?" or "Delete …?" — answer those with **Y** / **N** (or Ctrl+A / Esc).
 
@@ -1336,6 +1350,33 @@ the scenario; ledger statements, outstanding, GST returns and the Day Book alway
 variance under a scenario follows it for cost centres too. The scenario and budget chosen on a report are
 not remembered after the screen closes.
 
+### 10.4 Graphs on reports (Ctrl+J)
+
+A report that a picture helps answer shows **one small graph above its table** — the Profit & Loss
+month by month, the Sales Register by month, where money is locked in stock, how old the unpaid bills
+are. Its header line says what it shows and the answer in one sentence (for example "Loss in 6 of 7
+months; smallest in Sep"). Reports where a graph would add nothing — the Balance Sheet, the Trial
+Balance, the Day Book, masters and statutory forms such as GSTR-1 — have none on purpose. A short table
+(seven rows or fewer) carries its bars inside the table instead, under the amounts.
+
+- **Ctrl+J** (or the *Hide graphs* / *Show graphs* button at the right of the header line, or
+  *More ▾ › Hide graphs*) folds the graphs to their header line, which keeps the one-sentence answer.
+  Pressed on a report it folds or unfolds the graphs of **all reports and Home**; pressed on a detail
+  report (a ledger, a monthly or group summary, a stock item, a party statement, the GST e-ledgers, a
+  foreign-currency ledger) it changes **the detail reports** only. Detail reports open folded until you
+  unfold them once.
+- The choice is remembered on this computer (per Windows user), like the theme. *Appearance…* (user
+  menu, or *Settings › Appearance*) has the same two switches: *Show graphs on reports and Home* and
+  *Show graphs on detail reports*.
+- The table is always the full answer: the graph draws the same totals the table shows. With the
+  keyboard, **Shift+Tab** from the table reaches the graph; **←/→** move between months (or bars) and
+  **Enter** opens the same thing as Enter on that row of the table.
+- Graphs are never printed or exported: *Print* (**Alt+P**) and *Export* (**Alt+E**) give the table only,
+  and invoices, vouchers and statements never carry a graph.
+- A report's notes and footnotes are under *More ▾ › About this report*; where a report lets you choose
+  its columns, *More ▾ › Columns…* hides or shows them. The period sits
+  once, next to the title — click it or press **Alt+F2** to change it.
+
 ## 11. Multiple currencies
 
 Use this if you bill overseas customers in dollars, pay foreign suppliers in euros, or keep an EEFC
@@ -1784,9 +1825,12 @@ Screens never take these keys for themselves — with two kinds of exception: in
 voucher keys and F10 switch the voucher being entered and **F2** is the voucher date, F12 the voucher type
 settings, and **Ctrl+H** switches single entry ↔ Dr / Cr.
 
-Each of these keys also has a place in the top bar for the mouse: the date and period chips, the search
-box (Go To), **Create ▾** (the everyday vouchers with their keys, and Other voucher… F10), the company
-button (Switch company F3) and **?** (F1); F11 and F12 are under **More ▾** in the command bar.
+Each of these keys also has a place for the mouse: the working date in the top bar, the period at the
+top of each report, the **Go To** button, **Create ▾** (the everyday vouchers with their keys, and Other
+voucher… F10), the company button (Switch company F3) and the user menu › *Keyboard shortcuts* (F1);
+F11 and F12 are under **More ▾** beside each screen's title and in ⚙ Settings. Keys are not printed on
+the buttons: point at a button to see its key, or **hold Ctrl** for about a second to see the key of
+every button on screen. **F1** lists the keys of the screen you are on first, then all of these.
 
 ### 15.2 Keys with one meaning across screens
 
@@ -1811,9 +1855,12 @@ with the screen (15.4 and the sections above).
 | **Alt+H** | Edit history of the voucher or master (needs the Edit Log permission) |
 | **Alt+Enter** | View the voucher (read-only) |
 | **Alt+M** | Open the report subject's master (ledger, item) |
-| **Alt+F1** | Detailed / condensed |
+| **Alt+F1** | Detailed / condensed (on the voucher view: *Detailed*, the accounting entries of an invoice; on ledger and stock item forms: the same as **Ctrl+I**) |
+| **Ctrl+I** | More details — the fields kept out of sight on voucher entry and on the ledger and stock item forms (fields that hold a value open by themselves) |
+| **Ctrl+J** | Hide / show the graphs: on a report, Home or the Dashboard it folds the graphs of every report, Home and the Dashboard to their one-line answer; on a detail report (a ledger, a monthly summary…) those of the detail reports. Remembered on this computer |
+| **Hold Ctrl** | Shows the key of every button on screen while you hold it (Ctrl alone, about a second) |
 | **Ctrl+1**, **Ctrl+2**, **Ctrl+3** … **Ctrl+9** | Switch view or tab (on Home: **Ctrl+1** Essentials, **Ctrl+2** All menus) |
-| **Ctrl+F** | The screen's search box |
+| **Ctrl+F** | The screen's search box (lists, reports, the Day Book and the voucher lists) |
 | **Alt+E** | Export (Excel / CSV / PDF; needs the Export permission) |
 | **Alt+P** | Print (in voucher entry: the voucher being altered, or the one just saved) |
 | **Ctrl+P** | Print the highlighted voucher (Day Book, voucher lists) |
@@ -1823,6 +1870,9 @@ with the screen (15.4 and the sections above).
 | **t** | Today, in a date box (also **5** = 5th of this month, **5-10** = 5 Oct, **+** / **−** a day) |
 | **Y**, **Ctrl+A** | Yes / confirm in a dialog |
 | **N**, **Esc** | No / cancel in a dialog |
+
+Two lists have a second key for *Create several*, so the habit of either works: **Alt+B** and
+**Alt+M** on *Ledgers* and on *Stock Items*.
 
 Screens where one of these keys does something else: **Alt+W** switches to the other side on
 *Receivables* / *Payables* (share a party's statement from *Statement of Account*), shows all customers

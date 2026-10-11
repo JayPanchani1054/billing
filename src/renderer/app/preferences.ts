@@ -1,8 +1,11 @@
 /**
  * Per-user display preferences (theme, density), remembered in localStorage and mirrored to the
  * native window theme (pevqori.native('theme.set')). Changes made from the native side arrive as
- * 'theme-changed' events and are adopted here. The 2.0 layout preferences (Home view, shortcut bar)
- * live in lib/uiPrefs.ts and are read here with `useUiPrefs()`.
+ * 'theme-changed' events and are adopted here. The layout preferences (2.0: Home view, shortcut bar;
+ * 2.1: graphs, detail graphs, voucher view Detailed, More details per form, Dashboard cards) live in
+ * lib/uiPrefs.ts and are read here with `useUiPrefs()` and changed only with `setUiPrefs()` /
+ * `setMoreDetailsOpen()` — no screen touches localStorage for them. All are remembered per computer
+ * profile (the Windows user account).
  */
 import { useSyncExternalStore } from 'react';
 import { applyDensity, applyTheme } from '../ui/index.ts';
@@ -99,10 +102,11 @@ export function usePreferences(): Preferences {
   return useSyncExternalStore(subscribe, getPreferences, getPreferences);
 }
 
-// ───────────────────────────── 2.0 layout preferences ─────────────────────────────
-// Home view (Essentials / All menus) and the shortcut bar, per user profile (lib/uiPrefs.ts).
+// ───────────────────────────── Layout preferences (`pevqori.ui`) ─────────────────────────────
+// Home view and the shortcut bar (2.0); graphs, detail graphs, voucherDetailed, moreDetails and
+// dashboardAllCards (2.1) — per computer profile (lib/uiPrefs.ts).
 
-export { setUiPrefs, getUiPrefs } from './lib/uiPrefs.ts';
+export { setUiPrefs, getUiPrefs, setMoreDetailsOpen } from './lib/uiPrefs.ts';
 export type { HomeView, UiPrefs } from './lib/uiPrefs.ts';
 
 /** The layout preferences, re-rendering on change. */

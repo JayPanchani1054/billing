@@ -10,8 +10,15 @@ import { useRovingFocus } from './hooks/useRovingFocus.ts';
 import { cx } from './lib/cx.ts';
 import { toAriaKeyShortcut } from './lib/hotkeys.ts';
 
+/**
+ * (2.1) The `key` of a menu-only item ("About this report", "Columns…", checkable view options): no
+ * hotkey is registered for it, no key text is shown, and the command bar never makes it a button
+ * (SPEC-21 §3.1 rule 4). `key` stays a string, so no consumer changes type.
+ */
+export const NO_KEY = '';
+
 export interface ActionRailItem {
-  /** Hotkey shown in the chip and registered for the current screen: 'F2', 'Alt+F2', 'Ctrl+A'. */
+  /** Hotkey shown in the chip and registered for the current screen: 'F2', 'Alt+F2', 'Ctrl+A' — or NO_KEY. */
   key: string;
   label: string;
   onClick: () => void;
@@ -34,6 +41,17 @@ export interface ActionRailItem {
    * in object literals, never straight after `label` (the key-convention scan reads `key, label, onClick`).
    */
   prominent?: boolean;
+  /**
+   * (additive, 2.1) A checkable item: More lists it as a menuitemcheckbox with ✓ when true. Written after
+   * `onClick`, like every later field.
+   */
+  checked?: boolean;
+  /**
+   * (additive, 2.1) Never a button in the command bar — not even for a convention key (Alt+A, Alt+P, Alt+W,
+   * Alt+E, Ctrl+I, Alt+C) — but listed under More with its key, which stays registered (SPEC-21 §3.1 rule
+   * 2b). Moving an action out of sight is `demoted` or dropping `prominent`, never `hidden`.
+   */
+  demoted?: boolean;
 }
 
 export interface ActionRailProps {
@@ -60,7 +78,7 @@ export function ActionRail({ items, registerHotkeys = true, showGroupLabels = fa
   const visible = items.filter((i) => !i.hidden);
 
   const map: Record<string, (() => void) | undefined> = {};
-  for (const it of visible) map[it.key] = it.disabled ? undefined : () => it.onClick();
+  for (const it of visible) if (it.key.trim() !== NO_KEY) map[it.key] = it.disabled ? undefined : () => it.onClick();
   useHotkeys(map as HotkeyMap, [], { enabled: registerHotkeys });
 
   return (
@@ -69,14 +87,15 @@ export function ActionRail({ items, registerHotkeys = true, showGroupLabels = fa
         {visible.map((it, i) => {
           const prev = visible[i - 1];
           const newGroup = i > 0 && (it.group ?? '') !== (prev?.group ?? '');
+          const keyless = it.key.trim() === NO_KEY;
           let aria: string | undefined;
           try {
-            aria = toAriaKeyShortcut(it.key);
+            aria = keyless ? undefined : toAriaKeyShortcut(it.key);
           } catch {
             aria = undefined;
           }
           return (
-            <Fragment key={it.id ?? it.key}>
+            <Fragment key={it.id ?? (keyless ? `${i}:${it.label}` : it.key)}>
               {newGroup ? <div className="bx-rail__divider" role="separator" /> : null}
               {showGroupLabels && it.group && (i === 0 || newGroup) ? <div className="bx-rail__group">{it.group}</div> : null}
               <button
@@ -84,14 +103,18 @@ export function ActionRail({ items, registerHotkeys = true, showGroupLabels = fa
                 data-roving-item=""
                 className={cx('bx-rail__item', it.primary && 'bx-rail__item--primary', it.disabled && 'is-disabled')}
                 aria-disabled={it.disabled || undefined}
+                aria-pressed={it.checked === undefined ? undefined : it.checked}
                 aria-keyshortcuts={aria}
                 title={it.hint}
                 onClick={() => {
                   if (!it.disabled) it.onClick();
                 }}
               >
-                <Kbd keys={it.key} size="sm" tone={it.primary ? 'inverse' : 'default'} className="bx-rail__kbd" />
-                <span className="bx-rail__label">{it.label}</span>
+                {keyless ? <span className="bx-rail__kbd" aria-hidden="true" /> : <Kbd keys={it.key} size="sm" tone={it.primary ? 'inverse' : 'default'} className="bx-rail__kbd" />}
+                <span className="bx-rail__label">
+                  {it.checked ? <span aria-hidden="true">✓ </span> : null}
+                  {it.label}
+                </span>
                 {it.icon ? <Icon name={it.icon} size="sm" className="bx-rail__icon" /> : null}
               </button>
             </Fragment>

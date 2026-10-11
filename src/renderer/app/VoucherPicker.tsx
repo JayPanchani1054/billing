@@ -3,10 +3,11 @@
  * company's own types (Masters › Voucher Types, e.g. "Sales - Export") under their base type.
  * Type to filter, Enter to open. Types the company can't use right now are listed with the reason
  * (and can't be opened); deactivated types are not listed (lib/voucherTypes.ts).
+ * 2.1 (SPEC-21 D4): keys as plain text, as in Go To (whose styles it shares, styles/gateway.css).
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Icon, Kbd, Modal, filterAndRank, useListNavigation } from '../ui/index.ts';
+import { Icon, Modal, filterAndRank, useListNavigation } from '../ui/index.ts';
 import { cx } from '../ui/lib/cx.ts';
 import { useVoucherChoices } from './hooks/useVoucherChoices.ts';
 import type { VoucherChoice } from './lib/voucherTypes.ts';
@@ -47,7 +48,7 @@ export function VoucherPicker({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal open onClose={onClose} title="Other Vouchers" description="Choose the type of voucher to enter." size="sm" flush initialFocusRef={inputRef}>
+    <Modal open onClose={onClose} title="Other Vouchers" size="sm" flush initialFocusRef={inputRef}>
       <div className="bx-goto__search">
         <Icon name="search" size="md" className="bx-goto__search-icon" />
         <input
@@ -86,7 +87,7 @@ export function VoucherPicker({ onClose }: { onClose: () => void }) {
                 {t.name}
                 {detail ? <span className="bx-goto__desc">{detail}</span> : null}
               </span>
-              {t.hotkey && t.hotkey !== 'F10' ? <Kbd keys={t.hotkey} size="sm" tone="subtle" /> : null}
+              {t.hotkey && t.hotkey !== 'F10' ? <span className="bx-goto__key">{t.hotkey}</span> : null}
             </div>
           );
         })}

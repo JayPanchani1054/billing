@@ -72,7 +72,7 @@ export interface ComboboxProps<T> {
   maxVisible?: number;
   /** Open the list on focus (default true). */
   openOnFocus?: boolean;
-  /** Keyboard hints in the list footer (default true). */
+  /** Keyboard hints in the list footer (default false in 2.1 — keys live in F1; the "+ Create" row keeps Alt+C). */
   showHints?: boolean;
   /** Minimum list width in px (default: the input width). */
   listMinWidth?: number;
@@ -184,7 +184,7 @@ export function Combobox<T>(props: ComboboxProps<T>) {
     emptyText = 'No matches',
     maxVisible = 8,
     openOnFocus = true,
-    showHints = true,
+    showHints = false,
     listMinWidth,
     size = 'md',
     name,
@@ -698,19 +698,7 @@ export function Combobox<T>(props: ComboboxProps<T>) {
             ) : null}
             {showHints ? (
               <div className="bx-listbox__footer" aria-hidden="true">
-                <span>
-                  <kbd className="bx-kbd bx-kbd--sm">↑</kbd>
-                  <kbd className="bx-kbd bx-kbd--sm">↓</kbd> move
-                </span>
-                <span>
-                  <kbd className="bx-kbd bx-kbd--sm">Enter</kbd> select
-                </span>
-                {onCreate ? (
-                  <span>
-                    <kbd className="bx-kbd bx-kbd--sm">Alt</kbd>+<kbd className="bx-kbd bx-kbd--sm">C</kbd> create
-                  </span>
-                ) : null}
-                {hasValue && clearable ? <span className="bx-listbox__footer-end">Clear text to remove</span> : null}
+                {`↑ ↓ move · Enter select${onCreate ? ' · Alt+C create' : ''}${hasValue && clearable ? ' · Clear text to remove' : ''}`}
               </div>
             ) : null}
           </div>

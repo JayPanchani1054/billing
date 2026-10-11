@@ -4,11 +4,12 @@
 //
 //   wizard company → Home on Essentials (a new profile) → Ctrl+2 / Ctrl+1 → Create ▾ › Sales invoice
 //   → Create ▾ › Customer, Ctrl+S → a payment (API) → Day Book › voucher view › More lists Alt+H →
+//   one top bar (2.1): ‹ back, mouse Back = Esc, "Not saved" + "• " title while dirty, hold Ctrl to peek →
 //   user menu › Show shortcut bar
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { api, firstLaunchCreateCompany, lit, localToday, openGoto, screen, stubNativeDialogs, toGateway } from './flows.ts';
-import { captureFailures, closeApp, launchApp } from './support.ts';
+import { captureFailures, closeApp, holdKey, launchApp, mouseBack } from './support.ts';
 import type { LaunchedApp } from './support.ts';
 
 const COMPANY = { name: 'Home Check Traders', gstin: '27AAPFU0939F1ZV', state: 'Maharashtra' } as const;
@@ -39,7 +40,9 @@ test('a new profile opens Home on Essentials; Ctrl+2 / Ctrl+1 switch to All menu
   test.setTimeout(120_000);
   await firstLaunchCreateCompany(page, launched?.dataDir ?? '', COMPANY);
   await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
-  await expect(page.locator('.bx-shell__breadcrumbs')).toContainText('Home');
+  // 2.1: no breadcrumb row — the top bar's Home button, and no back button on Home itself.
+  await expect(page.locator('.bx-topbar').getByRole('button', { name: 'Home', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Back to/ })).toHaveCount(0);
   await expect(homeMenu().getByRole('radio', { name: 'Essentials' })).toHaveAttribute('aria-checked', 'true');
   // Essentials: the everyday entries with their descriptions; the long tail stays in All menus.
   await expect(homeMenu().locator('button[data-text-value="Day Book"]')).toBeVisible();
@@ -129,6 +132,64 @@ test('voucher view: More lists every other action with its key (Alt+H edit histo
   await page.keyboard.press('Alt+h');
   await expect(screen(page, 'security.audit')).toBeVisible();
   await toGateway(page);
+});
+
+test('2.1 chrome: ‹ back and the top bar\'s Home button; mouse Back is Esc; "Not saved" while dirty; hold Ctrl to peek', async () => {
+  test.setTimeout(90_000);
+  // ‹ back names the screen it returns to and goes there.
+  const input = await openGoto(page);
+  await input.fill('Day Book');
+  await page.getByRole('option', { name: /^Day Book/ }).first().click();
+  const daybook = screen(page, 'vouchers.daybook');
+  await expect(daybook).toBeVisible();
+  await expect(page.getByRole('toolbar', { name: 'Actions' })).toHaveCount(1);
+  await expect(daybook.locator('.bx-titlebar').getByRole('toolbar', { name: 'Actions' })).toBeVisible();
+  await daybook.getByRole('button', { name: 'Back to Home', exact: true }).click();
+  await expect(screen(page, 'app.gateway')).toBeVisible();
+  await expect(page.getByRole('toolbar', { name: 'Actions' })).toHaveCount(0); // none on Home
+
+  // The mouse's Back button (button 3) does what Esc does.
+  const again = await openGoto(page);
+  await again.fill('Day Book');
+  await page.getByRole('option', { name: /^Day Book/ }).first().click();
+  await expect(daybook).toBeVisible();
+  await mouseBack(page);
+  await expect(screen(page, 'app.gateway')).toBeVisible();
+
+  // Hold Ctrl (alone, ≥ 900 ms): every visible button shows its key; releasing hides them.
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Customer/ }).click();
+  const form = screen(page, 'accounts.ledger.form');
+  await expect(form.getByLabel(/^Name/)).toBeFocused();
+  await holdKey(page, 'Control', 1_000, async () => {
+    await expect(page.locator('html')).toHaveAttribute('data-keys', /^(fade|static)$/);
+    // The top bar's own keys too: Go To (Ctrl+G), the working date (F2), and ‹ (Esc).
+    await expect(page.locator('.bx-topbar__goto').getByText('Ctrl+G', { exact: true })).toBeVisible();
+    await expect(page.locator('.bx-topbar__date').getByText('F2', { exact: true })).toBeVisible();
+    await expect(form.locator('.bx-titlebar__back').getByText('Esc', { exact: true })).toBeVisible();
+  });
+  await expect(page.locator('html')).not.toHaveAttribute('data-keys', /.*/);
+  await expect(page.locator('.bx-topbar__goto').getByText('Ctrl+G', { exact: true })).toBeHidden();
+  await expect(page.locator('.bx-topbar').getByRole('button', { name: /^Working date / })).toBeVisible(); // named, not only "Sat 10-Oct-26"
+
+  // Unsaved work: "Not saved" in the title row and "• " before the window title; mouse Back asks first, like Esc.
+  await page.keyboard.type('Peek Traders');
+  // Its own run after the context words, so a long subtitle never ellipsizes it away.
+  await expect(form.locator('.bx-titlebar__state')).toBeVisible();
+  await expect(form.locator('.bx-titlebar__state')).toContainText('Not saved');
+  await expect(page).toHaveTitle(/^• Ledger Creation/);
+  await mouseBack(page);
+  const question = page.getByRole('alertdialog', { name: 'Discard unsaved changes?' });
+  await expect(question).toBeVisible();
+  await page.keyboard.press('n');
+  await expect(question).toHaveCount(0);
+  await expect(form.getByLabel(/^Name/)).toHaveValue('Peek Traders');
+  // The top bar's Home button returns to Home with the same question.
+  await page.locator('.bx-topbar').getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(question).toBeVisible();
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(screen(page, 'app.gateway')).toBeVisible();
+  await expect(page).not.toHaveTitle(/^•/);
 });
 
 test('user menu › Show shortcut bar shows the right-hand toolbar named "Shortcut bar", and hides it again', async () => {

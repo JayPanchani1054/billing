@@ -52,6 +52,7 @@ export const DYNAMIC_CLASSES: readonly Dynamic[] = [
   { match: 'bx-banner--' }, // Banner: tone
   { match: 'bx-btn--' }, // Button: variant, size
   { match: 'bx-card__body--' }, // Card: padding
+  { match: 'bx-chart--o-' }, // graph kit: ordinal ramp step (ui/lib/chart.ts colorClass)
   { match: 'bx-chart--s-' }, // charts: series slot
   { match: 'bx-chart__key--' }, // chart legend: key shape
   { match: 'bx-db-alert__icon--' }, // dashboard alerts: tone
@@ -66,7 +67,6 @@ export const DYNAMIC_CLASSES: readonly Dynamic[] = [
   { match: 'bx-input__field--' }, // inputs: alignment
   { match: 'bx-kbd--' }, // Kbd: tone
   { match: 'bx-kbd-group--' }, // Kbd: tone, size
-  { match: 'bx-kpi__delta--' }, // KPI tile: delta direction
   { match: 'bx-kv--' }, // KeyValueList: layout, columns
   { match: 'bx-modal--' }, // Modal: size
   { match: 'bx-os-lvl-' }, // outstanding ageing levels
@@ -82,7 +82,6 @@ export const DYNAMIC_CLASSES: readonly Dynamic[] = [
   { match: 'bx-spinner--' }, // Spinner: size
   { match: 'bx-split--' }, // SplitPane: direction
   { match: 'bx-strength--' }, // password strength meter (company wizard)
-  { match: 'bx-tabs--' }, // Tabs: variant
   { match: 'bx-tag--' }, // Tag: tone
   { match: 'bx-td--' }, // DataTable: cell kind / alignment
   { match: 'bx-th--' }, // DataTable: header alignment
@@ -98,6 +97,16 @@ export const DYNAMIC_CLASSES: readonly Dynamic[] = [
  * edit them). An entry that is no longer defined, or is now used, fails the test: remove it.
  */
 export const PENDING_OTHER_OWNER: Readonly<Record<string, string>> = {};
+
+/**
+ * Tokens a 2.1 lane left without a reader (SPEC-21 §6.1 (iii)): one sorted line each, value = why. They
+ * may be unread until the next wave merge, where the integrator deletes them from tokens.css and empties
+ * this list. An entry that tokens.css no longer declares fails the test below: remove it.
+ */
+export const RETIRING_TOKENS: Readonly<Record<string, string>> = {
+  '--card-p': 'WP-A: cards are flat (no padding); WP-C1: KPI figures lost their card padding',
+  '--tracking-caps': 'WP-A/WP-B1/WP-B3: no upper-case captions in 2.1 (the wave-1 sweep deletes it)',
+};
 
 /** Class names defined by a stylesheet (selectors only; comments, strings and url() ignored). */
 export function definedClasses(css: string): Set<string> {
@@ -212,11 +221,20 @@ test('tokens.css declares no unused semantic token (palette primitives excepted)
   const readers = `${cssText}\n${source}\n${contrastPairs}\n${SPACE_TOKENS.map((t) => `var(${t})`).join('\n')}`;
   const unused: string[] = [];
   for (const name of new Set([...tokens.matchAll(/^\s*(--[a-z][\w-]*)\s*:/gm)].map((m) => m[1]))) {
-    if (PALETTE.test(name)) continue;
+    if (PALETTE.test(name) || name in RETIRING_TOKENS) continue;
     const read = new RegExp(`var\\(\\s*${name}\\s*[,)]|['"\`]${name}['"\`]`).test(readers);
     if (!read) unused.push(name);
   }
   assert.deepEqual(unused, []);
+});
+
+test('retiring tokens are still declared in tokens.css (delete the entry once the token is gone)', () => {
+  const tokens = readFileSync(join(RENDERER, 'styles', 'tokens.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const declared = new Set([...tokens.matchAll(/^\s*(--[a-z][\w-]*)\s*:/gm)].map((m) => m[1]));
+  const stale = Object.keys(RETIRING_TOKENS).filter((t) => !declared.has(t));
+  assert.deepEqual(stale, []);
+  const keys = Object.keys(RETIRING_TOKENS);
+  assert.deepEqual(keys, [...keys].sort(), 'one sorted line per token');
 });
 
 // Type scale (docs/ARCHITECTURE.md §7a): captions are 12px (`--text-caption`); 11px (`--fs-11`) is

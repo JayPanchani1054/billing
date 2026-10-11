@@ -1,41 +1,45 @@
 /**
- * Internal building blocks shared by BarChart and LineChart: width measurement, value formatting,
- * legend, tooltip and the screen-reader table view. Not part of the public barrel except types.
+ * Internal building blocks of the graph kit (ui/Chart.tsx and Home's MiniColumns): width/height
+ * measurement, value formatting, colour classes, legend, tooltip and the screen-reader table twin.
+ * The graph contract types live in ui/lib/chartSpec.ts (pure); this file re-exports them for the
+ * barrel. Not part of the public barrel except types.
  */
 import { useLayoutEffect, useState } from 'react';
-import type { CSSProperties, ReactNode, RefObject } from 'react';
+import type { CSSProperties, RefObject } from 'react';
 import { cx } from './lib/cx.ts';
-import { formatCompactINR, formatIndianNumber, formatMoney, formatPercent } from '../../shared/format.ts';
+import { colorClass, compactTick } from './lib/chart.ts';
+import { compactValue } from './lib/chartSpec.ts';
+import type { ChartSeries, ChartSpec, MarkColor, ValueFormat } from './lib/chartSpec.ts';
+import { formatIndianNumber, formatMoney, formatPercent } from '../../shared/format.ts';
 
-/** Categorical slot (fixed order, never cycled) or the folded "Other" bucket. */
-export type ChartSlot = 1 | 2 | 3 | 4 | 5 | 'other';
+export type { ChartColor, ChartKind, ChartSeries, ChartSlot, ChartSpec, ValueFormat } from './lib/chartSpec.ts';
 
-export interface ChartSeries {
-  name: string;
-  /** One value per category; null = gap. */
-  values: readonly (number | null)[];
-  /**
-   * Colour slot. Defaults to the series position (1…5). Keep a series' slot stable across filters
-   * — colour follows the entity, never its rank.
-   */
-  slot?: ChartSlot;
+/** What `Chart` (and `LazyChart`) take. */
+export interface ChartProps {
+  spec: ChartSpec;
+  /** Plot height in px. Default: column and line the strip's (`--graph-h` − 20: 148, 132 compact); bar, share and meter their own. */
+  height?: number;
+  /** The table's active row index when rows map to categories: that mark is highlighted. */
+  active?: number;
+  /** Id of the visible takeaway (the strip header); without it the chart carries a hidden one. */
+  describedBy?: string;
+  className?: string;
 }
 
-/** 'inr' = values in paise (ticks ₹1.2 L, tooltips ₹ 1,23,456.00) · 'number' · 'percent' · custom. */
-export type ValueFormat = 'inr' | 'number' | 'percent' | { tick: (v: number) => string; full: (v: number) => string };
-
+/** Axis ticks: Indian compact without the sign of the currency ("0 · 50 K · 1 L · 1 Cr", "12.5%"). */
 export function tickFormatter(f: ValueFormat): (v: number) => string {
   if (typeof f === 'object') return f.tick;
-  if (f === 'inr') return (v) => (v === 0 ? '0' : formatCompactINR(v));
   if (f === 'percent') return (v) => formatPercent(v);
-  return (v) => {
-    const a = Math.abs(v);
-    if (a >= 1e7) return `${formatIndianNumber(v / 1e7, 1)} Cr`;
-    if (a >= 1e5) return `${formatIndianNumber(v / 1e5, 1)} L`;
-    return formatIndianNumber(v, Number.isInteger(v) ? 0 : 2);
-  };
+  return (v) => compactTick(f === 'inr' ? v / 100 : v);
 }
 
+/** Direct labels on marks: Indian compact money as in the takeaway ("₹87.4 K"). */
+export function labelFormatter(f: ValueFormat): (v: number) => string {
+  if (typeof f === 'object') return f.tick;
+  return (v) => compactValue(v, f);
+}
+
+/** Tooltips, option names and the table twin: exact ("₹ 1,23,456.00"). */
 export function fullFormatter(f: ValueFormat): (v: number) => string {
   if (typeof f === 'object') return f.full;
   if (f === 'inr') return (v) => formatMoney(v, { symbol: true });
@@ -43,20 +47,16 @@ export function fullFormatter(f: ValueFormat): (v: number) => string {
   return (v) => formatIndianNumber(v, Number.isInteger(v) ? 0 : 2);
 }
 
-export function slotOf(s: ChartSeries, i: number): ChartSlot {
-  if (s.slot) return s.slot;
-  return i < 5 ? ((i + 1) as ChartSlot) : 'other';
-}
-
-/** Width of an element (px), tracking resizes. */
-export function useElementWidth(ref: RefObject<HTMLElement | null>, fallback = 640): number {
-  const [w, setW] = useState(fallback);
+/** Size of an element (px), tracking resizes — one ResizeObserver per graph. */
+export function useElementSize(ref: RefObject<HTMLElement | null>, fallbackWidth = 640, fallbackHeight = 148): { w: number; h: number } {
+  const [box, setBox] = useState({ w: fallbackWidth, h: fallbackHeight });
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
     const read = () => {
-      const next = Math.floor(el.clientWidth);
-      if (next > 0) setW((prev) => (prev === next ? prev : next));
+      const w = Math.floor(el.clientWidth);
+      const h = Math.floor(el.clientHeight);
+      if (w > 0 && h > 0) setBox((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
     };
     read();
     if (typeof ResizeObserver === 'undefined') return undefined;
@@ -64,21 +64,17 @@ export function useElementWidth(ref: RefObject<HTMLElement | null>, fallback = 6
     ro.observe(el);
     return () => ro.disconnect();
   }, [ref]);
-  return w;
+  return box;
 }
 
-/** Rough text width for layout decisions (Segoe UI ≈ 0.58em per char at small sizes). */
-export function textWidth(s: string, fontPx = 11): number {
-  return s.length * fontPx * 0.6;
-}
-
-export function ChartLegend({ series, mark }: { series: readonly ChartSeries[]; mark: 'bar' | 'line' }) {
+/** Legend: only for two or more series (a single series is named by the title). */
+export function ChartLegend({ items }: { items: readonly { name: string; color: MarkColor; mark: 'bar' | 'line' }[] }) {
   return (
-    <ul className="bx-chart__legend" aria-label="Legend">
-      {series.map((s, i) => (
-        <li key={s.name} className="bx-chart__legend-item">
-          <span className={cx('bx-chart__key', `bx-chart__key--${mark}`, `bx-chart--s-${slotOf(s, i)}`)} aria-hidden="true" />
-          <span>{s.name}</span>
+    <ul className="bx-chart__legend" aria-hidden="true">
+      {items.map((it, i) => (
+        <li key={i}>
+          <span className={cx('bx-chart__key', `bx-chart__key--${it.mark}`, colorClass(it.color))} />
+          <span>{it.name}</span>
         </li>
       ))}
     </ul>
@@ -87,27 +83,28 @@ export function ChartLegend({ series, mark }: { series: readonly ChartSeries[]; 
 
 export interface TooltipRow {
   name: string;
-  slot: ChartSlot;
+  color: MarkColor;
   value: string;
 }
 
-export function ChartTooltip({ title, rows, x, y, alignRight, mark }: { title: string; rows: readonly TooltipRow[]; x: number; y: number; alignRight: boolean; mark: 'bar' | 'line' }) {
+/** Value first (strong), then the name (secondary), keyed by a short line; flips left past 60 %. */
+export function ChartTooltip({ title, rows, x, y, alignRight }: { title: string; rows: readonly TooltipRow[]; x: number; y: number; alignRight: boolean }) {
   const style: CSSProperties = alignRight ? { right: `calc(100% - ${x}px + 12px)`, top: y } : { left: x + 12, top: y };
   return (
     <div className="bx-chart__tooltip" style={style} aria-hidden="true">
       <p className="bx-chart__tooltip-title">{title}</p>
-      {rows.map((r) => (
-        <p key={r.name} className="bx-chart__tooltip-row">
-          <span className={cx('bx-chart__key', `bx-chart__key--line`, `bx-chart--s-${r.slot}`)} />
+      {rows.map((r, i) => (
+        <p key={i}>
+          <span className={cx('bx-chart__key', 'bx-chart__key--line', colorClass(r.color))} />
           <strong className="bx-chart__tooltip-value bx-num">{r.value}</strong>
-          <span className="bx-chart__tooltip-name">{r.name}</span>
+          <span>{` ${r.name}`}</span>
         </p>
       ))}
     </div>
   );
 }
 
-/** Visually hidden data table — the WCAG-equivalent view of every chart. */
+/** Visually hidden data table — the WCAG-equivalent view of every graph (values exact). */
 export function ChartDataTable({ caption, categories, series, format }: { caption: string; categories: readonly string[]; series: readonly ChartSeries[]; format: (v: number) => string }) {
   return (
     <table className="bx-sr-only">
@@ -115,8 +112,8 @@ export function ChartDataTable({ caption, categories, series, format }: { captio
       <thead>
         <tr>
           <th scope="col">Category</th>
-          {series.map((s) => (
-            <th key={s.name} scope="col">
+          {series.map((s, i) => (
+            <th key={i} scope="col">
               {s.name}
             </th>
           ))}
@@ -124,11 +121,11 @@ export function ChartDataTable({ caption, categories, series, format }: { captio
       </thead>
       <tbody>
         {categories.map((c, ci) => (
-          <tr key={`${c}-${ci}`}>
+          <tr key={ci}>
             <th scope="row">{c}</th>
-            {series.map((s) => {
+            {series.map((s, si) => {
               const v = s.values[ci];
-              return <td key={s.name}>{v === null || v === undefined ? '—' : format(v)}</td>;
+              return <td key={si}>{v === null || v === undefined ? '—' : format(v)}</td>;
             })}
           </tr>
         ))}
@@ -137,15 +134,12 @@ export function ChartDataTable({ caption, categories, series, format }: { captio
   );
 }
 
-/** Spoken summary for the focused category (keyboard exploration). */
-export function describeCategory(category: string, series: readonly ChartSeries[], index: number, format: (v: number) => string): string {
-  const parts = series.map((s) => {
+/** Spoken name of one category ("Sep: ₹ 87,414.00", or "Sep: Sales ₹ …, Purchases ₹ …"). */
+export function describeCategory(category: string, series: readonly ChartSeries[], index: number, format: (v: number) => string, suffix = ''): string {
+  const value = (s: ChartSeries) => {
     const v = s.values[index];
-    return `${s.name} ${v === null || v === undefined ? 'no data' : format(v)}`;
-  });
-  return `${category}: ${parts.join(', ')}`;
-}
-
-export function ChartEmpty({ children }: { children?: ReactNode }) {
-  return <div className="bx-chart__empty">{children ?? 'No data for this period'}</div>;
+    return v === null || v === undefined ? 'no data' : `${format(v)}${suffix}`;
+  };
+  if (series.length === 1) return `${category}: ${value(series[0])}`;
+  return `${category}: ${series.map((s) => `${s.name} ${value(s)}`).join(', ')}`;
 }

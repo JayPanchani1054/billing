@@ -1,7 +1,8 @@
 /**
  * Home's Essentials view (docs/ARCHITECTURE.md §7) — pure, tested in essentials.test.ts.
  *
- * Essentials is ONE central list of about 23 everyday entries in five groups, matched against the
+ * Essentials is ONE central list of at most 20 everyday entries in five groups (2.1: all of them fit
+ * one 1366 × 690 window without scrolling), matched against the
  * Gateway's All-menus output by menu label (labels are unique — gatewayLabels.test.ts) or, for voucher
  * entry, by the `vouchers.entry` base type. It never gates anything itself: an entry that All menus
  * does not offer (F11 feature off, no permission, other GST registration, deactivated voucher type)
@@ -49,9 +50,9 @@ export const ESSENTIALS: readonly EssentialGroup[] = [
   {
     id: 'company',
     label: 'Company',
-    // Invoice Printing before Invoice Numbering: with Settings taking N, Printing needs V and
-    // Numbering can still take U — the other order leaves Printing without any free letter.
-    entries: [{ label: 'Settings' }, { label: 'Invoice Printing' }, { label: 'Invoice Numbering' }, { label: 'Features' }, { label: 'Backup' }],
+    // 2.1: Settings and Backup only. Invoice Printing, Invoice Numbering and Features (F11) stay one
+    // step away — All menus (Ctrl+2), Settings, the Setup line and F11 — so the list fits the window.
+    entries: [{ label: 'Settings' }, { label: 'Backup' }],
   },
 ];
 

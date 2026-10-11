@@ -149,3 +149,31 @@ export async function closeApp(launched: LaunchedApp | undefined, testInfo: Test
   console.log(`[e2e] app closed in ${Date.now() - started} ms`);
   if (!options.keepFolders) await rm(tmp, { recursive: true, force: true });
 }
+
+// ── 2.1 input helpers (WP-B1, additive)
+
+/**
+ * Hold a key alone (no other key, no repeat) for `ms`, run `during` while it is still down, then release
+ * it — e.g. hold Control 1,000 ms to see the keys of every button (`<html data-keys>`). The key is released
+ * even when `during` fails.
+ */
+export async function holdKey(page: Page, key: string, ms: number, during?: () => Promise<void>): Promise<void> {
+  await page.keyboard.down(key);
+  try {
+    await page.waitForTimeout(ms);
+    if (during) await during();
+  } finally {
+    await page.keyboard.up(key);
+  }
+}
+
+/**
+ * The mouse's Back button (button 3): Playwright's mouse has only left / middle / right, so the press is
+ * dispatched as the renderer would receive it (mousedown + mouseup on the element under focus).
+ */
+export async function mouseBack(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const target = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
+    for (const type of ['mousedown', 'mouseup'] as const) target.dispatchEvent(new MouseEvent(type, { button: 3, buttons: type === 'mousedown' ? 8 : 0, bubbles: true, cancelable: true }));
+  });
+}

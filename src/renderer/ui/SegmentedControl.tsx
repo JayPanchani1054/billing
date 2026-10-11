@@ -31,7 +31,8 @@ export interface SegmentedControlProps<V extends string> {
 
 /**
  * Exclusive choice among 2–5 options (Detailed/Condensed, Dr/Cr, Monthly/Quarterly). radiogroup
- * semantics: one Tab stop, ←/→ move and select.
+ * semantics: one Tab stop, ←/→ move and select. 2.1: drawn as text tabs (no pill, no track) —
+ * the selected option in 600 with a 2 px brand underline.
  */
 export function SegmentedControl<V extends string>({ options, value, onChange, size = 'md', fullWidth = false, disabled = false, className, ref, ...aria }: SegmentedControlProps<V>) {
   const rootRef = useRef<HTMLDivElement | null>(null);

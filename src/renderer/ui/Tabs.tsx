@@ -24,7 +24,7 @@ export interface TabsProps {
   onChange?: (id: string) => void;
   /** Accessible name of the tab list. */
   'aria-label': string;
-  /** 'line' (underline, default) or 'pill' (segmented look for compact toolbars). */
+  /** 'line' (default) or 'pill'; 2.1 draws both as text tabs (selected: 600 + a 2 px brand underline). */
   variant?: 'line' | 'pill';
   /** 'auto' selects on arrow focus (default); 'manual' requires Enter/Space. */
   activation?: 'auto' | 'manual';

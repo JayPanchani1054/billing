@@ -7,6 +7,9 @@ import { useControllableState } from './hooks/useControllableState.ts';
 import { useMergedRefs } from './hooks/useMergedRefs.ts';
 import { cx } from './lib/cx.ts';
 import { readPxVar } from './lib/dom.ts';
+import { emptyColumnIds } from './lib/emptyColumns.ts';
+import { barWidths } from './lib/inlineBars.ts';
+import type { InlineBar } from './lib/inlineBars.ts';
 import { findByPrefix, nextListIndex } from './lib/listNav.ts';
 import type { ListNavKey } from './lib/listNav.ts';
 import { computeTreeInfo, visibleTreeIndices } from './lib/tree.ts';
@@ -59,6 +62,15 @@ export interface Column<T> {
   /** Carries tree indentation + expander (default: the first column). */
   tree?: boolean;
   hidden?: boolean;
+  /** Never hidden by `hideEmptyColumns`, even when blank on every row. */
+  keepEmpty?: boolean;
+  /**
+   * Inline bar (2.1, D26 — short tables instead of a graph): a 4 px bar under the cell text, width ∝
+   * |value| / the largest |value| of the rendered rows (ui/lib/inlineBars.ts). Return null for rows
+   * that must not draw (totals). Slot 1 always, or slot 2 for negatives with 'polarity'. Decorative
+   * (aria-hidden), hidden under [data-graphs="off"] and in print.
+   */
+  bar?: { value: (row: T) => number | null; slot: 1 | 'polarity' };
   className?: string;
   cellClassName?: (row: T) => string | undefined;
   /** Hover title for truncated cells (default: formatted text). */
@@ -94,6 +106,10 @@ export interface DataTableProps<T> {
   getRowLevel?: (row: T) => number;
   /** Bold group rows ("group" lines). */
   isGroupRow?: (row: T) => boolean;
+  /** Hide columns whose every cell is blank (ui/lib/emptyColumns.ts; exports keep every column). */
+  hideEmptyColumns?: boolean;
+  /** Column keys the user chose to hide (More › Columns…; exports keep every column). */
+  hiddenColumns?: readonly string[];
   /** Allow collapsing rows that have children (→/← or +/−). Requires getRowLevel. */
   expandable?: boolean;
   /** Controlled: keys of expanded parent rows (e.g. Alt+F5 "Detailed" = all parent keys via keysUpToLevel). */
@@ -222,10 +238,12 @@ interface BodyRowProps<T> {
   active: boolean;
   id: string;
   treegrid: boolean;
+  /** Inline bars of this row by column key (columns with `bar`). */
+  bars?: Readonly<Record<string, InlineBar | null>>;
   className?: string;
 }
 
-function BodyRowImpl<T>({ row, rowIndex, pos, columns, treeCol, level, hasChildren, expanded, expandable, group, active, id, treegrid, className }: BodyRowProps<T>) {
+function BodyRowImpl<T>({ row, rowIndex, pos, columns, treeCol, level, hasChildren, expanded, expandable, group, active, id, treegrid, bars, className }: BodyRowProps<T>) {
   return (
     <tr
       id={id}
@@ -242,6 +260,7 @@ function BodyRowImpl<T>({ row, rowIndex, pos, columns, treeCol, level, hasChildr
         const content = col.render ? col.render(row, { index: rowIndex, level, value: v, formatted: f.text }) : f.node;
         const isTree = ci === treeCol;
         const title = col.title ? col.title(row) : f.text || undefined;
+        const bar = bars ? bars[col.key] : null;
         return (
           <td
             key={col.key}
@@ -260,6 +279,13 @@ function BodyRowImpl<T>({ row, rowIndex, pos, columns, treeCol, level, hasChildr
               )
             ) : null}
             {isTree ? <span className="bx-td__text">{content}</span> : content}
+            {bar ? (
+              <span
+                className={cx('bx-td__bar', bar.negative && col.bar?.slot === 'polarity' && 'bx-td__bar--neg')}
+                style={{ '--bar-w': bar.width } as CSSProperties}
+                aria-hidden="true"
+              />
+            ) : null}
           </td>
         );
       })}
@@ -287,6 +313,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
     onSelect,
     getRowLevel,
     isGroupRow,
+    hideEmptyColumns = false,
+    hiddenColumns,
     expandable = false,
     expandedKeys,
     defaultExpanded = 'all',
@@ -322,7 +350,20 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const revealRef = useRef(false);
   const typed = useRef({ buffer: '', at: 0 });
 
-  const columns = useMemo(() => allColumns.filter((c) => !c.hidden), [allColumns]);
+  // Hidden by the caller, by the user (hiddenColumns) or because blank on every row (hideEmptyColumns).
+  // Keyed by the hidden/blank key lists, so `columns` keeps its identity (and the memoised rows do not
+  // re-render) when a caller passes a fresh hiddenColumns array or new rows that hide the same columns.
+  const hiddenKey = hiddenColumns && hiddenColumns.length > 0 ? hiddenColumns.join('\u0000') : '';
+  const shownColumns = useMemo(() => {
+    const hide = hiddenKey ? new Set(hiddenKey.split('\u0000')) : null;
+    return allColumns.filter((c) => !c.hidden && !(hide && hide.has(c.key)));
+  }, [allColumns, hiddenKey]);
+  const blankKey = useMemo(() => (hideEmptyColumns ? emptyColumnIds(shownColumns, rows).join('\u0000') : ''), [hideEmptyColumns, shownColumns, rows]);
+  const columns = useMemo(() => {
+    if (!blankKey) return shownColumns;
+    const blank = new Set(blankKey.split('\u0000'));
+    return shownColumns.filter((c) => !blank.has(c.key));
+  }, [shownColumns, blankKey]);
   const treeCol = Math.max(0, columns.findIndex((c) => c.tree));
   const tree = !!getRowLevel;
   const canExpand = tree && expandable;
@@ -409,6 +450,22 @@ export function DataTable<T>(props: DataTableProps<T>) {
   }, [levels, treeInfo, canExpand, isExpandedIdx, rows, sort, manualSort, tree, columns]);
 
   const posByKey = useMemo(() => new Map(visible.map((ri, p) => [keys[ri], p])), [visible, keys]);
+
+  // Inline bars: scaled over the rendered (visible) rows, so collapsing a tree rescales them.
+  const barsByRow = useMemo(() => {
+    const barCols = columns.filter((c) => c.bar);
+    if (barCols.length === 0) return null;
+    const out = new Map<number, Record<string, InlineBar | null>>();
+    for (const c of barCols) {
+      const widths = barWidths(visible.map((ri) => c.bar?.value(rows[ri]) ?? null));
+      visible.forEach((ri, p) => {
+        const rec = out.get(ri) ?? {};
+        rec[c.key] = widths[p];
+        out.set(ri, rec);
+      });
+    }
+    return out;
+  }, [columns, visible, rows]);
 
   // ── Active row ──
   const [activeKey, setActiveKey] = useControllableState<string | null>({
@@ -743,6 +800,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                   active={pos === activePos}
                   id={`${baseId}-r${ri}`}
                   treegrid={treegrid}
+                  bars={barsByRow?.get(ri)}
                   className={cx(zebra && pos % 2 === 1 && 'is-odd', getRowClassName?.(row, ri))}
                 />
               );

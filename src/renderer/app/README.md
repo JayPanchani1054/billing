@@ -1,7 +1,7 @@
 # Pevqori shell (`src/renderer/app`) — API for feature modules
 
-The shell is everything around your screens: app state and routing, the company workspace (top
-bar, screen bar with breadcrumbs and the command bar, screen stack, optional shortcut bar, status bar),
+The shell is everything around your screens: app state and routing, the company workspace (2.1: one
+top bar over the screen stack — each screen's title row carries the command bar —, optional shortcut bar),
 Home, navigation, global hotkeys, Go To, the
 working date and period, the API client and cache, confirmations, export/print and error handling.
 Feature modules plug in through a `ModuleDef` and build screens with the hooks below.
@@ -100,24 +100,27 @@ All menus (F11, permission, registration, deactivated type) is hidden from Essen
 ## 2. Screens
 
 A screen is a component `({ params }: ScreenProps<P>) => ReactNode`. The shell wraps it in a hotkey
-scope (active only while it is on top), an error boundary, and handles Esc / focus / breadcrumbs.
+scope (active only while it is on top), an error boundary, and handles Esc / focus / the `‹` back button.
 
 ### `<Screen>` — forms, lists, settings
 
 ```tsx
 <Screen
-  title="Ledger Creation"            // h1 + breadcrumb + window title
-  subtitle="Under Sundry Debtors"
-  icon="ledger"
+  title="Ledger Creation"            // h1 of the title row + back-button path + window title
+  subtitle="Under Sundry Debtors"   // the title row's quiet context run (with `meta`, then "Not saved" when dirty)
+  icon="ledger"                     // accepted, ignored (2.1: no icon tile)
   width="form"                      // 'full' (default) | 'form' (≈960px column) | 'narrow'
   dirty={dirty}                     // Esc / switch company / window close ask before discarding
-  hint="Enter Next field · Ctrl+A Save · Alt+C Create group"   // status bar line
-  actions={[                        // command bar / shortcut bar; keys become screen hotkeys while on top
+  hint="Enter Next field · Ctrl+A Save · Alt+C Create group"   // first line of F1 › This screen
+  actions={[                        // title-row command bar / shortcut bar; keys become screen hotkeys while on top
     { key: 'Ctrl+A', label: 'Save', icon: 'save', primary: true, onClick: save, disabled: !dirty },
     { key: 'Alt+R', label: 'Make recurring', icon: 'refresh', onClick: recur, prominent: true }, // a button, not under More
     { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: remove, hidden: !id, group: 'danger' },
   ]}
-  toolbar={<Button …/>}             // header buttons (optional)
+  toolbar={<Button …/>}             // title-row controls after the command bar (optional)
+  graph={reportGraph(spec)}         // 2.1, optional: the graph strip above the content + Ctrl+J (app/graphStrip.tsx)
+  graphKind="report"                // 'report' (default, shown) | 'detail' (folded by default)
+  stat={<StatLine …/>}              // 2.1, optional: the answer in words, right of a toolbar row
   loading={q.loading} error={q.error} onRetry={q.refetch}   // skeleton / friendly error + Retry
   footer={<><Button onClick={() => void nav.back()}>Cancel</Button><Button variant="primary" shortcut="Ctrl+A" onClick={save}>Save</Button></>}
 >
@@ -165,7 +168,7 @@ nav.push('accounts.ledger.form', { id: 7 });  // false + toast when refused (mis
 nav.replace('vouchers.entry', { baseType: 'sales' });   // swap the top screen (after save → fresh voucher)
 nav.pop(result?);                            // close the top screen (programmatic: NO dirty prompt)
 await nav.back();                            // what Esc does: asks when dirty; true when popped
-await nav.popTo(index);                      // breadcrumbs; asks if any closed screen is dirty
+await nav.popTo(index);                      // back to a stack index; asks if any closed screen is dirty
 await nav.reset();                           // back to the Gateway
 nav.canOpen(id); nav.isRegistered(id); nav.screenDef(id); nav.getStack();
 ```
@@ -184,7 +187,7 @@ nav.canOpen(id); nav.isRegistered(id); nav.screenDef(id); nav.getStack();
 When opened for a result (`params.forResult` / `useScreenResult().forResult`), label the save action
 "Save & return" and, on successful create, call `nav.pop({ id, name })` (or
 `useScreenResult().returnResult({ id, name })`). The value reaches only the `pushForResult` that
-opened that exact stack entry; Esc, breadcrumbs, `reset`, `replace` or closing the company resolve
+opened that exact stack entry; Esc, `popTo`, `reset`, `replace` or closing the company resolve
 it with `undefined`.
 
 ```ts
@@ -195,10 +198,11 @@ const { forResult, returnResult, cancel } = useScreenResult<{ id: number; name: 
 
 | Hook | Purpose |
 |---|---|
-| `useScreenTitle(title)` | runtime title (breadcrumb, window title) — `<Screen>` does this |
+| `useScreenTitle(title)` | runtime title (title row, back-button path, window title) — `<Screen>` does this |
 | `useDirty(isDirty)` | unsaved work → Esc/F3/Ctrl+Q/window close ask first; also `pevqori.setDirty` |
 | `useScreenActions(items)` | contribute actions (command bar, shortcut bar, F1 list) + register their keys (several components may contribute) |
-| `useStatusHint(text)` | status bar hint while on top |
+| `useStatusHint(text)` | the screen's one-line key help — F1 › "This screen" shows it first (2.1: no status bar) |
+| `useBackTarget()` | (2.1) `{ label: 'Back to Home', tip: 'Home › Day Book · Esc' }` for the `‹` button, null on Home |
 | `useScreen()` | `{ entry, index, isTop, visible, def }` |
 | `useScreenResult()` | see above |
 
@@ -448,16 +452,60 @@ Global keys live on the root hotkey layer: they are fenced while any dialog/popo
 may handle `F8` itself to switch the voucher type). The full list renders in the shortcuts overlay
 (`GLOBAL_SHORTCUTS`, `reservedGlobalKeys()`).
 
-### Command bar and shortcut bar (2.0)
+### The top bar, the title row and the command bar (2.1)
 
-Every screen's actions show in the screen bar's **command bar** (`lib/commandBar.ts` → `ui/CommandBar.tsx`):
-the `primary` action as the filled button; up to 3 / 2 / 1 more buttons by width — first the actions you
-mark `prominent: true` (declaration order), then Alter (Alt+A), Print (Alt+P), Share (Alt+W), Export
-(Alt+E), More details (Ctrl+I), Create (Alt+C); everything else, then F11 / F12 (for users who may open them) / F1, under **More ▾**
-with its key. Hidden actions never show; disabled ones show their `hint` in More. The command bar never
-registers keys, so `prominent` changes only what is visible. Write `prominent` (and any new action field)
-**after `onClick`** — never straight after `label` — or `lib/keyConventions.test.ts` cannot see the action.
+**One bar of chrome.** The top bar (`Workspace.tsx`, 40 px) holds seven controls: the book mark
+(`button "Home"` — back to Home, asking first about unsaved work), the company ▾ (F3), the working date
+(F2; "not today" in warning tone when it is not; named "Working date Sat 10-Oct-26" for screen readers),
+**⌕ Go To** (Ctrl+G), **Create ▾**, ⚙ Settings and the user menu. No key chips: keys are in tooltips ("Working date · F2"), F1, the menus (plain text) and
+`aria-keyshortcuts`. There is no breadcrumb row and no status bar: the path is the `‹` button's tooltip,
+the hint goes to F1, unsaved work is the word **"Not saved"** in the title row's context run and a `• `
+before the window title, and a request running longer than 400 ms draws a 2 px hairline under the top bar
+(plus a visually hidden `role=status` "Working…"). The period is no longer in the top bar: each report's
+title row shows it (Alt+F2 stays global).
+
+**The title row** is `ui/PageHeader.tsx` (every `Screen`, and `ReportFrame`): `‹` back from stack depth 2
+(`Back to <previous title>`, `useBackTarget()`), the h1, one quiet context run (`subtitle` · `meta`,
+ellipsized first; "Not saved" after them in its own run, so it never ellipsizes away), then an empty
+`[data-actions-slot]`. `ScreenHost` (nav.tsx) hands each full
+screen's PageHeader a `TitleBarContext` (back target, dirty flag, slot ref) and publishes the slot; the
+shell **portals the command bar into the top full screen's slot only**, so exactly one `toolbar "Actions"`
+exists — none on Home; a dialog screen on top adds none (the page under it keeps its own bar, inert behind
+the modal, so its title row does not reflow; the dialog's own keys still work). A full screen whose
+content draws no title row gets the bar in a plain `.bx-actions-row` at its top (transitional). Optional
+`stat` puts a `.bx-toolbar-row` under the title row; `graph` draws the graph strip and adds the Ctrl+J
+action from `useGraphsToggle` (app/graphStrip.tsx).
+
+**The command bar** (`lib/commandBar.ts` → `ui/CommandBar.tsx`): the `primary` action as the filled
+button; up to 3 / 2 / 1 more buttons by the **title row's** width (900 / 640 px) — first the actions you
+mark `prominent: true` (declaration order), then the conventions, matched by key **and** verb: Alter
+(Alt+A), Print (Alt+P), Share (Alt+W), Export (Alt+E), More details (Ctrl+I), Create (Alt+C) — so
+"Payables Alt+W" or "Compare Alt+C" take no convention slot unless `prominent`; everything else, then
+F11 / F12 (for users who may open them) / F1, under **More ▾** with its key as plain text. Buttons are
+text-only with the tooltip "Label · Key" (ui's `keyTip`), followed by the action's `hint` when it has one
+("Print · Alt+P — The voucher you just saved"); their key shows only on `:focus-visible` and while Ctrl is
+held. Hidden actions never show; disabled ones show their `hint` in More.
+
+2.1 action fields (`ui/ActionRail.tsx`, all written **after `onClick`**): `demoted: true` sends an action
+to More whatever `primary`, `prominent` or a convention key say — its key stays registered (moving an
+action out of sight is `demoted` or dropping `prominent`, **never** `hidden`, which unregisters the key);
+`checked` makes it a `menuitemcheckbox` in More; `key: NO_KEY` (`''`, from `ui/index.ts`) marks a
+menu-only item ("About this report", "Columns…"): no hotkey, no key text, never a button. The command
+bar never registers keys, so these change only what is visible. Write every new action field **after
+`onClick`** — never straight after `label` — or `lib/keyConventions.test.ts` cannot see the action.
 The 1.0 right rail survives as the optional **shortcut bar** (user menu › *Show shortcut bar*).
+
+**Hold Ctrl to peek** (`lib/keyPeek.ts`, a pure state machine): Ctrl pressed alone for 900 ms sets
+`<html data-keys>` and every visible button shows its key until Ctrl is released (120 ms fade, none under
+reduced motion) — the top bar's Go To (Ctrl+G) and working date (F2) and the title row's `‹` (Esc)
+included, through the same `.bx-btn__kbd` rule. Repeated Control keydowns are ignored; any other key (AltGr included), pointer down or
+wheel cancels; blur or a visibility change hides it. The mouse's **Back** button (button 3) does what Esc
+does. **Ctrl+J** is written once (`lib/graphsToggle.ts`); `lib/keyConventions.test.ts` fails on any other
+Ctrl+J literal in the renderer or an Electron accelerator for it.
+
+**Quiet states** (`screenParts.tsx`): the first-load skeleton is `aria-busy` at once and draws nothing for
+300 ms; a load error is one line — "This could not be loaded — <reason>" or "You don't have access to
+this — ask the company owner." (titles verbatim) — plus a **Try again** link.
 
 **Ctrl+S** is an alias of **Ctrl+A** in the hotkey layer (`ui/lib/hotkeyRegistry.ts`): never bind Ctrl+S
 in a screen; binding Ctrl+A is enough. The one exception is the kit's Yes/No `ConfirmDialog`, which takes
@@ -494,7 +542,7 @@ One meaning per key in every module (`CONVENTION_SHORTCUTS` in `lib/shortcuts.ts
 Screens must not bind `reservedGlobalKeys()` (the voucher screen's own F-keys and the documented
 GST exceptions aside) — e.g. never `Alt+F5` (Sales Order). Action labels use the conventional accounting verbs ("Create
 ledger", "Alter", "Delete"); hints read `<Key> <Capitalised action>` ("Alt+C Create Ledger", "Ctrl+A Save", "Enter Next field";
-`lib/screenConventions.test.ts` checks every module's status-bar hints, labels and keys). Plain
+`lib/screenConventions.test.ts` checks every module's hints (shown in F1), labels and keys). Plain
 letter keys are free for screen accelerators (ignored while typing). Put every action in the rail via
 `actions` / `useScreenActions` so it is discoverable.
 
@@ -624,8 +672,8 @@ export function TrialBalance() {
 |---|---|
 | `App.tsx`, `state.tsx`, `lib/appPhase.ts` | providers, top-level routing (no bridge → first run → login → company list → forced password → workspace); `CoreRestartNotice`: on the `core.restarted` command (main restarted a crashed core worker — nothing is open any more) shows an error toast and refreshes the app state |
 | `LockScreen.tsx`, `lib/sessionLock.ts` | idle lock (phase `locked`): lock screen over the kept workspace, lock/resume rules |
-| `Workspace.tsx`, `UserMenu.tsx`, `shell.tsx`, `lib/autoBackup.ts`, `lib/commandBar.ts`, `lib/createMenu.ts` | layout, top bar (company, Create ▾ — only what the user may create —, search, ⚙, ?, user menu — `UserMenu.tsx`, with the Appearance dialog), screen bar + command bar, optional shortcut bar, status bar; global hotkeys, menu commands, session keep-alive + idle timer, Lock, automatic backup |
-| `nav.tsx`, `lib/navStack.ts`, `lib/initialFocus.ts`, `screenVisibility.ts` | stack, result delivery, per-screen hooks, initial focus, error boundary, DialogScreen |
+| `Workspace.tsx`, `UserMenu.tsx`, `shell.tsx`, `lib/autoBackup.ts`, `lib/commandBar.ts`, `lib/createMenu.ts`, `lib/screenHead.ts`, `lib/keyPeek.ts` | layout, the one top bar (Home, company, working date, Go To, Create ▾ — only what the user may create —, ⚙, user menu — `UserMenu.tsx`, with the Appearance dialog), the command bar portaled into the top screen's title row, working hairline, window title, hold-Ctrl key peek, mouse Back, optional shortcut bar; global hotkeys, menu commands, session keep-alive + idle timer, Lock, automatic backup |
+| `nav.tsx`, `lib/navStack.ts`, `lib/initialFocus.ts`, `screenVisibility.ts` | stack, result delivery, per-screen hooks, the title row's context (back target, "Not saved", command-bar slot), initial focus, error boundary, DialogScreen |
 | `api.ts`, `bridge.ts`, `queryClient.ts`, `hooks/*`, `lib/queryCache.ts`, `lib/queryVisibility.ts`, `lib/apiErrors.ts` | API client, cache (hidden screens wait), errors |
 | `confirm.tsx` | useConfirm, withConfirmation |
 | `working.tsx`, `lib/workingContext.ts` | working date & period |

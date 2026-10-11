@@ -17,15 +17,20 @@ export interface MenuItem {
   label: ReactNode;
   /** Text for type-ahead when `label` is not a string. */
   textValue?: string;
+  /** Accepted for compatibility; 2.1 menus draw no icons (only the ✓ of `checked` items). */
   icon?: IconName;
-  /** Shortcut hint shown at the right (register the key separately). */
+  /** The key, printed as plain right-aligned text ("Ctrl+F8"); '' or absent prints nothing (register the key separately). */
   shortcut?: string;
   description?: ReactNode;
   disabled?: boolean;
   /** Destructive action styling (still needs a confirmation step). */
   danger?: boolean;
-  /** Renders a check mark and role="menuitemcheckbox". */
+  /** Renders a check mark and role="menuitemcheckbox" (or "menuitemradio" with `radio`). */
   checked?: boolean;
+  /** With `checked`: one-of-many choice (role="menuitemradio"). */
+  radio?: boolean;
+  /** Choosing the item keeps the menu open (multi-select menus of checkable items). */
+  keepOpen?: boolean;
   onSelect?: () => void;
 }
 
@@ -63,7 +68,9 @@ export interface MenuProps {
 
 /**
  * Vertical action menu (role="menu"): ↑/↓ move (wrapping), Home/End, type-ahead, Enter/Space
- * activate. Disabled items stay focusable (discoverable) but do nothing.
+ * activate. Disabled items stay focusable (discoverable) but do nothing. 2.1: one line per item,
+ * keys as plain right-aligned text, no icons except the ✓ of checkable items; `keepOpen` items
+ * (multi-select) leave the menu open.
  */
 export function Menu({ items, onAction, onClose, id, autoFocus = 'first', className, ref, ...aria }: MenuProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -86,8 +93,10 @@ export function Menu({ items, onAction, onClose, id, autoFocus = 'first', classN
     if (item.disabled) return;
     item.onSelect?.();
     onAction?.(item.key);
-    onClose?.();
+    if (!item.keepOpen) onClose?.();
   };
+  // The ✓ column exists only in a menu that has checkable items (no left icons otherwise, D4/§1.12).
+  const checkable = items.some((e) => isItem(e) && e.checked !== undefined);
 
   return (
     <div
@@ -115,7 +124,7 @@ export function Menu({ items, onAction, onClose, id, autoFocus = 'first', classN
           <button
             key={entry.key}
             type="button"
-            role={entry.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+            role={entry.checked === undefined ? 'menuitem' : entry.radio ? 'menuitemradio' : 'menuitemcheckbox'}
             aria-checked={entry.checked === undefined ? undefined : entry.checked}
             aria-disabled={entry.disabled || undefined}
             data-roving-item=""
@@ -124,14 +133,16 @@ export function Menu({ items, onAction, onClose, id, autoFocus = 'first', classN
             className={cx('bx-menu__item', entry.danger && 'bx-menu__item--danger', entry.disabled && 'is-disabled')}
             onClick={() => activate(entry)}
           >
-            <span className="bx-menu__icon" aria-hidden="true">
-              {entry.checked ? <Icon name="check" size="sm" /> : entry.icon ? <Icon name={entry.icon} size="sm" /> : null}
-            </span>
+            {checkable ? (
+              <span className="bx-menu__icon" aria-hidden="true">
+                {entry.checked ? <Icon name="check" size="sm" /> : null}
+              </span>
+            ) : null}
             <span className="bx-menu__text">
               <span className="bx-menu__item-label">{entry.label}</span>
               {entry.description ? <span className="bx-menu__desc">{entry.description}</span> : null}
             </span>
-            {entry.shortcut ? <Kbd keys={entry.shortcut} size="sm" tone="subtle" className="bx-menu__kbd" /> : null}
+            {entry.shortcut ? <Kbd keys={entry.shortcut} tone="subtle" className="bx-menu__kbd" /> : null}
           </button>
         );
       })}

@@ -30,7 +30,7 @@ export function localToday(): string {
  * Esc back down the stack until Home (the 'app.gateway' screen) is visible. A "Discard unsaved changes?"
  * question is answered "Discard changes" (returns true when one was asked); a crashed dialog screen
  * (its error boundary drawn in place of the dialog, which Esc does not close) is left with its
- * "Go back" button; the breadcrumb is the last resort.
+ * "Go back" button; the top bar's Home button is the last resort.
  */
 export async function toGateway(page: Page): Promise<boolean> {
   const gateway = screen(page, 'app.gateway');
@@ -49,8 +49,8 @@ export async function toGateway(page: Page): Promise<boolean> {
     }
     await gateway.waitFor({ state: 'visible', timeout: 700 }).catch(() => undefined);
   }
-  const crumb = page.locator('.bx-shell__breadcrumbs').getByRole('button', { name: 'Home' });
-  if (await crumb.isVisible()) await crumb.click();
+  const home = page.locator('.bx-topbar').getByRole('button', { name: 'Home', exact: true });
+  if (await home.isVisible()) await home.click();
   if (await discard.isVisible()) {
     asked = true;
     await discard.click();
@@ -61,7 +61,7 @@ export async function toGateway(page: Page): Promise<boolean> {
 
 /**
  * Home shows All menus (Ctrl+2): every module's menu, the full 1.0 Gateway. A new profile opens Home on
- * Essentials (about 23 everyday entries), so helpers that open any menu item switch first.
+ * Essentials (at most 20 everyday entries), so helpers that open any menu item switch first.
  */
 export async function showAllMenus(page: Page): Promise<void> {
   await page.keyboard.press('Control+2');

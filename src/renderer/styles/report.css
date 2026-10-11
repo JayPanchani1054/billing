@@ -1,31 +1,9 @@
-/* ReportFrame (+ at the end, the Export and Appearance dialogs ReportScreen and AppearancePanel render) */
-.bx-report__footer {
-  color: var(--text-muted);
-  font-size: var(--fs-12);
+/* Report template (WP-B2): ReportFrame, the graph strip, then the Export and Appearance dialogs */
+:root {
+  --graph-h: 168px;
 }
-.bx-report__header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-4);
-}
-.bx-report__title {
-  font-family: var(--font-display);
-  font-size: var(--text-title);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-tight);
-}
-.bx-report__subtitle {
-  margin-top: 2px;
-  color: var(--text-secondary);
-}
-.bx-report__filters,
-.bx-report__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+[data-density='compact'] {
+  --graph-h: 152px;
 }
 .bx-report {
   display: flex;
@@ -40,44 +18,47 @@
   gap: var(--space-3);
   min-width: 0;
   min-height: 0;
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-2) var(--space-6) var(--space-6);
+  container-type: inline-size;
 }
-.bx-report__titles {
-  min-width: 0;
-}
-.bx-report__title {
-  margin-top: 2px;
-}
-.bx-report__period {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-h);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
-  background: var(--surface-1);
-  color: var(--text-primary);
-  font-weight: var(--fw-medium);
+.bx-report__token {
+  margin: 0 -4px;
+  padding: 0 4px;
   white-space: nowrap;
 }
-button.bx-report__period:hover {
-  border-color: var(--border-strong);
+button.bx-report__token:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
 }
-.bx-report__period .bx-icon {
-  color: var(--text-muted);
+button.bx-report__token:focus-visible {
+  outline-offset: -2px;
 }
-.bx-report__period-to {
-  margin: 0 2px;
-  color: var(--text-muted);
+.bx-report__toolbar,
+.bx-report__filters,
+.bx-report__stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
 }
 .bx-report__toolbar {
-  display: flex;
+  min-height: var(--toolbar-row-h, 36px);
+}
+.bx-report__filters {
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+.bx-report__stat {
+  margin-left: auto;
+  white-space: nowrap;
+}
+@container (width < 1200px) {
+  .bx-report__stat .bx-statline__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
 }
 .bx-report__body {
   display: flex;
@@ -90,15 +71,48 @@ button.bx-report__period:hover {
   opacity: 0.6;
 }
 .bx-report__body > .bx-table {
-  flex: 1;
+  flex: 0 1 auto;
+}
+.bx-report__footer {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
 }
 .bx-report__rail {
   display: flex;
 }
+.bx-report__graph {
+  flex: none;
+  margin-bottom: var(--space-3);
+}
+.bx-report__graph-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-height: 20px;
+  font-size: var(--fs-12);
+}
+.bx-report__graph-title {
+  color: var(--text-secondary);
+  font-weight: var(--fw-semibold);
+}
+.bx-report__graph-takeaway {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bx-report__graph-toggle {
+  color: var(--brand-text);
+}
+.bx-report__graph-toggle:hover {
+  text-decoration: underline;
+}
 
 @media print {
   .bx-report__rail,
-  .bx-report__toolbar {
+  .bx-report__toolbar,
+  .bx-report__graph {
     display: none !important;
   }
   .bx-report,
@@ -109,55 +123,32 @@ button.bx-report__period:hover {
     padding: 0;
     background: none;
   }
-  .bx-report__period {
-    min-height: 0;
-    padding: 0;
-    border: 0;
-  }
 }
 
-/* Export format chooser */
-.bx-export-choices {
+/* Export format chooser, Columns… */
+.bx-export-choices,
+.bx-appearance {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 .bx-export-choice {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   text-align: left;
 }
 .bx-export-choice:hover,
 .bx-export-choice:focus-visible {
-  border-color: var(--brand);
-  background: var(--brand-subtle);
+  background: var(--surface-2);
 }
-.bx-export-choice__icon {
-  color: var(--brand-text);
-}
-.bx-export-choice__text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-}
-.bx-export-choice__label {
-  font-weight: var(--fw-semibold);
-}
-.bx-export-choice__body {
-  color: var(--text-secondary);
-  font-size: var(--text-small);
+.bx-export-choice__key {
+  color: var(--text-muted);
 }
 
 /* Appearance panel (user menu › Appearance…, Settings hub) */
 .bx-appearance {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-4);
 }
 .bx-appearance__row {
@@ -166,15 +157,9 @@ button.bx-report__period:hover {
   justify-content: space-between;
   gap: var(--space-4);
 }
-.bx-appearance__label {
+.bx-appearance__controls {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  font-weight: var(--fw-medium);
-}
-.bx-appearance__hint {
-  max-width: 36ch;
-  color: var(--text-secondary);
-  font-size: var(--text-small);
-  font-weight: var(--fw-regular);
+  align-items: flex-end;
+  gap: var(--space-2);
 }

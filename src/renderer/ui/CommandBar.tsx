@@ -5,6 +5,7 @@ import type { MenuEntry } from './Menu.tsx';
 import type { ActionRailItem } from './ActionRail.tsx';
 import { useRovingFocus } from './hooks/useRovingFocus.ts';
 import { cx } from './lib/cx.ts';
+import { keyTip } from './lib/keyText.ts';
 
 export interface CommandBarProps {
   /** The filled button (the screen's `primary` action), if any. */
@@ -18,10 +19,23 @@ export interface CommandBarProps {
 }
 
 /**
- * One row of action buttons with their key chips plus a "More" menu (the 2.0 screen bar). Purely
+ * The button's tooltip: "Print · Alt+P" (`keyTip`; a NO_KEY item shows its label), then the action's `hint`
+ * after " — " — the description a 2.0 button showed on hover, or why a disabled one cannot run.
+ */
+function tip(it: ActionRailItem): string {
+  const base = keyTip(it.label, it.key);
+  return it.hint ? `${base} — ${it.hint}` : base;
+}
+
+/**
+ * The title row's action buttons plus a "More" menu (2.1: the shell renders it into the top screen's
+ * `[data-actions-slot]`). Text-only buttons — the key is in the tooltip ("Print · Alt+P"), in
+ * `aria-keyshortcuts`, and in the button's own key chip, which the stylesheet shows only on
+ * `:focus-visible` and while Ctrl is held (`html[data-keys]`). More lists every other action with its
+ * key as plain text (none for NO_KEY items); checkable items are menuitemcheckbox. Purely
  * presentational: it never registers hotkeys — the keys belong to whoever contributed the actions
- * (useScreenActions), so showing an action here or not never changes what its key does. A toolbar
- * with one Tab stop: ←/→ move between buttons.
+ * (useScreenActions), so showing an action here or not never changes what its key does. A toolbar with
+ * one Tab stop: ←/→ move between buttons.
  */
 export function CommandBar({ primary, buttons, more, className, ...aria }: CommandBarProps) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -36,9 +50,9 @@ export function CommandBar({ primary, buttons, more, className, ...aria }: Comma
       key: `${i}:${it.id ?? it.key}`,
       label: it.label,
       textValue: it.label,
-      icon: it.icon,
-      shortcut: it.key,
+      shortcut: it.key.trim() || undefined,
       disabled: it.disabled,
+      checked: it.checked,
       description: it.disabled && it.hint ? it.hint : undefined,
       onSelect: () => {
         if (!it.disabled) it.onClick();
@@ -51,13 +65,14 @@ export function CommandBar({ primary, buttons, more, className, ...aria }: Comma
       key={`${it.id ?? ''}:${it.key}`}
       size="sm"
       variant={isPrimary ? 'primary' : 'ghost'}
-      icon={it.icon}
-      shortcut={it.key}
+      shortcut={it.key.trim() || undefined}
       data-roving-item=""
       aria-disabled={it.disabled || undefined}
       className={cx('bx-cmdbar__btn', it.disabled && 'is-disabled')}
-      title={it.hint}
-      onClick={() => it.onClick()}
+      title={tip(it)}
+      onClick={() => {
+        if (!it.disabled) it.onClick();
+      }}
     >
       {it.label}
     </Button>
@@ -74,7 +89,7 @@ export function CommandBar({ primary, buttons, more, className, ...aria }: Comma
           placement="bottom-end"
           menuClassName="bx-cmdbar__menu"
           renderTrigger={(p) => (
-            <Button {...p} size="sm" variant="ghost" iconRight="chevron-down" data-roving-item="" aria-label="More actions" className="bx-cmdbar__more">
+            <Button {...p} size="sm" variant="ghost" iconRight="chevron-down" data-roving-item="" aria-label="More actions" title="More actions" className="bx-cmdbar__more">
               More
             </Button>
           )}

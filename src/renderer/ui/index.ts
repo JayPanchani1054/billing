@@ -102,7 +102,8 @@ export type { KpiCardProps, KpiDelta, StatProps } from './KpiCard.tsx';
 export { Sparkline } from './Sparkline.tsx';
 export type { SparklineProps } from './Sparkline.tsx';
 export { BarChart } from './BarChart.tsx';
-export type { BarChartProps, ChartSeries, ChartSlot, ValueFormat } from './BarChart.tsx';
+export type { BarChartProps } from './BarChart.tsx';
+export type { ChartSeries, ChartSlot, ValueFormat } from './chartParts.tsx';
 export { LineChart } from './LineChart.tsx';
 export type { LineChartProps } from './LineChart.tsx';
 export { Tabs } from './Tabs.tsx';
@@ -156,3 +157,20 @@ export { parseAmountText, parseNumberText, formatAmountText, formatNumberText, a
 export { computeTreeInfo, visibleTreeIndices, parentIndices, keysUpToLevel } from './lib/tree.ts';
 export { weekdayName, monthMatrix } from './lib/calendar.ts';
 export { getEnterTargets, getTabbables, isEditableTarget, focusElement } from './lib/dom.ts';
+
+// 2.1 WP-B1
+export { NO_KEY } from './ActionRail.tsx';
+
+// 2.1 WP-A
+export { DisclosureLine } from './Disclosure.tsx';
+export type { DisclosureLineProps } from './Disclosure.tsx';
+export { FiltersPopover } from './FiltersPopover.tsx';
+export type { FiltersPopoverProps } from './FiltersPopover.tsx';
+export { keyTip } from './Tooltip.tsx';
+
+// 2.1 WP-C1 (the graph kit itself — Chart, LazyChart, reportGraph — is imported by path from ui/lazyChart.tsx, never from here)
+export type { ChartSpec, ChartKind, ChartColor } from './chartParts.tsx';
+export { StatLine, dropZeros } from './StatLine.tsx';
+export type { StatLineProps, StatLineItem } from './StatLine.tsx';
+export { MiniColumns } from './MiniColumns.tsx';
+export type { MiniColumnsProps } from './MiniColumns.tsx';

@@ -1,7 +1,7 @@
 /**
  * Home's Essentials view against the REAL module menus (read from the module index sources, as
  * gatewayLabels.test.ts does, plus the generated voucher-entry and register entries): every entry
- * resolves on a fully-featured company, a default GST company gets at most 24, nothing twice, and the
+ * resolves on a fully-featured company, a default GST company gets at most 20, nothing twice, and the
  * view is always a subset of All menus (F11 off, missing permissions, composition registration).
  */
 import assert from 'node:assert/strict';
@@ -148,14 +148,19 @@ describe('Essentials (Home)', () => {
     );
     const names = ESSENTIALS.flatMap((g) => g.entries.map(essentialName));
     assert.equal(new Set(names).size, names.length);
-    assert.equal(names.length, 25);
+    assert.equal(names.length, 22);
+    // 2.1 (SPEC-21 D9): the Company group is Settings and Backup; the rest of 2.0's group stays in All menus.
+    assert.deepEqual(
+      ESSENTIALS.find((g) => g.id === 'company')?.entries.map(essentialName),
+      ['Settings', 'Backup'],
+    );
   });
 
-  test('a default GST company gets at most 24 entries, each menu item once, in Essentials order', () => {
+  test('a default GST company gets at most 20 entries, each menu item once, in Essentials order', () => {
     const sections = essentialsOf(contexts['default GST company']);
     const items = sections.flatMap((s) => s.items);
-    assert.ok(items.length <= 24, `${items.length} entries`);
-    assert.ok(items.length >= 19, `only ${items.length} entries — has a menu label changed?`);
+    assert.ok(items.length <= 20, `${items.length} entries`);
+    assert.ok(items.length >= 16, `only ${items.length} entries — has a menu label changed?`);
     assert.equal(new Set(items.map((i) => i.id)).size, items.length);
     assert.deepEqual(
       sections.map((s) => s.id),
@@ -201,7 +206,17 @@ describe('Essentials (Home)', () => {
     assert.equal(letter('Trial Balance'), 't');
     assert.equal(letter('Day Book'), 'd');
     assert.equal(letter('Sales'), null); // F8 is its key
-    assert.equal(letter('Features'), null); // F11
+    // 2.1: the Company group is Settings and Backup; Backup's letter is pinned anew (USER_GUIDE §1, Home).
+    assert.equal(letter('Settings'), 'n');
+    assert.equal(letter('Backup'), 'k');
+    // Features (F11), Invoice Printing and Invoice Numbering left Essentials; All menus still lists them.
+    for (const gone of ['Features', 'Invoice Printing', 'Invoice Numbering']) {
+      assert.equal(items.find((i) => i.label === gone), undefined, `${gone} is not an Essentials entry`);
+      assert.ok(
+        buildGateway(mods, contexts['default GST company']).some((s) => s.items.some((i) => i.label === gone)),
+        `${gone} is still in All menus`,
+      );
+    }
     // Letters are assigned over the subset, not copied from All menus: with ~20 entries every entry
     // without a key of its own gets one ("Ledgers" is L here; All menus gives L to another item).
     for (const it of items) if (!it.hotkey) assert.notEqual(it.accelerator, null, `${it.label} has no letter`);

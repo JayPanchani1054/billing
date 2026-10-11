@@ -2,6 +2,9 @@ import { cloneElement, useId, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { cx } from './lib/cx.ts';
 
+/** Tooltip text for an action with a key (2.1, D4): "Print · Alt+P"; the label alone without one. */
+export { keyTip } from './lib/keyText.ts';
+
 export interface TooltipProps {
   content: ReactNode;
   /** A single focusable element (button, link, input…). */
@@ -17,7 +20,7 @@ export interface TooltipProps {
 }
 
 /**
- * CSS-positioned tooltip shown on hover and keyboard focus (after a short delay), dismissible with
+ * CSS-positioned tooltip shown on hover and keyboard focus (after 400 ms, --dur-tooltip-delay), dismissible with
  * Esc (WCAG 1.4.13) without swallowing the key. Plain text content only — no interactive content.
  */
 export function Tooltip({ content, children, placement = 'top', describeChild = true, disabled = false, className }: TooltipProps) {

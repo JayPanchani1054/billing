@@ -1,5 +1,4 @@
 import type { HTMLAttributes, ReactNode, Ref } from 'react';
-import { Icon } from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
 import { IconButton } from './IconButton.tsx';
 import { cx } from './lib/cx.ts';
@@ -7,39 +6,30 @@ import type { StatusTone } from './types.ts';
 
 export interface BannerProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
   tone?: StatusTone;
+  /** Rendered verbatim, in 600, before the body on the same line (tests and users read these titles). */
   title?: ReactNode;
   children?: ReactNode;
-  /** Action(s) at the end (Buttons, links). */
+  /** Action(s) at the end of the line (Buttons render as links). */
   action?: ReactNode;
   onDismiss?: () => void;
-  /** Override the tone icon (or `false` for none). */
+  /** Accepted for compatibility; 2.1 banners draw no icon (the tone fill and the words carry it). */
   icon?: IconName | false;
-  /** Compact single-line variant for inside panels/forms. */
+  /** Accepted for compatibility; every 2.1 banner is the compact one-line kind. */
   inline?: boolean;
   ref?: Ref<HTMLDivElement>;
 }
 
-const ICON: Readonly<Record<StatusTone, IconName>> = { info: 'info', success: 'check-circle', warning: 'alert', danger: 'x-circle' };
-
 /**
  * Persistent message: info/success/warning/danger. Danger and warning are announced (role=alert /
- * status). Copy: say what happened, then what to do.
+ * status). Copy: say what happened, then what to do. 2.1 (§2.3): one line by default — tone fill, no
+ * border, no icon; the title inline before the body; a trailing action as a link. A body that is a
+ * list wraps to more lines.
  */
-export function Banner({ tone = 'info', title, children, action, onDismiss, icon, inline = false, className, ...rest }: BannerProps) {
-  const iconName = icon === false ? null : icon ?? ICON[tone];
+export function Banner({ tone = 'info', title, children, action, onDismiss, icon: _icon, inline: _inline, className, ...rest }: BannerProps) {
   return (
-    <div
-      role={tone === 'danger' ? 'alert' : 'status'}
-      className={cx('bx-banner', `bx-banner--${tone}`, inline && 'bx-banner--inline', className)}
-      {...rest}
-    >
-      {iconName ? (
-        <span className="bx-banner__icon" aria-hidden="true">
-          <Icon name={iconName} size="md" />
-        </span>
-      ) : null}
+    <div role={tone === 'danger' ? 'alert' : 'status'} className={cx('bx-banner', `bx-banner--${tone}`, className)} {...rest}>
       <div className="bx-banner__content">
-        {title ? <p className="bx-banner__title">{title}</p> : null}
+        {title ? <strong className="bx-banner__title">{title}</strong> : null}
         {children ? <div className="bx-banner__body">{children}</div> : null}
       </div>
       {action ? <div className="bx-banner__action">{action}</div> : null}

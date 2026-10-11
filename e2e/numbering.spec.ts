@@ -1,6 +1,6 @@
 // Pevqori 2.0 Invoice Numbering through the real UI of the built app (docs/USER_GUIDE.md §3.4):
 //
-//   wizard company → party + item (window.pevqori.api) → Home › Essentials › Invoice Numbering →
+//   wizard company → party + item (window.pevqori.api) → Home › All menus › Invoice Numbering →
 //   Sales: prefix INV/ + the {FY} chip + '/', 4 digits → the next sale is INV/<fy>/0001 →
 //   next number 41 (Set, confirm the skipped numbers) → the next sale is INV/<fy>/0041 → gaps of the
 //   year → "start again every financial year" off shows the FY-uniqueness note (Esc discards) →
@@ -11,7 +11,7 @@
 // numbering is changed only through the screen.
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { api, firstLaunchCreateCompany, localToday, screen, stubNativeDialogs, toGateway } from './flows.ts';
+import { api, firstLaunchCreateCompany, localToday, screen, showAllMenus, stubNativeDialogs, toGateway } from './flows.ts';
 import { captureFailures, closeApp, launchApp } from './support.ts';
 import type { LaunchedApp } from './support.ts';
 
@@ -60,9 +60,10 @@ async function saleNumber(): Promise<string> {
   return saved.number;
 }
 
-/** Home › Essentials › Company › Invoice Numbering. */
+/** Home › All menus › Company › Invoice Numbering (2.1: Essentials' Company group is Settings and Backup). */
 async function openNumbering(): Promise<Locator> {
   await toGateway(page);
+  await showAllMenus(page);
   await page.getByRole('navigation', { name: 'Gateway menu' }).locator('button[data-text-value="Invoice Numbering"]').click();
   const s = screen(page, 'accounts.numbering');
   await expect(s.getByRole('heading', { name: 'Invoice Numbering', level: 1 })).toBeVisible();

@@ -9,8 +9,16 @@ export { FieldContext, useFieldControl } from './fieldContext.ts';
 
 export interface FieldProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
   label: ReactNode;
-  /** Helper text under the control. Replaced by `error` when present. */
+  /**
+   * Helper text under the control. Replaced by `error` when present. 2.1 (D4/D23): shown while the field
+   * has focus, otherwise visually hidden (still in the DOM and in `aria-describedby`).
+   */
   hint?: ReactNode;
+  /**
+   * The hint states something that applies right now ("Books are locked up to …", "Future date — Ctrl+T"):
+   * shown without focus, like an error, until the caller drops it.
+   */
+  hintApplies?: boolean;
   /** Inline validation message: say what happened + what to do ("GSTIN must be 15 characters — check the last digit"). */
   error?: ReactNode;
   required?: boolean;
@@ -38,6 +46,7 @@ export interface FieldProps extends Omit<HTMLAttributes<HTMLDivElement>, 'childr
 export function Field({
   label,
   hint,
+  hintApplies = false,
   error,
   required = false,
   optional = false,
@@ -100,7 +109,7 @@ export function Field({
             <span>{error}</span>
           </p>
         ) : hasHint ? (
-          <p className="bx-field__message" id={hintId}>
+          <p className={cx('bx-field__message', hintApplies && 'bx-field__message--applies')} id={hintId}>
             {hint}
           </p>
         ) : null}

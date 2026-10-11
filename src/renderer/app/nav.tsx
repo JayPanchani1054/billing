@@ -14,8 +14,10 @@
 import { Component, createContext, Suspense, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { CompanyFeatures } from '../../shared/settings.ts';
-import { Breadcrumbs, Button, HotkeyScope, Icon, Modal, useHotkeys, useToast } from '../ui/index.ts';
+import { Button, HotkeyScope, Modal, useHotkeys, useToast } from '../ui/index.ts';
 import type { ActionRailItem, ModalSize } from '../ui/index.ts';
+import { TitleBarContext } from '../ui/PageHeader.tsx';
+import type { TitleBarContextValue } from '../ui/PageHeader.tsx';
 import { getTabbables } from '../ui/lib/dom.ts';
 import { setNativeDirty } from './bridge.ts';
 import { confirmDialog } from './confirm.tsx';
@@ -23,17 +25,21 @@ import { errorDetailsText, userMessage } from './lib/apiErrors.ts';
 import { isLazyScreen, PREFETCH_SCREENS, retryLazyScreens } from './lazyScreen.tsx';
 import { featureLabel } from './lib/featureCatalog.ts';
 import { KeyedStore } from './lib/keyedStore.ts';
+import { actionsSignature, hotkeyActions } from './lib/commandBar.ts';
 import { browserIdleScheduler, runWhenIdle } from './lib/lazyLoader.ts';
 import { FOCUS_RANK, INITIAL_FOCUS_WATCH_MS, keepUserFocusAfterLazyLoad, markShellFocus, needsFocusWatch, shouldUpgradeFocus } from './lib/initialFocus.ts';
 import { isAllowed, screenIndex } from './lib/menu.ts';
+import { backTarget } from './lib/screenHead.ts';
+import type { BackTarget } from './lib/screenHead.ts';
 import { createRootStack, makeEntry, mountedKeys, MAX_MOUNTED, ResultBroker, ROOT_SCREEN, topFullIndex, transition } from './lib/navStack.ts';
 import type { NavAction, NavEntry, NavParams } from './lib/navStack.ts';
 import type { ModuleDef, ScreenDef } from './registry.ts';
-import { ScreenSkeleton } from './Screen.tsx';
+import { ScreenSkeleton } from './screenParts.tsx';
 import { ScreenVisibilityContext } from './screenVisibility.ts';
 import { useAppState } from './state.tsx';
 
 export type { NavEntry, NavParams };
+export type { BackTarget };
 
 export interface NavApi {
   /** Open a screen on top of the stack. Returns false (and explains in a toast) when refused. */
@@ -73,6 +79,8 @@ interface NavInternal {
   dirty: KeyedStore<boolean>;
   actions: KeyedStore<readonly ScreenActionItem[]>;
   hints: KeyedStore<string>;
+  /** (2.1) Per screen entry: the element the shell renders the command bar into (title row or fallback row). */
+  slots: KeyedStore<HTMLElement>;
   takeFocusRestore: () => HTMLElement | null;
   popEntry: (key: string, result?: { value: unknown }) => void;
 }
@@ -116,6 +124,7 @@ export function NavProvider({ modules, children }: { modules: readonly ModuleDef
       dirty: new KeyedStore<boolean>(),
       actions: new KeyedStore<readonly ScreenActionItem[]>(),
       hints: new KeyedStore<string>(),
+      slots: new KeyedStore<HTMLElement>(),
     }),
     [],
   );
@@ -376,7 +385,7 @@ export function useScreenTitle(title: string | null | undefined): void {
   }, [key, title, titles]);
 }
 
-/** One line of keyboard help in the status bar while this screen is on top. */
+/** One line of keyboard help for this screen (2.1: the first line of F1 › "This screen"; there is no status bar). */
 export function useStatusHint(hint: string | null | undefined): void {
   const { hints } = useNavInternal();
   const key = useOptionalScreen()?.entry.key;
@@ -388,8 +397,9 @@ export function useStatusHint(hint: string | null | undefined): void {
 }
 
 /**
- * Mark this screen as having unsaved work: Esc / breadcrumbs / switching company ask before
- * discarding it, and closing the window asks too (pevqori.setDirty).
+ * Mark this screen as having unsaved work: Esc / ‹ / the top bar's Home / switching company ask before
+ * discarding it, and closing the window asks too (pevqori.setDirty). The title row says "Not saved" and
+ * the window title starts with "• " meanwhile.
  */
 export function useDirty(isDirty: boolean): void {
   const { dirty } = useNavInternal();
@@ -407,13 +417,10 @@ export function useDirty(isDirty: boolean): void {
   }, [key, dirty]);
 }
 
-function actionsSignature(items: readonly ScreenActionItem[]): string {
-  return items.map((i) => [i.id ?? '', i.key, i.label, i.disabled ? 1 : 0, i.hidden ? 1 : 0, i.group ?? '', i.icon ?? '', i.hint ?? '', i.primary ? 1 : 0].join('\u0001')).join('\u0002');
-}
-
 /**
- * Contribute actions to the right-hand rail while this screen is on top, and register their keys
- * as screen hotkeys. Hidden/disabled items don't fire. Handlers always see the latest props.
+ * Contribute actions to the title row's command bar (and the optional shortcut bar) while this screen is
+ * on top, and register their keys as screen hotkeys. Hidden/disabled items don't fire; menu-only items
+ * (`key: NO_KEY`) register nothing. Handlers always see the latest props.
  */
 export function useScreenActions(items: readonly ScreenActionItem[]): void {
   const { actions } = useNavInternal();
@@ -431,7 +438,7 @@ export function useScreenActions(items: readonly ScreenActionItem[]): void {
     return () => actions.delete(key);
   }, [key, actions]);
   const map: Record<string, (() => void) | undefined> = {};
-  for (const it of items) if (!it.hidden && !it.disabled) map[it.key] = () => it.onClick();
+  for (const it of hotkeyActions(items)) map[it.key] = () => it.onClick();
   useHotkeys(map, [sig]);
 }
 
@@ -471,13 +478,17 @@ function actionsOf(store: KeyedStore<readonly ScreenActionItem[]>, screenKey: st
 
 /** Rail items of the top screen (all contributors, in registration order). */
 export function useTopScreenActions(): { key: string; items: readonly ScreenActionItem[] } {
-  const { actions } = useNavInternal();
   const stack = useNavStack();
   const key = stack[stack.length - 1]?.key ?? '';
+  return { key, items: useScreenActionItems(key) };
+}
+
+/** (2.1) The current action items of one stack entry (re-renders when any screen's actions change). */
+export function useScreenActionItems(key: string): readonly ScreenActionItem[] {
+  const { actions } = useNavInternal();
   const version = useSyncExternalStore(actions.subscribe, actions.getVersion);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const items = useMemo(() => actionsOf(actions, key), [actions, key, version]);
-  return { key, items };
+  return useMemo(() => actionsOf(actions, key), [actions, key, version]);
 }
 
 /** Latest action items of a screen (call-time lookup for rail clicks: always the newest handlers). */
@@ -503,18 +514,38 @@ const EMPTY: readonly ScreenActionItem[] = Object.freeze([]);
 
 // ───────────────────────────── Rendering ─────────────────────────────
 
-/** Breadcrumb trail of the stack ("Gateway › Ledgers › HDFC Bank"); clicking pops back. */
-export function NavBreadcrumbs() {
+/** Titles of the stack, root first (runtime overrides, else the ScreenDef titles). Re-renders on title changes. */
+function useStackTitles(): string[] {
   const stack = useNavStack();
-  const nav = useNav();
   const { titles, registry } = useNavInternal();
   useSyncExternalStore(titles.subscribe, titles.getVersion);
-  const items = stack.map((e, i) => ({
-    key: e.key,
-    label: titles.get(e.key) ?? screenLabel(registry.get(e.screenId), e.screenId),
-    onClick: i < stack.length - 1 ? () => void nav.popTo(i) : undefined,
-  }));
-  return <Breadcrumbs items={items} maxItems={6} className="bx-shell__breadcrumbs" />;
+  return stack.map((e) => titles.get(e.key) ?? screenLabel(registry.get(e.screenId), e.screenId));
+}
+
+/**
+ * (2.1) The `‹` back button of the screen this component belongs to: "Back to <previous title>" with the
+ * whole path in its tooltip, or null on Home / outside a screen (replaces the 2.0 breadcrumb row).
+ */
+export function useBackTarget(): BackTarget | null {
+  const titles = useStackTitles();
+  const index = useOptionalScreen()?.index ?? -1;
+  return backTarget(titles, index);
+}
+
+/**
+ * (2.1) Where the shell renders the command bar, and whose actions it shows: the title-row slot (PageHeader's
+ * `[data-actions-slot]`, or the fallback row while the screen has no title row) of the top FULL screen.
+ * A dialog screen on top adds no bar and takes none away — the page under it keeps its own (inert behind
+ * the modal; the dialog's keys stay registered by its own `useScreenActions`), so the title row does not
+ * reflow each time a dialog opens. Null on Home, which never has a bar (D2).
+ */
+export function useTopActionsSlot(): { screenKey: string; el: HTMLElement } | null {
+  const { slots, registry } = useNavInternal();
+  const stack = useNavStack();
+  const full = stack[topFullIndex(stack, (id) => registry.get(id)?.presentation === 'dialog')];
+  const key = full?.key ?? '';
+  const el = useSyncExternalStore(slots.subscribe, () => slots.get(key) ?? null);
+  return useMemo(() => (el ? { screenKey: key, el } : null), [el, key]);
 }
 
 /** Renders the stack: the top full screen visible, lower ones kept mounted (hidden), dialogs on top. */
@@ -557,7 +588,9 @@ function bestFocusCandidate(container: HTMLElement, includeFallbacks: boolean): 
   const grid = tabbables.find((el) => el.matches('[role=grid], [role=treegrid]'));
   if (grid) return { el: grid, rank: FOCUS_RANK.grid };
   if (!includeFallbacks) return null;
-  if (tabbables[0]) return { el: tabbables[0], rank: FOCUS_RANK.tabbable };
+  // Not the title row's ‹ back or command-bar buttons (2.1): Enter on a focused ‹ would leave the screen.
+  const first = tabbables.find((el) => !el.closest('.bx-titlebar, .bx-actions-row'));
+  if (first) return { el: first, rank: FOCUS_RANK.tabbable };
   const target = container.querySelector<HTMLElement>('h1, h2') ?? container;
   if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
   return { el: target, rank: FOCUS_RANK.heading };
@@ -622,6 +655,9 @@ function watchInitialFocus(container: HTMLElement, first: FocusPick): () => void
   return stop;
 }
 
+/** (2.1) Tells the ScreenHost while its lazy screen's code is loading (LazyScreenLoading is mounted). */
+const LazyLoadingContext = createContext<(shown: boolean) => void>(() => undefined);
+
 /** Marks the Suspense fallback of a full screen whose code is still loading (lazyScreen.tsx). */
 const LAZY_LOADING_SELECTOR = '[data-lazy-screen-loading]';
 
@@ -634,6 +670,12 @@ const LAZY_LOADING_SELECTOR = '[data-lazy-screen-loading]';
  * chunk's real load time; an ordinary update of the parent is committed at once.
  */
 function LazyScreenLoading({ load, onLoaded }: { load: (() => Promise<void>) | null; onLoaded: () => void }) {
+  // While the code loads, the screen has no title row yet: the shell waits instead of drawing the fallback row.
+  const onShown = useContext(LazyLoadingContext);
+  useLayoutEffect(() => {
+    onShown(true);
+    return () => onShown(false);
+  }, [onShown]);
   useEffect(() => {
     if (!load) return undefined;
     let live = true;
@@ -678,6 +720,46 @@ function whenLazyScreenLoaded(container: HTMLElement, done: () => void): () => v
   });
   observer.observe(container, { childList: true, subtree: true });
   return () => observer.disconnect();
+}
+
+/**
+ * What a full screen's PageHeader needs from the shell (TitleBarContext): its back button, its "Not saved"
+ * word and the ref that hands its `[data-actions-slot]` to the shell; plus the fallback row's ref. The
+ * slot actually used (title row, else fallback) is published in `slots` for Workspace to portal into.
+ */
+function useTitleBar(entry: NavEntry, index: number, isDialog: boolean): { value: TitleBarContextValue | null; hasSlot: boolean; fallbackRef: (el: HTMLElement | null) => void } {
+  const internal = useNavInternal();
+  const { slots, dirty, api } = internal;
+  const key = entry.key;
+  const titles = useStackTitles();
+  const target = backTarget(titles, index);
+  const prefix = `${key}${SLOT_SEP}`;
+  const isDirty = useSyncExternalStore(dirty.subscribe, () => dirty.entries().some(([k, v]) => v && k.startsWith(prefix)));
+  const [pageSlot, setPageSlot] = useState<HTMLElement | null>(null);
+  const [fallbackSlot, setFallbackSlot] = useState<HTMLElement | null>(null);
+  const slotRef = useCallback((el: HTMLElement | null) => setPageSlot(el), []);
+  const fallbackRef = useCallback((el: HTMLElement | null) => setFallbackSlot(el), []);
+  // Home (index 0) never gets a command bar (D2), whatever it renders; a dialog screen neither.
+  const used = isDialog || index === 0 ? null : (pageSlot ?? fallbackSlot);
+  useLayoutEffect(() => {
+    if (used) slots.set(key, used);
+    else slots.delete(key);
+  }, [slots, key, used]);
+  useLayoutEffect(() => () => slots.delete(key), [slots, key]);
+  const backLabel = target?.label;
+  const backTip = target?.tip;
+  const value = useMemo<TitleBarContextValue | null>(
+    () =>
+      isDialog
+        ? null
+        : {
+            back: backLabel && backTip ? { label: backLabel, tip: backTip, onBack: () => void api.back() } : null,
+            dirty: isDirty,
+            slotRef,
+          },
+    [isDialog, backLabel, backTip, api, isDirty, slotRef],
+  );
+  return { value, hasSlot: pageSlot !== null, fallbackRef };
 }
 
 function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; index: number; isTop: boolean; visible: boolean; def: ScreenDef }) {
@@ -742,6 +824,11 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
   const onLazyLoaded = useCallback(() => setLazyLoaded((n) => n + 1), []);
   const lazyLoad = isLazyScreen(Comp) ? Comp.preload : null;
   const content = useMemo(() => <Comp key={lazyLoaded} params={entry.params} />, [Comp, entry.params, lazyLoaded]);
+  const [lazyShown, setLazyShown] = useState(false);
+  const titleBar = useTitleBar(entry, index, isDialog);
+  // A full screen whose content draws no title row (yet) gets the command bar in a plain row at the top
+  // (transitional, SPEC-21 WP-B1 2.); Home and dialog screens get none.
+  const fallback = !isDialog && index > 0 && !titleBar.hasSlot && !lazyShown;
 
   return (
     <ScreenContext.Provider value={ctx}>
@@ -763,10 +850,19 @@ function ScreenHost({ entry, index, isTop, visible, def }: { entry: NavEntry; in
                 role="region"
                 aria-label={def.title}
               >
-                <ScreenErrorBoundary title={def.title}>
-                  {/* A lazy screen's code is loading (lazyScreen.tsx): the same skeleton as a first data load. */}
-                  <Suspense fallback={<LazyScreenLoading load={lazyLoad} onLoaded={onLazyLoaded} />}>{content}</Suspense>
-                </ScreenErrorBoundary>
+                {fallback ? (
+                  <div className="bx-actions-row">
+                    <div className="bx-titlebar__actions" data-actions-slot="" ref={titleBar.fallbackRef} />
+                  </div>
+                ) : null}
+                <TitleBarContext.Provider value={titleBar.value}>
+                  <LazyLoadingContext.Provider value={setLazyShown}>
+                    <ScreenErrorBoundary title={def.title}>
+                      {/* A lazy screen's code is loading (lazyScreen.tsx): the same skeleton as a first data load. */}
+                      <Suspense fallback={<LazyScreenLoading load={lazyLoad} onLoaded={onLazyLoaded} />}>{content}</Suspense>
+                    </ScreenErrorBoundary>
+                  </LazyLoadingContext.Provider>
+                </TitleBarContext.Provider>
               </div>
             )}
           </HotkeyScope>
@@ -873,21 +969,19 @@ function ScreenCrash({ title, error, onRetry }: { title: string; error: unknown;
   };
   return (
     <div className="bx-crash" role="alert">
-      <Icon name="alert" size="xl" className="bx-crash__icon" />
-      <h2 className="bx-crash__title">“{title}” ran into a problem</h2>
       <p className="bx-crash__body">
-        Your saved data is safe. {userMessage(error)} You can go back, or try opening the screen again.
+        <strong className="bx-crash__title">“{title}” ran into a problem.</strong> Your saved data is safe. {userMessage(error)}
       </p>
       <div className="bx-crash__actions">
         {nav ? (
-          <Button variant="primary" icon="arrow-left" onClick={() => nav.pop()}>
+          <Button variant="link" size="sm" onClick={() => nav.pop()}>
             Go back
           </Button>
         ) : null}
-        <Button icon="refresh" onClick={onRetry}>
+        <Button variant="link" size="sm" onClick={onRetry}>
           Try again
         </Button>
-        <Button variant="ghost" icon={copied ? 'check' : 'copy'} onClick={() => void copy()}>
+        <Button variant="link" size="sm" onClick={() => void copy()}>
           {copied ? 'Copied' : 'Copy details'}
         </Button>
       </div>

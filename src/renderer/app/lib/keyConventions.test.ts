@@ -366,3 +366,54 @@ describe('parity-wave screens: an action the role forbids is hidden, or disabled
     assert.deepEqual(bad, []);
   });
 });
+
+/**
+ * Ctrl+J (2.1, SPEC-21 §3.5): the one new global-looking key folds the graphs of the screen's class. It is
+ * written once — `GRAPHS_KEY` in app/lib/graphsToggle.ts (app/graphStrip.tsx may name it too) — and every
+ * screen gets it through `useGraphsToggle(kind).action`, so no module can bind it to something else, and
+ * no Electron menu accelerator takes it first.
+ */
+describe('Ctrl+J guard (2.1)', () => {
+  const rendererDir = path.resolve(modulesDir, '..');
+  const mainDir = path.resolve(rendererDir, '../main');
+  const ALLOWED = new Set(['app/graphStrip.tsx', 'app/lib/graphsToggle.ts']);
+  /** A quoted key literal naming Ctrl+J / Control+J, alone or in a list ('F1, Ctrl+J'). Comment lines are skipped. */
+  const LITERAL = /(['"`])[^'"`\n]*\b(?:ctrl|control)\s*\+\s*j\b[^'"`\n]*\1/i;
+  const code = (text: string): string =>
+    text
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+      .join('\n');
+  const walk = (dir: string): Array<{ file: string; text: string }> => {
+    const out: Array<{ file: string; text: string }> = [];
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) out.push(...walk(p));
+      else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) out.push({ file: path.relative(rendererDir, p).split(path.sep).join('/'), text: fs.readFileSync(p, 'utf8') });
+    }
+    return out;
+  };
+
+  test('the literal detector sees keys in strings and lists, not prose', () => {
+    assert.match(`key: 'Ctrl+J', label: 'Hide graphs'`, LITERAL);
+    assert.match(`'F1, ctrl + j': open`, LITERAL);
+    assert.match('aria-keyshortcuts="Control+J"', LITERAL);
+    assert.doesNotMatch(`key: 'Ctrl+K'`, LITERAL);
+    assert.doesNotMatch(`key: 'Ctrl+Jx'`, LITERAL);
+    assert.doesNotMatch(code('  // Ctrl+J folds the graphs'), LITERAL);
+  });
+
+  test('no Ctrl+J literal in any module; in app/ only graphStrip.tsx and lib/graphsToggle.ts', () => {
+    const files = walk(rendererDir);
+    assert.ok(files.length > 300, `scanned ${files.length} renderer files`);
+    const offenders = files.filter((f) => !ALLOWED.has(f.file) && LITERAL.test(code(f.text))).map((f) => f.file);
+    assert.deepEqual(offenders, []);
+  });
+
+  test('no Electron menu accelerator or main-process binding takes Ctrl+J', () => {
+    const offenders = walk(mainDir)
+      .filter((f) => /(['"`])[^'"`\n]*\b(?:CmdOrCtrl|CommandOrControl|Ctrl|Control)\s*\+\s*J\b[^'"`\n]*\1/i.test(code(f.text)))
+      .map((f) => f.file);
+    assert.deepEqual(offenders, []);
+  });
+});
