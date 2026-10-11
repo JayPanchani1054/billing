@@ -194,6 +194,11 @@ describe('searchSettings (Ctrl+F)', () => {
     assert.deepEqual(topics('Theme'), ['appearance']);
     assert.deepEqual(topics('shortcut bar'), ['appearance']);
     assert.deepEqual(topics('home view'), ['appearance']);
+    // 2.1 (V9): the graph switches live in Appearance — an owner who types "graph" (or "chart") finds them.
+    assert.deepEqual(topics('graph'), ['appearance']);
+    assert.deepEqual(topics('Graphs'), ['appearance']);
+    assert.deepEqual(topics('chart'), ['appearance']);
+    assert.match(cats.find((c) => c.id === 'appearance')?.description ?? '', /graphs/);
     assert.deepEqual(topics('data folder'), ['data']);
     assert.deepEqual(topics('logo'), [], 'topics with rows are found through their rows');
     assert.deepEqual(topics('   '), []);

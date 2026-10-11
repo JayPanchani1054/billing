@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { blend, contrastRatio, extractBlock, parseColor, parseDeclarations, resolveToken } from './lib/contrast.ts';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const components = read('../styles/components.css');
@@ -86,6 +87,57 @@ test('buttons: the key is hidden at rest, revealed on :focus-visible and while C
   assert.match(button, /aria-keyshortcuts=\{ariaShortcut\(shortcut\)\}/);
   assert.match(button, /<Kbd keys=\{shortcut\} tone="subtle" className="bx-btn__kbd" aria-hidden="true" \/>/);
   assert.match(button, /keyTip\(children, shortcut\)/, 'the default tooltip names the key');
+});
+
+test('buttons: the revealed key text keeps AA contrast (4.5:1) on every button colour, light and dark', () => {
+  // The key reveal (focus, Ctrl-peek) is 12 px text in the button's own colour: any opacity on it must keep
+  // it readable on the filled Save / Delete buttons and on link buttons too (V2: 0.75 gave 4.3:1 on Save).
+  const opacities = rules
+    .filter((r) => r.selectors.some((s) => s.includes('.bx-btn__kbd')))
+    .flatMap((r) => [...r.body.matchAll(/(?:^|;|\s)opacity\s*:\s*([0-9.]+)\s*;/g)].map((m) => Number(m[1])));
+  const alpha = Math.min(1, ...opacities);
+  const base = parseDeclarations(extractBlock(tokens, ':root') ?? '');
+  const light = parseDeclarations(extractBlock(tokens, '[data-theme="light"]') ?? '');
+  const dark = parseDeclarations(extractBlock(tokens, '[data-theme="dark"]') ?? '');
+  const variants: [string, string, string][] = [
+    ['primary', '--on-brand', '--brand'],
+    ['danger', '--on-danger-solid', '--danger-solid'],
+    ['link', '--text-link', '--surface-0'],
+    ['ghost', '--text-secondary', '--surface-0'],
+    ['secondary', '--text-primary', '--control-bg'],
+  ];
+  const failures: string[] = [];
+  for (const [theme, map] of [['light', new Map([...base, ...light])], ['dark', new Map([...base, ...light, ...dark])]] as const) {
+    const color = (name: string) => {
+      const c = parseColor(resolveToken(`var(${name})`, map));
+      assert.ok(c, `${theme}: ${name} resolves to a colour`);
+      return c;
+    };
+    for (const [variant, fg, bg] of variants) {
+      const back = color(bg);
+      const text = color(fg);
+      const ratio = contrastRatio(blend({ ...text, a: text.a * alpha }, back), back);
+      if (ratio < 4.5) failures.push(`${theme} ${variant}: ${ratio.toFixed(2)}`);
+    }
+  }
+  assert.deepEqual(failures, [], `key text at opacity ${alpha} is below 4.5:1`);
+});
+
+test('pickers: the "+ Create … Alt+C" row stays AA (4.5:1) while it is the highlighted option, light and dark', () => {
+  // The create row is link-coloured; highlighted, it sits on --row-selected (dark: --text-link gave 4.33:1).
+  const active = decl('.bx-option--create.is-active', 'color');
+  const fgVar = /var\((--[\w-]+)\)/.exec(active[0] ?? decl('.bx-option--create', 'color')[0] ?? '')?.[1];
+  assert.ok(fgVar, 'the create row names its colour token');
+  const base = parseDeclarations(extractBlock(tokens, ':root') ?? '');
+  const light = parseDeclarations(extractBlock(tokens, '[data-theme="light"]') ?? '');
+  const dark = parseDeclarations(extractBlock(tokens, '[data-theme="dark"]') ?? '');
+  for (const [theme, map] of [['light', new Map([...base, ...light])], ['dark', new Map([...base, ...light, ...dark])]] as const) {
+    const fg = parseColor(resolveToken(`var(${fgVar})`, map));
+    const bg = parseColor(resolveToken('var(--row-selected)', map));
+    assert.ok(fg && bg);
+    const ratio = contrastRatio(fg, bg);
+    assert.ok(ratio >= 4.5, `${theme}: ${fgVar} on --row-selected is ${ratio.toFixed(2)}:1`);
+  }
 });
 
 test('keys outside F1 are plain text: Kbd tone="subtle" renders one run, the boxed chip stays for F1', () => {

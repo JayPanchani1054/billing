@@ -165,7 +165,11 @@ and otherwise with `npm install` plus a warning annotation (see §5.2).
    data and settings folders are kept. Then the **running-app** variant (a silent install while Pevqori
    is open exits with code 3 after 30 s, Pevqori keeps running, and the install succeeds once it is
    closed) and the **downgrade** variant (exit code 4 over a newer `DisplayVersion`, installed with
-   `/ALLOWDOWNGRADE`). This is the only check of the real packaged binary: Playwright cannot drive it
+   `/ALLOWDOWNGRADE`). Then the **in-place upgrades over what owners installed** (`-Previous`, §6.2): the
+   1.x installer (CI run 38056735590, commit `0ddf9b6`) and the 2.0.0 installer (CI run 38086415478,
+   commit `6777482`), each downloaded from that run's `Pevqori-Windows-Installer` artifact (`actions:
+   read`) and skipped with a notice once the artifact has expired (the 2.0.0 one on 2026-11-09) or while
+   the version being built is not newer. This is the only check of the real packaged binary: Playwright cannot drive it
    because the `EnableNodeCliInspectArguments` fuse is off. The app log is uploaded on failure.
 4. **electron-node** (ubuntu-latest, needs verify): the whole unit suite again *inside Electron's
    bundled Node* (`ELECTRON_RUN_AS_NODE=1 npx electron --test …`). The packaged app runs the core on

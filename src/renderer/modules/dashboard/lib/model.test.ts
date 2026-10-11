@@ -35,6 +35,8 @@ import {
   startSteps,
   toggleTicked,
   summaryInput,
+  homeSummaryInput,
+  trendCardText,
   trendChart,
   trendSpec,
 } from './model.ts';
@@ -188,6 +190,24 @@ test('trend: months after the balances date have no mark (never a fall to zero) 
   assert.equal(trendSpec(year.map((m) => (m.month <= '2026-10' ? { ...m, sales: 0, purchases: 0 } : { ...m, sales: 5 })), undefined, '2026-10-08'), null);
 });
 
+test('trend card: too little to draw (two months into a whole-year period) never says "no sales or purchases"', () => {
+  // A whole-year period (Apr–Mar) on 10-May: only Apr and May have happened — a line needs three points, so no graph,
+  // but the card's one sentence must still tell the truth about those two months.
+  const year = Array.from({ length: 12 }, (_, i) => {
+    const m = ((3 + i) % 12) + 1;
+    const month = `${m >= 4 ? 2026 : 2027}-${String(m).padStart(2, '0')}`;
+    return { month, from: `${month}-01`, to: `${month}-28`, sales: m === 4 ? 100_000 : m === 5 ? 50_000 : 0, purchases: m === 4 ? 30_000 : 0 };
+  });
+  assert.equal(trendSpec(year, undefined, '2026-05-10'), null, 'two months: no graph');
+  const text = trendCardText(year, '2026-05-10');
+  assert.doesNotMatch(text, /^No sales/);
+  assert.equal(text, trendChart(year, '2026-05-10').description);
+  assert.match(text, /2 months: sales ₹1\.5 K, purchases ₹300$/);
+  // Nothing at all: the empty sentence; a drawable trend: the graph's own takeaway.
+  assert.equal(trendCardText(year.map((m) => ({ ...m, sales: 0, purchases: 0 })), '2026-05-10'), 'No sales or purchases in the last 12 months');
+  assert.equal(trendCardText(sample().trend), trendSpec(sample().trend)?.takeaway);
+});
+
 test('ageingSpec: ordinal columns, "Not due" grey, total = Σ buckets, takeaway names its base', () => {
   const r = sample().receivables;
   const spec = ageingSpec(r.ageing);
@@ -249,7 +269,8 @@ test('alerts: GST, compliance, overdraft, negative cash, post-dated cheques, sta
   });
   const byId = new Map(buildAlerts(s).map((a) => [a.id, a]));
   assert.equal(byId.get('gst-due')?.tone, 'warning'); // 3 days before the due date
-  assert.equal(byId.get('gst-due')?.title, 'GST of ₹438 for Oct 2026');
+  // (V6) Home shows the title alone (the body is the tooltip): the title says when, as 2.0's visible body did.
+  assert.equal(byId.get('gst-due')?.title, 'GST of ₹438 for Oct 2026 · due in 3 days');
   assert.equal(byId.get('gst-due')?.body, 'Estimated cash payment after input credit. GSTR-3B is due by 11-Oct-2026 (due in 3 days).');
   assert.deepEqual(byId.get('gst-due')?.target, { screen: 'gst.gstr3b', params: { period: '102026' } });
   assert.equal(byId.get('einvoice-pending')?.title, '3 invoices without an e-Invoice');
@@ -310,6 +331,19 @@ test('summaryInput: balances as on the working date, or the period end when the 
   assert.deepEqual(balanceRange(future), { from: '2026-10-01', to: '2026-10-08' }); // never from > to
 });
 
+test('homeSummaryInput: Home asks for the 12 months up to its balances date, whatever the period end', () => {
+  // The whole year (or this quarter) as the period: the trend would end in March, cutting off last
+  // year's months — and in April / May Home would have no graph at all.
+  assert.deepEqual(homeSummaryInput('2026-10-08', '2026-04-01', '2027-03-31'), { asOf: '2026-10-08', from: '2026-04-01', to: '2027-03-31', trendTo: '2026-10-08' });
+  assert.deepEqual(homeSummaryInput('2027-04-10', '2027-04-01', '2028-03-31'), { asOf: '2027-04-10', from: '2027-04-01', to: '2028-03-31', trendTo: '2027-04-10' });
+  // Always up to the balances date — also when the period ends in that month: the running month is drawn only
+  // up to it, the "so far" figure its label states (a sale dated after the working date is not in it).
+  assert.deepEqual(homeSummaryInput('2026-10-08', '2026-04-01', '2026-10-08'), { ...summaryInput('2026-10-08', '2026-04-01', '2026-10-08'), trendTo: '2026-10-08' });
+  assert.deepEqual(homeSummaryInput('2026-10-08', '2026-04-01', '2026-10-31'), { ...summaryInput('2026-10-08', '2026-04-01', '2026-10-31'), trendTo: '2026-10-08' });
+  // A past period: balances (and the graph) as on its end.
+  assert.deepEqual(homeSummaryInput('2026-10-08', '2026-07-01', '2026-09-30'), { asOf: '2026-09-30', from: '2026-07-01', to: '2026-09-30', trendTo: '2026-09-30' });
+});
+
 test('no bare minus on KPI tiles and captions', () => {
   assert.deepEqual(signedKpi('Cash & bank', 123_400, 'Cash & bank (overdrawn)'), { label: 'Cash & bank', value: 123_400 });
   assert.deepEqual(signedKpi('Cash & bank', -123_400, 'Cash & bank (overdrawn)'), { label: 'Cash & bank (overdrawn)', value: 123_400 });
@@ -332,7 +366,7 @@ test("GST: last month's return comes first on the card and in the alerts", () =>
   const due = { ...sample().gst!, period: '092026', label: 'Sep 2026', from: '2026-09-01', to: '2026-09-30', dueDate: '2026-10-20', outputTax: 45_000, inputTax: 0, netPayable: 45_000, creditCarriedForward: 0, documentCount: 1 };
   const s = sample({ gstDue: due, gst: { ...sample().gst!, netPayable: 10_000 } });
   const a = buildAlerts(s).find((x) => x.id === 'gst-due');
-  assert.equal(a?.title, 'GST of ₹450 for Sep 2026');
+  assert.equal(a?.title, 'GST of ₹450 for Sep 2026 · due in 12 days');
   assert.equal(a?.tone, 'info'); // 12 days ahead
   assert.equal(a?.body, 'Estimated cash payment after input credit. GSTR-3B is due by 20-Oct-2026 (due in 12 days).');
   assert.deepEqual(a?.target, { screen: 'gst.gstr3b', params: { period: '092026' } });
@@ -352,7 +386,7 @@ test("GST: last month's return comes first on the card and in the alerts", () =>
   ]);
   // Last month settled from credit: the current month's payable is the alert.
   const settled = buildAlerts(sample({ gstDue: { ...due, netPayable: 0 }, gst: { ...sample().gst!, netPayable: 10_000 } })).find((x) => x.id === 'gst-due');
-  assert.equal(settled?.title, 'GST of ₹100 for Oct 2026');
+  assert.equal(settled?.title, 'GST of ₹100 for Oct 2026 · due in 43 days');
   // Export lists both months.
   const rows = exportTable(s).rows.map((r) => String(r[0]));
   assert.ok(rows.includes('GST payable — Sep 2026 — due 20-Oct-2026'));
@@ -471,7 +505,8 @@ test('"Show Get started" undoes Hide — offered only while hidden and the card 
   // Wired on the full dashboard (Alt+S, kept registered while offered); Home's Setup line hides with ×.
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../DashboardScreen.tsx', import.meta.url), 'utf8');
-  assert.match(src, /key: 'Alt\+S', label: 'Show Get started', icon: 'eye', onClick: start\.show, hidden: !start\.canShow/);
+  // (V6) It brings back what Home and the Dashboard now call "Setup" — the same word (2.0: "Show Get started").
+  assert.match(src, /key: 'Alt\+S', label: 'Show setup', icon: 'eye', onClick: start\.show, hidden: !start\.canShow/);
   const parts = fs.readFileSync(new URL('../components.tsx', import.meta.url), 'utf8');
   assert.match(parts, /aria-label="Hide setup" onClick=\{hide\}/);
 });
@@ -577,6 +612,10 @@ test('Home graph: the comparison names the same day range a year earlier', () =>
   const base = sample();
   const none = homeSalesGraph(sample({ sales: { ...base.sales, lastYear: { ...base.sales.lastYear, mtd: 0 } } }));
   assert.equal(none?.takeaway, '₹1.3 K so far in Oct · 1–8 Oct 2025: nothing');
+  // A first-year company (books from 1-Apr-26): there are no books for 1–8 Oct 2025 to compare with, so the
+  // header says nothing about them — never "1–8 Oct 2025: nothing", which reads as no sales last year.
+  const first = homeSalesGraph(sample({ booksFrom: '2026-04-01', sales: { ...base.sales, lastYear: { ...base.sales.lastYear, mtd: 0 } } }));
+  assert.equal(first?.takeaway, '₹1.3 K so far in Oct');
   const down = homeSalesGraph(sample({ sales: { ...base.sales, mtd: 50_000 } }));
   assert.equal(down?.takeaway, '₹500 so far in Oct · ▼ 50 % vs 1–8 Oct 2025');
   const same = homeSalesGraph(sample({ sales: { ...base.sales, mtd: 100_000 } }));
@@ -591,12 +630,37 @@ test('Home graph: the comparison names the same day range a year earlier', () =>
   assert.equal(homeSalesGraph(sample({ sales: { ...base.sales, mtd: -700 } }))?.label, '₹7 net returns so far');
 });
 
+test('Home graph (V6): nothing sold yet draws no graph', () => {
+  // A fresh install in October: the books begin on 1-Apr, seven months, not one sale — an empty plot
+  // with "₹0 so far" answers nothing (and Ctrl+J has nothing to fold): no graph, as for every report.
+  const empty = sample().trend.map((t) => ({ ...t, sales: 0 }));
+  assert.equal(homeSalesGraph(sample({ booksFrom: '2026-04-01', trend: empty, sales: { ...sample().sales, mtd: 0, lastYear: { ...sample().sales.lastYear, mtd: 0 } } })), null);
+  // Returns only (net negative) are still something to show.
+  assert.ok(homeSalesGraph(sample({ trend: empty.map((t, i) => (i === 11 ? { ...t, sales: -700 } : t)) })));
+});
+
 test('Home graph drill: the Sales Accounts monthly summary of the column\'s financial year, that month active', () => {
   assert.deepEqual(homeSalesDrill('2026-09', '2025-04-01', 41), { screen: 'reports.monthlySummary', params: { groupId: 41, from: '2026-04-01', to: '2027-03-31', month: '2026-09' } });
   assert.deepEqual(homeSalesDrill('2026-02', '2025-04-01', 41), { screen: 'reports.monthlySummary', params: { groupId: 41, from: '2025-04-01', to: '2026-03-31', month: '2026-02' } });
   // Never before the books begin; a January financial year.
   assert.deepEqual(homeSalesDrill('2026-09', '2026-06-15', 41).params, { groupId: 41, from: '2026-06-15', to: '2027-03-31', month: '2026-09' });
   assert.deepEqual(homeSalesDrill('2026-09', '2020-01-01', 41, 1).params, { groupId: 41, from: '2026-01-01', to: '2026-12-31', month: '2026-09' });
+  // With Home's balances date: a column of its financial year opens the summary up to that date (the running
+  // month's row then shows the "so far" figure its column draws); an earlier year's column is unchanged.
+  assert.deepEqual(homeSalesDrill('2026-10', '2025-04-01', 41, 4, '2026-10-05').params, { groupId: 41, from: '2026-04-01', to: '2026-10-05', month: '2026-10' });
+  assert.deepEqual(homeSalesDrill('2026-09', '2025-04-01', 41, 4, '2026-10-05').params, { groupId: 41, from: '2026-04-01', to: '2026-10-05', month: '2026-09' });
+  assert.deepEqual(homeSalesDrill('2026-02', '2025-04-01', 41, 4, '2026-10-05').params, { groupId: 41, from: '2025-04-01', to: '2026-03-31', month: '2026-02' });
+});
+
+test('Home graph (seeded books, working date set back to 5-Oct with sales entered up to 11-Oct): the running column, its label and the takeaway say the same "so far" figure', () => {
+  // dashboard.summary with Home's trendTo: October is cut at the balances date, so trend[last].sales = sales.mtd.
+  const s = sample({ asOf: '2026-10-05', sales: { ...sample().sales, mtd: 2_360_000 } });
+  const trend = s.trend.map((t) => (t.month === '2026-10' ? { ...t, to: '2026-10-05', sales: 2_360_000 } : t));
+  const g = homeSalesGraph({ ...s, trend });
+  assert.ok(g && g.emphasis !== null);
+  assert.equal(g.values[g.emphasis], s.sales.mtd);
+  assert.match(g.label, /^₹23\.6 K so far$/);
+  assert.match(g.takeaway, /^₹23\.6 K so far in Oct/);
 });
 
 test('Setup line (D11): "Setup 4 of 9 · Next: …"; the backup step open keeps the backup alert off Home', () => {
@@ -646,7 +710,7 @@ test('wiring: Home renders the 2.1 panel; the full Dashboard keeps every card be
   assert.equal(at.length, HOME_PANEL.length);
   assert.deepEqual([...at].sort((x, y) => x - y), at, `Home panel order ${at.join(' < ')}`);
   assert.ok(at.every((i) => i >= 0));
-  for (const gone of ['Show more insights', 'Change period', 'Refresh dashboard', 'Show Get started', 'RecentVouchersCard']) assert.ok(!home.includes(gone), `Home no longer renders ${gone}`);
+  for (const gone of ['Show more insights', 'Change period', 'Refresh dashboard', 'Show Get started', 'Show setup', 'RecentVouchersCard']) assert.ok(!home.includes(gone), `Home no longer renders ${gone}`);
   const full = src.slice(src.indexOf('function FullDashboard('));
   for (const card of ['KpiRow', 'TrendCard', 'AlertsCard', 'AgeingCard', 'CashBankCard', 'GstCard', 'TopCustomersCard', 'TopItemsCard', 'LowStockCard', 'PostDatedCard', 'ModuleCards', 'RecentVouchersCard', 'CardLines', 'SetupLine']) {
     assert.ok(full.includes(`<${card} `) || full.includes(`<${card} />`), `full dashboard renders ${card}`);
@@ -665,4 +729,10 @@ test('wiring: Home renders the 2.1 panel; the full Dashboard keeps every card be
   assert.match(full, /ref=\{fold\.toggleRef\}/);
   assert.match(full, /aria-live="polite"/);
   assert.ok(enoughData(trendSpec(sample().trend)!));
+});
+
+test("Home's graph is described by the strip's takeaway (SPEC-21 §4.4: aria-describedby on every interactive graph)", async () => {
+  const fs = await import('node:fs');
+  const parts = fs.readFileSync(new URL('../components.tsx', import.meta.url), 'utf8');
+  assert.match(parts, /render: \(\{ describedBy \}\) => <MiniColumns [^>]*describedBy=\{describedBy\}/);
 });

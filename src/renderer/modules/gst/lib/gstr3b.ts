@@ -125,6 +125,16 @@ export function changedCellCount(saved: Partial<Gstr3bAdjustments> | undefined, 
   return Object.values(diffAdjustments(saved, draft)).reduce((n, v) => n + Object.keys(v ?? {}).length, 0);
 }
 
+/**
+ * (2.1, D5) The one filled button of the GSTR-3B screen is the commit that is due: "Save entries" while
+ * figures are changed, otherwise "Export JSON" (Export is refused while entries are unsaved). Without the
+ * filing permission neither can run, so no button is filled. Keys are unchanged (Ctrl+A, Alt+J).
+ */
+export function gstr3bPrimary(s: { dirty: boolean; canFile: boolean }): 'save' | 'json' | null {
+  if (!s.canFile) return null;
+  return s.dirty ? 'save' : 'json';
+}
+
 // ───────────────────────────── 3.2 ─────────────────────────────
 
 export interface InterStateRow {

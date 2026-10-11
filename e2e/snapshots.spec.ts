@@ -259,6 +259,11 @@ test('seed a small shop and capture the key screens', async () => {
   const today = localToday();
   await firstLaunchCreateCompany(page, launched?.dataDir ?? '', COMPANY);
   await seed(today);
+  // Home read its figures before the API seeding (nothing went through a screen): leave it once and come
+  // back, so it refetches on return and the first shot shows the shop's figures, as an owner would see them.
+  await toGateway(page);
+  await viaGoto('Day Book');
+  await settle();
   await toGateway(page);
 
   for (const [index, shot] of SHOTS.entries()) {

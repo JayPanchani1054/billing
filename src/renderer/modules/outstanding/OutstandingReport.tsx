@@ -201,7 +201,7 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       { key: 'ledgerName', header: t.party, sortable: true, minWidth: 200 },
       { key: 'overdue', header: 'Overdue', kind: 'drcr', width: 150, value: (r) => r.overdue * sign, total: true, sortable: true },
       { key: 'notDue', header: 'Not due', kind: 'drcr', width: 150, value: (r) => r.notDue * sign, total: true, sortable: true },
-      { key: 'unadjusted', header: 'Advances & on account', kind: 'drcr', width: 190, value: (r) => (r.advance + r.onAccount) * sign, total: true, sortable: true },
+      { key: 'unadjusted', header: 'Advances & on account', kind: 'drcr', width: 216, value: (r) => (r.advance + r.onAccount) * sign, total: true, sortable: true },
       { key: 'pending', header: 'Net outstanding', kind: 'drcr', width: 160, value: (r) => r.pending * sign, total: true, sortable: true },
       {
         key: 'oldestDueDays',

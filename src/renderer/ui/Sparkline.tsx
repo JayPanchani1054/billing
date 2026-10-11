@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Ref } from 'react';
-import { sparkline } from './lib/chart.ts';
+import { sparkline } from './lib/chartCore.ts';
 import { cx } from './lib/cx.ts';
 
 export interface SparklineProps {

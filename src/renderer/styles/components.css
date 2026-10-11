@@ -291,7 +291,6 @@
   display: none;
   color: inherit;
   font-weight: var(--fw-regular);
-  opacity: 0.75;
 }
 .bx-btn:focus-visible > .bx-btn__kbd,
 html[data-keys] .bx-btn__kbd {
@@ -1633,6 +1632,9 @@ html[data-keys] .bx-btn__kbd {
 .bx-option--create .bx-option__check {
   color: var(--text-link);
 }
+.bx-option--create.is-active {
+  color: var(--text-link-hover);
+}
 .bx-option__hint {
   margin-left: var(--space-2);
   color: var(--text-muted);
@@ -2511,6 +2513,11 @@ html[data-keys] .bx-btn__kbd {
   .bx-tab.is-selected,
   .bx-segmented__item.is-selected {
     text-decoration: underline 2px;
+  }
+  .bx-td__bar,
+  .bx-td__bar--neg {
+    forced-color-adjust: none;
+    background: CanvasText;
   }
 }
 

@@ -251,4 +251,20 @@ describe('Essentials (Home)', () => {
     const sections = essentialsOf(contexts['default GST company']);
     assert.equal(essentialIds(sections).length, sections.flatMap((s) => s.items).length);
   });
+
+  test('(V6) "Try the simpler Home" promises no key it cannot keep: letters differ between the two views', () => {
+    // Letters are assigned over each view on its own, so a 1.0 user's All-menus letter can open
+    // something else in Essentials (Ledgers is E in All menus, L in Essentials; E is Create Ledger).
+    const ctx = contexts['default GST company'];
+    const allLetters = new Map(buildGateway(mods, ctx).flatMap((s) => s.items.map((i) => [i.id, i.accelerator] as const)));
+    const changed = essentialsOf(ctx)
+      .flatMap((s) => s.items)
+      .filter((i) => allLetters.get(i.id) !== i.accelerator)
+      .map((i) => i.label);
+    assert.ok(changed.includes('Ledgers'), `letters that change between the views: ${changed.join(', ')}`);
+    const gateway = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../Gateway.tsx'), 'utf8');
+    const offer = /function TryHomeLine\(\)[\s\S]*?\n}\n/.exec(gateway)?.[0] ?? '';
+    assert.ok(offer.includes('Try the simpler Home'), 'the offer is found');
+    assert.doesNotMatch(offer, /every key|same keys|keys? (?:stay|are) the same/i, 'the offer must not say the keys stay the same');
+  });
 });

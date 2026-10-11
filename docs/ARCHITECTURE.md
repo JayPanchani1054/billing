@@ -491,7 +491,10 @@ source of truth.
   import('./Chart.tsx'))`; screens import `reportGraph(spec, { inline })` / `LazyChart` from that file **by
   path**, and the ui barrel exports none of `Chart`, `LazyChart`, `reportGraph` — so the kit never enters
   the start-up bundle (`app/lib/chartImports.test.ts`). The only graph code in the entry is Home's
-  `ui/MiniColumns.tsx` (plain HTML columns, ≤ 1.5 KB minified). While the chunk loads, the plot's place
+  `ui/MiniColumns.tsx` (plain HTML columns, ≤ 1.5 KB minified) and `ui/lib/chartCore.ts` (the sparkline,
+  plot heights, the graph keys and the few spec helpers the eager Home and Bills pending builders use);
+  `chart.ts` and `chartSpec.ts` re-export it and are reached only from lazy screens (the same test walks
+  the static imports of `main.tsx`), so the geometry and the folds load with the first graph. While the chunk loads, the plot's place
   is an empty box of its final height — no `.bx-skeleton`, no `aria-busy`; a chunk that fails to load
   draws nothing. 2.0's `BarChart` / `LineChart` remain as thin adapters over `LazyChart`.
 - **Builders.** One pure `xxxChart(result): ChartSpec | null` per catalogue row in
@@ -501,8 +504,8 @@ source of truth.
   context (a second series); slot 2 (`--chart-2`) = only the negative or problem pole (loss, overdue,
   mismatch); the indigo ramp `--chart-o1…o5` = age/lateness, with `--chart-partial` for a running
   period (always labelled "so far"). Slots 3–5 are never drawn, status colours are never a series,
-  money is never red/green (until the full Dashboard's trend becomes Sales + context in 2.1 wave 2, the
-  2.0 `BarChart` adapter keeps that caller's explicit slot 2 for Purchases). The ramp and
+  money is never red/green (the 2.0 `BarChart` / `LineChart` adapters, which no screen calls since 2.1
+  wave 2, still honour a caller's explicit slot 2 on a second series). The ramp and
   `--chart-partial` live in `styles/charts.css`;
   `ui/lib/chartPalette.test.ts` re-validates the shipped values in both themes (≥ 3:1 on the canvas and
   card surface, normal-vision ΔE ≥ 15 and CVD ΔE ≥ 8 between meanings, a monotone single-hue ramp with

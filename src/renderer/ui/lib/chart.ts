@@ -1,9 +1,15 @@
 /**
- * Dependency-free chart math: nice axis ticks, linear scales, band layout, SVG path builders.
+ * Dependency-free chart math: nice axis ticks, band layout, SVG path builders (lazy: ui/Chart.tsx).
  * Pure — unit tested in chart.test.ts.
  */
 import { markColor } from './chartSpec.ts';
 import type { ChartSpec, MarkColor } from './chartSpec.ts';
+import { HBAR_PITCH, HBAR_THICKNESS, linearScale } from './chartCore.ts';
+
+// The start-up part of the kit (sparkline, plot heights, the graph keys) lives in chartCore.ts so
+// that eager screens never pull this module into a preloaded chunk; it is re-exported here.
+export { HBAR_PITCH, HBAR_THICKNESS, STRIP_PLOT_HEIGHT, areaPath, graphKeyStep, linePath, linearScale, plotHeight, sparkline } from './chartCore.ts';
+export type { Point, Scale, SparkGeometry } from './chartCore.ts';
 
 /** "Nice" step ≥ rough: 1, 2, 2.5, 5 × 10^k. */
 export function niceStep(rough: number): number {
@@ -37,16 +43,6 @@ export function niceTicks(min: number, max: number, count = 5): number[] {
   return ticks;
 }
 
-export type Scale = (value: number) => number;
-
-export function linearScale(domain: readonly [number, number], range: readonly [number, number]): Scale {
-  const [d0, d1] = domain;
-  const [r0, r1] = range;
-  const span = d1 - d0;
-  if (span === 0) return () => (r0 + r1) / 2;
-  return (v) => r0 + ((v - d0) / span) * (r1 - r0);
-}
-
 export interface Band {
   step: number;
   bandwidth: number;
@@ -70,69 +66,7 @@ export function bandLayout(count: number, x0: number, x1: number, paddingInner =
   };
 }
 
-export interface Point {
-  x: number;
-  y: number;
-}
-
 const r2 = (n: number): string => String(Math.round(n * 100) / 100);
-
-/** 'M x y L x y …' through the points (skipping null gaps → new subpath). */
-export function linePath(points: ReadonlyArray<Point | null>): string {
-  const segs: string[] = [];
-  let pen = false;
-  for (const p of points) {
-    if (!p) {
-      pen = false;
-      continue;
-    }
-    segs.push(`${pen ? 'L' : 'M'}${r2(p.x)} ${r2(p.y)}`);
-    pen = true;
-  }
-  return segs.join(' ');
-}
-
-/** Closed area under a line down to `baseY` (contiguous points only). */
-export function areaPath(points: readonly Point[], baseY: number): string {
-  if (points.length === 0) return '';
-  const first = points[0];
-  const last = points[points.length - 1];
-  let d = `M${r2(first.x)} ${r2(baseY)} L${r2(first.x)} ${r2(first.y)}`;
-  for (let i = 1; i < points.length; i++) d += ` L${r2(points[i].x)} ${r2(points[i].y)}`;
-  d += ` L${r2(last.x)} ${r2(baseY)} Z`;
-  return d;
-}
-
-export interface SparkGeometry {
-  line: string;
-  area: string;
-  points: Point[];
-  last: Point | null;
-  min: number;
-  max: number;
-}
-
-/** Sparkline geometry inside width×height with `pad` px inset (so the end dot is not clipped). */
-export function sparkline(values: readonly number[], width: number, height: number, pad = 2): SparkGeometry {
-  const finite = values.filter((v) => Number.isFinite(v));
-  if (finite.length === 0) return { line: '', area: '', points: [], last: null, min: 0, max: 0 };
-  const min = Math.min(...finite);
-  const max = Math.max(...finite);
-  const x = linearScale([0, Math.max(1, values.length - 1)], [pad, width - pad]);
-  const y = min === max ? () => height / 2 : linearScale([min, max], [height - pad, pad]);
-  const points: Point[] = [];
-  values.forEach((v, i) => {
-    if (Number.isFinite(v)) points.push({ x: values.length === 1 ? width / 2 : x(i), y: y(v) });
-  });
-  return {
-    line: linePath(points),
-    area: areaPath(points, height - pad),
-    points,
-    last: points[points.length - 1] ?? null,
-    min,
-    max,
-  };
-}
 
 /**
  * Bar/column path with a rounded data-end (radius ≤ 4, clamped to the bar) and a square baseline.
@@ -187,39 +121,6 @@ export function fitText(s: string, maxPx: number, fontPx = 11): string {
   return chars > 0 ? `${s.slice(0, chars).trimEnd()}…` : '';
 }
 
-/** Default plot height (px) of each kind — the strip's 20 px header line is not included. */
-export function plotHeight(kind: 'column' | 'bar' | 'line' | 'share' | 'meter', rows = 0): number {
-  if (kind === 'bar') return Math.max(1, rows) * HBAR_PITCH + 8;
-  if (kind === 'share') return 52;
-  if (kind === 'meter') return 44;
-  return 148;
-}
-
-/**
- * CSS height of a column or line plot given no `height`: the strip's `--graph-h` (168 px, 152
- * compact — styles/report.css) minus its 20 px header line, i.e. `plotHeight('column')` at the
- * comfortable density. The strip's plot box sizes to its content (no fixed height), so the graph
- * carries its own height and never collapses inside an unsized host.
- */
-export const STRIP_PLOT_HEIGHT = 'calc(var(--graph-h, 168px) - 20px)';
-
-/**
- * The one keyboard model of every interactive graph (SPEC-21 §4.4; ui/Chart.tsx and ui/MiniColumns.tsx):
- * the next highlighted index for `key`, or null when the key is not a graph key (it then keeps its
- * global meaning). ←/→ step (↑/↓ for horizontal bars); from no highlight, → (↓) starts at the first
- * category and ← (↑) at the last; Home/End jump; the index stays inside [0, n − 1].
- */
-export function graphKeyStep(key: string, cur: number, n: number, vertical = false): number | null {
-  if (n <= 0) return null;
-  const next = vertical ? 'ArrowDown' : 'ArrowRight';
-  const prev = vertical ? 'ArrowUp' : 'ArrowLeft';
-  if (key === 'Home') return 0;
-  if (key === 'End') return n - 1;
-  if (key === next) return cur < 0 ? 0 : Math.min(n - 1, cur + 1);
-  if (key === prev) return cur < 0 ? n - 1 : Math.max(0, cur - 1);
-  return null;
-}
-
 /**
  * Indexes of the direct labels a column or line carries (§4.2): the extreme (`max`: the largest |value|,
  * zeros never), the endpoint (`last`: the last drawn point) or none — never every mark; a running
@@ -250,9 +151,6 @@ export function labelIndexes(spec: ChartSpec, fallback: 'max' | 'last'): number[
   return out;
 }
 
-/** Horizontal bars: 20 px row pitch, 12 px thick (§4.2). */
-export const HBAR_PITCH = 20;
-export const HBAR_THICKNESS = 12;
 /** The bar-name column of a horizontal bar graph. */
 export const HBAR_NAME_WIDTH = 200;
 
@@ -363,6 +261,17 @@ export function shareSegments(values: readonly (number | null)[], width: number,
  */
 export function polarityTicks(min: number, max: number, format: (v: number) => string, count = 5): { value: number; label: string }[] {
   return niceTicks(min, max, count).map((value) => ({ value, label: format(Math.abs(value)).replace(/^[-−]/, '') }));
+}
+
+/**
+ * A polarity column's value in words (§4.2 "never a bare minus", D29 rule 4) for its tooltip and its spoken
+ * option: the absolute value, and the axis caption's word for its side ("Loss" for −12,400 under "Profit ↑ /
+ * Loss ↓"; no word for 0). Null for every other graph — its values read as they are.
+ */
+export function polarityValue(spec: ChartSpec, v: number, full: (v: number) => string): { value: string; name: string | null } | null {
+  if ((spec.color ?? 'series') !== 'polarity' || spec.kind !== 'column' || !spec.axisCaptions) return null;
+  const caption = v < 0 ? spec.axisCaptions.down : spec.axisCaptions.up;
+  return { value: full(Math.abs(v)), name: v === 0 ? null : caption.replace(/[↑↓]/g, '').trim() || null };
 }
 
 /**

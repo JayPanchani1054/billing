@@ -282,3 +282,25 @@ test('a column or line plot carries the strip height itself (the strip plot box 
   assert.match(lazy, /return STRIP_PLOT_HEIGHT;/, 'the lazy placeholder holds the same height');
   assert.doesNotMatch(chart + lazy, /'100%'/, 'never a percentage of an unsized host');
 });
+
+test('MiniColumns is described by its takeaway like every interactive graph (§4.4 aria-describedby)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../MiniColumns.tsx', import.meta.url), 'utf8');
+  assert.match(src, /describedBy\?: string;/, 'MiniColumns takes the id of the takeaway');
+  assert.match(src, /role="listbox"[^>]*aria-describedby=\{describedBy\}/, 'the listbox points at it');
+});
+
+test('polarity columns say a value in words — the tooltip and the spoken option never carry a bare minus (§4.2, D29 rule 4)', async () => {
+  const { polarityValue } = await import('./chart.ts');
+  const { formatMoney } = await import('../../../shared/format.ts');
+  const full = (v: number) => formatMoney(v, { symbol: true });
+  const pl = { kind: 'column' as const, title: 'Net profit by month', takeaway: 'Loss in 1 of 3 months', categories: ['Apr', 'May', 'Jun'], series: [{ name: 'Net profit', values: [870_000, -1_240_000, 0] }], color: 'polarity' as const, axisCaptions: { up: 'Profit ↑', down: 'Loss ↓' }, total: -370_000 };
+  assert.deepEqual(polarityValue(pl, -1_240_000, full), { value: '₹ 12,400.00', name: 'Loss' });
+  assert.deepEqual(polarityValue(pl, 870_000, full), { value: '₹ 8,700.00', name: 'Profit' });
+  assert.deepEqual(polarityValue(pl, 0, full), { value: '₹ 0.00', name: null }, 'zero is neither side');
+  assert.deepEqual(polarityValue({ ...pl, axisCaptions: { up: 'In ↑', down: 'Out ↓' } }, -500, full), { value: '₹ 5.00', name: 'Out' });
+  // Every other graph reads its value as it is.
+  const plain = { ...pl, color: 'series' as const, axisCaptions: undefined };
+  assert.equal(polarityValue(plain, -1_240_000, full), null);
+  assert.equal(polarityValue({ ...pl, kind: 'bar' as const, axisCaptions: undefined }, -1_240_000, full), null);
+});

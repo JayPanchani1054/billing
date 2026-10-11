@@ -44,6 +44,7 @@ button.bx-report__token:focus-visible {
   min-height: var(--toolbar-row-h, 36px);
 }
 .bx-report__filters {
+  flex: 1 1 auto;
   flex-wrap: wrap;
   min-width: 0;
 }

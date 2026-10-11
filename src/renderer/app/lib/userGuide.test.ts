@@ -348,6 +348,38 @@ describe('docs/USER_GUIDE.md', () => {
     const missing = FEATURE_CATALOG.filter((f) => !guide.includes(`**${f.label}**`)).map((f) => f.label);
     assert.deepEqual(missing, []);
   });
+
+  test('2.1 chrome: no status line / breadcrumb row; Appearance is described with its graph switches', () => {
+    // 2.1 removed the bottom status (hint) bar and the breadcrumb row (Workspace.tsx: one top bar + the title row).
+    const stale = guide.split('\n').filter((l) => /status (?:line|bar)|breadcrumb/i.test(l));
+    assert.deepEqual(stale, []);
+    // Every place that lists what Appearance holds names the graphs too (AppearancePanel.tsx "Graphs" row).
+    const appearance = guide.split('\n').filter((l) => /Appearance/.test(l) && /theme, density/i.test(l));
+    assert.ok(appearance.length >= 2, 'the user menu and the Settings table describe Appearance');
+    assert.deepEqual(appearance.filter((l) => !/graphs/i.test(l)), []);
+  });
+});
+
+describe('UI wording matches the guide', () => {
+  /** Text the owner reads: string values of title / body / hint / message / label / takeaway / aria-label. */
+  function shownStrings(): Array<{ file: string; text: string }> {
+    const out: Array<{ file: string; text: string }> = [];
+    const re = /\b(?:title|body|hint|message|label|takeaway|aria-label)\s*[=:]\s*\{?\s*(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
+    for (const file of sourceFiles(path.join(repoRoot, 'src/renderer'))) {
+      for (const m of readText(file).matchAll(re)) out.push({ file: path.relative(repoRoot, file), text: m[2] });
+    }
+    return out;
+  }
+
+  test('Home is called Home on screen (earlier versions called it the Gateway)', () => {
+    const stale = shownStrings().filter((s) => /\bGateway\b/.test(s.text) && s.text !== 'Gateway menu'); // the nav landmark name (e2e)
+    assert.deepEqual(stale, []);
+  });
+
+  test('a picture of figures is a "graph" on screen ("chart" only in Chart of Accounts)', () => {
+    const stale = shownStrings().filter((s) => /\bcharts?\b/i.test(s.text.replace(/chart of accounts/gi, '')));
+    assert.deepEqual(stale, []);
+  });
 });
 
 describe('links between the documents', () => {

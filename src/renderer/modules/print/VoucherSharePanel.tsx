@@ -17,6 +17,8 @@ export function VoucherSharePanel({ voucherId, isCancelled }: VoucherPanelProps)
       label: 'Share (e-mail / WhatsApp)',
       icon: 'mail',
       group: 'output',
+      // (2.1, §1.5) The view's title row reads "Alter · Print · More ▾": Share is in More, Alt+W unchanged.
+      demoted: true,
       onClick: () => nav.push('print.voucher', { id: voucherId, share: true }),
       hidden: isCancelled || !nav.isRegistered('print.voucher'),
       disabled: !canExport,

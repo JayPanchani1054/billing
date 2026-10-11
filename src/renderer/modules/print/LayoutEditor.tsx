@@ -129,7 +129,7 @@ export function LayoutEditor({ model, warnings, onPart, onText, pick, onEscape, 
         const locked = g.rows.filter((r) => r.locked);
         return (
           <Stack key={g.id} gap={2}>
-            <Button variant="ghost" size="sm" icon={isOpen ? 'chevron-down' : 'chevron-right'} aria-expanded={isOpen} aria-controls={bodyId} onClick={() => toggleGroup(g.id)}>
+            <Button variant="ghost" size="sm" icon={isOpen ? 'chevron-down' : 'chevron-right'} aria-expanded={isOpen} aria-controls={bodyId} style={{ alignSelf: 'flex-start' }} onClick={() => toggleGroup(g.id)}>
               {groupCaption(g.label, g.rows)}
             </Button>
             {isOpen ? (

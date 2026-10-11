@@ -992,6 +992,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       total: invoice.grandTotal,
       totalText: docTotalText,
       partyName: party?.name ?? null,
+      fromParty: baseType === 'purchase' || (baseType === 'credit_note' && direction === 'inward'),
       debit: ledgerTotals.debit,
       credit: ledgerTotals.credit,
       itemLines: f.items.filter((r) => !isBlankItem(r)).length,

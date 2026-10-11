@@ -115,3 +115,35 @@ test('graphs draw only the four meanings: no rule reads slot 3, 4 or 5 (D29) and
   assert.doesNotMatch(css, /var\(--chart-[345]\)/);
   for (const m of css.matchAll(/--series:\s*([^;]+);/g)) assert.doesNotMatch(m[1], /--(danger|warning|success|info|positive|negative)/, m[0]);
 });
+
+/** Rules `selector-list { declarations }` of a CSS text (one level; comments removed), and the forced-colors part. */
+function rules(css: string): { selectors: string[]; body: string }[] {
+  return [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map((m) => ({ selectors: m[1].split(',').map((s) => s.trim()), body: m[2] }));
+}
+function forcedColorsPart(css: string): string {
+  const start = css.indexOf('@media (forced-colors: active)');
+  if (start < 0) return '';
+  let depth = 0;
+  for (let i = css.indexOf('{', start); i < css.length; i++) {
+    if (css[i] === '{') depth++;
+    else if (css[i] === '}' && --depth === 0) return css.slice(css.indexOf('{', start) + 1, i);
+  }
+  return '';
+}
+
+test('forced colours (Windows High Contrast): every mark painted as a background keeps a visible system colour', () => {
+  // A background colour is forced to Canvas under forced-colors, so a bar drawn as a box (inline bars, legend and tooltip
+  // keys, the meter) vanishes unless its rule opts out with `forced-color-adjust: none` and paints a system colour.
+  const componentsCss = read('../../styles/components.css');
+  const forced = [...rules(forcedColorsPart(chartsCss)), ...rules(forcedColorsPart(componentsCss))];
+  const painted = [chartsCss, componentsCss].flatMap((css) =>
+    rules(css.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')).filter((r) => /background(-color)?:\s*var\(--(series|chart-)/.test(r.body)).flatMap((r) => r.selectors),
+  );
+  assert.ok(painted.includes('.bx-td__bar') && painted.includes('.bx-chart__key'), `found ${painted.join(', ')}`);
+  for (const sel of painted) {
+    const r = forced.find((f) => f.selectors.includes(sel));
+    assert.ok(r, `${sel}: no forced-colors rule`);
+    assert.match(r.body, /forced-color-adjust:\s*none/, sel);
+    assert.match(r.body, /background:\s*(CanvasText|GrayText|Highlight)\b/, sel);
+  }
+});

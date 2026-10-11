@@ -12,7 +12,7 @@
 import { useMemo, useState } from 'react';
 import type { VoucherBaseType } from '../../../shared/constants.ts';
 import type { RegisterMonth, RegisterVoucher } from '../../../shared/types/reports.ts';
-import { ReportScreen, useApiQuery } from '../../app/index.ts';
+import { ReportScreen, useApiQuery, useWorkingDate } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { reportGraph } from '../../ui/lazyChart.tsx';
 import { Badge, DataTable, EmptyState, Inline, Select, Stack } from '../../ui/index.ts';
@@ -43,10 +43,12 @@ export function RegisterScreen({ params }: ScreenProps<RegisterParams>) {
   const d = q.data;
   const current = view === 'vouchers' ? currentRow(cursor, d?.vouchers, (r) => r.id) : null;
   const anyCancelled = (d?.totals.cancelled ?? 0) > 0;
-  // The months view's graph; Enter on a month opens the same voucher list as Enter on its row.
+  // The months view's graph; Enter on a month opens the same voucher list as Enter on its row. A period that
+  // runs past the working date draws up to its month ("so far").
+  const { date: workingDate } = useWorkingDate();
   const spec = useMemo(
-    () => (view === 'months' ? registerChart(d, { activate: (r) => drill({ screen: 'reports.register', params: { ...(voucherTypeId !== undefined ? { voucherTypeId } : { baseType }), from: r.from, to: r.to, view: 'vouchers' } }) }) : null),
-    [d, view, drill, voucherTypeId, baseType],
+    () => (view === 'months' ? registerChart(d, { workingDate, activate: (r) => drill({ screen: 'reports.register', params: { ...(voucherTypeId !== undefined ? { voucherTypeId } : { baseType }), from: r.from, to: r.to, view: 'vouchers' } }) }) : null),
+    [d, view, drill, voucherTypeId, baseType, workingDate],
   );
 
   const monthColumns = useMemo<Column<RegisterMonth>[]>(
@@ -163,7 +165,7 @@ export function RegisterScreen({ params }: ScreenProps<RegisterParams>) {
             getRowClassName={(r) => (r.isCancelled ? 'bx-muted' : undefined)}
             footerRows={vFooter}
             loading={q.loading}
-            empty={<EmptyState icon="receipt" title="No vouchers in this period" body="Change the period with Alt+F2, or enter one from the Gateway." />}
+            empty={<EmptyState icon="receipt" title="No vouchers in this period" body="Change the period with Alt+F2, or enter one from Home." />}
             autoFocus
           />
           {d?.truncated ? <p className="bx-rep-note">Only the first {d.vouchers?.length.toLocaleString('en-IN')} vouchers are listed; the totals include all of them.</p> : null}

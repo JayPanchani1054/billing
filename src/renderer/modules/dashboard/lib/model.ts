@@ -17,7 +17,7 @@ import type {
   DashboardSummaryInput,
   DateRange,
 } from '../../../../shared/types/dashboard.ts';
-import { clipTakeaway, drawnTotal, enoughData, take } from '../../../ui/lib/chartSpec.ts';
+import { clipTakeaway, drawnTotal, enoughData, take } from '../../../ui/lib/chartCore.ts';
 import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
 
 /** A screen to open (canonical ids, see the feature brief). */
@@ -81,6 +81,17 @@ export function compactSigned(p: Paise, negativeWord: string): string {
  */
 export function summaryInput(workingDate: string, from: string, to: string): DashboardSummaryInput {
   return { asOf: to < workingDate ? to : workingDate, from, to };
+}
+
+/**
+ * Home's request (D10): as `summaryInput`, with the trend ending at the balances date (`trendTo`) — "Sales —
+ * last 12 months" is the 12 months up to the working date even when the period runs on to the year end
+ * (never cut off at the start of the period's 12-month window), and the running month is drawn only up to
+ * that date: the "so far" figure its label and the takeaway state (`sales.mtd`).
+ */
+export function homeSummaryInput(workingDate: string, from: string, to: string): DashboardSummaryInput {
+  const input = summaryInput(workingDate, from, to);
+  return { ...input, trendTo: input.asOf };
 }
 
 /** Range for "balance as on asOf" drill-downs (Cash/Bank Books, a ledger): period start → asOf. */
@@ -204,6 +215,15 @@ export function trendSpec(trend: readonly DashboardMonth[], activate?: (index: n
   };
   spec.total = drawnTotal(spec);
   return enoughData(spec) ? spec : null;
+}
+
+/**
+ * The trend card's one sentence — the graph's takeaway, also when there is too little to draw (fewer than three
+ * months up to `upTo`, early in a whole-year period): then the card still names the months there were, and says
+ * "No sales or purchases…" only when there were none.
+ */
+export function trendCardText(trend: readonly DashboardMonth[], upTo?: string): string {
+  return trendChart(trend, upTo).description;
 }
 
 /**
@@ -361,7 +381,8 @@ export function buildAlerts(s: DashboardSummary, viewer: AlertViewer = { canOpen
       id: 'gst-due',
       tone: days <= GST_URGENT_DAYS ? 'warning' : 'info',
       icon: 'gst',
-      title: `GST of ${compact(gst.netPayable)} for ${gst.label}`,
+      // Home shows the title alone (the body is its tooltip): it says when, as the visible 2.0 body did.
+      title: `GST of ${compact(gst.netPayable)} for ${gst.label} · ${dueText(gst.dueDate, s.asOf).toLowerCase()}`,
       body: `Estimated cash payment after input credit. ${gst.dueForm} is due by ${formatDate(gst.dueDate)}${days >= 0 ? ` (${dueText(gst.dueDate, s.asOf).toLowerCase()})` : ''}.`,
       target: DRILL.gstr3b(gst.period),
     });
@@ -407,7 +428,7 @@ export function buildAlerts(s: DashboardSummary, viewer: AlertViewer = { canOpen
       tone: 'warning',
       icon: 'receipt',
       title: `${plural(c.einvoicePending, 'invoice')} without an e-Invoice`,
-      body: 'Generate the IRN for these B2B / export invoices (Gateway › GST › e-Invoice).',
+      body: 'Generate the IRN for these B2B / export invoices (Home › GST › e-Invoice).',
       target: DRILL.einvoice({ from: c.from, to: c.to }),
     });
   }
@@ -761,7 +782,8 @@ export function homeSalesGraph(s: DashboardSummary): HomeSalesGraph | null {
     return back > first ? back : first;
   })();
   const shown = s.trend.filter((t) => t.month >= window && t.month <= end);
-  if (shown.length < 3) return null;
+  // Nothing sold yet (a new company): an empty plot says nothing — no graph, as on every report.
+  if (shown.length < 3 || shown.every((t) => t.sales === 0)) return null;
   const emphasisAt = shown.findIndex((t) => t.month === end);
   const emphasis = emphasisAt >= 0 ? emphasisAt : null;
   const running = s.asOf !== endOfMonth(s.asOf);
@@ -770,8 +792,15 @@ export function homeSalesGraph(s: DashboardSummary): HomeSalesGraph | null {
   const last = s.sales.lastYear.mtd;
   const delta = deltaPercent(s.sales.mtd, last);
   const range = dayRange(s.ranges.lastYear.mtd);
+  // No books for last year's range (a first-year company): nothing to compare with, so no comparison.
   const vs =
-    last === 0 ? `${range}: nothing` : delta === null || Math.round(delta) === 0 ? `same as ${range}` : `${delta > 0 ? '▲' : '▼'} ${Math.abs(Math.round(delta))} % vs ${range}`;
+    s.ranges.lastYear.mtd.to < s.booksFrom
+      ? ''
+      : last === 0
+        ? `${range}: nothing`
+        : delta === null || Math.round(delta) === 0
+          ? `same as ${range}`
+          : `${delta > 0 ? '▲' : '▼'} ${Math.abs(Math.round(delta))} % vs ${range}`;
   const values = shown.map((t) => t.sales);
   return {
     title: HOME_GRAPH_TITLE,
@@ -780,7 +809,7 @@ export function homeSalesGraph(s: DashboardSummary): HomeSalesGraph | null {
     values,
     emphasis,
     label: emphasis === null ? '' : now,
-    takeaway: clipTakeaway(`${now} in ${monthName} · ${vs}`),
+    takeaway: clipTakeaway(vs ? `${now} in ${monthName} · ${vs}` : `${now} in ${monthName}`),
     total: values.reduce((a, b) => a + b, 0),
   };
 }
@@ -788,11 +817,13 @@ export function homeSalesGraph(s: DashboardSummary): HomeSalesGraph | null {
 /**
  * Where a Home column drills: the Sales Accounts monthly summary over that month's financial year
  * (never before the books begin), with that month's row active — the same ledger movement the column
- * draws (core tie-out, reports/tieouts.test.ts).
+ * draws (core tie-out, reports/tieouts.test.ts). `upTo` (Home's balances date): the summary of the
+ * year it falls in ends there, as the graph does — the running month's row is its "so far" column.
  */
-export function homeSalesDrill(month: string, booksFrom: string, groupId: number, fyStartMonth = 4): DrillTarget {
+export function homeSalesDrill(month: string, booksFrom: string, groupId: number, fyStartMonth = 4, upTo?: string): DrillTarget {
   const fy = financialYear(`${month}-01`, fyStartMonth);
-  return { screen: 'reports.monthlySummary', params: { groupId, from: fy.start < booksFrom ? booksFrom : fy.start, to: fy.end, month } };
+  const to = upTo !== undefined && upTo >= `${month}-01` && upTo < fy.end ? upTo : fy.end;
+  return { screen: 'reports.monthlySummary', params: { groupId, from: fy.start < booksFrom ? booksFrom : fy.start, to, month } };
 }
 
 /** Rows of "Needs your attention" on Home before "N more". */

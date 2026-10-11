@@ -6,7 +6,7 @@
 //   search, keyboard moves between the search box, topics and settings, Invoice numbering opens its screen.
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { lit, localToday, pick, screen, stubNativeDialogs, toGateway } from './flows.ts';
+import { lit, pick, screen, stubNativeDialogs, toGateway } from './flows.ts';
 import { captureFailures, closeApp, launchApp } from './support.ts';
 import type { LaunchedApp } from './support.ts';
 
@@ -80,12 +80,9 @@ test('Home: three figures and the sales graph; Setup opens "First steps"; the in
   const figures = page.getByRole('group', { name: 'Key figures' });
   for (const label of ['To collect', 'To pay', 'Cash & bank']) await expect(figures).toContainText(label);
   await expect(figures).not.toContainText('Sales this month');
-  // "Sales — last 12 months" from the month the books begin (1-Apr of this financial year): a graph from 3 months on.
-  const month = Number(localToday().slice(5, 7));
-  const months = ((month - 4 + 12) % 12) + 1;
-  const graph = page.getByRole('listbox', { name: 'Sales — last 12 months' });
-  if (months >= 3) await expect(graph).toBeVisible();
-  else await expect(graph).toHaveCount(0);
+  // "Sales — last 12 months" needs a sale to draw: a new company has none, so Home shows no empty graph
+  // (model.test.ts pins the months from the books-beginning month and the ≥ 3-month rule).
+  await expect(page.getByRole('listbox', { name: 'Sales — last 12 months' })).toHaveCount(0);
 
   const payment = steps.getByRole('listitem').filter({ hasText: 'Record a payment' });
   await payment.getByRole('button', { name: /^Receipt/ }).click();

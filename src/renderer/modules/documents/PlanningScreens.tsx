@@ -601,7 +601,7 @@ export function BudgetVarianceScreen({ params }: ScreenProps<BudgetVarianceParam
       exportDef={() => ({ subtitle: budget ? `${budget.name}${scenario ? ` · scenario ${scenario.name}` : ''}` : undefined, ...(range ? { period: range } : {}), ...varianceExport(rows) })}
     >
       {budget === null && !budgets.loading ? (
-        <EmptyState icon="chart" title="No budgets yet" body="Create a budget under Gateway › Masters › Budgets, then compare it with the actuals here." />
+        <EmptyState icon="chart" title="No budgets yet" body="Create a budget under Home › Masters › Budgets, then compare it with the actuals here." />
       ) : (
         <DataTable<BudgetVarianceRow>
           aria-label="Budget variance"

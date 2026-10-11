@@ -44,6 +44,8 @@ let launched: LaunchedApp | undefined;
 let page: Page;
 /** The customer's ledger id (its Go To option is `ledger:<id>`). */
 let customerId = 0;
+let itemId = 0;
+let salesTypeId = 0;
 
 captureFailures(() => launched);
 test.describe.configure({ mode: 'serial' });
@@ -159,6 +161,8 @@ test('setup: a company whose books begin a year back, three sales in three month
       openings: [{ qty: PARITY.item.openingQty, rate: PARITY.item.openingRate }],
     })
   ).item.id;
+  itemId = item;
+  salesTypeId = sales ?? 0;
   for (const s of SALES) {
     await api(page, 'vouchers.save', { voucherTypeId: sales, date: s.date, mode: 'item_invoice', partyLedgerId: customer, items: [{ itemId: item, qty: s.qty, rate: s.rate }], acknowledgeWarnings: true });
   }
@@ -279,4 +283,15 @@ test('Ledger (a drill-down report): the header line shows, the plot is folded by
   await expect(head.getByRole('button', { name: 'Show graphs' })).toBeVisible();
   await expect(ledger.getByRole('listbox')).toHaveCount(0);
   await toGateway(page);
+});
+
+test('Home: with a sale this month, "Sales — last 12 months" is drawn (books began a year back)', async () => {
+  await api(page, 'vouchers.save', { voucherTypeId: salesTypeId, date: localToday(), mode: 'item_invoice', partyLedgerId: customerId, items: [{ itemId, qty: 1, rate: 100 }], acknowledgeWarnings: true });
+  // Home refetches when it comes back to the top: leave it once after the API save.
+  await toGateway(page);
+  await viaGoto('Day Book', 'vouchers.daybook');
+  await toGateway(page);
+  const graph = page.getByRole('listbox', { name: 'Sales — last 12 months' });
+  await expect(graph).toBeVisible();
+  expect(await graph.getByRole('option').count()).toBeGreaterThanOrEqual(3);
 });

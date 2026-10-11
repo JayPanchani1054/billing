@@ -33,7 +33,7 @@ count once their date is reached.
 | GST | GST on and **regular** registration only (composition / unregistered → null). `computeGstr3b` for the calendar month of asOf (the GSTR-3B screen's figures incl. its manual entries): `outputTax` = 3.1(a) + 3.1(b), `reverseChargeTax` = 3.1(d), `inputTax` = net ITC 4(C), `netPayable` = cash after the s.49 / Rule 88A set-off — against the month's ITC **plus the credit brought forward from the previous month** (electronic credit ledger, chained from the books beginning) — + reverse charge (before interest / late fee), `creditCarriedForward`. `dueDate`: monthly filers GSTR-3B on the 20th of the next month; quarterly (QRMP) filers PMT-06 on the 25th for the first two months of a quarter and GSTR-3B on the 22nd (category-1 states, `QRMP_22ND_STATES`: Chhattisgarh, MP, Gujarat, Daman & Diu, DNH&DD, Maharashtra, Karnataka, Goa, Lakshadweep, Kerala, TN, Puducherry, A&N, Telangana, AP) / 24th (everyone else, incl. Ladakh 38) after the quarter end. |
 | Top customers | Period net sales (Sales Accounts entries) per voucher party, cash / bank "parties" (cash sales) excluded; top 5; `invoiceCount` = sales vouchers; `sharePercent` of period sales. |
 | Top items | Period sales − sales returns (credit notes with items) + debit notes to customers (upward price revisions: value only, no quantity) per item: taxable value and quantity (`billed_qty`, else the stock quantity); top 5. Empty when inventory is off. |
-| Trend | 12 calendar months ending with the month of `to`: sales and purchases per month (Σ Apr–Oct of the testkit = the YTD flows). |
+| Trend | 12 calendar months ending with the month of `to` — or ending at `trendTo` when given (2.1: its month counted only up to that date; Home passes its balances date, `homeSummaryInput`, so the running month is the "so far" figure = `sales.mtd`): sales and purchases per month (Σ Apr–Oct of the testkit = the YTD flows). |
 | Low stock | Active goods items with `reorder_level > 0` whose quantity on hand at asOf (`stockByItem`) is below it; least cover (on hand ÷ reorder level) first; at most 10 listed, `count` = all. |
 | Compliance | Counts from the start of asOf's financial year to asOf, always equal to the lists of `gst.einvoice.pending` / `gst.ewaybill.pending` (tested). **e-invoice** (feature on): outward documents (sales / credit / debit notes) in the books with an e-invoice nature (B2B, SEZ, export, deemed export), no IRN, `irn_status` NULL / '' / pending. Vouchers with a stored e-invoice nature are counted in SQL; the few whose nature `gst/docs.ts` would derive (none stored, an unknown value, a sale stored with an inward nature) go through `loadDocs` + `einvoiceSupplyType`. **e-way bill** (feature on): sales and credit notes (outward unless a credit note stores an inward nature) without an EWB number whose goods consignment (taxable + tax of lines not 'services' and not exempt / nil / non-GST — `consignmentValue`) exceeds `config.gst.ewayThresholdPaise` (₹50,000). |
 | Recent vouchers | The last 8 vouchers entered (highest id), any status, flagged cancelled / optional / post-dated; a cancelled voucher shows amount 0. |
@@ -77,9 +77,9 @@ says whether it was served from the memo (`cached`) and how long the call took (
   Cash & bank → Cash/Bank Books; negatives relabelled, at most one caption and only when it asks for action
   — To collect reconciles "₹x overdue · ₹y not matched" when more is overdue than is owed; the rest in the
   tooltip), the graph "Sales — last 12 months" (`homeSalesGraph`: `trend[i].sales` from the books-beginning
-  month, ≥ 3 months, the working-date month emphasised; header = `sales.mtd` against `lastYear.mtd`;
+  month, ≥ 3 months and at least one with sales, the working-date month emphasised — the last 12 months up to the working date even when the period runs to the year end, the running month only up to it (`trendTo`); header = `sales.mtd` against `lastYear.mtd`;
   MiniColumns, Ctrl+J; a column opens the Sales Accounts monthly summary of its financial year,
-  `homeSalesDrill`), "Needs your attention" (`homeAlerts`: top 3 + N more, without what a caption or the
+  up to the working date in the current one, `homeSalesDrill`), "Needs your attention" (`homeAlerts`: top 3 + N more, without what a caption or the
   Setup line already says), Setup as one line (`setupLine`) and the link "Full dashboard". One
   `dashboard.summary` request; module cards run only on the full Dashboard behind "Show all cards"
   (`pevqori.ui` `dashboardAllCards`). The full Dashboard: four figures, the trend line (Purchases as grey
@@ -107,7 +107,7 @@ says whether it was served from the memo (`cached`) and how long the call took (
   first sale F8, Import from another accounting program).
 - Get started: "Create ledger" opens Ledger Creation under Sundry Debtors (`DRILL.newLedger('SUNDRY_DEBTORS')`,
   "Under" stays editable). **Hide** is remembered per company in this browser (localStorage) and can be
-  undone: **Alt+S Show Get started** on the full dashboard's rail, or a **Show Get started** button in the
+  undone: **Alt+S Show setup** (2.0: "Show Get started") on the full dashboard's rail, or a **Show Get started** button in the
   Gateway panel's header (no hotkey there) — offered only while hidden and the card would show
   (`lib/model.ts canShowStartCard`). Every mounted copy of the card re-reads the preference on a change.
 

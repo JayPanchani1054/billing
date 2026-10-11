@@ -54,6 +54,7 @@ import {
   startPrefsKey,
   startSteps,
   toggleTicked,
+  trendCardText,
   trendSpec,
 } from './lib/model.ts';
 import type { DashboardAlert, DrillTarget, StartPrefs, StartStep } from './lib/model.ts';
@@ -153,7 +154,7 @@ export function HomeGraph({ s }: { s: DashboardSummary }) {
       const register = DRILL.salesRegister({ from: m.from, to: m.to });
       if (!canGroups || !drill.can('reports.monthlySummary')) return drill.open(register);
       salesGroupId(companyId).then(
-        (id) => drill.open(id === null ? register : homeSalesDrill(month, s.booksFrom, id, fyStartMonth)),
+        (id) => drill.open(id === null ? register : homeSalesDrill(month, s.booksFrom, id, fyStartMonth, s.asOf)),
         () => drill.open(register),
       );
     };
@@ -163,7 +164,7 @@ export function HomeGraph({ s }: { s: DashboardSummary }) {
       title: g.title,
       takeaway: g.takeaway,
       inline: false,
-      render: () => <MiniColumns title={g.title} months={g.months} values={g.values} emphasis={g.emphasis} label={g.label} onActivate={canDrill ? open : undefined} />,
+      render: ({ describedBy }) => <MiniColumns title={g.title} months={g.months} values={g.values} emphasis={g.emphasis} label={g.label} onActivate={canDrill ? open : undefined} describedBy={describedBy} />,
     };
   }, [g, s, canGroups, drill, companyId, fyStartMonth]);
   return <GraphStrip graph={graph} kind="report" />;
@@ -307,7 +308,7 @@ export function useStartSteps(s: DashboardSummary | undefined): {
  * Setup as ONE line (D11): "Setup 4 of 9 · Next: Choose what prints on your invoice   Continue   ×".
  * "Setup 4 of 9" is a disclosure that expands the same `list "First steps"` in place — one line per
  * step: its tick (done from the books, or "Mark as done"), its title and its action. Steps tick
- * themselves off; × hides Setup (the full Dashboard's "Show Get started", Alt+S, brings it back).
+ * themselves off; × hides Setup (the full Dashboard's "Show setup", Alt+S, brings it back).
  */
 export function SetupLine({ start, hasVouchers }: { start: ReturnType<typeof useStartSteps>; hasVouchers: boolean }) {
   const shell = useShell();
@@ -508,7 +509,7 @@ export function TrendCard({ s, fold, toggle, className }: { s: DashboardSummary 
     [s, canRegister, drill],
   );
   if (!s) return null;
-  return <GraphCard className={className} title="Sales and purchases — last 12 months" takeaway={spec ? spec.takeaway : 'No sales or purchases in the last 12 months'} spec={spec} fold={fold} toggle={toggle} />;
+  return <GraphCard className={className} title="Sales and purchases — last 12 months" takeaway={spec ? spec.takeaway : trendCardText(s.trend, s.asOf)} spec={spec} fold={fold} toggle={toggle} />;
 }
 
 /** Receivables by age: ordinal columns, "Not due" grey (LazyChart); Enter opens Receivables. */

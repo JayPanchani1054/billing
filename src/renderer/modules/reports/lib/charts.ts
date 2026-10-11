@@ -115,7 +115,8 @@ export function profitTrendChart(t: ProfitTrendResult | null | undefined, opts: 
   return drawable({
     kind: 'column',
     title: `Net profit by ${grainWord(f.grain)}`,
-    takeaway: take.polarity(losses, f.categories.length, best, f.grain),
+    // Months with no result (still ahead in a whole-year period) are neither profit nor loss.
+    takeaway: take.polarity(losses, profits + losses, best, f.grain),
     categories: f.categories,
     series: [{ name: 'Net profit', values: f.values }],
     color: 'polarity',
@@ -165,20 +166,33 @@ function grainEnd(to: string, grain: Grain): string {
 
 /**
  * "Sales before GST, by month" (reports.register, months view): one series, the largest month labelled,
- * the running (cut) last month drawn as "so far". Enter on a month = Enter on its row (the month's
- * vouchers). Total = Σ months = the register's total (taxable or amount).
+ * the running (cut) last month drawn as "so far" — also the working date's month when the period runs past it
+ * (`workingDate`). Enter on a month = Enter on its row (the month's vouchers). Total = Σ months = the
+ * register's total (taxable or amount).
  */
-export function registerChart(r: RegisterResult | null | undefined, opts: { activate?: (range: DrillRange) => void } = {}): ChartSpec | null {
+export function registerChart(r: RegisterResult | null | undefined, opts: { activate?: (range: DrillRange) => void; workingDate?: string } = {}): ChartSpec | null {
   if (!r || r.months.length === 0) return null;
   const measure = registerMeasure(r);
+  // A period that runs past the working date (the whole financial year, "This quarter") stops at the working
+  // date's month — drawn "so far", no empty future months — unless a later (post-dated) voucher is in the table.
+  let months = r.months;
+  let end = r.to;
+  const wd = opts.workingDate;
+  if (wd && wd >= r.from && wd < r.to) {
+    const running = wd.slice(0, 7);
+    if (!r.months.some((m) => m.month > running && (m.count !== 0 || m.cancelled !== 0 || m.taxable !== 0 || m.amount !== 0))) {
+      months = r.months.filter((m) => m.month <= running);
+      end = wd;
+    }
+  }
   const f = foldMonthRows(
-    r.months,
-    r.months.map((m) => (measure === 'taxable' ? m.taxable : m.amount)),
+    months,
+    months.map((m) => (measure === 'taxable' ? m.taxable : m.amount)),
   );
   // A register without a noun of its own (a voucher type's register): its title without "Register".
   const noun = (r.baseType !== null ? REGISTER_NOUN[r.baseType] : undefined) ?? r.title.replace(/ Register$/, '');
   const by = `by ${grainWord(f.grain)}`;
-  const partialLast = r.to < grainEnd(r.to, f.grain);
+  const partialLast = end < grainEnd(end, f.grain);
   const activate = opts.activate;
   const spec: ChartSpec = {
     kind: 'column',
@@ -263,8 +277,15 @@ function balanceTakeaway(values: readonly number[], lastLabel: string, firstLabe
   return take.last(side(last), lastLabel, move);
 }
 
-/** A line of balances (opening first), decimated to the kit's point cap. */
-function balanceLine(title: string, points: readonly { label: string; value: number }[], sign: 1 | -1, firstLabel: string, activate?: (i: number) => void): ChartSpec | null {
+/** 'D-MMM-YY' of the date a balance point stands at, if it has one. */
+const lastAt = (p: { at?: string }): string | null => (p.at ? formatDate(p.at, 'D-MMM-YY') : null);
+
+/**
+ * A line of balances (opening first), decimated to the kit's point cap. A point may carry the date its
+ * balance stands at (`at`, a month's last day): the takeaway then says "on 30-Jun-26", never the month
+ * label "Jun 26", which reads as 26 June.
+ */
+function balanceLine(title: string, points: readonly { label: string; value: number; at?: string }[], sign: 1 | -1, firstLabel: string, activate?: (i: number) => void): ChartSpec | null {
   if (points.length < 3) return null;
   const kept = decimate(
     points.map((p, i) => ({ x: i, y: p.value })),
@@ -275,7 +296,7 @@ function balanceLine(title: string, points: readonly { label: string; value: num
   return drawable({
     kind: 'line',
     title,
-    takeaway: balanceTakeaway(values, categories[categories.length - 1], firstLabel, sign),
+    takeaway: balanceTakeaway(values, lastAt(points[kept[kept.length - 1].x]) ?? categories[categories.length - 1], firstLabel, sign),
     categories,
     series: [{ name: 'Balance', values }],
     label: 'last',
@@ -300,7 +321,7 @@ export function ledgerChart(d: LedgerReportResult | null | undefined, monthly?: 
     if (!monthly) return null;
     return balanceLine(
       'Balance by month',
-      [opening, ...monthly.rows.map((r) => ({ label: `${monthName(r.month)} ${r.month.slice(2, 4)}`, value: r.closing * sign }))],
+      [opening, ...monthly.rows.map((r) => ({ label: `${monthName(r.month)} ${r.month.slice(2, 4)}`, value: r.closing * sign, at: r.to }))],
       sign,
       firstLabel,
     );
@@ -347,7 +368,7 @@ export function monthlySummaryChart(d: MonthlySummaryResult | null | undefined, 
   const sign = naturalSign(d.closing, d.opening);
   return balanceLine(
     'Month-end balance',
-    [{ label: 'Opening', value: d.opening * sign }, ...d.rows.map((r) => ({ label: `${monthName(r.month)} ${r.month.slice(2, 4)}`, value: r.closing * sign }))],
+    [{ label: 'Opening', value: d.opening * sign }, ...d.rows.map((r) => ({ label: `${monthName(r.month)} ${r.month.slice(2, 4)}`, value: r.closing * sign, at: r.to }))],
     sign,
     formatDate(d.from, 'D-MMM-YY'),
     activate ? (i) => i > 0 && activate({ from: d.rows[i - 1].from, to: d.rows[i - 1].to }) : undefined,
@@ -410,9 +431,10 @@ export function cashFlowChart(d: CashFlowResult | null | undefined, opts: { acti
     d.months.map((m) => m.net),
   );
   const unit = `${grainWord(f.grain)}s`;
-  const n = f.categories.length;
   const outs = f.values.filter((v) => v < 0).length;
   const ins = f.values.filter((v) => v > 0).length;
+  // Months without movement (still ahead in a whole-year period) count neither way.
+  const n = ins + outs;
   let takeaway: string;
   if (ins === 0 && outs > 0) {
     const i = argMax(f.values, (v) => (v < 0 ? v : -Infinity));
@@ -489,8 +511,15 @@ export interface CheckStat {
   title: string;
 }
 
-/** The Trial Balance's answer: "Agrees ✓", or "Differs by ₹0.32" in the danger tone. */
-export function trialBalanceStat(d: Pick<TrialBalanceResult, 'balanced' | 'unbalancedBy'>): CheckStat {
+/**
+ * The Trial Balance's answer: "Agrees ✓", or "Differs by ₹0.32" in the danger tone. With a difference in
+ * opening balances (its own line, under the "Opening balances do not agree" banner) the totals agree only
+ * through that line: "Agrees only with the opening difference", no ✓.
+ */
+export function trialBalanceStat(d: Pick<TrialBalanceResult, 'balanced' | 'unbalancedBy'> & { openingDifference?: number }): CheckStat {
+  if (d.balanced && d.unbalancedBy === 0 && (d.openingDifference ?? 0) !== 0) {
+    return { label: '', value: 'Agrees only with the opening difference', amount: 0, title: 'Debit and credit totals are equal once the difference in opening balances is shown as its own line' };
+  }
   if (d.balanced && d.unbalancedBy === 0) return { label: '', value: 'Agrees ✓', amount: 0, title: 'Debit and credit totals are equal' };
   const amount = Math.abs(d.unbalancedBy);
   return { label: '', value: `Differs by ${statMoney(amount)}`, amount, tone: 'danger', title: 'Debit and credit totals are not equal' };

@@ -226,6 +226,15 @@ describe('Accept? reads the amount back (D19)', () => {
     assert.equal(acceptMessage({ typeName: 'Sales', kind: 'invoice', total: 1, totalText: '$ 2,000.00', partyName: 'Acme Inc.' }), 'Sales for $ 2,000.00 to Acme Inc.');
   });
 
+  it('(V6) a purchase reads "from" the supplier, never "to"', () => {
+    assert.equal(
+      acceptMessage({ typeName: 'Purchase', kind: 'invoice', total: 5000000, partyName: 'Patel Paints', fromParty: true }),
+      'Purchase for ₹ 50,000.00 (Rupees Fifty Thousand Only) from Patel Paints.',
+    );
+    // A debit note goes to the supplier: "to" stays.
+    assert.equal(acceptMessage({ typeName: 'Debit Note', kind: 'invoice', total: 100000, partyName: 'Patel Paints' }), 'Debit Note for ₹ 1,000.00 (Rupees One Thousand Only) to Patel Paints.');
+  });
+
   it('a ledger voucher: Dr = Cr and the words once balanced; a stock document: its line count', () => {
     assert.equal(acceptMessage({ typeName: 'Receipt', kind: 'ledger', total: 0, debit: 5000000, credit: 0 }), 'Receipt: Dr ₹ 50,000.00 = Cr ₹ 50,000.00 (Rupees Fifty Thousand Only).');
     assert.equal(acceptMessage({ typeName: 'Journal', kind: 'ledger', total: 0, debit: 2500000, credit: 2450000 }), 'Journal: Dr ₹ 25,000.00 = Cr ₹ 24,500.00.');

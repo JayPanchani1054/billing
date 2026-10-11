@@ -9,7 +9,7 @@
  */
 import { useId, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
-import { graphKeyStep } from './lib/chart.ts';
+import { graphKeyStep } from './lib/chartCore.ts';
 import { cx } from './lib/cx.ts';
 import { formatMoney } from '../../shared/format.ts';
 
@@ -25,9 +25,11 @@ export interface MiniColumnsProps {
   /** Direct label of the emphasised column ("₹35.8 K so far"). */
   label: string;
   onActivate?: (index: number) => void;
+  /** Id of the takeaway sentence that describes the graph (the strip's header line). */
+  describedBy?: string;
 }
 
-export function MiniColumns({ title, months, values, emphasis, label, onActivate }: MiniColumnsProps): ReactNode {
+export function MiniColumns({ title, months, values, emphasis, label, onActivate, describedBy }: MiniColumnsProps): ReactNode {
   const id = useId();
   const [cur, setCur] = useState(-1);
   const n = months.length;
@@ -45,7 +47,7 @@ export function MiniColumns({ title, months, values, emphasis, label, onActivate
   };
   return (
     <div className="bx-mini">
-      <div className="bx-mini__plot" role="listbox" aria-roledescription="graph" aria-orientation="horizontal" aria-label={title} aria-activedescendant={cur >= 0 ? id + cur : undefined} tabIndex={0} onKeyDown={onKeyDown} onBlur={() => setCur(-1)}>
+      <div className="bx-mini__plot" role="listbox" aria-roledescription="graph" aria-orientation="horizontal" aria-label={title} aria-describedby={describedBy} aria-activedescendant={cur >= 0 ? id + cur : undefined} tabIndex={0} onKeyDown={onKeyDown} onBlur={() => setCur(-1)}>
         {months.map((m, i) => {
           const v = values[i] ?? 0;
           const name = `${m}: ${formatMoney(v, { symbol: true })}`;

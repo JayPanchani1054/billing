@@ -144,7 +144,7 @@ function ChooserDialog({
     >
       <ChooserKeys onAccept={() => onChoose(v)} />
       <div ref={ref}>
-        <Field label={title} hint={options.length <= 1 && !loading ? `None yet — create one under Gateway › Masters › ${title === 'Scenario' ? 'Scenarios' : 'Budgets'}.` : hint}>
+        <Field label={title} hint={options.length <= 1 && !loading ? `None yet — create one under Home › Masters › ${title === 'Scenario' ? 'Scenarios' : 'Budgets'}.` : hint}>
           <Select options={options} value={v} onChange={setV} disabled={loading} data-autofocus />
         </Field>
       </div>

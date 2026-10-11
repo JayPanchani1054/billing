@@ -197,12 +197,12 @@ function toFlow(sums: Record<string, Paise>, sign: 1 | -1): DashboardFlow {
 /** Avoid -0 in JSON. */
 const nz = (n: number): number => (n === 0 ? 0 : n);
 
-function trendMonths(db: Db, cls: Classified, to: string, today: string, booksFrom: string): DashboardMonth[] {
-  // 12 calendar months ending with the month of `to`.
+function trendMonths(db: Db, cls: Classified, to: string, today: string, booksFrom: string, cut = false): DashboardMonth[] {
+  // 12 calendar months ending with the month of `to` — with `cut` (trendTo, Home), the last one only up to `to`.
   const lastMonthStart = startOfMonth(to);
   const from = shiftMonths(lastMonthStart, -11);
   const months = monthsBetween(from, lastMonthStart);
-  const until = endOfMonth(lastMonthStart);
+  const until = cut ? to : endOfMonth(lastMonthStart);
   const byMonth = new Map<string, { s: number; p: number }>(months.map((m) => [m, { s: 0, p: 0 }]));
   for (const r of db.all<{ m: string; kind: string; amt: number }>(
     `WITH k(id, kind) AS (SELECT value, 's' FROM json_each(:s) UNION ALL SELECT value, 'p' FROM json_each(:p))
@@ -218,7 +218,7 @@ function trendMonths(db: Db, cls: Classified, to: string, today: string, booksFr
     else slot.p = nz(r.amt);
   }
   // The month of the books beginning carries the nominal opening balances (as the flows and the P&L).
-  const obSlot = byMonth.get(monthKey(booksFrom));
+  const obSlot = booksFrom <= until ? byMonth.get(monthKey(booksFrom)) : undefined;
   if (obSlot) {
     obSlot.s = nz(obSlot.s - (cls.tradingOpening.get('s') ?? 0));
     obSlot.p = nz(obSlot.p + (cls.tradingOpening.get('p') ?? 0));
@@ -226,7 +226,7 @@ function trendMonths(db: Db, cls: Classified, to: string, today: string, booksFr
   return months.map((m) => {
     const f = `${m}-01`;
     const v = byMonth.get(m) as { s: number; p: number };
-    return { month: m, from: f, to: endOfMonth(f), sales: v.s, purchases: v.p };
+    return { month: m, from: f, to: m === months[months.length - 1] ? until : endOfMonth(f), sales: v.s, purchases: v.p };
   });
 }
 
@@ -688,7 +688,7 @@ export function dashboardSummary(deps: SummaryDeps, input: DashboardSummaryInput
   const flags = { gp: can(session, 'reports.financial'), gst: can(session, 'gst.view') };
   const change = db.dataRevision();
   const memo = opts.memo !== false && change !== null;
-  const key = JSON.stringify([input.asOf, input.from, input.to, today, flags.gp, flags.gst, change]);
+  const key = JSON.stringify([input.asOf, input.from, input.to, today, flags.gp, flags.gst, change, input.trendTo ?? null]);
   // Receivables / payables depend on asOf only: a period change (Alt+F2) reuses them.
   const outstanding = (side: OutstandingSide): DashboardOutstanding =>
     memoised(db, side, JSON.stringify([input.asOf, today, change]), memo, () => outstandingFigures(db, today, side, input.asOf)).value;
@@ -744,7 +744,7 @@ function compute(
     gstDue: gst.due,
     topCustomers: topCustomers(db, cls, ranges.period, sales.period, today),
     topItems: features.inventory ? topItems(db, ranges.period, sales.period, today) : [],
-    trend: trendMonths(db, cls, input.to, today, booksFrom),
+    trend: trendMonths(db, cls, input.trendTo ?? input.to, today, booksFrom, input.trendTo !== undefined),
     lowStock: features.inventory ? lowStock(db, input.asOf, today) : { count: 0, items: [] },
     compliance: compliance(db, features, flags.gst, ranges.ytd, today),
     recentVouchers: recentVouchers(db),

@@ -1,4 +1,4 @@
-/** 2.0 API, kept for the full Dashboard and the ageing view: a thin adapter that renders the 2.1 kit lazily. */
+/** 2.0 API, kept for callers outside the 2.1 screens (none since 2.1 wave 2): a thin adapter that renders the 2.1 kit lazily. */
 import type { ReactNode, Ref } from 'react';
 import type { ChartSeries, ValueFormat } from './chartParts.tsx';
 import { LazyChart, useLegacySpec } from './lazyChart.tsx';

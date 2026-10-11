@@ -167,6 +167,7 @@ export function partyLine(o: {
 /**
  * "Accept this voucher?" (D19): the amount read back in figures and words.
  *   invoice  → "Sales for ₹ 27,140.00 (Rupees Twenty Seven Thousand One Hundred Forty Only) to Asha Retail."
+ *              (a purchase: "… from Patel Paints.")
  *   foreign  → "Sales for $ 2,000.00 to Acme Inc." (`totalText` given; no rupee words)
  *   ledger   → "Receipt: Dr ₹ 50,000.00 = Cr ₹ 50,000.00 (Rupees Fifty Thousand Only)."
  *   stock    → "Delivery Note with 3 item line(s)."
@@ -178,13 +179,15 @@ export function acceptMessage(o: {
   /** A foreign-currency invoice total, already formatted. */
   totalText?: string | null;
   partyName?: string | null;
+  /** The party is the one the goods or money come from (a purchase, a supplier's credit note): "from", not "to". */
+  fromParty?: boolean;
   debit?: Paise;
   credit?: Paise;
   itemLines?: number;
 }): string {
   if (o.kind === 'invoice') {
     const amount = o.totalText ? o.totalText : `₹ ${formatMoney(o.total)}${o.total > 0 ? ` (${amountInWords(o.total)})` : ''}`;
-    const text = `${o.typeName} for ${amount}${o.partyName ? ` to ${o.partyName}` : ''}`;
+    const text = `${o.typeName} for ${amount}${o.partyName ? ` ${o.fromParty ? 'from' : 'to'} ${o.partyName}` : ''}`;
     return /[.!?]$/.test(text) ? text : `${text}.`;
   }
   if (o.kind === 'ledger') {

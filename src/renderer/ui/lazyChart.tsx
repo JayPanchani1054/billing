@@ -10,8 +10,7 @@
  */
 import { Suspense, lazy, useDeferredValue, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { STRIP_PLOT_HEIGHT, plotHeight } from './lib/chart.ts';
-import { enoughData, legacySpec } from './lib/chartSpec.ts';
+import { STRIP_PLOT_HEIGHT, enoughData, legacySpec, plotHeight } from './lib/chartCore.ts';
 import type { ChartSpec } from './lib/chartSpec.ts';
 import type { ChartProps } from './chartParts.tsx';
 
@@ -74,7 +73,7 @@ export function reportGraph(spec: ChartSpec | null, opts: { inline?: boolean } =
 }
 
 /**
- * The 2.0 `BarChart` / `LineChart` props as a spec (ui/lib/chartSpec.ts `legacySpec`), memoised. 2.0
+ * The 2.0 `BarChart` / `LineChart` props as a spec (ui/lib/chartCore.ts `legacySpec`), memoised. 2.0
  * callers pass `onCategoryActivate` as an inline arrow; it is read through a ref, so a parent render
  * does not hand the graph a new spec (and a second, deferred render) each time.
  */

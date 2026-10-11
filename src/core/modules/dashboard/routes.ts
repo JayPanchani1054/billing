@@ -9,7 +9,7 @@ import { v } from '../../lib/validate.ts';
 import { summaryForCtx } from './summary.ts';
 
 export const DashboardSummaryInputSchema = v
-  .object({ asOf: v.date(), from: v.date(), to: v.date() })
+  .object({ asOf: v.date(), from: v.date(), to: v.date(), trendTo: v.date().optional() })
   .refine((x) => (x.from > x.to ? 'The period ends before it starts. Choose an end date on or after the start date.' : null));
 
 export const dashboardRoutes = {

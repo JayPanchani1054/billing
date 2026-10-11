@@ -106,7 +106,7 @@ export function LedgerListScreen({ params }: ScreenProps<{ chip?: LedgerChip; se
       error={q.error}
       onRetry={() => void q.refetch()}
       outputInMore
-      hint="Enter Alter · Alt+C Create · Alt+D Delete · Alt+B Bulk create · Alt+H Edit History · Alt+T Chart · Alt+E Export · Esc Back"
+      hint="Enter Alter · Alt+C Create · Alt+D Delete · Alt+B Create several · Alt+H Edit History · Alt+T Chart of accounts · Alt+E Export · Esc Back"
       actions={[
         {
           key: 'Alt+C',

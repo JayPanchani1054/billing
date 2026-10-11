@@ -17,7 +17,7 @@ import { useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { ChartDataTable, ChartLegend, ChartTooltip, describeCategory, fullFormatter, labelFormatter, tickFormatter, useElementSize } from './chartParts.tsx';
 import type { ChartProps, TooltipRow } from './chartParts.tsx';
-import { STRIP_PLOT_HEIGHT, areaPath, bandLayout, barPath, colorClass, fitText, graphKeyStep, hbarLayout, hbarPath, labelIndexes, linePath, linearScale, nearestIndex, niceTicks, plotHeight, polarityTicks, seriesColor, shareSegments, textWidth } from './lib/chart.ts';
+import { STRIP_PLOT_HEIGHT, areaPath, bandLayout, barPath, colorClass, fitText, graphKeyStep, hbarLayout, hbarPath, labelIndexes, linePath, linearScale, nearestIndex, niceTicks, plotHeight, polarityTicks, polarityValue, seriesColor, shareSegments, textWidth } from './lib/chart.ts';
 import type { Point } from './lib/chart.ts';
 import { MAX_LINE_POINTS, decimate, measuredSeries } from './lib/chartSpec.ts';
 import type { ChartSpec } from './lib/chartSpec.ts';
@@ -100,7 +100,12 @@ function Plot({ spec, height, active, describedBy, className }: ChartProps): Rea
   const geo = useMemo(() => geometry(spec, box.w, fixedHeight ?? box.h), [spec, box.w, box.h, fixedHeight]);
 
   const partialIdx = spec.partialLast && kind === 'column' ? n - 1 : -1;
-  const optionLabel = (i: number) => describeCategory(spec.categories[i], spec.series, i, full, i === partialIdx ? ' so far' : '');
+  // A polarity column says its side in words ("₹ 12,400.00 Loss"), never with a bare minus (§4.2).
+  const worded = (v: number | null | undefined) => (finite(v) ? polarityValue(spec, v, full) : null);
+  const optionLabel = (i: number) => {
+    const w = spec.series.length === 1 ? worded(spec.series[0].values[i]) : null;
+    return w ? `${spec.categories[i]}: ${w.value}${w.name ? ` ${w.name}` : ''}` : describeCategory(spec.categories[i], spec.series, i, full, i === partialIdx ? ' so far' : '');
+  };
 
   // Keys are local (§4.4): with a modifier they keep their global meaning (Ctrl+J, Alt+←, …).
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -123,6 +128,8 @@ function Plot({ spec, height, active, describedBy, className }: ChartProps): Rea
     const at = geo.anchor(tipIdx);
     const rows: TooltipRow[] = spec.series.map((s, si) => {
       const v = s.values[tipIdx];
+      const w = si === 0 ? worded(v) : null;
+      if (w) return { name: w.name ?? s.name, color: seriesColor(spec, tipIdx, si), value: w.value };
       return { name: s.name, color: seriesColor(spec, tipIdx, si), value: finite(v) ? `${full(v)}${tipIdx === partialIdx ? ' so far' : ''}` : '—' };
     });
     return <ChartTooltip title={spec.categories[tipIdx]} rows={rows} x={at.x} y={at.y} alignRight={at.x > geo.w * 0.6} />;

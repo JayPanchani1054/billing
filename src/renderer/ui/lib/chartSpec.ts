@@ -7,7 +7,11 @@
  *   slot 1 = the thing measured · 'other' (grey) = context · slot 2 = ONLY the negative or problem
  *   pole (loss, overdrawn, overdue, mismatch) · ordinal o1–o5 = age / lateness. Slot 3 is never drawn.
  */
-import { formatCompactINR, formatIndianNumber, formatPercent } from '../../../shared/format.ts';
+import { TAKEAWAY_MAX, drawnTotal, enoughData } from './chartCore.ts';
+
+// The helpers eager screens need (Home, Bills pending, Quotations) live in chartCore.ts so that this
+// module loads only with the lazy report screens; they are re-exported here, the one import path for builders.
+export { OTHER_LABEL, TAKEAWAY_MAX, clipTakeaway, compactValue, drawnTotal, enoughData, foldTop, legacySpec, measuredSeries, statRepeatsTotal, take } from './chartCore.ts';
 
 export type ChartKind = 'column' | 'bar' | 'line' | 'share' | 'meter';
 
@@ -73,8 +77,6 @@ export interface ChartSpec {
   activate?: (index: number) => void;
 }
 
-/** Longest takeaway the strip header shows on one line at 1366 px. */
-export const TAKEAWAY_MAX = 90;
 /** Folded output limits (§4.7): categories for a column (13 = 13 months before quarters), points for a line. */
 export const MAX_CATEGORIES = 13;
 /**
@@ -88,35 +90,12 @@ export const MAX_SHARE_SEGMENTS = 4;
 export const MAX_LINE_POINTS = 480;
 /** Bars short enough to draw inside the table instead of a strip (D26). */
 export const INLINE_MAX_ROWS = 7;
-export const OTHER_LABEL = 'Other';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
 // ---------------------------------------------------------------------------------------------
 // Folding helpers (Σ-preserving)
 // ---------------------------------------------------------------------------------------------
-
-/**
- * Top `n` items by |value| (ties keep input order) and the rest summed into one "Other" category,
- * last. Σ of the values is preserved exactly. "Other" is never a single item in disguise: when only
- * one item would fall into it, that item is shown by name instead (so 7 items at n = 6 are 7 bars,
- * the same count as 6 + Other). No "Other" when n ≥ length. A fold therefore always shows fewer
- * categories than there are items — `inlineBars` relies on that. When a kept item is itself named
- * like the fold (a POS tender "Other"), the fold says how many it holds: "Other (5)".
- */
-export function foldTop<T>(items: readonly T[], n: number, value: (t: T) => number, label: (t: T) => string, otherLabel: string = OTHER_LABEL): { categories: string[]; values: number[] } {
-  const ranked = items.map((t, i) => ({ v: value(t), name: label(t), i })).sort((a, b) => Math.abs(b.v) - Math.abs(a.v) || a.i - b.i);
-  const keep = Math.max(0, Math.floor(Number.isFinite(n) ? n : items.length));
-  const head = ranked.length > keep + 1 ? ranked.slice(0, keep) : ranked;
-  const tail = ranked.length > keep + 1 ? ranked.slice(keep) : [];
-  const categories = head.map((r) => r.name);
-  const values = head.map((r) => r.v);
-  if (tail.length > 0) {
-    categories.push(categories.includes(otherLabel) ? `${otherLabel} (${tail.length})` : otherLabel);
-    values.push(tail.reduce((s, r) => s + r.v, 0));
-  }
-  return { categories, values };
-}
 
 /** 'YYYY-MM' of every month from `from` to `to` (dates 'YYYY-MM-DD' or months 'YYYY-MM'), inclusive. */
 export function monthRange(from: string, to: string): string[] {
@@ -234,45 +213,6 @@ export function decimate(points: readonly { x: number; y: number }[], max: numbe
 // Totals, gates and rules
 // ---------------------------------------------------------------------------------------------
 
-/** The series the graph measures: the first one not marked as context ('other'). */
-export function measuredSeries(spec: ChartSpec): ChartSeries | null {
-  return spec.series.find((s) => s.slot !== 'other') ?? null;
-}
-
-function drawn(values: readonly (number | null)[]): number[] {
-  return values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-}
-
-/**
- * What the drawing adds up to, to compare with the table: Σ of the measured series for column, bar
- * and share; the last drawn point of a line (a running balance ends on the table's closing); the
- * whole (`max`) of a meter.
- */
-export function drawnTotal(spec: ChartSpec): number {
-  if (spec.kind === 'meter') return spec.max ?? 0;
-  const s = measuredSeries(spec);
-  if (!s) return 0;
-  const vals = drawn(s.values);
-  if (spec.kind === 'line') return vals.length ? vals[vals.length - 1] : 0;
-  return vals.reduce((a, b) => a + b, 0);
-}
-
-/**
- * Minimum data (D26): bar / column / share need ≥ 3 categories with a non-zero value; a line ≥ 3
- * points; a meter both parts (the fill and the track) > 0. Below that a builder returns null.
- */
-export function enoughData(spec: ChartSpec): boolean {
-  const s = measuredSeries(spec);
-  if (!s) return false;
-  if (spec.kind === 'meter') {
-    const v = s.values[0];
-    return typeof v === 'number' && v > 0 && (spec.max ?? 0) > 0;
-  }
-  const vals = drawn(s.values);
-  if (spec.kind === 'line') return vals.length >= 3;
-  return vals.filter((v) => v !== 0).length >= 3;
-}
-
 /**
  * Every rule a spec breaks (empty = valid). `assertSpec` throws with these; tests read them.
  */
@@ -349,15 +289,6 @@ export function inlineBars(spec: ChartSpec | null, tableRows: number): boolean {
   return spec.categories.length === tableRows;
 }
 
-/**
- * D24: a stat never repeats a visible table total. True when a shown (non-zero) stat value equals a
- * table total, sign ignored (a Cr total and its owner's-words amount are the same number).
- */
-export function statRepeatsTotal(statValues: readonly number[], tableTotals: readonly number[]): boolean {
-  const totals = new Set(tableTotals.filter((t) => Number.isFinite(t) && t !== 0).map((t) => Math.abs(t)));
-  return statValues.some((s) => Number.isFinite(s) && s !== 0 && totals.has(Math.abs(s)));
-}
-
 // ---------------------------------------------------------------------------------------------
 // Colour resolution (pure; the kit maps these to CSS classes)
 // ---------------------------------------------------------------------------------------------
@@ -391,100 +322,4 @@ export function markColor(spec: ChartSpec, categoryIndex: number, seriesIndex = 
   }
   if (spec.partialLast && spec.kind === 'column' && categoryIndex === spec.categories.length - 1) return 'partial';
   return 1;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Takeaway templates (Indian compact money)
-// ---------------------------------------------------------------------------------------------
-
-/** Compact value for a takeaway or tick: ₹87.4 K · 1.2 L · 12.5 %. */
-export function compactValue(v: number, f: ValueFormat = 'inr'): string {
-  if (typeof f === 'object') return f.tick(v);
-  if (f === 'inr') return formatCompactINR(v);
-  if (f === 'percent') return formatPercent(v);
-  const a = Math.abs(v);
-  if (a >= 1e7) return `${formatIndianNumber(v / 1e7, 1)} Cr`;
-  if (a >= 1e5) return `${formatIndianNumber(v / 1e5, 1)} L`;
-  return formatIndianNumber(v, Number.isInteger(v) ? 0 : 2);
-}
-
-/** Keeps a takeaway within TAKEAWAY_MAX (an ellipsis replaces the overflow). */
-export function clipTakeaway(s: string, max = TAKEAWAY_MAX): string {
-  return s.length <= max ? s : `${s.slice(0, max - 1).trimEnd()}…`;
-}
-
-function grainWord(category: string): string | null {
-  if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)( \d{2,4})?$/.test(category)) return 'month';
-  if (/^Q[1-4] \d{2}-\d{2}$/.test(category)) return 'quarter';
-  if (/^FY \d{2}-\d{2}$/.test(category)) return 'year';
-  return null;
-}
-
-export const take = {
-  /** "Best month Sep ₹87.4 K · Oct so far ₹42.3 K" (the running period is never the "best"). */
-  max(spec: ChartSpec): string {
-    const s = measuredSeries(spec);
-    if (!s) return '';
-    const f = spec.valueFormat ?? 'inr';
-    const lastIdx = spec.categories.length - 1;
-    const partial = !!spec.partialLast && spec.kind === 'column';
-    let best = -1;
-    s.values.forEach((v, i) => {
-      if (v === null || (partial && i === lastIdx)) return;
-      if (best < 0 || v > (s.values[best] ?? -Infinity)) best = i;
-    });
-    const parts: string[] = [];
-    if (best >= 0) {
-      const cat = spec.categories[best];
-      const word = grainWord(cat);
-      parts.push(`${word ? `Best ${word}` : 'Highest'} ${cat} ${compactValue(s.values[best] ?? 0, f)}`);
-    }
-    const last = s.values[lastIdx];
-    if (partial && last !== null && last !== undefined) parts.push(`${spec.categories[lastIdx]} so far ${compactValue(last, f)}`);
-    return clipTakeaway(parts.join(' · '));
-  },
-  /** "Wood Primer 1L holds 70 % of stock value". */
-  share(name: string, pct: number, of: string): string {
-    const tail = ` holds ${Math.round(pct)} % of ${of}`;
-    const room = TAKEAWAY_MAX - tail.length;
-    return clipTakeaway(`${name.length > room ? clipTakeaway(name, Math.max(8, room)) : name}${tail}`);
-  },
-  /** "₹1.67 L on 10-Oct, up ₹1.67 L since 1-Apr" (`delta` = "up ₹1.67 L since 1-Apr", or ''). */
-  last(value: string, date: string, delta: string): string {
-    return clipTakeaway(delta ? `${value} on ${date}, ${delta}` : `${value} on ${date}`);
-  },
-  /**
-   * "Loss in 6 of 7 months; smallest in Sep (₹12.4 K)" (`best` = the closing phrase, or ''). Pass
-   * `foldMonths(…).grain` when the period was folded: "Loss in 2 of 8 quarters".
-   */
-  polarity(lossMonths: number, months: number, best: string, grain: 'month' | 'quarter' | 'year' = 'month'): string {
-    const unit = `${grain}s`;
-    const head = lossMonths <= 0 ? `Profit in all ${months} ${unit}` : lossMonths >= months ? `Loss in all ${months} ${unit}` : `Loss in ${lossMonths} of ${months} ${unit}`;
-    return clipTakeaway(best ? `${head}; ${best}` : head);
-  },
-  /** "Of ₹4.66 L in unpaid bills, ₹1.91 L is over 90 days". */
-  ordinal(old: string, base: string, threshold: string): string {
-    return clipTakeaway(`Of ${base}, ${old} is over ${threshold}`);
-  },
-};
-
-// ---------------------------------------------------------------------------------------------
-// The 2.0 chart props, as a spec (ui/BarChart.tsx and ui/LineChart.tsx adapters)
-// ---------------------------------------------------------------------------------------------
-
-/**
- * A 2.0 `BarChart` / `LineChart` call as a spec for the 2.1 kit, or null when there is nothing to
- * draw (no category, or no finite value — the 2.0 empty rule). The first series is the measured one;
- * a later series keeps an explicit slot 2 (the full Dashboard's Purchases, until it becomes context)
- * and is context ('other') otherwise. Not asserted: 2.0 callers predate the 2.1 rules.
- */
-export function legacySpec(
-  kind: 'column' | 'line',
-  p: { title: string; description?: string; categories: readonly string[]; series: readonly ChartSeries[]; valueFormat?: ValueFormat; label?: 'max' | 'last' | 'none'; activate?: (index: number) => void },
-): ChartSpec | null {
-  const hasData = p.categories.length > 0 && p.series.some((s) => s.values.some((v) => typeof v === 'number' && Number.isFinite(v)));
-  if (!hasData) return null;
-  const series = p.series.map((s, i): ChartSeries => ({ name: s.name, values: s.values, slot: i === 0 ? 1 : s.slot === 2 ? 2 : 'other' }));
-  const spec: ChartSpec = { kind, title: p.title, takeaway: clipTakeaway(p.description ?? ''), categories: p.categories, series, valueFormat: p.valueFormat ?? 'inr', label: p.label, activate: p.activate, total: 0 };
-  return { ...spec, total: drawnTotal(spec) };
 }

@@ -124,3 +124,17 @@ test('user menu: built by lib/userMenu.ts (≤ 9 rows), the Appearance dialog ha
   assert.match(userMenu, /title="Appearance" size="sm"/);
   assert.match(userMenu, /aria-label="User menu"/);
 });
+
+test('Windows High Contrast: the focused Home item and the highlighted Go To option keep an outline (bg and box-shadow are dropped there)', () => {
+  // `.bx-gateway__item:focus` removes the outline and marks focus with a background + inset bar; forced colours
+  // erase both, so without this the keyboard user on Home sees no focus at all (WCAG 2.4.7).
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const at = clean.indexOf('@media (forced-colors: active)');
+  assert.ok(at >= 0, 'gateway.css has a forced-colors block');
+  const block = clean.slice(at, clean.indexOf('\n}', at));
+  for (const sel of ['.bx-gateway__item:focus', '.bx-goto__option.is-active']) {
+    const m = new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^{]*\\{([^}]*)\\}`).exec(block);
+    assert.ok(m, `${sel} is styled under forced colours`);
+    assert.match(m[1], /outline:\s*2px solid Highlight/, `${sel} draws a Highlight outline`);
+  }
+});

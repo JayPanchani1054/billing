@@ -364,6 +364,31 @@ test('12-month trend ends with the month of the period end', () => {
   b.t.close();
 });
 
+test('2.1 trendTo: the trend ends at the working date (Home graph) — last 12 months up to it, the running month cut there', () => {
+  const b = buildDashboardBooks();
+  // Real date 10-Oct, a sale entered on 10-Oct; the working date is set back to 8-Oct (entering older bills).
+  b.t.clock.setToday('2026-10-10');
+  save(b, { voucherTypeId: b.vt.sales, date: '2026-10-10', mode: 'item_invoice', partyLedgerId: b.L.acme, items: [{ itemId: b.I.mixer, qty: 10, rate: 500 }] });
+  const fy = { ...INPUT, to: '2027-03-31' };
+  // Without trendTo: unchanged — 12 whole months ending with the month of the period end.
+  const year = summaryForCtx(b.t.ctx, fy);
+  assert.equal(year.trend[0].month, '2026-04');
+  assert.equal(year.trend[11].month, '2027-03');
+  const oct = year.trend.find((m) => m.month === '2026-10');
+  assert.equal(oct?.sales, rs(1_300 + 5_000), 'a whole month counts the 10-Oct sale');
+  // With trendTo = the working date: the 12 months up to it, whatever the period end (last year's November
+  // included), and October only up to 8-Oct — the "so far" figure the graph's label states (sales.mtd).
+  const home = summaryForCtx(b.t.ctx, { ...fy, trendTo: TODAY });
+  const whole = summaryForCtx(b.t.ctx, { ...INPUT, to: '2026-10-31' }).trend;
+  assert.deepEqual(home.trend.slice(0, 11), whole.slice(0, 11));
+  assert.equal(home.trend[0].month, '2025-11');
+  assert.deepEqual(home.trend[11], { month: '2026-10', from: '2026-10-01', to: TODAY, sales: home.sales.mtd, purchases: home.purchases.mtd });
+  assert.equal(home.sales.mtd, rs(1_300));
+  // Everything else is the period's: only the trend moves.
+  assert.deepEqual({ ...home, trend: null, cached: null, elapsedMs: null }, { ...year, trend: null, cached: null, elapsedMs: null });
+  b.t.close();
+});
+
 test('low stock: items below their reorder level, least cover first', () => {
   const b = buildDashboardBooks();
   const s = summaryForCtx(b.t.ctx, INPUT);

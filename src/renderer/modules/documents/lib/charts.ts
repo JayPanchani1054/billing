@@ -11,7 +11,7 @@
 import { formatMoney } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import type { BillsPendingKind, BillsPendingRow, BudgetVarianceRow, DocumentListResult, DocumentStatus, RecurringDueRow } from '../../../../shared/types/documents.ts';
-import { clipTakeaway, compactValue, enoughData, foldTop, statRepeatsTotal, take } from '../../../ui/lib/chartSpec.ts';
+import { clipTakeaway, compactValue, enoughData, foldTop, statRepeatsTotal, take } from '../../../ui/lib/chartCore.ts';
 import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
 import { AGE_BUCKETS, ageBucket } from './model.ts';
 

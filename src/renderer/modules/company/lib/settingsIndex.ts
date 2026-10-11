@@ -165,10 +165,10 @@ export const SETTINGS_INDEX: readonly SettingsCategory[] = [
   {
     id: 'appearance',
     title: 'Appearance',
-    description: 'Theme, density, Home view and the shortcut bar — for you on this computer.',
+    description: 'Theme, density, Home view, the shortcut bar and graphs — for you on this computer.',
     icon: 'sliders',
     inline: 'appearance',
-    inlineKeywords: ['appearance', 'theme', 'dark', 'light', 'dark mode', 'match windows', 'density', 'compact', 'comfortable', 'home view', 'essentials', 'all menus', 'shortcut bar', 'colour', 'color', 'look'],
+    inlineKeywords: ['appearance', 'theme', 'dark', 'light', 'dark mode', 'match windows', 'density', 'compact', 'comfortable', 'home view', 'essentials', 'all menus', 'shortcut bar', 'graph', 'graphs', 'chart', 'charts', 'colour', 'color', 'look'],
     rows: [],
   },
   {

@@ -85,7 +85,7 @@ export function GroupListScreen() {
       error={q.error}
       onRetry={() => void q.refetch()}
       outputInMore
-      hint="Enter Alter · Alt+C Create · Alt+D Delete · Alt+H Edit History · Alt+T Chart · Alt+E Export · Esc Back"
+      hint="Enter Alter · Alt+C Create · Alt+D Delete · Alt+H Edit History · Alt+T Chart of accounts · Alt+E Export · Esc Back"
       actions={[
         {
           key: 'Alt+C',

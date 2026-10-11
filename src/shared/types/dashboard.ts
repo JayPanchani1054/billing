@@ -13,6 +13,14 @@ export interface DashboardSummaryInput {
   /** Selected reporting period (Alt+F2): top customers/items, gross profit, period sales. */
   from: string;
   to: string;
+  /**
+   * (2.1, optional) The 12-month `trend` ends at this date instead of with the month of `to`: the 12
+   * months up to its month, that last month counted only up to this date (its `to`). Home passes its
+   * balances date, so "Sales — last 12 months" is the last 12 months up to the working date even when the
+   * period runs on to the year end, and the running month is the "so far" figure (= `sales.mtd`). Nothing
+   * else changes.
+   */
+  trendTo?: string;
 }
 
 export interface DateRange {

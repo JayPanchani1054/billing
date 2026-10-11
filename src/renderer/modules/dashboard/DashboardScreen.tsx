@@ -11,7 +11,7 @@
  * Cash & bank), the trend (Sales with Purchases as grey context) and receivables by age (both through
  * LazyChart; Ctrl+J), the attention list, then the other cards as one line each — "Show all cards"
  * (remembered, `pevqori.ui` dashboardAllCards) shows the cards themselves. Keys: Alt+F2 period, Alt+E
- * export, Alt+P print, Alt+R refresh, Alt+S Show Get started, Ctrl+J graphs, Esc back.
+ * export, Alt+P print, Alt+R refresh, Alt+S Show setup, Ctrl+J graphs, Esc back.
  *
  * Reads 'dashboard.summary' { asOf: working date (F2), from/to: period (Alt+F2) }.
  */
@@ -44,7 +44,7 @@ import {
   useGraphFold,
   useStartSteps,
 } from './components.tsx';
-import { ageingSpec, exportTable, setupLine, summaryInput, trendSpec } from './lib/model.ts';
+import { ageingSpec, exportTable, homeSummaryInput, setupLine, summaryInput, trendSpec } from './lib/model.ts';
 
 export interface DashboardParams {
   /** Rendered inline by the Gateway (Home's panel). */
@@ -58,10 +58,11 @@ export interface DashboardParams {
  * summary is fetched again whenever the screen becomes visible; unchanged books are served from the
  * server's memo in under a millisecond.
  */
-function useSummary(): { q: ApiQueryResult<DashboardSummary>; asOf: string; workingDate: string } {
+function useSummary(home = false): { q: ApiQueryResult<DashboardSummary>; asOf: string; workingDate: string } {
   const { date } = useWorkingDate();
   const { from, to } = usePeriod();
-  const input = summaryInput(date, from, to);
+  // Home's graph is the last 12 months up to the working date, whatever the period end (homeSummaryInput).
+  const input = (home ? homeSummaryInput : summaryInput)(date, from, to);
   const q = useApiQuery('dashboard.summary', input, { keepPrevious: true, staleTime: 5_000 });
   const visible = useOptionalScreen()?.visible ?? true;
   const wasVisible = useRef(visible);
@@ -81,7 +82,7 @@ export function DashboardScreen({ params }: ScreenProps<DashboardParams>) {
 function HomePanel() {
   const nav = useNav();
   const period = usePeriod();
-  const { q, asOf, workingDate } = useSummary();
+  const { q, asOf, workingDate } = useSummary(true);
   const s = q.data;
   const start = useStartSteps(s);
   const loading = q.loading && !s;
@@ -143,7 +144,7 @@ function FullDashboard() {
       onRetry={() => void q.refetch()}
       actions={[
         { key: 'Alt+R', label: 'Refresh', icon: 'refresh', onClick: () => void q.refetch(), group: 'view' },
-        { key: 'Alt+S', label: 'Show Get started', icon: 'eye', onClick: start.show, hidden: !start.canShow, group: 'view' },
+        { key: 'Alt+S', label: 'Show setup', icon: 'eye', onClick: start.show, hidden: !start.canShow, group: 'view' },
         ...(hasGraph && graphs.action ? [graphs.action] : []),
       ]}
       exportDef={s ? () => exportTable(s) : undefined}

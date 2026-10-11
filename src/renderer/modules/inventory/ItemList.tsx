@@ -110,7 +110,7 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
         header: `In stock (${formatDate(asOf, 'D-MMM-YY')})`,
         headerLabel: `In stock on ${formatDate(asOf)}`,
         kind: 'number',
-        width: 160,
+        width: 210,
         sortable: true,
         sortValue: (r) => r.stockQty ?? 0,
         render: (r) =>
@@ -172,7 +172,7 @@ function ItemList({ initialGroupId, initialCategoryId }: { initialGroupId: numbe
         { create, createSeveral: () => nav.push('inventory.item.bulk', groupId !== null ? { groupId } : {}), remove: () => void remove(current) },
       )}
       filters={
-        <div className="bx-inv-filters">
+        <div className="bx-inv-filters bx-inv-filters--row">
           <Field label="Search" hideLabel>
             <TextInput
               value={search}

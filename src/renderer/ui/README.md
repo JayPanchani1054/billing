@@ -293,8 +293,8 @@ const spec = useMemo(() => (q.data ? registerChart(q.data) : null), [q.data]); /
   (grey) = context (a second series is always context); slot 2 = only the negative or problem pole
   (`'polarity'` negatives, `'problem'` categories); the indigo ramp `--chart-o1…o5` (styles/charts.css) =
   age/lateness; `--chart-partial` = a running period, always labelled "so far". Slots 3–5 are never
-  drawn; status tokens are never a series. (One 2.0 exception until WP-M: the `BarChart` adapter keeps a
-  caller's explicit slot 2 on a second series — the full Dashboard's Purchases.) `ui/lib/chartPalette.test.ts` re-validates the shipped tokens
+  drawn; status tokens are never a series. (One 2.0 exception: the `BarChart` / `LineChart` adapters — no screen calls them since 2.1 wave 2 —
+  keep a caller's explicit slot 2 on a second series.) `ui/lib/chartPalette.test.ts` re-validates the shipped tokens
   (contrast, normal-vision and CVD ΔE, the ordinal ramp) in both themes.
 - **Marks**: columns ≤ 24 px with a 4 px rounded data end, square at the baseline; horizontal bars 12 px
   on a 20 px pitch with the value outside the tip; 2 px lines with an area wash for the measured series
@@ -312,7 +312,7 @@ const spec = useMemo(() => (q.data ? registerChart(q.data) : null), [q.data]); /
   `spec.activate(i)` (= Enter on the matching table row). On focus the highlight starts at the table's
   `active` row when one is passed, else nothing is highlighted until the first arrow (→ = first, ← =
   last). A key with Ctrl, Alt or Meta, and Enter with nothing highlighted, keep their global meaning
-  (Ctrl+J folds the graph you are on). The model is one pure function, `graphKeyStep` (ui/lib/chart.ts),
+  (Ctrl+J folds the graph you are on). The model is one pure function, `graphKeyStep` (ui/lib/chartCore.ts, re-exported by ui/lib/chart.ts),
   shared with `MiniColumns`. A meter is static (`role="img"`). A visually hidden data table follows
   every graph (a meter's: value and limit).
 - **Never printed**: `@media print` hides `.bx-chart`, `.bx-mini` and `.bx-sparkline`; printed documents

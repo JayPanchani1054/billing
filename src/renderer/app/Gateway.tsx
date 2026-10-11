@@ -340,7 +340,7 @@ function TryHomeLine() {
         </Button>
       }
     >
-      Fewer menus, every key the same.
+      Fewer menus. You can switch back any time.
     </Banner>
   );
 }

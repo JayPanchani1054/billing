@@ -118,6 +118,14 @@ describe('reports.profitLoss — Net profit by month', () => {
     assert.equal(profitTrendChart(trend([500_000, 200_000, 900_000]))?.takeaway, 'Profit in all 3 months; best Jun (₹9.0 K)');
   });
 
+  test('takeaway: a month with no result (a whole-year period\'s months still ahead) is neither "profit" nor "loss"', () => {
+    // FY 2026-27 on 10-Oct: Nov–Mar have not happened — the takeaway never claims "Profit in all 12 months".
+    const year = trend([500_000, 200_000, 900_000, 100_000, 300_000, 400_000, 50_000, 0, 0, 0, 0, 0]);
+    assert.equal(profitTrendChart(year)?.takeaway, 'Profit in all 7 months; best Jun (₹9.0 K)');
+    assert.equal(profitTrendChart(trend([500_000, -200_000, 900_000, 0, 0]))?.takeaway, 'Loss in 1 of 3 months; best Jun (₹9.0 K)');
+    assert.equal(profitTrendChart(trend([-500_000, -200_000, -900_000, 0]))?.takeaway, 'Loss in all 3 months; smallest in May (₹2.0 K)');
+  });
+
   test('gates: fewer than 3 months, Compare mode, stock not valued monthly with purchases', () => {
     assert.equal(profitTrendChart(trend([100, 200])), null, '2 months');
     assert.equal(profitTrendChart(null), null);
@@ -232,6 +240,25 @@ describe('reports.register — Sales before GST, by month', () => {
       { from: '2026-06-01', to: '2026-06-30' },
       { from: '2026-10-01', to: '2026-10-10' },
     ]);
+  });
+
+  test('a whole-year period on a working date inside it stops at that month — drawn "so far", no empty future months', () => {
+    // FY 2026-27 chosen from the period presets on 10-Oct: the register lists Apr–Mar, Nov–Mar still empty.
+    const r = register('sales', [...SALES, 0, 0, 0, 0, 0]);
+    assert.equal(r.to, '2027-03-31');
+    const spec = valid(registerChart(r, { workingDate: '2026-10-10' }));
+    assert.deepEqual(spec.categories, ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct']);
+    assert.equal(spec.partialLast, true, 'October is still running');
+    assert.equal(spec.takeaway, 'Best month Jun ₹87.4 K · Oct so far ₹42.3 K');
+    assert.equal(spec.total, r.totals.taxable, 'graph total = table total');
+    // A post-dated voucher in a later month keeps the whole period (the table's total must still be drawn).
+    const later = register('sales', [...SALES, 0, 0, 1_000, 0, 0]);
+    const all = valid(registerChart(later, { workingDate: '2026-10-10' }));
+    assert.equal(all.categories.length, 12);
+    assert.equal(all.total, later.totals.taxable);
+    assert.equal(all.partialLast, false);
+    // A period that ends before the working date is unchanged.
+    assert.deepEqual(valid(registerChart(register('sales', SALES), { workingDate: '2026-12-01' })).categories.length, 7);
   });
 
   test('a multi-year register folds into quarters (Σ kept); a cut quarter is "so far"', () => {
@@ -433,6 +460,17 @@ describe('reports.monthlySummary (detail)', () => {
     }
     assert.deepEqual(got.slice(0, 1), [{ from: '2026-05-01', to: '2026-05-31' }], 'the opening point opens nothing');
   });
+
+  test('a month-end line names the date of its last balance, never "on Jun 26" (read as 26 June)', () => {
+    const d = monthly(1_000_000, [200_000, -100_000, 300_000], false);
+    const spec = valid(monthlySummaryChart(d));
+    assert.deepEqual(spec.categories, ['Opening', 'Apr 26', 'May 26', 'Jun 26']);
+    assert.equal(spec.takeaway, '₹14.0 K Dr on 30-Jun-26, up ₹4.0 K since 1-Apr-26');
+    // The same for a truncated ledger drawn from its month-end balances.
+    const big = ledger(1_000_000, [['2026-04-05', 1], ['2026-05-05', 1], ['2026-06-05', 1]], true);
+    const ls = valid(ledgerChart({ ...big, closing: d.closing }, d));
+    assert.equal(ls.takeaway, '₹14.0 K Dr on 30-Jun-26, up ₹4.0 K since 1-Apr-26');
+  });
 });
 
 // ───────────────────────────── Group summary ─────────────────────────────
@@ -490,6 +528,10 @@ describe('reports.cashFlow — Net cash flow by month', () => {
     assert.deepEqual(got, [{ from: '2026-05-01', to: '2026-05-31' }]);
     assert.equal(valid(cashFlowChart(flow([-100_000, -50_000, -70_000]))).takeaway, 'Net outflow in all 3 months; smallest in May (₹500)');
     assert.equal(cashFlowChart(flow([100, 0])), null);
+    // Months without movement (still ahead in a whole-year period) count neither way.
+    assert.equal(valid(cashFlowChart(flow([1_200_000, 300_000, 500_000, 0, 0]))).takeaway, 'More in than out in all 3 months; best Apr (₹12.0 K in)');
+    assert.equal(valid(cashFlowChart(flow([-100_000, -50_000, -70_000, 0]))).takeaway, 'Net outflow in all 3 months; smallest in May (₹500)');
+    assert.equal(valid(cashFlowChart(flow([1_200_000, -300_000, 500_000, 0]))).takeaway, 'Net outflow in 1 of 3 months; best Apr (₹12.0 K in)');
   });
 });
 
@@ -551,6 +593,13 @@ describe('reports.trialBalance — the check, not a graph', () => {
     assert.equal(statRepeatsTotal([ok.amount], totals), false);
     assert.equal(statRepeatsTotal([bad.amount], totals), false);
     assert.equal(statTotalAllowed('reports.trialBalance'), false, 'not allow-listed: it must never repeat a total');
+    // (V6) Under the "Opening balances do not agree" banner the totals agree only through the difference
+    // line: a bare "Agrees ✓" beside it reads as a contradiction to the owner.
+    const withDiff = trialBalanceStat({ balanced: true, unbalancedBy: 0, openingDifference: -67_750_000 });
+    assert.doesNotMatch(withDiff.value, /✓/);
+    assert.equal(withDiff.value, 'Agrees only with the opening difference');
+    assert.equal(withDiff.amount, 0);
+    assert.equal(trialBalanceStat({ balanced: true, unbalancedBy: 0, openingDifference: 0 }).value, 'Agrees ✓');
   });
 });
 

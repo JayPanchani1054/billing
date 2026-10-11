@@ -67,7 +67,7 @@ function resolve(from: string, spec: string): string | null {
 }
 
 /** Graph code by file (the kit, its adapters and pure parts). */
-const CHART_FILE = /(?:^|\/)ui\/(?:Chart|lazyChart|MiniColumns|Sparkline|BarChart|LineChart|chartParts|KpiCard)\.tsx$|(?:^|\/)ui\/lib\/(?:chartSpec|chart)\.ts$/;
+const CHART_FILE = /(?:^|\/)ui\/(?:Chart|lazyChart|MiniColumns|Sparkline|BarChart|LineChart|chartParts|KpiCard)\.tsx$|(?:^|\/)ui\/lib\/(?:chartSpec|chartCore|chart)\.ts$/;
 /** Graph code by exported name (also when imported through the ui barrel). */
 const CHART_NAMES = new Set(['Chart', 'LazyChart', 'reportGraph', 'MiniColumns', 'Sparkline', 'BarChart', 'LineChart', 'KpiCard']);
 const CHART_JSX = /<(?:Chart|LazyChart|MiniColumns|Sparkline|BarChart|LineChart|KpiCard)[\s/>]/;
@@ -126,7 +126,7 @@ describe('graphs never print (D30)', () => {
         if (i.typeOnly) continue;
         const bad = i.names.filter((n) => CHART_NAMES.has(n));
         if (bad.length) offenders.push(`${chain}: imports ${bad.join(', ')} from '${i.spec}'`);
-        if (/(?:^|\/)(?:Chart|lazyChart|MiniColumns|Sparkline|BarChart|LineChart|chartParts|KpiCard)\.tsx$|\/(?:chartSpec|chart)\.ts$/.test(i.spec)) offenders.push(`${chain}: imports '${i.spec}'`);
+        if (/(?:^|\/)(?:Chart|lazyChart|MiniColumns|Sparkline|BarChart|LineChart|chartParts|KpiCard)\.tsx$|\/(?:chartSpec|chartCore|chart)\.ts$/.test(i.spec)) offenders.push(`${chain}: imports '${i.spec}'`);
       }
       if (CHART_JSX.test(code(f))) offenders.push(`${chain}: renders a graph component`);
     }
@@ -165,6 +165,43 @@ describe('graph code stays out of the start-up bundle (D27, §4.7)', () => {
     assert.deepEqual(offenders, []);
   });
 
+  test('start-up reaches only the small graph core (ui/lib/chartCore.ts): the kit geometry and the builders\' helpers stay with the lazy screens', () => {
+    // What Vite puts in the entry and its modulepreloads: every module main.tsx reaches by runtime
+    // (non-type) static imports, barrels included. A module both an eager screen and a lazy one
+    // import lands in a preloaded shared chunk — so the kit's geometry (ui/lib/chart.ts) and the
+    // helpers only report builders use (ui/lib/chartSpec.ts) must not be reachable from here at all
+    // (2.1 V5: chart.ts + chartSpec.ts were a 19.7 KB preloaded chunk, over the 1.02 × 2.0 initial-JS budget).
+    const startup = new Map<string, string>();
+    const main = path.join(rendererDir, 'main.tsx');
+    const stack: [string, string][] = [[main, rel(main)]];
+    while (stack.length) {
+      const [f, chain] = stack.pop()!;
+      if (startup.has(f)) continue;
+      startup.set(f, chain);
+      for (const i of imports(f)) {
+        if (i.typeOnly || i.dynamic) continue;
+        const p = resolve(f, i.spec);
+        if (p && /\.tsx?$/.test(p)) stack.push([p, `${chain} → ${rel(p)}`]);
+      }
+    }
+    const lazyOnly = ['ui/Chart.tsx', 'ui/chartParts.tsx', 'ui/lib/chart.ts', 'ui/lib/chartSpec.ts', 'ui/lib/palette.ts'];
+    assert.deepEqual(lazyOnly.map((r) => startup.get(path.join(rendererDir, r))).filter(Boolean), []);
+    // Self-check: the walk crosses the barrels and reaches Home's graph and the eager builders.
+    for (const r of ['ui/index.ts', 'modules/index.ts', 'ui/MiniColumns.tsx', 'ui/lazyChart.tsx', 'ui/lib/chartCore.ts', 'modules/dashboard/lib/model.ts', 'modules/documents/lib/charts.ts']) {
+      assert.ok(startup.has(path.join(rendererDir, r)), `start-up reaches ${r}`);
+    }
+  });
+
+  test('the graph core holds no kit geometry and imports no graph module at run time', () => {
+    const core = path.join(uiDir, 'lib/chartCore.ts');
+    const runtime = imports(core).filter((i) => !i.typeOnly);
+    assert.deepEqual(runtime.filter((i) => !/shared\/format\.ts$/.test(i.spec)).map((i) => i.spec), [], 'chartCore.ts imports only shared/format.ts at run time');
+    const src = code(core);
+    for (const name of ['niceTicks', 'bandLayout', 'barPath', 'hbarLayout', 'shareSegments', 'labelIndexes', 'markColor', 'foldMonths', 'decimate', 'specProblems', 'inlineBars']) {
+      assert.doesNotMatch(src, new RegExp(`export\\s+(?:function|const)\\s+${name}\\b`), `${name} belongs to the lazy kit / builders, not the start-up core`);
+    }
+  });
+
   test('the scan reads real imports (self-check)', () => {
     const own = imports(fileURLToPath(import.meta.url));
     assert.ok(own.some((i) => i.spec === 'node:fs'));
@@ -176,7 +213,7 @@ describe('graph code stays out of the start-up bundle (D27, §4.7)', () => {
 
 describe('the graph contract is pure', () => {
   test('chartSpec, palette and the catalogue import no React and no DOM-bound code', () => {
-    for (const r of ['ui/lib/chartSpec.ts', 'ui/lib/palette.ts', 'app/lib/chartCatalogue.ts']) {
+    for (const r of ['ui/lib/chartSpec.ts', 'ui/lib/chartCore.ts', 'ui/lib/palette.ts', 'app/lib/chartCatalogue.ts']) {
       const f = path.join(rendererDir, r);
       for (const i of imports(f)) {
         assert.ok(!/^react(?:-dom)?(?:\/|$)/.test(i.spec), `${r} imports ${i.spec}`);

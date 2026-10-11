@@ -280,9 +280,14 @@
     stroke: GrayText;
   }
   .bx-mini__col,
-  .bx-chart__meter-fill {
+  .bx-chart__meter-fill,
+  .bx-chart__key {
     forced-color-adjust: none;
     background: CanvasText;
+  }
+  .bx-chart__meter-track {
+    forced-color-adjust: none;
+    background: GrayText;
   }
 }
 

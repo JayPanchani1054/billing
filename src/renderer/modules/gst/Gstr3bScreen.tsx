@@ -45,6 +45,7 @@ import {
   draftFrom,
   emptyDraft,
   gstr3bExport,
+  gstr3bPrimary,
   HEAD_LABELS,
   interStateTable,
   isDraftDirty,
@@ -155,12 +156,13 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
     }
   };
 
+  const primary = gstr3bPrimary({ dirty, canFile });
   const actions: ScreenActionItem[] = [
     {
       key: 'Ctrl+A',
       label: 'Save entries',
       icon: 'save',
-      primary: true,
+      primary: primary === 'save',
       onClick: () => void doSave(),
       disabled: !dirty || save.pending || !canFile,
       hint: canFile ? (dirty ? `Save ${changes} changed ${changes === 1 ? 'figure' : 'figures'}` : 'Nothing to save') : 'You need the "Prepare GST filings" permission',
@@ -171,6 +173,7 @@ export function Gstr3bScreen({ params }: ScreenProps<Gstr3bParams>) {
       key: 'Alt+J',
       label: 'Export JSON',
       icon: 'download',
+      primary: primary === 'json',
       onClick: () => void exportJson(),
       disabled: !summary || busy || dirty || !canFile,
       hint: dirty ? 'Save your entries first (Ctrl+A)' : 'Save the file to upload on the GST portal',

@@ -56,7 +56,7 @@ export function CashBankScreen({ params }: ScreenProps<{ from?: string; to?: str
         onActivate={(r: TbRow) => drill(drillForRow(r, p.period))}
         loading={q.loading}
         totalLabel="Total"
-        empty={<EmptyState icon="bank" title="No cash or bank accounts yet" body="Create a ledger under Bank Accounts (Gateway › Ledgers) to see its book here." />}
+        empty={<EmptyState icon="bank" title="No cash or bank accounts yet" body="Create a ledger under Bank Accounts (Home › Masters › Ledgers) to see its book here." />}
       />
     </ReportScreen>
   );

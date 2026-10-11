@@ -13,9 +13,10 @@ use GST, TDS, banking, reports and the data tools.
   a few letters of its name.
 - *F11 › Inventory › **Batches*** means the *Batches* switch in the *Inventory* group of the
   Features screen (**F11**); *F12 › Checks* means the *Checks* tab of Configuration (**F12**).
-- Every screen shows its actions with their keys in the command bar at the top right (**More ▾** lists
-  the rest) and a hint in the status line at the bottom. **F1** lists all keys; section 15 of this guide
-  has the full reference.
+- Every screen shows its actions in the command bar at the right of its title row (**More ▾** lists
+  the rest, each with its key). Keys are not printed on the buttons: point at a button, or hold **Ctrl**
+  for about a second, to see its key. **F1** lists all keys; section 15 of this guide has the full
+  reference.
 - Pevqori computes from your books. Where a figure goes to a government portal (GST, TDS), compare it with
   the portal before filing — the portal is the legal record.
 
@@ -104,7 +105,7 @@ computer (also in the user menu › *Appearance…*).
 On the right is your business at a glance. At the top, the period (click it, or press **Alt+F2**, to
 change it — the only period on Home); then three figures — **To collect**, **To pay** and **Cash & bank**,
 each with one short line only when it needs you (*₹4.66 L overdue*) and the rest in its tooltip; then the
-graph **Sales — last 12 months**, one column per month from the month your books begin, this month's
+graph **Sales — last 12 months** (once there is a sale), one column per month from the month your books begin, this month's
 column in colour and labelled *so far*, with this month's sales against the same days last year in its
 header (**Ctrl+J** or *Hide graphs* folds it to that one line). Enter or a click on a column opens the
 Sales Accounts monthly summary of that month's year (a user who may not see the account groups gets that
@@ -155,7 +156,7 @@ your work and nothing at the bottom.
 - **F3** switches company (Pevqori closes the current one, running the automatic backup first if one is
   due). **Ctrl+Q** quits.
 - **F1** (or **Ctrl+H**) shows every key. The menu behind your initials (top right) also has
-  *Appearance…* (theme, density, the Home view and the shortcut bar in one panel), *Show shortcut bar*,
+  *Appearance…* (theme, density, the Home view, the shortcut bar and the graphs in one panel), *Show shortcut bar*,
   *Keyboard shortcuts*, *About Pevqori* and — for a password-protected company — *Change password*,
   *Lock* and *Log out*.
 - **Ctrl+S** saves wherever **Ctrl+A** accepts or saves (forms, voucher entry, dialogs). It never answers
@@ -180,7 +181,7 @@ screen; **Esc** brings you back to Settings.
 | Users & security | Users & roles · Security settings · Lock books · Change password |
 | Data & backup | Backup · Automatic backups · Restore a backup · Import from Excel · XML data import · Export data · XML data export · the data folder (*Show in folder*) |
 | Modules | POS settings · Multi-currency settings |
-| Appearance | Theme, density, Home view and the shortcut bar — right on the page, for you on this computer |
+| Appearance | Theme, density, Home view, the shortcut bar and the graphs — right on the page, for you on this computer |
 | About & updates | About Pevqori and updates |
 
 You only see what you may open: a setting of a feature that is off (F11), or one your role does not
@@ -276,7 +277,7 @@ you sell, record your first sale (F8), **record a payment** you receive (*Receip
 plus, while the books are empty, importing from another accounting program. A step ticks itself off when
 the books show it is done (for example once a receipt exists, or once the Sales series has a prefix, a
 padding width or another starting number); you can also tick a step by hand (its tick box). **×** hides
-Setup; *Show Get started* (**Alt+S** on the full dashboard) brings it back. While the books are empty
+Setup; *Show setup* (**Alt+S** on the full dashboard) brings it back. While the books are empty
 Setup also reminds you: hold **Ctrl** to see the keys of the buttons on screen.
 
 ## 3. Masters
@@ -1519,7 +1520,7 @@ in the tooltip of the line they explain.
 |---|---|
 | *Reports › **Balance Sheet*** | As on the period end; Liabilities and Assets side by side on one sheet; **Alt+C** (*Compare*) adds last year's column. No graph on purpose: a balance sheet always balances. The Profit & Loss A/c line's tooltip shows its opening and current-period parts. If the openings do not agree, one line says by how much, with *Correct openings* |
 | *Reports › **Profit & Loss A/c*** | Trading and P&L for the period, Expenses and Income side by side (**Tab** goes to the other side); the title line says *Net profit ₹…* or *Net loss ₹…* (in red). The graph shows the net profit of each month — Enter on a month opens that month's P&L (under the same scenario, if one is chosen with **Alt+S**). It is not drawn with fewer than three months, while a comparison column is shown (**Alt+C**), or when stock is not kept with the accounts (F11) and the period has purchases (each purchase would look like a loss). **Alt+V** (*More ▾ › Schedule III format*) switches to the vertical statement |
-| *Reports › **Trial Balance*** | Groups · Detailed · Ledger-wise above the table; at the right it says *Agrees ✓* or *Differs by ₹…*. **Alt+L** ledger-wise ↔ group-wise, **Alt+O** opening balances, **Alt+T** period transactions, **Alt+Z** zero balances, **Alt+X** expand / collapse. No graph: it is a check |
+| *Reports › **Trial Balance*** | Groups · Detailed · Ledger-wise above the table; at the right it says *Agrees ✓* or *Differs by ₹…* (*Agrees only with the opening difference* while the opening balances do not agree). **Alt+L** ledger-wise ↔ group-wise, **Alt+O** opening balances, **Alt+T** period transactions, **Alt+Z** zero balances, **Alt+X** expand / collapse. No graph: it is a check |
 | *Reports › **Ledger*** | One ledger's vouchers with running balance; the graph *Balance by date* (folded until you unfold detail reports once — Ctrl+J). **Alt+L** another ledger, **Alt+M** ledger master, **Alt+Y** monthly summary, **Alt+A** alter the voucher, **Alt+R** both currencies for a foreign-currency ledger |
 | *Reports › **Cash/Bank Books*** | Cash and bank accounts with one *Closing* column; an account in credit says *overdrawn*. With three to seven accounts a thin bar under each closing balance compares them; with more, a graph of the largest six. **Alt+F** cash flow |
 | *Reports › **Sales Register*** (and Purchase, Receipt, Payment, Contra, Journal, Credit Note, Debit Note registers) | Month by month, with the graph *Sales before GST, by month* (taxable value for sales, purchases and notes; the amount for receipts, payments, contra and journals; a month still running is marked *so far*). Pick another register from the name next to the title. Enter on a month — in the table or in the graph — lists its vouchers; **Alt+V** voucher list ↔ monthly view. The *Cancelled* column shows only when a month has one |

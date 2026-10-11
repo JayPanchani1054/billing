@@ -373,6 +373,36 @@ describe('release pipeline (latest.yml, blockmap, notes, upgrade smoke)', () => 
     assert.match(winSmoke, /smoke-installed\.ps1 -Scenario Downgrade /);
     assert.doesNotMatch(ci, /contents:\s*write/);
   });
+
+  it('CI: upgrades the 1.x and the 2.0.0 installations people have in place (earlier runs’ artifacts; skipped with a notice once expired)', () => {
+    // No GitHub Release existed before 2.1, so release.yml's previous-release upgrade smoke has nothing to
+    // download for v2.1.0: these two steps are the only proof that 2.1 upgrades what owners installed.
+    const winSmoke = jobs(read('ci.yml')).get('windows-smoke') ?? '';
+    assert.match(winSmoke, /^ {6}actions: read\b/m, 'reading another run’s artifact needs actions: read');
+    const all = steps(winSmoke);
+    const names = all.map((s) => /- name: (.+)/.exec(s)?.[1] ?? '');
+    const cases = [
+      { label: '1.x', runId: '38056735590', dir: 'previous', evidence: 'upgrade-1x' },
+      { label: '2.0.0', runId: '38086415478', dir: 'previous20', evidence: 'upgrade-20' },
+    ];
+    let last = -1;
+    for (const c of cases) {
+      const dl = all.findIndex((s) => /actions\/download-artifact@/.test(s) && new RegExp(`run-id: ${c.runId}\\n`).test(s));
+      assert.ok(dl >= 0, `downloads the ${c.label} installer from CI run ${c.runId}`);
+      assert.match(all[dl], /continue-on-error: true/, `${c.label}: an expired artifact must not fail CI`);
+      assert.match(all[dl], /name: Pevqori-Windows-Installer\n/);
+      assert.match(all[dl], new RegExp(`path: ${c.dir}\\n`));
+      assert.match(all[dl], /github-token: \$\{\{ github\.token \}\}/);
+      const up = dl + 1;
+      const run = all[up] ?? '';
+      assert.match(run, new RegExp(`Get-ChildItem ${c.dir}/Pevqori-Setup-\\*\\.exe -ErrorAction SilentlyContinue`), `${c.label}: the upgrade step follows its download`);
+      assert.match(run, /::notice::[^\n]*skipped[\s\S]*exit 0/, `${c.label}: skipped with a notice when the artifact is gone`);
+      assert.match(run, new RegExp(`smoke-installed\\.ps1 -Installer .* -Previous \\$previous\\.FullName -Evidence smoke-evidence/${c.evidence}\\n`));
+      assert.ok(up > last, `${c.label} runs after the previous upgrade step`);
+      last = up;
+    }
+    assert.ok(names.findIndex((n) => /^Upload smoke evidence$/.test(n)) > last, 'the evidence upload comes last');
+  });
 });
 
 describe('scripts/smoke-installed.ps1 (installer scenarios)', () => {
