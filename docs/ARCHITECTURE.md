@@ -544,7 +544,7 @@ source of truth.
   at `TABLE_INLINE_MAX_ROWS` (20) instead of the strip's `MAX_BAR_ROWS`, `inlineBars` honours 20 for it
   alone (every other bar keeps D26's ≤ 7) and `reportGraph` never draws it as a strip. Day Book
   (`vouchers/lib/charts.ts` `dayBookChart`: a strip, amount per "Voucher types" entry, Σ = Debit + Credit
-  totals, Enter = only that type). The vouchers module is eager, so the Day Book fetches its builder as its
+  totals, Enter = only that type). The Day Book is eager, so it fetches its builder as its
   own chunk (`createLazyLoader(() => import('./lib/charts.ts'))`) and the builder reaches only
   `chartCore.ts` — the initial-JS budget (§9a) is unchanged by it. `STAT_TOTAL_ALLOWED` is unchanged.
 - **Never printed.** Invoices, vouchers, statements, cheques, deposit slips and every print source
@@ -716,7 +716,8 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
   screens the user cannot open. **Stay eager**: menus, Go To providers, dashboard cards, voucher panels, Home
   notices, print blocks and module CSS (still imported by `index.ts`); dialog screens (`presentation: 'dialog'`,
   which open over a live screen in the same frame as their key) and the screens sharing their file;
-  `inventory.item.form`; the `accounts`, `company`, `dashboard`, `print` and `vouchers` modules; and any file
+  `inventory.item.form`; the `accounts`, `company`, `dashboard` and `print` modules, and voucher entry and the Day
+  Book (2.1.2: `vouchers.view` and `vouchers.list` load lazily, for the initial-JS budget); and any file
   other eager code imports statically (the bundler would keep it in the entry anyway — e.g. `data/RestoreFlow.tsx`,
   used by the company list). ¹`attachments` has no lazy screen for that reason (its screens share a file with
   its voucher panel, which the ledger and item forms import). **Adding a lazy screen**: give it its own file (or

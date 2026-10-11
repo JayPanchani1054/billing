@@ -206,9 +206,11 @@ describe('runWhenIdle (idle prefetch)', () => {
 // ───────────────────────────── 2. Wiring (source) ─────────────────────────────
 
 /** The 2.0 lazy modules (docs/ARCHITECTURE.md §9a): only their index files may use lazyScreen. */
-const LAZY_MODULES = ['attachments', 'banking', 'cheques', 'data', 'documents', 'forex', 'gst', 'gstrecon', 'inventory', 'mfg', 'outstanding', 'pos', 'reports', 'security', 'stock', 'tds'];
+const LAZY_MODULES = ['attachments', 'banking', 'cheques', 'data', 'documents', 'forex', 'gst', 'gstrecon', 'inventory', 'mfg', 'outstanding', 'pos', 'reports', 'security', 'stock', 'tds', 'vouchers'];
 /** Modules whose screens stay eager (start-up and the invoice flow). */
-const EAGER_MODULES = ['accounts', 'company', 'dashboard', 'print', 'vouchers'];
+const EAGER_MODULES = ['accounts', 'company', 'dashboard', 'print'];
+/** (2.1.2) vouchers: only the voucher view and the voucher list load lazily; entry and the Day Book stay eager. */
+const LAZY_VOUCHER_SCREENS = ['VoucherListScreen', 'VoucherViewScreen'];
 
 const LAZY_DECL = /^const (\w+) = lazyScreen\(\(\) => import\('(\.\/[\w/]+\.tsx)'\)\.then\(\(m\) => m\.(\w+)\)\);$/gm;
 
@@ -310,10 +312,18 @@ describe('lazy screen wiring', () => {
     for (const m of ['banking', 'gst', 'reports', 'stock', 'outstanding', 'tds']) assert.ok(decls.some((d) => d.module === m), m);
   });
 
-  test('only the WP-03 modules load screens lazily; accounts, company, dashboard, print and vouchers stay eager', () => {
+  test('only the WP-03 modules load screens lazily; accounts, company, dashboard and print stay eager, and so do voucher entry and the Day Book', () => {
     const users = moduleDirs().filter((m) => /\blazyScreen\b/.test(indexSource(m)));
     for (const m of users) assert.ok(LAZY_MODULES.includes(m), `${m}/index.ts uses lazyScreen but is not a lazy module`);
     for (const m of EAGER_MODULES) assert.ok(!/\blazyScreen\b/.test(indexSource(m)), `${m} must stay eager`);
+    // 2.1.2 (initial-JS budget): the vouchers module lazy-loads only its view and list screens.
+    assert.deepEqual(
+      decls.filter((d) => d.module === 'vouchers').map((d) => d.name).sort(),
+      LAZY_VOUCHER_SCREENS,
+    );
+    const vouchers = indexSource('vouchers');
+    assert.match(vouchers, /^import \{ VoucherEntryScreen \} from '\.\/entry\/VoucherEntryScreen\.tsx';$/m, 'voucher entry stays eager');
+    assert.match(vouchers, /^import \{ DayBookScreen \} from '\.\/DayBookScreen\.tsx';$/m, 'the Day Book stays eager');
     // Nothing else imports the wrapper: screens are lazy only through their module's registration.
     const offenders: string[] = [];
     const walk = (dir: string) => {

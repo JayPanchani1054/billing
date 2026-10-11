@@ -363,7 +363,10 @@ test('2.1.2: Balance Sheet "What you own" adds up to the asset side less the lin
   const tb = await viaGoto('Trial Balance', 'reports.trialBalance');
   await expect(tb.locator('.bx-report__graph-head')).toContainText('Closing balances');
   await expect(tb.getByRole('listbox')).toHaveCount(0);
-  expect(await tb.getByRole('grid', { name: 'Trial Balance' }).locator('.bx-td__bar').count()).toBeGreaterThanOrEqual(2);
+  // The Trial Balance is a tree table (role treegrid while a row can expand); bars sit in its top-level rows.
+  const tbGrid = tb.getByRole('treegrid', { name: 'Trial Balance' }).or(tb.getByRole('grid', { name: 'Trial Balance' }));
+  await expect(tbGrid).toBeVisible();
+  await expect.poll(() => tbGrid.locator('.bx-td__bar').count()).toBeGreaterThanOrEqual(2);
   await toGateway(page);
 });
 

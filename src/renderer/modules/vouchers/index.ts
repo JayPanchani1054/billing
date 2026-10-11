@@ -11,16 +11,20 @@ import './vouchers-entry.css';
 import './vouchers-view.css';
 import type { MenuItem, ModuleDef } from '../../app/registry.ts';
 import { api, registerGotoProvider } from '../../app/index.ts';
+import { lazyScreen } from '../../app/lazyScreen.tsx';
 import { VOUCHER_FEATURE } from '../../app/lib/shortcuts.ts';
 import { DayBookScreen } from './DayBookScreen.tsx';
 import { VoucherEntryScreen } from './entry/VoucherEntryScreen.tsx';
 import { searchText } from './lib/daybook.ts';
 import { voucherGotoItems, voucherMenuEntries } from './lib/menu.ts';
-import { VoucherListScreen } from './VoucherListScreen.tsx';
-import { VoucherViewScreen } from './VoucherViewScreen.tsx';
 
 export type { VoucherEntryParams } from './entry/VoucherEntryScreen.tsx';
 export type { VoucherListParams } from './VoucherListScreen.tsx';
+
+// Voucher entry (F8 and friends) and the Day Book stay eager: they open from start-up and the invoice flow.
+// The voucher view and the voucher list load on first open (app/lazyScreen.tsx, docs/ARCHITECTURE.md §9a).
+const VoucherListScreen = lazyScreen(() => import('./VoucherListScreen.tsx').then((m) => m.VoucherListScreen));
+const VoucherViewScreen = lazyScreen(() => import('./VoucherViewScreen.tsx').then((m) => m.VoucherViewScreen));
 
 // Go To: find vouchers by number, party, reference, narration or exact amount (replaces the shell's built-in).
 registerGotoProvider({
