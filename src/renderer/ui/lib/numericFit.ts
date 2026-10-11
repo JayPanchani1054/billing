@@ -1,34 +1,48 @@
 /**
  * Money and quantities are never cut off in a table. A numeric column is at least as wide as its longest
- * formatted value (rows and totals): digits are tabular, so a value of N characters needs N `ch` plus the
- * cell padding; bold totals run a little wider (×1.08). Pure; DataTable applies it to its `<col>` widths.
+ * formatted value (rows and totals). Widths are estimated in `em` from the characters: tabular digits
+ * ≈ 0.64em, separators ≈ 0.34em, letters and spaces ≈ 0.6em (wide enough for Segoe UI and the Linux
+ * fallbacks), bold totals ×1.1, plus the Dr/Cr suffix box. The table's minimum width is the sum of the
+ * same expressions, so a flexible text column is never squeezed by a widened number. Pure; DataTable uses it.
  */
 
 /** Rows read per column to find the longest value (a 20,000-row ledger keeps its first 5,000 in view). */
 export const FIT_SCAN_LIMIT = 5000;
 
-/** Characters of the longest text (0 when none). */
-export function longestChars(texts: Iterable<string>): number {
-  let n = 0;
-  for (const t of texts) if (t.length > n) n = t.length;
-  return n;
+/** The Dr/Cr suffix box (2em of 12 px plus its 0.4em gap), in table em. */
+export const DRCR_SUFFIX_EM = 2.3;
+
+const DIGIT_EM = 0.64;
+const SEPARATOR_EM = 0.34;
+const OTHER_EM = 0.6;
+const BOLD = 1.1;
+
+/** Estimated width of a formatted value in em (before padding). */
+export function textEm(text: string): number {
+  let em = 0;
+  for (const ch of text) em += ch >= '0' && ch <= '9' ? DIGIT_EM : ch === ',' || ch === '.' || ch === '-' || ch === '−' ? SEPARATOR_EM : OTHER_EM;
+  return em;
 }
 
-/** The CSS length that fits `chars` characters of tabular digits in a cell (padding both sides). */
-export function fitLength(chars: number): string {
-  return `calc(${chars}ch * 1.08 + 2 * var(--cell-px) + 2px)`;
+/** The widest of `texts` in em, bold-safe, plus a suffix box (0 when there is nothing to show). */
+export function fitEm(texts: Iterable<string>, suffixEm = 0): number {
+  let max = 0;
+  for (const t of texts) if (t !== '') max = Math.max(max, textEm(t));
+  return max === 0 ? 0 : Math.round((max * BOLD + suffixEm) * 100) / 100;
 }
 
-/**
- * The `<col>` width for a numeric column: the declared width, but never narrower than its longest value.
- * A flexible column (no declared width) stays flexible; the table's minimum width covers it instead.
- */
-export function fitColWidth(declared: number | string | undefined, chars: number): number | string | undefined {
-  if (declared === undefined || chars <= 0) return declared;
-  return `max(${typeof declared === 'number' ? `${declared}px` : declared}, ${fitLength(chars)})`;
+/** The CSS length that fits `em` of text in a cell (padding both sides). */
+export function fitLength(em: number): string {
+  return `calc(${em}em + 2 * var(--cell-px) + 2px)`;
 }
 
-/** A px estimate of the same fit (≈ 7.5 px per character at the 13–14 px table text, plus padding). */
-export function fitPx(chars: number): number {
-  return chars <= 0 ? 0 : Math.ceil(chars * 7.5 * 1.08 + 26);
+/** The `<col>` width: the declared (or minimum) width, but never narrower than the longest value. */
+export function fitColWidth(declared: number | string | undefined, em: number): number | string | undefined {
+  if (declared === undefined || em <= 0) return declared;
+  return `max(${typeof declared === 'number' ? `${declared}px` : declared}, ${fitLength(em)})`;
+}
+
+/** The table's minimum width: the sum of each column's own expression (px or a fitted `max(…)`). */
+export function minWidthCalc(parts: readonly (number | string)[]): string {
+  return `calc(${parts.map((p) => (typeof p === 'number' ? `${p}px` : p)).join(' + ') || '0px'})`;
 }
