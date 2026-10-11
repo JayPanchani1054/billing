@@ -33,12 +33,13 @@ import { homeSalesGraph, trendSpec } from '../../modules/dashboard/lib/model.ts'
 import { billsPendingChart, budgetVarianceChart } from '../../modules/documents/lib/charts.ts';
 import { ledgerChart as forexLedgerChart, outstandingChart as forexOutstandingChart, revaluationChart } from '../../modules/forex/lib/charts.ts';
 import { boeChart, exceptionsChart, hsnChart, itcChart, rateChart } from '../../modules/gst/lib/registerCharts.ts';
-import { cashLedgerChart, creditLedgerChart, gstr3bMeter, gstr9Chart, setoffMeter } from '../../modules/gst/lib/returnCharts.ts';
+import { cashLedgerChart, creditLedgerChart, gstr1Chart, gstr3bMeter, gstr9Chart, setoffMeter } from '../../modules/gst/lib/returnCharts.ts';
 import { reconChart, supplierChart } from '../../modules/gstrecon/lib/charts.ts';
 import { jobWorkChart, productionChart } from '../../modules/mfg/lib/charts.ts';
-import { ageingChart, partyChart, statementChart } from '../../modules/outstanding/lib/charts.ts';
+import { ageingChart, partiesChart, partyChart, statementChart } from '../../modules/outstanding/lib/charts.ts';
 import { tenderChart } from '../../modules/pos/lib/charts.ts';
-import { cashBankChart, cashFlowChart, costCentresChart, groupSummaryChart, ledgerChart, monthlySummaryChart, profitTrendChart, registerChart } from '../../modules/reports/lib/charts.ts';
+import { balanceSheetChart, cashBankChart, cashFlowChart, costCentresChart, groupSummaryChart, ledgerChart, monthlySummaryChart, profitTrendChart, registerChart, trialBalanceChart } from '../../modules/reports/lib/charts.ts';
+import { dayBookChart } from '../../modules/vouchers/lib/charts.ts';
 import { godownsChart, movementChart, profitabilityChart, stockAgeingChart, stockItemChart, stockSummaryChart } from '../../modules/stock/lib/charts.ts';
 import { challansChart, computationChart, outstandingChart as tdsOutstandingChart, receivableChart, returnChart } from '../../modules/tds/lib/charts.ts';
 
@@ -117,6 +118,30 @@ const YOUNG: Readonly<Record<string, () => unknown>> = {
   'reports.monthlySummary': () => monthlySummaryChart(monthly(false, 'assets', 0, 59_000_00), { workingDate: TODAY }),
   'reports.groupSummary#summary': () =>
     groupSummaryChart(fx<GroupSummaryResult>({ from: BOOKS_FROM, to: TODAY, group: { id: 3, name: 'Sundry Debtors', path: ['Current Assets', 'Sundry Debtors'], nature: 'assets', isNominal: false }, rows: [{ level: 0, name: 'Asha Retail', closing: 59_000_00 }, { level: 0, name: 'Kumar Builders', closing: 23_600_00 }] })),
+  // 2.1.2: the Balance Sheet (stock, a debtor, the bank) and the Trial Balance's five groups.
+  'reports.balanceSheet': () =>
+    balanceSheetChart(
+      fx({
+        assets: [
+          { key: 'g:5', kind: 'group', name: 'Current Assets', level: 0, parentKey: null, hasChildren: true, amount: 2_59_000_00 },
+          { key: 'g:9', kind: 'group', name: 'Stock-in-Hand', level: 1, parentKey: 'g:5', hasChildren: true, amount: 80_000_00 },
+          { key: 'g:12', kind: 'group', name: 'Sundry Debtors', level: 1, parentKey: 'g:5', hasChildren: true, amount: 59_000_00 },
+          { key: 'g:14', kind: 'group', name: 'Bank Accounts', level: 1, parentKey: 'g:5', hasChildren: true, amount: 1_20_000_00 },
+        ],
+      }),
+    ),
+  'reports.trialBalance': () =>
+    trialBalanceChart(
+      fx({
+        rows: [
+          { key: 'g:1', name: 'Capital Account', level: 0, closing: -2_00_000_00 },
+          { key: 'g:5', name: 'Current Assets', level: 0, closing: 2_59_000_00 },
+          { key: 'g:3', name: 'Current Liabilities', level: 0, closing: -59_000_00 },
+          { key: 'g:10', name: 'Sales Accounts', level: 0, closing: -1_20_000_00 },
+          { key: 'g:11', name: 'Purchase Accounts', level: 0, closing: 1_20_000_00 },
+        ],
+      }),
+    ),
   'reports.cashFlow': () => cashFlowChart(fx<CashFlowResult>({ from: BOOKS_FROM, to: TODAY, months: [{ ...SEP, net: 0 }, { ...OCT, net: 59_000_00 }] })),
   'reports.costCentres': () =>
     costCentresChart(
@@ -131,6 +156,10 @@ const YOUNG: Readonly<Record<string, () => unknown>> = {
   // Outstanding: two bills, one not due and one 1–30 days late; a party with a credit limit; its statement.
   'outstanding.receivables#ageing': () => ageingChart(ageingOf('receivable')),
   'outstanding.payables#ageing': () => ageingChart(ageingOf('payable')),
+  'outstanding.receivables#parties': () =>
+    partiesChart(fx({ side: 'receivable', rows: [{ ledgerId: 1, ledgerName: 'Asha Retail', pending: 59_000_00 }, { ledgerId: 2, ledgerName: 'Kumar Builders', pending: 23_600_00 }] })),
+  'outstanding.payables#parties': () =>
+    partiesChart(fx({ side: 'payable', rows: [{ ledgerId: 3, ledgerName: 'Ravi Paints', pending: 1_18_000_00 }, { ledgerId: 4, ledgerName: 'Mehta Steel', pending: -10_000_00 }] })),
   'outstanding.party': () => partyChart(fx<Pick<LedgerBillsResult, 'ledger' | 'balance'>>({ ledger: { side: 'receivable', creditLimit: 1_00_000_00 }, balance: 59_000_00 })),
   'outstanding.statement': () =>
     statementChart(fx<Pick<StatementResult, 'from' | 'to' | 'openingBalance' | 'closingBalance' | 'transactions'>>({ from: BOOKS_FROM, to: TODAY, openingBalance: 0, closingBalance: 59_000_00, transactions: [{ date: '2026-10-03', balance: 59_000_00 }] })),
@@ -144,6 +173,7 @@ const YOUNG: Readonly<Record<string, () => unknown>> = {
   'stock.godowns': () => godownsChart(fx({ rows: [{ kind: 'godown', parentKey: null, name: 'Main Location', value: 90_000_00 }, { kind: 'godown', parentKey: null, name: 'Back Room', value: 10_000_00 }] })),
   'stock.movement': () => movementChart(fx({ outward: { rows: [{ partyName: 'Asha Retail', value: 50_000_00 }, { partyName: 'Kumar Builders', value: 20_000_00 }] }, inward: { rows: [] } }), 'outward'),
   // GST: one month of returns, two rates, two HSN codes, two suppliers.
+  'gst.gstr1': () => gstr1Chart([{ title: 'B2B invoices', taxable: 4_00_000_00 }, { title: 'B2C others', taxable: 50_000_00 }]),
   'gst.gstr3b': () => gstr3bMeter(fx({ payment: { rows: [{ liability: 21_600_00, rcmLiability: 0, paidIgst: 9_000_00, paidCgst: 0, paidSgst: 0, paidCess: 0, cash: 12_600_00 }] } })),
   'gst.gstr9': () =>
     gstr9Chart(
@@ -180,6 +210,13 @@ const YOUNG: Readonly<Record<string, () => unknown>> = {
     budgetVarianceChart(fx([{ name: 'Rent', variance: 0, variancePct: 0, overBudget: false, inTotal: true }, { name: 'Salaries', variance: 5_000_00, variancePct: 10, overBudget: true, inTotal: true }, { name: 'Power', variance: -1_000_00, variancePct: -5, overBudget: false, inTotal: true }])),
   'mfg.production': () => productionChart(fx({ from: '2026-04-01', to: '2027-03-31', rows: [{ date: '2026-10-04', productValue: 30_000_00 }] }), '2026-10'),
   'mfg.jobWork.pending': () => jobWorkChart(fx({ rows: [{ status: 'ok', pendingValue: 20_000_00 }, { status: 'due_soon', pendingValue: 5_000_00 }] }), 'out', false),
+  'vouchers.daybook': () =>
+    dayBookChart(
+      fx([
+        { id: 1, baseType: 'sales', typeName: 'Sales', debit: 59_000_00, credit: 0, isCancelled: false, isOptional: false },
+        { id: 2, baseType: 'receipt', typeName: 'Receipt', debit: 0, credit: 20_000_00, isCancelled: false, isOptional: false },
+      ]),
+    ),
   'pos.summary': () => tenderChart(fx({ byTender: [{ modeId: 1, name: 'Cash', net: 12_000_00 }, { modeId: 2, name: 'UPI', net: 8_000_00 }] })),
 };
 

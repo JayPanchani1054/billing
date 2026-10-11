@@ -3,7 +3,8 @@
  * stat / figure it shows instead — built from data the screen already has. Pure (no React), so every
  * "graph total = table total" rule is tested in node (returnCharts.test.ts). Money is integer paise.
  *
- *   GSTR-1          no graph (the portal tables are the filing) — stat "Nothing blocking" / "N block the JSON"
+ *   GSTR-1          stat "Nothing blocking" / "N block the JSON"; 2.1.2: 4 px bars in the Taxable value cells
+ *                   of the supply tables (≤ 20 rows, table-only; notes that reduce it in slot 2), never a strip
  *   GSTR-3B         head figure "Cash to pay ₹x" + due caption; meter "From credit · In cash" only when both > 0
  *   GSTR-9          polarity columns "Tax payable after credit, by month" (Enter → that month's GSTR-3B)
  *   GST Set-off     meter "Cash in ledger ₹A of ₹B needed" (both > 0) + stat "To deposit ₹x"
@@ -12,8 +13,9 @@
 import type { CashLedgerTxn, CreditLedgerTxn, ElectronicCashLedger, ElectronicCreditLedger, GstSetoffResult } from '../../../../shared/types/gst-plus.ts';
 import type { GstIssue, Gstr1Summary, Gstr3bSummary, Gstr9MonthRow, Gstr9Summary, ReturnPeriodRef } from '../../../../shared/types/gst-returns.ts';
 import { addDays, diffDays, formatDate } from '../../../../shared/dates.ts';
-import { clipTakeaway, compactValue, enoughData, MIN_LINE_POINTS, monthName, take } from '../../../ui/lib/chartSpec.ts';
-import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
+import { clipTakeaway, compactValue, enoughData, INLINE_MAX_ROWS, MIN_LINE_POINTS, monthName, TABLE_INLINE_MAX_ROWS, take } from '../../../ui/lib/chartSpec.ts';
+import type { ChartSpec, ValueFormat } from '../../../ui/lib/chartSpec.ts';
+import { formatMoney } from '../../../../shared/format.ts';
 import type { Gstr1Tile } from './gstr1.ts';
 import { sumTax } from './reports.ts';
 
@@ -75,6 +77,50 @@ export function gstr1Total(
       ? null
       : 'The return’s net, as GSTR-3B 3.1(a) and (b) read it: without 4B (the buyer pays that tax) and 8 (no tax), with advances and amendments of filed periods — so it differs from the sum of the rows.',
   };
+}
+
+/** Taxable value in words: a table that reduces it (credit notes, advances adjusted) says "less", never a bare minus. */
+export const reducesFormat: ValueFormat = {
+  tick: (v) => (v < 0 ? `less ${money(-v)}` : money(v)),
+  full: (v) => (v < 0 ? `less ${formatMoney(-v, { symbol: true })}` : formatMoney(v, { symbol: true })),
+};
+
+/**
+ * GSTR-1's graph (2.1.2 — the owner's change to D26): the taxable value of each supply table the screen
+ * lists (4A … 11, as shown — not the check tables 12 and 13), drawn as 4 px bars in the Taxable value
+ * column. A table that reduces it (credit notes, advances adjusted) sits in slot 2 and is said in words
+ * ("less ₹x"; the takeaway names it: "B2B invoices: 89 % of the taxable value · Credit / debit notes:
+ * less ₹20.0 K"). Table-only (`inlineOnly`): a statutory screen stays calm, so there is never a strip;
+ * the bars sit in the table for up to `TABLE_INLINE_MAX_ROWS` (20) supply rows (every table, More › Show
+ * empty tables, included) and beyond that there is no graph — null. Total = Σ rows (= the Total row
+ * whenever it foots, `gstr1Total`). Null below two tables with a value (2.1.1 D2).
+ */
+export function gstr1Chart(supply: ReadonlyArray<Pick<Gstr1Tile, 'title' | 'taxable'>>): ChartSpec | null {
+  if (supply.length > TABLE_INLINE_MAX_ROWS) return null;
+  const values = supply.map((t) => t.taxable);
+  const total = values.reduce((a, b) => a + b, 0);
+  let top = -1;
+  values.forEach((v, i) => {
+    if (v > 0 && (top < 0 || v > values[top])) top = i;
+  });
+  const reducing = supply.filter((t) => t.taxable < 0);
+  const less = -reducing.reduce((a, t) => a + t.taxable, 0);
+  const positive = values.filter((v) => v > 0).reduce((a, b) => a + b, 0);
+  const head = top >= 0 ? `${supply[top].title}: ${Math.round((values[top] / positive) * 100)} % of the taxable value` : '';
+  const tail = reducing.length === 0 ? '' : `${reducing.length === 1 ? reducing[0].title : `${reducing.length} tables`}: less ${money(less)}`;
+  const spec: ChartSpec = {
+    kind: 'bar',
+    title: 'Taxable value by table',
+    takeaway: clipTakeaway([head, tail].filter(Boolean).join(' · ')),
+    categories: supply.map((t) => t.title),
+    series: [{ name: 'Taxable value', values }],
+    color: 'polarity',
+    inlineOnly: true,
+    label: supply.length <= INLINE_MAX_ROWS ? 'tips' : 'none',
+    valueFormat: reducesFormat,
+    total,
+  };
+  return enoughData(spec) ? spec : null;
 }
 
 /** "2 optional · 1 cancelled · 3 without GST" — documents of the period that are not in GSTR-1 ('' when none). */

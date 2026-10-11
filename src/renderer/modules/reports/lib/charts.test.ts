@@ -20,12 +20,17 @@ import type {
   ProfitTrendResult,
   RegisterMonth,
   RegisterResult,
+  StatementLine,
   TbRow,
 } from '../../../../shared/types/reports.ts';
 import { statRepeatsTotal, specProblems, drawnTotal, inlineBars, markColor } from '../../../ui/lib/chartSpec.ts';
 import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
 import { statTotalAllowed } from '../../../app/lib/chartCatalogue.ts';
+import { tbTotals } from './model.ts';
 import {
+  assetHeads,
+  balanceSheetChart,
+  CASH_AND_BANK_LABEL,
   cashBankBarRows,
   cashBankChart,
   cashFlowChart,
@@ -42,6 +47,8 @@ import {
   profitTrendGate,
   registerChart,
   registerMeasure,
+  trialBalanceBarRows,
+  trialBalanceChart,
   trialBalanceStat,
 } from './charts.ts';
 import type { DrillRange } from './charts.ts';
@@ -704,7 +711,7 @@ describe('reports.costCentres — Net by cost centre', () => {
 
 // ───────────────────────────── Trial Balance stat ─────────────────────────────
 
-describe('reports.trialBalance — the check, not a graph', () => {
+describe('reports.trialBalance — the check (the stat)', () => {
   test('"Agrees ✓" when balanced; "Differs by ₹x" (danger) otherwise; never a visible total', () => {
     const ok = trialBalanceStat({ balanced: true, unbalancedBy: 0 });
     assert.equal(ok.value, 'Agrees ✓');
@@ -760,5 +767,218 @@ describe('folds and speed', () => {
       const ms = best(run);
       assert.ok(ms < 50, `${name}: ${ms.toFixed(1)} ms`);
     }
+  });
+});
+
+// ───────────────────────────── 2.1.2: Balance Sheet and Trial Balance ─────────────────────────────
+
+/** A Balance Sheet line (asset side, side-natural amount). */
+function bsLine(key: string, name: string, amount: number, o: Partial<StatementLine> = {}): StatementLine {
+  return { key, kind: 'group', id: null, name, level: 0, parentKey: null, hasChildren: false, amount, compare: null, ...o };
+}
+
+/**
+ * The asset side of the seeded shop of 15-balance-sheet.jpg, opened up: Current Assets ₹6,24,946.00 =
+ * Stock-in-Hand 3,94,000 (closing stock) + Sundry Debtors 1,80,946 + Cash-in-Hand 20,000 + Bank Accounts
+ * 30,000; then the Profit & Loss A/c (a loss) 3,40,800.12. Asset side total = 9,65,746.12, of which the
+ * business owns 6,24,946.00 (the accumulated loss is not owned).
+ */
+function shopAssets(): StatementLine[] {
+  return [
+    bsLine('g:5', 'Current Assets', 62_494_600, { hasChildren: true }),
+    bsLine('g:9', 'Stock-in-Hand', 39_400_000, { level: 1, parentKey: 'g:5', hasChildren: true }),
+    bsLine('stock:closing', 'Closing Stock', 39_400_000, { kind: 'stock', level: 2, parentKey: 'g:9' }),
+    bsLine('g:12', 'Sundry Debtors', 18_094_600, { level: 1, parentKey: 'g:5', hasChildren: true }),
+    bsLine('l:40', 'Asha Retail', 18_094_600, { kind: 'ledger', level: 2, parentKey: 'g:12' }),
+    bsLine('g:13', 'Cash-in-Hand', 2_000_000, { level: 1, parentKey: 'g:5', hasChildren: true }),
+    bsLine('g:14', 'Bank Accounts', 3_000_000, { level: 1, parentKey: 'g:5', hasChildren: true }),
+    bsLine('pl', 'Profit & Loss A/c', 34_080_012, { kind: 'profit_loss', hasChildren: true }),
+    bsLine('pl:current', 'Current Period', 34_080_012, { kind: 'pl_part', level: 1, parentKey: 'pl' }),
+  ];
+}
+const sumTop = (lines: readonly StatementLine[]): number => lines.filter((l) => l.level === 0).reduce((a, l) => a + l.amount, 0);
+/** The asset side total minus the lines that are not owned (the Profit & Loss A/c carried there, the opening difference). */
+const sumOwned = (lines: readonly StatementLine[]): number => lines.filter((l) => l.level === 0 && l.kind !== 'profit_loss' && l.kind !== 'difference').reduce((a, l) => a + l.amount, 0);
+
+describe('reports.balanceSheet — What you own (2.1.2)', () => {
+  test('heads: Current Assets opened into its lines, Cash-in-Hand + Bank Accounts as "Cash & bank"; the accumulated loss is not a head; Σ heads = the asset side total − that line', () => {
+    const assets = shopAssets();
+    const heads = assetHeads(assets);
+    assert.deepEqual(
+      heads.map((h) => [h.name, h.amount]),
+      [
+        ['Stock-in-Hand', 39_400_000],
+        ['Sundry Debtors', 18_094_600],
+        [CASH_AND_BANK_LABEL, 5_000_000],
+      ],
+    );
+    assert.equal(heads.reduce((a, h) => a + h.amount, 0), sumTop(assets) - 34_080_012, '= 9,65,746.12 − 3,40,800.12');
+    assert.equal(heads.reduce((a, h) => a + h.amount, 0), sumOwned(assets), '= 6,24,946.00');
+    assert.equal(heads[2].line, null, 'the merged head opens nothing');
+    assert.equal(heads[0].line?.key, 'g:9');
+  });
+
+  test('one share bar; graph total = the asset side total − the lines not owned; the largest head named in words', () => {
+    const assets = shopAssets();
+    const spec = valid(balanceSheetChart({ assets }));
+    assert.equal(spec.kind, 'share');
+    assert.equal(spec.title, 'What you own');
+    assert.equal(spec.total, sumOwned(assets));
+    assert.equal(spec.total, 62_494_600);
+    assert.deepEqual(spec.categories, ['Stock-in-Hand', 'Sundry Debtors', 'Cash & bank']);
+    // 3,94,000 of 6,24,946 = 63.0 % → 63 %.
+    assert.equal(spec.takeaway, 'Stock-in-Hand is 63 % of what you own (₹3.94 L of ₹6.25 L)');
+    assert.equal(spec.color ?? 'series', 'series', 'no problem colour: nothing negative');
+    assert.ok(!/[−-]\s?₹|[−-]\d/.test(spec.takeaway), 'no bare minus');
+  });
+
+  test('more than four heads: the largest three named, the rest in "Other" (the kit\'s share bar), Σ kept', () => {
+    const assets = [
+      bsLine('g:1', 'Fixed Assets', 50_00_000_00, { hasChildren: true }),
+      bsLine('g:2', 'Investments', 5_00_000_00),
+      ...shopAssets(),
+    ];
+    const spec = valid(balanceSheetChart({ assets }));
+    assert.equal(spec.categories.length, 4);
+    assert.equal(spec.categories[3], 'Other');
+    assert.equal(spec.categories[0], 'Fixed Assets');
+    assert.equal(spec.total, sumOwned(assets));
+  });
+
+  test('an accumulated loss and a debit difference in opening balances are not things the business owns: neither is a head; total = the real asset heads', () => {
+    const assets = [
+      bsLine('g:1', 'Fixed Assets', 2_00_000_00, { hasChildren: true }),
+      bsLine('g:5', 'Current Assets', 1_50_000_00, { hasChildren: true }),
+      bsLine('g:9', 'Stock-in-Hand', 1_00_000_00, { level: 1, parentKey: 'g:5' }),
+      bsLine('g:12', 'Sundry Debtors', 50_000_00, { level: 1, parentKey: 'g:5' }),
+      bsLine('pl', 'Profit & Loss A/c', 9_00_000_00, { kind: 'profit_loss', hasChildren: true }),
+      bsLine('pl:current', 'Current Period', 9_00_000_00, { kind: 'pl_part', level: 1, parentKey: 'pl' }),
+      bsLine('diff', 'Difference in opening balances', 4_00_000_00, { kind: 'difference' }),
+    ];
+    const heads = assetHeads(assets);
+    assert.deepEqual(heads.map((h) => h.name), ['Fixed Assets', 'Stock-in-Hand', 'Sundry Debtors']);
+    const spec = valid(balanceSheetChart({ assets }));
+    assert.ok(!spec.categories.includes('Profit & Loss A/c'), 'the loss is not owned (even as the largest line)');
+    assert.ok(!spec.categories.includes('Difference in opening balances'), 'the opening difference is not owned');
+    assert.ok(!spec.categories.includes('Other'), 'nothing folded: the two lines are left out, not hidden in Other');
+    assert.equal(spec.total, 3_50_000_00, '= Fixed Assets + Stock-in-Hand + Sundry Debtors');
+    assert.equal(spec.total, sumTop(assets) - 9_00_000_00 - 4_00_000_00, '= the asset side total − those lines');
+    assert.equal(spec.takeaway, 'Fixed Assets is 57 % of what you own (₹2.00 L of ₹3.50 L)');
+    // Only those lines: a loss with no real heads beside it draws nothing.
+    assert.equal(balanceSheetChart({ assets: [bsLine('g:1', 'Fixed Assets', 1000), assets[4], assets[6]] }), null);
+  });
+
+  test('a head in credit is left out of the share and said in words; the total is the side total + that amount', () => {
+    const assets = [
+      bsLine('g:5', 'Current Assets', 39_400_000 - 1_000_000 + 5_000_000, { hasChildren: true }),
+      bsLine('g:9', 'Stock-in-Hand', 39_400_000, { level: 1, parentKey: 'g:5' }),
+      bsLine('g:12', 'Sundry Debtors', -1_000_000, { level: 1, parentKey: 'g:5' }),
+      bsLine('g:14', 'Bank Accounts', 5_000_000, { level: 1, parentKey: 'g:5' }),
+    ];
+    const spec = valid(balanceSheetChart({ assets }));
+    assert.deepEqual(spec.categories, ['Stock-in-Hand', 'Bank Accounts']);
+    assert.equal(spec.total, sumTop(assets) + 1_000_000);
+    assert.equal(spec.takeaway, 'Stock-in-Hand is 89 % of what you own · Sundry Debtors (in credit) left out');
+    assert.ok(spec.takeaway.length <= 90);
+  });
+
+  test('Enter on a segment opens that head\'s line; "Other" and "Cash & bank" open nothing', () => {
+    const opened: string[] = [];
+    const spec = valid(balanceSheetChart({ assets: shopAssets() }, (l) => opened.push(l.key)));
+    spec.activate?.(0);
+    spec.activate?.(2);
+    assert.deepEqual(opened, ['g:9'], 'Stock-in-Hand opens; "Cash & bank" (index 2) opens nothing');
+  });
+
+  test('gates: fewer than two heads with an amount → no graph (2.1.1 D2); no data → none', () => {
+    assert.equal(balanceSheetChart(null), null);
+    assert.equal(balanceSheetChart({ assets: [] }), null);
+    assert.equal(balanceSheetChart({ assets: [bsLine('g:5', 'Current Assets', 100, { hasChildren: true }), bsLine('l:1', 'Cash', 100, { kind: 'ledger', level: 1, parentKey: 'g:5' })] }), null);
+  });
+});
+
+/** A top-level Trial Balance row (and its children). */
+function tbRow(key: string, name: string, closing: number, level = 0, parentKey: string | null = null): TbRow {
+  return { key, kind: 'group', id: null, name, level, parentKey, hasChildren: false, opening: 0, debit: Math.max(0, closing), credit: Math.max(0, -closing), closing };
+}
+
+describe('reports.trialBalance — Closing balances, table-only (2.1.2)', () => {
+  /** Groups view of a small shop: Dr 6,24,946 + 3,40,800.12 = Cr 2,88,246.12 + 6,77,500 (agrees). */
+  const rows = [
+    tbRow('g:3', 'Current Liabilities', -28_824_612),
+    tbRow('l:9', 'Sundry Creditors', -28_824_612, 1, 'g:3'),
+    tbRow('g:5', 'Current Assets', 62_494_600),
+    tbRow('l:1', 'Profit & Loss A/c', 34_080_012),
+    tbRow('diff', 'Difference in opening balances', -67_750_000),
+  ];
+
+  test('bars on the top-level rows, Dr slot 1 / Cr slot 2 in words; total = closing Dr − Cr totals (0 when it agrees)', () => {
+    const spec = valid(trialBalanceChart({ rows }));
+    assert.deepEqual(spec.categories, ['Current Liabilities', 'Current Assets', 'Profit & Loss A/c', 'Difference in opening balances']);
+    const t = tbTotals(rows);
+    assert.equal(spec.total, t.closingDebit - t.closingCredit);
+    assert.equal(spec.total, 0, 'the Trial Balance agrees');
+    assert.equal(markColor(spec, 0), 2, 'a Cr balance in slot 2');
+    assert.equal(markColor(spec, 1), 1, 'a Dr balance in slot 1');
+    assert.equal(spec.takeaway, 'Largest Dr: Current Assets ₹6.25 L · largest Cr: Difference in opening balances ₹6.78 L');
+    const f = spec.valueFormat;
+    assert.ok(f && typeof f === 'object');
+    assert.equal(f.full(-28_824_612), '2,88,246.12 Cr');
+    assert.equal(f.tick(62_494_600), '₹6.25 L Dr');
+    assert.ok(!/-/.test(f.tick(-28_824_612)), 'no bare minus');
+    assert.equal(inlineBars(spec, trialBalanceBarRows(rows).length), true, 'drawn in the table');
+    assert.equal(spec.inlineOnly, true, 'table-only: never a strip');
+  });
+
+  test('a normal company\'s 12 top-level groups draw inline in the table (table-only, ≤ 20 rows)', () => {
+    const names = ['Capital Account', 'Loans (Liability)', 'Current Liabilities', 'Fixed Assets', 'Investments', 'Current Assets', 'Sales Accounts', 'Purchase Accounts', 'Direct Expenses', 'Indirect Expenses', 'Indirect Incomes', 'Opening Stock'];
+    const twelve = names.map((n, i) => tbRow(`g:${i}`, n, (i % 3 === 0 ? -1 : 1) * (i + 1) * 1_000_00));
+    const children = [tbRow('l:1', 'Asha Retail', 5_000_00, 1, 'g:5'), tbRow('l:2', 'Bank', 1_000_00, 1, 'g:5')];
+    const tb = [...twelve, ...children];
+    const spec = valid(trialBalanceChart({ rows: tb }));
+    assert.deepEqual(spec.categories, names, 'the level-0 rows only, in table order');
+    assert.equal(spec.total, twelve.reduce((a, r) => a + r.closing, 0));
+    assert.equal(spec.label, 'none', 'tips are for ≤ 7 rows');
+    assert.equal(inlineBars(spec, trialBalanceBarRows(tb).length), true, '12 groups: bars under Closing Dr | Closing Cr');
+    assert.deepEqual(specProblems(spec), []);
+  });
+
+  test('more than 20 top-level rows (a long Ledger-wise list): no graph at all — the Trial Balance is a check, never a strip', () => {
+    const many = Array.from({ length: 21 }, (_, i) => tbRow(`l:${i}`, `Ledger ${i}`, i % 2 ? 1000 : -1000));
+    assert.equal(trialBalanceChart({ rows: many }), null);
+    const twenty = valid(trialBalanceChart({ rows: many.slice(0, 20) }));
+    assert.equal(twenty.categories.length, 20);
+    assert.equal(inlineBars(twenty, 20), true);
+    assert.equal(trialBalanceChart({ rows: many.slice(0, 8) })?.categories.length, 8, '8 rows: drawn (the ≤ 7 rule is for strips)');
+  });
+
+  test('gates: one balance is a sentence (2.1.1 D2); no data → none', () => {
+    assert.equal(trialBalanceChart(null), null);
+    assert.equal(trialBalanceChart({ rows: [tbRow('g:1', 'Capital Account', -1000), tbRow('g:2', 'Fixed Assets', 0)] }), null);
+  });
+
+  test('the stat still answers the check (no stat repeats a total)', () => {
+    assert.equal(trialBalanceStat({ balanced: true, unbalancedBy: 0 }).value, 'Agrees ✓');
+    assert.equal(statTotalAllowed('reports.trialBalance'), false);
+  });
+
+  test('both builders on 10,000 rows stay under 50 ms', () => {
+    const lines: StatementLine[] = [bsLine('g:5', 'Current Assets', 0, { hasChildren: true })];
+    for (let i = 0; i < 10_000; i++) lines.push(bsLine(`l:${i}`, `Head ${i}`, (i % 9) * 1000 + 1, { kind: 'ledger', level: 1, parentKey: 'g:5' }));
+    lines[0].amount = lines.slice(1).reduce((a, l) => a + l.amount, 0);
+    const tbRows = Array.from({ length: 10_000 }, (_, i) => tbRow(`l:${i}`, `L${i}`, i - 5000, i < 5 ? 0 : 1, i < 5 ? null : 'g:0'));
+    for (const [name, run] of [
+      ['balanceSheetChart', () => balanceSheetChart({ assets: lines })],
+      ['trialBalanceChart', () => trialBalanceChart({ rows: tbRows })],
+    ] as const) {
+      let ms = Infinity;
+      for (let i = 0; i < 5; i++) {
+        const t0 = performance.now();
+        run();
+        ms = Math.min(ms, performance.now() - t0);
+      }
+      assert.ok(ms < 50, `${name}: ${ms.toFixed(1)} ms`);
+    }
+    assert.equal(balanceSheetChart({ assets: lines })?.total, lines[0].amount);
   });
 });

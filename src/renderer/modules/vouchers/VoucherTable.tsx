@@ -8,7 +8,7 @@
  * optional / cancelled rule is its tooltip).
  */
 import { useMemo, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react';
 import { useApiMutation, useCan, useConfirm, useNav, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem } from '../../app/index.ts';
 import { Badge, DataTable, useToast } from '../../ui/index.ts';
@@ -91,9 +91,11 @@ export interface VoucherTableProps {
   label: string;
   /** Extra footer note (e.g. "showing the first 1,000"). */
   showTotals?: boolean;
+  /** The grid (2.1.2: the Day Book moves focus here after Enter on a graph bar filters the list). */
+  gridRef?: Ref<HTMLTableElement>;
 }
 
-export function VoucherTable({ rows, state, loading, empty, label, showTotals = true }: VoucherTableProps) {
+export function VoucherTable({ rows, state, loading, empty, label, showTotals = true, gridRef }: VoucherTableProps) {
   const columns = useMemo<Column<DayBookRow>[]>(
     () => [
       { key: 'date', header: 'Date', kind: 'date', width: 110, sortable: true },
@@ -152,6 +154,7 @@ export function VoucherTable({ rows, state, loading, empty, label, showTotals = 
       getRowClassName={(r) => (r.isCancelled || r.isOptional ? 'bx-vch-list__row is-muted' : undefined)}
       footerRows={footerRows}
       empty={empty}
+      gridRef={gridRef}
     />
   );
 }

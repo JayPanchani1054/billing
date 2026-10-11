@@ -14,7 +14,9 @@ import {
   foldMonths,
   foldTop,
   fyLabel,
+  INLINE_MAX_ROWS,
   inlineBars,
+  MAX_BAR_ROWS,
   MIN_LINE_POINTS,
   minNonZero,
   markColor,
@@ -23,6 +25,7 @@ import {
   quarterLabel,
   specProblems,
   statRepeatsTotal,
+  TABLE_INLINE_MAX_ROWS,
   take,
 } from './chartSpec.ts';
 import type { ChartSpec } from './chartSpec.ts';
@@ -370,6 +373,47 @@ describe('inlineBars and the stat rule', () => {
       const spec: ChartSpec = { kind: 'bar', title: 'B', takeaway: 't', categories: f.categories, series: [{ name: 'v', values: f.values }], total: sum(f.values) };
       const folded = f.categories.length < rows.length;
       assert.equal(inlineBars(spec, rows.length), !folded && rows.length <= 7, `case ${k}: ${rows.length} rows, n = ${n}`);
+    }
+  });
+
+  test('table-only bars (inlineOnly, 2.1.2 — Trial Balance, GSTR-1): inline up to 20 rows; every other bar keeps ≤ 7', () => {
+    assert.equal(INLINE_MAX_ROWS, 7);
+    assert.equal(TABLE_INLINE_MAX_ROWS, 20);
+    const names = (n: number) => Array.from({ length: n }, (_, i) => `r${i}`);
+    const only = (n: number): ChartSpec => ({ ...bar(names(n)), inlineOnly: true });
+    for (const n of [1, 7, 8, 12, 20]) assert.equal(inlineBars(only(n), n), true, `${n} rows, table-only`);
+    assert.equal(inlineBars(only(21), 21), false, '> 20 rows');
+    assert.equal(inlineBars(only(12), 11), false, 'categories ≠ table rows');
+    assert.equal(inlineBars(only(12), 0), false);
+    // The ≤ 7 rule is unchanged for a bar that may also be a strip.
+    assert.equal(inlineBars(bar(names(8)), 8), false, 'a plain bar of 8 rows is a strip');
+    assert.equal(inlineBars(bar(names(12)), 12), false);
+    assert.equal(inlineBars({ ...col([1, 2, 3]), inlineOnly: true }, 3), false, 'columns never inline');
+  });
+
+  test('specProblems: a table-only bar is capped at 20 rows (not the strip\'s 10); tips stay ≤ 7; inlineOnly is for bars only', () => {
+    const names = (n: number) => Array.from({ length: n }, (_, i) => `r${i}`);
+    const only = (n: number, label: ChartSpec['label'] = 'none'): ChartSpec => ({ ...bar(names(n)), inlineOnly: true, label });
+    assert.equal(MAX_BAR_ROWS, 10);
+    assert.deepEqual(specProblems(only(12)), [], '12 rows: valid table-only');
+    assert.deepEqual(specProblems(only(20)), [], '20 rows: valid table-only');
+    assert.ok(specProblems(only(21)).some((m) => /bar has 21 rows \(max 20/.test(m)), '21 rows: over the table-only cap');
+    assert.ok(specProblems(bar(names(11))).some((m) => /bar has 11 rows \(max 10; fold first\)/.test(m)), 'a strip bar keeps MAX_BAR_ROWS');
+    assert.deepEqual(specProblems(only(7, 'tips')), []);
+    assert.ok(specProblems(only(8, 'tips')).some((m) => /label 'tips'/.test(m)), 'tips stay ≤ 7 rows');
+    const share: ChartSpec = { kind: 'share', title: 'S', takeaway: 't', categories: ['a', 'b'], series: [{ name: 'v', values: [5, 3] }], total: 8, inlineOnly: true };
+    assert.ok(specProblems(share).some((m) => /inlineOnly is for bar graphs/.test(m)));
+  });
+
+  test('a table-only spec is never a strip: reportGraph drops it unless inline; the Trial Balance and GSTR-1 hand it over only when inline', async () => {
+    // reportGraph lives in a .tsx file (not loadable under node --test), so its guard is read from the source.
+    const { readFileSync } = await import('node:fs');
+    const lazy = readFileSync(new URL('../lazyChart.tsx', import.meta.url), 'utf8');
+    const body = lazy.slice(lazy.indexOf('export function reportGraph('), lazy.indexOf('render:', lazy.indexOf('export function reportGraph(')));
+    assert.match(body, /if \(spec\.inlineOnly && !inline\) return null;/, 'not inline → no graph (no strip, no Ctrl+J item)');
+    for (const f of ['../../modules/reports/TrialBalanceScreen.tsx', '../../modules/gst/Gstr1Screen.tsx']) {
+      const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+      assert.match(src, /graph=\{reportGraph\(inline \? spec : null, \{ inline \}\)\}/, `${f}: the spec reaches the strip only with its bars in the table`);
     }
   });
 

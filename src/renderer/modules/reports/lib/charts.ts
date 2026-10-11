@@ -1,7 +1,8 @@
 /**
  * The graphs of the reports module (2.1, SPEC-21 §5 "Reports module", §4.1): one pure builder per
  * catalogue row, each `xxxChart(result, …): ChartSpec | null`, plus the two words the reports say
- * instead of a graph (the Trial Balance check, the P&L's net word). Pure — no React — so
+ * beside their graph (the Trial Balance check, the P&L's net word). 2.1.2 adds the Balance Sheet's
+ * "What you own" and the Trial Balance's inline "Closing balances" (the owner's change to D26). Pure — no React — so
  * charts.test.ts proves "graph total = table total" and every null gate in node.
  *
  * A builder returns null when the data cannot carry the graph (`enoughData`: one non-zero period on a time
@@ -11,6 +12,7 @@
  * the measured thing, slot 2 only the negative pole (loss, overdrawn, cash out), never red/green.
  */
 import type {
+  BalanceSheetResult,
   CashBankResult,
   CashFlowResult,
   CostCentresResult,
@@ -19,11 +21,14 @@ import type {
   MonthlySummaryResult,
   ProfitTrendResult,
   RegisterResult,
+  StatementLine,
+  TbRow,
   TrialBalanceResult,
 } from '../../../../shared/types/reports.ts';
+import { PREDEFINED_GROUPS } from '../../../../shared/constants.ts';
 import { endOfMonth, formatDate } from '../../../../shared/dates.ts';
 import { formatDrCr } from '../../../../shared/format.ts';
-import { clipTakeaway, compactValue, decimate, enoughData, foldMonths, foldTop, fyLabel, INLINE_MAX_ROWS, MAX_LINE_POINTS, MIN_LINE_POINTS, monthName, quarterLabel, take } from '../../../ui/lib/chartSpec.ts';
+import { clipTakeaway, compactValue, decimate, enoughData, foldMonths, foldTop, fyLabel, INLINE_MAX_ROWS, MAX_LINE_POINTS, MAX_SHARE_SEGMENTS, MIN_LINE_POINTS, monthName, quarterLabel, TABLE_INLINE_MAX_ROWS, take, TAKEAWAY_MAX } from '../../../ui/lib/chartSpec.ts';
 import type { ChartSpec, ValueFormat } from '../../../ui/lib/chartSpec.ts';
 import { statMoney } from '../../../ui/lib/statLine.ts';
 
@@ -574,7 +579,161 @@ export function costCentresChart(d: CostCentresResult | null | undefined, catego
   });
 }
 
-// ───────────────────────────── Trial Balance check (a stat, not a graph) ─────────────────────────────
+// ───────────────────────────── Balance Sheet (2.1.2) ─────────────────────────────
+
+const groupName = (code: string): string => PREDEFINED_GROUPS.find((g) => g.code === code)?.name ?? code;
+/** The predefined group a Balance Sheet opens into its heads (predefined groups cannot be renamed). */
+const CURRENT_ASSETS = groupName('CURRENT_ASSETS');
+/** Cash-in-Hand and Bank Accounts are one head for the owner: "Cash & bank". */
+const CASH_AND_BANK = new Set([groupName('CASH_IN_HAND'), groupName('BANK_ACCOUNTS')]);
+export const CASH_AND_BANK_LABEL = 'Cash & bank';
+
+/** One head of what the business owns: a Balance Sheet line (or Cash-in-Hand + Bank Accounts). */
+export interface AssetHead {
+  name: string;
+  amount: number;
+  /** The Balance Sheet line Enter on the segment opens (null for the merged "Cash & bank"). */
+  line: StatementLine | null;
+}
+
+/**
+ * Asset-side lines that are not something the business owns: the Profit & Loss A/c carried there (an
+ * accumulated loss) and the Difference in opening balances (a debit difference). Left out of the heads.
+ */
+const NOT_OWNED: ReadonlySet<StatementLine['kind']> = new Set<StatementLine['kind']>(['profit_loss', 'difference']);
+
+/**
+ * The asset side's heads as the Balance Sheet shows them, one level deeper where it says something:
+ * the top-level lines (Fixed Assets, Investments …), with Current Assets opened into its own lines
+ * (Stock-in-Hand with the closing stock, Sundry Debtors, Loans & Advances, Deposits …) and Cash-in-Hand +
+ * Bank Accounts as one "Cash & bank". The Profit & Loss A/c (an accumulated loss) and the Difference in
+ * opening balances are not things the business owns and are left out, so Σ heads = the asset side total
+ * minus those lines (every line's amount is the sum of its children).
+ */
+export function assetHeads(assets: readonly StatementLine[]): AssetHead[] {
+  const out: AssetHead[] = [];
+  let cash: AssetHead | null = null;
+  const push = (l: StatementLine): void => {
+    if (CASH_AND_BANK.has(l.name) && l.kind === 'group') {
+      if (cash) {
+        cash.amount += l.amount;
+        cash.line = null;
+        cash.name = CASH_AND_BANK_LABEL;
+      } else {
+        cash = { name: l.name, amount: l.amount, line: l };
+        out.push(cash);
+      }
+      return;
+    }
+    out.push({ name: l.name, amount: l.amount, line: l });
+  };
+  for (const l of assets) {
+    if (l.level !== 0 || NOT_OWNED.has(l.kind)) continue;
+    if (l.kind === 'group' && l.name === CURRENT_ASSETS && l.hasChildren) {
+      for (const c of assets) if (c.parentKey === l.key) push(c);
+    } else push(l);
+  }
+  return out;
+}
+
+/**
+ * "Where is my money?" (reports.balanceSheet, 2.1.2 — the owner's change to D26): ONE share bar of
+ * what the business owns by its asset heads (`assetHeads`), the largest three named and the rest in
+ * "Other" (the kit's share bar: ≤ 3 named + Other). Values are the asset side's figures as shown
+ * (closing stock included); total = the asset side total minus the lines that are not owned — the
+ * Profit & Loss A/c carried there (an accumulated loss) and the Difference in opening balances, which
+ * `assetHeads` leaves out. A head in credit (negative — e.g. debtors who paid in advance) cannot be a
+ * share: it is left out and said in the takeaway, and the total is then that figure plus its amount.
+ * Null below two heads with an amount (2.1.1 D2).
+ * `onLine` (Enter on a segment) opens the head's line as Enter on it does; "Other" and "Cash & bank" open nothing.
+ */
+export function balanceSheetChart(d: Pick<BalanceSheetResult, 'assets'> | null | undefined, onLine?: (line: StatementLine) => void): ChartSpec | null {
+  if (!d) return null;
+  const heads = assetHeads(d.assets);
+  const owned = heads.filter((h) => h.amount > 0).sort((a, b) => b.amount - a.amount);
+  const credit = heads.filter((h) => h.amount < 0);
+  const f = foldTop(
+    owned,
+    MAX_SHARE_SEGMENTS - 1,
+    (h) => h.amount,
+    (h) => h.name,
+  );
+  const named = f.categories.length < owned.length ? f.categories.length - 1 : f.categories.length;
+  const total = sum(f.values);
+  const top = owned[0];
+  let takeaway = '';
+  if (top && total > 0) {
+    const pct = `${Math.round((top.amount / total) * 100)} % of what you own`;
+    // A head in credit is named once, in words; the figures then give way to it (≤ 90 characters).
+    const out = credit.length === 1 ? ` · ${clipTakeaway(credit[0].name, 24)} (in credit) left out` : ` · ${credit.length} heads in credit left out`;
+    const tail = credit.length === 0 ? ` is ${pct} (${compactValue(top.amount)} of ${compactValue(total)})` : ` is ${pct}${out}`;
+    takeaway = clipTakeaway(`${clipTakeaway(top.name, Math.max(12, TAKEAWAY_MAX - tail.length))}${tail}`);
+  }
+  return drawable({
+    kind: 'share',
+    title: 'What you own',
+    takeaway,
+    categories: f.categories,
+    series: [{ name: 'Amount', values: f.values }],
+    total,
+    activate: onLine
+      ? (i) => {
+          const line = i < named ? owned[i]?.line : null;
+          if (line) onLine(line);
+        }
+      : undefined,
+  });
+}
+
+// ───────────────────────────── Trial Balance (2.1.2) ─────────────────────────────
+
+/** Dr / Cr in words for ticks, tips and tooltips (a Trial Balance has no natural side). */
+export const drCrFormat: ValueFormat = {
+  tick: (v) => (v === 0 ? compactValue(0) : `${compactValue(Math.abs(v))} ${v > 0 ? 'Dr' : 'Cr'}`),
+  full: (v) => formatDrCr(v, { keepZero: true }),
+};
+
+/** The Trial Balance rows its bars sit on: the top-level rows (their closings make the totals). */
+export function trialBalanceBarRows(rows: readonly TbRow[]): TbRow[] {
+  return rows.filter((r) => r.level === 0);
+}
+
+/**
+ * "Closing balances" (reports.trialBalance, 2.1.2 — the owner's change to D26): 4 px bars in the
+ * Closing Dr / Closing Cr columns of the top-level rows (groups by default), Dr in slot 1 and Cr in
+ * slot 2 with the words of their column. Table-only (`inlineOnly`): the Trial Balance is a check, so it
+ * never gets a strip; its bars sit in the table for up to `TABLE_INLINE_MAX_ROWS` (20) top-level rows — a
+ * normal company's 8–14 groups — and a longer list (Ledger-wise) has no graph at all — null. Total = Σ
+ * closings = closing Dr total − Cr total (0 when it agrees). Null below two rows with a balance (2.1.1 D2).
+ */
+export function trialBalanceChart(d: Pick<TrialBalanceResult, 'rows'> | null | undefined): ChartSpec | null {
+  if (!d) return null;
+  const top = trialBalanceBarRows(d.rows);
+  if (top.length > TABLE_INLINE_MAX_ROWS) return null;
+  const values = top.map((r) => r.closing);
+  let dr = -1;
+  let cr = -1;
+  values.forEach((v, i) => {
+    if (v > 0 && (dr < 0 || v > values[dr])) dr = i;
+    if (v < 0 && (cr < 0 || v < values[cr])) cr = i;
+  });
+  const parts = [dr >= 0 ? `Largest Dr: ${top[dr].name} ${compactValue(values[dr])}` : '', cr >= 0 ? `largest Cr: ${top[cr].name} ${compactValue(-values[cr])}` : ''].filter(Boolean);
+  const takeaway = parts.length ? clipTakeaway(parts.join(' · ').replace(/^largest/, 'Largest')) : '';
+  return drawable({
+    kind: 'bar',
+    title: 'Closing balances',
+    takeaway,
+    categories: top.map((r) => r.name),
+    series: [{ name: 'Closing balance', values }],
+    color: 'polarity',
+    inlineOnly: true,
+    label: top.length <= INLINE_MAX_ROWS ? 'tips' : 'none',
+    valueFormat: drCrFormat,
+    total: sum(values),
+  });
+}
+
+// ───────────────────────────── Trial Balance check (the stat) ─────────────────────────────
 
 export interface CheckStat {
   label: string;

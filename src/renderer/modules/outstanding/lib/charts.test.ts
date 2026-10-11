@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { AgeingBucket, AgeingResult, LedgerBillsResult, PartySummaryResult, StatementLine, StatementResult } from '../../../../shared/types/outstanding.ts';
+import type { AgeingBucket, AgeingResult, LedgerBillsResult, PartyOutstandingRow, PartySummaryResult, StatementLine, StatementResult } from '../../../../shared/types/outstanding.ts';
 import { STAT_TOTAL_ALLOWED, statTotalAllowed } from '../../../app/lib/chartCatalogue.ts';
-import { assertSpec, drawnTotal, enoughData, statRepeatsTotal } from '../../../ui/lib/chartSpec.ts';
+import { assertSpec, drawnTotal, enoughData, inlineBars, markColor, specProblems, statRepeatsTotal } from '../../../ui/lib/chartSpec.ts';
 import {
   OPENING_LABEL,
   ageingChart,
@@ -11,6 +11,7 @@ import {
   isLate,
   oldThreshold,
   overCreditLimit,
+  partiesChart,
   partiesTableTotals,
   partyChart,
   receivablesStat,
@@ -18,7 +19,7 @@ import {
   statementChart,
   statementPoints,
 } from './charts.ts';
-import { ageingExport, ledgerSign } from './model.ts';
+import { ageingExport, ledgerSign, partiesInView } from './model.ts';
 
 type Totals = PartySummaryResult['totals'];
 const totals = (over: Partial<Totals>): Totals => ({ pending: 0, billsPending: 0, overdue: 0, notDue: 0, advance: 0, onAccount: 0, partyCount: 0, overLimitCount: 0, ...over });
@@ -391,5 +392,143 @@ describe('statementChart: the running balance (screen only)', () => {
     assert.equal(spec.categories[0], OPENING_LABEL);
     assertSpec(spec);
     assert.equal(spec.total, s.closingBalance * (s.closingBalance < 0 ? -1 : 1));
+  });
+});
+
+// ───────────────────────────── 2.1.2: the Parties view ─────────────────────────────
+
+/** A party row with the fields the view shows (side-signed: + = owes / is owed; − = in advance). */
+function partyRow(ledgerId: number, ledgerName: string, pending: number, o: Partial<PartyOutstandingRow> = {}): PartyOutstandingRow {
+  const billsPending = Math.max(0, pending);
+  return {
+    ledgerId,
+    ledgerName,
+    groupId: 1,
+    groupName: 'Sundry Debtors',
+    billWise: true,
+    pending,
+    billsPending,
+    overdue: billsPending,
+    notDue: 0,
+    advance: pending < 0 ? pending : 0,
+    onAccount: 0,
+    billCount: 1,
+    overdueBillCount: 1,
+    oldestDueDays: 10,
+    creditLimit: null,
+    creditDays: null,
+    utilisationPercent: null,
+    overLimit: false,
+    mobile: null,
+    email: null,
+    ...o,
+  };
+}
+
+/** The view as the screen holds it: rows and the totals the route sums over them. */
+function partiesOf(side: PartySummaryResult['side'], rows: PartyOutstandingRow[]): PartySummaryResult {
+  const sum = (f: (p: PartyOutstandingRow) => number) => rows.reduce((a, p) => a + f(p), 0);
+  return {
+    side,
+    asOf: '2026-10-11',
+    rows,
+    totals: { pending: sum((p) => p.pending), billsPending: sum((p) => p.billsPending), overdue: sum((p) => p.overdue), notDue: sum((p) => p.notDue), advance: sum((p) => p.advance), onAccount: 0, partyCount: rows.length, overLimitCount: rows.filter((p) => p.overLimit).length },
+  };
+}
+
+describe('partiesChart (2.1.2): "Who owes me the most?" on the Parties view', () => {
+  // Four customers: ₹59,000 + ₹23,600 + ₹14,750 + ₹5,900 = ₹1,03,250 owed; one paid ₹10,000 in advance.
+  const five = (): PartySummaryResult =>
+    partiesOf('receivable', [partyRow(1, 'Asha Retail', 59_000_00), partyRow(2, 'Kumar Builders', 23_600_00), partyRow(3, 'Nisha Traders', -10_000_00), partyRow(4, 'Patel & Sons', 14_750_00), partyRow(5, 'Rao Hardware', 5_900_00)]);
+
+  it('graph total = the Net outstanding total of the rows shown; bars by size on the natural side', () => {
+    const r = five();
+    const spec = partiesChart(r);
+    assert.ok(spec);
+    assertSpec(spec);
+    assert.equal(spec.total, r.totals.pending);
+    assert.equal(drawnTotal(spec), r.totals.pending);
+    assert.deepEqual(spec.categories, ['Asha Retail', 'Kumar Builders', 'Patel & Sons', 'Nisha Traders', 'Rao Hardware']);
+    assert.equal(spec.title, 'Net outstanding by customer');
+    // The table's Net outstanding cells are ledger-signed (Dr for a customer): the same amounts, side-signed.
+    assert.equal(spec.total * ledgerSign('receivable'), partiesTableTotals(r)[3]);
+  });
+
+  it('a party in advance: slot 2, said "advance" in words — never a bare minus', () => {
+    const spec = partiesChart(five());
+    assert.ok(spec);
+    const i = spec.categories.indexOf('Nisha Traders');
+    assert.equal(markColor(spec, i), 2);
+    assert.equal(markColor(spec, 0), 1);
+    const f = spec.valueFormat;
+    assert.ok(f && typeof f === 'object');
+    assert.equal(f.tick(-10_000_00), '₹10.0 K advance');
+    assert.equal(f.full(-10_000_00), '₹ 10,000.00 advance');
+    assert.ok(!/[−-]/.test(f.full(-10_000_00)));
+  });
+
+  it('takeaway: the top three of what customers owe, in words ("Top 3 customers owe 94 % of ₹1.03 L")', () => {
+    // (59,000 + 23,600 + 14,750) / 1,03,250 = 94.3 %.
+    assert.equal(partiesChart(five())?.takeaway, 'Top 3 customers owe 94 % of ₹1.03 L · advance from 1 customer');
+    const pay = partiesOf('payable', [partyRow(1, 'Ravi Paints', 80_000_00), partyRow(2, 'Mehta Steel', 20_000_00)]);
+    assert.equal(partiesChart(pay)?.takeaway, 'Ravi Paints is owed 80 % of ₹1.00 L');
+    assert.equal(partiesChart(pay)?.title, 'Net outstanding by supplier');
+    const adv = partiesOf('receivable', [partyRow(1, 'Asha Retail', -5_000_00), partyRow(2, 'Kumar Builders', -3_000_00)]);
+    assert.equal(partiesChart(adv)?.takeaway, 'No customer owes you; ₹8.0 K received in advance');
+    for (const s of [five(), pay, adv]) assert.ok((partiesChart(s)?.takeaway.length ?? 0) <= 90);
+  });
+
+  it('≤ 7 parties: inline in the Net outstanding column; more: Top 6 + Other strip, Σ kept', () => {
+    const r = five();
+    assert.equal(inlineBars(partiesChart(r), r.rows.length), true);
+    const many = partiesOf('receivable', Array.from({ length: 12 }, (_, i) => partyRow(i + 1, `Customer ${i + 1}`, (i + 1) * 1_000_00)));
+    const spec = partiesChart(many);
+    assert.ok(spec);
+    assert.deepEqual(specProblems(spec), []);
+    assert.equal(spec.categories.length, 7);
+    assert.equal(spec.categories[6], 'Other');
+    assert.equal(spec.total, many.totals.pending);
+    assert.equal(inlineBars(spec, many.rows.length), false, 'a strip, not inline');
+  });
+
+  it('Enter on a bar = Enter on that party\'s row (its ledger); "Other" opens nothing', () => {
+    const opened: number[] = [];
+    const many = partiesOf('receivable', Array.from({ length: 9 }, (_, i) => partyRow(i + 1, `Customer ${i + 1}`, (i + 1) * 1_000_00)));
+    const spec = partiesChart(many, (id) => opened.push(id));
+    spec?.activate?.(0);
+    spec?.activate?.(6);
+    assert.deepEqual(opened, [9], 'the largest is Customer 9');
+  });
+
+  it('the over-limit filter: the graph follows the rows shown and their recomputed totals', () => {
+    const r = partiesOf('receivable', [partyRow(1, 'A', 50_000_00, { overLimit: true }), partyRow(2, 'B', 30_000_00, { overLimit: true }), partyRow(3, 'C', 10_000_00)]);
+    const shown = partiesInView(r, true);
+    assert.equal(partiesChart(shown)?.total, shown.totals.pending);
+    assert.equal(shown.totals.pending, 80_000_00);
+  });
+
+  it('gates: one party is a sentence (2.1.1 D2); none → no graph', () => {
+    assert.equal(partiesChart(partiesOf('receivable', [])), null);
+    assert.equal(partiesChart(partiesOf('receivable', [partyRow(1, 'Asha Retail', 59_000_00)])), null);
+    assert.equal(partiesChart(partiesOf('receivable', [partyRow(1, 'Asha Retail', 59_000_00), partyRow(2, 'Settled', 0)])), null);
+    assert.ok(enoughData(partiesChart(partiesOf('receivable', [partyRow(1, 'A', 1), partyRow(2, 'B', -1)])) ?? (null as never)));
+  });
+
+  it('the stat is unchanged and stays allow-listed ("To collect" = the total the graph adds up to)', () => {
+    assert.equal(statTotalAllowed('outstanding.receivables'), true);
+    const r = five();
+    assert.equal(receivablesStat(r)[0].value, partiesChart(r)?.total);
+  });
+
+  it('10,000 parties stay under 50 ms', () => {
+    const big = partiesOf('receivable', Array.from({ length: 10_000 }, (_, i) => partyRow(i, `P${i}`, ((i % 97) - 10) * 1000)));
+    let ms = Infinity;
+    for (let k = 0; k < 5; k++) {
+      const t0 = performance.now();
+      partiesChart(big);
+      ms = Math.min(ms, performance.now() - t0);
+    }
+    assert.ok(ms < 50, `${ms.toFixed(1)} ms`);
+    assert.equal(partiesChart(big)?.total, big.totals.pending);
   });
 });

@@ -69,9 +69,11 @@ export interface Column<T> {
    * Inline bar (2.1, D26 — short tables instead of a graph): a 4 px bar under the cell text, width ∝
    * |value| / the largest |value| of the rendered rows (ui/lib/inlineBars.ts). Return null for rows
    * that must not draw (totals). Slot 1 always, or slot 2 for negatives with 'polarity'. Decorative
-   * (aria-hidden), hidden under [data-graphs="off"] and in print.
+   * (aria-hidden), hidden under [data-graphs="off"] and in print. (2.1.2, additive) Columns naming the
+   * same `scale` are measured together — one largest |value| for all of them (the Trial Balance's
+   * Closing Dr | Closing Cr bars); without it each column is its own scale.
    */
-  bar?: { value: (row: T) => number | null; slot: 1 | 'polarity' };
+  bar?: { value: (row: T) => number | null; slot: 1 | 'polarity'; scale?: string };
   className?: string;
   cellClassName?: (row: T) => string | undefined;
   /** Hover title for truncated cells (default: formatted text). */
@@ -452,17 +454,26 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
   const posByKey = useMemo(() => new Map(visible.map((ri, p) => [keys[ri], p])), [visible, keys]);
 
-  // Inline bars: scaled over the rendered (visible) rows, so collapsing a tree rescales them.
+  // Inline bars: scaled over the rendered (visible) rows, so collapsing a tree rescales them. Columns
+  // sharing a `bar.scale` are measured together; every other bar column is its own scale.
   const barsByRow = useMemo(() => {
     const barCols = columns.filter((c) => c.bar);
     if (barCols.length === 0) return null;
-    const out = new Map<number, Record<string, InlineBar | null>>();
+    const groups = new Map<string, Column<T>[]>();
     for (const c of barCols) {
-      const widths = barWidths(visible.map((ri) => c.bar?.value(rows[ri]) ?? null));
-      visible.forEach((ri, p) => {
-        const rec = out.get(ri) ?? {};
-        rec[c.key] = widths[p];
-        out.set(ri, rec);
+      const k = c.bar?.scale !== undefined ? `scale:${c.bar.scale}` : `column:${c.key}`;
+      groups.set(k, [...(groups.get(k) ?? []), c]);
+    }
+    const out = new Map<number, Record<string, InlineBar | null>>();
+    for (const cols of groups.values()) {
+      // One barWidths call per scale: the columns' values side by side, so one largest |value| sizes them all.
+      const widths = barWidths(cols.flatMap((c) => visible.map((ri) => c.bar?.value(rows[ri]) ?? null)));
+      cols.forEach((c, ci) => {
+        visible.forEach((ri, p) => {
+          const rec = out.get(ri) ?? {};
+          rec[c.key] = widths[ci * visible.length + p];
+          out.set(ri, rec);
+        });
       });
     }
     return out;

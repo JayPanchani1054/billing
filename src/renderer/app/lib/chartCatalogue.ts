@@ -5,10 +5,13 @@
  *
  * Shared registry (SPEC-21 §6.1): written whole by WP-C0. A wave-2 package only DELETES ITS OWN ids
  * from `PENDING_GRAPH` once their graphs are wired; the integrator removes leftovers and sets
- * `GRAPHS_STRICT`. No other edits.
+ * `GRAPHS_STRICT`. No other edits — except an owner's explicit change: 2.1.1 (Monthly Summary) and 2.1.2
+ * (graphs on Receivables / Payables › Parties, Balance Sheet, Trial Balance, GSTR-1 and Day Book, which
+ * 2.1 had left without one).
  *
  * Form legend: column · bar (horizontal; `inline` = drawn as 4 px bars inside the table when its
- * categories are the table's ≤ 7 rows, else a Top-6 + Other strip — D26) · line · share (one 100 %
+ * categories are the table's ≤ 7 rows, else a Top-6 + Other strip — D26; the Trial Balance and GSTR-1 are
+ * table-only — `ChartSpec.inlineOnly`, up to 20 rows, never a strip — their `gate` says so) · line · share (one 100 %
  * bar) · meter (a ratio against a limit) · mini (Home's MiniColumns) · none.
  * Class (D28): 'report' = reports (`uiPrefs.graphs`), 'detail' = drill-down reports
  * (`uiPrefs.detailGraphsShown`); both shown by default since 2.1.1 (D3), each folded on its own with Ctrl+J.
@@ -28,7 +31,7 @@ export interface CatalogueRow {
   /** The ONE question the screen answers. */
   question?: string;
   form: GraphForm;
-  /** bar↹: drawn inline in the table when its categories are the table's ≤ 7 rows (D26). */
+  /** bar↹: drawn inline in the table when its categories are the table's ≤ 7 rows (D26; ≤ 20 for a table-only spec). */
   inline?: boolean;
   /** Colour rule (D29); absent = 'series'. */
   color?: ChartColor;
@@ -70,8 +73,9 @@ export const GRAPH_CATALOGUE: readonly CatalogueRow[] = [
 
   // ── Reports module (WP-H) ──────────────────────────────────────────────────────────────────
   { id: 'reports.profitLoss', question: 'Am I making money, month by month?', form: 'column', color: 'polarity', graphClass: 'report', title: 'Net profit by month', gate: 'no month with a result, Compare mode, or !inventoryIntegrated with purchases in the period (About this report says why)', data: 'NEW reports.profitTrend {from,to,scenarioId}; foldMonths; axis Profit ↑ / Loss ↓; label max; Enter → P&L of that month', stat: 'Net profit/loss ₹x as the context state word (allow-listed)', priority: 'P1', owner: 'WP-H' },
-  { id: 'reports.balanceSheet', question: 'What do I own and owe?', form: 'none', reason: 'a balance sheet balances by construction (two equal bars); the Difference line is a data-entry fault, said by the banner', priority: 'P1', owner: 'WP-H' },
-  { id: 'reports.trialBalance', question: 'Do debits equal credits?', form: 'none', reason: 'a check, not a story', stat: 'Agrees ✓ / Differs by ₹d (danger)', priority: 'P1', owner: 'WP-H' },
+  // 2.1.2: the owner overrides D26's "none" for the Balance Sheet and the Trial Balance ("graphs on all reports").
+  { id: 'reports.balanceSheet', question: 'Where is my money?', form: 'share', graphClass: 'report', title: 'What you own', gate: 'none below 2 asset heads with an amount; a head in credit is left out and said in the takeaway', data: "assets: level-0 lines with Current Assets opened into its lines (Cash-in-Hand + Bank Accounts = \"Cash & bank\"), without the Profit & Loss A/c (an accumulated loss) and the Difference in opening balances — not owned; ≤ 3 named + Other; total = assetsTotal − those lines (+ |heads in credit|); Enter → that head's line; screen only, never printed", priority: 'P1', owner: 'WP-H' },
+  { id: 'reports.trialBalance', question: 'Do debits equal credits — and where do the balances sit?', form: 'bar', inline: true, color: 'polarity', graphClass: 'report', title: 'Closing balances', gate: 'table-only (inlineOnly): bars in the table up to 20 top-level rows; none with more (a check stays calm — never a strip) or below 2 balances', data: 'rows level 0 .closing under Closing Dr (slot 1) | Closing Cr (slot 2), one scale; total = closing Dr − Cr totals', stat: 'Agrees ✓ / Differs by ₹d (danger)', priority: 'P1', owner: 'WP-H' },
   { id: 'reports.cashBank', question: 'Where is my money sitting?', form: 'bar', inline: true, color: 'polarity', graphClass: 'report', gate: 'none with < 2 cash/bank ledgers (2 non-zero balances)', data: 'rows kind ledger .closing; total = totals.closing (overdraft slot 2)', priority: 'P1', owner: 'WP-H' },
   { id: 'reports.register', view: 'months', question: 'How much did I sell / buy / receive / pay each month?', form: 'column', graphClass: 'report', title: 'Sales before GST, by month', data: 'months[].taxable for sales, purchase, credit and debit notes; months[].amount for receipt, payment, contra, journal; label max; partialLast', priority: 'P1', owner: 'WP-H' },
   { id: 'reports.register', view: 'vouchers', form: 'none', reason: 'the vouchers view (Alt+V) is a list; the months view carries the graph', priority: 'P1', owner: 'WP-H' },
@@ -87,10 +91,11 @@ export const GRAPH_CATALOGUE: readonly CatalogueRow[] = [
   { id: 'reports.statistics', question: 'How many vouchers and masters?', form: 'none', reason: 'housekeeping counts', priority: 'P3', owner: 'WP-H' },
 
   // ── Outstanding (WP-I1) ────────────────────────────────────────────────────────────────────
-  { id: 'outstanding.receivables', view: 'parties', question: 'How much do customers owe, and how late is it?', form: 'none', reason: 'the Ageing view (Ctrl+3) is the graph; no ageing fetch on this view', stat: 'To collect ₹x · Overdue ₹y › · ₹z not matched to bills › (zeros hidden; "To collect" allow-listed); context: N over credit limit', priority: 'P1', owner: 'WP-I1' },
+  // 2.1.2: the owner overrides D25's "no graph on the Parties view".
+  { id: 'outstanding.receivables', view: 'parties', question: 'Who owes me the most?', form: 'bar', inline: true, color: 'polarity', graphClass: 'report', title: 'Net outstanding by customer', data: 'partySummary rows (as shown) .pending on the natural side, Top 6 + Other; a party in advance slot 2, said "advance"; total = totals.pending; Enter → the party (as its row)', stat: 'To collect ₹x · Overdue ₹y › · ₹z not matched to bills › (zeros hidden; "To collect" allow-listed); context: N over credit limit', priority: 'P1', owner: 'WP-I1' },
   { id: 'outstanding.receivables', view: 'bills', question: 'Which bills to chase first?', form: 'none', reason: 'a worklist sorted by days', stat: 'as the Parties view', priority: 'P3', owner: 'WP-I1' },
   { id: 'outstanding.receivables', view: 'ageing', question: "How old is what I'm owed?", form: 'column', color: 'ordinal', graphClass: 'report', data: 'outstanding.ageing totals.amounts[] (Not due grey, buckets o1…o5); label max; takeaway names its base; Enter → Bills with minDays', stat: 'as the Parties view', priority: 'P1', owner: 'WP-I1' },
-  { id: 'outstanding.payables', view: 'parties', question: 'How much do I owe suppliers, and how late (MSME 45 days)?', form: 'none', reason: 'the Ageing view (Ctrl+3) is the graph', stat: 'To pay ₹x · Overdue ₹y › · … ("To pay" allow-listed)', priority: 'P1', owner: 'WP-I1' },
+  { id: 'outstanding.payables', view: 'parties', question: 'Whom do I owe the most?', form: 'bar', inline: true, color: 'polarity', graphClass: 'report', title: 'Net outstanding by supplier', data: "partySummary {side:'payable'} rows .pending on the natural side, Top 6 + Other; total = totals.pending; Enter → the party", stat: 'To pay ₹x · Overdue ₹y › · … ("To pay" allow-listed)', priority: 'P1', owner: 'WP-I1' },
   { id: 'outstanding.payables', view: 'bills', form: 'none', reason: 'a worklist sorted by days', stat: 'as the Parties view', priority: 'P3', owner: 'WP-I1' },
   { id: 'outstanding.payables', view: 'ageing', question: 'How old is what I owe?', form: 'column', color: 'ordinal', graphClass: 'report', data: "outstanding.ageing {side:'payable'} totals.amounts[]", stat: 'as the Parties view', priority: 'P1', owner: 'WP-I1' },
   { id: 'outstanding.party', question: 'This party against its credit limit', form: 'meter', graphClass: 'detail', gate: 'only when creditLimit > 0 and the balance > 0; else none', data: 'balance, ledger.creditLimit ("Balance ₹A of limit ₹B")', priority: 'P3', owner: 'WP-I1' },
@@ -113,7 +118,8 @@ export const GRAPH_CATALOGUE: readonly CatalogueRow[] = [
   { id: 'stock.reorder', question: 'What to buy today?', form: 'none', reason: 'mixed units', stat: 'Order now: N of M items', priority: 'P3', owner: 'WP-I2' },
 
   // ── GST returns (WP-J1) ────────────────────────────────────────────────────────────────────
-  { id: 'gst.gstr1', question: 'Can I file; is anything blocking?', form: 'none', reason: 'a statutory form: the portal tables are the filing', stat: 'Nothing blocking / N block the JSON · Review ›', priority: 'P1', owner: 'WP-J1' },
+  // 2.1.2: the owner overrides D26's "none" for GSTR-1 — bars in the table, never in the JSON or a print.
+  { id: 'gst.gstr1', question: 'Can I file; what makes up my sales?', form: 'bar', inline: true, color: 'polarity', graphClass: 'report', title: 'Taxable value by table', gate: 'table-only (inlineOnly): bars in the table up to 20 supply rows; none with more (a statutory screen stays calm — never a strip) or below 2 tables with a value', data: 'supply tiles (4A … 11, as listed) .taxable in the Taxable value cells; a table that reduces it slot 2, "less ₹x"; total = Σ rows (= the Total row when it foots)', stat: 'Nothing blocking / N block the JSON · Review ›', priority: 'P1', owner: 'WP-J1' },
   { id: 'gst.gstr1.section', question: 'Documents in one table', form: 'none', reason: 'the drill-down behind a GSTR-1 row', priority: 'P3', owner: 'WP-J1' },
   { id: 'gst.gstr3b', question: 'Cash to pay after credit?', form: 'meter', graphClass: 'report', gate: 'meter "From credit ₹A · In cash ₹B" only when both parts > 0; the head figure "Cash to pay ₹x" always', data: 'payment.cashTotal, Σ payment.itcUsed, Σ rows[].liability + rcmLiability', stat: 'the figure + due date + N warnings › (allow-listed)', priority: 'P1', owner: 'WP-J1' },
   { id: 'gst.gstr9', question: 'Tax payable after credit, month by month?', form: 'column', color: 'polarity', graphClass: 'report', title: 'Tax payable after credit, by month', data: 'months[].outwardTax, monthly ITC heads (payable ↑ slot 1, credit carried ↓ slot 2; Payable ↑ / Credit left ↓); Enter → that month 3B', priority: 'P2', owner: 'WP-J1' },
@@ -184,7 +190,8 @@ export const GRAPH_CATALOGUE: readonly CatalogueRow[] = [
   ...none('WP-L2', 'a lookup list or settings, not a report', ['attachments.manage', 'attachments.register', 'data.backup', 'data.export', 'data.import', 'data.restore', 'data.xmlExport', 'data.xmlImport', 'security.audit', 'security.role.form', 'security.session', 'security.settings', 'security.user.form', 'security.users']),
 
   // ── Vouchers, accounts, inventory, print — deliberately none (WP-E1/E2, WP-F, WP-G, WP-N) ──
-  { id: 'vouchers.daybook', form: 'none', reason: 'a journal of entries; mixed voucher types have no single magnitude', stat: 'N vouchers', owner: 'WP-E2' },
+  // 2.1.2: the owner overrides D26's "none" for the Day Book.
+  { id: 'vouchers.daybook', question: 'What happened this period?', form: 'bar', graphClass: 'report', title: 'Amount by voucher type', gate: 'none below 2 voucher types with an amount', data: 'the listed rows (debit + credit as shown; optional and cancelled not counted) by "Voucher types" entry, Top 6 + Other, slot 1; total = Debit + Credit totals; Enter → only that type; a strip (a long mixed list)', stat: 'N vouchers', priority: 'P2', owner: 'WP-E2' },
   { id: 'vouchers.list', form: 'none', reason: "the drill-down behind another report's number", owner: 'WP-E2' },
   { id: 'vouchers.view', form: 'none', reason: 'a document, not a report', owner: 'WP-E2' },
   { id: 'vouchers.entry', form: 'none', reason: 'entry, not a report', owner: 'WP-E1' },

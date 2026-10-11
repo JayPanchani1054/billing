@@ -528,6 +528,25 @@ source of truth.
   natural side, slot 2 for a month on the other side, said "Dr" / "Cr" (axis captions), never a bare
   minus. A running month is `partialLast` ("so far"; a polarity column below zero keeps slot 2) and the
   months after the working date are not drawn. Enter on a column = Enter on the month's row.
+- **2.1.2 — six more graphs (the owner's change to D25/D26).** Report class, catalogue rows updated from
+  'none': Receivables / Payables › Parties (`outstanding/lib/charts.ts` `partiesChart`: Net outstanding
+  per party on the natural side, a party in advance slot 2 said "advance"; inline in the Net outstanding
+  column with ≤ 7 parties, else Top 6 + Other; Σ = `totals.pending`; Enter = the party's row), Balance
+  Sheet (`reports/lib/charts.ts` `balanceSheetChart`: one share bar of the asset heads — level-0 lines with
+  Current Assets opened into its lines, Cash-in-Hand + Bank Accounts as "Cash & bank", ≤ 3 named + Other;
+  the Profit & Loss A/c carried on the asset side (an accumulated loss, `kind 'profit_loss'`) and the
+  Difference in opening balances (`kind 'difference'`) are not owned and are left out, so Σ = the asset
+  side total minus those lines; a head in credit left out and said), Trial Balance (`trialBalanceChart`:
+  table-only, bars under Closing Dr | Closing Cr of the level-0 rows on one scale — DataTable column
+  `bar.scale`, additive — up to 20 rows, no graph beyond), GSTR-1 (`gst/lib/returnCharts.ts`
+  `gstr1Chart`: table-only, the supply rows' Taxable value cells up to 20 rows, a reducing table slot 2
+  "less ₹x"). Table-only = `ChartSpec.inlineOnly` (additive, bar only): `specProblems` caps such a bar
+  at `TABLE_INLINE_MAX_ROWS` (20) instead of the strip's `MAX_BAR_ROWS`, `inlineBars` honours 20 for it
+  alone (every other bar keeps D26's ≤ 7) and `reportGraph` never draws it as a strip. Day Book
+  (`vouchers/lib/charts.ts` `dayBookChart`: a strip, amount per "Voucher types" entry, Σ = Debit + Credit
+  totals, Enter = only that type). The vouchers module is eager, so the Day Book fetches its builder as its
+  own chunk (`createLazyLoader(() => import('./lib/charts.ts'))`) and the builder reaches only
+  `chartCore.ts` — the initial-JS budget (§9a) is unchanged by it. `STAT_TOTAL_ALLOWED` is unchanged.
 - **Never printed.** Invoices, vouchers, statements, cheques, deposit slips and every print source
   import no graph code (`chartImports.test.ts`); report Print / PDF / Excel / CSV stay table-only;
   `@media print` hides `.bx-chart`, `.bx-mini` and `.bx-sparkline`.

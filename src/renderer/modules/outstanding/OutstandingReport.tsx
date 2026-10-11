@@ -11,8 +11,11 @@
  * 2.1 (SPEC-21 §1.9, D25): the stat "To collect ₹x · Overdue ₹y · ₹z not matched to bills ›" replaces the
  * KPI tiles; "N over credit limit" is the context run's one danger word; uniform columns hide (Group and
  * Credit limit used via More › Columns…); days are plain "190 d"; the credit-limit switch is a checkable
- * More item; the Ageing view is the only graph (no ageing fetch in the Parties and Bills views); its
+ * More item; the Ageing view draws the ages (no ageing fetch in the Parties and Bills views); its
  * periods and the bills' filters sit in popovers.
+ * 2.1.2: the Parties view draws "Who owes me the most?" / "Whom do I owe the most?" (lib/charts.ts
+ * `partiesChart`) — 4 px bars in the Net outstanding column with ≤ 7 parties, else a Top 6 + Other strip;
+ * Enter on a bar opens the party, as Enter on its row. The Bills view stays without a graph.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { AgeingBasis, AgeingResult, NonBillWiseMode, OutstandingSide, PartyOutstandingRow } from '../../../shared/types/outstanding.ts';
@@ -28,8 +31,9 @@ import { formatDate } from '../../../shared/dates.ts';
 import { Button, DataTable, EmptyState, Field, FiltersPopover, Inline, NumberInput, Popover, SegmentedControl, StatLine, Switch, TextInput, useDebouncedValue } from '../../ui/index.ts';
 import type { Column, StatLineItem } from '../../ui/index.ts';
 import { reportGraph } from '../../ui/lazyChart.tsx';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
 import { DangerWord, Fill, GroupSelect, LimitUsed, OverdueDays, useGroupOptions } from './components.tsx';
-import { ageingChart, receivablesStat } from './lib/charts.ts';
+import { ageingChart, partiesChart, receivablesStat } from './lib/charts.ts';
 import type { OutstandingStatId } from './lib/charts.ts';
 import {
   NO_BILL_FILTER,
@@ -176,8 +180,18 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
   };
   const onAgeColumn = useCallback((from: number | null) => drillAge.current(from), []);
 
-  // ── The graph (Ageing view only) and the stat ──
+  // Enter on a party's bar = Enter on its row (opens the party).
+  const openPartyRef = useRef<(ledgerId: number) => void>(() => undefined);
+  openPartyRef.current = (ledgerId) => nav.push('outstanding.party', { ledgerId });
+  const onPartyBar = useCallback((ledgerId: number) => openPartyRef.current(ledgerId), []);
+
+  // ── The graph (Parties and Ageing views) and the stat ──
   const ageSpec = useMemo(() => (view === 'ageing' && ageing.data ? ageingChart(ageing.data, onAgeColumn) : null), [view, ageing.data, onAgeColumn]);
+  const partySpec = useMemo(() => (view === 'parties' && partyView ? partiesChart(partyView, onPartyBar) : null), [view, partyView, onPartyBar]);
+  // ≤ 7 parties: the bars sit in the Net outstanding column (D26), the strip keeps its header line only.
+  const partyInline = inlineBars(partySpec, partyRows.length);
+  const graphSpec = view === 'parties' ? partySpec : ageSpec;
+  const graphInline = view === 'parties' && partyInline;
   const statSource = view === 'parties' ? partyView : summary.data;
   const statItems = useMemo<StatLineItem[]>(
     () =>
@@ -202,7 +216,17 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       { key: 'overdue', header: 'Overdue', kind: 'drcr', width: 150, value: (r) => r.overdue * sign, total: true, sortable: true },
       { key: 'notDue', header: 'Not due', kind: 'drcr', width: 150, value: (r) => r.notDue * sign, total: true, sortable: true },
       { key: 'unadjusted', header: 'Advances & on account', kind: 'drcr', width: 216, value: (r) => (r.advance + r.onAccount) * sign, total: true, sortable: true },
-      { key: 'pending', header: 'Net outstanding', kind: 'drcr', width: 160, value: (r) => r.pending * sign, total: true, sortable: true },
+      {
+        key: 'pending',
+        header: 'Net outstanding',
+        kind: 'drcr',
+        width: 160,
+        value: (r) => r.pending * sign,
+        total: true,
+        sortable: true,
+        // Inline bars on the side's natural side: a party in advance draws in slot 2 (its cell says Dr/Cr).
+        bar: partyInline ? { value: (r) => r.pending, slot: 'polarity' } : undefined,
+      },
       {
         key: 'oldestDueDays',
         header: 'Oldest',
@@ -225,7 +249,7 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
         render: (r) => <LimitUsed percent={r.utilisationPercent} />,
       },
     ],
-    [t, sign, buckets],
+    [t, sign, buckets, partyInline],
   );
 
   const billColumns = useMemo<Column<KeyedBillRow>[]>(
@@ -360,7 +384,7 @@ function OutstandingReport({ side, params }: { side: OutstandingSide; params: Ou
       error={active.error ?? summary.error}
       onRetry={() => void active.refetch()}
       actions={actions}
-      graph={reportGraph(ageSpec)}
+      graph={reportGraph(graphSpec, { inline: graphInline })}
       stat={statItems.length ? <StatLine items={statItems} /> : undefined}
       hint={
         view === 'bills'

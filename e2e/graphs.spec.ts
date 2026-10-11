@@ -17,6 +17,13 @@
 //   Monthly Summary . (Alt+Y on the customer's ledger) a report-class column graph by month, shown by
 //                     default (2.1.1 D1); each column of its hidden data table equals that month's
 //                     Closing Balance in the table
+//   2.1.2 ........... Balance Sheet: the share bar "What you own" is drawn and its hidden data table adds up
+//                     to the asset side total minus the lines not owned (an accumulated loss, a debit
+//                     difference in opening balances); Trial Balance: its bars sit inside the table (Closing Dr |
+//                     Closing Cr) under the header line "Closing balances", with no separate plot
+//                     Receivables (Parties view): with a second customer (an API sale in the same year),
+//                     "Net outstanding by customer" sits in the table — one 4 px bar in each party's Net
+//                     outstanding cell (≤ 7 parties: D26 inline), the header line above, no separate plot
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { PARITY } from '../src/core/testing/e2e/parityFlow.ts';
@@ -335,4 +342,58 @@ test('Home: with a sale this month, "Sales — last 12 months" is drawn (books b
   const graph = page.getByRole('listbox', { name: 'Sales — last 12 months' });
   await expect(graph).toBeVisible();
   expect(await graph.getByRole('option').count()).toBeGreaterThanOrEqual(3);
+});
+
+test('2.1.2: Balance Sheet "What you own" adds up to the asset side less the lines not owned; the Trial Balance draws its bars in the table', async () => {
+  await toGateway(page);
+  await setPeriod(FY.from, FY.to);
+  const bs = await viaGoto('Balance Sheet', 'reports.balanceSheet');
+  const graph = bs.getByRole('listbox', { name: 'What you own' });
+  await expect(graph).toBeVisible();
+  // Stock-in-Hand (the opening stock less what was sold) and the customer: two heads at least.
+  expect(await graph.getByRole('option').count()).toBeGreaterThanOrEqual(2);
+  const twin = bs.locator('table.bx-sr-only').filter({ has: page.locator('caption', { hasText: /^What you own$/ }) });
+  await expect(twin).toHaveCount(1);
+  const drawn = (await twin.locator('tbody td').allTextContents()).reduce((sum, c) => sum + (c.trim() === '—' ? 0 : paise(c)), 0);
+  const sheet = await api<{ assetsTotal: number; assets: Array<{ level: number; kind: string; amount: number }> }>(page, 'reports.balanceSheet', { asOf: FY.to });
+  const notOwned = sheet.assets.filter((l) => l.level === 0 && (l.kind === 'profit_loss' || l.kind === 'difference')).reduce((a, l) => a + l.amount, 0);
+  expect(drawn).toBe(sheet.assetsTotal - notOwned);
+  await toGateway(page);
+
+  const tb = await viaGoto('Trial Balance', 'reports.trialBalance');
+  await expect(tb.locator('.bx-report__graph-head')).toContainText('Closing balances');
+  await expect(tb.getByRole('listbox')).toHaveCount(0);
+  expect(await tb.getByRole('grid', { name: 'Trial Balance' }).locator('.bx-td__bar').count()).toBeGreaterThanOrEqual(2);
+  await toGateway(page);
+});
+
+test('2.1.2: Receivables (Parties view) draws a bar in each party\'s Net outstanding cell', async () => {
+  // A second customer (unregistered, same state) with one sale in the year: two parties — a comparison (D2).
+  const groups = (await api<{ rows: Array<{ id: number; name: string }> }>(page, 'accounts.group.list', {})).rows;
+  const second = (await api<{ id: number }>(page, 'accounts.ledger.save', { name: 'Walk-in Graph Buyer', groupId: groups.find((g) => g.name === 'Sundry Debtors')?.id, stateCode: '27', registrationType: 'unregistered' })).id;
+  await api(page, 'vouchers.save', { voucherTypeId: salesTypeId, date: `${FY.start}-09-05`, mode: 'item_invoice', partyLedgerId: second, items: [{ itemId, qty: 2, rate: 100 }], acknowledgeWarnings: true });
+
+  await toGateway(page);
+  await setPeriod(FY.from, FY.to);
+  const rec = await viaGoto('Receivables', 'outstanding.receivables');
+  await expect(rec.getByRole('heading', { name: 'Receivables', level: 1 })).toBeVisible();
+  const grid = rec.getByRole('grid', { name: 'Receivables by party' });
+  await expect(grid).toBeVisible();
+  const rows = grid.locator('tbody tr[data-pos]');
+  await expect(rows).toHaveCount(2);
+  // Inline (≤ 7 parties): the header line names the graph; no plot of its own above the table.
+  await expect(rec.locator('.bx-report__graph-head')).toContainText('Net outstanding by customer');
+  await expect(rec.getByRole('listbox')).toHaveCount(0);
+  const headers = (await grid.getByRole('columnheader').allTextContents()).map((h) => h.trim());
+  const col = headers.indexOf('Net outstanding');
+  expect(col, `columns: ${headers.join(' | ')}`).toBeGreaterThan(0);
+  for (let i = 0; i < 2; i++) await expect(rows.nth(i).locator('td').nth(col).locator('.bx-td__bar')).toHaveCount(1);
+  // Both owe (no advance): neither bar is in the problem colour.
+  await expect(grid.locator('.bx-td__bar--neg')).toHaveCount(0);
+  // The figures behind the bars are the table's: both parties on the natural side, Σ = the column's total.
+  const party = await api<{ rows: Array<{ pending: number }>; totals: { pending: number } }>(page, 'outstanding.partySummary', { side: 'receivable', asOf: FY.to, nonBillWise: 'fifo' });
+  expect(party.rows).toHaveLength(2);
+  expect(party.rows.every((r) => r.pending > 0)).toBe(true);
+  expect(paise((await grid.locator('tfoot tr').first().locator('td').nth(col).textContent()) ?? '')).toBe(party.totals.pending);
+  await toGateway(page);
 });

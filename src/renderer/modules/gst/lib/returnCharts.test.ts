@@ -17,7 +17,7 @@ import { resolvePeriod } from '../../../../core/modules/gst/period.ts';
 import { aprilDataset, insertDoc } from '../../../../core/modules/gst/testkit.ts';
 import type { Dataset } from '../../../../core/modules/gst/testkit.ts';
 import { gstDueDate, QRMP_22ND_STATES } from '../../../../core/modules/dashboard/summary.ts';
-import { assertSpec, drawnTotal, statRepeatsTotal, TAKEAWAY_MAX } from '../../../ui/lib/chartSpec.ts';
+import { assertSpec, drawnTotal, inlineBars, markColor, specProblems, statRepeatsTotal, TAKEAWAY_MAX } from '../../../ui/lib/chartSpec.ts';
 import { statTotalAllowed } from '../../../app/lib/chartCatalogue.ts';
 import { buildTiles, gstr1Rows } from './gstr1.ts';
 import { paymentSections } from './gstr3b.ts';
@@ -29,6 +29,7 @@ import {
   creditLedgerChart,
   dueCaption,
   dueStateCode,
+  gstr1Chart,
   gstr1Excluded,
   gstr1Stat,
   gstr1Total,
@@ -49,7 +50,7 @@ function issue(severity: GstIssue['severity'], voucherId: number | null): GstIss
   return { code: 'hsn_missing', severity, voucherId, voucherNumber: null, voucherTypeName: null, date: null, partyName: null, section: 'b2b', message: 'm', fix: 'f' };
 }
 
-describe('GSTR-1 — no graph; the stat answers "can I file?"', () => {
+describe('GSTR-1 — the stat answers "can I file?"', () => {
   test('nothing blocking; warnings are the link', () => {
     assert.deepEqual(gstr1Stat([]), { text: 'Nothing blocking', tone: null, link: null });
     assert.deepEqual(gstr1Stat([issue('warning', 1), issue('warning', 2), issue('warning', 2)]), { text: 'Nothing blocking', tone: null, link: '3 warnings' });
@@ -107,6 +108,90 @@ describe('GSTR-1 Total row on the core\'s own computation', () => {
     assert.deepEqual(rows.supply.map((r) => r.id), ['4A', '7']);
     const t = gstr1Total(summary, rows.supply);
     assert.deepEqual([t.label, t.taxable, t.tax, t.note], ['Total', 150000, 27000, null]);
+    // 2.1.2: the inline bars add up to the Total row it shows.
+    const spec = gstr1Chart(rows.supply);
+    assert.ok(spec);
+    assert.deepEqual(specProblems(spec), []);
+    assert.equal(spec.total, t.taxable);
+    assert.equal(inlineBars(spec, rows.supply.length), true);
+  });
+
+  test('2.1.2 — April: the bars are the supply rows as listed (4A … 11), table-only up to 20; Σ = Σ rows; the check tables 12 and 13 carry none', () => {
+    const summary = gstr1Summary(computeGstr1(ds.t.db, loadCompany(ds.t.db), resolvePeriod({ period: '042026' }), ds.t.today));
+    const rows = gstr1Rows(buildTiles(summary), false);
+    // The April dataset reports every kind of supply: more than 7 tables — still drawn in the table (the
+    // owner's complaint: a normal return lists 8+ tables and saw no graph), never as a strip.
+    assert.ok(rows.supply.length > 7 && rows.supply.length <= 20, `${rows.supply.length} supply tables`);
+    const spec = gstr1Chart(rows.supply);
+    assert.ok(spec);
+    assert.deepEqual(specProblems(spec), []);
+    assert.equal(spec.inlineOnly, true);
+    assert.deepEqual(spec.categories, rows.supply.map((r) => r.title));
+    assert.equal(spec.total, rows.supply.reduce((a, r) => a + r.taxable, 0));
+    assert.equal(inlineBars(spec, rows.supply.length), true, 'inline in the table');
+    assert.ok(!spec.categories.includes('HSN summary') && !spec.categories.includes('Documents issued'));
+    // More › Show empty tables lists every table: still within 20 rows, still in the table.
+    const all = gstr1Rows(buildTiles(summary), true).supply;
+    assert.ok(all.length <= 20, `${all.length} tables with the empty ones`);
+    assert.equal(inlineBars(gstr1Chart(all), all.length), true);
+  });
+});
+
+describe('GSTR-1 graph (2.1.2): taxable value by table, inline in the table only', () => {
+  const rows = [
+    { title: 'B2B invoices', taxable: 4_00_000_00 },
+    { title: 'B2C others', taxable: 50_000_00 },
+    { title: 'Credit / debit notes', taxable: -20_000_00 },
+  ];
+
+  test('graph total = Σ the rows\' Taxable value; a table that reduces it is slot 2, said "less" in words', () => {
+    const spec = gstr1Chart(rows);
+    assert.ok(spec);
+    assertSpec(spec);
+    assert.equal(spec.total, 4_30_000_00);
+    assert.equal(drawnTotal(spec), spec.total);
+    assert.equal(markColor(spec, 2), 2);
+    assert.equal(markColor(spec, 0), 1);
+    // 4,00,000 of 4,50,000 positive = 88.9 % → 89 %.
+    assert.equal(spec.takeaway, 'B2B invoices: 89 % of the taxable value · Credit / debit notes: less ₹20.0 K');
+    const f = spec.valueFormat;
+    assert.ok(f && typeof f === 'object');
+    assert.equal(f.tick(-20_000_00), 'less ₹20.0 K');
+    assert.equal(f.full(-20_000_00), 'less ₹ 20,000.00');
+    assert.ok(spec.takeaway.length <= TAKEAWAY_MAX);
+  });
+
+  test('table-only (inlineOnly): up to 20 supply rows draw in the table; 9 supply tables draw inline; more than 20 → no graph, never a strip', () => {
+    assert.equal(inlineBars(gstr1Chart(rows), rows.length), true);
+    const tables = (n: number) => Array.from({ length: n }, (_, i) => ({ title: `T${i}`, taxable: (i % 4 === 3 ? -1 : 1) * (i + 1) * 1000 }));
+    const nine = gstr1Chart(tables(9));
+    assert.ok(nine);
+    assert.deepEqual(specProblems(nine), [], 'a 9-row table-only bar is valid (the strip cap of 10 does not apply; tips only ≤ 7)');
+    assert.equal(nine.inlineOnly, true);
+    assert.equal(nine.label, 'none');
+    assert.equal(nine.total, tables(9).reduce((a, r) => a + r.taxable, 0));
+    assert.equal(inlineBars(nine, 9), true, '9 supply tables: bars in the Taxable value cells');
+    const twenty = gstr1Chart(tables(20));
+    assert.ok(twenty);
+    assert.deepEqual(specProblems(twenty), []);
+    assert.equal(inlineBars(twenty, 20), true);
+    assert.equal(gstr1Chart(tables(21)), null, '> 20 rows: no graph');
+  });
+
+  test('gates: one table with a value is a sentence (2.1.1 D2); nothing → none', () => {
+    assert.equal(gstr1Chart([]), null);
+    assert.equal(gstr1Chart([{ title: 'B2B invoices', taxable: 1000 }, { title: 'Nil, exempt, non-GST', taxable: 0 }]), null);
+  });
+
+  test('20 rows of any size stay well under 50 ms (the builder never draws more than 20)', () => {
+    const twenty = Array.from({ length: 20 }, (_, i) => ({ title: `T${i}`, taxable: (i - 2) * 10_000 }));
+    let ms = Infinity;
+    for (let k = 0; k < 5; k++) {
+      const t0 = performance.now();
+      for (let j = 0; j < 1000; j++) gstr1Chart(twenty);
+      ms = Math.min(ms, performance.now() - t0);
+    }
+    assert.ok(ms < 50, `1,000 builds: ${ms.toFixed(1)} ms`);
   });
 });
 

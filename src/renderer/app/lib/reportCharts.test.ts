@@ -206,7 +206,8 @@ describe('graph catalogue — data', () => {
     }
     assert.equal(graphClassOf('reports.ledger'), 'detail');
     assert.equal(graphClassOf('reports.profitLoss'), 'report');
-    assert.equal(graphClassOf('reports.trialBalance'), null);
+    assert.equal(graphClassOf('reports.trialBalance'), 'report', '2.1.2: the owner asked for a graph on the Trial Balance');
+    assert.equal(graphClassOf('reports.fundsFlow'), null);
   });
 
   test('form and colour combinations follow the kit (§4.1, D26, D29)', () => {
@@ -219,10 +220,12 @@ describe('graph catalogue — data', () => {
     }
   });
 
-  test('the catalogue matches §5: 50 graph rows, 16 inline bars, 8 in the detail class (2.1.1 D1: Monthly Summary is a report)', () => {
+  test('the catalogue matches §5: 56 graph rows, 20 inline bars, 8 in the detail class (2.1.1 D1: Monthly Summary is a report; 2.1.2: six more)', () => {
     const g = graphRows();
-    assert.equal(g.length, 50);
-    assert.equal(g.filter((r) => r.inline).length, 16);
+    // 2.1: 50 rows, 16 inline. 2.1.2 (the owner's change): + Receivables and Payables › Parties (inline ≤ 7),
+    // Balance Sheet (share), Trial Balance and GSTR-1 (inline only), Day Book (a strip).
+    assert.equal(g.length, 56);
+    assert.equal(g.filter((r) => r.inline).length, 20);
     assert.equal(g.filter((r) => r.graphClass === 'detail').length, 8);
     const ms = catalogueRows('reports.monthlySummary');
     assert.equal(ms.length, 1);
@@ -230,11 +233,37 @@ describe('graph catalogue — data', () => {
     assert.equal(ms[0].graphClass, 'report', 'Monthly Summary is shown and folded with the reports');
   });
 
-  test('deliberate "none" for checks and statutory forms (D26)', () => {
-    for (const id of ['reports.balanceSheet', 'reports.trialBalance', 'vouchers.daybook', 'gst.gstr1', 'gst.gstr4', 'gst.cmp08', 'mfg.itc04', 'reports.fundsFlow']) {
+  test('deliberate "none" for the remaining statutory forms and checks (D26)', () => {
+    for (const id of ['gst.gstr4', 'gst.cmp08', 'mfg.itc04', 'reports.fundsFlow']) {
       assert.ok(catalogueRows(id).every((r) => r.form === 'none'), id);
     }
-    assert.ok(catalogueRows('outstanding.receivables').some((r) => r.view === 'parties' && r.form === 'none'), 'the Parties view has no graph (D25)');
+    // The Bills views stay worklists without a graph.
+    assert.ok(catalogueRows('outstanding.receivables').some((r) => r.view === 'bills' && r.form === 'none'));
+    assert.ok(catalogueRows('outstanding.payables').some((r) => r.view === 'bills' && r.form === 'none'));
+  });
+
+  test('2.1.2 — the owner overrides D25/D26: these six screens now show a graph, in the form asked for', () => {
+    const one = (id: string, view?: string) => {
+      const rows = catalogueRows(id).filter((r) => r.view === view);
+      assert.equal(rows.length, 1, `${id}${view ? `#${view}` : ''}`);
+      return rows[0];
+    };
+    for (const side of ['outstanding.receivables', 'outstanding.payables']) {
+      const r = one(side, 'parties');
+      assert.deepEqual([r.form, r.inline, r.color, r.graphClass], ['bar', true, 'polarity', 'report'], side);
+      assert.equal(one(side, 'ageing').form, 'column', `${side}: Ageing keeps its columns`);
+    }
+    const bs = one('reports.balanceSheet');
+    assert.deepEqual([bs.form, bs.graphClass, bs.question], ['share', 'report', 'Where is my money?']);
+    for (const id of ['reports.trialBalance', 'gst.gstr1']) {
+      const r = one(id);
+      assert.deepEqual([r.form, r.inline, r.color, r.graphClass], ['bar', true, 'polarity', 'report'], id);
+      assert.match(r.gate ?? '', /^table-only \(inlineOnly\): bars in the table up to 20 .*never a strip/, `${id}: table-only up to 20 rows, never a strip`);
+      assert.ok(r.stat, `${id}: keeps its stat`);
+    }
+    const db = one('vouchers.daybook');
+    assert.deepEqual([db.form, db.inline, db.graphClass], ['bar', undefined, 'report'], 'the Day Book draws a strip (a long mixed list)');
+    assert.ok(!statTotalAllowed('reports.trialBalance') && !statTotalAllowed('gst.gstr1') && !statTotalAllowed('vouchers.daybook') && !statTotalAllowed('reports.balanceSheet'), 'no new stat exceptions');
   });
 
   test('PENDING_GRAPH lists only graph ids, once each', () => {

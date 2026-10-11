@@ -5,9 +5,13 @@
  *   receivablesStat(r)   Receivables / Payables (all three views): "To collect ₹x · Overdue ₹y › ·
  *                        ₹z not matched to bills ›" — zeros dropped. "To collect" is the Net outstanding
  *                        total in the owner's words (allow-listed in app/lib/chartCatalogue.ts).
+ *   partiesChart(r)      the Parties view (2.1.2, the owner's change to D25): "Who owes me the most?" /
+ *                        "Whom do I owe the most?" — a bar per party of its Net outstanding on the natural
+ *                        side; a party whose advance outweighs its bills left of zero (slot 2, said
+ *                        "advance"). Inline in the Net outstanding column with ≤ 7 parties, else Top 6 + Other.
  *   ageingChart(r)       the Ageing view (Ctrl+3): unpaid bills by age, ordinal (Not due grey, the age
- *                        ranges o1…o5; more than five ranges fold the oldest into one). No graph in the
- *                        Parties and Bills views — the Ageing view is the graph.
+ *                        ranges o1…o5; more than five ranges fold the oldest into one). The Bills view has
+ *                        no graph (a worklist).
  *   partyChart(d)        Party Outstanding: a meter "balance of the credit limit", only with a limit and a
  *                        balance on the party's side.
  *   statementChart(s)    Statement of Account: the running balance (screen only, never printed).
@@ -16,11 +20,11 @@
  * and the statement are ledger-signed (Dr +, Cr −).
  */
 import { formatDate } from '../../../../shared/dates.ts';
-import { formatDrCr } from '../../../../shared/format.ts';
+import { formatDrCr, formatMoney } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
-import type { AgeingBucket, AgeingResult, LedgerBillsResult, PartySummaryResult, StatementResult } from '../../../../shared/types/outstanding.ts';
-import { MAX_LINE_POINTS, MIN_LINE_POINTS, compactValue, decimate, take } from '../../../ui/lib/chartSpec.ts';
-import type { ChartSpec } from '../../../ui/lib/chartSpec.ts';
+import type { AgeingBucket, AgeingResult, LedgerBillsResult, PartyOutstandingRow, PartySummaryResult, StatementResult } from '../../../../shared/types/outstanding.ts';
+import { INLINE_MAX_ROWS, MAX_LINE_POINTS, MIN_LINE_POINTS, TAKEAWAY_MAX, clipTakeaway, compactValue, decimate, enoughData, foldTop, take } from '../../../ui/lib/chartSpec.ts';
+import type { ChartSpec, ValueFormat } from '../../../ui/lib/chartSpec.ts';
 
 // ───────────────────────────── The stat (Receivables / Payables) ─────────────────────────────
 
@@ -63,6 +67,95 @@ export function partiesTableTotals(r: Pick<PartySummaryResult, 'side' | 'totals'
   const s = r.side === 'receivable' ? 1 : -1;
   const t = r.totals;
   return [t.overdue * s, t.notDue * s, (t.advance + t.onAccount) * s, t.pending * s];
+}
+
+// ───────────────────────────── Parties view (2.1.2) ─────────────────────────────
+
+/** Parties drawn as bars before the rest fold into "Other" (D26: Top 6 + Other). */
+export const TOP_PARTIES = 6;
+
+/**
+ * Money on the side's natural side in words: a party on the other side (its advance outweighs its
+ * bills) reads "₹x advance", never with a bare minus.
+ */
+export function advanceFormat(): ValueFormat {
+  return {
+    tick: (v) => (v < 0 ? `${compactValue(-v)} advance` : compactValue(v)),
+    full: (v) => (v < 0 ? `${formatMoney(-v, { symbol: true })} advance` : formatMoney(v, { symbol: true })),
+  };
+}
+
+/** The parties of the view in the bars' order: by |Net outstanding|, ties in table order (as `foldTop`). */
+function rankedParties(rows: readonly PartyOutstandingRow[]): PartyOutstandingRow[] {
+  return rows
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => Math.abs(b.r.pending) - Math.abs(a.r.pending) || a.i - b.i)
+    .map((x) => x.r);
+}
+
+/**
+ * The Parties view's graph (2.1.2 — the owner's change to D25): "Who owes me the most?" (receivables) /
+ * "Whom do I owe the most?" (payables). One bar per party of its Net outstanding on the side's natural
+ * side (`pending`, side-signed): a party whose advance outweighs its bills sits left of zero in slot 2
+ * and says "advance". Top 6 + Other; inline in the Net outstanding column when the table has ≤ 7
+ * parties (`inlineBars`). Total = Σ parties = the Net outstanding total of the rows shown
+ * (`totals.pending`). Null below two parties with an amount (2.1.1 D2).
+ * `onParty` (Enter on a bar = Enter on that party's row) receives the party's ledger id; "Other" opens nothing.
+ */
+export function partiesChart(r: Pick<PartySummaryResult, 'side' | 'rows'>, onParty?: (ledgerId: number) => void): ChartSpec | null {
+  const ranked = rankedParties(r.rows);
+  const f = foldTop(
+    ranked,
+    TOP_PARTIES,
+    (p) => p.pending,
+    (p) => p.ledgerName,
+  );
+  const named = f.categories.length < ranked.length ? f.categories.length - 1 : f.categories.length;
+  const ids = ranked.slice(0, named).map((p) => p.ledgerId);
+  const receivable = r.side === 'receivable';
+  const spec: ChartSpec = {
+    kind: 'bar',
+    title: receivable ? 'Net outstanding by customer' : 'Net outstanding by supplier',
+    takeaway: partiesTakeaway(ranked, receivable),
+    categories: f.categories,
+    series: [{ name: 'Net outstanding', values: f.values }],
+    color: 'polarity',
+    label: f.categories.length <= INLINE_MAX_ROWS ? 'tips' : 'none',
+    valueFormat: advanceFormat(),
+    total: f.values.reduce((a, b) => a + b, 0),
+    activate: onParty
+      ? (i) => {
+          const id = ids[i];
+          if (id !== undefined) onParty(id);
+        }
+      : undefined,
+  };
+  return enoughData(spec) ? spec : null;
+}
+
+/**
+ * "Top 3 customers owe 72 % of ₹1.03 L" (the base is what the parties on the natural side owe / are
+ * owed); with three or fewer such parties the largest by name ("Asha Retail owes 64 % of ₹82.6 K"). A
+ * party in advance is said in words: "· advance from 1 customer". `ranked` is by |Net outstanding|.
+ */
+function partiesTakeaway(ranked: readonly PartyOutstandingRow[], receivable: boolean): string {
+  const owing = ranked.filter((p) => p.pending > 0);
+  const base = owing.reduce((a, p) => a + p.pending, 0);
+  const advances = ranked.filter((p) => p.pending < 0);
+  const n = advances.length;
+  const who = (k: number): string => `${k} ${receivable ? 'customer' : 'supplier'}${k === 1 ? '' : 's'}`;
+  const inAdvance = n > 0 ? ` · advance ${receivable ? 'from' : 'to'} ${who(n)}` : '';
+  if (base <= 0) {
+    const adv = compactValue(-advances.reduce((a, p) => a + p.pending, 0));
+    return receivable ? `No customer owes you; ${adv} received in advance` : `You owe no supplier; ${adv} paid in advance`;
+  }
+  if (owing.length <= 3) {
+    const top = owing[0];
+    const tail = ` ${receivable ? 'owes' : 'is owed'} ${Math.round((top.pending / base) * 100)} % of ${compactValue(base)}${inAdvance}`;
+    return clipTakeaway(`${clipTakeaway(top.ledgerName, Math.max(12, TAKEAWAY_MAX - tail.length))}${tail}`);
+  }
+  const top3 = owing.slice(0, 3).reduce((a, p) => a + p.pending, 0);
+  return clipTakeaway(`Top 3 ${receivable ? 'customers owe' : 'suppliers are owed'} ${Math.round((top3 / base) * 100)} % of ${compactValue(base)}${inAdvance}`);
 }
 
 // ───────────────────────────── Days ─────────────────────────────

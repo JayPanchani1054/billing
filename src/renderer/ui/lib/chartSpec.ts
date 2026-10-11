@@ -66,6 +66,13 @@ export interface ChartSpec {
    * label and tooltip.
    */
   partialLast?: boolean;
+  /**
+   * (2.1.2, additive) Only kind 'bar': the graph is drawn ONLY as 4 px bars inside its table, never as
+   * a strip — a check or a statutory screen (Trial Balance, GSTR-1). Its rows are capped at
+   * `TABLE_INLINE_MAX_ROWS` (20) instead of the strip's `MAX_BAR_ROWS`; `inlineBars` honours that larger
+   * limit for it alone, and `reportGraph` never draws it as a strip (no inline place → no graph).
+   */
+  inlineOnly?: true;
   /** Direct labels: the extreme, the endpoint, every bar tip (bar ≤ 7 rows), none. */
   label?: 'max' | 'last' | 'tips' | 'none';
   /** Default 'inr'. */
@@ -97,6 +104,11 @@ export const MAX_SHARE_SEGMENTS = 4;
 export const MAX_LINE_POINTS = 480;
 /** Bars short enough to draw inside the table instead of a strip (D26). */
 export const INLINE_MAX_ROWS = 7;
+/**
+ * (2.1.2) Rows a table-only bar graph (`ChartSpec.inlineOnly`: Trial Balance, GSTR-1) may draw inside its
+ * table: a normal company's 8–14 top-level groups or GSTR-1 tables; beyond it, no graph at all.
+ */
+export const TABLE_INLINE_MAX_ROWS = 20;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
@@ -247,9 +259,10 @@ export function specProblems(spec: ChartSpec): string[] {
   });
 
   // Size.
-  const cap = spec.kind === 'line' ? MAX_LINE_POINTS : spec.kind === 'bar' ? MAX_BAR_ROWS : spec.kind === 'share' ? MAX_SHARE_SEGMENTS : spec.kind === 'meter' ? 1 : MAX_CATEGORIES;
+  const cap = spec.kind === 'line' ? MAX_LINE_POINTS : spec.kind === 'bar' ? (spec.inlineOnly ? TABLE_INLINE_MAX_ROWS : MAX_BAR_ROWS) : spec.kind === 'share' ? MAX_SHARE_SEGMENTS : spec.kind === 'meter' ? 1 : MAX_CATEGORIES;
   const unit = spec.kind === 'line' ? 'points' : spec.kind === 'bar' ? 'rows' : spec.kind === 'share' ? 'segments' : spec.kind === 'meter' ? 'values (a meter is one value against max)' : 'categories';
-  if (n > cap) p.push(`${spec.kind} has ${n} ${unit} (max ${cap}${spec.kind === 'share' ? ': 3 named + Other' : spec.kind === 'meter' ? '' : '; fold first'})`);
+  if (n > cap) p.push(`${spec.kind} has ${n} ${unit} (max ${cap}${spec.kind === 'share' ? ': 3 named + Other' : spec.kind === 'meter' ? '' : spec.inlineOnly ? '; a table-only graph draws nothing beyond' : '; fold first'})`);
+  if (spec.inlineOnly && spec.kind !== 'bar') p.push(`inlineOnly is for bar graphs drawn inside the table, not ${spec.kind}`);
   if (!enoughData(spec)) p.push("not enough data (≥ 1 non-zero period on a 'time' axis / ≥ 2 non-zero categories / ≥ 2 points / both meter parts > 0) — return null instead");
   if (spec.xKind === 'time' && spec.kind !== 'column' && spec.kind !== 'line') p.push(`xKind 'time' is for columns or lines (one per period), not ${spec.kind}`);
 
@@ -291,11 +304,13 @@ export function assertSpec(spec: ChartSpec): void {
  * "Other", is drawn as 4 px bars inside the table instead of a strip. `tableRows` = the rows the
  * bars sit on (the ones the builder folded). A fold always shows fewer categories than rows (see
  * `foldTop`), so the count decides — never the label: a real row named "Other" (the POS tender, an
- * "Other Expenses" group) keeps its inline bar.
+ * "Other Expenses" group) keeps its inline bar. A table-only spec (`inlineOnly`, 2.1.2: Trial Balance,
+ * GSTR-1) may sit on up to `TABLE_INLINE_MAX_ROWS` (20) rows; every other spec keeps the ≤ 7 rule.
  */
 export function inlineBars(spec: ChartSpec | null, tableRows: number): boolean {
   if (!spec || spec.kind !== 'bar') return false;
-  if (!Number.isInteger(tableRows) || tableRows < 1 || tableRows > INLINE_MAX_ROWS) return false;
+  const max = spec.inlineOnly ? TABLE_INLINE_MAX_ROWS : INLINE_MAX_ROWS;
+  if (!Number.isInteger(tableRows) || tableRows < 1 || tableRows > max) return false;
   return spec.categories.length === tableRows;
 }
 

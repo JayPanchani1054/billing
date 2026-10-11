@@ -8,13 +8,20 @@
  * checkable More items (both shown by default, as in 2.0).
  * Enter / Alt+A alter, Alt+Enter views, Ctrl+P prints the voucher, Alt+D deletes, Alt+2 duplicates;
  * Alt+T today, Alt+E export, Alt+P print (the Day Book itself).
+ *
+ * 2.1.2 (the owner's change to D26): "What happened this period?" — a strip above the table, one bar per
+ * voucher type of the amounts listed (lib/charts.ts `dayBookChart`); Enter on a bar shows only that type
+ * (the "Voucher types" menu). The vouchers module is eager, so the builder is fetched with the first Day
+ * Book as its own small chunk (docs/ARCHITECTURE.md §9a initial-JS budget); the strip appears with it.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import type { VoucherListInput } from '../../../shared/types/vouchers.ts';
 import { ReportScreen, useApiQuery, useFeatures, usePeriod, useWorkingDate } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
+import { createLazyLoader } from '../../app/lib/lazyLoader.ts';
 import { Button, DateInput, DropdownMenu, EmptyState, Inline, NO_KEY, TextInput, useDebouncedValue } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import type { MenuEntry } from '../../ui/index.ts';
 import {
   baseTypesOf,
@@ -31,9 +38,35 @@ import {
   typesLabel,
   voucherCount,
 } from './lib/daybook.ts';
+import type { dayBookChart } from './lib/charts.ts';
 import { useVoucherTable, VoucherTable } from './VoucherTable.tsx';
 
 const LIMIT = 1000;
+
+/** The Day Book's graph builder, loaded once (its own chunk: the vouchers module stays in the entry). */
+const dayBookCharts = createLazyLoader(() => import('./lib/charts.ts'));
+
+/** `dayBookChart` once its chunk is here (at once on every later Day Book); null while it loads or if it failed. */
+function useDayBookChart(): typeof dayBookChart | null {
+  const [build, setBuild] = useState<typeof dayBookChart | null>(() => {
+    const s = dayBookCharts.peek();
+    return s.status === 'loaded' ? s.value.dayBookChart : null;
+  });
+  useEffect(() => {
+    if (build) return undefined;
+    let live = true;
+    dayBookCharts.load().then(
+      (m) => {
+        if (live) setBuild(() => m.dayBookChart);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [build]);
+  return build;
+}
 
 export function DayBookScreen({ params }: ScreenProps<{ from?: string; to?: string }>) {
   const working = useWorkingDate();
@@ -67,8 +100,20 @@ export function DayBookScreen({ params }: ScreenProps<{ from?: string; to?: stri
   const q = useApiQuery('vouchers.list', input, { keepPrevious: true });
   const rows = useMemo(() => (q.data?.rows ?? []).map(toDayBookRow), [q.data]);
   const table = useVoucherTable(rows);
+  const visibleChips = useMemo(
+    () => DAYBOOK_CHIPS.filter((c) => (c.id === 'orders' ? features.orderProcessing : c.id === 'stock' ? features.inventory : true)),
+    [features.orderProcessing, features.inventory],
+  );
+  // Enter on a type's bar = the "Voucher types" menu with only that type (only entries the menu shows).
+  // One type left means no graph: the focused bar goes away, so the keyboard moves to the list.
+  const gridRef = useRef<HTMLTableElement | null>(null);
+  const showType = useCallback((chip: string) => {
+    setChips([chip]);
+    gridRef.current?.focus();
+  }, []);
+  const buildChart = useDayBookChart();
+  const spec = useMemo(() => (buildChart ? buildChart(rows, showType, visibleChips) : null), [buildChart, rows, showType, visibleChips]);
 
-  const visibleChips = DAYBOOK_CHIPS.filter((c) => (c.id === 'orders' ? features.orderProcessing : c.id === 'stock' ? features.inventory : true));
   const types = typesLabel(chips, visibleChips);
   const dates = dayBookDates(range, rangeMode);
   const whole = isWholePeriod(range, period);
@@ -114,6 +159,7 @@ export function DayBookScreen({ params }: ScreenProps<{ from?: string; to?: stri
       refreshing={q.refreshing}
       error={q.error}
       onRetry={() => void q.refetch()}
+      graph={reportGraph(spec)}
       hint="Enter Alter · Alt+Enter View · Ctrl+P Print Voucher · Alt+F2 Period · Alt+T Today · Ctrl+F Search · Alt+D Delete · Alt+2 Duplicate · Alt+E Export"
       actions={actions}
       exportDef={() => ({
@@ -157,6 +203,7 @@ export function DayBookScreen({ params }: ScreenProps<{ from?: string; to?: stri
       footer={total > rows.length ? <p className="bx-muted">Showing the first {rows.length.toLocaleString('en-IN')} of {total.toLocaleString('en-IN')} vouchers — choose a shorter period or a voucher type.</p> : undefined}
     >
       <VoucherTable
+        gridRef={gridRef}
         label="Day Book"
         rows={rows}
         state={table}

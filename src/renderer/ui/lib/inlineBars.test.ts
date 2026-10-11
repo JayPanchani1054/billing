@@ -38,3 +38,10 @@ test('a tiny non-zero value still shows a sliver', () => {
   const bars = barWidths([1_000_000_000, 1]);
   assert.equal(bars[1]?.width, MIN_BAR);
 });
+
+test('columns sharing a scale (DataTable `bar.scale`, 2.1.2 Trial Balance Closing Dr | Closing Cr): one call over both columns\' values', () => {
+  // Dr column 400, –, 100 and Cr column –, −200, – side by side: the largest |400| sizes both columns.
+  const w = barWidths([400, null, 100, null, -200, null]);
+  assert.deepEqual(w.map((b) => b?.width ?? null), [1, null, 0.25, null, 0.5, null]);
+  assert.equal(w[4]?.negative, true);
+});

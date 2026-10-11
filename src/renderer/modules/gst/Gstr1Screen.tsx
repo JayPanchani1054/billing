@@ -2,22 +2,29 @@
  * 'gst.gstr1' {period?} — GSTR-1 for a return period, as the portal's tables (2.1, SPEC-21 §1.9): one
  * row per table that has something to report (4A … 11), the Total row, then the check tables 12 and 13;
  * More › "Show empty tables" lists every table. Enter on a row opens its documents ('gst.gstr1.section').
- * No graph — the tables are the filing. The stat answers "can I file?" ("Nothing blocking" / "N block
- * the JSON · Review ›"); the return period is the title row's token (Alt+F2); notes are in More ›
- * "About this return". Alt+J saves the portal JSON; Alt+E exports the summary.
+ * The stat answers "can I file?" ("Nothing blocking" / "N block the JSON · Review ›"); the return period
+ * is the title row's token (Alt+F2); notes are in More › "About this return". Alt+J saves the portal
+ * JSON; Alt+E exports the summary.
+ * 2.1.2 (the owner's change to D26): "Taxable value by table" as 4 px bars in the Taxable value cells of
+ * the supply tables (≤ 20 rows, a table-only spec; a table that reduces it in slot 2) — never a strip, never in the JSON,
+ * the export or a print (lib/returnCharts.ts `gstr1Chart`).
  */
 import { useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { Gstr1Summary } from '../../../shared/types/gst-returns.ts';
 import { api, formatDate, formatMoney, ReportScreen, useApiQuery, useCan, useConfirm, useNav, userMessage } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { checkItem } from '../../app/lib/moreItems.ts';
 import { Badge, Banner, Button, EmptyState, StatLine, useRovingFocus, useToast } from '../../ui/index.ts';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
+import { barWidths } from '../../ui/lib/inlineBars.ts';
+import type { InlineBar } from '../../ui/lib/inlineBars.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { FileResultDialog, IssuesPanel, PeriodSelect, ReturnAbout, saveJsonFile, useReturnPeriod } from './components.tsx';
 import type { FileResult } from './components.tsx';
 import { buildTiles, countText, gstr1Rows, summaryExport, tileName } from './lib/gstr1.ts';
 import type { Gstr1Tile } from './lib/gstr1.ts';
-import { gstr1Excluded, gstr1Stat, gstr1Total } from './lib/returnCharts.ts';
+import { gstr1Chart, gstr1Excluded, gstr1Stat, gstr1Total } from './lib/returnCharts.ts';
 import { MarkFiledDialog } from './plusComponents.tsx';
 
 export interface Gstr1Params {
@@ -39,6 +46,11 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
   const [marking, setMarking] = useState(false);
   const [showEmpty, setShowEmpty] = useState(false);
   const composition = rp.periods?.registration === 'composition';
+  // The tables as listed, and the graph drawn in their Taxable value cells (≤ 20 supply rows: `inlineOnly`).
+  const rows = useMemo(() => gstr1Rows(tiles, showEmpty), [tiles, showEmpty]);
+  const spec = useMemo(() => gstr1Chart(rows.supply), [rows]);
+  const inline = inlineBars(spec, rows.supply.length);
+  const bars = useMemo(() => (inline ? barWidths(rows.supply.map((t) => t.taxable)) : null), [inline, rows]);
   const amendCount = summary ? (summary.amendments?.invoices.length ?? 0) + (summary.amendments?.notes.length ?? 0) + (summary.amendments?.b2cs.length ?? 0) + (summary.amendments?.late.length ?? 0) : 0;
 
   const exportJson = async (): Promise<void> => {
@@ -134,6 +146,7 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
         about={summary ? <Gstr1About summary={summary} /> : undefined}
         aboutLabel="About this return"
         actions={actions}
+        graph={reportGraph(inline ? spec : null, { inline })}
         exportDef={summary ? () => ({ ...summaryExport(summary), title: 'GSTR-1 Summary', period: summary.period.label }) : undefined}
         loading={rp.loading || (q.loading && !summary)}
         refreshing={q.refreshing || busy}
@@ -156,7 +169,7 @@ export function Gstr1Screen({ params }: ScreenProps<Gstr1Params>) {
             Return periods start from the date your books begin. Record a sale or purchase to see it here.
           </Banner>
         ) : summary ? (
-          <Gstr1Body summary={summary} tiles={tiles} showEmpty={showEmpty} onShowEmpty={() => setShowEmpty(true)} onOpen={openTile} onShowAll={openExceptions} />
+          <Gstr1Body summary={summary} rows={rows} bars={bars} onShowEmpty={() => setShowEmpty(true)} onOpen={openTile} onShowAll={openExceptions} />
         ) : null}
       </ReportScreen>
       <FileResultDialog result={result} onClose={() => setResult(null)} />
@@ -199,15 +212,16 @@ function Gstr1About({ summary }: { summary: Gstr1Summary }) {
 
 function Gstr1Body({
   summary,
-  tiles,
-  showEmpty,
+  rows,
+  bars,
   onShowEmpty,
   onOpen,
   onShowAll,
 }: {
   summary: Gstr1Summary;
-  tiles: Gstr1Tile[];
-  showEmpty: boolean;
+  rows: ReturnType<typeof gstr1Rows>;
+  /** Inline bars of the supply rows' Taxable value (null = none), aligned with `rows.supply`. */
+  bars: readonly (InlineBar | null)[] | null;
   onShowEmpty: () => void;
   onOpen: (t: Gstr1Tile) => void;
   onShowAll: () => void;
@@ -215,7 +229,6 @@ function Gstr1Body({
   const bodyRef = useRef<HTMLTableSectionElement | null>(null);
   // ↑/↓ (and ←/→, as between the 2.0 tiles) move between the tables; Home/End to the ends.
   const roving = useRovingFocus(bodyRef, { orientation: 'both' });
-  const rows = useMemo(() => gstr1Rows(tiles, showEmpty), [tiles, showEmpty]);
   const total = gstr1Total(summary, rows.supply);
   const first = rows.supply[0] ?? rows.checks[0];
   if (!first) {
@@ -231,7 +244,7 @@ function Gstr1Body({
       />
     );
   }
-  const row = (t: Gstr1Tile): ReactNode => <TableRow key={t.id} tile={t} onOpen={onOpen} autoFocus={t === first} />;
+  const row = (t: Gstr1Tile, i?: number): ReactNode => <TableRow key={t.id} tile={t} onOpen={onOpen} autoFocus={t === first} bar={i === undefined ? null : (bars?.[i] ?? null)} />;
   return (
     <div className="bx-gst-scroll">
       <table className="bx-gst-form" aria-label={`GSTR-1 tables, ${summary.period.label}`}>
@@ -253,7 +266,7 @@ function Gstr1Body({
           </tr>
         </thead>
         <tbody ref={bodyRef} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
-          {rows.supply.map(row)}
+          {rows.supply.map((t, i) => row(t, i))}
           <tr className="is-total" title={total.note ? `${total.split}. ${total.note}` : total.split}>
             <td className="bx-gst-form__row" />
             <th scope="row">
@@ -264,7 +277,7 @@ function Gstr1Body({
             <td className="is-num">{formatMoney(total.taxable)}</td>
             <td className="is-num">{formatMoney(total.tax)}</td>
           </tr>
-          {rows.checks.map(row)}
+          {rows.checks.map((t) => row(t))}
         </tbody>
       </table>
       {summary.issues.length > 0 ? <IssuesPanel issues={summary.issues} onShowAll={onShowAll} defaultCollapsed /> : null}
@@ -272,11 +285,14 @@ function Gstr1Body({
   );
 }
 
+/** A Taxable value cell carrying an inline bar (the kit's `.bx-td__bar`, placed by the form's cell padding). */
+const BAR_CELL = { position: 'relative', '--cell-px': 'var(--space-2)' } as CSSProperties;
+
 /**
  * One table of the return: the first cell is a plain button named exactly as the 2.0 tile (Enter opens
  * the table, ↑/↓ move between tables); a click anywhere on the row opens it too.
  */
-function TableRow({ tile, onOpen, autoFocus }: { tile: Gstr1Tile; onOpen: (t: Gstr1Tile) => void; autoFocus: boolean }) {
+function TableRow({ tile, onOpen, autoFocus, bar }: { tile: Gstr1Tile; onOpen: (t: Gstr1Tile) => void; autoFocus: boolean; bar: InlineBar | null }) {
   const open = (): void => onOpen(tile);
   return (
     <tr className="bx-gst-link-row" onClick={open} title={[tile.help, ...tile.notes].join(' ')}>
@@ -314,7 +330,10 @@ function TableRow({ tile, onOpen, autoFocus }: { tile: Gstr1Tile; onOpen: (t: Gs
         ) : null}
       </th>
       <td className="is-num">{countText(tile.count, tile.countLabel)}</td>
-      <td className="is-num">{formatMoney(tile.taxable)}</td>
+      <td className={bar ? 'is-num bx-td--right' : 'is-num'} style={bar ? BAR_CELL : undefined}>
+        {formatMoney(tile.taxable)}
+        {bar ? <span className={bar.negative ? 'bx-td__bar bx-td__bar--neg' : 'bx-td__bar'} style={{ '--bar-w': bar.width } as CSSProperties} aria-hidden="true" /> : null}
+      </td>
       <td className="is-num">{formatMoney(tile.tax)}</td>
     </tr>
   );

@@ -3,6 +3,29 @@
 All notable changes to Pevqori are recorded here. Versions follow [Semantic Versioning](https://semver.org/);
 a release is published by tagging `v<version>` (see [docs/BUILD.md](docs/BUILD.md#6-releasing)).
 
+## [2.1.2]
+
+Receivables, Payables, Balance Sheet, Trial Balance, GSTR-1 and Day Book now show a small graph too. Install
+it over 2.1 — your companies, data and settings are kept. Graphs are never printed or exported, and
+**Ctrl+J** still folds them to their one-line answer.
+
+- **Receivables and Payables** — who owes you the most (on Payables: whom you owe the most). With seven
+  parties or fewer a thin bar sits under each *Net outstanding*; with more, a graph of the six largest and
+  *Other*. A party that paid more in advance than its bills is in the second colour and says *advance*.
+  The line above says it in words, e.g. *Top 3 customers owe 72 % of ₹1.03 L*. Enter on a bar opens the
+  party. The bills view stays a plain list; the ageing view keeps its bars.
+- **Balance Sheet** — where is my money? One bar shows what the business owns by head (stock, debtors,
+  cash & bank, fixed assets …), e.g. *Stock-in-Hand is 45 % of what you own (₹3.94 L of ₹8.75 L)*. A loss
+  carried in the Profit & Loss A/c and a difference in opening balances are not things you own, so they are
+  not in the bar (its total is the assets side without them).
+- **Trial Balance** — a thin bar under each closing balance of the group view (debit and credit on one
+  scale), for up to 20 lines. A longer list (often the ledger-wise one) stays without one; *Agrees ✓* is
+  still the answer at the right.
+- **GSTR-1** — a thin bar under each table's taxable value (up to 20 tables); credit notes that reduce it
+  are in the second colour and said *less ₹…*. The JSON and the return's export are unchanged.
+- **Day Book** — what happened: the amount of each voucher type listed, e.g. *Sales ₹43.0 K · Receipt
+  ₹20.0 K*. Enter on a bar shows only that voucher type.
+
 ## [2.1.1]
 
 A small update to the graphs of 2.1, after the first owners used it on new companies. Install it over 2.1

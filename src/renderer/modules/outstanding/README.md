@@ -53,7 +53,9 @@ the bills) · *Overdue* (`totals.overdue`, opens the Ageing view) · *₹z not m
 (`advance + onAccount`, without a sign; the one link — opens the Bills view with "Only advances and on
 account"). Zero items are dropped. "To collect" restates the Net outstanding total in the owner's words —
 allow-listed in `app/lib/chartCatalogue.ts` `STAT_TOTAL_ALLOWED`.
-* **Parties** (Ctrl+1): no graph and no ageing request (the Ageing view is the graph). Columns: party,
+* **Parties** (Ctrl+1): no ageing request. 2.1.2: the graph "Who owes me the most?" / "Whom do I owe the
+  most?" (`lib/charts.ts` `partiesChart`) — inline bars in Net outstanding with ≤ 7 parties (`inlineBars`), else
+  a Top 6 + Other strip; Σ = `totals.pending` of the rows shown; Enter on a bar opens the party. Columns: party,
   Overdue, Not due, Advances & on account, Net outstanding, Oldest ("190 d" — plain, `bx-os-danger`
   only beyond the last ageing period). Columns blank on every row hide (`hideEmptyColumns`); Group and
   Credit limit used are hidden until More › *Columns…*; exports keep every column. More › *Only parties

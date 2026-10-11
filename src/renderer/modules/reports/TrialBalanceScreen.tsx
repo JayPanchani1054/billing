@@ -3,16 +3,22 @@
  * opening column (Alt+O), transactions columns (Alt+T), zero balances (Alt+Z). Enter drills a group
  * into its Group Summary, a ledger into Ledger Vouchers, the opening stock into the Stock Summary.
  *
- * 2.1: deliberately no graph — a check, not a story (SPEC-21 §5). The toolbar row says the answer:
- * "Agrees ✓" or "Differs by ₹x" (danger); the year-start footnote moved to About this report.
+ * 2.1: the toolbar row says the answer: "Agrees ✓" or "Differs by ₹x" (danger); the year-start
+ * footnote moved to About this report.
+ * 2.1.2 (the owner's change to D26): "Closing balances" as 4 px bars under Closing Dr | Closing Cr of the
+ * top-level rows when there are ≤ 20 of them (groups by default; a table-only spec, `inlineOnly`) — Dr
+ * slot 1, Cr slot 2, one scale. The Trial Balance is a check, so it never gets a strip; a longer list
+ * (Ledger-wise) gets no graph at all.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { TbRow, TrialBalanceMode } from '../../../shared/types/reports.ts';
 import { ReportScreen, formatDate, formatDrCr, useApiQuery, useBooks, useCan, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Banner, Button, SegmentedControl, Stack, StatLine } from '../../ui/index.ts';
+import { inlineBars } from '../../ui/lib/chartSpec.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
 import { TbTable, useDrill, useReportPeriod, useTreeExpansion } from './components.tsx';
-import { trialBalanceStat } from './lib/charts.ts';
+import { trialBalanceBarRows, trialBalanceChart, trialBalanceStat } from './lib/charts.ts';
 import { drillForRow, tbExport } from './lib/model.ts';
 import { withScenario, withTbBudget } from './lib/overlay.ts';
 import { useReportOverlay } from './overlay.tsx';
@@ -49,6 +55,10 @@ export function TrialBalanceScreen({ params }: ScreenProps<TrialBalanceParams>) 
   );
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
   const expansion = useTreeExpansion(`tb:${mode}`, rows, mode === 'detailed' ? 99 : 0);
+  // Table-only (≤ 20 top-level rows, `inlineOnly`): the bars sit under Closing Dr | Closing Cr; never a strip.
+  const spec = useMemo(() => trialBalanceChart(q.data), [q.data]);
+  const inline = inlineBars(spec, trialBalanceBarRows(rows).length);
+  const barValue = useCallback((r: TbRow): number | null => (r.level === 0 ? r.closing : null), []);
 
   const activate = (r: TbRow): void => drill(withScenario(drillForRow(r, p.period), overlay.scenarioId ?? null));
   const actions: ScreenActionItem[] = [
@@ -72,6 +82,7 @@ export function TrialBalanceScreen({ params }: ScreenProps<TrialBalanceParams>) 
       error={q.error}
       onRetry={q.refetch}
       actions={actions}
+      graph={reportGraph(inline ? spec : null, { inline })}
       hint="Enter Drill down · →/← Expand/collapse · Alt+F1 Detailed · Alt+O Opening · Alt+T Transactions · Alt+S Scenario · Alt+B Budget"
       filters={<SegmentedControl aria-label="Trial Balance view" size="sm" options={MODES} value={mode} onChange={setMode} />}
       stat={check ? <StatLine items={[{ label: check.label, value: <span title={check.title}>{check.value}</span>, tone: check.tone }]} /> : undefined}
@@ -125,6 +136,7 @@ export function TrialBalanceScreen({ params }: ScreenProps<TrialBalanceParams>) 
           showOpening={showOpening}
           showTransactions={showTransactions}
           budget={overlay.budget}
+          closingBars={inline ? { value: barValue } : null}
           onActivate={activate}
           loading={q.loading}
         />

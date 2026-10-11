@@ -602,6 +602,10 @@ types to show (tick several — the button then reads *Sales, Receipt* or *3 typ
 (**Ctrl+F**) finds a number, party, narration or exact amount, and the count of vouchers is on the
 right. Optional and cancelled vouchers are listed (flagged) unless you untick *Show optional vouchers* /
 *Show cancelled vouchers* under *More*; the **Total** row never counts them (its tooltip says so).
+Above the list a small graph shows what happened: the amount of each voucher type listed (Sales, Receipt,
+Purchase …, the largest first; optional and cancelled vouchers are not counted, as in the Total row) —
+for example *Sales ₹43.0 K · Receipt ₹20.0 K*. Enter on a bar (or a click) shows only that voucher type,
+as ticking it under *All vouchers ▾* does, and moves you to the list. With only one type listed there is no graph; **Ctrl+J** folds it.
 **Enter** or **Alt+A** alters the highlighted voucher, **Alt+Enter** views it read-only, **Ctrl+P** prints
 it, **Alt+P** prints the Day Book itself, **Alt+E** exports it, **Alt+2** duplicates the voucher and
 **Alt+D** deletes it — *More* lists all of them. The same search (**Ctrl+F**), count and keys work on every
@@ -1040,7 +1044,7 @@ before you file, because the portal is the legal record.
 
 | Menu item | What it is |
 |---|---|
-| *GST › **GSTR-1*** | Outward supplies for the return period — the period is beside the title (click it, or **Alt+F2**). The portal's tables as one list: a row for each table with something to report (4A, 4B, 5, 6A, 6B, 6C, 7, 8, 9B, 11), the **Total** row (point at it for the IGST / CGST / SGST / cess split; it is the return's net as GSTR-3B 3.1 reads it, so when 4B or 8 is listed, or advances and amendments count, it reads *Net total* and says why), then the HSN summary (12) and documents issued (13), which restate the others and are not added. *More › Show empty tables* lists every table. ↑ / ↓ and Enter open a table's documents (Alt+← / Alt+→ moves between its parts). No graph: the tables are the filing. The line above says whether you can file — *Nothing blocking*, or *2 documents block the JSON · Review ›* (opens GST exceptions, as **Alt+X** does); the uncertain transactions with links to fix them are under the tables. **Alt+J** saves the portal JSON (asking first when there are errors), **Alt+F** marks the return filed (then *Filed 12-Oct-26* shows beside the title), **Alt+M** amendments; *More › About this return* holds the notes |
+| *GST › **GSTR-1*** | Outward supplies for the return period — the period is beside the title (click it, or **Alt+F2**). The portal's tables as one list: a row for each table with something to report (4A, 4B, 5, 6A, 6B, 6C, 7, 8, 9B, 11), the **Total** row (point at it for the IGST / CGST / SGST / cess split; it is the return's net as GSTR-3B 3.1 reads it, so when 4B or 8 is listed, or advances and amendments count, it reads *Net total* and says why), then the HSN summary (12) and documents issued (13), which restate the others and are not added. *More › Show empty tables* lists every table. ↑ / ↓ and Enter open a table's documents (Alt+← / Alt+→ moves between its parts). With up to 20 tables listed a thin bar under each *Taxable value* compares them (a table that reduces it, such as credit notes, in the second colour, said *less ₹…* in the header line); there is no separate graph, and the JSON, export and print never carry one. The line above says whether you can file — *Nothing blocking*, or *2 documents block the JSON · Review ›* (opens GST exceptions, as **Alt+X** does); the uncertain transactions with links to fix them are under the tables. **Alt+J** saves the portal JSON (asking first when there are errors), **Alt+F** marks the return filed (then *Filed 12-Oct-26* shows beside the title), **Alt+M** amendments; *More › About this return* holds the notes |
 | *GST › **GSTR-3B*** | Starts with the answer: **Cash to pay ₹…** and when it is due (*Due 20-Oct-26 (in 10 days)* — the 20th for monthly filers, the 22nd or 24th by state after a quarter, PMT-06 on the 25th for the first two months of a quarter), with a link to the period's warnings. When part of the tax is paid from credit and part in cash, a bar shows the split (*From credit ₹… · In cash ₹…*; **Ctrl+J** folds it). Then the portal-style form 3.1, 3.1.1, 3.2, 4, 5, 5.1 and 6.1, and *How your ITC is used* (folded); *Your entries* for figures the books do not hold (ISD credit, interest, late fee, credit on the portal when the books began — **Ctrl+A** saves only the changed cells); **Alt+J** JSON, **Alt+F** mark filed, **Alt+S** GST set-off, **Alt+P** print; *More › About this return* explains the form |
 | *GST › **GSTR-9*** | Annual summary prepared from the books (tables 4, 5, 6, 9, months, 17 / 18) — verify before filing. The year is beside the title (**Alt+F2**). The graph shows each month's tax on outward supplies less its net ITC — tax payable after credit above the line, credit left over below it; the month table has the same figure as *After credit*. Enter on a month (row or column) opens its GSTR-3B |
 | *GST › **HSN/SAC Summary*** | Outward / inward HSN summary (Ctrl+1 / Ctrl+2). The graph is the taxable value by HSN/SAC code — drawn as thin bars inside the table when it has seven rows or fewer, one per code |
@@ -1468,7 +1472,12 @@ With *Bill-wise details* on (the default), every invoice is a **bill** with a du
 credit period); receipts and payments settle bills (Alt+B in voucher entry), and anything not set against
 a bill stays *On Account*. For a party not kept bill-wise, Pevqori settles the oldest balance first (FIFO).
 
-- *Reports › **Receivables*** and *Reports › **Payables*** — as on the period end (Alt+F2). One line at the
+- *Reports › **Receivables*** and *Reports › **Payables*** — as on the period end (Alt+F2). The parties view
+  shows who owes you the most (on Payables: whom you owe the most) — with seven parties or fewer as a thin
+  bar under each *Net outstanding*, with more as a graph of the six largest and *Other* above the table
+  (Enter on a bar opens that party, as on its row); a party whose advance is larger than its bills is
+  drawn in the second colour and said *advance*. The header line says it in words, e.g. *Top 3 customers
+  owe 72 % of ₹1.03 L*. The bills view has no graph. One line at the
   top answers the question in words: *To collect ₹99,953 · Overdue ₹4,65,953 · ₹3,66,000 not matched to
   bills ›* (*To pay* on Payables; a zero is left out). *To collect* is what the parties owe after their
   advances and on-account amounts; click *Overdue* for the ageing, or the *not matched* link for those
@@ -1518,9 +1527,9 @@ in the tooltip of the line they explain.
 
 | Report | Notes and keys |
 |---|---|
-| *Reports › **Balance Sheet*** | As on the period end; Liabilities and Assets side by side on one sheet; **Alt+C** (*Compare*) adds last year's column. No graph on purpose: a balance sheet always balances. The Profit & Loss A/c line's tooltip shows its opening and current-period parts. If the openings do not agree, one line says by how much, with *Correct openings* |
+| *Reports › **Balance Sheet*** | As on the period end; Liabilities and Assets side by side on one sheet; **Alt+C** (*Compare*) adds last year's column. One bar above the sheet answers *where is my money?* — what the business owns by head (stock, debtors, cash & bank, fixed assets …; the three largest named, the rest as *Other*), e.g. *Stock-in-Hand is 63 % of what you own (₹3.94 L of ₹6.25 L)*; a head in credit is left out and said so. A loss carried in the Profit & Loss A/c and the *Difference in opening balances* are not things the business owns: they are not in the bar, whose total is the assets side without them. Enter on a part opens it, as on its line. It is never printed. The Profit & Loss A/c line's tooltip shows its opening and current-period parts. If the openings do not agree, one line says by how much, with *Correct openings* |
 | *Reports › **Profit & Loss A/c*** | Trading and P&L for the period, Expenses and Income side by side (**Tab** goes to the other side); the title line says *Net profit ₹…* or *Net loss ₹…* (in red). The graph shows the net profit of each month — Enter on a month opens that month's P&L (under the same scenario, if one is chosen with **Alt+S**). It is drawn from the first month with a result, but not while a comparison column is shown (**Alt+C**), or when stock is not kept with the accounts (F11) and the period has purchases (each purchase would look like a loss). **Alt+V** (*More ▾ › Schedule III format*) switches to the vertical statement |
-| *Reports › **Trial Balance*** | Groups · Detailed · Ledger-wise above the table; at the right it says *Agrees ✓* or *Differs by ₹…* (*Agrees only with the opening difference* while the opening balances do not agree). **Alt+L** ledger-wise ↔ group-wise, **Alt+O** opening balances, **Alt+T** period transactions, **Alt+Z** zero balances, **Alt+X** expand / collapse. No graph: it is a check |
+| *Reports › **Trial Balance*** | Groups · Detailed · Ledger-wise above the table; at the right it says *Agrees ✓* or *Differs by ₹…* (*Agrees only with the opening difference* while the opening balances do not agree). **Alt+L** ledger-wise ↔ group-wise, **Alt+O** opening balances, **Alt+T** period transactions, **Alt+Z** zero balances, **Alt+X** expand / collapse. With up to 20 top-level lines (the group view) a thin bar under each closing balance compares them — debit balances under *Closing Dr*, credit balances in the second colour under *Closing Cr*, on one scale; the header line names the largest of each. There is never a separate graph above the table, and a longer list (often Ledger-wise) has none: the Trial Balance is a check |
 | *Reports › **Ledger*** | One ledger's vouchers with running balance; the graph *Balance by date* (Ctrl+J folds it to its one line). **Alt+L** another ledger, **Alt+M** ledger master, **Alt+Y** monthly summary, **Alt+A** alter the voucher, **Alt+R** both currencies for a foreign-currency ledger |
 | *Reports › **Cash/Bank Books*** | Cash and bank accounts with one *Closing* column; an account in credit says *overdrawn*. With two to seven accounts a thin bar under each closing balance compares them; with more, a graph of the largest six. **Alt+F** cash flow |
 | *Reports › **Sales Register*** (and Purchase, Receipt, Payment, Contra, Journal, Credit Note, Debit Note registers) | Month by month, with the graph *Sales before GST, by month* (taxable value for sales, purchases and notes; the amount for receipts, payments, contra and journals; a month still running is marked *so far*). Pick another register from the name next to the title. Enter on a month — in the table or in the graph — lists its vouchers; **Alt+V** voucher list ↔ monthly view. The *Cancelled* column shows only when a month has one |
@@ -1576,9 +1585,11 @@ not remembered after the screen closes.
 A report that a picture helps answer shows **one small graph above its table** — the Profit & Loss
 month by month, the Sales Register by month, where money is locked in stock, how old the unpaid bills
 are. Its header line says what it shows and the answer in one sentence (for example "Loss in 6 of 7
-months; smallest in Sep"). Reports where a graph would add nothing — the Balance Sheet, the Trial
-Balance, the Day Book, masters and statutory forms such as GSTR-1 — have none on purpose. A short table
-(seven rows or fewer) carries its bars inside the table instead, under the amounts.
+months; smallest in Sep"). Since 2.1.2 the Balance Sheet (what you own, by head), the Trial Balance and
+GSTR-1 (thin bars inside the table), the Day Book (amount by voucher type) and the parties of Receivables
+and Payables (who owes the most) have one too; masters and statutory forms such as GSTR-4 and CMP-08 have
+none on purpose. A short table (seven rows or fewer) carries its bars inside the table instead, under the
+amounts.
 
 - **Ctrl+J** (or the *Hide graphs* / *Show graphs* button at the right of the header line, or
   *More ▾ › Hide graphs*) folds the graphs to their header line, which keeps the one-sentence answer.

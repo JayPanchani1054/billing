@@ -124,12 +124,22 @@ export interface TbTableProps {
    * danger word after a cash/bank ledger in credit.
    */
   closing?: { bar?: { value: (row: TbRow) => number | null; slot: 1 | 'polarity' } | null; overdrawn?: boolean };
+  /**
+   * (2.1.2, additive) Inline bars under Closing Dr | Closing Cr (the Trial Balance, D26): `value` gives a
+   * row's signed closing (Dr + / Cr −) or null for rows without a bar; a Dr balance draws in Closing Dr
+   * (slot 1), a Cr balance in Closing Cr (slot 2), both columns on one scale.
+   */
+  closingBars?: { value: (row: TbRow) => number | null } | null;
 }
 
+const drPart = (v: number | null): number | null => (v !== null && v > 0 ? v : null);
+const crPart = (v: number | null): number | null => (v !== null && v < 0 ? v : null);
+
 /** Particulars | Opening | Debit | Credit | Closing Dr | Closing Cr, with sticky grand totals. */
-export function TbTable({ rows, expansion, showOpening, showTransactions, onActivate, loading, empty, autoFocus = true, totalLabel = 'Grand Total', budget = null, closing, ...rest }: TbTableProps) {
+export function TbTable({ rows, expansion, showOpening, showTransactions, onActivate, loading, empty, autoFocus = true, totalLabel = 'Grand Total', budget = null, closing, closingBars = null, ...rest }: TbTableProps) {
   const single = closing !== undefined;
   const closingBar = closing?.bar ?? undefined;
+  const sideBar = closingBars?.value;
   const overdrawn = closing?.overdrawn ?? false;
   const columns = useMemo<Column<TbRow>[]>(
     () => [
@@ -137,8 +147,26 @@ export function TbTable({ rows, expansion, showOpening, showTransactions, onActi
       { key: 'opening', header: 'Opening', kind: 'drcr', width: 170, hidden: !showOpening },
       { key: 'debit', header: 'Debit', kind: 'amount', width: 150, blankZero: true, hidden: !showTransactions },
       { key: 'credit', header: 'Credit', kind: 'amount', width: 150, blankZero: true, hidden: !showTransactions },
-      { key: 'closingDr', header: 'Closing Dr', kind: 'amount', width: 160, blankZero: true, hidden: single, value: (r) => (r.closing > 0 ? r.closing : 0) },
-      { key: 'closingCr', header: 'Closing Cr', kind: 'amount', width: 160, blankZero: true, hidden: single, value: (r) => (r.closing < 0 ? -r.closing : 0) },
+      {
+        key: 'closingDr',
+        header: 'Closing Dr',
+        kind: 'amount',
+        width: 160,
+        blankZero: true,
+        hidden: single,
+        value: (r) => (r.closing > 0 ? r.closing : 0),
+        bar: sideBar && !single ? { value: (r) => drPart(sideBar(r)), slot: 'polarity', scale: 'closing' } : undefined,
+      },
+      {
+        key: 'closingCr',
+        header: 'Closing Cr',
+        kind: 'amount',
+        width: 160,
+        blankZero: true,
+        hidden: single,
+        value: (r) => (r.closing < 0 ? -r.closing : 0),
+        bar: sideBar && !single ? { value: (r) => crPart(sideBar(r)), slot: 'polarity', scale: 'closing' } : undefined,
+      },
       {
         key: 'closing',
         header: 'Closing',
@@ -160,7 +188,7 @@ export function TbTable({ rows, expansion, showOpening, showTransactions, onActi
       { key: 'budget', header: budget ? `Budget (${budget.name})` : 'Budget', kind: 'drcr', width: 170, hidden: !budget, value: (r) => rowBudget(budget?.byKey, r.key) ?? 0, render: (r) => (rowBudget(budget?.byKey, r.key) === null ? '' : formatDrCr(rowBudget(budget?.byKey, r.key) ?? 0)) },
       { key: 'variance', header: 'Variance', kind: 'drcr', width: 170, hidden: !budget, value: (r) => tbVariance(budget?.byKey, r, budget?.basisByKey) ?? 0, render: (r) => (tbVariance(budget?.byKey, r, budget?.basisByKey) === null ? '' : formatDrCr(tbVariance(budget?.byKey, r, budget?.basisByKey) ?? 0)) },
     ],
-    [showOpening, showTransactions, budget, single, closingBar, overdrawn],
+    [showOpening, showTransactions, budget, single, closingBar, overdrawn, sideBar],
   );
   const footer = useMemo<FooterRow[]>(() => {
     const t = tbTotals(rows);

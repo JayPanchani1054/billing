@@ -60,10 +60,12 @@ export interface ReportGraphOf {
 /**
  * A report's graph for the strip: null when there is no spec or too little data (`enoughData`) — then
  * no strip and no Ctrl+J item. `inline` (from `inlineBars(spec, rows)`) keeps the header line only.
+ * A table-only spec (`inlineOnly`, 2.1.2) is never drawn as a strip: not inline → null.
  */
 export function reportGraph(spec: ChartSpec | null, opts: { inline?: boolean } = {}): ReportGraphOf | null {
   if (!spec || !enoughData(spec)) return null;
   const inline = !!opts.inline;
+  if (spec.inlineOnly && !inline) return null;
   return {
     title: spec.title,
     takeaway: spec.takeaway,

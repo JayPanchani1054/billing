@@ -5,11 +5,13 @@
  * Enter drills a group into its Group Summary (year to date), a ledger into Ledger Vouchers, the P&L
  * A/c into the Profit & Loss statement and closing stock into the Stock Summary.
  */
-import { useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { StatementLine } from '../../../shared/types/reports.ts';
 import { ReportScreen, formatDate, formatDrCr, useApiQuery, useBooks, useCan, useNav } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { Banner, Button, EmptyState, Stack } from '../../ui/index.ts';
+import { reportGraph } from '../../ui/lazyChart.tsx';
+import { balanceSheetChart } from './lib/charts.ts';
 import { useDrill, useReportPeriod } from './components.tsx';
 import { balanceSheetCompareDate, drillForRow, statementAmountText, statementExport, yearStartFor } from './lib/model.ts';
 import { StatementSheet, useBlockExpansion, visibleBlock } from './statement.tsx';
@@ -51,6 +53,11 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
     for (const e of [expansion.left, expansion.right]) (next ? e.expandAll : e.collapseAll)();
   };
   const activate = (line: StatementLine): void => drill(withScenario(drillForRow(line, { from: yearStart, to: asOf }, { yearStart }), overlay.scenarioId ?? null));
+  // Enter on a segment = Enter on that head's line (through a ref: the spec is memoised on the data).
+  const activateRef = useRef(activate);
+  activateRef.current = activate;
+  const onHead = useCallback((line: StatementLine) => activateRef.current(line), []);
+  const spec = useMemo(() => balanceSheetChart(d, onHead), [d, onHead]);
   const actions: ScreenActionItem[] = [
     { key: 'Alt+F1', label: detailed ? 'Condensed' : 'Detailed', icon: 'layers', onClick: toggleDetailed, group: 'view' },
     {
@@ -76,6 +83,7 @@ export function BalanceSheetScreen({ params }: ScreenProps<BalanceSheetParams>) 
       error={q.error}
       onRetry={q.refetch}
       actions={actions}
+      graph={reportGraph(spec)}
       hint="Enter Drill down · →/← Expand/collapse · Tab Other side · Alt+F1 Detailed · Alt+C Compare · Alt+S Scenario · Alt+B Budget · Alt+F2 Date"
       exportDef={() =>
         d && block

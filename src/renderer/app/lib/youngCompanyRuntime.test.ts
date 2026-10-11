@@ -17,15 +17,18 @@ import { makeGstin, testPan, TEST_PAN } from '../../../core/testing/fixtures.ts'
 import { P, startRuntime } from '../../../core/testing/e2e/harness.ts';
 import type { E2E } from '../../../core/testing/e2e/harness.ts';
 import { DEFAULT_AGEING_BUCKETS } from '../../../shared/types/outstanding.ts';
-import { enoughData, specProblems } from '../../ui/lib/chartSpec.ts';
+import { enoughData, inlineBars, specProblems } from '../../ui/lib/chartSpec.ts';
 import type { ChartSpec } from '../../ui/lib/chartSpec.ts';
 import { bankBalancesChart, pdcChart } from '../../modules/banking/lib/charts.ts';
 import { ageingSpec, homeSalesGraph, homeSummaryInput, summaryInput, trendSpec } from '../../modules/dashboard/lib/model.ts';
 import { initialFy, initialPeriodKey } from '../../modules/gst/lib/periods.ts';
 import { exceptionsChart, hsnChart, itcChart, rateChart } from '../../modules/gst/lib/registerCharts.ts';
-import { cashLedgerChart, creditLedgerChart, gstr3bMeter, gstr9Chart, setoffMeter } from '../../modules/gst/lib/returnCharts.ts';
-import { ageingChart, partyChart, statementChart } from '../../modules/outstanding/lib/charts.ts';
-import { cashBankChart, cashFlowChart, groupSummaryChart, ledgerChart, monthlySummaryChart, profitTrendChart, registerChart } from '../../modules/reports/lib/charts.ts';
+import { cashLedgerChart, creditLedgerChart, gstr1Chart, gstr3bMeter, gstr9Chart, setoffMeter } from '../../modules/gst/lib/returnCharts.ts';
+import { buildTiles, gstr1Rows } from '../../modules/gst/lib/gstr1.ts';
+import { ageingChart, partiesChart, partyChart, statementChart } from '../../modules/outstanding/lib/charts.ts';
+import { balanceSheetChart, cashBankChart, cashFlowChart, groupSummaryChart, ledgerChart, monthlySummaryChart, profitTrendChart, registerChart, trialBalanceChart } from '../../modules/reports/lib/charts.ts';
+import { dayBookChart } from '../../modules/vouchers/lib/charts.ts';
+import { dayBookTotals, toDayBookRow } from '../../modules/vouchers/lib/daybook.ts';
 import { godownsChart, movementChart, profitabilityChart, stockAgeingChart, stockItemChart, stockSummaryChart } from '../../modules/stock/lib/charts.ts';
 import { AGEING_PRESETS } from '../../modules/stock/lib/model.ts';
 import { leafMeter, meterBook } from '../../modules/cheques/lib/charts.ts';
@@ -145,8 +148,15 @@ function draws(key: string, spec: ChartSpec | null | undefined): ChartSpec {
   return spec;
 }
 
+/** What a 2.1.2 screen shows beside its graph: the table rows the inline-bars rule counts, and the figures the graph ties to. */
+interface Shown {
+  rows: number;
+  /** Balance Sheet: the asset side's lines by name (level ≥ 1 under Current Assets, and level 0). */
+  lines?: Readonly<Record<string, number>>;
+}
+
 /** Every report graph the young company's screens draw, read as each screen reads it. */
-async function walk(e: E2E, w: World, phase: string): Promise<Map<string, ChartSpec | null>> {
+async function walk(e: E2E, w: World, phase: string, shown = new Map<string, Shown>()): Promise<Map<string, ChartSpec | null>> {
   const out = new Map<string, ChartSpec | null>();
   const put = (k: string, s: ChartSpec | null | undefined) => out.set(k, s ?? null);
   const { from, to } = PERIOD;
@@ -181,9 +191,39 @@ async function walk(e: E2E, w: World, phase: string): Promise<Map<string, ChartS
     put(`reports.groupSummary#summary:${grp}`, groupSummaryChart(await e.call('reports.groupSummary', { groupId: w.groups[grp], from, to, showZero: false, basis: 'trialBalance' })));
   }
   put('reports.cashFlow', cashFlowChart(await e.call('reports.cashFlow', { from, to })));
+  // 2.1.2: the Balance Sheet and the Trial Balance, each tied to its table on the real books.
+  const bs = await e.call<Arg<typeof balanceSheetChart> & { assetsTotal: number }>('reports.balanceSheet', { asOf: to, mode: 'condensed' });
+  const bsSpec = balanceSheetChart(bs);
+  // What you own = the asset side total minus the lines not owned (an accumulated loss, a debit opening difference).
+  const notOwned = bs.assets.filter((l) => l.level === 0 && (l.kind === 'profit_loss' || l.kind === 'difference')).reduce((a, l) => a + l.amount, 0);
+  if (bsSpec) assert.equal(bsSpec.total, bs.assetsTotal - notOwned, `${phase} Balance Sheet: graph total = the asset side total − the lines not owned`);
+  put('reports.balanceSheet', bsSpec);
+  shown.set('reports.balanceSheet', { rows: bs.assets.length, lines: Object.fromEntries(bs.assets.map((l) => [l.name, l.amount])) });
+  const tb = await e.call<Arg<typeof trialBalanceChart> & { totals: { closing: { debit: number; credit: number } } }>('reports.trialBalance', { from, to, mode: 'groups', showZero: false });
+  const tbSpec = trialBalanceChart(tb);
+  if (tbSpec) assert.equal(tbSpec.total, tb.totals.closing.debit - tb.totals.closing.credit, `${phase} Trial Balance: graph total = closing Dr − Cr`);
+  put('reports.trialBalance', tbSpec);
+  shown.set('reports.trialBalance', { rows: tb.rows.filter((r) => r.level === 0).length });
+  // The Day Book over the period (More › Whole period): Σ bars = the table's Debit + Credit totals.
+  const list = await e.call<{ rows: Array<Parameters<typeof toDayBookRow>[0]> }>('vouchers.list', { from, to, includeOptional: true, includeCancelled: true, limit: 1000, sort: 'date_asc' });
+  const dayRows = list.rows.map(toDayBookRow);
+  const dbSpec = dayBookChart(dayRows);
+  if (dbSpec) assert.equal(dbSpec.total, dayBookTotals(dayRows).debit + dayBookTotals(dayRows).credit, `${phase} Day Book: graph total = Debit + Credit totals`);
+  put('vouchers.daybook', dbSpec);
+  shown.set('vouchers.daybook', { rows: dayRows.length });
+  // …and as it opens: on the working date (DayBookScreen's first range is working.date – working.date).
+  const todays = await e.call<{ rows: Array<Parameters<typeof toDayBookRow>[0]> }>('vouchers.list', { from: TODAY, to: TODAY, includeOptional: true, includeCancelled: true, limit: 1000, sort: 'date_asc' });
+  put('vouchers.daybook:today', dayBookChart(todays.rows.map(toDayBookRow)));
 
   // Outstanding.
   const base = { asOf: to, nonBillWise: 'fifo' };
+  for (const side of ['receivable', 'payable'] as const) {
+    const ps = await e.call<Arg<typeof partiesChart> & { totals: { pending: number } }>('outstanding.partySummary', { ...base, side });
+    const spec = partiesChart(ps);
+    if (spec) assert.equal(spec.total, ps.totals.pending, `${phase} ${side} parties: graph total = Net outstanding total`);
+    put(`outstanding.${side === 'receivable' ? 'receivables' : 'payables'}#parties`, spec);
+    shown.set(`outstanding.${side === 'receivable' ? 'receivables' : 'payables'}#parties`, { rows: ps.rows.length });
+  }
   put('outstanding.receivables#ageing', ageingChart(await e.call('outstanding.ageing', { ...base, side: 'receivable', buckets: [...DEFAULT_AGEING_BUCKETS], basis: 'due_date' })));
   put('outstanding.payables#ageing', ageingChart(await e.call('outstanding.ageing', { ...base, side: 'payable', buckets: [...DEFAULT_AGEING_BUCKETS], basis: 'due_date' })));
   put('outstanding.party', partyChart(await e.call('outstanding.ledgerBills', { ledgerId: w.asha, asOf: to, nonBillWise: 'fifo' })));
@@ -204,6 +244,9 @@ async function walk(e: E2E, w: World, phase: string): Promise<Map<string, ChartS
   const key = initialPeriodKey(periods);
   assert.equal(key, '092026', 'GSTR-3B and the set-off open on the return due on 11-Oct: September');
   put('gst.gstr3b', gstr3bMeter(await e.call('gst.gstr3b.summary', { period: key })));
+  const supply = gstr1Rows(buildTiles(await e.call('gst.gstr1.summary', { period: key })), false).supply;
+  put('gst.gstr1', gstr1Chart(supply));
+  shown.set('gst.gstr1', { rows: supply.length });
   const fy = initialFy(periods, TODAY);
   assert.ok(fy);
   put('gst.gstr9', gstr9Chart(await e.call('gst.gstr9.summary', { fy })));
@@ -242,7 +285,9 @@ const SAME: Readonly<Record<string, string>> = {
   'gst.itc': `one supplier — ${ONE_OF}`,
   'gst.exceptions': 'no two kinds of GST problem (none at all is the success state)',
   'banking.summary': `one bank — ${ONE_OF}`,
+  'outstanding.payables#parties': `one supplier — ${ONE_OF}`,
   'banking.pdc': 'no post-dated cheques',
+  'vouchers.daybook:today': 'the Day Book opens on the working date (11-Oct) and nothing is dated that day — an empty list (More › Whole period draws)',
 };
 const EXPECTED_NONE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   oct: {
@@ -251,6 +296,7 @@ const EXPECTED_NONE: Readonly<Record<string, Readonly<Record<string, string>>>> 
     'outstanding.receivables#ageing': `every unpaid bill is 1–30 days old — ${ONE_OF}`,
     'outstanding.payables#ageing': `every unpaid bill is 1–30 days old — ${ONE_OF}`,
     'gst.gstr3b': 'the return period it opens on is September: nothing to file yet (a meter needs both parts)',
+    'gst.gstr1': 'the return period it opens on is September: no table to report yet',
   },
   sepOct: SAME,
 };
@@ -259,6 +305,7 @@ describe('2.1.1: a real young company (books from 1-Apr, entries in the last mon
   let e: E2E;
   let w: World;
   const seen: Record<string, Map<string, ChartSpec | null>> = {};
+  const shown: Record<string, Map<string, Shown>> = { oct: new Map(), sepOct: new Map() };
 
   before(async () => {
     e = startRuntime(TODAY);
@@ -270,12 +317,12 @@ describe('2.1.1: a real young company (books from 1-Apr, entries in the last mon
 
   it('phase 1 — entries in October only', async () => {
     await month(e, w, '2026-10', 1);
-    seen.oct = await walk(e, w, 'Oct');
+    seen.oct = await walk(e, w, 'Oct', shown.oct);
   });
 
   it('phase 2 — entries in September and October', async () => {
     await month(e, w, '2026-09', 2);
-    seen.sepOct = await walk(e, w, 'Sep+Oct');
+    seen.sepOct = await walk(e, w, 'Sep+Oct', shown.sepOct);
   });
 
   for (const phase of ['oct', 'sepOct']) {
@@ -288,6 +335,84 @@ describe('2.1.1: a real young company (books from 1-Apr, entries in the last mon
         else none.push(k);
       }
       assert.deepEqual(none.sort(), Object.keys(EXPECTED_NONE[phase]).sort());
+    });
+  }
+
+  /**
+   * 2.1.2 — the six screens the owner said showed no graph, pinned on this company: the form each draws,
+   * inline in its table (Receivables ≤ 7 rows; Trial Balance and GSTR-1 table-only, ≤ 20) or a strip (the Balance Sheet's share
+   * bar, the Day Book), the bars in the order drawn, and the words. Payables (one supplier), GSTR-1 in
+   * phase 1 (September has no sale yet) and the Day Book as it opens (nothing dated today) draw nothing:
+   * EXPECTED_NONE above says why.
+   */
+  const SIX: Readonly<Record<string, { kind: ChartSpec['kind']; title: string; inline: boolean; categories: Readonly<Record<string, readonly string[] | null>>; takeaway: RegExp }>> = {
+    'outstanding.receivables#parties': {
+      kind: 'bar',
+      title: 'Net outstanding by customer',
+      inline: true,
+      categories: { oct: ['Asha Retail', 'Kumar Builders'], sepOct: ['Asha Retail', 'Kumar Builders'] },
+      takeaway: /^Asha Retail owes \d+ % of ₹[\d.]+ K$/,
+    },
+    'outstanding.payables#parties': { kind: 'bar', title: 'Net outstanding by supplier', inline: true, categories: { oct: null, sepOct: null }, takeaway: /^$/ },
+    'reports.balanceSheet': {
+      kind: 'share',
+      title: 'What you own',
+      inline: false,
+      categories: { oct: ['Stock-in-Hand', 'Sundry Debtors', 'Cash & bank'], sepOct: ['Stock-in-Hand', 'Sundry Debtors', 'Cash & bank'] },
+      takeaway: /^Stock-in-Hand is \d+ % of what you own \(₹[\d.]+ K of ₹[\d.]+ K\)$/,
+    },
+    'reports.trialBalance': {
+      kind: 'bar',
+      title: 'Closing balances',
+      inline: true,
+      categories: {
+        oct: ['Opening Stock', 'Current Liabilities', 'Current Assets', 'Sales Accounts', 'Purchase Accounts', 'Difference in opening balances'],
+        sepOct: ['Opening Stock', 'Current Liabilities', 'Current Assets', 'Sales Accounts', 'Purchase Accounts', 'Difference in opening balances'],
+      },
+      takeaway: /^Largest Dr: .+ ₹[\d.]+ K · largest Cr: .+ ₹[\d.]+ K$/,
+    },
+    'gst.gstr1': { kind: 'bar', title: 'Taxable value by table', inline: true, categories: { oct: null, sepOct: ['B2B invoices', 'B2C others'] }, takeaway: /^B2B invoices: \d+ % of the taxable value$/ },
+    'vouchers.daybook': {
+      kind: 'bar',
+      title: 'Amount by voucher type',
+      inline: false,
+      categories: { oct: ['Purchase', 'Sales', 'Receipt', 'Payment'], sepOct: ['Sales', 'Purchase', 'Receipt', 'Payment'] },
+      takeaway: /^\w+ ₹[\d.]+ K · \w+ ₹[\d.]+ K$/,
+    },
+  };
+  for (const phase of ['oct', 'sepOct']) {
+    it(`2.1.2 ${phase}: Receivables, Payables, Balance Sheet, Trial Balance, GSTR-1 and the Day Book — what each draws`, () => {
+      const m = seen[phase];
+      assert.ok(m, `${phase}: the walk ran`);
+      for (const [key, want] of Object.entries(SIX)) {
+        const spec = m.get(key);
+        const cats = want.categories[phase];
+        assert.ok(m.has(key), `${phase} ${key}: walked`);
+        if (cats === null) {
+          assert.equal(spec, null, `${phase} ${key}: no graph`);
+          assert.ok(EXPECTED_NONE[phase][key], `${phase} ${key}: the no-graph case says why`);
+          continue;
+        }
+        const s = draws(`${phase} ${key}`, spec);
+        assert.equal(s.kind, want.kind, `${phase} ${key}: form`);
+        assert.equal(s.title, want.title, `${phase} ${key}: title`);
+        assert.deepEqual(s.categories, cats, `${phase} ${key}: the bars in the order drawn`);
+        assert.match(s.takeaway, want.takeaway, `${phase} ${key}: takeaway`);
+        assert.doesNotMatch(s.takeaway, /(^|[\s(])[-−]\s?₹?\d/, `${phase} ${key}: no bare minus`);
+        const rows = shown[phase].get(key)?.rows;
+        assert.ok(rows !== undefined, `${phase} ${key}: its table was read`);
+        // The screens: Receivables, Trial Balance and GSTR-1 draw inline exactly when inlineBars says so; the
+        // Balance Sheet (a share bar) and the Day Book (a mixed list) always draw a strip above the table.
+        assert.equal(want.inline ? inlineBars(s, rows) : false, want.inline, `${phase} ${key}: inline in the table (${rows} rows)`);
+      }
+      // The Balance Sheet's bar, head by head, is the asset side as shown: Current Assets' own heads, Cash-in-Hand
+      // and Bank Accounts as one "Cash & bank" (Σ = the asset side total − the lines not owned, asserted in the walk).
+      const bs = m.get('reports.balanceSheet');
+      const lines = shown[phase].get('reports.balanceSheet')?.lines;
+      assert.ok(bs && lines);
+      assert.deepEqual(bs.series[0].values, [lines['Stock-in-Hand'], lines['Sundry Debtors'], lines['Cash-in-Hand'] + lines['Bank Accounts']]);
+      // The Trial Balance agrees: its bars' Dr and Cr closings net to nothing.
+      assert.equal(m.get('reports.trialBalance')?.total, 0, `${phase}: the Trial Balance agrees`);
     });
   }
 
