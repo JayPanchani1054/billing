@@ -7,8 +7,9 @@ interface.
 Your books live on your own computer, in a folder you choose. No cloud account, no subscription
 server, no internet connection required.
 
-> **Version 2.0.0** — simpler by default, with a print-preview editor, invoice number series your way and
-> in-place upgrades; see [CHANGELOG.md](CHANGELOG.md). Always keep backups.
+> **Version 2.1.0** — calmer screens (one bar, one title row, each action shown once) and a small graph on
+> the reports that one helps answer; it installs over 2.0 in place. See [CHANGELOG.md](CHANGELOG.md).
+> Always keep backups.
 
 ## Documentation
 
@@ -64,6 +65,7 @@ server, no internet connection required.
 | | 26Q / 27Q / 27EQ statements | Partial | CSV with every RPU field; not the FVU file |
 | | Form 16A / 27D; salary TDS (192, 24Q) and payroll | Out of scope | |
 | Reports | Balance Sheet, P&L (Schedule III view), Trial Balance, ledgers, group summaries, registers, Day Book, cash / funds flow, ratios, exceptions, dashboard; drill-down to the voucher; Excel / CSV / PDF export | Built | Cash flow is month-wise, not by activity |
+| | One small graph above the table on the reports a picture helps answer, with its answer in one sentence; Ctrl+J folds them (remembered) | Built | Never printed or exported; none on the Balance Sheet, Trial Balance, Day Book or statutory forms |
 | Printing | GST invoice templates, A4 / A5 / Letter / Legal, 80 / 58 mm thermal receipts, MRP, UPI QR, IRN QR, batch printing | Built | |
 | | Customize what prints in print preview: show / hide every part, change every text; for this print, a voucher type or every document | Built | Hiding a particular GST requires is warned about, never blocked |
 | | Share by e-mail / WhatsApp | Built | Via your mail program / WhatsApp; Pevqori sends nothing itself |
@@ -74,11 +76,20 @@ server, no internet connection required.
 | | Attachments on vouchers and masters | Built | No in-app preview |
 | Company | Several companies, users, roles and passwords | Built | One company open at a time |
 | | Several users at once, remote access, consolidation | Out of scope | Single-user desktop design |
-| App | Settings in one place, Home with Essentials, light / dark, comfortable / compact | Built | |
+| App | Calm screens (one top bar, one title row, actions once with More ▾ for the rest, keys in tooltips, F1 and by holding Ctrl), Settings in one place, Home with Essentials and the business at a glance, light / dark, comfortable / compact | Built | |
 | | Upgrade in place with a newer installer; in-app *Check for updates* (GitHub Releases) | Built | Off until you check or turn on the weekly check; administrators can turn it off |
 
 ## Highlights
 
+- **Calm by default** (2.1) — one bar at the top and one title row on every screen: the screen's name,
+  one quiet line of context and its buttons — the main action, a few beside it, **More ▾** for the rest.
+  Keys are not printed on the buttons: point at one, hold `Ctrl` for a second, or press `F1`. Home is a
+  plain list of words beside what customers owe you, what you owe, cash & bank and this month's sales.
+  Invoice entry has one Save, a quiet totals strip and *Charges & discounts* one Enter away.
+- **Graphs on reports** (2.1) — the reports a picture helps answer (P&L by month, registers, stock,
+  ageing of unpaid bills, cash, GST and more) show one small graph above the table with its answer in one
+  sentence; the graph draws the table's own totals, Enter on a column opens what the row opens, and
+  `Ctrl+J` (or *Hide graphs*) folds them — remembered on this computer. Never printed.
 - **Simple by default** (2.0) — **Home** opens on *Essentials*: about twenty everyday tasks in five
   groups (Create, Look up, Reports, GST, Company), with *All menus* one key away (`Ctrl+1` / `Ctrl+2`); a
   **Create** menu, a short command bar on every screen with *More* for the rest, and one **Settings**

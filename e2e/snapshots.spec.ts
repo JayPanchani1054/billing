@@ -16,7 +16,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { financialYearOf, PARITY } from '../src/core/testing/e2e/parityFlow.ts';
-import { api, firstLaunchCreateCompany, localToday, openGoto, stubNativeDialogs, toGateway, topScreen } from './flows.ts';
+import { api, firstLaunchCreateCompany, localToday, openGoto, pick, stubNativeDialogs, toGateway, topScreen } from './flows.ts';
 import { captureFailures, closeApp, launchApp, repoRoot } from './support.ts';
 import type { LaunchedApp } from './support.ts';
 
@@ -170,6 +170,10 @@ interface Shot {
   name: string;
   open: () => Promise<void>;
   dark?: boolean;
+  /** Window content size for this shot (default 1366×768; the owner's maximised laptop window is 1366×690). */
+  viewport?: { width: number; height: number };
+  /** Undo what the shot changed (a remembered preference, a held key) — runs after the capture, before Esc. */
+  after?: () => Promise<void>;
 }
 
 async function viaGoto(label: string): Promise<void> {
@@ -199,6 +203,39 @@ async function openFirstDayBookVoucher(): Promise<void> {
   await page.keyboard.press('Alt+Enter');
   await expect(page.locator('[data-screen="vouchers.view"]')).toBeVisible({ timeout: 8_000 });
 }
+
+/** Sales entry with Asha Retail and two item lines (party line, totals strip); the voucher is never saved. */
+async function salesEntryFilled(): Promise<void> {
+  await page.keyboard.press('F8');
+  const entry = topScreen(page);
+  await expect(entry.getByLabel(/^Party A\/c name/)).toBeVisible({ timeout: 8_000 });
+  await entry.getByLabel(/^Party A\/c name/).focus();
+  await pick(page, 'Asha', /Asha Retail/);
+  const line = async (n: number, typed: string, item: RegExp, qty: string, rate: string): Promise<void> => {
+    await entry.getByLabel(`Item, line ${n}`, { exact: true }).focus();
+    await pick(page, typed, item);
+    await entry.getByLabel(`Quantity, line ${n}`, { exact: true }).fill(qty);
+    // fill(), not Ctrl+A: Ctrl+A saves the voucher.
+    await entry.getByLabel(`Rate, line ${n}`, { exact: true }).fill(rate);
+    await entry.getByLabel(`Rate, line ${n}`, { exact: true }).press('Tab');
+  };
+  await line(1, 'Door', /Door Handle Set/, '4', '480');
+  await line(2, 'Brass', /Brass Hinge 4in/, '24', '70');
+  await entry.getByLabel('Narration', { exact: true }).focus().catch(() => undefined);
+}
+
+/** Ledgers → the Asha Retail row → Enter (its alteration form). */
+async function openAshaLedgerForm(): Promise<void> {
+  await viaGoto('Ledgers');
+  await settle();
+  await topScreen(page).getByRole('row', { name: /Asha Retail/ }).first().click();
+  await page.keyboard.press('Enter');
+  await expect(topScreen(page).getByRole('heading', { level: 1 })).toContainText(/Ledger/, { timeout: 8_000 });
+}
+
+/** The owner's laptop: a maximised window on a 1366 × 768 screen leaves 1366 × 690 (SPEC-21 "Design window"). */
+const LAPTOP = { width: 1366, height: 690 } as const;
+const NARROW = { width: 1024, height: 690 } as const;
 
 const SHOTS: Shot[] = [
   { name: '01-home', open: async () => undefined },
@@ -242,6 +279,84 @@ const SHOTS: Shot[] = [
   { name: '25-dark-home', open: async () => undefined, dark: true },
   { name: '26-dark-profit-loss', open: () => viaGoto('Profit & Loss A/c'), dark: true },
   { name: '27-dark-sales-entry', open: async () => void (await page.keyboard.press('F8')), dark: true },
+  // 2.1 (SPEC-21 §11 step 7): the calm screens, the report graphs and the owner's laptop window.
+  { name: '28-sales-entry-filled', open: salesEntryFilled },
+  {
+    name: '29-voucher-view-detailed',
+    open: async () => {
+      await openFirstDayBookVoucher();
+      await page.keyboard.press('Alt+F1');
+    },
+    // Detailed is remembered on this computer: switch it back for the shots after this one.
+    after: async () => void (await page.keyboard.press('Alt+F1')),
+  },
+  {
+    name: '30-receivables-ageing',
+    open: async () => {
+      await viaGoto('Receivables');
+      await settle();
+      await page.keyboard.press('Control+3');
+    },
+  },
+  {
+    name: '31-profit-loss-graphs-folded',
+    open: async () => {
+      await viaGoto('Profit & Loss A/c');
+      await settle();
+      await page.keyboard.press('Control+j');
+    },
+    // Folding is remembered on this computer: unfold again so later shots show their graphs.
+    after: async () => void (await page.keyboard.press('Control+j')),
+  },
+  {
+    name: '32-keyboard-shortcuts',
+    open: async () => {
+      await viaGoto('Profit & Loss A/c');
+      await settle();
+      await page.keyboard.press('F1');
+    },
+  },
+  {
+    name: '33-keys-peek',
+    open: async () => {
+      await viaGoto('Profit & Loss A/c');
+      await settle();
+      await page.keyboard.down('Control');
+      await page.waitForTimeout(1_000);
+    },
+    after: async () => void (await page.keyboard.up('Control')),
+  },
+  {
+    name: '34-ledger-alter-more-details',
+    open: async () => {
+      await openAshaLedgerForm();
+      await page.keyboard.press('Control+i');
+    },
+  },
+  { name: '36-dark-balance-sheet', open: () => viaGoto('Balance Sheet'), dark: true },
+  { name: '37-dark-receivables', open: () => viaGoto('Receivables'), dark: true },
+  { name: '38-narrow-sales-entry', open: async () => void (await page.keyboard.press('F8')), viewport: NARROW },
+  { name: '39-laptop-home', open: async () => undefined, viewport: LAPTOP },
+  { name: '40-laptop-sales-entry', open: salesEntryFilled, viewport: LAPTOP },
+  { name: '41-laptop-profit-loss', open: () => viaGoto('Profit & Loss A/c'), viewport: LAPTOP },
+  {
+    name: '42-ledger-detail-folded',
+    open: async () => {
+      await openAshaLedgerForm();
+      await page.keyboard.press('Alt+l');
+    },
+  },
+  { name: '43-stock-item-create', open: () => viaGoto('Create Stock Item') },
+  // Last on purpose: it moves the working period (Alt+F2 › Last month), which every later shot would inherit.
+  {
+    name: '35-gstr3b-meter',
+    open: async () => {
+      await viaGoto('GSTR-3B');
+      await settle();
+      await page.keyboard.press('Alt+F2');
+      await page.getByRole('group', { name: 'Quick periods' }).getByRole('button', { name: 'Last month', exact: true }).click();
+    },
+  },
 ];
 
 function emit(name: string, jpeg: Buffer): void {
@@ -270,6 +385,7 @@ test('seed a small shop and capture the key screens', async () => {
     if (index % PARTS !== PART - 1) continue;
     try {
       await page.emulateMedia({ colorScheme: shot.dark ? 'dark' : 'light' });
+      await page.setViewportSize(shot.viewport ?? VIEWPORT);
       await toGateway(page);
       await page.keyboard.press('Control+1').catch(() => undefined);
       await shot.open();
@@ -282,6 +398,7 @@ test('seed a small shop and capture the key screens', async () => {
       skipped.push(`${shot.name}: ${String(e).split('\n')[0]}`);
       console.log(`[snap:skip] ${shot.name}: ${String(e).split('\n')[0]}`);
     } finally {
+      if (shot.after) await shot.after().catch(() => undefined);
       await page.keyboard.press('Escape').catch(() => undefined);
     }
   }

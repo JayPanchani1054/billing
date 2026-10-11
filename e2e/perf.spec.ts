@@ -13,9 +13,9 @@
 // Everything is timed inside the page (the app's marks, event.timeStamp of the key press, a
 // MutationObserver for the result), so the Playwright round trip is not part of a number. No trace is recorded (tracing slows
 // the app). The result is attached as perf-report.json and printed to the log as one `[perf] report`
-// line, compared with build/perf-budget.json: with `enforce: false` (until the integration step) the
-// spec only reports; with `enforce: true` a failed ceiling fails it, except the warn-only screen-open
-// ones. `node scripts/size-report.mjs --baseline linux.json win32.json` turns the reports of one CI run
+// line, compared with build/perf-budget.json: with `enforce: false` the spec only reports; with
+// `enforce: true` (since the 2.1 integration step) a failed ceiling fails it, except the warn-only ones
+// (screen open, and start-up / launch while `startupWarnOnly`). `node scripts/size-report.mjs --baseline linux.json win32.json` turns the reports of one CI run
 // into the budget's baseline block.
 import { rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

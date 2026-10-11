@@ -136,6 +136,17 @@ install 2.0 once by hand as above; it upgrades the 1.0 installation in place. Fr
 can also come from inside Pevqori. On the first start after the upgrade Home keeps the *All menus* view
 and the shortcut bar you know, and offers once to *Try the simpler Home*.
 
+**Upgrade 2.0 → 2.1 in place.** Run `Pevqori-Setup-2.1.0.exe` over 2.0 by hand as above, or — once
+2.1.0 is published as a Release — use *Check for updates*, which then says *"Pevqori 2.1.0 is ready"*. It
+installs into the same folder with the same shortcuts and one *Installed apps* entry; companies, the data
+folder, backups and settings (theme, density, the Home view, window position) are kept, and the CI build of
+every change upgrades a real 2.0.0 installation this way and checks that nothing in the data and settings
+folders changed. 2.1 does not change the company database, so a company stays readable by 2.0 (keep a
+backup all the same). On the first start the screens are calmer — one bar at the top, one title row, keys
+in tooltips (hold **Ctrl** to see them; **F1** lists them all) — and reports show a small graph that
+**Ctrl+J** folds; every 2.0 key works as before. What moved where is in the
+[CHANGELOG](../CHANGELOG.md).
+
 Then open each company. If the new version needs to update a company's database, it first saves a safety
 copy as `backups\<company-id>\pre-upgrade-v<N>-<date-time>.db` in the data folder and then updates it.
 
@@ -172,7 +183,7 @@ installation only the installing account's Pevqori counts; for a per-machine one
 in any user's session (for example on a shared or Remote Desktop computer) also stops the install.
 
 ```powershell
-Start-Process .\Pevqori-Setup-2.0.0.exe -ArgumentList '/S', '/allusers' -Wait -PassThru | Select-Object ExitCode
+Start-Process .\Pevqori-Setup-2.1.0.exe -ArgumentList '/S', '/allusers' -Wait -PassThru | Select-Object ExitCode
 ```
 
 The uninstaller (`Uninstall Pevqori.exe` in the installation folder) accepts `/S` too and always keeps

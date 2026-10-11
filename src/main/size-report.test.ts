@@ -47,6 +47,8 @@ interface Budget {
     startupRatio: number | null;
     screenOpenSlackMs: number | null;
     screenOpenWarnOnly: boolean;
+    /** Optional (absent = false): start-up and launch only warn — a single CI sample is noisy. */
+    startupWarnOnly?: boolean;
     rendererJsMaxBytes: number | null;
     rendererCssMaxBytes: number | null;
   };
@@ -315,6 +317,17 @@ describe('performance budget', () => {
     assert.deepEqual(strict.failures.map((c) => c.id), ['screenOpen:vouchers.entry', 'screenOpenP95']);
   });
 
+  it('start-up and launch warn only when startupWarnOnly is set; initial JS still fails', () => {
+    const slow = { startupMs: 461, launchMs: 1_036, screenOpenMs: {}, screenOpenP95Ms: null };
+    const warn = m.compareBudget({ sizes: sizes(550_001), timings: slow, platform: 'linux' }, { ...budget(true), ceilings: { ...ceilings, startupWarnOnly: true } });
+    assert.deepEqual(warn.failures.map((c) => c.id), ['initialJs']);
+    assert.deepEqual(warn.warnings.map((c) => c.id), ['startup', 'launch']);
+    const strict = m.compareBudget({ sizes: sizes(500_000), timings: slow, platform: 'linux' }, { ...budget(true), ceilings: { ...ceilings, startupWarnOnly: false } });
+    assert.deepEqual(strict.failures.map((c) => c.id), ['startup', 'launch']);
+    assert.deepEqual(m.budgetProblems({ enforce: true, baseline: null, ceilings: { ...ceilings, startupWarnOnly: 'yes' } }), ['ceilings.startupWarnOnly must be true or false (or left out)']);
+    assert.deepEqual(m.budgetProblems({ enforce: true, baseline: null, ceilings: { ...ceilings, startupWarnOnly: true } }), []);
+  });
+
   it('timings of another platform, or a run without timings, are never compared', () => {
     const win = m.compareBudget({ sizes: sizes(500_000), timings: { startupMs: 9_999, launchMs: 9_999, screenOpenMs: {}, screenOpenP95Ms: null }, platform: 'win32' }, budget(true));
     assert.deepEqual(win.checks.map((c) => c.id), ['initialJs']);
@@ -380,15 +393,19 @@ describe('performance budget', () => {
     assert.ok(p.some((x) => x.startsWith('baseline.timings.linux must be')));
   });
 
-  it('the committed build/perf-budget.json is well-formed and carries the §10 ceilings', () => {
+  it('the committed build/perf-budget.json is well-formed, enforced, and carries the 2.1 ceilings against the 2.0.0 baseline', () => {
     const file = path.join(root, 'build', 'perf-budget.json');
     assert.deepEqual(m.budgetProblems(JSON.parse(fs.readFileSync(file, 'utf8'))), []);
     const b = m.readBudget(file);
-    assert.equal(b.ceilings.initialJsRatio, 0.55);
-    assert.equal(b.ceilings.startupRatio, 1.15);
+    // SPEC-21 §11 step 3 (brief C6): the baseline is 2.0.0 now, so the 2.0 target "0.55 × 1.0" became
+    // "initial JS must not grow materially" (≤ 1.02 × 2.0) and "CSS must not grow" (≤ the 2.0 build).
+    assert.equal(b.enforce, true);
+    assert.ok(b.baseline !== null, 'enforce: true needs a captured baseline');
+    assert.match(b.baseline.capturedFrom, /@ 87b0166 \(2\.0\.0\)$/);
+    assert.equal(b.ceilings.initialJsRatio, 1.02);
+    assert.equal(b.ceilings.rendererCssMaxBytes, b.baseline.sizes.rendererCss.raw);
+    assert.equal(b.ceilings.startupRatio, 1.1);
     assert.equal(b.ceilings.screenOpenSlackMs, 30);
-    if (!b.enforce) return;
-    // Enforcing (integration step) only makes sense against a captured 1.0 baseline.
-    assert.ok(b.baseline !== null, 'enforce: true needs the 1.0 baseline');
+    assert.equal(b.ceilings.screenOpenWarnOnly, true);
   });
 });

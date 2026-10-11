@@ -5,6 +5,9 @@
  * declarations. The 2.0 integration step re-tightened the ceilings to the measured size + 2 %
  * (rounded up to the next 500 bytes): components.css 65,785 → 67,500, tokens.css 15,604 → 16,000.
  * The total measured 179,750, so + 2 % would loosen the 2.0 gate of 180,000 — it stays at 180,000.
+ * 2.1 ("calm", SPEC-21 §11 step 3) re-tightened the two again the same way: components.css 56,359 →
+ * 57,500, tokens.css 14,599 → 15,000. The total (156,601) keeps the owner's gate of 180,000 (brief C6:
+ * "must not grow"); never raise a ceiling.
  * Over budget? Delete before you add: shared look belongs in tokens/components, not in copies.
  */
 import { test } from 'node:test';
@@ -18,8 +21,8 @@ const RENDERER = fileURLToPath(new URL('..', import.meta.url));
 /** Ceilings in bytes (decimal kilobytes; docs/ARCHITECTURE.md §7a "Weight gates"). */
 export const CSS_BUDGET = {
   total: 180_000,
-  'styles/components.css': 67_500,
-  'styles/tokens.css': 16_000,
+  'styles/components.css': 57_500,
+  'styles/tokens.css': 15_000,
 } as const;
 
 function cssFiles(dir: string, out: string[] = []): string[] {

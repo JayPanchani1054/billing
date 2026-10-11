@@ -58,6 +58,7 @@ export const DEFAULT_BUDGET_FILE = path.join(root, 'build', 'perf-budget.json');
  *   startupRatio: number | null,
  *   screenOpenSlackMs: number | null,
  *   screenOpenWarnOnly: boolean,
+ *   startupWarnOnly?: boolean,
  *   rendererJsMaxBytes: number | null,
  *   rendererCssMaxBytes: number | null
  * }} Ceilings
@@ -244,6 +245,7 @@ export function budgetProblems(/** @type {unknown} */ budget) {
       if (!isNumOrNull(c[k])) out.push(`ceilings.${k} must be a number or null`);
     }
     if (typeof c.screenOpenWarnOnly !== 'boolean') out.push('ceilings.screenOpenWarnOnly must be true or false');
+    if (c.startupWarnOnly !== undefined && typeof c.startupWarnOnly !== 'boolean') out.push('ceilings.startupWarnOnly must be true or false (or left out)');
   }
   if (b.baseline !== null) {
     const base = /** @type {Record<string, unknown>} */ (b.baseline);
@@ -311,11 +313,13 @@ export function compareBudget(run, budget) {
     else if (!bt) notes.push(`No baseline timings for platform "${platform}": timing ceilings skipped.`);
     else {
       if (c.startupRatio !== null) {
+        // One start-up sample per run is noisy (2.0 itself measured 112–174 ms on Linux runners): optionally warn-only.
+        const startupWarnOnly = c.startupWarnOnly === true;
         if (isNum(bt.startupMs) && isNum(rt.startupMs)) {
-          push({ id: 'startup', label: `Start-up (boot → shell-ready) ≤ ${c.startupRatio} × baseline`, unit: 'ms', actual: /** @type {number} */ (rt.startupMs), limit: Math.round(/** @type {number} */ (bt.startupMs) * c.startupRatio), warnOnly: false });
+          push({ id: 'startup', label: `Start-up (boot → shell-ready) ≤ ${c.startupRatio} × baseline`, unit: 'ms', actual: /** @type {number} */ (rt.startupMs), limit: Math.round(/** @type {number} */ (bt.startupMs) * c.startupRatio), warnOnly: startupWarnOnly });
         }
         if (isNum(bt.launchMs) && isNum(rt.launchMs)) {
-          push({ id: 'launch', label: `Launch (navigation → shell-ready) ≤ ${c.startupRatio} × baseline`, unit: 'ms', actual: /** @type {number} */ (rt.launchMs), limit: Math.round(/** @type {number} */ (bt.launchMs) * c.startupRatio), warnOnly: false });
+          push({ id: 'launch', label: `Launch (navigation → shell-ready) ≤ ${c.startupRatio} × baseline`, unit: 'ms', actual: /** @type {number} */ (rt.launchMs), limit: Math.round(/** @type {number} */ (bt.launchMs) * c.startupRatio), warnOnly: startupWarnOnly });
         }
       }
       if (c.screenOpenSlackMs !== null) {

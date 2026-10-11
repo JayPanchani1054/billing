@@ -216,9 +216,9 @@ jobs:
       # The same in-place upgrade over the 2.0.0 build owners installed (CI run 38086415478, commit 6777482;
       # no GitHub Release of 2.0.0 exists, so release.yml has no previous release to upgrade): one uninstall
       # entry, same folder, the new version, data and settings (pevqori.ui included) byte-for-byte kept, the
-      # upgraded app starts, and the 2.0.0 installer is then refused (exit code 4). While package.json still
-      # says 2.0.0 the script skips it with a notice (not older). The artifact expires 2026-11-09: publish
-      # v2.1.0 before then so release.yml's previous-release upgrade smoke carries the 2.x test forward.
+      # upgraded app starts, and the 2.0.0 installer is then refused (exit code 4). (The script skips with a
+      # notice when the previous installer is not older than this build.) The artifact expires 2026-11-09:
+      # publish v2.1.0 before then so release.yml's previous-release upgrade smoke carries the 2.x test forward.
       - name: Download the 2.0.0 installer (CI run 38086415478, commit 6777482)
         id: previous20
         continue-on-error: true

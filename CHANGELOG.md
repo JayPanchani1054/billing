@@ -3,6 +3,73 @@
 All notable changes to Pevqori are recorded here. Versions follow [Semantic Versioning](https://semver.org/);
 a release is published by tagging `v<version>` (see [docs/BUILD.md](docs/BUILD.md#6-releasing)).
 
+## [2.1.0]
+
+Pevqori 2.1 makes every screen calmer and puts a small graph on the reports. Nothing is taken away: every
+2.0 feature, report and key is still there and works as before. Install it over 2.0 (or 1.x) — your
+companies, data folder, backups and settings are kept; see [docs/INSTALL.md](docs/INSTALL.md#4-upgrading).
+
+### Calmer screens
+- **One bar at the top and one title row** on every screen: the screen's name, one quiet line (the
+  period, "As on …"), and its buttons on the right. The breadcrumb row and the hint bar at the bottom are
+  gone; **‹** (or **Esc**, or the mouse's Back button) goes back, and the **Home** mark in the top bar
+  goes straight to Home.
+- **Each action shows once**: the main one as the one filled button, a few beside it, and everything
+  else in **More ▾**, each with its key.
+- **Keys are no longer printed on the buttons.** Point at a button to see its key, **hold Ctrl** for about
+  a second to see the keys of every button on screen, or press **F1** for the full list.
+- **Home** is a plain list of words with their highlighted letters. Beside it: what customers owe you
+  (*To collect*), what you owe (*To pay*), *Cash & bank*, and this month's sales in a small graph. The
+  setup checklist is one quiet line until you finish it. *Full dashboard* opens the rest.
+- **Settings**: one line per setting; what a setting does shows when you point at it.
+
+### Graphs on reports
+- Reports a picture helps answer show **one small graph above the table**, with the answer in one
+  sentence (for example "Loss in 6 of 7 months; smallest in Sep"). The table stays the full answer —
+  the graph draws the same totals. Click a column, or use the arrow keys and **Enter**, to open what the
+  same row of the table opens.
+- **Ctrl+J** (or *Hide graphs*) folds the graphs to that one sentence; press it again (or *Show graphs*)
+  to bring them back. Your choice is remembered on this computer, and is also in *Appearance…* (user
+  menu) and *Settings › Appearance*.
+- Detail reports — a ledger, a monthly summary, a party statement, a stock item — open with their graph
+  folded until you unfold it once.
+- Some reports have no graph on purpose: the Balance Sheet, the Trial Balance, the Day Book, GSTR-1 and
+  the other statutory forms.
+- Graphs are never printed or exported; Print and Export give the table, as before.
+
+### Quicker invoice entry
+- **One Save** button; the totals in a quiet strip at the bottom (*Taxable · CGST · SGST · Round off ·
+  Total*; point at the total for the amount in words); the party's balance — and anything overdue — in
+  one line under the party's name.
+- **Charges & discounts** (freight, packing, a discount) is a closed line under the items: **Enter** on an
+  empty item row opens it, and it stays open once a charge is entered.
+- **More details** (**Ctrl+I**, or the *More details ›* link in the header) holds the buyer and consignee,
+  dispatch and e-way bill, order and export details, as before.
+- Item / accounting invoice: the *Item invoice ▾* menu next to the title (**Alt+I** still switches).
+
+### Where things moved
+- **Print** and **Export** of master lists (Ledgers, Stock Items …) and the less-used actions of every
+  screen: in **More ▾**. Their keys (**Alt+P**, **Alt+E** …) are unchanged.
+- **Ledger and stock item forms**: the less-used fields are behind **More details** (**Ctrl+I** or
+  **Alt+F1**); it opens by itself when one of them holds a value.
+- **Day Book**: the voucher-type filters are in *All vouchers ▾* under the title; *Whole period*, *Date
+  range…* (**Alt+F2**) and *Show optional / cancelled vouchers* are in **More ▾**.
+- **Home's Essentials**: the Company group is *Settings* and *Backup*. Invoice Numbering, Invoice Printing
+  and Features (F11) are in *All menus*, in Settings and in the Setup line on Home.
+- **Receivables / Payables**: one line on top in plain words — *To collect · Overdue · not matched to
+  bills*; the party columns read overdue, not due, advances & on account, net outstanding;
+  *More ▾ › Columns…* adds the group and the credit limit used.
+- **Profit & Loss**: the Schedule III view is *More ▾ › Schedule III format* (**Alt+V**, as before).
+- **Sales Register**: its graph shows sales before GST (the taxable value).
+- **GSTR-1** lists only the tables with something to report; *More ▾ › Show empty tables* lists all.
+- A report's notes are in *More ▾ › About this report*; the version and data folder are in *About
+  Pevqori* (user menu).
+
+### Keys
+- **Every key works as in 2.0.** New: **Ctrl+J** hides or shows the graphs; **Ctrl+F** searches the Day
+  Book and voucher lists; **Ctrl+I** / **Alt+F1** open *More details* on ledger and stock item forms;
+  **Alt+F1** shows a voucher's detailed view; hold **Ctrl** to see the keys on screen.
+
 ## [2.0.0]
 
 Pevqori 2.0 is about making the everyday work simple and the screens calmer, without taking anything away:

@@ -1,6 +1,6 @@
 {
-  "//": "Performance budget (docs/ARCHITECTURE.md §9a). enforce: false = e2e/perf.spec.ts and `node scripts/size-report.mjs --budget` only report. baseline: the 2.0.0 numbers (captured 2026-10-10; the 1.0 numbers were never captured), taken from the e2e job log (or perf-report.json) of each CI platform with `node scripts/size-report.mjs --baseline linux.log win32.log --from \"CI run <id> @ <sha>\"` (data-only commit). ceilings (the 2.0 targets) — initial JS ≤ 0.55 × baseline, start-up ≤ 1.15 × baseline on the same runner, first screen open ≤ baseline + 30 ms (warn-only on noisy runners; screen open with its data always warn-only); absolute byte ceilings stay null (off) — the CSS source budget is a unit test (src/renderer/styles/cssBudget.test.ts). Keep enforce false until a captured baseline is committed here.",
-  "enforce": false,
+  "//": "Performance budget (docs/ARCHITECTURE.md §9a). enforce: true (2.1 integration step) = e2e/perf.spec.ts and `node scripts/size-report.mjs --budget` fail on a broken ceiling that is not warn-only. baseline: the 2.0.0 numbers (captured 2026-10-10 from CI run 38078497623 @ 87b0166 with `node scripts/size-report.mjs --baseline linux.log win32.log --from \"CI run <id> @ <sha>\"`; the 1.0 numbers were never captured). ceilings (2.1, SPEC-21 §11 step 3 / brief C6) — initial JS (raw) ≤ 1.02 × the 2.0 baseline (2.1 measured 1,531,432 B = 1.018 × on CI run 38107200747 @ 5ff9096); renderer CSS (built, raw) ≤ 139,524 B, the 2.0 build (2.1 measured 120,960 B); start-up and launch ≤ 1.10 × baseline on the same runner, warn-only (startupWarnOnly: the 2.0 baseline is one sample — later 2.0 runs measured 145/174 ms on Linux and 340 ms on Windows against 111.6/212.7 ms); first screen open ≤ baseline + 30 ms, warn-only (noisy runners; screen open with its data always warn-only). The CSS source budget is a unit test (src/renderer/styles/cssBudget.test.ts). Raising a ceiling or the baseline is a reviewed decision, never a fix for a heavier or slower build.",
+  "enforce": true,
   "baseline": {
     "capturedFrom": "CI run 38078497623 @ 87b0166 (2.0.0)",
     "sizes": {
@@ -63,11 +63,12 @@
     }
   },
   "ceilings": {
-    "initialJsRatio": 0.55,
-    "startupRatio": 1.15,
+    "initialJsRatio": 1.02,
+    "startupRatio": 1.1,
+    "startupWarnOnly": true,
     "screenOpenSlackMs": 30,
     "screenOpenWarnOnly": true,
     "rendererJsMaxBytes": null,
-    "rendererCssMaxBytes": null
+    "rendererCssMaxBytes": 139524
   }
 }

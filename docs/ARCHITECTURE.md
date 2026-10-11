@@ -458,9 +458,9 @@ One calm visual language for every screen, defined once in `src/renderer/styles/
 - **Weight gates** (unit tests, no extra CI step): `styles/cssUsage.test.ts` fails on any class a
   stylesheet defines that renderer code never renders (runtime-built names need a declared prefix
   plus the code that builds it); `styles/cssBudget.test.ts` caps renderer CSS source (bytes as
-  committed) at 180 KB in total, `components.css` at 67.5 KB and `tokens.css` at 16 KB (1.0: 206 /
-  76 / 24 KB; 2.0 measured 179.75 / 65.8 / 15.6 KB — the file ceilings are that + 2 %, the total stays
-  at the 180 KB gate). Raising a ceiling is a reviewed decision, never a fix for a heavier stylesheet.
+  committed) at 180 KB in total, `components.css` at 57.5 KB and `tokens.css` at 15 KB (1.0: 206 /
+  76 / 24 KB; 2.0 measured 179.75 / 65.8 / 15.6 KB; 2.1 measured 156.6 / 56.4 / 14.6 KB — the file
+  ceilings are the last release's size + 2 %, the total stays at the 180 KB gate). Raising a ceiling is a reviewed decision, never a fix for a heavier stylesheet.
   2.1 splits the global stylesheets by owner (rules moved unchanged): `styles/index.css` imports
   tokens, base, components, charts (`.bx-chart*`, `.bx-sparkline*`, `.bx-kpi*`), shell (frame, page
   header, screen layout), report (`.bx-report*`, the Export and Appearance dialogs) and gateway (Home menu, Go To, F1 overlay,
@@ -629,7 +629,8 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
   in the job log (the HTML report is uploaded only when a job fails), next to the size table and the budget verdict.
 - **Budget** — `build/perf-budget.json` `{ enforce, baseline, ceilings }`, checked by `budgetProblems()` in
   `src/main/size-report.test.ts`. `ceilings`: `initialJsRatio` (initial JS ≤ ratio × baseline), `startupRatio`
-  (`startupMs` and `launchMs` ≤ ratio × baseline of the **same platform**), `screenOpenSlackMs` (each first open
+  (`startupMs` and `launchMs` ≤ ratio × baseline of the **same platform**; warn-only while the optional
+  `startupWarnOnly` is true — one start-up sample per run is noisy), `screenOpenSlackMs` (each first open
   and the p95 ≤ baseline + slack; warn-only while `screenOpenWarnOnly`, CI runners are noisy; `screenReadyMs`
   per screen ≤ baseline + the same slack, always warn-only — it includes the API call),
   `rendererJsMaxBytes` / `rendererCssMaxBytes` (absolute, null = off). With `enforce: false` the spec only
@@ -649,8 +650,12 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
 - **Status — the 2.0.0 baseline is captured; the 1.0 one never was.** `build/perf-budget.json` `baseline` holds the
   2.0.0 numbers from the e2e logs of CI run 38078497623 (commit `87b0166`, both runners), captured with
   `scripts/size-report.mjs --baseline`: initial JS 1,504,563 B raw (453,609 gzip), start-up 112 ms (Linux) / 213 ms
-  (Windows). 2.1 is measured against it (initial JS raw ≤ 1.02 × 2.0, start-up and screen open no slower);
-  `enforce` is switched on by the 2.1 integration step. The 2.0 target "initial JS ≤ 0.55 × 1.0" stays
+  (Windows). 2.1 is measured against it and the budget is **enforced** since the 2.1 integration step:
+  initial JS raw ≤ 1.02 × 2.0 (2.1: 1,531,432 B = 1.018 × on CI run 38107200747 @ `5ff9096`) and the built
+  renderer CSS ≤ the 2.0 build's 139,524 B (2.1: 120,960 B) fail the e2e job; start-up / launch (≤ 1.10 ×)
+  and screen open (+ 30 ms) are warn-only annotations — the 2.0 start-up baseline is a single fast sample
+  (later 2.0 runs measured 145 / 174 ms on Linux and 340 ms on Windows), so a hard ratio would fail on runner
+  noise. Re-baseline from a median of several runs before making them hard gates. The 2.0 target "initial JS ≤ 0.55 × 1.0" stays
   **unverified** — no 1.0 baseline exists (a source-level estimate put 2.0 near 0.65–0.70 × 1.0). Never fill a
   baseline with estimated or invented numbers. The 2.0 look is recorded by the **UI snapshots** workflow run
   38093517573 (commit `6777482`, all 27 shots of `e2e/snapshots.spec.ts`) — the reference the 2.1 screens are
