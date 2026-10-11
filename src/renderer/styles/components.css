@@ -1039,15 +1039,10 @@ html[data-keys] .bx-btn__kbd {
 .bx-field__message--error {
   color: var(--danger-text);
 }
-/* A control's hint shows while it has focus; errors, hints that apply and feedback with an icon always (aria-describedby intact) */
+/* A control's hint shows while it has focus (its line stays reserved: nothing moves when focus moves, so a click
+   never lands on a shifted control); errors, hints that apply and feedback with an icon always */
 .bx-field:has(input, select, textarea, button):not(:focus-within) > .bx-field__message:not(.bx-field__message--error, .bx-field__message--applies, :has(.bx-icon)) {
   visibility: hidden;
-}
-.bx-field--stack:has(input, select, textarea, button):not(:focus-within) > .bx-field__message:not(.bx-field__message--error, .bx-field__message--applies, :has(.bx-icon)) {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
 }
 .bx-field__message-icon {
   margin-top: 2px;

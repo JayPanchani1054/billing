@@ -152,6 +152,11 @@ test('text tabs: segmented controls and tabs have no pill or track; the selectio
 test('field hints show on focus; errors and status feedback always; never unmounted', () => {
   const sel = '.bx-field:has(input, select, textarea, button):not(:focus-within) > .bx-field__message:not(.bx-field__message--error, .bx-field__message--applies, :has(.bx-icon))';
   assert.deepEqual(decl(sel, 'visibility'), ['hidden']);
+  // Its line stays reserved: collapsing it on blur moved everything below between mouse down and mouse up,
+  // so a click on the control under a focused field (the numbering code chips) landed on nothing.
+  const collapsed = sel.replace('.bx-field:has(', '.bx-field--stack:has(');
+  assert.deepEqual(decl(collapsed, 'position'), [], 'a hidden hint keeps its height (no collapse on blur)');
+  assert.deepEqual(decl(collapsed, 'height'), []);
   const field = read('./Field.tsx');
   assert.match(field, /<p className=\{cx\('bx-field__message', hintApplies && 'bx-field__message--applies'\)\} id=\{hintId\}>/, 'the hint stays in the DOM for aria-describedby');
   assert.match(field, /hintApplies = false,/, 'a hint that applies (a locked or future date) opts out of hiding');

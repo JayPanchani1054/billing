@@ -34,7 +34,7 @@ test('statTitle: the label rides in the tooltip (it is visually hidden below 120
   assert.equal(statTitle({ label: 'not matched to bills', link: true }), undefined);
   assert.equal(statTitle({ label: 'not matched to bills', link: true, title: 'Advances and on account' }), 'Advances and on account');
   const { readFileSync } = await import('node:fs');
-  const src = readFileSync(new URL('../StatLine.tsx', import.meta.url), 'utf8');
+  const src = readFileSync(new URL('../StatLine.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n'); // a Windows checkout may use CRLF
   assert.equal((src.match(/title=\{statTitle\(it\)\}/g) ?? []).length, 2, 'both item forms use it');
   assert.match(src, /const problems = statProblems\(items\);\n\s*if \(problems\.length\) console\.error\(/, 'the ≤ 3 figures + 1 link rule is asserted at render (a console error fails the e2e sweep)');
 });
