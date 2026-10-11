@@ -230,6 +230,16 @@ export function Combobox<T>(props: ComboboxProps<T>) {
   const valueKey = value === null ? null : getKey(value);
   const inputText = query ?? (value === null ? '' : getLabel(value));
 
+  // The value changed from outside — a master created from the typed text (Alt+C), the form reset after a
+  // save: the typed draft belonged to the old value, so the field shows the new one. (Left alone, the
+  // draft survived the reset and a fresh voucher opened with the last party's name typed in.)
+  const lastValueKey = useRef(valueKey);
+  useEffect(() => {
+    if (lastValueKey.current === valueKey) return;
+    lastValueKey.current = valueKey;
+    if (queryRef.current !== null) setQuery(null);
+  }, [valueKey, setQuery]);
+
   // ── Async loading ──
   const debouncedQuery = useDebouncedValue(q, loadItems ? debounceMs : 0);
   // The loader is read through a ref: an inline arrow must not trigger a refetch on every render.

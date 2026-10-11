@@ -164,6 +164,8 @@ test('field hints show on focus; errors and status feedback always; never unmoun
 
 test('pickers, menus and dialogs: no key footer by default, keepOpen menus, ✓ only for checkable items, Y̲/N̲', () => {
   assert.match(read('./Combobox.tsx'), /showHints = false,/);
+  // A value changed from outside (Alt+C create, the form reset after a save) drops the typed draft.
+  assert.match(read('./Combobox.tsx'), /if \(lastValueKey\.current === valueKey\) return;\n\s*lastValueKey\.current = valueKey;\n\s*if \(queryRef\.current !== null\) setQuery\(null\);/);
   const menu = read('./Menu.tsx');
   assert.match(menu, /if \(!item\.keepOpen\) onClose\?\.\(\);/);
   assert.doesNotMatch(menu, /entry\.icon \?/, 'no left icons');
