@@ -281,6 +281,7 @@ function PartRow({
         id={partSwitchId(row.id)}
         size="sm"
         checked={row.shown}
+        showState={false}
         label={row.label}
         disabled={readOnly}
         aria-describedby={notes.length > 0 ? noteId : undefined}

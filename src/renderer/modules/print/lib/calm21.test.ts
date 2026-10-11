@@ -221,6 +221,10 @@ describe('Customize what prints (LayoutEditor.tsx)', () => {
     assert.match(editor, /\{'Always printed: '\}/);
   });
 
+  test('(V3) the part switches carry no "Yes"/"No" words: the label, the knob and the live preview say it', () => {
+    assert.match(editor, /checked=\{row\.shown\}\s*showState=\{false\}\s*label=\{row\.label\}/);
+  });
+
   test('a mouse press never moves the rows: the notes row changes on keyboard focus or after the click', () => {
     assert.match(editor, /onFocusRow=\{\(\) => onNote\(\{ type: 'focus', row: row\.id, pointerDown: pointerDown\.current \}\)\}/);
     assert.match(editor, /onClickRow=\{\(\) => onNote\(\{ type: 'click', row: row\.id \}\)\}/);
