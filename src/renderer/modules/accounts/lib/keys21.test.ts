@@ -78,6 +78,19 @@ describe('ledger form: Ctrl+I / Alt+F1 toggle "More details" (SPEC-21 §3.5)', (
   });
 });
 
+describe('ledger and group Creation: the filled button reads "Save" (SPEC-21 D5, §1.8)', () => {
+  for (const file of ['LedgerFormScreen.tsx', 'GroupScreens.tsx']) {
+    test(`${file}: visible "Save" on Creation only; the label (accessible name, F1, More, tooltip) is unchanged`, () => {
+      const src = read(file);
+      assert.match(src, /const saveLabel = forResult \? 'Save & return' : original \? 'Save' : 'Save & create next';/);
+      assert.match(src, /const saveText = forResult \|\| original \? undefined : 'Save';/, 'Alteration and "Save & return" show their label');
+      // The Ctrl+A action: named by saveLabel, showing saveText — written after onClick (the key-convention scan reads key, label, …).
+      assert.match(src, /key: 'Ctrl\+A',\s*label: saveLabel,\s*icon: 'save',\s*primary: true,\s*onClick: \(\) => void submit\(\),\s*text: saveText,/);
+      assert.equal(src.match(/\btext: saveText\b/g)?.length, 1, 'only the filled button');
+    });
+  }
+});
+
 describe('Ledgers list: Alt+M is an alias of Alt+B "Create several" (SPEC-21 §3.5)', () => {
   const src = read('LedgerListScreen.tsx');
   const uses = keysOf(src);

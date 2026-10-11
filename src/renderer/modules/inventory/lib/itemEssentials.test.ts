@@ -15,6 +15,7 @@ import {
   MORE_DETAILS_KIND,
   moreDetailsAction,
   itemSaveLabel,
+  itemSaveText,
   moreDetailsSummary,
   revealingDetailFields,
   showStandardCost,
@@ -189,6 +190,15 @@ describe('title row', () => {
     assert.equal(itemSaveLabel({ existing: true, forResult: false }), 'Save');
     assert.equal(itemSaveLabel({ existing: false, forResult: true }), 'Save & return');
     assert.equal(itemSaveLabel({ existing: true, forResult: true }), 'Save & return');
+  });
+
+  test('the commit button reads "Save" on Creation (D5); the label above stays its accessible name (label in name)', () => {
+    assert.equal(itemSaveText({ existing: false, forResult: false }), 'Save');
+    assert.ok(itemSaveLabel({ existing: false, forResult: false }).startsWith('Save'));
+    // Alteration ("Save") and from a picker ("Save & return"): the label is the text.
+    assert.equal(itemSaveText({ existing: true, forResult: false }), undefined);
+    assert.equal(itemSaveText({ existing: false, forResult: true }), undefined);
+    assert.equal(itemSaveText({ existing: true, forResult: true }), undefined);
   });
 
   test('Alteration context run: the group (Primary when none) and "Inactive" — not the name, which the Name field shows', () => {

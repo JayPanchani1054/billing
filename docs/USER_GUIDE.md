@@ -319,8 +319,8 @@ the spot; it is then selected for you.
   TDS / TCS. The line opens by itself whenever a field inside holds something other than the group's usual
   setting (an alteration never hides data) or needs correcting, and otherwise stays as you left it —
   remembered on this computer (per Windows user). Enter moves through the fields on screen only; a
-  field's hint shows while you are in it. The title row has one filled button: **Save & create next**
-  (**Ctrl+A**) saves and starts the next ledger in the same group; **Alt+S** (*Save & close*, under
+  field's hint shows while you are in it. The title row has one filled button: **Save** (*Save & create
+  next*, **Ctrl+A**) saves and starts the next ledger in the same group; **Alt+S** (*Save & close*, under
   More ▾) saves and closes. On an alteration the title row says the group and the closing balance.
 - *Masters › **Opening Balances*** lists every opening balance with the Dr and Cr totals (with *Stock
   value in accounts* on, the opening stock is a row of its own). When debits and credits differ, the
@@ -363,7 +363,7 @@ With F11 *Maintain stock* on:
   price levels. The line opens by itself whenever a field inside holds something (an alteration never hides
   data) or needs correcting — then **Ctrl+I** jumps into it and back — and otherwise stays as you left it,
   remembered on this computer (per Windows user). Enter moves through the fields on screen only; a field's
-  hint shows while you are in it. The title row has one filled button, **Save & create next** (**Ctrl+A**):
+  hint shows while you are in it. The title row has one filled button, **Save** (*Save & create next*, **Ctrl+A**):
   the item is saved and the form starts the next item with the same group, unit and GST; **Alt+S** (*Save &
   close*, under More ▾) saves and closes. On an alteration the button is **Save** and the title row says
   the stock group (and *Inactive* for an inactive item).

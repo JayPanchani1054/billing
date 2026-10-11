@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import type { DashboardAgeingBucket, DashboardSummary } from '../../../../shared/types/dashboard.ts';
 import {
   ageingSpec,
@@ -538,10 +540,30 @@ test('Home figures: the To collect caption reconciles when more is overdue than 
   const s = sample({ receivables: { ...base.receivables, total: 9_995_300, overdue: 46_595_300, notDue: 0, advance: -30_000_000, onAccount: -6_600_000 } });
   const [collect] = homeFigures(s);
   assert.equal(collect.value, 9_995_300, 'To collect = net outstanding (bills + advances + on account)');
-  assert.equal(collect.caption, '₹4.66 L overdue · ₹3.66 L not matched');
+  // The words of Receivables' answer line (outstanding/lib/charts.ts): "not matched to bills".
+  assert.equal(collect.caption, '₹4.66 L overdue · ₹3.66 L not matched to bills');
   // Overdue within what is owed: the plain caption — also with some advances not matched.
   assert.equal(homeFigures(sample())[0].caption, '₹3.4 K overdue');
   assert.equal(homeFigures(sample({ receivables: { ...base.receivables, advance: -10_000 } }))[0].caption, '₹3.4 K overdue');
+});
+
+test('Home figures: a caption keeps to one line at 1366 px — tracks sized to their content, empty ones collapsed (§1.3)', () => {
+  const css = readFileSync(fileURLToPath(new URL('../dashboard.css', import.meta.url)), 'utf8');
+  const rule = /\.bx-db__figures \{([^}]*)\}/.exec(css)?.[1] ?? '';
+  // Five equal 1fr tracks (auto-fill) gave each figure ~189 px at 1366 px and wrapped the To collect caption.
+  const m = /grid-template-columns:\s*repeat\(auto-fit,\s*minmax\((\d+)px,\s*max-content\)\)/.exec(rule);
+  assert.ok(m, `content-sized figure tracks: ${rule.trim()}`);
+  assert.match(rule, /gap:\s*var\(--space-6\)/);
+  const min = Number(m[1]);
+  const gap = 24; // --space-6
+  // The panel beside the Home menu (280 px), less its padding (24 px each side).
+  const panel = (width: number) => width - 280 - 2 * 24;
+  assert.ok(3 * min + 2 * gap <= panel(1024), 'the three figures stay on one row down to the smallest window (1024 px)');
+  // At 1366 px the To collect figure grows to its longest caption (12 px type, ≤ 6.5 px a character) beside the other two.
+  const base = sample();
+  const longest = homeFigures(sample({ receivables: { ...base.receivables, total: 9_995_300, overdue: 46_595_300, notDue: 0, advance: -30_000_000, onAccount: -6_600_000 } }))[0].caption ?? '';
+  assert.equal(longest, '₹4.66 L overdue · ₹3.66 L not matched to bills');
+  assert.ok(longest.length * 6.5 <= panel(1366) - 2 * (min + gap), `${longest.length * 6.5} px does not fit`);
 });
 
 test('Home figures: negatives are relabelled; negative cash or an overdrawn bank is the one caption', () => {

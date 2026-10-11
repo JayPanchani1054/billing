@@ -182,6 +182,7 @@ describe('Stock Item form: Ctrl+I / Alt+F1 More details', () => {
     // Creation: the filled "Save & create next" (its accessible name, as on the ledger form), nothing else as a button.
     const create = layoutCommandBar(itemFormActions(base, h, historyAction(false)), [], 3);
     assert.equal(create.primary?.label, 'Save & create next');
+    assert.equal(create.primary?.text, 'Save', 'it reads "Save" (D5)');
     assert.equal(create.primary?.key, 'Ctrl+A');
     assert.deepEqual(create.buttons, []);
     assert.deepEqual(
@@ -191,6 +192,7 @@ describe('Stock Item form: Ctrl+I / Alt+F1 More details', () => {
     // Alteration: "Save"; Save & close goes (Ctrl+A already closes); Price lists, Edit history and Delete join More.
     const alter = layoutCommandBar(itemFormActions({ ...base, existing: true }, h, historyAction(true)), [], 3);
     assert.equal(alter.primary?.label, 'Save');
+    assert.equal(alter.primary?.text, undefined);
     assert.deepEqual(alter.buttons, []);
     assert.deepEqual(
       alter.more.map((m) => `${m.label} ${m.key}`),

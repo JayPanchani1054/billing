@@ -8,7 +8,8 @@
  * grid (goods), then the "More details  Ctrl+I" line (Alt+F1 alias) over everything else
  * (lib/itemEssentials.ts). The line opens by itself when a field inside holds a value or an error, and
  * otherwise remembers its state on this computer. Enter moves through the visible fields only; Ctrl+A
- * (the title row's one filled button — "Save & create next" on Creation, as on the ledger form) saves.
+ * (the title row's one filled button — "Save & create next" on Creation, as on the ledger form, reading
+ * "Save") saves.
  * Field hints show on focus.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';

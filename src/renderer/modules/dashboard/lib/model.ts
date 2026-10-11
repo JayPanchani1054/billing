@@ -693,8 +693,8 @@ export interface HomeFigure {
 /**
  * Home's three figures, in this order: who owes you, whom you owe, the money you have. To collect is
  * the net outstanding (bills + advances + on account); when what is overdue is more than that, the
- * caption reconciles it: '₹4.66 L overdue · ₹3.66 L not matched' (advances and on-account receipts not
- * yet matched to bills).
+ * caption reconciles it: '₹4.66 L overdue · ₹3.66 L not matched to bills' (advances and on-account
+ * receipts — the words of Receivables' answer line).
  */
 export function homeFigures(s: DashboardSummary): HomeFigure[] {
   const r = s.receivables;
@@ -703,7 +703,7 @@ export function homeFigures(s: DashboardSummary): HomeFigure[] {
   const pay = signedKpi('To pay', p.total, 'Advances to suppliers');
   const money = signedKpi('Cash & bank', s.cashBank.cashTotal + s.cashBank.bankTotal, 'Cash & bank (overdrawn)');
   const unmatched = Math.abs(r.advance + r.onAccount);
-  const collectCaption = r.overdue > 0 ? (r.overdue > r.total && unmatched > 0 ? `${compact(r.overdue)} overdue · ${compact(unmatched)} not matched` : `${compact(r.overdue)} overdue`) : null;
+  const collectCaption = r.overdue > 0 ? (r.overdue > r.total && unmatched > 0 ? `${compact(r.overdue)} overdue · ${compact(unmatched)} not matched to bills` : `${compact(r.overdue)} overdue`) : null;
   const overdrawn = s.cashBank.banks.filter((b) => !b.isOverdraft && b.balance < 0);
   let cashCaption: string | null = null;
   let cashCovers: string[] = [];

@@ -52,6 +52,13 @@ export interface ActionRailItem {
    * 2b). Moving an action out of sight is `demoted` or dropping `prominent`, never `hidden`.
    */
   demoted?: boolean;
+  /**
+   * (additive, 2.1, D5) The command-bar button's visible text when it is shorter than `label` — "Save" on a
+   * creation form whose label is "Save & create next". `label` stays the accessible name and the words
+   * everywhere else (More, F1, tooltips, this rail); the text must be part of it (label in name). Written
+   * after `onClick`.
+   */
+  text?: string;
 }
 
 export interface ActionRailProps {

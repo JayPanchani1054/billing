@@ -9,7 +9,7 @@
  * for sales / purchase ledgers); everything else sits behind the "More details" line (Ctrl+I, Alt+F1 —
  * remembered per computer profile), which opens by itself when a field inside holds a value or an error.
  * Enter moves field to field (collapsed fields are skipped); Enter on the last field or Ctrl+A saves. Create = "Save & create next"
- * (rapid entry, keeps the group); opened for a result = "Save & return" (nav.pop({ id, name }));
+ * (rapid entry, keeps the group; the button reads "Save", D5); opened for a result = "Save & return" (nav.pop({ id, name }));
  * alter = save and close. Alt+D deletes (the server explains why a ledger cannot be deleted), Alt+H shows
  * the ledger's edit history.
  */
@@ -321,6 +321,8 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
   }, [savedCount]);
 
   const saveLabel = forResult ? 'Save & return' : original ? 'Save' : 'Save & create next';
+  // D5: Creation's filled button reads "Save"; "Save & create next" stays its accessible name.
+  const saveText = forResult || original ? undefined : 'Save';
   const subtitle = original
     ? `${original.groupPath[original.groupPath.length - 1] ?? ''}${original.closingBalance !== 0 ? ` · ${formatDrCr(original.closingBalance)}` : ''}`
     : savedCount > 0
@@ -776,6 +778,7 @@ function LedgerForm({ original, params, groups }: { original: LedgerDetail | nul
           icon: 'save',
           primary: true,
           onClick: () => void submit(),
+          text: saveText,
           disabled: readOnly,
           hint: forResult ? 'Saves and returns to where you were.' : original ? undefined : 'Saves and opens a blank form under the same group.',
         },

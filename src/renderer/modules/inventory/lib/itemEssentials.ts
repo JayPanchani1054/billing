@@ -187,6 +187,14 @@ export function itemSaveLabel(ctx: Pick<ItemFormActionContext, 'existing' | 'for
 }
 
 /**
+ * What the commit button shows (D5): "Save" on Creation, while `itemSaveLabel` stays its accessible name
+ * (label in name); otherwise nothing — the label is the text.
+ */
+export function itemSaveText(ctx: Pick<ItemFormActionContext, 'existing' | 'forResult'>): string | undefined {
+  return ctx.forResult || ctx.existing ? undefined : 'Save';
+}
+
+/**
  * The form's actions: the one filled button (Ctrl+A) and, under More ▾ with their keys, Save & close
  * (Alt+S, Creation only), More details (Ctrl+I / Alt+F1), Price lists (Alt+L), Edit history (Alt+H) and
  * Delete (Alt+D). Only permissions and the record's state hide an action (hidden = no key). Edit history
@@ -196,7 +204,7 @@ export function itemSaveLabel(ctx: Pick<ItemFormActionContext, 'existing' | 'for
 export function itemFormActions(ctx: ItemFormActionContext, h: ItemFormHandlers, history: ActionRailItem): ActionRailItem[] {
   const saveHint = ctx.readOnly ? 'View only' : ctx.forResult ? 'Saves and returns the item' : ctx.existing ? 'Saves the changes and goes back' : 'Saves and opens a blank form for the next item';
   return [
-    { key: 'Ctrl+A', label: itemSaveLabel(ctx), icon: 'save', primary: true, onClick: h.save, disabled: ctx.readOnly, hint: saveHint },
+    { key: 'Ctrl+A', label: itemSaveLabel(ctx), icon: 'save', primary: true, onClick: h.save, text: itemSaveText(ctx), disabled: ctx.readOnly, hint: saveHint },
     { key: 'Alt+S', label: 'Save & close', icon: 'check', onClick: h.saveClose, hidden: ctx.existing || ctx.forResult || ctx.readOnly },
     moreDetailsAction(ctx.detailsOpen, h.toggleDetails),
     { key: 'Alt+L', label: 'Price lists', icon: 'tag', onClick: h.priceLists, hidden: !ctx.existing || !ctx.priceLevels, group: 'more' },

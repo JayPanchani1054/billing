@@ -30,6 +30,11 @@ export interface CommandBarAction {
   demoted?: boolean;
   /** (2.1) A checkable item (More renders it as a menuitemcheckbox). */
   checked?: boolean;
+  /**
+   * (2.1, D5) The button's visible text when shorter than `label` ("Save" for "Save & create next"); `label`
+   * stays its accessible name and the text everywhere else (More, F1, tooltips). Must be part of `label`.
+   */
+  text?: string;
   id?: string;
 }
 
@@ -113,13 +118,13 @@ export interface ShownAction extends CommandBarAction {
 
 /**
  * The identity of a screen's action list for the bars (`useScreenActions` republishes only when it
- * changes): every field that changes what a bar draws or where — including the 2.1 `prominent`, `demoted`
- * and `checked` — but never the handlers (those are looked up fresh on click).
+ * changes): every field that changes what a bar draws or where — including the 2.1 `prominent`, `demoted`,
+ * `checked` and `text` — but never the handlers (those are looked up fresh on click).
  */
 export function actionsSignature(items: readonly ShownAction[]): string {
   return items
     .map((i) =>
-      [i.id ?? '', i.key, i.label, i.disabled ? 1 : 0, i.hidden ? 1 : 0, i.group ?? '', i.icon ?? '', i.hint ?? '', i.primary ? 1 : 0, i.prominent ? 1 : 0, i.demoted ? 1 : 0, i.checked === undefined ? '' : i.checked ? 1 : 0].join('\u0001'),
+      [i.id ?? '', i.key, i.label, i.disabled ? 1 : 0, i.hidden ? 1 : 0, i.group ?? '', i.icon ?? '', i.hint ?? '', i.primary ? 1 : 0, i.prominent ? 1 : 0, i.demoted ? 1 : 0, i.checked === undefined ? '' : i.checked ? 1 : 0, i.text ?? ''].join('\u0001'),
     )
     .join('\u0002');
 }

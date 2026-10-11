@@ -304,6 +304,8 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
 
   const formRef = useEnterAdvance<HTMLDivElement>({ onComplete: () => void submit() });
   const saveLabel = forResult ? 'Save & return' : original ? 'Save' : 'Save & create next';
+  // D5: Creation's filled button reads "Save"; "Save & create next" stays its accessible name.
+  const saveText = forResult || original ? undefined : 'Save';
   // 2.1: the alias and "Display and behaviour" sit behind "More details"; a value chosen there (not the
   // position the books give every group) or an error opens it (lib/formReveal.ts).
   const prefs = useUiPrefs();
@@ -324,7 +326,7 @@ function GroupForm({ original, params }: { original: GroupDetail | null; params:
       dirty={dirty}
       hint={`Enter Next field · Ctrl+A ${saveLabel} · Esc Back`}
       actions={[
-        { key: 'Ctrl+A', label: saveLabel, icon: 'save', primary: true, onClick: () => void submit(), disabled: readOnly },
+        { key: 'Ctrl+A', label: saveLabel, icon: 'save', primary: true, onClick: () => void submit(), text: saveText, disabled: readOnly },
         { key: 'Alt+S', label: 'Save & close', icon: 'check', onClick: () => void submit('close'), hidden: !!original || forResult || readOnly },
         { key: 'Alt+D', label: 'Delete', icon: 'trash', onClick: () => void remove(), hidden: !original || predefined || !canDelete, group: 'danger' },
         {

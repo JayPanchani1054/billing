@@ -176,12 +176,43 @@ describe('command bar selection (2.1)', () => {
 });
 
 /**
+ * SPEC-21 D5: the one filled button of a creation form reads "Save" while its accessible name stays
+ * "Save & create next" (e2e/home.spec.ts finds it by that name). The action's optional `text` is what the
+ * button shows; `label` stays the name everywhere else (More, F1, tooltips, the shortcut bar). The
+ * button is React, so its rendering is read from source.
+ */
+describe('visible text (SPEC-21 D5)', () => {
+  const ui = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/CommandBar.tsx'), 'utf8');
+
+  test('a button shows `text ?? label`, and is named by its label (aria-label only when the two differ)', () => {
+    assert.match(ui, /const text = it\.text \?\? it\.label;/);
+    assert.match(ui, /aria-label=\{text !== it\.label \? it\.label : undefined\}/);
+    assert.match(ui, />\s*\{text\}\s*<\/Button>/);
+    assert.doesNotMatch(ui, />\s*\{it\.label\}\s*<\/Button>/, 'the label is no longer the visible text');
+    // More, the tooltip and the menu's type-ahead keep the label.
+    assert.match(ui, /label: it\.label,\s*textValue: it\.label,/);
+    assert.match(ui, /const base = keyTip\(it\.label, it\.key\);/);
+  });
+
+  test('the layout carries `text` with its action, and the bars republish when it changes', () => {
+    const save = a('Ctrl+A', 'Save & create next', { primary: true, text: 'Save' });
+    const l = layoutCommandBar([save, a('Alt+S', 'Save & close')], GLOBALS, 3);
+    assert.equal(l.primary?.text, 'Save');
+    assert.equal(l.primary?.label, 'Save & create next');
+    assert.deepEqual(l.more.map((m) => m.label), ['Save & close', 'Features', 'Configure', 'Help']);
+    const sig = actionsSignature([a('Ctrl+A', 'Save & create next', { primary: true })]);
+    assert.notEqual(actionsSignature([save]), sig);
+    assert.equal(actionsSignature([{ ...save }]), actionsSignature([save]));
+  });
+});
+
+/**
  * keyConventions.test.ts finds screen actions with `key: …, label: …, <icon|onClick|primary|…>` — a new
  * field written straight after `label` (e.g. `prominent`) would hide an action from it. docs/ARCHITECTURE.md §7: new
  * fields go after `onClick`. This guard fails if that scan suddenly finds far fewer actions.
  */
 describe('convention scan guard', () => {
-  test('the key-convention scan still matches at least 600 actions, and no action puts `prominent` straight after `label`', () => {
+  test('the key-convention scan still matches at least 600 actions, and no action puts `prominent` (or `text`) straight after `label`', () => {
     const modulesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../modules');
     let matched = 0;
     const misplaced: string[] = [];
@@ -193,6 +224,8 @@ describe('convention scan guard', () => {
           const text = fs.readFileSync(p, 'utf8');
           matched += [...text.matchAll(/key:\s*(?:'([^']+)'|([A-Z_]+))\s*,\s*label:\s*([^\n]+?),\s*(?:icon|onClick|primary|disabled|hidden|group|hint)\b/g)].length;
           for (const m of text.matchAll(/key:\s*'[^']+'\s*,\s*label:\s*[^\n]+?,\s*prominent\b/g)) misplaced.push(`${path.relative(modulesDir, p)}: ${m[0]}`);
+          // (2.1) The visible `text` (D5) likewise never sits straight after `label`.
+          for (const m of text.matchAll(/key:\s*'[^']+'\s*,\s*label:\s*(?:'[^'\n]*'|[\w.]+(?:\([^()\n]*\))?)\s*,\s*text\b/g)) misplaced.push(`${path.relative(modulesDir, p)}: ${m[0]}`);
         }
       }
     };

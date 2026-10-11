@@ -60,23 +60,29 @@ export function CommandBar({ primary, buttons, more, className, ...aria }: Comma
     });
   });
 
-  const button = (it: ActionRailItem, isPrimary: boolean) => (
-    <Button
-      key={`${it.id ?? ''}:${it.key}`}
-      size="sm"
-      variant={isPrimary ? 'primary' : 'ghost'}
-      shortcut={it.key.trim() || undefined}
-      data-roving-item=""
-      aria-disabled={it.disabled || undefined}
-      className={cx('bx-cmdbar__btn', it.disabled && 'is-disabled')}
-      title={tip(it)}
-      onClick={() => {
-        if (!it.disabled) it.onClick();
-      }}
-    >
-      {it.label}
-    </Button>
-  );
+  // D5: a button may show shorter words (`text`, "Save") than its label ("Save & create next"), which then
+  // stays its accessible name — the visible words are part of it (label in name).
+  const button = (it: ActionRailItem, isPrimary: boolean) => {
+    const text = it.text ?? it.label;
+    return (
+      <Button
+        key={`${it.id ?? ''}:${it.key}`}
+        size="sm"
+        variant={isPrimary ? 'primary' : 'ghost'}
+        shortcut={it.key.trim() || undefined}
+        data-roving-item=""
+        aria-label={text !== it.label ? it.label : undefined}
+        aria-disabled={it.disabled || undefined}
+        className={cx('bx-cmdbar__btn', it.disabled && 'is-disabled')}
+        title={tip(it)}
+        onClick={() => {
+          if (!it.disabled) it.onClick();
+        }}
+      >
+        {text}
+      </Button>
+    );
+  };
 
   return (
     <div ref={ref} role="toolbar" aria-label={aria['aria-label'] ?? 'Actions'} className={cx('bx-cmdbar', className)} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
