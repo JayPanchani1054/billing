@@ -30,11 +30,16 @@ test('Print Preview: the preview is rendered in one place, so Alt+L never remoun
   assert.match(src, /const toggleEditing = \(\): void => \{\s*if \(editing\) paneRef\.current\?\.focus\(\);/);
 });
 
-test('Customize what prints: a locked part has a lock with an accessible name', () => {
+test('Customize what prints: a locked part says in words that it always prints (and click-to-select still lands on it)', () => {
   const src = code('LayoutEditor.tsx');
-  const locked = /\{row\.locked \? \(([\s\S]*?)\) : \(/.exec(src);
-  assert.ok(locked, 'the locked-row branch');
-  assert.match(locked[1], /<Icon name="lock"[^>]*\blabel="[^"]+"/);
+  // 2.1: the locked parts of a group collapse to one line "Always printed: …" (2.0: a lock icon per row,
+  // labelled "Always printed"); the words are read as they are, and each part keeps its focus target.
+  const line = /function AlwaysPrinted\([\s\S]*?\n\}\n/.exec(src);
+  assert.ok(line, 'the "Always printed" line');
+  assert.match(line[0], /\{'Always printed: '\}/);
+  assert.match(line[0], /<span id=\{`\$\{partSwitchId\(row\.id\)\}-row`\} tabIndex=\{-1\}/);
+  assert.match(src, /g\.rows\s*\.filter\(\(r\) => !r\.locked\)/, 'locked parts get no switch');
+  assert.match(src, /document\.getElementById\(partSwitchId\(pick\.id\)\) \?\? document\.getElementById\(`\$\{partSwitchId\(pick\.id\)\}-row`\)/);
 });
 
 test('Invoice Printing: closing "Customize layout…" (Alt+L or Done) puts the focus on the settings form, not <body>', () => {

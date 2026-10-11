@@ -11,6 +11,12 @@
  * Manage). Parts and texts an Invoice Printing option owns go through the preview overrides and are saved
  * to that option (lib/layoutParts.ts). Print, PDF and Share print exactly the preview. Print after saving
  * (`autoPrint`) uses the saved layouts only.
+ *
+ * 2.1 (SPEC-21 §1.11): the title row reads "Print Preview  Sales 33 · Asha Retail  ‹ ›" (the context run,
+ * the state words with at most one coloured, and the PgUp / PgDn buttons) with Print, Save as PDF, Share
+ * and More; Customize layout (Alt+L), the printer ("Printer: Ask every time…", no key), template, paper,
+ * copies and Open voucher are under More. Template · Paper · Copies sit on one line; "Before you print" is
+ * one line; every key works as in 2.0.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InvoiceTemplate } from '../../../shared/settings.ts';
@@ -28,8 +34,9 @@ import {
 } from '../../../shared/printLayout.ts';
 import { EXPORT_DENIED_HINT_TEXT } from './lib/share.ts';
 import { Screen, useApiMutation, useApiQuery, useCan, useCompany, useConfirm, useNav, userMessage, type ScreenProps } from '../../app/index.ts';
-import { Badge, Banner, Button, DropdownMenu, EmptyState, Grid, Inline, Stack, useDebouncedValue, useToast } from '../../ui/index.ts';
-import { PreviewPane, PrintControls, WarningsBanner } from './components.tsx';
+import { Badge, Banner, Button, DropdownMenu, EmptyState, Grid, IconButton, Inline, keyTip, NO_KEY, Stack, useDebouncedValue, useToast } from '../../ui/index.ts';
+import { PreviewPane, PrintControls, PrinterDialog, WarningsBanner } from './components.tsx';
+import { previewContext, previewStateWords, printerItemLabel, printerName } from './lib/calm.ts';
 import { LayoutEditor } from './LayoutEditor.tsx';
 import { ShareDialog } from './ShareDialog.tsx';
 import { isRoll, pageSizeFor, resolveCopies, resolveTemplate, templateForPageSize, toggleCopy } from './lib/layout.ts';
@@ -71,6 +78,13 @@ export interface PrintVoucherParams {
 const TEMPLATES: readonly InvoiceTemplate[] = ['modern', 'classic', 'compact'];
 const SIZES: readonly PrintPageSize[] = PRINT_PAGE_SIZES;
 const NO_EDIT: PerPrintEdit = Object.freeze(emptyEdit()) as PerPrintEdit;
+
+/** The context run's own layout (the module has no stylesheet): one row, the words shrink first. */
+const CONTEXT_RUN = { display: 'inline-flex', alignItems: 'center', maxWidth: '100%', minWidth: 0, verticalAlign: 'middle' } as const;
+const KEEP = { flexShrink: 0, whiteSpace: 'pre' } as const;
+const NAV_BUTTONS = { display: 'inline-flex', flexShrink: 0, gap: 2, marginLeft: 8 } as const;
+/** The run clips outside its box: the focus ring of ‹ › is drawn inside the button (as the period token's). */
+const INSET_RING = { outlineOffset: -2 } as const;
 
 /** This print's layout of a voucher type, remembered for the session (a convenience: never required). */
 function readSessionEdit(companyId: string, vtId: number): PerPrintEdit | null {
@@ -335,15 +349,14 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
   const editorFooter = (
     <Stack gap={2}>
       <Inline gap={2}>
-        <Button variant="primary" size="sm" icon="save" disabled={!unsaved || !canAlterTypes || saving} onClick={() => void saveForType()}>
+        <Button size="sm" disabled={!unsaved || !canAlterTypes || saving} onClick={() => void saveForType()}>
           {`Save for ${vtName}`}
         </Button>
-        <Button size="sm" disabled={!unsaved || !canManage || saving} onClick={() => void saveForAll()}>
+        <Button size="sm" variant="ghost" disabled={!unsaved || !canManage || saving} onClick={() => void saveForAll()}>
           Save for all documents
         </Button>
         <DropdownMenu
           label="Reset"
-          icon="undo"
           size="sm"
           variant="ghost"
           onAction={(k) => void reset(k)}
@@ -358,19 +371,23 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
     </Stack>
   );
 
+  // One line: the 2.0 title verbatim, the question, and its two answers as links.
   const offerNotice = offer ? (
-    <Banner tone="info" title="Earlier changes in this session">
-      <Stack gap={2}>
-        <span>{`You changed what prints on a ${vtName} document earlier. Apply the same changes to this print?`}</span>
+    <Banner
+      tone="info"
+      title="Earlier changes in this session"
+      action={
         <Inline gap={2}>
-          <Button size="sm" onClick={() => updateEdit(offer)}>
+          <Button size="sm" variant="ghost" onClick={() => updateEdit(offer)}>
             Apply them
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setOffer(null)}>
             Not now
           </Button>
         </Inline>
-      </Stack>
+      }
+    >
+      {`Repeat them on this ${vtName} print?`}
     </Banner>
   ) : null;
 
@@ -388,33 +405,53 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
     />
   ) : null;
 
+  // ── (2.1) The title row's context run: "Sales 33 · Asha Retail", the state words, then ‹ › (PgUp / PgDn) ──
+  // The run clips what overflows it (ui/PageHeader: `overflow: hidden`), so the parts are laid out here:
+  // only the words ellipsize; the state words and ‹ › always stay in view. The ‹ › tooltips are native
+  // titles (a tooltip box would be cut off by the run) and their focus ring is drawn inside the button.
+  const stateWords = doc ? previewStateWords({ cancelled: doc.status.cancelled, optional: doc.status.optional, einvoice: !!doc.einvoice, customized: unsaved }) : [];
+  const context = doc ? (
+    <span style={CONTEXT_RUN}>
+      <span className="bx-truncate">{previewContext(doc)}</span>
+      {stateWords.map((w) => (
+        <span key={w.text} style={KEEP}>
+          <span aria-hidden="true">{' · '}</span>
+          {w.tone ? <Badge tone={w.tone}>{w.text}</Badge> : w.text}
+        </span>
+      ))}
+      <span style={NAV_BUTTONS}>
+        <IconButton icon="chevron-left" size="sm" aria-label="Previous voucher" tooltip={false} title={keyTip('Previous voucher', 'PageUp')} style={INSET_RING} aria-keyshortcuts="PageUp" disabled={prevId === null} onClick={() => go(prevId)} />
+        <IconButton icon="chevron-right" size="sm" aria-label="Next voucher" tooltip={false} title={keyTip('Next voucher', 'PageDown')} style={INSET_RING} aria-keyshortcuts="PageDown" disabled={nextId === null} onClick={() => go(nextId)} />
+      </span>
+    </span>
+  ) : undefined;
+  const [choosingPrinter, setChoosingPrinter] = useState(false);
+
   return (
     <Screen
       title="Print Preview"
-      subtitle={doc ? `${doc.title}${doc.number ? ` ${doc.number}` : ''}${doc.party?.name ? ` · ${doc.party.name}` : ''}` : undefined}
-      icon="print"
-      meta={
-        doc ? (
-          <Inline gap={2}>
-            {doc.status.cancelled ? <Badge tone="danger">Cancelled</Badge> : null}
-            {doc.status.optional ? <Badge tone="warning">Optional</Badge> : null}
-            {doc.einvoice ? <Badge tone="success">e-Invoice</Badge> : null}
-            {unsaved ? <Badge tone="info">Customized for this print</Badge> : null}
-          </Inline>
-        ) : undefined
-      }
+      subtitle={context}
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Alt+P Print · Alt+E Save PDF · Alt+W Share · Alt+L Customize · PgUp/PgDn Previous/Next Voucher · Alt+T Template · Alt+S Paper · Ctrl+1/2/3 Copies · Esc Back"
       actions={[
-        { key: 'Alt+P', label: 'Print', icon: 'print', primary: true, onClick: () => void actions.print(), disabled: !doc || actions.busy !== null, hint: 'Opens the printer dialog' },
-        { key: 'Alt+E', label: 'Save as PDF', icon: 'download', onClick: () => void actions.savePdf(), disabled: !doc || actions.busy !== null },
+        { key: 'Alt+P', label: 'Print', icon: 'print', primary: true, onClick: () => void actions.print(), disabled: !doc || actions.busy !== null, hint: printer.printer ? `Prints on ${printerName(printer.printer, printer.printers)}` : 'Opens the printer dialog' },
+        // `prominent` (both): the wireframe's order Print · Save as PDF · Share (the convention order is Share first).
+        {
+          key: 'Alt+E',
+          label: 'Save as PDF',
+          icon: 'download',
+          onClick: () => void actions.savePdf(),
+          prominent: true,
+          disabled: !doc || actions.busy !== null,
+        },
         {
           key: 'Alt+W',
-          label: 'Share (e-mail / WhatsApp)',
+          label: 'Share',
           icon: 'mail',
           onClick: () => setSharing(true),
+          prominent: true,
           disabled: !doc || !ready || !canExport,
           hint: canExport ? 'Sends the PDF by e-mail or WhatsApp' : EXPORT_DENIED_HINT_TEXT,
         },
@@ -429,13 +466,13 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
           disabled: !doc,
           group: 'layout',
           hint: 'Show or hide any part and change any text — for this print, or save it',
-          prominent: true,
         },
         { key: 'Alt+T', label: 'Change template', icon: 'layers', onClick: () => setTemplate(cycle(TEMPLATES, template)), disabled: !doc, group: 'layout' },
         { key: 'Alt+S', label: 'Change paper size', icon: 'file', onClick: () => setPageSize(cycle(SIZES, pageSize)), disabled: !doc, group: 'layout' },
         { key: 'Ctrl+1', label: 'Original copy', onClick: () => toggle(PRINT_COPIES[0]), disabled: !doc, group: 'copies' },
         { key: 'Ctrl+2', label: 'Duplicate copy', onClick: () => toggle(PRINT_COPIES[1]), disabled: !doc, group: 'copies' },
         { key: 'Ctrl+3', label: 'Triplicate copy', onClick: () => toggle(PRINT_COPIES[2]), disabled: !doc, group: 'copies' },
+        { key: NO_KEY, label: printerItemLabel(printer.printer, printer.printers, isRoll(pageSize)), onClick: () => setChoosingPrinter(true), disabled: !doc, group: 'copies', hint: 'Print directly to a printer, without the printer dialog' },
       ]}
     >
       {!validId ? (
@@ -450,7 +487,6 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
             copies={copies}
             onCopies={setCopiesChoice}
             copyLabels={doc.copyLabels}
-            printer={printer}
           />
           <WarningsBanner warnings={layoutLines.length > 0 ? [...doc.warnings, ...layoutLines] : doc.warnings} />
           {/* One place for the preview, panel open or not: moved between two parents it would be remounted on
@@ -471,6 +507,7 @@ export function PrintVoucherScreen({ params }: ScreenProps<PrintVoucherParams>) 
               />
             ) : null}
           </Grid>
+          {choosingPrinter ? <PrinterDialog printer={printer} roll={isRoll(pageSize)} onClose={() => setChoosingPrinter(false)} /> : null}
           {sharing !== null ? (
             <ShareDialog subject={{ voucherId: doc.id }} render={actions.render} onClose={() => setSharing(null)} channel={sharing === true ? undefined : sharing} />
           ) : null}

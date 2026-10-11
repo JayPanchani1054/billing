@@ -11,11 +11,20 @@
  *
  * Clicking a part in the preview opens its group and focuses its switch (`pick`). Esc in the panel returns
  * focus to the preview (`onEscape`); a second Esc leaves the screen as before. Texts are plain text.
+ *
+ * 2.1 (SPEC-21 §1.11): the title stays; the one-line description is for screen readers only (the panel's
+ * `aria-describedby`); group captions drop the "(n of m shown)" count — "Header · 2 hidden" only when
+ * something is hidden; a row's notes (GST rule, where the value comes from, "nothing to print") show for the
+ * row last focused by keyboard or click-to-select, or clicked, and are otherwise visually hidden (still its
+ * `aria-describedby`) — a mouse press never moves them (lib/calm.ts `activeNoteRow`), so no row slides
+ * under the pointer between press and release; the parts that always print collapse to one line per group,
+ * "Always printed: Invoice no., Date, …".
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import type { PrintPartId } from '../../../shared/printLayout.ts';
-import { Badge, Banner, Button, Card, Field, Icon, IconButton, Inline, ScrollArea, Stack, Switch, Tabs, TextArea, TextInput } from '../../ui/index.ts';
+import { Badge, Banner, Button, Card, Field, IconButton, Inline, ScrollArea, Stack, Switch, Tabs, TextArea, TextInput } from '../../ui/index.ts';
+import { activeNoteRow, groupCaption, type NoteEvent } from './lib/calm.ts';
 import type { EditorModel, EditorPartRow, EditorTextRow } from './lib/layoutParts.ts';
 
 /** DOM id of a part's switch (click-to-select focuses it). */
@@ -33,7 +42,7 @@ export interface LayoutEditorProps {
   pick: { id: PrintPartId; seq: number } | null;
   /** Esc inside the panel: give focus back to the preview. */
   onEscape: () => void;
-  /** One line under the title (which documents the changes apply to). */
+  /** Which documents the changes apply to (2.1: read to screen readers with the panel; not shown). */
   description: ReactNode;
   /** Above the tabs (e.g. "apply the changes made earlier in this session"). */
   notice?: ReactNode;
@@ -48,6 +57,28 @@ export function LayoutEditor({ model, warnings, onPart, onText, pick, onEscape, 
   const [tab, setTab] = useState<string>('show');
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(model.groups.slice(0, 1).map((g) => g.id)));
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const descId = useId();
+  // The row whose notes show, and whether a pointer button is down (a press must not move the rows).
+  const [noteRow, setNoteRow] = useState<string | null>(null);
+  const pointerDown = useRef(false);
+  const onNote = (e: NoteEvent): void => setNoteRow((current) => activeNoteRow(current, e));
+  useEffect(() => {
+    const root = rootRef.current;
+    const down = (): void => {
+      pointerDown.current = true;
+    };
+    const up = (): void => {
+      pointerDown.current = false;
+    };
+    root?.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    return () => {
+      root?.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+    };
+  }, []);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -95,16 +126,28 @@ export function LayoutEditor({ model, warnings, onPart, onText, pick, onEscape, 
       {model.groups.map((g) => {
         const isOpen = open.has(g.id);
         const bodyId = `bp-layout-group-${g.id}`;
+        const locked = g.rows.filter((r) => r.locked);
         return (
           <Stack key={g.id} gap={2}>
             <Button variant="ghost" size="sm" icon={isOpen ? 'chevron-down' : 'chevron-right'} aria-expanded={isOpen} aria-controls={bodyId} onClick={() => toggleGroup(g.id)}>
-              {`${g.label} (${g.shownCount} of ${g.rows.length} shown)`}
+              {groupCaption(g.label, g.rows)}
             </Button>
             {isOpen ? (
               <Stack gap={2} id={bodyId}>
-                {g.rows.map((row) => (
-                  <PartRow key={row.id} row={row} readOnly={readOnly} onPart={onPart} />
-                ))}
+                {g.rows
+                  .filter((r) => !r.locked)
+                  .map((row) => (
+                    <PartRow
+                      key={row.id}
+                      row={row}
+                      readOnly={readOnly}
+                      onPart={onPart}
+                      notesShown={readOnly || noteRow === row.id}
+                      onFocusRow={() => onNote({ type: 'focus', row: row.id, pointerDown: pointerDown.current })}
+                      onClickRow={() => onNote({ type: 'click', row: row.id })}
+                    />
+                  ))}
+                {locked.length > 0 ? <AlwaysPrinted rows={locked} /> : null}
               </Stack>
             ) : null}
           </Stack>
@@ -122,15 +165,25 @@ export function LayoutEditor({ model, warnings, onPart, onText, pick, onEscape, 
   );
 
   return (
-    <aside aria-label="Customize what prints" style={{ position: 'sticky', top: 0 }}>
-      <Card title="Customize what prints" subtitle={description} padding="sm">
-        <div ref={rootRef} onKeyDown={onKeyDown}>
+    <aside aria-label="Customize what prints" aria-describedby={descId} style={{ position: 'sticky', top: 0 }}>
+      <Card title="Customize what prints" padding="sm">
+        <p id={descId} className="bx-sr-only">
+          {description}
+        </p>
+        <div
+          ref={rootRef}
+          onKeyDown={onKeyDown}
+          onBlur={(e) => {
+            // Focus left the panel (Esc to the preview, a click on the sheet): no row's notes stay out.
+            const to = e.relatedTarget;
+            if (to instanceof Node && !e.currentTarget.contains(to)) onNote({ type: 'leave' });
+          }}
+        >
           <Stack gap={3}>
             {notice}
-            <ScrollArea maxHeight="calc(100vh - 340px)" shadows>
+            <ScrollArea maxHeight="calc(100vh - 300px)" shadows>
               <Tabs
                 aria-label="Customize"
-                variant="pill"
                 value={tab}
                 onChange={setTab}
                 items={[
@@ -160,38 +213,81 @@ export function LayoutEditor({ model, warnings, onPart, onText, pick, onEscape, 
   );
 }
 
-function PartRow({ row, readOnly, onPart }: { row: EditorPartRow; readOnly: boolean; onPart: (row: EditorPartRow, shown: boolean) => void }) {
-  const noteId = useId();
+/** The notes of a part: its GST rule (amber "Required: …" when hidden), where its value comes from, and "nothing to print". */
+function partNotes(row: EditorPartRow): ReactNode[] {
   const notes: ReactNode[] = [];
   if (row.rule) {
     notes.push(
-      <Badge key="rule" size="sm" tone={row.shown ? 'neutral' : 'warning'} icon={row.shown ? undefined : 'alert'}>
+      <Badge key="rule" size="sm" tone={row.shown ? 'neutral' : 'warning'}>
         {row.shown ? row.rule : `Required: ${row.rule}`}
       </Badge>,
     );
   }
   if (row.sourceText) notes.push(<span key="source">{row.sourceText}</span>);
   if (row.empty) notes.push(<span key="empty">(nothing to print on this document)</span>);
+  return notes;
+}
+
+/** A part of the "Always printed" line in words — its tooltip and what a screen reader hears on it. */
+function lockedPartText(row: EditorPartRow): string {
+  return ['Always printed', row.rule, row.sourceText, row.empty ? 'nothing to print on this document' : ''].filter(Boolean).join(' · ');
+}
+
+/**
+ * The parts of a group that always print, on one line. Each name keeps the id click-to-select focuses
+ * (`<switch id>-row`), so a click on a locked part in the preview still lands here; its notes are its
+ * tooltip and description.
+ */
+function AlwaysPrinted({ rows }: { rows: readonly EditorPartRow[] }) {
   return (
-    <Stack gap={1}>
-      {row.locked ? (
-        <Inline gap={2} id={`${partSwitchId(row.id)}-row`} tabIndex={-1} aria-describedby={notes.length > 0 ? noteId : undefined}>
-          <Icon name="lock" size="sm" label="Always printed" />
-          <span>{row.label}</span>
-        </Inline>
-      ) : (
-        <Switch
-          id={partSwitchId(row.id)}
-          size="sm"
-          checked={row.shown}
-          label={row.label}
-          disabled={readOnly}
-          aria-describedby={notes.length > 0 ? noteId : undefined}
-          onChange={(v) => onPart(row, v)}
-        />
-      )}
+    <p className="bx-muted" style={{ margin: 0 }}>
+      {'Always printed: '}
+      {rows.map((row, i) => (
+        <Fragment key={row.id}>
+          {i > 0 ? ', ' : null}
+          <span id={`${partSwitchId(row.id)}-row`} tabIndex={-1} title={lockedPartText(row)}>
+            {row.label}
+          </span>
+        </Fragment>
+      ))}
+    </p>
+  );
+}
+
+/**
+ * A part's switch; its notes show when `notesShown` (the editor's notes row, or always when read-only — a
+ * disabled switch cannot take the focus) and are visually hidden otherwise, still its description.
+ */
+function PartRow({
+  row,
+  readOnly,
+  onPart,
+  notesShown,
+  onFocusRow,
+  onClickRow,
+}: {
+  row: EditorPartRow;
+  readOnly: boolean;
+  onPart: (row: EditorPartRow, shown: boolean) => void;
+  notesShown: boolean;
+  onFocusRow: () => void;
+  onClickRow: () => void;
+}) {
+  const noteId = useId();
+  const notes = partNotes(row);
+  return (
+    <Stack gap={1} onFocus={onFocusRow} onClick={onClickRow}>
+      <Switch
+        id={partSwitchId(row.id)}
+        size="sm"
+        checked={row.shown}
+        label={row.label}
+        disabled={readOnly}
+        aria-describedby={notes.length > 0 ? noteId : undefined}
+        onChange={(v) => onPart(row, v)}
+      />
       {notes.length > 0 ? (
-        <Inline gap={2} id={noteId} className="bx-muted">
+        <Inline gap={2} id={noteId} className={notesShown ? 'bx-muted' : 'bx-muted bx-sr-only'}>
           {notes}
         </Inline>
       ) : null}

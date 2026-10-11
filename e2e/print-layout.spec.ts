@@ -5,7 +5,7 @@
 //   account number leaves the preview) → Esc, Esc and reopen → shown again, the earlier change offered
 //   → apply it and "Save for Sales" → reopen and batch print (Print Vouchers) hide it too → click-to-select
 //   a part in the preview → hide HSN/SAC column and summary: the Rule 46(g) warning, printing not blocked
-//   → Reset ▾ › Saved for Sales → bank details back.
+//   → Reset ▾ › Saved for Sales → bank details back → (2.1) More › "Printer: …" opens the printer choice.
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { api, firstLaunchCreateCompany, lit, localToday, openFromGateway, screen, stubNativeDialogs, toGateway, topScreen } from './flows.ts';
@@ -184,6 +184,24 @@ test('click-to-select, the Rule 46(g) warning when HSN is hidden, and Reset › 
   await confirm.getByRole('button', { name: 'Reset', exact: true }).click();
   await expect(page.getByText('Sales prints as set for all documents').first()).toBeVisible();
   await expect(preview.locator('.bp-docs')).toContainText(ACCOUNT_NO);
+  await toGateway(page);
+});
+
+// 2.1 (SPEC-21 §1.11): the printer for direct printing moved from the controls line to More › "Printer: …".
+test('More › "Printer: Ask every time…" chooses the printer; Esc closes it', async () => {
+  const preview = await openPreview();
+  await expect(preview.getByLabel('Printer', { exact: true })).toHaveCount(0); // not on the controls line any more
+  const actions = page.getByRole('toolbar', { name: 'Actions' });
+  await actions.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menu', { name: 'More actions' }).getByRole('menuitem', { name: /^Printer: Ask every time/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Printer' });
+  await expect(dialog).toBeVisible();
+  const select = dialog.getByLabel('Printer', { exact: true });
+  await expect(select).toHaveValue('');
+  await expect(select.locator('option').first()).toHaveText('Ask every time (printer dialog)');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(preview).toBeVisible();
   await toGateway(page);
   expect(pageErrors).toEqual([]);
 });

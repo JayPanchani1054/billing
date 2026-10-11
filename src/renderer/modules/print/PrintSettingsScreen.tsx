@@ -10,6 +10,9 @@
  * (2.0) "Customize layout…" (Alt+L) opens the print preview's layout editor at company level over this
  * preview: what it changes is part of the draft (`invoice.layout` and the Invoice Printing options that
  * own a part or text) and is saved with Ctrl+A like the rest of the form.
+ *
+ * 2.1 (SPEC-21 D5, D23): one Save — the title row's (Ctrl+A); the layout panel keeps Reset layout and Done
+ * only. No subtitle; the groups' descriptions became the hints of their first field (shown on focus).
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { emptyPrintLayout, layoutWarnings, resolvePrintLayout, type PrintPartId } from '../../../shared/printLayout.ts';
@@ -73,6 +76,9 @@ const ROLL_OPTIONS: ReadonlyArray<{ value: ReceiptRollWidth; label: string }> = 
 
 type ShareTexts = CompanyConfig['share'];
 
+/** The share texts' placeholders (the hint of the e-mail subject; 2.0 printed it under the group's legend). */
+const SHARE_PLACEHOLDERS_HINT = 'Used by Share (Alt+W) on invoices, vouchers and statements. Placeholders: {document} {number} {date} {amount} {party} {company} {period}.';
+
 /** Example values for the share text preview. */
 const SHARE_EXAMPLE = { document: 'Tax Invoice', number: 'INV/12', date: '09-Oct-2026', amount: '1,180.00', party: 'Sharma Traders', period: '' } as const;
 
@@ -84,7 +90,7 @@ const COPY_TEXT: Readonly<Record<PrintCopy, string>> = {
 
 export function PrintSettingsScreen() {
   const q = useApiQuery('company.config.get', {});
-  if (!q.data) return <Screen title="Invoice Printing" icon="print" loading={q.loading} error={q.error} onRetry={() => void q.refetch()} />;
+  if (!q.data) return <Screen title="Invoice Printing" loading={q.loading} error={q.error} onRetry={() => void q.refetch()} />;
   return <SettingsForm key={JSON.stringify([q.data.invoice, q.data.share])} saved={q.data.invoice} savedShare={q.data.share} />;
 }
 
@@ -211,8 +217,6 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
   return (
     <Screen
       title="Invoice Printing"
-      subtitle="How invoices and vouchers look on paper"
-      icon="print"
       dirty={dirty}
       hint="Enter Next field · Ctrl+A Save · Alt+P Print this preview · Alt+E Save as PDF · Alt+L Customize layout · Esc Back"
       actions={[
@@ -260,9 +264,6 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
             description="Changes apply to every document unless its voucher type says otherwise. Ctrl+A saves them with the settings."
             footer={
               <Inline gap={2}>
-                <Button size="sm" variant="primary" icon="save" disabled={readOnly || !dirty || save.pending} onClick={() => void submit()}>
-                  Save
-                </Button>
                 <Button size="sm" disabled={readOnly || (layout.hide.length + layout.show.length + layout.text.length === 0)} onClick={() => patch({ layout: emptyPrintLayout() })}>
                   Reset layout
                 </Button>
@@ -307,7 +308,7 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
               />
             </FieldGroup>
 
-            <FieldGroup legend="Payment details" description="Printed on sales invoices so customers know how to pay.">
+            <FieldGroup legend="Payment details">
               <Switch label="Show bank account details" checked={draft.showBankDetails} disabled={readOnly} onChange={(v) => patch({ showBankDetails: v })} />
               <Field
                 label="Bank account"
@@ -317,7 +318,7 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
                     ? 'Choose the bank ledger whose account number and IFSC should print.'
                     : chosenBank && !chosenBank.accountNo
                       ? 'This bank ledger has no account number yet — add it in the ledger.'
-                      : undefined
+                      : 'Printed on sales invoices so customers know how to pay.'
                 }
               >
                 <Select
@@ -345,11 +346,12 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
               </Field>
             </FieldGroup>
 
-            <FieldGroup
-              legend="Sharing by e-mail and WhatsApp"
-              description="Used by Share (Alt+W) on invoices, vouchers and statements. Placeholders: {document} {number} {date} {amount} {party} {company} {period}."
-            >
-              <Field label="E-mail subject" error={showErrors ? shareErrs.emailSubject : undefined} hint={`e.g. ${fillShareTemplate(share.emailSubject, { ...SHARE_EXAMPLE, company: doc?.company.displayName ?? 'Your company' })}`}>
+            <FieldGroup legend="Sharing by e-mail and WhatsApp">
+              <Field
+                label="E-mail subject"
+                error={showErrors ? shareErrs.emailSubject : undefined}
+                hint={`e.g. ${fillShareTemplate(share.emailSubject, { ...SHARE_EXAMPLE, company: doc?.company.displayName ?? 'Your company' })}. ${SHARE_PLACEHOLDERS_HINT}`}
+              >
                 <TextInput value={share.emailSubject} readOnly={readOnly} maxLength={200} onChange={(e) => setShare((x) => ({ ...x, emailSubject: e.target.value }))} />
               </Field>
               <Field label="E-mail text" error={showErrors ? shareErrs.emailBody : undefined} hint="Ctrl+Enter moves to the next field.">
@@ -362,10 +364,7 @@ function SettingsForm({ saved, savedShare }: { saved: InvoicePrintOptions; saved
           </Stack>
         </form>
         <Stack gap={2}>
-          <Inline gap={2}>
-            <strong>Preview</strong>
-            <span>{doc ? (doc.sample ? 'Sample invoice (no sales yet)' : `${doc.title} ${doc.number ?? ''}`) : 'Loading…'}</span>
-          </Inline>
+          <span className="bx-muted">{doc ? (doc.sample ? 'Preview: a sample invoice (no sales yet)' : `Preview: ${doc.title} ${doc.number ?? ''}`.trim()) : 'Loading the preview…'}</span>
           {real.error || sample.error ? <Banner tone="danger" title="Preview unavailable">{userMessage(real.error ?? sample.error)}</Banner> : null}
           {doc ? (
             <PreviewPane

@@ -5,6 +5,10 @@
  *    type); hidden statutory particulars are listed with the other warnings.
  *  - Without: pick vouchers of the period (Alt+F2) by kind; Space / Enter ticks a row, Alt+A ticks
  *    all, Ctrl+A previews the ticked vouchers.
+ *
+ * 2.1 (SPEC-21 §1.11, D3): Template · Paper · Copies on one line, the printer under More ("Printer: …",
+ * no key); "Before you print" is one line with one entry per warning text ("Sales 33, Sales 34: …"); the
+ * picker's period is the context run's token (click or Alt+F2), not a second button.
  */
 import { useMemo, useRef, useState } from 'react';
 import type { InvoiceTemplate } from '../../../shared/settings.ts';
@@ -13,8 +17,9 @@ import { PRINT_BATCH_MAX, PRINT_COPIES, PRINT_PAGE_SIZES } from '../../../shared
 import type { VoucherListRow } from '../../../shared/types/vouchers.ts';
 import { layoutWarnings } from '../../../shared/printLayout.ts';
 import { Screen, useApiQuery, useNav, usePeriod, type ScreenProps } from '../../app/index.ts';
-import { Badge, Button, Checkbox, DataTable, EmptyState, Inline, Select, Stack, type Column } from '../../ui/index.ts';
-import { PreviewPane, PrintControls, WarningsBanner } from './components.tsx';
+import { Badge, Checkbox, DataTable, EmptyState, Inline, NO_KEY, Select, Stack, type Column } from '../../ui/index.ts';
+import { PreviewPane, PrintControls, PrinterDialog, WarningsBanner } from './components.tsx';
+import { mergeDocWarnings, printerItemLabel } from './lib/calm.ts';
 import { isRoll, pageSizeFor, resolveCopies, templateForPageSize, toggleCopy } from './lib/layout.ts';
 import { layoutDoc, pageNumbersShown, resolveDocLayout } from './lib/layoutParts.ts';
 import { BATCH_KINDS, batchKind, cycle, orderedSelection, toggleAll, toggleId } from './lib/screenState.ts';
@@ -60,12 +65,14 @@ function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate
     setTemplateChoice(templateForPageSize(template, s, first?.defaultTemplate ?? 'modern'));
   };
   const toggle = (c: PrintCopy): void => setCopiesChoice(toggleCopy(shownCopies, c));
+  const [choosingPrinter, setChoosingPrinter] = useState(false);
 
   const warnings = useMemo(() => {
     const out: string[] = [];
     const missing = q.data?.notFound.length ?? 0;
     if (missing > 0) out.push(`${missing} voucher${missing === 1 ? ' was' : 's were'} deleted since the list was made and will not print.`);
-    for (const d of docs ?? []) for (const w of [...d.warnings, ...layoutWarnings(d, resolveDocLayout(d))]) out.push(`${d.title} ${d.number ?? ''}: ${w}`);
+    // One entry per warning text, naming the documents it applies to (one line, not one per document).
+    out.push(...mergeDocWarnings((docs ?? []).map((d) => ({ label: `${d.title} ${d.number ?? ''}`, warnings: [...d.warnings, ...layoutWarnings(d, resolveDocLayout(d))] }))));
     return out;
   }, [docs, q.data]);
 
@@ -73,7 +80,6 @@ function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate
     <Screen
       title="Print Vouchers"
       subtitle={docs ? `${docs.length} document${docs.length === 1 ? '' : 's'} · ${pages} page set${pages === 1 ? '' : 's'}` : undefined}
-      icon="print"
       loading={q.loading}
       error={q.error}
       onRetry={() => void q.refetch()}
@@ -86,6 +92,7 @@ function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate
         { key: 'Ctrl+1', label: 'Original copy', onClick: () => toggle(PRINT_COPIES[0]), group: 'copies' },
         { key: 'Ctrl+2', label: 'Duplicate copy', onClick: () => toggle(PRINT_COPIES[1]), group: 'copies' },
         { key: 'Ctrl+3', label: 'Triplicate copy', onClick: () => toggle(PRINT_COPIES[2]), group: 'copies' },
+        { key: NO_KEY, label: printerItemLabel(printer.printer, printer.printers, isRoll(pageSize)), onClick: () => setChoosingPrinter(true), disabled: !docs?.length, group: 'copies', hint: 'Print directly to a printer, without the printer dialog' },
       ]}
     >
       {docs && docs.length === 0 ? (
@@ -100,9 +107,9 @@ function BatchPreview({ ids, initialTemplate }: { ids: number[]; initialTemplate
             copies={shownCopies}
             onCopies={setCopiesChoice}
             copyLabels={{ original: 'Original', duplicate: 'Duplicate', triplicate: 'Triplicate' }}
-            printer={printer}
           />
           <WarningsBanner warnings={warnings} />
+          {choosingPrinter ? <PrinterDialog printer={printer} roll={isRoll(pageSize)} onClose={() => setChoosingPrinter(false)} /> : null}
           <PreviewPane items={items} template={template} pageSize={pageSize} rootRef={rootRef} preparing={!ready} label="Print preview of the selected vouchers" />
         </Stack>
       ) : null}
@@ -162,8 +169,14 @@ function BatchPicker() {
   return (
     <Screen
       title="Print Vouchers"
-      subtitle={`${label} · ${chosen.length} selected`}
-      icon="print"
+      subtitle={
+        <>
+          <button type="button" className="bx-report__token" onClick={openDialog} title="Change period · Alt+F2" aria-keyshortcuts="Alt+F2">
+            {label}
+          </button>
+          {` · ${chosen.length} selected`}
+        </>
+      }
       error={q.error}
       onRetry={() => void q.refetch()}
       hint="Space or Enter Tick · Alt+A Tick all · Ctrl+A Preview & print · Alt+F2 Period"
@@ -171,11 +184,6 @@ function BatchPicker() {
         { key: 'Ctrl+A', label: 'Preview & print', icon: 'print', primary: true, onClick: preview, disabled: chosen.length === 0, hint: 'Tick vouchers first' },
         { key: 'Alt+A', label: chosen.length === ids.length && ids.length > 0 ? 'Untick all' : 'Tick all', icon: 'check', onClick: () => setSelected((s) => toggleAll(s, ids)), disabled: ids.length === 0 },
       ]}
-      toolbar={
-        <Button icon="calendar" onClick={openDialog}>
-          {label}
-        </Button>
-      }
     >
       <Stack gap={3}>
         <Inline gap={3} align="end">

@@ -1,13 +1,15 @@
 /**
- * Screen pieces shared by the print screens: the paper preview and the template / page size /
- * copies controls.
+ * Screen pieces shared by the print screens: the paper preview, the template / page size / copies
+ * controls (one line), the printer dialog and the one-line "Before you print" banner.
  */
+import { useEffect, useId } from 'react';
 import type { MouseEvent as ReactMouseEvent, Ref } from 'react';
 import type { InvoiceTemplate } from '../../../shared/settings.ts';
 import type { PrintCopy, PrintCopyLabels, PrintPageSize } from '../../../shared/types/print.ts';
 import { PRINT_COPIES, PRINT_PAGE_SIZES } from '../../../shared/types/print.ts';
 import { isPrintPartId, type PrintPartId } from '../../../shared/printLayout.ts';
-import { Banner, Checkbox, Field, Inline, ScrollArea, SegmentedControl, Select, Spinner } from '../../ui/index.ts';
+import { Banner, Button, Checkbox, Field, Inline, keyTip, Modal, ScrollArea, Select, Spinner, Tooltip } from '../../ui/index.ts';
+import { printerOptions, printerTitle, warningsLine } from './lib/calm.ts';
 import { isRoll, PAGE_SIZE_LABELS, TEMPLATE_LABELS, toggleCopy } from './lib/layout.ts';
 import type { LayoutLayers } from './lib/layoutParts.ts';
 import { DOCUMENT_CSS, editingCss, previewCss } from './lib/styles.ts';
@@ -29,6 +31,21 @@ export interface PrinterControl {
   load: () => void;
 }
 
+/** A quiet inline label before its control (2.1: "Template [Modern ▾] · Paper [A4 ▾]" on one line). */
+function InlineLabel({ htmlFor, children }: { htmlFor: string; children: string }) {
+  return (
+    <label htmlFor={htmlFor} className="bx-muted">
+      {children}
+    </label>
+  );
+}
+
+/**
+ * (2.1, SPEC-21 §1.11) Template · Paper · Copies on one line with inline labels. The paper select keeps
+ * its accessible name "Paper size"; field hints are tooltips; the copies' keys (Ctrl+1/2/3) are in their
+ * tooltips and `aria-keyshortcuts`, not printed. The printer for direct printing is not here: it is the
+ * screen's More item "Printer: …" (PrinterDialog).
+ */
 export function PrintControls({
   template,
   onTemplate,
@@ -38,7 +55,6 @@ export function PrintControls({
   onCopies,
   copyLabels,
   showCopies = true,
-  printer,
 }: {
   template: InvoiceTemplate;
   onTemplate: (t: InvoiceTemplate) => void;
@@ -48,49 +64,75 @@ export function PrintControls({
   onCopies: (c: PrintCopy[]) => void;
   copyLabels: PrintCopyLabels;
   showCopies?: boolean;
-  printer?: PrinterControl;
 }) {
-  const printerOptions = [
-    { value: '', label: 'Ask every time (printer dialog)' },
-    ...(printer?.printers ?? []).map((p) => ({ value: p.name, label: p.displayName })),
-    ...(printer && printer.printer && !(printer.printers ?? []).some((p) => p.name === printer.printer) ? [{ value: printer.printer, label: printer.printer }] : []),
-  ];
+  const id = useId();
   return (
-    <Inline gap={5} align="end">
-      <Field label="Template" hint={TEMPLATE_LABELS[template]}>
-        <SegmentedControl aria-label="Template" options={TEMPLATE_OPTIONS} value={template} onChange={onTemplate} size="sm" />
-      </Field>
-      <Field label="Paper" hint={isRoll(pageSize) ? 'Thermal roll: the page is as long as the receipt.' : undefined}>
-        <Select<PrintPageSize> aria-label="Paper size" options={SIZE_OPTIONS} value={pageSize} onChange={onPageSize} size="sm" />
-      </Field>
-      {printer ? (
-        <Field label={isRoll(pageSize) ? 'Receipt printer' : 'Printer'} hint={printer.printer ? 'Prints directly, without the dialog.' : undefined}>
-          <Select<string>
-            aria-label="Printer"
-            options={printerOptions}
-            value={printer.printer}
-            onChange={printer.setPrinter}
-            onFocus={printer.load}
-            size="sm"
-          />
-        </Field>
-      ) : null}
+    <Inline gap={5} rowGap={2} align="center">
+      <Inline gap={2} align="center" wrap={false}>
+        <InlineLabel htmlFor={`${id}-template`}>Template</InlineLabel>
+        <Select<InvoiceTemplate>
+          id={`${id}-template`}
+          aria-label="Template"
+          title={keyTip(TEMPLATE_LABELS[template], 'Alt+T')}
+          options={TEMPLATE_OPTIONS}
+          value={template}
+          onChange={onTemplate}
+          size="sm"
+        />
+      </Inline>
+      <Inline gap={2} align="center" wrap={false}>
+        <InlineLabel htmlFor={`${id}-paper`}>Paper</InlineLabel>
+        <Select<PrintPageSize>
+          id={`${id}-paper`}
+          aria-label="Paper size"
+          title={keyTip(isRoll(pageSize) ? 'Thermal roll: the page is as long as the receipt' : 'Paper size', 'Alt+S')}
+          options={SIZE_OPTIONS}
+          value={pageSize}
+          onChange={onPageSize}
+          size="sm"
+        />
+      </Inline>
       {showCopies ? (
         <div role="group" aria-label="Copies to print">
-          <Inline gap={4}>
+          <Inline gap={4} align="center">
             {PRINT_COPIES.map((c, i) => (
-              <Checkbox
-                key={c}
-                checked={copies.includes(c)}
-                label={copyLabels[c]}
-                description={`Ctrl+${i + 1}`}
-                onChange={() => onCopies(toggleCopy(copies, c))}
-              />
+              <Tooltip key={c} content={keyTip(copyLabels[c], `Ctrl+${i + 1}`)} describeChild={false}>
+                <Checkbox checked={copies.includes(c)} label={copyLabels[c]} aria-keyshortcuts={`Control+${i + 1}`} onChange={() => onCopies(toggleCopy(copies, c))} />
+              </Tooltip>
             ))}
           </Inline>
         </div>
       ) : null}
     </Inline>
+  );
+}
+
+/**
+ * (2.1) The printer for direct printing, chosen from the screen's More item "Printer: Ask every time…"
+ * (2.0 showed the select beside the paper on every print screen). The choice applies at once and is
+ * remembered on this computer per paper kind (usePrinterChoice); Esc or Done closes.
+ */
+export function PrinterDialog({ printer, roll, onClose }: { printer: PrinterControl; roll: boolean; onClose: () => void }) {
+  const { load } = printer;
+  useEffect(() => load(), [load]);
+  const title = printerTitle(roll);
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title={title}
+      footer={
+        <Button variant="primary" onClick={onClose}>
+          Done
+        </Button>
+      }
+    >
+      {/* The dialog's title already names the choice: the label is for screen readers only (2.0 printed it twice). */}
+      <Field label={title} hideLabel hint={printer.printer ? 'Prints directly, without the printer dialog.' : 'Every print opens the printer dialog.'} hintApplies>
+        <Select<string> aria-label="Printer" data-autofocus="" options={printerOptions(printer.printer, printer.printers)} value={printer.printer} onChange={printer.setPrinter} />
+      </Field>
+    </Modal>
   );
 }
 
@@ -151,19 +193,16 @@ export function PreviewPane({
   );
 }
 
+/**
+ * "Before you print" (2.1: one line — the warnings joined by " · ", wrapping only when they do not fit;
+ * the title stays verbatim). Printing is never blocked by it.
+ */
 export function WarningsBanner({ warnings, title = 'Before you print' }: { warnings: readonly string[]; title?: string }) {
-  if (warnings.length === 0) return null;
+  const line = warningsLine(warnings);
+  if (line === '') return null;
   return (
     <Banner tone="warning" title={title}>
-      {warnings.length === 1 ? (
-        warnings[0]
-      ) : (
-        <ul>
-          {warnings.map((w, i) => (
-            <li key={i}>{w}</li>
-          ))}
-        </ul>
-      )}
+      {line}
     </Banner>
   );
 }
