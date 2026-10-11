@@ -479,6 +479,10 @@ export function Combobox<T>(props: ComboboxProps<T>) {
 
   const pageRows = Math.max(1, pageSize(listMaxHeight, rowHeight));
 
+  // An open list with nothing to offer and nothing typed would only say "No matching …" over the next
+  // fields (an empty stock-group list on a new company): it stays closed until there is something to show.
+  const listShown = open && (options.length > 0 || loading || loadError !== null || (query !== null && query.trim() !== ''));
+
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return;
     if (disabled || readOnly) return;
@@ -553,7 +557,7 @@ export function Combobox<T>(props: ComboboxProps<T>) {
         return;
       }
       case 'Escape': {
-        if (open) {
+        if (listShown) {
           e.preventDefault();
           e.stopPropagation();
           setOpen(false);
@@ -565,7 +569,7 @@ export function Combobox<T>(props: ComboboxProps<T>) {
     }
   };
 
-  const activeOption = open && activeIndex >= 0 && activeIndex < options.length ? optionId(activeIndex) : undefined;
+  const activeOption = listShown && activeIndex >= 0 && activeIndex < options.length ? optionId(activeIndex) : undefined;
   const hasValue = value !== null;
   const unmatched = query !== null && query.trim() !== '' && !open && value === null;
   const resultCount = options.filter((o) => o.kind === 'item').length;
@@ -595,7 +599,7 @@ export function Combobox<T>(props: ComboboxProps<T>) {
   const popupStyle: CSSProperties = { ...pos.style, minWidth: Math.max(listMinWidth ?? 0, Number(pos.style.minWidth ?? 0)) || undefined };
 
   return (
-    <div ref={wrapRef} className={cx('bx-combobox', open && 'is-open', className)}>
+    <div ref={wrapRef} className={cx('bx-combobox', listShown && 'is-open', className)}>
       <div className={cx('bx-input', `bx-input--${size}`, field.invalid && 'is-invalid', field.disabled && 'is-disabled', readOnly && 'is-readonly', unmatched && 'is-unmatched')}>
         <input
           ref={mergedInputRef}
@@ -619,8 +623,8 @@ export function Combobox<T>(props: ComboboxProps<T>) {
           aria-labelledby={labelledBy}
           aria-autocomplete="list"
           aria-haspopup="listbox"
-          aria-expanded={open}
-          aria-controls={open ? listId : undefined}
+          aria-expanded={listShown}
+          aria-controls={listShown ? listId : undefined}
           aria-activedescendant={activeOption}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -655,7 +659,7 @@ export function Combobox<T>(props: ComboboxProps<T>) {
       <span className="bx-sr-only" aria-live="polite">
         {open && query !== null ? (resultCount === 0 ? 'No matches' : `${resultCount} ${resultCount === 1 ? 'match' : 'matches'}`) : ''}
       </span>
-      {open ? (
+      {listShown ? (
         <Portal>
           <div ref={popupRef} className="bx-combobox__popup" data-bx-overlay="" style={popupStyle}>
             <div

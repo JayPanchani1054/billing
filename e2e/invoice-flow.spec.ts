@@ -166,6 +166,10 @@ test('2.1: Enter on an empty item row opens Charges & discounts on its first row
   await entry.getByLabel(/^Party A\/c name/).focus();
   await pick(page, 'Ravi', new RegExp(lit(PARTY.name)));
   await enterItemLine(entry);
+  // The Enter chain of 2.0: Rate → Disc % (the discount column is on by default) → Amount → next line.
+  await expect(entry.getByLabel('Discount percent, line 1', { exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(entry.getByLabel('Amount, line 1', { exact: true })).toBeFocused();
   await page.keyboard.press('Enter'); // Amount → the next (empty) line
   await expect(entry.getByLabel('Item, line 2', { exact: true })).toBeFocused();
   await page.keyboard.press('Enter'); // an empty item line leaves the items: the same stop as 2.0
