@@ -68,6 +68,17 @@ function descriptionTool(lines: Locator, n: number): Locator {
   return lines.getByRole('button', { name: `Description, line ${n}`, exact: true });
 }
 
+/**
+ * A payment / receipt has put its first cursor where accountants expect it: the cash or bank Account
+ * (single entry) or the first ledger line (Dr / Cr). The shell gives a just-opened screen a provisional
+ * cursor first, and the form moves it a moment later — typing before that lands in the wrong picker.
+ */
+async function initialFocusSettled(entry: Locator): Promise<void> {
+  await expect
+    .poll(() => entry.evaluate((el) => (el.contains(document.activeElement) ? (document.activeElement?.id ?? '') : '')))
+    .toMatch(/^(vch-h-account|vch-ledgers-[A-Za-z0-9]+-ledger)$/);
+}
+
 /** The cell of a line's item / ledger picker: its description sits in it, under the name. */
 function nameCell(lines: Locator, pickerLabel: string): Locator {
   return lines.getByRole('cell').filter({ has: page.getByLabel(pickerLabel, { exact: true }) });
@@ -246,7 +257,12 @@ test('F6 receipt: Ctrl+E opens the description under the ledger; Enter after it 
   const entry = screen(page, 'vouchers.entry');
   await expect(entry.getByRole('heading', { name: 'Receipt Creation', level: 1 })).toBeVisible();
   const lines = entry.getByRole('table', { name: 'Particulars', exact: true });
-  await lines.getByLabel('Ledger, line 1', { exact: true }).focus();
+  // The screen puts the cursor on its first field (the cash / bank Account) once the form is up; let that
+  // happen first, or it lands after our focus and the typing goes to the Account picker.
+  await initialFocusSettled(entry);
+  const ledger = lines.getByLabel('Ledger, line 1', { exact: true });
+  await ledger.focus();
+  await expect(ledger).toBeFocused();
   await pick(page, 'Commission', /Commission Received/);
   const amount = lines.getByLabel('Amount, line 1', { exact: true });
   await expect(amount).toBeFocused();
@@ -285,7 +301,9 @@ test('F5 payment with "Description on every line": ledger → amount → descrip
     const ledger = lines.getByLabel('Ledger, line 1', { exact: true });
     await expect(ledger).toBeVisible();
     await expect(description(lines, 1)).toHaveCount(0); // a line shows it once its ledger is chosen
+    await initialFocusSettled(entry);
     await ledger.focus();
+    await expect(ledger).toBeFocused();
     await pick(page, 'Shop', /Shop Rent/);
     const amount = lines.getByLabel('Amount, line 1', { exact: true });
     await expect(amount).toBeFocused();
