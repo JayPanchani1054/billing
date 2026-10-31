@@ -156,8 +156,13 @@ The reports routes `reports.trialBalance`, `reports.profitLoss`, `reports.balanc
 
 Sales: delivery notes billed by sales invoices, rejections-in by credit notes. Purchase: receipt notes
 by purchase invoices, rejections-out by debit notes. Billing is matched per party + note number
-(`tracking_ref`) + item, applied to the note's lines in line order (the `vouchers.trackingRefs` rule),
-counting invoices dated on or before `asOf`. Optional and cancelled documents never count.
+(`tracking_ref`) + item and applied to the note's lines (the `vouchers.trackingRefs` rule,
+`vouchers/tracking.ts`): 2.2 — an invoice line carrying a note line's own description (the identical
+text, as Alt+T and "Invoice now" copy it) bills that line first, so a note billed out of line order
+leaves the right line pending (only SN-222 of SN-111 / SN-222 billed → SN-111 is pending, and "Invoice
+now" drafts it with its text); the rest — billed without a description, under an edited text, or beyond
+the line's quantity — is applied in line order, as before (billing without descriptions is exactly the
+earlier rule). Only invoices dated on or before `asOf` count. Optional and cancelled documents never count.
 `totals.olderThan7Days` counts delivery / receipt notes (challans) with a line unbilled for more than 7
 days — not rejections, which await a credit / debit note rather than an invoice. Value =
 pending qty × the note's rate less discount (a stock-only challan has value 0). `ageDays` = asOf − note
@@ -218,7 +223,8 @@ today, and respect the period lock. Optional and cancelled orders cannot be pre-
 ## Tests
 
 `quotations.test.ts`, `recurring.test.ts`, `schedule.test.ts`, `billsPending.test.ts`, `budgets.test.ts`
-(scenarios included; 2.2: line texts through a conversion, "Invoice now" of a partly billed note, and
+(scenarios included; 2.2: line texts through a conversion, "Invoice now" of a partly billed note and of a
+note billed out of line order (the line whose description was billed is the one billed), and
 placeholders in line texts — a Manufacturing Journal's lines too — kept within the route limits, checked
 against the vouchers.save schema), `review.test.ts` (regressions from the review: schedule changes, long catch-up,
 paused alter, pre-close duplicates, challan count, duplicate validity, budget totals / basis) against a

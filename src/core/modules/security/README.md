@@ -82,9 +82,14 @@ Summary column): create / delete / cancel name the action; an alter (and a setti
 with both images) counts the changed fields — "Changed 2 fields: gstin, openingBalance", "Saved without
 changes". 2.2: on a voucher, changed line descriptions (the image's `lineDescriptions` key, vouchers
 README §4) are named once, after any other changed field — "Line descriptions changed", "Changed 1 field:
-narration; line descriptions changed"; the field changes keep one row per line
-(`lineDescriptions.items["1"]`). Entries without that key (every entry recorded before 2.2) read exactly
-as before.
+narration; line descriptions changed"; the field changes keep one row per line, keyed by its place and its
+item / ledger name (`lineDescriptions.ledgers["2 · Office Rent"]`, which the edit-log screen shows as
+"Line descriptions › Ledgers › 2 · Office Rent"; entries recorded before the names: `["2"]`). Entries
+without that key (every entry recorded before 2.2) read exactly as before. A field the screens now call by
+another name keeps its stored key and is summarised with the screen's words (`FIELD_LABELS`, per record
+type): a voucher type's `narrationPerEntry` reads "Changed 1 field: Description on every line" (the
+switch's name since 2.2), and the edit-log screen's diff labels it the same way
+(renderer `security/lib/diffFormat.ts`). The export's Changes column keeps the stored paths.
 
 ## Permission catalogue
 

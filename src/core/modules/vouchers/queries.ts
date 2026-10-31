@@ -41,6 +41,7 @@ import { loadVoucherType, previewNextNumber } from './numbering.ts';
 import { ALLOWED_MODES } from './posting.ts';
 import { loadCompanyEssentials, loadVoucherRow, modeOfRow, parseJson, parseMeta, storedInput } from './service.ts';
 import { applyClosures, closedQtyByOrderItem } from '../documents/closures.ts';
+import { addBilled, applyBilled, billedQty } from './tracking.ts';
 
 // ───────────────────────────── Detail ─────────────────────────────
 
@@ -549,56 +550,64 @@ const SOURCE_SQL = (refColumn: 'tracking_ref' | 'order_ref'): string =>
       AND ie.${refColumn} IS NOT NULL AND v.id <> :ex
     ORDER BY v.date, v.id, ie.line_no`;
 
-/** Static description of what consumes each kind of tracking document (no user input in SQL text). */
+/**
+ * Static description of what consumes each kind of tracking document (no user input in SQL text). Grouped
+ * by the consuming lines' own description too (2.2), so a line billed under a source line's text is
+ * applied to that line first (tracking.ts).
+ */
 const TRACKING: Record<TrackingKind, { base: VoucherBaseType; column: 'tracking_ref' | 'order_ref'; consumedSql: string }> = {
   delivery: {
     base: 'delivery_note',
     column: 'tracking_ref',
-    consumedSql: `SELECT ie.tracking_ref AS ref, ie.item_id, SUM(ABS(ie.qty)) AS qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
+    consumedSql: `SELECT ie.tracking_ref AS ref, ie.item_id, ie.description, SUM(ABS(ie.qty)) AS qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
                    WHERE v.base_type = 'sales' AND v.party_ledger_id = :party AND v.is_cancelled = 0 AND v.is_optional = 0
-                     AND ie.tracking_ref IS NOT NULL AND v.id <> :ex GROUP BY ie.tracking_ref, ie.item_id`,
+                     AND ie.tracking_ref IS NOT NULL AND v.id <> :ex GROUP BY ie.tracking_ref, ie.item_id, ie.description`,
   },
   receipt: {
     base: 'receipt_note',
     column: 'tracking_ref',
-    consumedSql: `SELECT ie.tracking_ref AS ref, ie.item_id, SUM(ABS(ie.qty)) AS qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
+    consumedSql: `SELECT ie.tracking_ref AS ref, ie.item_id, ie.description, SUM(ABS(ie.qty)) AS qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
                    WHERE v.base_type = 'purchase' AND v.party_ledger_id = :party AND v.is_cancelled = 0 AND v.is_optional = 0
-                     AND ie.tracking_ref IS NOT NULL AND v.id <> :ex GROUP BY ie.tracking_ref, ie.item_id`,
+                     AND ie.tracking_ref IS NOT NULL AND v.id <> :ex GROUP BY ie.tracking_ref, ie.item_id, ie.description`,
   },
   sales_order: {
     base: 'sales_order',
     column: 'order_ref',
-    consumedSql: `SELECT ie.order_ref AS ref, ie.item_id, SUM(ABS(ie.qty)) AS qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
+    consumedSql: `SELECT ie.order_ref AS ref, ie.item_id, ie.description, SUM(ABS(ie.qty)) AS qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
                    WHERE v.party_ledger_id = :party AND v.is_cancelled = 0 AND v.is_optional = 0 AND ie.order_ref IS NOT NULL AND v.id <> :ex
                      AND (v.base_type = 'delivery_note' OR (v.base_type = 'sales' AND ie.tracking_ref IS NULL))
-                   GROUP BY ie.order_ref, ie.item_id`,
+                   GROUP BY ie.order_ref, ie.item_id, ie.description`,
   },
   purchase_order: {
     base: 'purchase_order',
     column: 'order_ref',
-    consumedSql: `SELECT ie.order_ref AS ref, ie.item_id, SUM(ABS(ie.qty)) AS qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
+    consumedSql: `SELECT ie.order_ref AS ref, ie.item_id, ie.description, SUM(ABS(ie.qty)) AS qty FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
                    WHERE v.party_ledger_id = :party AND v.is_cancelled = 0 AND v.is_optional = 0 AND ie.order_ref IS NOT NULL AND v.id <> :ex
                      AND (v.base_type = 'receipt_note' OR (v.base_type = 'purchase' AND ie.tracking_ref IS NULL))
-                   GROUP BY ie.order_ref, ie.item_id`,
+                   GROUP BY ie.order_ref, ie.item_id, ie.description`,
   },
 };
 
-/** Open delivery/receipt notes or orders of a party with pending quantities (FIFO over the document's lines). */
+/**
+ * Open delivery/receipt notes or orders of a party with pending quantities: what is billed / fulfilled per
+ * reference + item goes first to the line whose own description it carries, the rest in the documents'
+ * line order (FIFO) — tracking.ts.
+ */
 export function trackingRefs(db: Db, partyLedgerId: number, kind: TrackingKind, excludeVoucherId?: number | null): TrackingDoc[] {
   const spec = TRACKING[kind];
   const ex = excludeVoucherId ?? 0;
   const lines = db.all<SourceLine>(SOURCE_SQL(spec.column), { base: spec.base, party: partyLedgerId, ex });
-  const consumed = new Map<string, number>();
-  for (const c of db.all<{ ref: string; item_id: number; qty: number }>(spec.consumedSql, { party: partyLedgerId, ex })) {
-    consumed.set(`${c.ref}|${c.item_id}`, c.qty);
+  const consumed = billedQty();
+  for (const c of db.all<{ ref: string; item_id: number; description: string | null; qty: number }>(spec.consumedSql, { party: partyLedgerId, ex })) {
+    addBilled(consumed, `${c.ref}|${c.item_id}`, c.description, Number(c.qty));
   }
+  const applied = applyBilled(
+    lines.map((l) => ({ key: `${l.ref}|${l.item_id}`, qty: l.qty, description: l.description })),
+    consumed,
+  );
   const docs = new Map<number, TrackingDoc>();
-  for (const l of lines) {
-    const key = `${l.ref}|${l.item_id}`;
-    const left = consumed.get(key) ?? 0;
-    const take = Math.min(left, l.qty);
-    consumed.set(key, left - take);
-    const pendingQty = Math.round((l.qty - take) * 1e6) / 1e6;
+  for (const [i, l] of lines.entries()) {
+    const pendingQty = Math.round(applied[i].pending * 1e6) / 1e6;
     let doc = docs.get(l.voucher_id);
     if (!doc) {
       doc = { voucherId: l.voucher_id, voucherTypeName: l.voucher_type_name, number: l.number, date: l.date, ref: l.ref, lines: [] };

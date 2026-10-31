@@ -7,7 +7,8 @@
  *
  * A note line carries the note's own number in `inventory_entries.tracking_ref`; an invoice line that
  * bills it carries the same number (vouchers README › Tracking). Billing is matched per party + note
- * number + item and applied to the note's lines in line order — the rule of `vouchers.trackingRefs` —
+ * number + item and applied to the note's lines — first to the line whose own description the invoice
+ * line carries, the rest in line order (2.2; the rule of `vouchers.trackingRefs`, vouchers/tracking.ts) —
  * across all parties, counting only invoices dated on or before `asOf` (so the report can be run for
  * a past date). Optional and cancelled documents never count. Value = pending qty × rate less
  * discount (the note's own rate; a stock-only challan has rate 0 and value 0).
@@ -17,6 +18,7 @@ import { diffDays } from '../../../shared/dates.ts';
 import { lineAmount } from '../../../shared/money.ts';
 import type { BillsPendingInput, BillsPendingKind, BillsPendingResult, BillsPendingRow } from '../../../shared/types/documents.ts';
 import type { Db } from '../../db/db.ts';
+import { addBilled, applyBilled, billedQty, type BilledQty } from '../vouchers/tracking.ts';
 
 /** Note base type → the invoice base type that bills it. */
 export const NOTE_BILLED_BY: Partial<Record<VoucherBaseType, VoucherBaseType>> = {
@@ -92,34 +94,38 @@ const LINES_SQL = (filter: string): string => `
    WHERE v.is_cancelled = 0 AND v.is_optional = 0 AND v.number IS NOT NULL AND ie.tracking_ref IS NOT NULL AND ${filter}
    ORDER BY v.date, v.id, ie.line_no`;
 
-/** Billed quantity per `${noteBase}|${party}|${ref}|${item}` (invoices dated ≤ asOf). */
-function billedMap(db: Db, invoiceBases: readonly VoucherBaseType[], asOf: string, party: number | null): Map<string, number> {
-  const out = new Map<string, number>();
+/**
+ * Billed quantity per `${noteBase}|${party}|${ref}|${item}` (invoices dated ≤ asOf), and the part of it
+ * billed under each invoice line's own description (2.2).
+ */
+function billedMap(db: Db, invoiceBases: readonly VoucherBaseType[], asOf: string, party: number | null): BilledQty {
+  const out = billedQty();
   const noteOf = new Map<string, string>(Object.entries(NOTE_BILLED_BY).map(([n, i]) => [i as string, n]));
-  const sql = `SELECT v.base_type, v.party_ledger_id AS party, ie.tracking_ref AS ref, ie.item_id, SUM(ABS(ie.qty)) AS qty
+  const sql = `SELECT v.base_type, v.party_ledger_id AS party, ie.tracking_ref AS ref, ie.item_id, ie.description, SUM(ABS(ie.qty)) AS qty
        FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
       WHERE v.base_type IN (SELECT value FROM json_each(:bases)) AND v.is_cancelled = 0 AND v.is_optional = 0
         AND v.date <= :asOf AND ie.tracking_ref IS NOT NULL ${party === null ? '' : 'AND v.party_ledger_id = :party'}
-      GROUP BY v.base_type, v.party_ledger_id, ie.tracking_ref, ie.item_id`;
-  for (const r of db.all<{ base_type: string; party: number | null; ref: string; item_id: number; qty: number }>(sql, {
+      GROUP BY v.base_type, v.party_ledger_id, ie.tracking_ref, ie.item_id, ie.description`;
+  for (const r of db.all<{ base_type: string; party: number | null; ref: string; item_id: number; description: string | null; qty: number }>(sql, {
     bases: JSON.stringify(invoiceBases),
     asOf,
     ...(party === null ? {} : { party }),
   })) {
-    out.set(`${noteOf.get(r.base_type)}|${r.party ?? 0}|${r.ref}|${r.item_id}`, Number(r.qty));
+    addBilled(out, `${noteOf.get(r.base_type)}|${r.party ?? 0}|${r.ref}|${r.item_id}`, r.description, Number(r.qty));
   }
   return out;
 }
 
-function positions(lines: readonly NoteLineDb[], billed: Map<string, number>): PendingNoteLine[] {
-  const left = new Map(billed);
+/** The note lines (in line order) with what is billed and pending of each (vouchers/tracking.ts). */
+function positions(lines: readonly NoteLineDb[], billed: BilledQty): PendingNoteLine[] {
+  const applied = applyBilled(
+    lines.map((l) => ({ key: `${l.base_type}|${l.party_ledger_id ?? 0}|${l.number}|${l.item_id}`, qty: Number(l.qty), description: l.description })),
+    billed,
+  );
   const out: PendingNoteLine[] = [];
-  for (const l of lines) {
-    const key = `${l.base_type}|${l.party_ledger_id ?? 0}|${l.number}|${l.item_id}`;
-    const avail = left.get(key) ?? 0;
+  for (const [i, l] of lines.entries()) {
     const qty = Number(l.qty);
-    const take = Math.min(avail, qty);
-    left.set(key, avail - take);
+    const { billed: take, pending } = applied[i];
     out.push({
       noteId: l.voucher_id,
       lineNo: l.line_no,
@@ -134,7 +140,7 @@ function positions(lines: readonly NoteLineDb[], billed: Map<string, number>): P
       unit: l.unit,
       qty: round6(qty),
       billedQty: round6(take),
-      pendingQty: round6(qty - take),
+      pendingQty: round6(pending),
       rate: Number(l.rate),
       discountPct: Number(l.discount_pct ?? 0),
       godownId: l.godown_id,

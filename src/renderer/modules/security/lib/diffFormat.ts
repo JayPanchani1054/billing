@@ -2,6 +2,11 @@
  * Readable edit-log diffs: field paths become labels ('lines[0].amount' → 'Lines › 1 › Amount'),
  * values become text (money keys in paise → '1,180.00 Dr' / '₹ 500.00', booleans → Yes/No, empty →
  * '—'). The raw stored value stays available for a tooltip. Pure.
+ *
+ * 2.2: a voucher's line descriptions are keyed by line — its place and its item / ledger name
+ * (`lineDescriptions.ledgers["2 · Office Rent"]`; entries recorded before the names: `["2"]`) — and those
+ * keys read as stored: 'Line descriptions › Ledgers › 2 · Office Rent'. A field renamed on screen keeps its
+ * stored key and reads with the screen's words (KEY_LABELS, as the core's summary does).
  */
 import { formatDrCr, formatMoney } from '../../../../shared/format.ts';
 import type { AuditFieldChange, JsonValue } from '../../../../shared/types/security.ts';
@@ -29,9 +34,10 @@ export function parsePath(path: string): PathToken[] {
     } else if (c === '[') {
       flush();
       if (path[i + 1] === '"') {
-        // JSON string literal up to the matching quote + ']'
+        // JSON string literal up to its closing quote + ']' (an escaped character — \" or \\ — is skipped)
         let j = i + 2;
-        while (j < path.length && !(path[j] === '"' && path[j - 1] !== '\\' && path[j + 1] === ']')) j++;
+        while (j < path.length && !(path[j] === '"' && path[j + 1] === ']')) j += path[j] === '\\' ? 2 : 1;
+        j = Math.min(j, path.length);
         let key = path.slice(i + 2, j);
         try {
           key = JSON.parse(path.slice(i + 1, j + 1)) as string;
@@ -55,8 +61,18 @@ export function parsePath(path: string): PathToken[] {
   return out;
 }
 
+/**
+ * Stored keys the screens now call by another name (the record keeps its key; the core's edit-log
+ * summary uses the same words — security/auditlog.ts › FIELD_LABELS).
+ */
+const KEY_LABELS: Readonly<Record<string, string>> = {
+  // 2.2: the voucher type switch "Narration for each entry" is "Description on every line".
+  narrationPerEntry: 'Description on every line',
+};
+
 /** 'openingBalance' / 'opening_balance' → 'Opening balance'; 'gstin' → 'GSTIN'; 'hsnSac' → 'HSN SAC'. */
 export function humanizeKey(key: string): string {
+  if (Object.hasOwn(KEY_LABELS, key)) return KEY_LABELS[key];
   const words = key
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
@@ -69,11 +85,20 @@ export function humanizeKey(key: string): string {
     .join(' ');
 }
 
+/**
+ * A voucher's line-description key (`lineDescriptions.items["1 · Rice Bag"]`): the line's place and its
+ * item / ledger name, already a label — shown as stored, never re-cased.
+ */
+function isLineKey(tokens: readonly PathToken[], i: number): boolean {
+  const [root, side] = tokens;
+  return i === 2 && root?.type === 'key' && root.key === 'lineDescriptions' && side?.type === 'key' && (side.key === 'items' || side.key === 'ledgers');
+}
+
 /** 'lines[0].amount' → 'Lines › 1 › Amount' (array positions are 1-based for people). */
 export function humanizePath(path: string): string {
   const tokens = parsePath(path);
   if (tokens.length === 0) return 'Value';
-  return tokens.map((t) => (t.type === 'index' ? String(t.index + 1) : humanizeKey(t.key))).join(' › ');
+  return tokens.map((t, i) => (t.type === 'index' ? String(t.index + 1) : isLineKey(tokens, i) ? t.key : humanizeKey(t.key))).join(' › ');
 }
 
 /** The last key name in a path (for value formatting). */

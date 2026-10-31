@@ -70,6 +70,37 @@ describe('diff formatting', () => {
     assert.deepEqual(formatValue({ ifsc: 'HDFC0000001' }, 'bank'), { text: '{"ifsc":"HDFC0000001"}', style: 'json', raw: '{"ifsc":"HDFC0000001"}' });
   });
 
+  it('voucher line descriptions (2.2): each line reads as stored — its place and its ledger or item; older entries by place', () => {
+    const rows = diffRows([
+      { path: 'lineDescriptions.ledgers["2 · Office Rent"]', kind: 'changed', before: 'Shop 4, April', after: 'Shop 4, May' },
+      { path: 'lineDescriptions.items["1 · HDFC-GST Mixer_Pro"]', kind: 'added', before: null, after: 'SN-222' },
+      { path: 'lineDescriptions.items["1"]', kind: 'removed', before: 'Blue', after: null },
+    ]);
+    assert.deepEqual(rows.map((r) => [r.label, r.section, r.before.text, r.after.text]), [
+      ['Line descriptions › Ledgers › 2 · Office Rent', 'Line descriptions', 'Shop 4, April', 'Shop 4, May'],
+      ['Line descriptions › Items › 1 · HDFC-GST Mixer_Pro', 'Line descriptions', '—', 'SN-222'],
+      ['Line descriptions › Items › 1', 'Line descriptions', 'Blue', '—'],
+    ]);
+    // A name with quotes or a trailing backslash is one key (the core quotes such keys as JSON strings).
+    assert.equal(humanizePath('lineDescriptions.items["3 · 12\\" Pipe \\\\"]'), 'Line descriptions › Items › 3 · 12" Pipe \\');
+    assert.deepEqual(parsePath('a["x\\\\"].b'), [
+      { type: 'key', key: 'a' },
+      { type: 'key', key: 'x\\' },
+      { type: 'key', key: 'b' },
+    ]);
+    // Only the lines' own keys are kept as stored; other keys are still humanised.
+    assert.equal(humanizePath('items["1 · Mixer"]'), 'Items › 1 · mixer');
+  });
+
+  it('a switch renamed on screen keeps its stored key and reads with the screen’s words', () => {
+    assert.equal(humanizeKey('narrationPerEntry'), 'Description on every line');
+    assert.deepEqual(
+      diffRows([{ path: 'narrationPerEntry', kind: 'changed', before: false, after: true }]).map((r) => [r.label, r.section, r.before.text, r.after.text]),
+      [['Description on every line', 'Description on every line', 'No', 'Yes']],
+    );
+    assert.equal(humanizeKey('toString'), 'To string', 'only the listed keys');
+  });
+
   it('builds rows with sections and a summary', () => {
     const rows = diffRows([
       { path: 'lines[0].amount', kind: 'changed', before: 118000, after: 236000 },

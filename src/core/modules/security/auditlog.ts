@@ -129,9 +129,24 @@ const asObject = (v: JsonValue | null): Record<string, JsonValue> | null =>
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function changedFieldsText(changes: AuditFieldChange[], truncated: boolean, noun: string): string {
+/**
+ * Stored fields the screens now call by another name, per record type: the record keeps its stored key
+ * (and every entry its hash), the summary names the field as the screen does. The edit log's diff table
+ * labels them the same way (renderer security/lib/diffFormat.ts › KEY_LABELS).
+ */
+const FIELD_LABELS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  // 2.2: the voucher type switch "Narration for each entry" is "Description on every line".
+  voucher_type: { narrationPerEntry: 'Description on every line' },
+};
+
+function fieldLabel(entityType: string | null, path: string): string {
+  const labels = entityType !== null && Object.hasOwn(FIELD_LABELS, entityType) ? FIELD_LABELS[entityType] : undefined;
+  return labels && Object.hasOwn(labels, path) ? labels[path] : path;
+}
+
+function changedFieldsText(changes: AuditFieldChange[], truncated: boolean, noun: string, entityType: string | null = null): string {
   if (changes.length === 0) return 'Saved without changes';
-  const tops = [...new Set(changes.map((c) => c.path))];
+  const tops = [...new Set(changes.map((c) => fieldLabel(entityType, c.path)))];
   const shown = tops.slice(0, 3).join(', ');
   const count = truncated ? `${changes.length}+ ${noun}s` : plural(changes.length, noun);
   return `Changed ${count}: ${shown}${tops.length > 3 ? ', …' : ''}`;
@@ -139,7 +154,8 @@ function changedFieldsText(changes: AuditFieldChange[], truncated: boolean, noun
 
 /**
  * 2.2: a voucher's edit-log image keeps its line descriptions under this key (vouchers/service.ts ›
- * AuditSnapshot): `{ items?: { '1': text, … }, ledgers?: { … } }`, keyed by line.
+ * AuditSnapshot): `{ items?: { '1 · Rice Bag': text, … }, ledgers?: { '2 · Office Rent': … } }`, keyed by
+ * line (its place and its item / ledger name; entries recorded before the names: the place alone).
  */
 const LINE_DESCRIPTIONS_KEY = 'lineDescriptions';
 const isLineDescriptionPath = (path: string): boolean =>
@@ -191,7 +207,7 @@ export function summarizeEntry(action: string, entityType: string | null, before
     }
     case 'alter': {
       const d = diffJson(before, after, 200);
-      return entityType === 'voucher' ? voucherChangesText(d.changes, d.truncated) : changedFieldsText(d.changes, d.truncated, 'field');
+      return entityType === 'voucher' ? voucherChangesText(d.changes, d.truncated) : changedFieldsText(d.changes, d.truncated, 'field', entityType);
     }
     case 'settings':
     case 'security': {

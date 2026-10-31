@@ -109,6 +109,58 @@ describe('sales / purchase bills pending', () => {
     k.t.close();
   });
 
+  it('a note billed out of line order: the line whose description was billed is the one billed', () => {
+    // Delivery Note 1: Mixer SN-111, Mixer SN-222 (one each). Sales 1 bills SN-222 only (Alt+T row of
+    // SN-111 removed): SN-111 is what is pending, and "Invoice now" bills it with its own text.
+    const k = setupKit({ today: '2026-04-15', features: { orderProcessing: true, trackingNumbers: true } });
+    const dn = save(k, {
+      voucherTypeId: k.vt.delivery_note,
+      date: '2026-04-05',
+      mode: 'item_invoice',
+      partyLedgerId: k.L.acme,
+      items: [
+        { itemId: k.I.mixer, qty: 1, rate: 150, description: 'SN-111' },
+        { itemId: k.I.mixer, qty: 1, rate: 150, description: 'SN-222' },
+      ],
+    });
+    save(k, { voucherTypeId: k.vt.sales, date: '2026-04-10', mode: 'item_invoice', partyLedgerId: k.L.acme, items: [{ itemId: k.I.mixer, qty: 1, rate: 150, trackingRef: '1', description: 'SN-222' }] });
+    const r = billsPending(k.t.db, { kind: 'sales', asOf: '2026-04-15' });
+    assert.deepEqual(r.rows.map((x) => [x.key, x.qty, x.billedQty, x.pendingQty, x.pendingValue]), [[`n:${dn.id}:1`, 1, 0, 1, 15000]]);
+    const d = draftVoucher(k.t.ctx, { sourceId: dn.id, targetBaseType: 'sales' });
+    assert.deepEqual(d.items?.map((i) => [i.itemId, i.qty, i.description]), [[k.I.mixer, 1, 'SN-111']]);
+    k.t.close();
+  });
+
+  it('a partly billed described line stays pending; billing without descriptions keeps line order', () => {
+    // Delivery Note 1: Mixer 'Size L' 3 @ ₹150, Mixer 'Size M' 2 @ ₹160. Sales 1 bills L 1 and M 2, each under
+    // its own text: L 2 are pending (₹300.00) — in line order alone L would read billed and M 1 pending.
+    const k = setupKit({ today: '2026-04-15', features: { orderProcessing: true, trackingNumbers: true } });
+    const dn = save(k, {
+      voucherTypeId: k.vt.delivery_note,
+      date: '2026-04-05',
+      mode: 'item_invoice',
+      partyLedgerId: k.L.acme,
+      items: [
+        { itemId: k.I.mixer, qty: 3, rate: 150, description: 'Size L' },
+        { itemId: k.I.mixer, qty: 2, rate: 160, description: 'Size M' },
+      ],
+    });
+    const bill = (items: Array<{ qty: number; description?: string }>, date: string) =>
+      save(k, { voucherTypeId: k.vt.sales, date, mode: 'item_invoice', partyLedgerId: k.L.acme, items: items.map((i) => ({ itemId: k.I.mixer, rate: 150, trackingRef: '1', ...i })) });
+    bill([{ qty: 1, description: 'Size L' }, { qty: 2, description: 'Size M' }], '2026-04-10');
+    const rows = (asOf: string) => billsPending(k.t.db, { kind: 'sales', asOf }).rows.map((x) => [x.key, x.billedQty, x.pendingQty, x.pendingValue]);
+    assert.deepEqual(rows('2026-04-15'), [[`n:${dn.id}:1`, 1, 2, 30000]]);
+    assert.deepEqual(
+      draftVoucher(k.t.ctx, { sourceId: dn.id, targetBaseType: 'sales' }).items?.map((i) => [i.qty, i.rate, i.description]),
+      [[2, 150, 'Size L']],
+    );
+    // A later invoice of 1 mixer without a text bills in line order (the first line with something left).
+    bill([{ qty: 1 }], '2026-04-12');
+    assert.deepEqual(rows('2026-04-15'), [[`n:${dn.id}:1`, 2, 1, 15000]]);
+    assert.deepEqual(rows('2026-04-11'), [[`n:${dn.id}:1`, 1, 2, 30000]], 'as of a date before it, as before');
+    k.t.close();
+  });
+
   it('purchase side: receipt notes and rejections out', () => {
     const k = setupKit({ today: '2026-04-15', features: { trackingNumbers: true, rejectionNotes: true } });
     save(k, { voucherTypeId: k.vt.receipt_note, date: '2026-04-02', mode: 'item_invoice', partyLedgerId: k.L.supplier, items: [{ itemId: k.I.rice, qty: 30, rate: 40 }] });

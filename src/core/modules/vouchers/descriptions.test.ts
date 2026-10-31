@@ -336,6 +336,95 @@ describe('tracking (notes and orders into invoices)', () => {
     assert.deepEqual(lines(trackingRefs(k.t.db, k.L.acme, 'sales_order')), [['Mixer Grinder', 6, 'Matte finish']]);
     k.t.close();
   });
+
+  const pending = (docs: TrackingDoc[]) => docs.flatMap((d) => d.lines.map((l) => [l.description, l.qty, l.pendingQty]));
+
+  it('a billing line with a line’s own description bills that line first, also out of line order', () => {
+    const k = setupKit();
+    // Delivery Note 1: two mixers told apart by their serial numbers.
+    save(k, {
+      voucherTypeId: k.vt.delivery_note,
+      date: k.t.today,
+      mode: 'inventory',
+      partyLedgerId: k.L.acme,
+      items: [
+        { itemId: k.I.mixer, qty: 1, rate: 200, description: 'SN-111' },
+        { itemId: k.I.mixer, qty: 1, rate: 200, description: 'SN-222' },
+      ],
+    });
+    // Alt+T brought both lines; the customer is billed for SN-222 only (the SN-111 row was removed).
+    const inv = save(k, salesInput(k, { items: [{ itemId: k.I.mixer, qty: 1, rate: 200, trackingRef: '1', description: 'SN-222' }] }));
+    assert.deepEqual(pending(trackingRefs(k.t.db, k.L.acme, 'delivery')), [['SN-111', 1, 1], ['SN-222', 1, 0]]);
+    // Altering that invoice leaves it out: both lines are open to it again.
+    assert.deepEqual(pending(trackingRefs(k.t.db, k.L.acme, 'delivery', inv.id)), [['SN-111', 1, 1], ['SN-222', 1, 1]]);
+    k.t.close();
+  });
+
+  it('an order fulfilled out of line order: each described line takes what was fulfilled under its text', () => {
+    const k = setupKit({ features: { orderProcessing: true } });
+    // Sales Order 1: Red 5 and Blue 5. Alt+T gave both; only 3 red were in stock, so Red became 3.
+    save(k, {
+      voucherTypeId: k.vt.sales_order,
+      date: k.t.today,
+      mode: 'item_invoice',
+      partyLedgerId: k.L.acme,
+      items: [
+        { itemId: k.I.mixer, qty: 5, rate: 200, description: 'Red' },
+        { itemId: k.I.mixer, qty: 5, rate: 200, description: 'Blue' },
+      ],
+    });
+    save(k, salesInput(k, {
+      items: [
+        { itemId: k.I.mixer, qty: 3, rate: 200, orderRef: '1', description: 'Red' },
+        { itemId: k.I.mixer, qty: 5, rate: 200, orderRef: '1', description: 'Blue' },
+      ],
+    }));
+    // Red 2 are still to come (in line order alone, Red would read fulfilled and Blue 2 pending).
+    assert.deepEqual(pending(trackingRefs(k.t.db, k.L.acme, 'sales_order')), [['Red', 5, 2], ['Blue', 5, 0]]);
+    k.t.close();
+  });
+
+  it('what no line’s text claims is applied in line order, as without descriptions', () => {
+    const k = setupKit();
+    const note = (items: VoucherInput['items']) => save(k, { voucherTypeId: k.vt.delivery_note, date: k.t.today, mode: 'inventory', partyLedgerId: k.L.acme, items });
+    // Delivery Note 1 without texts, billed under a text: line order (the first line is billed).
+    note([
+      { itemId: k.I.mixer, qty: 2, rate: 200 },
+      { itemId: k.I.mixer, qty: 3, rate: 200 },
+    ]);
+    // Delivery Note 2 with texts, billed without one (removed on the invoice): line order.
+    note([
+      { itemId: k.I.mixer, qty: 2, rate: 200, description: 'Red' },
+      { itemId: k.I.mixer, qty: 3, rate: 200, description: 'Blue' },
+    ]);
+    // Delivery Note 3: 'blue' (another text — the case differs) claims no line; 'Green' 5 claims its line's 4,
+    // and the 1 over it joins the rest, applied in line order from the first line.
+    note([
+      { itemId: k.I.mixer, qty: 2, rate: 200, description: 'Red' },
+      { itemId: k.I.mixer, qty: 3, rate: 200, description: 'Blue' },
+      { itemId: k.I.mixer, qty: 4, rate: 200, description: 'Green' },
+    ]);
+    save(k, salesInput(k, {
+      items: [
+        { itemId: k.I.mixer, qty: 2, rate: 200, trackingRef: '1', description: 'Blue' },
+        { itemId: k.I.mixer, qty: 2, rate: 200, trackingRef: '2' },
+        { itemId: k.I.mixer, qty: 1, rate: 200, trackingRef: '3', description: 'blue' },
+        { itemId: k.I.mixer, qty: 5, rate: 200, trackingRef: '3', description: 'Green' },
+      ],
+    }));
+    const docs = trackingRefs(k.t.db, k.L.acme, 'delivery');
+    assert.deepEqual(docs.map((d) => d.number), ['1', '2', '3']);
+    assert.deepEqual(
+      docs.map((d) => d.lines.map((l) => l.pendingQty)),
+      [
+        [0, 3],
+        [0, 3],
+        // Green takes its 4; the other 2 (1 over Green, 1 'blue') bill Red; Blue stays open.
+        [0, 3, 0],
+      ],
+    );
+    k.t.close();
+  });
 });
 
 describe('edit log', () => {
@@ -346,18 +435,19 @@ describe('edit log', () => {
       ledgers: [{ ledgerId: k.L.discount, amount: -1000, narration: 'Festival offer' }],
     }));
     const created = audits(k, res.id)[0];
-    assert.deepEqual(created.after?.lineDescriptions, { items: { '1': 'Blue' }, ledgers: { '1': 'Festival offer' } });
+    // Each line is named by its place in its own list and its item / ledger, as the diff shows it.
+    assert.deepEqual(created.after?.lineDescriptions, { items: { '1 · Mixer Grinder': 'Blue' }, ledgers: { '1 · Discount Allowed': 'Festival offer' } });
 
     k.t.clock.advance(60_000);
     const input = getVoucher(k.t.db, res.id).input;
     save(k, { ...input, items: [{ ...input.items![0], description: 'Red' }] });
     const altered = audits(k, res.id)[1];
     assert.equal(altered.action, 'alter');
-    assert.deepEqual(altered.before?.lineDescriptions, { items: { '1': 'Blue' }, ledgers: { '1': 'Festival offer' } });
-    assert.deepEqual(altered.after?.lineDescriptions, { items: { '1': 'Red' }, ledgers: { '1': 'Festival offer' } });
+    assert.deepEqual(altered.before?.lineDescriptions, { items: { '1 · Mixer Grinder': 'Blue' }, ledgers: { '1 · Discount Allowed': 'Festival offer' } });
+    assert.deepEqual(altered.after?.lineDescriptions, { items: { '1 · Mixer Grinder': 'Red' }, ledgers: { '1 · Discount Allowed': 'Festival offer' } });
     // Figures and the entry / item tuples are untouched: the description is the only difference.
     assert.deepEqual([altered.after?.entries, altered.after?.items], [altered.before?.entries, altered.before?.items]);
-    assert.deepEqual(diffJson(altered.before, altered.after).changes, [{ path: 'lineDescriptions.items["1"]', kind: 'changed', before: 'Blue', after: 'Red' }]);
+    assert.deepEqual(diffJson(altered.before, altered.after).changes, [{ path: 'lineDescriptions.items["1 · Mixer Grinder"]', kind: 'changed', before: 'Blue', after: 'Red' }]);
 
     // Saved again unchanged: nothing to report.
     k.t.clock.advance(60_000);
@@ -366,7 +456,7 @@ describe('edit log', () => {
     k.t.clock.advance(60_000);
     const again = getVoucher(k.t.db, res.id).input;
     save(k, { ...again, narration: 'Rate revised', items: [{ ...again.items![0], description: undefined }] });
-    assert.deepEqual(audits(k, res.id)[3].after?.lineDescriptions, { ledgers: { '1': 'Festival offer' } });
+    assert.deepEqual(audits(k, res.id)[3].after?.lineDescriptions, { ledgers: { '1 · Discount Allowed': 'Festival offer' } });
 
     assert.deepEqual(history(k, res.id), [
       ['create', 'Created voucher'],
@@ -393,8 +483,8 @@ describe('edit log', () => {
     const input = getVoucher(k.t.db, jv.id).input;
     save(k, { ...input, ledgers: [input.ledgers![0], { ...input.ledgers![1], narration: 'Paid by the owner' }] });
     const inv = save(k, salesInput(k, { ledgers: [{ ledgerId: k.L.freight, amount: 0, narration: 'Free delivery' }] }));
-    assert.deepEqual(audits(k, inv.id)[0].after?.lineDescriptions, { ledgers: { '1': 'Free delivery' } });
-    assert.deepEqual(audits(k, jv.id)[1].after?.lineDescriptions, { ledgers: { '1': 'April rent', '2': 'Paid by the owner' } });
+    assert.deepEqual(audits(k, inv.id)[0].after?.lineDescriptions, { ledgers: { '1 · Freight Outward': 'Free delivery' } });
+    assert.deepEqual(audits(k, jv.id)[1].after?.lineDescriptions, { ledgers: { '1 · Office Rent': 'April rent', '2 · Owner Capital': 'Paid by the owner' } });
     assert.deepEqual(history(k, jv.id).map(([, s]) => s), ['Created voucher', 'Line descriptions changed']);
     k.t.close();
   });
@@ -418,12 +508,12 @@ describe('edit log', () => {
     cancelVoucher(k.t.ctx, a.id, 'Wrong party');
     const cancel = audits(k, a.id)[1];
     assert.equal(cancel.action, 'cancel');
-    assert.deepEqual([cancel.before?.lineDescriptions, cancel.after?.lineDescriptions], [{ items: { '1': 'Display piece' } }, { items: { '1': 'Display piece' } }]);
+    assert.deepEqual([cancel.before?.lineDescriptions, cancel.after?.lineDescriptions], [{ items: { '1 · Mixer Grinder': 'Display piece' } }, { items: { '1 · Mixer Grinder': 'Display piece' } }]);
     assert.equal(diffJson(cancel.before, cancel.after).changes.some((c) => c.path.startsWith('lineDescriptions')), false);
 
     const b = save(k, salesInput(k, { items: [{ itemId: k.I.mixer, qty: 1, rate: 200, description: 'Spare jar' }] }));
     deleteVoucher(k.t.ctx, b.id, 'Entered twice');
-    assert.deepEqual(audits(k, b.id)[1].before?.lineDescriptions, { items: { '1': 'Spare jar' } });
+    assert.deepEqual(audits(k, b.id)[1].before?.lineDescriptions, { items: { '1 · Mixer Grinder': 'Spare jar' } });
     k.t.close();
   });
 
@@ -440,14 +530,89 @@ describe('edit log', () => {
     });
     const dn = save(k, { voucherTypeId: k.vt.delivery_note, date: k.t.today, mode: 'inventory', partyLedgerId: k.L.acme, items: [{ itemId: k.I.mixer, qty: 2, rate: 200, description: 'Gift wrapped' }] });
     k.t.db.run('UPDATE vouchers SET meta = NULL WHERE id IN (:a, :b)', { a: jv.id, b: dn.id });
-    assert.deepEqual(snapshotFromDb(k.t.db, loadVoucherRow(k.t.db, jv.id)!, 'Journal').lineDescriptions, { ledgers: { '2': 'April rent' } });
-    assert.deepEqual(snapshotFromDb(k.t.db, loadVoucherRow(k.t.db, dn.id)!, 'Delivery Note').lineDescriptions, { items: { '1': 'Gift wrapped' } });
+    assert.deepEqual(snapshotFromDb(k.t.db, loadVoucherRow(k.t.db, jv.id)!, 'Journal').lineDescriptions, { ledgers: { '2 · Office Rent': 'April rent' } });
+    assert.deepEqual(snapshotFromDb(k.t.db, loadVoucherRow(k.t.db, dn.id)!, 'Delivery Note').lineDescriptions, { items: { '1 · Mixer Grinder': 'Gift wrapped' } });
     // Altered from the rebuilt input without a change: the before (lines) and after (input) images agree.
     k.t.clock.advance(60_000);
     save(k, { ...getVoucher(k.t.db, jv.id).input });
     save(k, { ...getVoucher(k.t.db, dn.id).input });
     assert.deepEqual(history(k, jv.id).map(([, s]) => s), ['Created voucher', 'Saved without changes']);
     assert.deepEqual(history(k, dn.id).map(([, s]) => s), ['Created voucher', 'Saved without changes']);
+    k.t.close();
+  });
+
+  it('each line is named for the reader: its place in its own list and its ledger or item as the masters name it now', () => {
+    const k = setupKit();
+    // A payment in single entry: the bank (the Account) is the voucher's first ledger line, so the rent the
+    // grid shows first under Particulars is ledger line 2 — the name tells which line it is.
+    const pv = save(k, {
+      voucherTypeId: k.vt.payment,
+      date: k.t.today,
+      mode: 'ledger',
+      ledgers: [
+        { ledgerId: k.L.bank, amount: -2500000 },
+        { ledgerId: k.L.rent, amount: 2500000, narration: 'Shop 4, April' },
+      ],
+    });
+    assert.deepEqual(audits(k, pv.id)[0].after?.lineDescriptions, { ledgers: { '2 · Office Rent': 'Shop 4, April' } });
+
+    // A journal's ledger is renamed, then only the line's text changes: both images are named as the masters
+    // are now, so the text is the one change.
+    const jv = save(k, {
+      voucherTypeId: k.vt.journal,
+      date: k.t.today,
+      mode: 'ledger',
+      ledgers: [
+        { ledgerId: k.L.capital, amount: -5000000 },
+        { ledgerId: k.L.rent, amount: 5000000, narration: 'Advance rent, April' },
+      ],
+    });
+    k.t.db.run(`UPDATE ledgers SET name = 'Shop Rent' WHERE id = :id`, { id: k.L.rent });
+    k.t.clock.advance(60_000);
+    const input = getVoucher(k.t.db, jv.id).input;
+    save(k, { ...input, ledgers: [input.ledgers![0], { ...input.ledgers![1], narration: 'Advance rent, May' }] });
+    const altered = audits(k, jv.id)[1];
+    assert.deepEqual(diffJson(altered.before, altered.after).changes, [
+      { path: 'lineDescriptions.ledgers["2 · Shop Rent"]', kind: 'changed', before: 'Advance rent, April', after: 'Advance rent, May' },
+    ]);
+    // Renamed again and saved unchanged: nothing to report.
+    k.t.db.run(`UPDATE ledgers SET name = 'Rent — Shop 4' WHERE id = :id`, { id: k.L.rent });
+    k.t.clock.advance(60_000);
+    save(k, { ...getVoucher(k.t.db, jv.id).input });
+    assert.deepEqual(history(k, jv.id).map(([, s]) => s), ['Created voucher', 'Line descriptions changed', 'Saved without changes']);
+    // The described line given another ledger: its text reads removed under the old name, added under the new.
+    k.t.clock.advance(60_000);
+    const moved = getVoucher(k.t.db, jv.id).input;
+    save(k, { ...moved, ledgers: [moved.ledgers![0], { ...moved.ledgers![1], ledgerId: k.L.discount }] });
+    const relined = audits(k, jv.id)[3];
+    assert.deepEqual(
+      diffJson(relined.before, relined.after).changes.filter((c) => c.path.startsWith('lineDescriptions')),
+      [
+        { path: 'lineDescriptions.ledgers["2 · Rent — Shop 4"]', kind: 'removed', before: 'Advance rent, May', after: null },
+        { path: 'lineDescriptions.ledgers["2 · Discount Allowed"]', kind: 'added', before: null, after: 'Advance rent, May' },
+      ],
+    );
+
+    // A stock journal: the source line and the destination line each with its item; the same item on two
+    // lines is told apart by the place.
+    const sj = save(k, {
+      voucherTypeId: k.vt.stock_journal,
+      date: k.t.today,
+      mode: 'inventory',
+      items: [
+        { itemId: k.I.rice, qty: 10, rate: 50, isConsumption: true, description: 'Torn bags' },
+        { itemId: k.I.mixer, qty: 1, rate: 500, description: 'Assembled from spares' },
+        { itemId: k.I.mixer, qty: 1, rate: 500, description: 'Display piece' },
+      ],
+    });
+    assert.deepEqual(audits(k, sj.id)[0].after?.lineDescriptions, {
+      items: { '1 · Rice Bag': 'Torn bags', '2 · Mixer Grinder': 'Assembled from spares', '3 · Mixer Grinder': 'Display piece' },
+    });
+
+    // A master that is no longer there (a stored input naming a removed ledger): the place alone.
+    k.t.db.run(`UPDATE vouchers SET meta = json_set(meta, '$.input.ledgers[1].ledgerId', 999999) WHERE id = :id`, { id: pv.id });
+    assert.deepEqual(snapshotFromDb(k.t.db, loadVoucherRow(k.t.db, pv.id)!, 'Payment').lineDescriptions, { ledgers: { '2': 'Shop 4, April' } });
+    assert.equal(verifyAuditChain(k.t.db).ok, true);
     k.t.close();
   });
 });

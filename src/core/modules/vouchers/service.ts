@@ -287,13 +287,24 @@ export function enforceWarnings(warnings: readonly VoucherWarning[], acknowledge
 
 /**
  * 2.2: the voucher's own line texts — item lines' `description`, ledger ("Particulars") lines'
- * `narration` — keyed by the line's place in input.items / input.ledgers ('1' = the first line; a
- * voucher saved without its input: in its inventory / ledger entries, the order its rebuilt input has).
- * Non-empty texts only; a side without any is left out.
+ * `narration` — keyed '<n> · <name>': n is the line's place in input.items / input.ledgers ('1' = the
+ * first line; a voucher saved without its input: in its inventory / ledger entries, the order its rebuilt
+ * input has), name its item / ledger as the masters name it when the image is taken. An edit-log row then
+ * reads "Line descriptions › Ledgers › 2 · Office Rent", which tells the line whatever order the entry
+ * grid shows it in (a single-entry payment's Account first, a stock journal's destination lines after its
+ * source lines). Both images of an alter are taken in the same save, so a renamed master never reads as a
+ * change. A line whose master is no longer there is keyed by its place alone — as every entry recorded
+ * before the names were added is. Non-empty texts only; a side without any is left out.
  */
 interface AuditLineDescriptions {
   items?: Record<string, string>;
   ledgers?: Record<string, string>;
+}
+
+/** A line's master (stock item or ledger id) and its own text. */
+interface LineText {
+  id: number;
+  text: string | null | undefined;
 }
 
 interface AuditSnapshot {
@@ -327,26 +338,42 @@ interface AuditSnapshot {
   numberOverride?: { to: string | null; next: string | null; reason: string | null };
 }
 
-/** Non-empty texts keyed by their line's place ('1' = the first line); undefined when there are none. */
-function lineTexts(texts: ReadonlyArray<string | null | undefined>): Record<string, string> | undefined {
+const ITEM_NAMES_SQL = 'SELECT id, name FROM stock_items WHERE id IN (SELECT value FROM json_each(:ids))';
+const LEDGER_NAMES_SQL = 'SELECT id, name FROM ledgers WHERE id IN (SELECT value FROM json_each(:ids))';
+
+/** Current names of the masters of the lines that have a text (no query when none has). */
+function lineNames(db: Db, sql: string, lines: readonly LineText[]): Map<number, string> {
+  const ids = [...new Set(lines.filter((l) => txt(l.text) !== undefined).map((l) => l.id))];
+  if (ids.length === 0) return new Map();
+  return new Map(db.all<{ id: number; name: string }>(sql, { ids: JSON.stringify(ids) }).map((r) => [r.id, r.name]));
+}
+
+/** Non-empty texts keyed '<n> · <name>' ('1 · …' = the first line); undefined when there are none. */
+function lineTexts(lines: readonly LineText[], names: ReadonlyMap<number, string>): Record<string, string> | undefined {
   const out: Record<string, string> = {};
-  texts.forEach((text, i) => {
-    const t = txt(text);
-    if (t !== undefined) out[String(i + 1)] = t;
+  lines.forEach((line, i) => {
+    const t = txt(line.text);
+    if (t === undefined) return;
+    const name = names.get(line.id);
+    out[name ? `${i + 1} · ${name}` : String(i + 1)] = t;
   });
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function lineDescriptions(items: ReadonlyArray<string | null | undefined>, ledgers: ReadonlyArray<string | null | undefined>): AuditLineDescriptions | undefined {
-  const i = lineTexts(items);
-  const l = lineTexts(ledgers);
+function lineDescriptions(db: Db, items: readonly LineText[], ledgers: readonly LineText[]): AuditLineDescriptions | undefined {
+  const i = lineTexts(items, lineNames(db, ITEM_NAMES_SQL, items));
+  const l = lineTexts(ledgers, lineNames(db, LEDGER_NAMES_SQL, ledgers));
   if (!i && !l) return undefined;
   return { ...(i ? { items: i } : {}), ...(l ? { ledgers: l } : {}) };
 }
 
 /** The line descriptions of a voucher as entered (zero-amount lines and order / note ledgers too). */
-const inputLineDescriptions = (input: VoucherInput): AuditLineDescriptions | undefined =>
-  lineDescriptions((input.items ?? []).map((it) => it.description), (input.ledgers ?? []).map((l) => l.narration));
+const inputLineDescriptions = (db: Db, input: VoucherInput): AuditLineDescriptions | undefined =>
+  lineDescriptions(
+    db,
+    (input.items ?? []).map((it) => ({ id: it.itemId, text: it.description })),
+    (input.ledgers ?? []).map((l) => ({ id: l.ledgerId, text: l.narration })),
+  );
 
 export function snapshotFromDb(db: Db, row: VoucherRow, typeName: string): AuditSnapshot {
   const entries = db.all<{ ledger_id: number; amount: number; narration: string | null }>(
@@ -359,7 +386,13 @@ export function snapshotFromDb(db: Db, row: VoucherRow, typeName: string): Audit
   );
   // Line texts as entered (what snapshotFromPlan reads), else — a voucher saved without its input — the lines' own.
   const input = parseMeta(row.meta).input;
-  const texts = input ? inputLineDescriptions(input) : lineDescriptions(items.map((i) => i.description), entries.map((e) => e.narration));
+  const texts = input
+    ? inputLineDescriptions(db, input)
+    : lineDescriptions(
+        db,
+        items.map((i) => ({ id: i.item_id, text: i.description })),
+        entries.map((e) => ({ id: e.ledger_id, text: e.narration })),
+      );
   return {
     type: typeName,
     number: row.number,
@@ -381,8 +414,8 @@ export function snapshotFromDb(db: Db, row: VoucherRow, typeName: string): Audit
   };
 }
 
-function snapshotFromPlan(plan: PostingPlan, input: VoucherInput): AuditSnapshot {
-  const texts = inputLineDescriptions(plan.normalizedInput);
+function snapshotFromPlan(db: Db, plan: PostingPlan, input: VoucherInput): AuditSnapshot {
+  const texts = inputLineDescriptions(db, plan.normalizedInput);
   return {
     type: plan.voucherType.name,
     number: plan.number,
@@ -684,7 +717,7 @@ export function saveVoucher(ctx: CompanyCtx, raw: VoucherInput, opts: { keepFigu
     entityGuid: guid,
     entityLabel: voucherLabel(vt.name, decision.number, input.date),
     before: before ?? undefined,
-    after: numberAudit(snapshotFromPlan(plan, input), existing ?? null, decision),
+    after: numberAudit(snapshotFromPlan(db, plan, input), existing ?? null, decision),
   });
   return { id, number: decision.number, warnings: notes.length > 0 ? [...plan.warnings, ...notes] : plan.warnings, totals: plan.totals, updatedAt: now };
 }

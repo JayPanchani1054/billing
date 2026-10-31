@@ -17,6 +17,7 @@ import { decodeText } from '../../lib/text.ts';
 import { readXlsx } from '../../lib/xlsx.ts';
 import { readZip } from '../../lib/zip.ts';
 import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
+import { saveVoucherType } from '../accounts/voucherTypes.ts';
 import { entityTypeLabel, entityTypesMatching, localDayStartIso, summarizeEntry } from './auditlog.ts';
 import { securityRoutes as R } from './routes.ts';
 
@@ -177,6 +178,34 @@ describe('edit log: voucher line descriptions (2.2)', () => {
     assert.deepEqual(h.versions[2].changes, [{ path: 'lineDescriptions.items["1"]', kind: 'added', before: null, after: 'Blue' }]);
     const v = await t.callOk<AuditVerifyReport>(R, 'security.audit.verify');
     assert.deepEqual([v.ok, v.count], [true, 3]);
+    t.close();
+  });
+});
+
+describe('edit log: a switch renamed on screen', () => {
+  it('a voucher type’s narrationPerEntry is named “Description on every line” in the summary; the stored key is kept', async () => {
+    const vt = { name: 'Payment', narrationPerEntry: false, printAfterSave: false };
+    assert.equal(summarizeEntry('alter', 'voucher_type', vt, { ...vt, narrationPerEntry: true }), 'Changed 1 field: Description on every line');
+    assert.equal(
+      summarizeEntry('alter', 'voucher_type', vt, { ...vt, narrationPerEntry: true, printAfterSave: true }),
+      'Changed 2 fields: Description on every line, printAfterSave',
+    );
+    // A field of that name on another kind of record is not the switch.
+    assert.equal(summarizeEntry('alter', 'ledger', { narrationPerEntry: false }, { narrationPerEntry: true }), 'Changed 1 field: narrationPerEntry');
+
+    // Through the voucher type master: the list, the history and the export's Summary column.
+    const t = createTestCompany({ security: true, today: '2026-04-15' });
+    const id = t.ids.voucherTypes.payment;
+    saveVoucherType(t.ctx, { id, narrationPerEntry: true });
+    const r = await list(t, { entityType: 'voucher_type' });
+    assert.deepEqual(r.rows.map((x) => [x.action, x.summary]), [['alter', 'Changed 1 field: Description on every line']]);
+    const h = await t.callOk<AuditEntityHistory>(R, 'security.audit.entityHistory', { entityType: 'voucher_type', entityId: id });
+    assert.deepEqual(h.versions.map((v) => [v.summary, v.changes]), [
+      ['Changed 1 field: Description on every line', [{ path: 'narrationPerEntry', kind: 'changed', before: false, after: true }]],
+    ]);
+    const csv = await t.callOk<AuditExportResult>(R, 'security.audit.export', { format: 'csv', entityType: 'voucher_type' });
+    const rows = parseCsv(decodeText(csv.bytes).text);
+    assert.equal(rows[1][rows[0].indexOf('Summary')], 'Changed 1 field: Description on every line');
     t.close();
   });
 });
