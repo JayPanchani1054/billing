@@ -7,7 +7,7 @@ import { formatDate } from '../../../../shared/dates.ts';
 import { formatMoney, formatPercent } from '../../../../shared/format.ts';
 import { isUtgstState } from '../../../../shared/gst/states.ts';
 import type { Paise } from '../../../../shared/money.ts';
-import type { GstLineView, InstrumentType, PreviewInventoryLine, VoucherDetail, VoucherDetailEntry, VoucherListRow } from '../../../../shared/types/vouchers.ts';
+import type { GstLineView, InstrumentType, LedgerLineInput, PreviewInventoryLine, VoucherDetail, VoucherDetailEntry, VoucherInput, VoucherListRow } from '../../../../shared/types/vouchers.ts';
 import { REF_TYPE_LABEL } from './bills.ts';
 import { dayBookSide } from './kinds.ts';
 
@@ -200,18 +200,26 @@ export function referenceLine(
     .join(' · ');
 }
 
-/** What the view shows: the Accounting entries (default without item lines, else Detailed), the GST table (Detailed), the totals block (item invoices), and which table takes the focus. */
+/**
+ * What the view shows: its Particulars — the Accounting entries, or (2.2) the ledger lines as entered of a
+ * voucher that posts none (`lines`, viewLineRows: an order's charges, a quotation's lines) — by default
+ * without item lines and behind Detailed with them (an invoice's entries, an order's charges); the GST table
+ * (Detailed); the totals block (item invoices); and which table takes the focus.
+ */
 export function viewSections(
-  v: Pick<VoucherDetail, 'mode' | 'inventory' | 'entries' | 'gstLines' | 'isCancelled'>,
+  v: Pick<VoucherDetail, 'mode' | 'inventory' | 'entries' | 'gstLines' | 'isCancelled'> & ViewLinesSource,
   detailed: boolean,
-): { entries: boolean; gst: boolean; totals: boolean; focus: 'items' | 'entries' | null } {
+): { entries: boolean; lines: boolean; gst: boolean; totals: boolean; focus: 'items' | 'entries' | 'lines' | null } {
   const items = v.inventory.length > 0;
-  const entries = v.entries.length > 0 && (!items || detailed);
+  const particulars = !items || detailed;
+  const entries = v.entries.length > 0 && particulars;
+  const lines = particulars && enteredLines(v).length > 0;
   return {
     entries,
+    lines,
     gst: detailed && v.gstLines.length > 0,
     totals: items && v.mode === 'item_invoice' && !v.isCancelled,
-    focus: items ? 'items' : entries ? 'entries' : null,
+    focus: items ? 'items' : entries ? 'entries' : lines ? 'lines' : null,
   };
 }
 
@@ -338,5 +346,56 @@ export function viewEntryRows(entries: readonly VoucherDetailEntry[], instrument
     detail: entryDetailLine(e, instrumentLabel),
     debit: e.amount > 0 ? e.amount : 0,
     credit: e.amount < 0 ? -e.amount : 0,
+  }));
+}
+
+// ─────────────── Voucher view 2.2: the Particulars of a voucher that posts no ledger entries ───────────────
+
+/** What the view reads to find them: the entries, the cancelled state and the voucher as entered (vouchers.get). */
+export type ViewLinesSource = Pick<VoucherDetail, 'entries' | 'isCancelled'> & { input?: Pick<VoucherInput, 'ledgers'> };
+
+/** A line's ledger until its name has loaded (the entry's pickers show the same). */
+export const NAME_PENDING = '…';
+
+/** One Particulars line of a voucher that posts no ledger entries, as entered: Particulars (the ledger, its description under it) · Amount. */
+export interface ViewLineRow {
+  /** The line's place in input.ledgers: lines without an amount are left out, never renumbered. */
+  key: string;
+  ledgerId: number;
+  name: string;
+  /** The line's description (its narration), on a muted line of its own under the name; null when none. */
+  description: string | null;
+  /** As entered: on an invoice-like document + adds to its value and − deducts (a discount); a Dr / Cr line is Dr + / Cr −. */
+  amount: Paise;
+}
+
+/**
+ * The ledger lines a voucher keeps only as entered (input.ledgers): one that posts no ledger entries — a
+ * sales / purchase order, a quotation or proforma, a note or rejection with charges — and is not cancelled (a
+ * cancelled voucher keeps its input but shows no lines). Lines without an amount are left out, as on the
+ * print. None while the voucher has ledger entries: those are its Particulars, with their own descriptions.
+ */
+function enteredLines(v: ViewLinesSource): Array<{ line: LedgerLineInput; index: number }> {
+  if (v.entries.length > 0 || v.isCancelled) return [];
+  return (v.input?.ledgers ?? []).flatMap((line, index) => (line.amount ? [{ line, index }] : []));
+}
+
+/** The ledgers the view names for those lines, each once (vouchers/pickers/hooks.ts › useLedgerDetails); none when it shows the entries. */
+export function viewLineLedgerIds(v: ViewLinesSource): number[] {
+  return [...new Set(enteredLines(v).map(({ line }) => line.ledgerId))];
+}
+
+/**
+ * Those lines as the view's Particulars, in the order entered (they print from the same input): each ledger
+ * as `nameOf` names it (NAME_PENDING until its name is known), the description typed for the line on this
+ * voucher under it (lineDescription(narration), as typed) and the amount as entered.
+ */
+export function viewLineRows(v: ViewLinesSource, nameOf: (ledgerId: number) => string | undefined): ViewLineRow[] {
+  return enteredLines(v).map(({ line, index }) => ({
+    key: String(index),
+    ledgerId: line.ledgerId,
+    name: nameOf(line.ledgerId) ?? NAME_PENDING,
+    description: lineDescription(line.narration),
+    amount: line.amount,
   }));
 }

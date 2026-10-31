@@ -19,6 +19,14 @@
  * saves nothing, and its one-row-height arithmetic cannot place rows of different heights — a described
  * first line left the last lines of a 250-line voucher unrendered.
  *
+ * 2.2: a voucher that posts no ledger entries — a sales / purchase order, a quotation, a proforma, a note
+ * with charges — keeps its ledger lines only as entered (`input.ledgers`; they print from there). They are its
+ * Particulars: each ledger (named as `accounts.ledger.get` answers, '…' until then), the line's description
+ * under it like an entry's, and its amount as entered (+ adds to the document's value, − deducts), in the
+ * entries' place and by the same rule — by default without item lines (an accounting quotation's lines),
+ * behind Detailed beside them (an order's "Charges & discounts", like an invoice's entries) — never on a
+ * cancelled voucher, never a line without an amount (lib/daybook.ts `viewLineRows`, `viewSections().lines`).
+ *
  * Keys: Alt+A alter · Alt+P print · Alt+F1 detailed · Alt+2 duplicate · Alt+X cancel · Alt+D delete ·
  * Alt+H history · Ctrl+R change the number (2.0: vouchers.renumber + vouchers.alter → 'vouchers.renumber';
  * the voucher is re-saved as entered, so its entries are unchanged) · Esc back.
@@ -33,18 +41,35 @@ import { ApiError, formatDateTime, isApiError, Screen, useApiMutation, useApiQue
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { setUiPrefs, useUiPrefs } from '../../app/preferences.ts';
 import { amountInWords } from '../../../shared/words.ts';
-import { Banner, DataTable, Inline, KeyValueList, Panel, Stack, useToast } from '../../ui/index.ts';
+import { Banner, DataTable, EmptyState, Inline, KeyValueList, Panel, Stack, useToast } from '../../ui/index.ts';
 import type { Column, KeyValueItem } from '../../ui/index.ts';
-import { hiddenItemColumns, lineDescription, partyLine, referenceLine, viewEntryRows, viewSections, viewStateWords, viewTotals } from './lib/daybook.ts';
-import type { ViewEntryRow } from './lib/daybook.ts';
+import { hiddenItemColumns, lineDescription, partyLine, referenceLine, viewEntryRows, viewLineLedgerIds, viewLineRows, viewSections, viewStateWords, viewTotals } from './lib/daybook.ts';
+import type { ViewEntryRow, ViewLineRow } from './lib/daybook.ts';
 import { INSTRUMENT_LABEL, ReasonDialog } from './entry/dialogs.tsx';
 import { VOUCHER_INVALIDATES } from './entry/VoucherEntryScreen.tsx';
 import { ChangeNumberDialog } from './ChangeNumberDialog.tsx';
 import { changeNumberAvailability, isGstDocType, renumberedText } from './lib/changeNumber.ts';
 import { confirmationRequest } from './lib/errorPaths.ts';
+import { useLedgerDetails } from './pickers/hooks.ts';
 
 /** A row with a line under its name (a description, or bills / cost centres / bank details): every cell stays on the name's line. */
 const MULTILINE_ROW = 'bx-vch-view__row--multiline';
+
+const NO_LEDGER_IDS: readonly number[] = [];
+
+/**
+ * The Particulars cell of the Dr / Cr entries and of the lines of a voucher that posts none: the ledger, then
+ * its description (2.2: its own line) and an entry's bills / cost centres / bank details.
+ */
+function particulars(r: Pick<ViewEntryRow, 'name' | 'description'> & { detail?: string }): ReactNode {
+  return (
+    <>
+      <div className="bx-vch-view__name">{r.name}</div>
+      {r.description ? <div className="bx-muted bx-vch-view__desc">{r.description}</div> : null}
+      {r.detail ? <div className="bx-muted bx-vch-view__detail">{r.detail}</div> : null}
+    </>
+  );
+}
 
 interface GstRateRow {
   key: string;
@@ -103,6 +128,11 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   const nextQ = useApiQuery('vouchers.nextNumber', { voucherTypeId: v?.voucherType.id ?? 0, date: v?.date ?? '2000-01-01' }, { enabled: renumbering && !!v, staleTime: 0 });
 
   const entries = useMemo<ViewEntryRow[]>(() => viewEntryRows(v?.entries ?? [], INSTRUMENT_LABEL), [v]);
+  // 2.2: a voucher that posts no ledger entries (an order, a quotation) keeps its ledger lines only as
+  // entered; they are its Particulars, their ledgers named as the names load ('…' until then).
+  const lineLedgers = useLedgerDetails(v ? viewLineLedgerIds(v) : NO_LEDGER_IDS);
+  const lines = useMemo<ViewLineRow[]>(() => (v ? viewLineRows(v, (id) => lineLedgers.get(id)?.name) : []), [v, lineLedgers]);
+  const signedLines = v?.mode === 'ledger';
   const gstRows = useMemo(() => gstByRate(v?.gstLines ?? []), [v]);
 
   const physical = v?.voucherType.baseType === 'physical_stock';
@@ -146,22 +176,21 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   );
   const entryColumns = useMemo<Column<ViewEntryRow>[]>(
     () => [
-      {
-        key: 'name',
-        header: 'Particulars',
-        // The ledger, then its description (2.2: its own line) and its bills / cost centres / bank details.
-        render: (r) => (
-          <>
-            <div className="bx-vch-view__name">{r.name}</div>
-            {r.description ? <div className="bx-muted bx-vch-view__desc">{r.description}</div> : null}
-            {r.detail ? <div className="bx-muted bx-vch-view__detail">{r.detail}</div> : null}
-          </>
-        ),
-      },
+      // The ledger, then its description (2.2: its own line) and its bills / cost centres / bank details.
+      { key: 'name', header: 'Particulars', render: particulars },
       { key: 'debit', header: 'Debit', kind: 'amount', width: 150, blankZero: true, total: true },
       { key: 'credit', header: 'Credit', kind: 'amount', width: 150, blankZero: true, total: true },
     ],
     [],
+  );
+  const lineColumns = useMemo<Column<ViewLineRow>[]>(
+    () => [
+      { key: 'name', header: 'Particulars', render: particulars },
+      // As entered, like the entry's Amount: + adds to the document's value, − deducts (a discount); no total
+      // (the document's value is in words below). A Dr / Cr line could only be a voucher saved without its entries.
+      { key: 'amount', header: 'Amount', kind: signedLines ? 'drcr' : 'amount', width: 150 },
+    ],
+    [signedLines],
   );
   const gstColumns = useMemo<Column<GstRateRow>[]>(
     () => [
@@ -267,6 +296,8 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   const dispatch = v?.dispatch;
   const state = v ? viewStateWords(v) : null;
   const sections = v ? viewSections(v, detailed) : null;
+  // The lines of a voucher that posts nothing: beside item lines they are its charges (entry's own title), else the document.
+  const linesTitle = v && v.inventory.length > 0 ? 'Charges & discounts' : null;
   const party = v ? partyLine(v) : '';
   const refs = v ? referenceLine(v) : '';
   // Detailed: the party's address and state, dispatch and e-invoice details (only those with a value).
@@ -365,6 +396,21 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
                 density="compact"
                 virtualize={false}
                 autoFocus={sections.focus === 'entries'}
+              />
+            </Section>
+          ) : sections.lines ? (
+            // 2.2: posts no ledger entries (an order, a quotation): its ledger lines as entered, as they print.
+            <Section title={linesTitle} label={linesTitle ?? 'Particulars'}>
+              <DataTable
+                aria-label={linesTitle ?? 'Particulars'}
+                columns={lineColumns}
+                rows={lines}
+                getRowKey={(r) => r.key}
+                getRowClassName={(r) => (r.description ? MULTILINE_ROW : undefined)}
+                density="compact"
+                virtualize={false}
+                autoFocus={sections.focus === 'lines'}
+                empty={<EmptyState size="sm" title="No lines" />}
               />
             </Section>
           ) : detailed && entries.length === 0 && !v.isCancelled ? (

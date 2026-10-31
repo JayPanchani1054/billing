@@ -24,7 +24,10 @@ import {
   toDayBookRow,
   toggleChip,
   typesLabel,
+  NAME_PENDING,
   viewEntryRows,
+  viewLineLedgerIds,
+  viewLineRows,
   viewSections,
   viewStateWords,
   viewTotals,
@@ -267,12 +270,12 @@ describe('voucher view: the document (SPEC-21 §1.5)', () => {
   it('sections: entries by default without item lines, behind Detailed for invoices; focus on the items of an invoice', () => {
     const entries = [{}] as VoucherDetail['entries'];
     const invoice = { mode: 'item_invoice' as const, inventory: [inv({})], entries, gstLines: [gl({})], isCancelled: false };
-    assert.deepEqual(viewSections(invoice, false), { entries: false, gst: false, totals: true, focus: 'items' });
-    assert.deepEqual(viewSections(invoice, true), { entries: true, gst: true, totals: true, focus: 'items' });
+    assert.deepEqual(viewSections(invoice, false), { entries: false, lines: false, gst: false, totals: true, focus: 'items' });
+    assert.deepEqual(viewSections(invoice, true), { entries: true, lines: false, gst: true, totals: true, focus: 'items' });
     const receipt = { mode: 'ledger' as const, inventory: [], entries, gstLines: [], isCancelled: false };
-    assert.deepEqual(viewSections(receipt, false), { entries: true, gst: false, totals: false, focus: 'entries' });
+    assert.deepEqual(viewSections(receipt, false), { entries: true, lines: false, gst: false, totals: false, focus: 'entries' });
     assert.deepEqual(viewSections({ ...invoice, isCancelled: true }, false).totals, false, 'a cancelled invoice carries no amount');
-    assert.deepEqual(viewSections({ ...receipt, entries: [] }, false), { entries: false, gst: false, totals: false, focus: null });
+    assert.deepEqual(viewSections({ ...receipt, entries: [] }, false), { entries: false, lines: false, gst: false, totals: false, focus: null });
   });
 
   it('empty item columns hide: one godown, no discount, one GST rate; HSN only in Detailed', () => {
@@ -448,5 +451,123 @@ describe("voucher view 2.2: a line's own description under its name", () => {
     const rule = /\.bx-vch-view__desc \{([^}]*)\}/.exec(css)?.[1] ?? '';
     for (const decl of ['font-size: var(--text-caption);', 'white-space: pre-line;', 'overflow-wrap: anywhere;']) assert.ok(rule.includes(decl), decl);
     assert.match(css, /\.bx-vch-view__row--multiline > td \{[^}]*vertical-align: top;/, 'the amounts stay on the name line of a taller row');
+  });
+});
+
+// ─────────────── Voucher view 2.2: the Particulars of a voucher that posts no ledger entries ───────────────
+
+const LEDGER_NAMES: Readonly<Record<number, string>> = { 21: 'Freight Outward', 22: 'Discount Allowed', 23: 'Consultancy Income' };
+const named = (id: number): string | undefined => LEDGER_NAMES[id];
+const NO_ENTRIES: VoucherDetail['entries'] = [];
+
+describe('voucher view 2.2: a voucher that posts no ledger entries shows its ledger lines as entered', () => {
+  // A sales order entered as an invoice: its item line, then its charges (freight, a discount, a free line) — no ledger entries.
+  const order = {
+    mode: 'item_invoice' as const,
+    inventory: [inv({ description: 'Matte finish' })],
+    entries: NO_ENTRIES,
+    gstLines: [],
+    isCancelled: false,
+    input: {
+      ledgers: [
+        { ledgerId: 21, amount: 50000, narration: '  Packing extra\r\nby road ' },
+        { ledgerId: 22, amount: -10000 },
+        { ledgerId: 21, amount: 0, narration: 'Free delivery' },
+      ],
+    },
+  };
+  // A quotation for services (an accounting invoice): no item lines — its lines are the document.
+  const quotation = {
+    mode: 'accounting_invoice' as const,
+    inventory: [],
+    entries: NO_ENTRIES,
+    gstLines: [],
+    isCancelled: false,
+    input: { ledgers: [{ ledgerId: 23, amount: 1000000, narration: 'Design review, weeks 1-2' }] },
+  };
+
+  it('beside item lines they are its charges: not shown by default, shown in Detailed (Alt+F1); the items keep the focus', () => {
+    assert.deepEqual(viewSections(order, false), { entries: false, lines: false, gst: false, totals: true, focus: 'items' });
+    assert.deepEqual(viewSections(order, true), { entries: false, lines: true, gst: false, totals: true, focus: 'items' });
+  });
+
+  it('without item lines they are the document (an accounting quotation): shown by default and in Detailed, and they take the focus', () => {
+    assert.deepEqual(viewSections(quotation, false), { entries: false, lines: true, gst: false, totals: false, focus: 'lines' });
+    assert.deepEqual(viewSections(quotation, true), { entries: false, lines: true, gst: false, totals: false, focus: 'lines' });
+    assert.deepEqual(viewLineRows(quotation, named), [{ key: '0', ledgerId: 23, name: 'Consultancy Income', description: 'Design review, weeks 1-2', amount: 1000000 }]);
+  });
+
+  it('rows: in the order entered, each ledger named, the description typed for the line as typed, the amount as entered; a line without an amount is left out', () => {
+    assert.deepEqual(viewLineRows(order, named), [
+      { key: '0', ledgerId: 21, name: 'Freight Outward', description: 'Packing extra\nby road', amount: 50000 },
+      { key: '1', ledgerId: 22, name: 'Discount Allowed', description: null, amount: -10000 },
+    ]);
+    assert.deepEqual(viewLineLedgerIds(order), [21, 22], 'the ledgers to name, each once');
+    const twice = { ...quotation, input: { ledgers: [{ ledgerId: 23, amount: 100 }, { ledgerId: 23, amount: 200, narration: '\n' }] } };
+    assert.deepEqual(viewLineLedgerIds(twice), [23]);
+    assert.deepEqual(viewLineRows(twice, named).map((r) => [r.key, r.description, r.amount]), [['0', null, 100], ['1', null, 200]], 'keys stay unique; a blank description is none');
+  });
+
+  it('a ledger whose name has not loaded yet reads "…", like the entry pickers', () => {
+    assert.equal(NAME_PENDING, '…');
+    assert.deepEqual(viewLineRows(order, () => undefined).map((r) => r.name), ['…', '…']);
+    assert.deepEqual(viewLineRows(order, (id) => (id === 22 ? 'Discount Allowed' : undefined)).map((r) => r.name), ['…', 'Discount Allowed']);
+  });
+
+  it('a cancelled voucher shows no lines (it keeps its voucher as entered); nor does one with no line that has an amount', () => {
+    for (const cancelled of [{ ...quotation, isCancelled: true }, { ...order, isCancelled: true }]) {
+      assert.deepEqual(viewLineRows(cancelled, named), []);
+      assert.deepEqual(viewLineLedgerIds(cancelled), [], 'no names asked for');
+      assert.equal(viewSections(cancelled, false).lines, false);
+      assert.equal(viewSections(cancelled, true).lines, false);
+    }
+    assert.deepEqual(viewSections({ ...quotation, isCancelled: true }, true), { entries: false, lines: false, gst: false, totals: false, focus: null });
+    const free = { ...quotation, input: { ledgers: [{ ledgerId: 23, amount: 0, narration: 'Free of charge' }] } };
+    assert.deepEqual(viewLineRows(free, named), []);
+    assert.deepEqual(viewSections(free, false), { entries: false, lines: false, gst: false, totals: false, focus: null });
+    for (const input of [undefined, {}, { ledgers: [] }]) assert.deepEqual(viewLineRows({ ...quotation, input }, named), [], JSON.stringify(input));
+  });
+
+  it('a voucher with ledger entries shows those, never its lines as entered: posted vouchers are unchanged', () => {
+    const entries = [entry({ ledgerName: 'Freight Outward', amount: -50000, narration: 'Packing extra' })];
+    const invoice = { ...order, entries, gstLines: [gl({})] };
+    assert.deepEqual(viewLineRows(invoice, named), []);
+    assert.deepEqual(viewLineLedgerIds(invoice), []);
+    assert.deepEqual(viewSections(invoice, false), { entries: false, lines: false, gst: false, totals: true, focus: 'items' });
+    assert.deepEqual(viewSections(invoice, true), { entries: true, lines: false, gst: true, totals: true, focus: 'items' });
+    const accounting = { ...quotation, entries };
+    assert.deepEqual(viewSections(accounting, false), { entries: true, lines: false, gst: false, totals: false, focus: 'entries' });
+  });
+
+  it('the view renders them in the entries\' place like an entry (shared Particulars cell, muted description, MULTILINE_ROW), named on demand, never windowed', () => {
+    const read = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n?/g, '\n');
+    const view = read('../VoucherViewScreen.tsx');
+    // Names: vouchers/pickers/hooks.ts › useLedgerDetails, asked for only the ledgers of those lines.
+    assert.match(view, /import \{ useLedgerDetails \} from '\.\/pickers\/hooks\.ts';/);
+    assert.match(view, /const lineLedgers = useLedgerDetails\(v \? viewLineLedgerIds\(v\) : NO_LEDGER_IDS\);/);
+    assert.match(view, /viewLineRows\(v, \(id\) => lineLedgers\.get\(id\)\?\.name\)/);
+    // One Particulars cell for both tables: the name, then the description on its own muted line.
+    assert.equal(view.split("{ key: 'name', header: 'Particulars', render: particulars }").length - 1, 2, 'entries and lines share the cell');
+    assert.match(view, /function particulars\([^)]*\): ReactNode \{\n\s+return \(\n\s+<>\n\s+<div className="bx-vch-view__name">\{r\.name\}<\/div>\n\s+\{r\.description \? <div className="bx-muted bx-vch-view__desc">\{r\.description\}<\/div> : null\}/);
+    // The amount as entered under "Amount", like the entry; no total row (the document's value is in words).
+    assert.match(view, /\{ key: 'amount', header: 'Amount', kind: signedLines \? 'drcr' : 'amount', width: 150 \}/);
+    // In the entries' place: entries, else these lines, else (Detailed) the stock-only line.
+    assert.match(view, /\{sections\.entries \? \([\s\S]*?\) : sections\.lines \? \([\s\S]*?\) : detailed && entries\.length === 0 && !v\.isCancelled \? \(/);
+    assert.match(view, /const linesTitle = v && v\.inventory\.length > 0 \? 'Charges & discounts' : null;/);
+    assert.match(view, /<Section title=\{linesTitle\} label=\{linesTitle \?\? 'Particulars'\}>/);
+    const at = view.indexOf('rows={lines}');
+    assert.ok(at > 0, 'the lines table');
+    const tag = view.slice(view.lastIndexOf('<DataTable', at), view.indexOf('/>', at));
+    for (const attr of [
+      "aria-label={linesTitle ?? 'Particulars'}",
+      'columns={lineColumns}',
+      'getRowClassName={(r) => (r.description ? MULTILINE_ROW : undefined)}',
+      "autoFocus={sections.focus === 'lines'}",
+      'empty={',
+    ]) {
+      assert.ok(tag.includes(attr), attr);
+    }
+    assert.match(tag, /\n\s*virtualize=\{false\}\n/, 'not windowed, like the other view tables');
+    assert.doesNotMatch(view, /dangerouslySetInnerHTML/);
   });
 });
