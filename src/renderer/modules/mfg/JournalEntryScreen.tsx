@@ -13,11 +13,20 @@
  *                          goods type for s.143, challan rate and any extension of the return date.
  *
  * Keyboard: Enter / Shift+Enter next / previous field · Ctrl+A accept · Alt+B fill from the BOM ·
- * Ctrl+D remove line · Alt+N (Ctrl+N) insert line · Alt+P print (the journal altered or just saved) ·
- * alteration: Alt+D delete, Alt+X cancel, Alt+2 duplicate, Alt+H edit history, Alt+Enter view · Esc back.
+ * Ctrl+D remove line · Alt+N (Ctrl+N) insert line · Ctrl+E line description · Alt+P print (the journal altered
+ * or just saved) · alteration: Alt+D delete, Alt+X cancel, Alt+2 duplicate, Alt+H edit history, Alt+Enter view ·
+ * Esc back.
+ *
+ * 2.2 line descriptions (lib/journalDescription.ts; the rule and the field are voucher entry's): every item line —
+ * the finished goods, a component, a by-product / scrap, a material line — may carry a description of its own,
+ * saved with this voucher only, in a quiet one-line field under its item. It shows when the line has text or the
+ * user opens it: Ctrl+E on the line (from More ▾ or the shortcut bar: the line the cursor was last on), its
+ * "Description" row tool, or the finished goods' "Description" beside "Item". In the Enter chain it follows the
+ * item; Enter / Shift+Enter move on from it as from any field; left empty it closes again. Which lines are opened
+ * is this screen's state (`descOpen` + a ref), never the form's; the next voucher starts with none.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { FocusEvent as ReactFocusEvent, ReactNode } from 'react';
 import { formatMoney } from '../../../shared/format.ts';
 import { JOB_WORK_GOODS_LABELS, JOB_WORK_GOODS_TYPES, type JobWorkGoodsType } from '../../../shared/mfg/jobwork.ts';
 import type { Paise } from '../../../shared/money.ts';
@@ -47,6 +56,9 @@ import {
   EmptyState,
   Field,
   FieldGroup,
+  focusElement,
+  getEnterTargets,
+  IconButton,
   Modal,
   PercentInput,
   QuantityInput,
@@ -61,9 +73,11 @@ import {
 } from '../../ui/index.ts';
 import { LedgerPicker } from '../accounts/pickers.tsx';
 import { GodownPicker, ItemPicker } from '../inventory/pickers.tsx';
+import { afterPointerRelease, DESC_MAX_LENGTH, NO_OPENED, openedAfterLeaving, openedWith } from '../vouchers/lib/lineDescription.ts';
 import type { ItemPickerRow } from '../../../shared/types/inventory.ts';
-import { focusedRowKey, focusRow, LinesTable, MFG_INVALIDATES } from './components.tsx';
+import { focusedRowKey, focusLater, focusRow, LinesTable, MFG_INVALIDATES, rowKeyOf } from './components.tsx';
 import type { LineColumn, LineRow } from './components.tsx';
+import { describeAction, descriptionId, enterNeighbour, lineDescriptionShown } from './lib/journalDescription.ts';
 import {
   applyBom,
   blankCost,
@@ -385,6 +399,65 @@ function JournalEntry({
     }
   };
 
+  // ── 2.2: line descriptions (lib/journalDescription.ts) — opened per row key; the field appears in the next render ──
+  /** Lines whose description the user opened on this voucher (row keys) — screen state, never part of the form. */
+  const [descOpen, setDescOpenState] = useState<ReadonlySet<string>>(NO_OPENED);
+  /** The same set for handlers that run before the next render (a close after a press, Ctrl+E). */
+  const descOpenRef = useRef(descOpen);
+  const setDescOpen = useCallback((next: ReadonlySet<string>) => {
+    if (next === descOpenRef.current) return;
+    descOpenRef.current = next;
+    setDescOpenState(next);
+  }, []);
+  /**
+   * The line the cursor was last on (a table line or the finished goods) — Ctrl+E chosen in More ▾ or on the
+   * shortcut bar describes it (the menu or the button has the focus then). Set by the form's focus events, cleared
+   * in the header, the job work fields and the narration, and when the next voucher starts.
+   */
+  const lastLineRef = useRef<string | null>(null);
+  const openDescription = useCallback(
+    (rowKey: string) => {
+      setDescOpen(openedWith(descOpenRef.current, rowKey));
+      focusLater(descriptionId(rowKey));
+    },
+    [setDescOpen],
+  );
+  // Moving into a description keeps it open while it is edited (emptying it must not take it away under the
+  // cursor); leaving it empty closes it again.
+  const onDescriptionFocus = useCallback((rowKey: string) => setDescOpen(openedWith(descOpenRef.current, rowKey)), [setDescOpen]);
+  const onDescriptionLeave = useCallback((rowKey: string, text: string) => setDescOpen(openedAfterLeaving(descOpenRef.current, rowKey, text)), [setDescOpen]);
+  /** The cursor moved inside the form (focus events bubble): remember its line for Ctrl+E (lastLineRef). */
+  const onFormFocus = (e: ReactFocusEvent<HTMLDivElement>) => {
+    const t = e.target;
+    // A picker's list sits in a portal outside the form: the line of its field stays the last line.
+    if (!(t instanceof Element) || !e.currentTarget.contains(t)) return;
+    lastLineRef.current = rowKeyOf(t);
+  };
+  /**
+   * Ctrl+E: the description of the line the cursor is on — opened and the cursor put in it, or only the cursor
+   * when it already shows. From More ▾ or the shortcut bar it is the line the cursor was last on. Elsewhere (the
+   * header, the narration, an additional cost, an empty line) a note says where to go.
+   */
+  const describeLine = () => {
+    const key = focusedRowKey() ?? lastLineRef.current;
+    const act = describeAction(form, descOpenRef.current, key);
+    if (key !== null && act === 'focus') {
+      // On screen: the cursor goes in now — an empty one just left for the shortcut bar closes when the press is
+      // over unless the cursor is back (LineDescriptionField) — and again next frame, after More ▾ gave the focus
+      // back to its button.
+      document.getElementById(descriptionId(key))?.focus();
+      focusLater(descriptionId(key));
+      return;
+    }
+    if (key !== null && act === 'open') {
+      openDescription(key);
+      return;
+    }
+    toast.info('Move to an item line first', { message: 'Ctrl+E adds a description under the item the cursor is on.' });
+  };
+  /** A description typed under a line: not a change of the BOM's lines, so the automatic BOM refill goes on (it keeps the text). */
+  const setDescription = (key: string, text: string) => patchRow(key, { description: text }, false);
+
   // ── Save / delete / cancel ──
   const save = useApiMutation('vouchers.save', { invalidates: ENTRY_INVALIDATES });
   const del = useApiMutation('vouchers.delete', { invalidates: ENTRY_INVALIDATES });
@@ -416,8 +489,10 @@ function JournalEntry({
       return;
     }
     setLastSaved({ id: out.id, number: out.number });
-    // A fresh voucher of the same type and date.
+    // A fresh voucher of the same type and date: no line opened (2.2), no last line.
     const fresh = withTrailingBlanks(emptyForm(form.cls, form.voucherTypeId, form.date), sectionsFor(form.cls, null));
+    setDescOpen(NO_OPENED);
+    lastLineRef.current = null;
     applied.current = '';
     setAutoFill(true);
     baseline.current = JSON.stringify(fresh);
@@ -459,6 +534,8 @@ function JournalEntry({
     { key: 'Alt+B', label: 'Fill from BOM', icon: 'layers', onClick: fillFromBom, hidden: !sections.products || !features.manufacturing, group: 'lines' },
     { key: 'Ctrl+D', label: 'Remove line', icon: 'minus', onClick: removeLine, hidden: readOnly, group: 'lines' },
     { key: 'Alt+N, Ctrl+N', label: 'Insert line', icon: 'plus', onClick: insertLine, hidden: readOnly, group: 'lines' },
+    // 2.2: a description under the line the cursor is on (the row tool "Description" does the same); More ▾ lists it.
+    { key: 'Ctrl+E', label: 'Line description', icon: 'text', onClick: describeLine, hidden: readOnly, group: 'details' },
     { key: 'Alt+P', label: 'Print', icon: 'print', onClick: print, disabled: !detail && !lastSaved, group: 'voucher' },
     // As in the main voucher entry: optional (memo, no stock) and post-dated vouchers.
     { key: 'Ctrl+L', label: form.isOptional ? 'Make regular' : 'Make optional', icon: 'eye-off', onClick: () => setForm((f) => ({ ...f, isOptional: !f.isOptional })), hidden: readOnly, group: 'status' },
@@ -480,18 +557,42 @@ function JournalEntry({
     features.multipleGodowns ? (
       <GodownPicker size="sm" aria-label={`Godown of ${r.itemName || 'the line'}`} value={r.godownId} onChange={(id) => patchRow(r.key, { godownId: id })} placeholder={placeholder} readOnly={readOnly} allowCreate={false} />
     ) : null;
-  const itemCell = (r: JournalRow, label: string): ReactNode => (
-    <ItemPicker
-      size="sm"
-      aria-label={label}
-      goodsOnly
-      asOf={form.date}
-      value={r.itemId !== null ? { id: r.itemId, name: r.itemName } : null}
-      onChange={(it) => setItem(r.key, it)}
-      readOnly={readOnly}
-      invalid={errors.rows.has(r.key)}
-    />
+  /** 2.2: a line's item with the line's description under it, while it shows (lib/journalDescription.ts). */
+  const named = (r: JournalRow, item: ReactNode): ReactNode => (
+    <div className="bx-mfg-name">
+      {item}
+      {lineDescriptionShown(descOpen, r) ? (
+        <LineDescriptionField
+          rowKey={r.key}
+          label={`Description of ${r.itemName || 'the line'}`}
+          value={r.description}
+          readOnly={readOnly}
+          onChange={(s) => setDescription(r.key, s)}
+          onFocusLine={onDescriptionFocus}
+          onLeave={onDescriptionLeave}
+        />
+      ) : null}
+    </div>
   );
+  /** 2.2: the row tool that opens a hidden description, on a line with an item (Ctrl+E does the same for the line the cursor is on). */
+  const descriptionTool = (r: JournalRow): ReactNode =>
+    readOnly || r.itemId === null || lineDescriptionShown(descOpen, r) ? null : (
+      <IconButton icon="text" size="sm" variant="ghost" tabIndex={-1} aria-label={`Description of ${r.itemName}`} tooltip="Description (Ctrl+E)" onClick={() => openDescription(r.key)} />
+    );
+  const itemCell = (r: JournalRow, label: string): ReactNode =>
+    named(
+      r,
+      <ItemPicker
+        size="sm"
+        aria-label={label}
+        goodsOnly
+        asOf={form.date}
+        value={r.itemId !== null ? { id: r.itemId, name: r.itemName } : null}
+        onChange={(it) => setItem(r.key, it)}
+        readOnly={readOnly}
+        invalid={errors.rows.has(r.key)}
+      />,
+    );
   const qtyCell = (r: JournalRow): ReactNode => (
     <QuantityInput size="sm" aria-label={`Quantity of ${r.itemName || 'the line'}`} value={r.qty} onChange={(q) => patchRow(r.key, { qty: q })} unit={r.unit} decimals={r.decimals} readOnly={readOnly} />
   );
@@ -516,6 +617,7 @@ function JournalEntry({
   const outputRows: LineRow[] = outputs.map((r) => ({
     key: r.key,
     error: errors.rows.get(r.key),
+    tool: descriptionTool(r),
     cells: {
       kind: (
         <Select<'by_product' | 'scrap'> size="sm" aria-label="Kind" value={r.role === 'by_product' ? 'by_product' : 'scrap'} onChange={(v) => patchRow(r.key, { role: v })} disabled={readOnly} options={[{ value: 'by_product', label: 'By-product' }, { value: 'scrap', label: 'Scrap' }]} />
@@ -544,6 +646,7 @@ function JournalEntry({
   const componentRows: LineRow[] = components.map((r) => ({
     key: r.key,
     error: errors.rows.get(r.key),
+    tool: descriptionTool(r),
     cells: { item: itemCell(r, 'Component'), godown: godownCell(r, ownPlaceholder), batch: batchCell(r), qty: qtyCell(r), value: valueCell(r.key) },
   }));
 
@@ -566,6 +669,7 @@ function JournalEntry({
   const materialRows: LineRow[] = material.map((r) => ({
     key: r.key,
     error: errors.rows.get(r.key),
+    tool: descriptionTool(r),
     cells: {
       item: itemCell(r, 'Material'),
       godown: godownCell(r, ownPlaceholder),
@@ -614,9 +718,9 @@ function JournalEntry({
       dirty={dirty}
       actions={actions}
       meta={form.isOptional || form.isPostDated ? [form.isOptional ? 'Optional — moves no stock' : null, form.isPostDated ? 'Post-dated' : null].filter(Boolean).join(' · ') : undefined}
-      hint="Enter Next field · Ctrl+A Accept · Alt+B Fill from BOM · Ctrl+D Remove line · Alt+N Insert line · Ctrl+L Optional · Alt+P Print · Esc Back"
+      hint="Enter Next field · Ctrl+A Accept · Alt+B Fill from BOM · Ctrl+D Remove line · Alt+N Insert line · Ctrl+E Description · Ctrl+L Optional · Alt+P Print · Esc Back"
     >
-      <div ref={formRef}>
+      <div ref={formRef} onFocus={onFormFocus}>
         <Stack gap={4}>
           {errors.general.length > 0 ? (
             <Banner tone="danger" title="Not saved" onDismiss={() => setErrors((e) => ({ ...e, general: [] }))}>
@@ -678,18 +782,33 @@ function JournalEntry({
           ) : null}
 
           {sections.products && product ? (
-            <section className="bx-mfg-section" aria-label="Finished goods">
+            // The finished goods are a line of the voucher too (data-row-key: Ctrl+E, a save error's line).
+            <section className="bx-mfg-section" aria-label="Finished goods" data-row-key={product.key}>
               <h2 className="bx-sr-only">Finished goods</h2>
               <FieldGroup columns={features.multipleGodowns ? 4 : 3} legend={form.cls === 'manufacturing' ? 'Finished goods' : 'Finished goods received from the job worker'}>
-                <Field label="Item" required={form.cls === 'manufacturing'} error={errors.rows.get(product.key)}>
-                  <ItemPicker
-                    goodsOnly
-                    asOf={form.date}
-                    value={product.itemId !== null ? { id: product.itemId, name: product.itemName } : null}
-                    onChange={setProductItem}
-                    readOnly={readOnly}
-                    data-autofocus={isAlter ? undefined : ''}
-                  />
+                <Field
+                  label="Item"
+                  required={form.cls === 'manufacturing'}
+                  error={errors.rows.get(product.key)}
+                  labelAction={
+                    readOnly || product.itemId === null || lineDescriptionShown(descOpen, product) ? undefined : (
+                      <Button size="sm" variant="link" tabIndex={-1} shortcut="Ctrl+E" onClick={() => openDescription(product.key)}>
+                        Description
+                      </Button>
+                    )
+                  }
+                >
+                  {named(
+                    product,
+                    <ItemPicker
+                      goodsOnly
+                      asOf={form.date}
+                      value={product.itemId !== null ? { id: product.itemId, name: product.itemName } : null}
+                      onChange={setProductItem}
+                      readOnly={readOnly}
+                      data-autofocus={isAlter ? undefined : ''}
+                    />,
+                  )}
                 </Field>
                 {features.manufacturing ? (
                   <Field label="Bill of materials" optional error={errors.fields.bomId} hint={autoFill ? 'Components fill in from it.' : 'Alt+B fills the components again.'}>
@@ -729,11 +848,12 @@ function JournalEntry({
               caption={form.cls === 'manufacturing' ? 'Components consumed' : `Components consumed by the job worker${thirdName ? ` (at ${thirdName})` : ''}`}
               columns={componentCols}
               rows={componentRows}
+              tools
               footer={est ? `Consumption ₹ ${formatMoney(est.consumed)}` : undefined}
             />
           ) : null}
 
-          {sections.products ? <LinesTable caption="By-products and scrap" columns={outputCols} rows={outputRows} footer={est && est.byProducts > 0 ? `By-products and scrap ₹ ${formatMoney(est.byProducts)}` : undefined} /> : null}
+          {sections.products ? <LinesTable caption="By-products and scrap" columns={outputCols} rows={outputRows} tools footer={est && est.byProducts > 0 ? `By-products and scrap ₹ ${formatMoney(est.byProducts)}` : undefined} /> : null}
 
           {sections.material ? (
             <LinesTable
@@ -748,6 +868,7 @@ function JournalEntry({
               }
               columns={materialCols}
               rows={materialRows}
+              tools
               footer={est && est.transferred > 0 ? `Value ₹ ${formatMoney(est.transferred)}` : undefined}
             />
           ) : null}
@@ -807,6 +928,83 @@ function JournalEntry({
         />
       ) : null}
     </Screen>
+  );
+}
+
+/**
+ * 2.2: a line's own description under its item — voucher entry's quiet one-line field (vouchers/entry/grids.tsx ›
+ * LineDescription), growing to four lines, on this screen's Enter chain (useEnterAdvance, DOM order): it follows
+ * the item, and Enter / Shift+Enter move to the next / previous field as on every other field (no typed new lines;
+ * pasted ones stay); Ctrl+Enter, the multi-line box convention, does the same through useEnterAdvance. It is never
+ * the last field (the narration follows). Left empty it closes again (`onLeave`): at once for a key or a
+ * programmatic move, after the press when a click moved the cursor. Its errors are the line's (shown under it).
+ */
+function LineDescriptionField({
+  rowKey,
+  label,
+  value,
+  readOnly,
+  onChange,
+  onFocusLine,
+  onLeave,
+}: {
+  rowKey: string;
+  label: string;
+  value: string;
+  readOnly: boolean;
+  onChange: (text: string) => void;
+  onFocusLine: (rowKey: string) => void;
+  onLeave: (rowKey: string, text: string) => void;
+}) {
+  return (
+    <TextArea
+      id={descriptionId(rowKey)}
+      className="bx-mfg-desc"
+      aria-label={label}
+      rows={1}
+      autoGrow
+      maxRows={4}
+      maxLength={DESC_MAX_LENGTH}
+      placeholder="Description"
+      value={value}
+      readOnly={readOnly}
+      // Under the finished goods' "Item" it is inside that Field: not required or invalid with it.
+      required={false}
+      invalid={false}
+      onValueChange={onChange}
+      onFocus={() => onFocusLine(rowKey)}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' || e.altKey || e.ctrlKey || e.metaKey || e.nativeEvent.isComposing || readOnly) return;
+        e.preventDefault();
+        const field = e.currentTarget;
+        const scope = field.closest<HTMLElement>('[data-enter-scope]');
+        const next = scope ? enterNeighbour(getEnterTargets(scope), field, e.shiftKey) : null;
+        if (next) {
+          focusElement(next, true);
+          next.scrollIntoView({ block: 'nearest' });
+        }
+      }}
+      onBlur={(e) => {
+        // A dialog opened from here (Alt+X, a confirmation …) gives the cursor back to this field, and so does the
+        // window when the user returns: keep it for them. Anything else closes an empty one.
+        const to = e.relatedTarget;
+        if (to instanceof Element && to.closest('[role="dialog"], [role="alertdialog"]')) return;
+        if (!document.hasFocus()) return;
+        // A press below — a row tool, a label, the narration — moves the cursor at mousedown. Closed now, the field
+        // would pull what was pressed up from under the pointer and the click would land elsewhere, so it closes once
+        // the press is over, after the click (vouchers/lib/lineDescription.ts › afterPointerRelease) — unless the
+        // cursor is back by then (Ctrl+E from the shortcut bar). The pressed control is :active (with nothing
+        // focused, as for a label, the page is). Keys (Enter, Tab) and programmatic moves close it at once.
+        if ((to instanceof Element ? to : document.documentElement).matches(':active')) {
+          const field = e.currentTarget;
+          afterPointerRelease(document, () => {
+            if (document.activeElement !== field) onLeave(rowKey, field.value);
+          });
+          return;
+        }
+        onLeave(rowKey, e.currentTarget.value);
+      }}
+    />
   );
 }
 

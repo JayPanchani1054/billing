@@ -318,10 +318,12 @@ describe('voucher entry wiring (2.2)', () => {
     assert.match(screen, /hint="Enter Next · Shift\+Enter Back · Ctrl\+A Save · [^"]*· Ctrl\+E Description · Esc Back"/);
   });
 
-  it('Ctrl+E means "Line description" in voucher entry only: no panel, dialog or other screen takes it, nor an Electron menu', () => {
+  it('Ctrl+E means "Line description" in voucher entry and the manufacturing journal only: no panel, dialog or other screen takes it, nor an Electron menu', () => {
     const files = sources(modulesDir);
     const taken = files.flatMap((f) => uses(f.text, 'Ctrl+E').map((u) => `${f.file}: ${u}`));
-    assert.deepEqual(taken, ["vouchers/entry/VoucherEntryScreen.tsx: 'Line description'"]);
+    // Manufacturing Journal / Material In / Out are entered on mfg.journal.entry (vouchers.entry hands them over):
+    // the same field under its item lines, the same one action (mfg/lib/journalDescription.test.ts).
+    assert.deepEqual([...taken].sort(), ["mfg/JournalEntryScreen.tsx: 'Line description'", "vouchers/entry/VoucherEntryScreen.tsx: 'Line description'"]);
     // Rendered inside voucher entry or over it: the TDS / forex panels and every dialog.
     const overEntry = ['tds/EntryPanel.tsx', 'forex/EntryPanel.tsx', 'forex/ForexDialogs.tsx', 'gst/GstDetailsDialog.tsx', 'accounts/QuickPartyDialog.tsx', 'vouchers/ChangeNumberDialog.tsx', 'vouchers/entry/dialogs.tsx', 'vouchers/entry/BillsDialog.tsx', 'vouchers/entry/SavedBar.tsx', 'vouchers/entry/panels.tsx', 'vouchers/entry/grids.tsx'];
     for (const f of overEntry) {

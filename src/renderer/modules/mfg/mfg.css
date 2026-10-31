@@ -61,6 +61,34 @@
   border-top: 1px solid var(--border-default);
   font-weight: var(--fw-semibold);
 }
+/* 2.2: row tools (the journal's Description button) — shown on the row's hover / focus, as in voucher entry */
+.bx-mfg-lines td.bx-mfg-lines__tool {
+  text-align: center;
+}
+.bx-mfg-lines tr.bx-mfg-row:not(:hover, :focus-within) .bx-mfg-lines__tool button {
+  opacity: 0;
+}
+
+/* 2.2: a line's item with its own description under it (the finished goods' Item field and the line tables) */
+.bx-mfg-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+/* The description: voucher entry's quiet field (vouchers-entry.css .bx-vch-desc) — no border or fill until hover /
+   focus, one line high, no resize grip. The same declarations, kept equal by lib/journalDescription.test.ts. */
+.bx-textarea.bx-mfg-desc {
+  min-height: var(--control-h-sm);
+  padding: var(--space-0-5) var(--control-px-sm);
+  font-size: var(--fs-12);
+  line-height: var(--lh-snug);
+  resize: none;
+}
+.bx-textarea.bx-mfg-desc:not(:hover, :focus, .is-invalid) {
+  border-color: transparent;
+  background: none;
+}
 
 .bx-mfg-section {
   display: flex;

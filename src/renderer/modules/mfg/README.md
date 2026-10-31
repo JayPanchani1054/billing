@@ -38,8 +38,10 @@ grid is used (the core accepts plain lines for a classed type too).
   / received (goods type, challan rate, return-date extension for Material Out), additional costs
   (expense ledger, description, amount or % of consumption). One trailing blank row per section.
 - BOM explosion: choosing the item picks its default BOM; BOM + quantity fill components and by-products
-  scaled from the BOM's output quantity; editing those rows by hand stops the automatic refill; Alt+B
-  refills.
+  scaled from the BOM's output quantity; editing those rows by hand stops the automatic refill (typing a
+  line's description does not); Alt+B refills. A refill keeps the description of each rebuilt line whose
+  item the BOM still has (`lib/journalForm.ts › carryDescriptions`: same item, same section — components, or
+  by-products / scrap — in order); a line whose item the BOM no longer has goes with its text.
 - Live costing from `vouchers.preview` (debounced 350 ms): value per line and each section's total in
   its table footer; under the tables one StatLine *Cost of finished goods · Rate per unit* (its tooltip
   spells out consumption + additional − by-products); plus the core's warnings. The additional-costs rule
@@ -59,11 +61,29 @@ grid is used (the core accepts plain lines for a classed type too).
   `inventory_entries.description`, never the stock item master's; shown by the voucher view and the print)
   is kept in `JournalRow.description` — read back on alteration and Alt+2 (`fromDetail`) and sent again
   trimmed at its ends, line breaks inside kept, only when it has text (`toBlock`) — so altering or
-  duplicating a journal no longer drops the texts it got elsewhere (an import, the plain stock journal grid,
-  the API). This screen does not show or edit them yet: voucher entry's Ctrl+E "Line
-  description" is pinned to voucher entry alone (vouchers `lib/lineDescription.test.ts`). Tests:
-  `lib/forms.test.ts` (the form) and `lib/coreContract.test.ts` (alteration, duplicate and an imported journal
-  through the screen's model against the real engine).
+  duplicating a journal keeps the texts it got elsewhere too (an import, the plain stock journal grid, the API).
+  - On screen (`lib/journalDescription.ts`; the rule, the opened-set helpers, the 1,000-character limit and
+    the close after a press are imported from vouchers `lib/lineDescription.ts`): a quiet one-line field
+    (`bx-mfg-desc`, voucher entry's `bx-vch-desc` look, growing to four lines, placeholder *Description*,
+    labelled with the item, e.g. *Description of Steel Sheet*) under the item of the finished goods (inside its *Item* field), every
+    component, by-product / scrap and material line. It shows while the line has an item and text, or once the
+    user opens it on this voucher: **Ctrl+E** — one rail action *Line description* (group details, under More
+    ▾, hidden for a view-only role) — on the line the cursor is on, or from More ▾ / the shortcut bar on the
+    line the cursor was last on (`lastLineRef`, set by the form's focus events through `data-row-key`, which the
+    finished goods section carries too); the row tool *Description* (a trailing tools column of the item tables,
+    `LinesTable tools`, shown on row hover / focus, mouse-only); or the finished goods' *Description* link
+    beside *Item*. Elsewhere (header, narration, an additional cost — those keep their own Description column —
+    an empty line) Ctrl+E says *Move to an item line first*.
+  - Keyboard: in the Enter chain it follows the item (DOM order, useEnterAdvance); Enter / Shift+Enter move on
+    from it like any field — no typed new lines, pasted ones stay — and so does Ctrl+Enter. Left empty it closes
+    again: at once for keys, after the press when a click moved the cursor (so the click lands); not when a
+    dialog or another window took the cursor.
+  - The opened lines are this screen's state (`descOpen` + a ref), never the form's: no "unsaved changes",
+    never sent; the next voucher after a save starts with none (and no last line).
+  - Not here: the voucher type's *Description on every line* (`mfg.journal.context` does not carry the flag).
+  Tests: `lib/journalDescription.test.ts` (rule, Ctrl+E, Enter, BOM refill, the screen's wiring and look, read
+  from source), `lib/forms.test.ts` (the form) and `lib/coreContract.test.ts` (typed, kept through Alt+B, saved,
+  emptied; alteration, duplicate and an imported journal — the screen's model against the real engine).
 - ITC-04: Ctrl+4 toggles between the previous and the current financial year; table rows are keyed by
   the core's unique `key` (two identical challan lines stay two rows).
 
@@ -86,8 +106,10 @@ when the period runs past it, unless a later (post-dated) voucher exists. Graph 
 
 ## Pure logic (tested)
 
-`lib/journalForm.ts` (form ⇄ VoucherInput, BOM application, sections, trailing rows, type choice, error
-mapping), `lib/bomForm.ts`, `lib/orderForm.ts`, `lib/model.ts` (status texts, alert text, export
-layouts of every report incl. ITC-04 tables), `lib/charts.ts` (graphs and stats). Tests:
+`lib/journalForm.ts` (form ⇄ VoucherInput, BOM application with the descriptions it keeps, sections, trailing
+rows, type choice, error mapping), `lib/journalDescription.ts` (2.2: when a line's description shows, Ctrl+E's
+choice, the Enter neighbour), `lib/bomForm.ts`, `lib/orderForm.ts`, `lib/model.ts` (status texts, alert text,
+export layouts of every report incl. ITC-04 tables), `lib/charts.ts` (graphs and stats). Tests:
 `lib/forms.test.ts`, `lib/screens.test.ts`, `lib/charts.test.ts`, `lib/keys21.test.ts` (every screen file still registers each key it had in 2.0),
+`lib/journalDescription.test.ts` (2.2 line descriptions on the journal screen),
 `lib/coreContract.test.ts` (2.2: the journal form against the real engine; test-only core imports).

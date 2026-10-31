@@ -154,16 +154,41 @@ export const MATERIAL_ROLES: readonly StockJournalRole[] = ['transfer', 'receipt
 /** A row worth sending (an item and a quantity). */
 export const isFilled = (r: JournalRow): boolean => r.itemId !== null && r.qty !== null && r.qty > 0;
 
+/** The lines a BOM fill rebuilds, by section: components, and by-products / scrap (one section — Kind switches between the two). */
+const rebuiltSection = (role: StockJournalRole): 'components' | 'outputs' | null => (role === 'component' ? 'components' : role === 'by_product' || role === 'scrap' ? 'outputs' : null);
+
+/**
+ * 2.2: a BOM fill (Alt+B, another BOM, a new quantity of the finished goods) rebuilds the component and
+ * by-product / scrap lines. The description typed under such a line goes to the rebuilt line of the same item in
+ * the same section — in order when an item had several described lines (the first text to the first rebuilt line
+ * of that item …). A line whose item the BOM does not have goes, and its text with it. Pure.
+ */
+export function carryDescriptions(before: readonly JournalRow[], rebuilt: readonly JournalRow[]): JournalRow[] {
+  const texts = new Map<string, string[]>();
+  for (const r of before) {
+    const section = rebuiltSection(r.role);
+    if (section === null || r.itemId === null || r.description.trim() === '') continue;
+    const key = `${section}:${r.itemId}`;
+    texts.set(key, [...(texts.get(key) ?? []), r.description]);
+  }
+  return rebuilt.map((r) => {
+    const section = rebuiltSection(r.role);
+    const text = section === null || r.itemId === null ? undefined : texts.get(`${section}:${r.itemId}`)?.shift();
+    return text === undefined ? r : { ...r, description: text };
+  });
+}
+
 /**
  * Replace the components / by-products / scrap with the BOM's lines for `qty` of the product, keeping
  * the product row (its quantity) and any material rows. Component godowns: the BOM's, else `componentGodownId`
- * (Material In: none — consumed at the job worker's godown).
+ * (Material In: none — consumed at the job worker's godown). 2.2: the descriptions of the rebuilt lines whose
+ * item the BOM still has are kept (`carryDescriptions`); the product's and the material lines' stay with them.
  */
 export function applyBom(form: JournalForm, bom: BomDetail, qty: number, componentGodownId: number | null): JournalForm {
   const product = form.rows.find((r) => r.role === 'product') ?? blankRow('product');
   const kept = form.rows.filter((r) => MATERIAL_ROLES.includes(r.role));
   const exploded = explodeBom(bom.lines, bom.outputQty, qty);
-  const lines: JournalRow[] = exploded.map((e) =>
+  const fresh: JournalRow[] = exploded.map((e) =>
     blankRow(e.line.kind === 'component' ? 'component' : e.line.kind, {
       itemId: e.line.itemId,
       itemName: e.line.itemName,
@@ -178,6 +203,7 @@ export function applyBom(form: JournalForm, bom: BomDetail, qty: number, compone
       valuePct: e.line.valuePct,
     }),
   );
+  const lines = carryDescriptions(form.rows, fresh);
   const productRow: JournalRow = { ...product, itemId: bom.itemId, itemName: bom.itemName, unit: bom.unit, decimals: bom.unitDecimals, qty };
   return {
     ...form,

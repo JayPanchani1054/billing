@@ -12,9 +12,10 @@ import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { routes } from '../../../../core/api/routes.ts';
 import { mfgKit, post } from '../../../../core/modules/mfg/testkit.ts';
-import type { MfgJournalDetail } from '../../../../shared/types/mfg.ts';
+import type { BomDetail, MfgJournalDetail } from '../../../../shared/types/mfg.ts';
 import type { VoucherInput, VoucherSaveResult } from '../../../../shared/types/vouchers.ts';
-import { fromDetail, toVoucherInput } from './journalForm.ts';
+import { applyBom, emptyForm, fromDetail, sectionsFor, toVoucherInput, withTrailingBlanks } from './journalForm.ts';
+import type { JournalForm, JournalRow } from './journalForm.ts';
 
 const k = mfgKit();
 after(() => k.t.close());
@@ -97,5 +98,49 @@ describe('the mfg journal screen against the real engine (2.2 line descriptions)
     const { input } = toVoucherInput({ ...fromDetail(d), narration: 'altered' }, { id: d.id as number, updatedAt: d.updatedAt, number: d.number });
     await save(input);
     assert.deepEqual(stored(plain.id), texts);
+  });
+
+  it('typed on the screen (Ctrl+E): kept through Alt+B, saved with each line, gone when emptied on alteration', async () => {
+    const bom = await t.callOk<BomDetail>(routes, 'mfg.bom.save', {
+      itemId: I.chair,
+      name: 'Described',
+      outputQty: 1,
+      lines: [
+        { kind: 'component', itemId: I.steel, qty: 5 },
+        { kind: 'component', itemId: I.paint, qty: 0.5 },
+        { kind: 'scrap', itemId: I.scrap, qty: 0.5, valueBasis: 'rate', valueRate: 20 },
+      ],
+    });
+    const sections = sectionsFor('manufacturing', null);
+    /** The screen's patch of a typed description (JournalEntryScreen › setDescription). */
+    const typed = (f: JournalForm, role: JournalRow['role'], itemId: number, description: string): JournalForm => {
+      const row = f.rows.find((r) => r.role === role && r.itemId === itemId);
+      assert.ok(row, `${role} ${itemId}`);
+      return { ...f, rows: f.rows.map((r) => (r.key === row.key ? { ...r, description } : r)) };
+    };
+    const textOf = (f: JournalForm, role: JournalRow['role'], itemId: number): string | undefined => f.rows.find((r) => r.role === role && r.itemId === itemId)?.description;
+
+    // A new journal: 2 chairs, the BOM fills the lines (the screen's automatic fill), descriptions typed under three.
+    let f = withTrailingBlanks(applyBom(emptyForm('manufacturing', VT.manufacturing, '2026-06-14'), bom, 2, null), sections);
+    f = typed(f, 'product', I.chair, 'Order 77\nexport packing');
+    f = typed(f, 'component', I.steel, 'Heat 42');
+    f = typed(f, 'scrap', I.scrap, '  Offcuts  ');
+    // Alt+B for 3 chairs: the component and scrap lines are rebuilt; their descriptions stay with their items.
+    f = withTrailingBlanks(applyBom(f, bom, 3, null), sections);
+    assert.equal(f.rows.find((r) => r.role === 'component' && r.itemId === I.steel)?.qty, 15);
+    const res = await save(toVoucherInput(f).input);
+    const all = (id: number) => stored(id).map((s) => s ?? '').sort();
+    assert.deepEqual(all(res.id), ['', 'Heat 42', 'Offcuts', 'Order 77\nexport packing'], 'Paint has none; the scrap text is trimmed');
+
+    // Alt+A: the screen shows them again (fromDetail) …
+    const d = await t.callOk<MfgJournalDetail>(routes, 'mfg.journal.get', { id: res.id });
+    const back = fromDetail(d);
+    assert.deepEqual(
+      [textOf(back, 'product', I.chair), textOf(back, 'component', I.steel), textOf(back, 'component', I.paint), textOf(back, 'scrap', I.scrap)],
+      ['Order 77\nexport packing', 'Heat 42', '', 'Offcuts'],
+    );
+    // … and Steel's, emptied and saved, is gone; the others stay.
+    await save(toVoucherInput(typed(back, 'component', I.steel, ''), { id: d.id as number, updatedAt: d.updatedAt, number: d.number }).input);
+    assert.deepEqual(all(res.id), ['', '', 'Offcuts', 'Order 77\nexport packing']);
   });
 });
