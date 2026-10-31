@@ -415,6 +415,11 @@ export interface PreviewInventoryLine {
   isConsumption: boolean;
   hsnSac: string | null;
   gstRate: number | null;
+  /**
+   * (2.2, extend-only) The line's own description typed on this voucher (inventory_entries.description —
+   * never the stock item master's description); null or absent when the line has none.
+   */
+  description?: string | null;
 }
 
 export interface GstLineView {
@@ -743,6 +748,8 @@ export interface TrackingDocLine {
   rate: number;
   discountPct: number;
   ledgerId: number | null;
+  /** (2.2, extend-only) The source line's description, carried into the invoice line it is billed on. */
+  description?: string | null;
 }
 
 export interface TrackingDoc {

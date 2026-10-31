@@ -166,6 +166,8 @@ export interface PrintMrpSummary {
 export interface PrintCharge {
   name: string;
   amount: Paise;
+  /** (2.2, extend-only) The charge line's description typed on the voucher (its ledger line narration); absent when none. */
+  description?: string | null;
 }
 
 export interface PrintTaxRateRow {
