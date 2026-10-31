@@ -227,6 +227,20 @@ Use `:name` placeholders with an object. Always parameterise — **never interpo
   program may have moved stock for it).
 - Closing stock (integrated inventory): valued by item costing method (default weighted average) and shown in
   P&L and Balance Sheet (Current Assets › Stock-in-Hand).
+- **Line descriptions (2.2)** — a line's own text, typed on that voucher only (≤ 1,000 characters, trimmed,
+  inner line breaks kept; no migration, no new input key): an item line's `items[i].description` →
+  `inventory_entries.description`, a ledger line's `ledgers[i].narration` → that line's
+  `ledger_entries.narration` (ledger and invoice modes alike). A zero-amount line, and the ledger lines of a
+  voucher that posts no entries (orders, notes, quotations), keep theirs only in `meta.input`. Never copied
+  from or into the stock item master; automatic lines (party, the items' sales / purchase ledger, tax, round
+  off) have none — hooks write their own texts on the entries they add. `gst_lines.description`, and so the
+  e-invoice, the e-way bill and every GST return, keeps the master names. Read back by `vouchers.get` /
+  `vouchers.preview` (`inventory[].description`, `entries[].narration`) and `vouchers.trackingRefs`
+  (`lines[].description`; null when none); a voucher without `meta.input` rebuilds its item lines with them
+  (`storedInput`). They travel with a duplicate, conversions and "Invoice now" (Documents module), Alt+T,
+  recurring postings, a POS bill altered on the counter, the Excel / CSV export and import (`Line Narration`,
+  `Description`, last columns) and the XML data export / import (item lines only); the edit log records
+  them (§8). Details: `src/core/modules/vouchers/README.md` §4.
 
 ## 6. GST rules (implemented in `src/shared/gst/`)
 
@@ -360,6 +374,12 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   `app/lib/userGuide.test.ts` fails on an undocumented one.
   A screen that other modules extend (voucher view + `voucherPanels`, voucher entry + its TDS / forex
   panels, ledger / item forms + attachments Alt+F) is one key space: no key twice (checked from source).
+  **Ctrl+E** (2.2) is voucher entry's *Line description* (§5): one action (More ▾; the row tool
+  *Description* does the same) with no hotkey-map entry, listed in F1 as a `CONVENTION_SHORTCUTS` row
+  (Forms, not global). No other screen binds it, and the TDS / forex entry panels and the dialogs over
+  entry do not take it (`vouchers/lib/lineDescription.test.ts`). The field is a one-line textarea: Enter /
+  Shift+Enter (and Ctrl+Enter, the multi-line box convention) move on and ↑ / ↓ move its caret; it is a stop
+  of the Enter chain only while it shows (`vouchers/lib/lineDescription.ts › descriptionShown`).
 - Permissions in the UI: an action the role forbids is hidden; a view-only form keeps Save disabled with
   the reason (the permission's Users & Roles label) or leaves it out, and shows a "view only" notice; Export / Print stay visible, disabled with the permission they
   need. The core refuses regardless. F11 off ⇒ no menu item, Go To entry, voucher-panel key or Gateway
@@ -578,6 +598,12 @@ source of truth.
 - Edit log: append-only (`audit_log` triggers) and SHA-256 hash-chained; verifiable from the UI. Its latest
   head is check-pointed outside the company file (HMAC-signed, userData + backup manifests) so a rewritten or
   truncated log is detected — see docs/SECURITY.md §4.1 for what is and is not detected. Imports audit every record.
+  2.2: a voucher's image (`vouchers/service.ts › AuditSnapshot`) may carry `lineDescriptions: { items?:
+  { '<n>': text }, ledgers?: { '<n>': text } }` — the non-empty line texts (§5) keyed by their 1-based place
+  in `input.items` / `input.ledgers` (read from `meta.input`, the normalised input for the after image, or
+  the stored rows in line order for a voucher without `meta.input`). It is left out when no line has text,
+  so earlier rows, their hashes and the `entries` / `items` tuples are unchanged; `security/auditlog.ts ›
+  summarizeEntry` names such a change once on a voucher alter ("Line descriptions changed").
 - Backups: AES-256-GCM with scrypt-derived key when a password is given; integrity-checked on restore.
 - Logs never contain passwords, full GSTIN/PAN lists or voucher payloads.
 - **Network (2.0 updates):** the app session still cancels every non-app request. The only code that may reach
@@ -779,6 +805,14 @@ migrations **190–193** (block 190–199). Details: `src/core/modules/documents
   dated before its quotation / proforma, nor the quotation after it); budget-variance cost-centre
   actuals follow the scenario (`reports/scenario.ts › scenarioCostCentreAdjust`) — memorandum vouchers
   and reversing journals therefore store their cost-centre split (`affects_books = 0`).
+- **Line texts (2.2)** (§5 › Line descriptions): `documents.draft` copies each line's own text — an item
+  line's `description`, a ledger line's `narration` — into a conversion, and "Invoice now" gives each line
+  its note line's `inventory_entries.description` (also the rest of a partly billed line). Recurring
+  placeholders (`{period}` / `{month}` / `{date}` / `{fy}`) are filled in the narration and in every line
+  text (`items[].description`, `ledgers[].narration`, the `stockJournal.lines[].description` a
+  Manufacturing Journal / Material In / Out builds its item lines from); each filled text is clamped to the
+  `vouchers.save` limits — narration 4,000, a line 1,000 characters (`recurring.ts › clampText`: trimmed,
+  never half a surrogate pair) — constants that `recurring.test.ts` pins against `VoucherInputSchema`.
 
 ## TDS / TCS module (`tds`) — deduction, payables, challans, quarterly return data
 
@@ -1004,6 +1038,20 @@ and `src/renderer/modules/cheques`; Electron main `src/main/printPage.ts` (paper
 - **MRP**: `stock_items.mrp` → `PrintLine.mrp`; `PrintVoucherData.mrpSummary` (Σ MRP × qty, savings
   vs value charged incl. GST); outward sales documents only; price above MRP is a non-blocking
   print warning (Legal Metrology (Packaged Commodities) Rules, 2011).
+- **Line descriptions (2.2)** (§5): `PrintLine.description` is the voucher's own text —
+  `inventory_entries.description` for an item line (never the item master's description), the line's
+  `LedgerLineInput.narration` for a ledger line; `PrintCharge.description` is set only when non-empty (a
+  plain charge stays `{ name, amount }`); `PrintEntry.narration` covers accounting vouchers. From the books
+  (`print/data.ts › fromBooks`) an item line takes the description of the stock line its GST line was
+  posted from — the next line of that item, passing over a line of no value when the GST line has one —
+  and ledger-line texts are matched per ledger: with `meta.input` in input order (amount 0 skipped),
+  without it from the entry's own narration; a ledger whose printed lines and typed lines (or entries) do
+  not pair one to one gets none (no text rather than another line's). A voucher without `meta.input`
+  printed in the inventory layout takes each line's text from its `inventory_entries` row. Every template,
+  Compact included, prints them as `bp-sub bp-pre` sub-lines (`overflow-wrap: anywhere`) under the name or
+  charge label; there is no layout part — they print with the locked `col.description` / `entries`. The HSN
+  summary, `gst_lines.description`, the e-invoice and GSTR-1 keep master names. Details: README of
+  `src/core/modules/print` ("Line descriptions (2.2)").
 - **Sharing** (Alt+W: voucher view, print preview, Statement of Account — on Receivables / Payables
   Alt+W switches side instead): core
   `print.share.context` (recipient from party ledger e-mail / mobile, texts from `config.share`
@@ -1158,7 +1206,9 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   masters only → `.xml`, with vouchers → `.zip` (`1-Masters.xml`, `2-Vouchers.xml`) streamed through
   `ZipFileWriter` from one read snapshot (`openSnapshot`, yields every 5 000 vouchers). Vouchers are
   written as recorded (no recomputation): entries, bill-wise, cost centres, bank instruments,
-  inventory with godown / batch and accounting allocations, GST header facts. Contract test: export →
+  inventory with godown / batch and accounting allocations and (2.2) each item line's own description
+  (`BASICUSERDESCRIPTION.LIST`, one element per text line; the importer joins them back once per source
+  line, a text over 1,000 characters cut with an info issue), GST header facts. Contract test: export →
   OUR importer into an empty company reproduces the trial balance, stock summary, GST lines, GSTR-3B /
   GSTR-1, pending bills, every voucher's postings and aliases (`xmlExport.test.ts`). A credit / debit
   note's original invoice travels as `REFERENCE` / `REFERENCEDATE` both ways (documented assumption).
@@ -1175,7 +1225,8 @@ Migrations **220–222** (block 220–229), additive only: `220_aliases` (`ledge
   the stock lines of manufacturing / job work journals are written at the valuation engine's current
   value (`journalCosts`), not the estimate stored when they were saved, so a back-dated cost change
   reaches the receiving company too. Not exported: quotations / proforma / physical stock (reported as skipped),
-  forex amounts (rupees only), e-invoice / e-way bill and shipping bill details, attachments.
+  forex amounts (rupees only), e-invoice / e-way bill and shipping bill details, attachments, ledger lines'
+  own narrations (2.2; the importer does not read them either).
 - **Attachments** — core `src/core/modules/attachments` (README), routes `attachments.list / counts /
   add / read / remove / register`, permissions `attachments.add` / `attachments.remove` (view follows
   the owner: `vouchers.view` / `masters.view`). The renderer sends bytes from the native Open dialog,
@@ -1295,5 +1346,8 @@ additive only: `pos_tender_modes`, derived `pos_bills` / `pos_payments`, `pos_he
   cashier / counter (`pos.register` filters `modeId`, `userId` incl. null = no login, `counter`); voucher
   view panel (tenders, Alt+T return); print `PrintVoucherData.pos`
   ("Paid by", tendered, change) on Compact / Modern / Classic; receipts print off screen to the roll
-  printer chosen on the computer (silent when chosen).
+  printer chosen on the computer (silent when chosen). Altering a bill on `pos.counter` (2.2) rebuilds the
+  cart from `vouchers.get().input.items` (`lib/cart.ts › linesFromBill`), keeping each line's
+  `ItemLineInput.description` (§5; shown muted after the name, no field to type one; a rescan of that item
+  starts a new line); held drafts (`PosDraftLine`, strict `pos.held.save`) never carry it.
 

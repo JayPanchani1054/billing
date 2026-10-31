@@ -107,7 +107,7 @@ All components: named exports, typed props, `className` passthrough, React 19 `r
 
 | Component | Key props |
 |---|---|
-| `Icon` | `name: IconName` (84 icons, `ICON_NAMES`), `size?: 'xs'\|'sm'\|'md'\|'lg'\|'xl'\|number`, `label?` (else aria-hidden) |
+| `Icon` | `name: IconName` (96 icons, `ICON_NAMES`), `size?: 'xs'\|'sm'\|'md'\|'lg'\|'xl'\|number`, `label?` (else aria-hidden) |
 | `Kbd` | `keys?: 'Ctrl+A'` (lists `'Ctrl+G, Ctrl+K'` render "or"), `size?`, `tone?: 'default'\|'inverse'\|'subtle'`, or children. 2.1: `subtle` renders **one plain text run** (`bx-kbd--plain`, "Ctrl+F8") for menus, tooltips and the button key reveal; `default` (boxed chips) is for the F1 card only |
 | `Portal` | `container?` |
 | `VisuallyHidden` | `focusable?` |
@@ -118,7 +118,7 @@ calendar chevron-left/right/up/down chevrons-up-down close check alert info help
 x-circle settings sliders user users lock unlock key shield building bank wallet rupee percent gst
 receipt invoice file folder cart box warehouse truck chart line-chart pie book ledger journal
 refresh sync link copy eye eye-off more more-vertical menu logout sun moon keyboard arrow-up/down/
-left/right drill undo redo star clock database sort sort-asc sort-desc bell grid list columns
+left/right drill undo redo star clock database sort sort-asc sort-desc bell grid list text columns
 panel-right mail phone tag layers hash calculator scale dot command zap.
 
 ### Actions & feedback

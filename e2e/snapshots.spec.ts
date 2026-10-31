@@ -235,6 +235,48 @@ async function openAshaLedgerForm(): Promise<void> {
   await expect(topScreen(page).getByRole('heading', { level: 1 })).toContainText(/Ledger/, { timeout: 8_000 });
 }
 
+/** 2.2: the filled sales entry with a description typed under line 1 (Ctrl+E); the voucher is never saved. */
+async function salesEntryDescribed(): Promise<void> {
+  await salesEntryFilled();
+  const entry = topScreen(page);
+  await entry.getByLabel('Quantity, line 1', { exact: true }).focus();
+  await page.keyboard.press('Control+e');
+  await expect(entry.getByRole('textbox', { name: 'Description, line 1', exact: true })).toBeFocused({ timeout: 8_000 });
+  await page.keyboard.type('Satin brass finish, set of 4 with screws');
+  await entry.getByLabel('Narration', { exact: true }).focus().catch(() => undefined);
+}
+
+/** 2.2: a sale saved (API) with a two-line description under its first item, opened from the Day Book. */
+async function viewDescribedSale(): Promise<void> {
+  const call = <T>(route: string, input: unknown = {}): Promise<T> => api<T>(page, route, input);
+  const sales = (await call<{ rows: Array<{ id: number; baseType: string; isPredefined: boolean }> }>('accounts.voucherType.list')).rows.find((t) => t.isPredefined && t.baseType === 'sales')?.id;
+  const debtors = (await call<{ rows: Row[] }>('accounts.group.list')).rows.find((g) => g.name === 'Sundry Debtors')?.id;
+  const itemId = async (name: string): Promise<number | undefined> => (await call<{ rows: Row[] }>('inventory.item.list', { search: name })).rows.find((r) => r.name === name)?.id;
+  const handle = await itemId('Door Handle Set');
+  const hinge = await itemId('Brass Hinge 4in');
+  if (!sales || !debtors || !handle || !hinge) throw new Error('The Sales type, Sundry Debtors or a seeded item is missing');
+  const party = (await call<Row>('accounts.ledger.save', { name: 'Lakshmi Furnishers', groupId: debtors, stateCode: '27', registrationType: 'unregistered' })).id;
+  await call('vouchers.save', {
+    voucherTypeId: sales,
+    date: localToday(),
+    mode: 'item_invoice',
+    partyLedgerId: party,
+    items: [
+      { itemId: handle, qty: 4, rate: 480, description: 'Satin brass finish\nSet of 4, with screws' },
+      { itemId: hinge, qty: 12, rate: 70 },
+    ],
+    acknowledgeWarnings: true,
+  });
+  await viaGoto('Day Book');
+  await settle();
+  await topScreen(page).getByRole('grid', { name: 'Day Book', exact: true }).getByRole('row', { name: /Lakshmi Furnishers/ }).first().click();
+  await page.keyboard.press('Alt+Enter');
+  const view = page.locator('[data-screen="vouchers.view"]');
+  // The view's own heading, then its item lines (the description is drawn with them).
+  await expect(view.locator('h1').first()).toBeVisible({ timeout: 8_000 });
+  await expect(view.getByRole('grid', { name: 'Items', exact: true })).toContainText('Door Handle Set', { timeout: 8_000 });
+}
+
 /** The owner's laptop: a maximised window on a 1366 × 768 screen leaves 1366 × 690 (SPEC-21 "Design window"). */
 const LAPTOP = { width: 1366, height: 690 } as const;
 const NARROW = { width: 1024, height: 690 } as const;
@@ -360,6 +402,9 @@ const SHOTS: Shot[] = [
       await page.keyboard.press('Alt+y');
     },
   },
+  // 2.2: a line's own description, open and filled under item line 1 (unsaved), and in the voucher view.
+  { name: '45-entry-line-description', open: salesEntryDescribed },
+  { name: '46-view-line-description', open: viewDescribedSale },
   // Last on purpose: it changes the return period, which later GST shots would inherit.
   {
     name: '35-gstr3b-meter',

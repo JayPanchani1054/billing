@@ -366,7 +366,9 @@ With F11 *Maintain stock* on:
   hint shows while you are in it. The title row has one filled button, **Save** (*Save & create next*, **Ctrl+A**):
   the item is saved and the form starts the next item with the same group, unit and GST; **Alt+S** (*Save &
   close*, under More ▾) saves and closes. On an alteration the button is **Save** and the title row says
-  the stock group (and *Inactive* for an inactive item).
+  the stock group (and *Inactive* for an inactive item). The *Description* here is the item's own, kept in
+  its master; text for one line of one voucher (a serial number, a size) is typed in voucher entry instead
+  (**Ctrl+E**, section 4.2) and leaves the master unchanged.
 - *Masters › **Multiple Stock Items*** — a grid to create many items at once (all or none are saved;
   **Ctrl+A**).
 - *Masters › **Stock Groups***, *Masters › **Stock Categories*** — trees for grouping and reporting.
@@ -517,8 +519,8 @@ exception): hold **Ctrl** for a moment to see them on the buttons, or press **F1
   voucher only — the stock item's own description in its master is not changed, and GST returns, the
   e-invoice and the e-way bill keep the item's name — and it shows on the voucher view and prints under the
   item or ledger name. A description you leave empty closes again. Lines filled with **Alt+T** bring the
-  descriptions of the note or order along. With *Description on every line* on in the voucher type
-  (section 3.3) the field is open under every line as you enter.
+  descriptions of the note or order along, and a duplicate (**Alt+2**) keeps them. With *Description on
+  every line* on in the voucher type (section 3.3) the field is open under every line as you enter.
 - **F2** inside voucher entry changes the voucher date. Back-dated vouchers need the *create / alter
   vouchers dated before today* permission when security is on.
 - **Alt+I** switches a sales / purchase / note between **item invoice** (stock items with quantity and
@@ -628,19 +630,21 @@ title is the voucher type and number, followed by its date and any state (*Optio
 *Not in the books*, the e-invoice status, or *Cancelled* in red). Below it: the party and its GSTIN in one
 line with the references (Ref. no., the original invoice of a note, the e-way bill) on the right; the item
 lines (a column shows only when it says something — the godown when there are several, Disc % when there
-is a discount, GST % when the rates differ); for an item invoice the totals (Taxable, each tax by name
-with its rate, other charges, round off and **Total ₹**, which is the invoice amount — reverse-charge
-tax, or IGST paid at customs on an import, shows muted beside the total, not in it); the amount in words and
-the narration. A voucher without item lines (a receipt, a payment, a journal) shows its Dr / Cr entries
-with bills, cost centres and bank details. **Alt+F1** (*More › Detailed*) adds the Dr / Cr entries of an
-invoice, the GST table by rate, HSN/SAC, the party's address and state, place of supply, dispatch and
-e-invoice details and who created and changed the voucher; Pevqori remembers the choice on this computer
-(per Windows user). Its keys: **Alt+A** alter, **Alt+P** print, **Alt+W** share (section 12.4), **Alt+F1**
-detailed, **Ctrl+R** change the number, **Alt+2** duplicate, **Alt+X** cancel, **Alt+D** delete,
-**Alt+H** edit history, plus the
-panels other features add (Alt+F attachments, Alt+K print cheque, Alt+T POS return, Alt+U TDS / TCS,
-Alt+Y currency, Alt+V / Alt+O convert a quotation, Alt+S quotation status, Alt+R make recurring, Alt+L
-pre-close an order).
+is a discount, GST % when the rates differ), and under an item's name, in grey, the description typed for
+that line on this voucher, line breaks kept (never the item's own description from its master); for an
+item invoice the totals (Taxable, each tax by name with its rate, other charges, round off and **Total ₹**,
+which is the invoice amount — reverse-charge tax, or IGST paid at customs on an import, shows muted beside
+the total, not in it); the amount in words and the narration. A voucher without item lines (a receipt, a
+payment, a journal) shows its Dr / Cr entries: under each ledger, that line's description (for example
+*Rent for October, shop 4*, or the *TDS u/s 194C …* line Pevqori writes itself), then its bills, cost
+centres and bank details. **Alt+F1** (*More › Detailed*) adds the Dr / Cr entries of an invoice (with the
+description under each charge line), the GST table by rate, HSN/SAC, the party's address and state, place
+of supply, dispatch and e-invoice details and who created and changed the voucher; Pevqori remembers the
+choice on this computer (per Windows user). Its keys: **Alt+A** alter, **Alt+P** print, **Alt+W** share
+(section 12.4), **Alt+F1** detailed, **Ctrl+R** change the number, **Alt+2** duplicate, **Alt+X** cancel,
+**Alt+D** delete, **Alt+H** edit history, plus the panels other features add (Alt+F attachments, Alt+K
+print cheque, Alt+T POS return, Alt+U TDS / TCS, Alt+Y currency, Alt+V / Alt+O convert a quotation, Alt+S
+quotation status, Alt+R make recurring, Alt+L pre-close an order).
 
 - **Cancel** (Alt+X, with a reason) keeps the voucher and its number but takes it out of the books — the
   right choice for an invoice number that must stay in the series.
@@ -657,7 +661,8 @@ pre-close an order).
   voucher) while they refer to it: the message names them (*Credit Note 3 and Sales 7 refer to this
   number — change those references first*), and the Change number dialog says so as you type.
 - Every create, alter, cancel and delete is recorded in the edit log (Alt+H shows the voucher's history;
-  a changed number shows as *Number change* with the old and new number and the reason).
+  a changed number shows as *Number change* with the old and new number and the reason; a change to the
+  descriptions under the lines alone as *Line descriptions changed* — section 14.3).
 - Vouchers dated on or before the locked date cannot be created, altered or deleted (section 2).
 
 A voucher whose e-invoice (IRN) has been generated opens read-only: cancel the IRN first (section 6.3).
@@ -678,7 +683,8 @@ line, and the total by age (0–7, 8–30, 31–90, over 90 days).
 
 - Ctrl+4 / Ctrl+5 group the list by party or by item; Enter on a group shows its lines.
 - **Alt+I** (*Invoice now* / *Enter bill*) opens the invoice already filled with the pending quantities
-  and linked to the note — stock is not moved twice.
+  and each line's own description (also on what is left of a partly billed line), and linked to the note —
+  stock is not moved twice.
 - Why it matters: for a taxable sale of goods the invoice is due before or at the time the goods leave
   (CGST Act s.31). A delivery challan is meant for job work, goods on approval and similar movements
   (CGST Rule 55). The dashboard warns about delivery notes unbilled for more than 7 days (7 days is
@@ -711,9 +717,10 @@ your GST invoice numbers stay consecutive (CGST Rule 46).
 - **Record the customer's answer:** Alt+S → Accepted, or Rejected with a reason (price, delivery time …).
 - **Convert with one key:** on the register or the opened document, **Alt+V** makes a Sales Invoice and
   **Alt+O** a Sales Order (quotations only; needs Sales and purchase orders in F11). The new voucher opens
-  filled in; check it and save. The quotation then shows *Converted* with a link to the invoice — it
-  cannot be converted twice (cancel or delete the invoice first if you need to). The invoice can never be
-  dated (or later altered to a date) before its quotation, nor the quotation moved after its invoice.
+  filled in, the descriptions under its lines included; check it and save. The quotation then shows
+  *Converted* with a link to the invoice — it cannot be converted twice (cancel or delete the invoice first
+  if you need to). The invoice can never be dated (or later altered to a date) before its quotation, nor
+  the quotation moved after its invoice.
 - **Duplicate (Alt+2)** a quotation to re-quote: the copy is dated today and keeps the same validity
   length (a 15-day offer stays a 15-day offer).
 
@@ -724,8 +731,9 @@ your GST invoice numbers stay consecutive (CGST Rule 46).
 2. Choose how often: monthly, quarterly, half-yearly, yearly or every N days; the day of the month
    (*Last day of the month* for month-end entries — the 31st falls on 30-Apr and 28/29-Feb); the first
    posting date and, if it ends, the last. If the voucher has one amount you can change it here.
-3. Write `{period}` in the narration to get "Rent for May 2026" in each posting (`{date}` and `{fy}` work
-   too).
+3. Write `{period}` in the narration — or in a line's description — to get "Rent for May 2026" in each
+   posting (`{date}` and `{fy}` work too). A text that grows past what voucher entry allows (1,000
+   characters for a line's description, 4,000 for the narration) is cut there.
 
 Pevqori never posts behind your back. When you open the company, a notice says **"N recurring vouchers are
 due"** (it is also on the dashboard). Press *Review & post*, or *Transactions › **Due Recurring
@@ -826,6 +834,11 @@ reminder: by then GST can no longer be reduced by a credit note (CGST s.34(2)) �
 If you open a POS bill or return from the Day Book and alter it as an ordinary voucher, its payments
 (and the bill it returns) are kept and checked again; to change what was paid, alter the bill on the
 counter.
+
+A description typed under an item line in voucher entry (for example on a duplicated bill) stays with the
+bill when you alter it on the counter: it shows in grey after the item's name (point at the line to read
+all of it), and scanning that item again starts a new line. The counter itself has no place to type a
+description.
 
 **Day-end.** *Reports › **POS Day-end Summary*** shows the working date (Ctrl+5) or the report period
 (Ctrl+6; both are ticked items under More). The tabs above the table split the day by payment mode
@@ -1749,6 +1762,13 @@ receipt for 80 mm or 58 mm thermal rolls — item, quantity × rate and amount o
 summary, and a page exactly as long as the receipt. Drivers that cannot print a custom page length use the
 roll's own page size: set it in the printer's settings.
 
+**Line descriptions.** What you type under a line (**Ctrl+E**, section 4.2) prints under the item or ledger
+name on every template and paper — invoices, challans and other stock documents, vouchers and the Compact
+receipt, which also prints the description of each entry of a payment, receipt or journal. A description on
+a discount or other charge printed in the totals prints under the charge. It always prints when the line
+has one — there is no switch for it — and it belongs to that voucher only, never to the item's master. The
+Invoice Printing sample (**Alt+P** there) shows one on its first line.
+
 *Utilities › **Print Vouchers*** prints many vouchers at once: tick them (Alt+A all; the period beside the
 title changes with a click or **Alt+F2**), choose template, paper and copies, then **Ctrl+A** to preview
 and print, **Alt+P** to print all or **Alt+E** to save them as one PDF (the printer is under **More ▾**
@@ -1797,8 +1817,9 @@ Customize layout**). A panel, *Customize what prints*, opens beside the preview:
   notes of a part — the GST rule that asks for it, where its setting comes from ("This print", "Hidden for
   Sales"), "nothing to print on this document" — show under the part you last moved to or clicked. What always prints is
   listed on one line at the end of its group, *Always printed: …*: the CANCELLED / OPTIONAL stamp, the
-  document number and date, the grand total, the item description and the ledger entries of a voucher.
-  Click a part in the preview to jump to its switch.
+  document number and date, the grand total, the item description and the ledger entries of a voucher —
+  and with them the description typed under a line (section 4.2), which has no switch of its own: leave it
+  empty to print none. Click a part in the preview to jump to its switch.
 - **Texts** has a box for every printed wording: the title, the copy labels, the "Bill to" / "Ship to"
   labels, column headings, the "Amount in words" and "Total" labels, declaration, terms, a notes paragraph
   printed above the terms, the signatory label, the "For {company}" line, a footer line and the
@@ -1907,6 +1928,13 @@ damaged.
   are in rupees, dates `DD-MM-YYYY`. Invoices are posted exactly as if typed (GST, round-off and stock
   worked out by Pevqori). Example rows left in a template are refused.
 
+**Line descriptions.** An export of vouchers keeps each line's own text: *Ledger Entries* has it in its last
+column, *Line Narration*, on every row of that entry (*Narration* is the voucher's own, on its first row
+only), and *Inventory Entries* in its last column, *Description*. The other columns keep their places. In
+the import templates, *Line Narration* (vouchers, and the ledger rows of sales and purchase invoices) and
+*Description* (the item rows of invoices) give a line its own text, up to 1,000 characters (a longer one is
+an error on that row); a file without these columns imports as before.
+
 Every export is recorded in the edit log and needs the *Export* permission; importing needs *Import* plus
 the right to create the masters or vouchers concerned.
 
@@ -1932,7 +1960,8 @@ only (your previous program may have reduced stock for it; Pevqori does not, and
 one); **job work** (Material In / Out) vouchers and **budgets** are not imported; foreign-currency amounts
 come in as rupees; GST on advances recorded with the GST system ledgers is recognised, but stat-adjustment
 journals arrive as plain journals. Features the data uses (cost centres, godowns, …) are switched on for
-you.
+you. An item line's description comes in line by line (one longer than 1,000 characters is shortened, and
+the import log says so); a ledger entry's own text is not read.
 
 **XML Data Export (for your CA or auditor).** Many chartered accountants finalise accounts in their own
 accounting program. *Data › **XML Data Export*** writes your books as an XML file that such a program can
@@ -1958,16 +1987,17 @@ company can simply begin on that date. Masters exported on their own, or with vo
 day, carry the opening balances you entered.
 
 Vouchers go exactly as recorded — the same tax, round-off, numbers, bill references, cost centres, cheque
-details and stock lines; nothing is recalculated. The one exception is a Manufacturing Journal or Material
-In / Out: its stock lines go at the cost Pevqori's stock reports show today, so if a purchase entered later
-(back-dated) changed the cost of what was produced, the receiving company gets the corrected value and the
-closing stock agrees. GST on advances received (Alt+J on a receipt), its adjustment on the invoice and a
-refund of it come back as advances when the file is imported into Pevqori again. Freight or packing that
-you include in the goods' taxable value stays on its own ledger, and the freight ledger is marked so that
-the receiving program includes it in the assessable value too. Not exported: quotations, proforma
-invoices and physical stock vouchers (the screen tells you how many were left out), e-invoice / e-way bill
-details, an export's shipping bill number / date / port code (enter them again in the receiving program),
-attachments, price lists, BOMs, budgets and scenarios, and foreign-currency amounts (exported in rupees).
+details and stock lines (with their descriptions); nothing is recalculated. The one exception is a
+Manufacturing Journal or Material In / Out: its stock lines go at the cost Pevqori's stock reports show
+today, so if a purchase entered later (back-dated) changed the cost of what was produced, the receiving
+company gets the corrected value and the closing stock agrees. GST on advances received (Alt+J on a
+receipt), its adjustment on the invoice and a refund of it come back as advances when the file is imported
+into Pevqori again. Freight or packing that you include in the goods' taxable value stays on its own
+ledger, and the freight ledger is marked so that the receiving program includes it in the assessable value
+too. Not exported: quotations, proforma invoices and physical stock vouchers (the screen tells you how many
+were left out), e-invoice / e-way bill details, an export's shipping bill number / date / port code (enter
+them again in the receiving program), the description typed under a ledger line, attachments, price lists,
+BOMs, budgets and scenarios, and foreign-currency amounts (exported in rupees).
 POS bills go as ordinary sales vouchers with their payment entries. SEZ, deemed-export and UIN parties
 arrive as Regular — set their party type there. For a credit or debit note the original invoice number
 and date go in the voucher's Reference No. and Date.
@@ -2068,6 +2098,12 @@ a fingerprint of the one before (a hash chain). **Alt+V** (*Verify edit log*) re
 says in plain words whether any entry was altered, inserted or removed. Pevqori also keeps the latest
 fingerprint outside the company file, so a rewritten or cut-short log is detected — see
 [SECURITY.md](SECURITY.md) for exactly what is and is not detected.
+
+Changing only the description under a line of a voucher (section 4.2) is a change too: the history says
+*Line descriptions changed* and shows each line's old and new text, as *Line descriptions › Items › 1* or
+*Line descriptions › Ledgers › 2*. Item lines and ledger lines are numbered separately, from 1, in the
+order the voucher holds them (in a payment, receipt or contra entered with the cash or bank account at
+the top, that account is ledger line 1). A save that changes nothing still says *Saved without changes*.
 
 ## 15. Keyboard reference
 

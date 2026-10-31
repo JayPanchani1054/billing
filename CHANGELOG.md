@@ -3,6 +3,63 @@
 All notable changes to Pevqori are recorded here. Versions follow [Semantic Versioning](https://semver.org/);
 a release is published by tagging `v<version>` (see [docs/BUILD.md](docs/BUILD.md#6-releasing)).
 
+## [2.2.0]
+
+Pevqori 2.2 lets you write a description under each line of a voucher — under a stock item or under a
+ledger of the particulars — that belongs to that voucher alone. Install it over 2.1 — your companies, data
+and settings are kept.
+
+### A description under each line
+- **Typed on the voucher, kept with that voucher only.** Under an item (*Serial no. 4471, one year
+  warranty*, a size, a colour) or under a ledger of the particulars (*Rent for October*, *Freight to
+  site*), up to 1,000 characters. The stock item's own description in its master is not changed, and the
+  next voucher of the same item starts without it.
+- **Ctrl+E**, or the small *Description* button beside a line, opens the field under that line and puts the
+  cursor in it. It is one line that grows to four as you type, and Enter moves on: item → description →
+  quantity; an invoice's ledger line → description → amount; a payment, receipt, contra or journal line →
+  amount → description. A description left empty closes again.
+- **Description on every line** — the voucher type's switch that was called *Narration for each entry* —
+  opens the field under every line you fill: items, *Charges & discounts*, accounting-invoice lines and the
+  particulars of payments, receipts, contras and journals. The separate *Line narration* column the switch
+  used to add is gone; the same text is now the description under the ledger, after the amount.
+- **Shown and printed under the name**, line breaks kept. GST returns, the e-invoice and the e-way bill keep
+  the item's name.
+- **Ctrl+H** now says why a payment, receipt or contra stays in the Dr / Cr layout: single entry needs
+  exactly one cash or bank line on the account side, with no description, bill-wise details or cost centres.
+
+### Where descriptions go
+- **Voucher view** — under an item's name, in grey, the description typed for that line (never the item
+  master's). Payments, receipts and journals show each line's description on its own line, above its
+  bills, cost centres and bank details; **Alt+F1** shows the same for an invoice's entries.
+- **Printing** — every template prints it under the item or ledger name: Modern, Classic, challans and
+  other stock documents, vouchers and the Compact (thermal) receipt, which now also prints the text of each
+  entry of a payment, receipt or journal. On a charge printed in the totals (a discount outside GST, TCS
+  typed as a line, any charge of a company not under GST) it prints under the charge. It always prints —
+  there is no switch for it; the Invoice Printing sample shows one.
+- **Carried along** by *Duplicate* (**Alt+2**), a quotation or proforma converted into an order or invoice,
+  lines filled from notes or orders (**Alt+T**), *Invoice now* on Sales / Purchase Bills Pending (also for
+  what is left of a partly billed line) and a POS bill altered on the counter. Recurring vouchers fill
+  `{period}`, `{date}` and `{fy}` in line descriptions too (a Manufacturing Journal's lines included); a
+  filled text longer than voucher entry allows is cut there.
+- **Excel / CSV** — in an export of vouchers, Ledger Entries ends with a new *Line Narration* column (each
+  entry's own text, on every row of that entry) and *Narration* holds only the voucher's narration, on its
+  first row (before, the first line's own text was lost and the others' sat under *Narration*); Inventory
+  Entries ends with *Description*. Earlier columns keep their places. The import templates read *Line
+  Narration* (vouchers, and the ledger rows of invoices) and *Description* (invoice item rows); files
+  without them import as before, and a line text over 1,000 characters is a row error.
+- **XML data export and import** carry item lines' descriptions; the text under a ledger line is not
+  exported.
+- **Edit log** — changing only the descriptions is now a change: the history (**Alt+H**) says *Line
+  descriptions changed* and shows each line's old and new text, instead of *Saved without changes*.
+
+### Fixed
+- An invoice printed from the books (the preview says so, for example after a master was changed) with a
+  free line of an item before a priced line of the same item printed the priced line twice, with the free
+  line's quantity, and warned that the total differs. It now prints each line once, with its own quantity.
+- A challan or other stock voucher saved without its entry details (some older imports) printed no line
+  descriptions and *Godown: Main Location* on every line. It now prints the descriptions and leaves the
+  main location out.
+
 ## [2.1.2]
 
 Receivables, Payables, Balance Sheet, Trial Balance, GSTR-1 and Day Book now show a small graph too. Install

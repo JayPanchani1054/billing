@@ -591,7 +591,7 @@ function ItemFormBody({ saved, params, units, godowns, groups, config }: BodyPro
               {features.pos ? null : barcodeField}
               {/* Out of the Enter path (a textarea takes Enter as a new line): Tab or click to reach it. */}
               <div data-enter-skip="">
-                <Field label="Description" layout={L} optional htmlFor={`${ID}description`} error={errors.description} hint="Printed under the item name on invoices. Enter skips it — click or Tab here to add one.">
+                <Field label="Description" layout={L} optional htmlFor={`${ID}description`} error={errors.description} hint="Kept with the item; invoices print the description typed on the line (Ctrl+E in voucher entry). Enter skips it — click or Tab here to add one.">
                   <TextArea id={`${ID}description`} value={d.description} onChange={(e) => set('description', e.target.value)} maxLength={2000} rows={2} autoGrow maxRows={6} readOnly={readOnly} />
                 </Field>
               </div>
