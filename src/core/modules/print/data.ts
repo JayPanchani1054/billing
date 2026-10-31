@@ -636,6 +636,13 @@ function fromEngine(env: PrintEnv, row: VoucherRow, vt: VoucherTypeInfo, input: 
     if (used.has(i) || ll.amount === 0) return;
     charges.push(printCharge(masters.ledger(ll.ledgerId).name, ll.amount, txt(ll.narration)));
   });
+  // A charge a voucher hook posts — TCS collected on a sale, or reversed on a credit note (tds hook, in the invoice
+  // value) — prints after them, as the books print it (fromBooks › isCharge): signed like a typed charge, no text.
+  const s = plan.baseType === 'sales' || plan.baseType === 'debit_note' ? 1 : -1;
+  const gstLedgers = new Set(plan.gstLines.filter((g) => g.ledgerId !== null).map((g) => g.ledgerId as number));
+  for (const e of plan.entries) {
+    if (e.source.kind === 'hook' && e.role === 'charge' && !gstLedgers.has(e.ledgerId)) charges.push(printCharge(masters.ledger(e.ledgerId).name, -s * e.amount, null));
+  }
   return {
     plan,
     build: {
@@ -651,7 +658,11 @@ function fromEngine(env: PrintEnv, row: VoucherRow, vt: VoucherTypeInfo, input: 
   };
 }
 
-/** Do the engine's figures equal the books (header and gst_lines)? Returns the first difference, or null. */
+/**
+ * Do the engine's figures equal the books (header, gst_lines and the invoice value)? Returns the first difference,
+ * or null. The invoice value is compared before round-off (a changed round-off setting is the caller's): it catches
+ * what a hook recomputes differently — TCS on a threshold other vouchers changed since, or TCS turned off.
+ */
 function bookDifference(row: VoucherRow, build: InvoiceBuild, storedGst: readonly GstLineView[]): string | null {
   const h = build.header;
   if (!h) return 'no header totals';
@@ -667,6 +678,10 @@ function bookDifference(row: VoucherRow, build: InvoiceBuild, storedGst: readonl
         return `GST line ${i + 1} differs from the books`;
       }
     }
+  }
+  if (h.total - h.roundOff !== row.total_amount - row.round_off) {
+    const [a, b] = h.total !== row.total_amount ? [h.total, row.total_amount] : [h.total - h.roundOff, row.total_amount - row.round_off];
+    return `invoice value ${formatMoney(a)} vs ${formatMoney(b)} in the books`;
   }
   return null;
 }
@@ -688,6 +703,7 @@ interface StoredInv {
   gst_rate: number | null;
   batch_name: string | null;
   description: string | null;
+  is_service: number;
 }
 
 interface StoredEntry {
@@ -696,6 +712,8 @@ interface StoredEntry {
   amount: number;
   role: string;
   narration: string | null;
+  /** The ledger's "include in assessable value" (ledgers.include_in_assessable): 'goods' = absorbed into the goods. */
+  assessable: string | null;
 }
 
 /** Entry roles an invoice's ledger line can be stored with (the posting engine: sales / purchase / charge; the data import and hooks: other). */
@@ -751,6 +769,37 @@ function ledgerLineTexts(
 }
 
 /**
+ * Which charges of an invoice printed from the books were absorbed into the goods' taxable value, by index (posting
+ * order). `target` is what they add up to: Σ charges − what the voucher's value leaves for the charges printed in the
+ * totals. The engine absorbs exactly the lines whose ledger is included in the goods' value ('goods', posting.ts ›
+ * 'apportion'), whatever their sign: when those add up to the target they are the ones. Else (that setting changed
+ * since the voucher was saved) the first set of positive charges that adds up to it, trying those ledgers first and
+ * then the posting order; none when no set does — the printed total then differs from the books and says so.
+ */
+export function absorbedCharges(charges: ReadonlyArray<{ amount: Paise; goods: boolean }>, target: Paise): Set<number> {
+  const goods = charges.flatMap((c, i) => (c.goods ? [i] : []));
+  if (goods.length > 0 && sum(goods.map((i) => charges[i].amount)) === target) return new Set(goods);
+  if (target <= 0) return new Set();
+  const order = [...goods, ...charges.flatMap((c, i) => (c.goods ? [] : [i]))].filter((i) => charges[i].amount > 0);
+  // rest[k]: what order[k..] can still add (a set needing more is not tried).
+  const rest = order.map((_, k) => sum(order.slice(k).map((i) => charges[i].amount)));
+  const picked: number[] = [];
+  let budget = 20_000; // sets tried at most: an invoice has a handful of charges
+  const pick = (k: number, left: Paise): boolean => {
+    if (left === 0) return true;
+    if (k === order.length || rest[k] < left || --budget < 0) return false;
+    const a = charges[order[k]].amount;
+    if (a <= left) {
+      picked.push(order[k]);
+      if (pick(k + 1, left - a)) return true;
+      picked.pop();
+    }
+    return pick(k + 1, left);
+  };
+  return pick(0, target) ? new Set(picked) : new Set();
+}
+
+/**
  * Invoice lines from the stored rows. `input` is the voucher as entered (meta.input), null when the voucher has
  * none (imported): it only decides which description goes on which ledger line (ledgerLineTexts).
  */
@@ -758,14 +807,15 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType, input:
   const { db } = env;
   const inv = db.all<StoredInv>(
     `SELECT ie.line_no, ie.item_id, si.name AS item_name, u.symbol AS unit, u.decimal_places AS unit_decimals, ie.qty, ie.billed_qty,
-            ie.rate, ie.discount_pct, ie.amount, ie.hsn_sac, ie.gst_rate, ie.batch_name, ie.description
+            ie.rate, ie.discount_pct, ie.amount, ie.hsn_sac, ie.gst_rate, ie.batch_name, ie.description, si.is_service
        FROM inventory_entries ie JOIN stock_items si ON si.id = ie.item_id JOIN units u ON u.id = si.unit_id
       WHERE ie.voucher_id = :id ORDER BY ie.line_no, ie.id`,
     { id: row.id },
   );
   const gst = gstLinesView(db, row.id);
   const entries = db.all<StoredEntry>(
-    `SELECT le.ledger_id, l.name, le.amount, le.role, le.narration FROM ledger_entries le JOIN ledgers l ON l.id = le.ledger_id
+    `SELECT le.ledger_id, l.name, le.amount, le.role, le.narration, l.include_in_assessable AS assessable
+       FROM ledger_entries le JOIN ledgers l ON l.id = le.ledger_id
       WHERE le.voucher_id = :id ORDER BY le.line_no`,
     { id: row.id },
   );
@@ -780,6 +830,10 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType, input:
   // IGST on imported goods — and on goods from an SEZ unit (an import on a bill of entry) — is paid at customs, not to the supplier.
   const atCustoms = (g: GstLineView | null): boolean => importGoods || (row.gst_nature === 'inward_sez' && g?.supplyType === 'goods');
   const lines: PrintLine[] = [];
+  // The lines of goods — what absorbed charges are spread over, as in the engine (apportionCharges): the goods item
+  // lines, else (an accounting invoice) the goods ledger lines.
+  const goodsItems: PrintLine[] = [];
+  const goodsLedgerLines: PrintLine[] = [];
   const usedInv = new Set<number>();
   const itemLine = (r: StoredInv | null, g: GstLineView | null): void => {
     const qty = r ? Math.abs(r.billed_qty ?? r.qty) : (g?.qty ?? null);
@@ -788,7 +842,7 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType, input:
     const discountPct = r?.discount_pct ?? 0;
     const gross = qty !== null && rate !== null ? lineAmount(qty, rate) : taxable;
     const tax = g ? g.igst + g.cgst + g.sgst + g.cess : 0;
-    lines.push({
+    const line: PrintLine = {
       sl: lines.length + 1,
       kind: 'item',
       name: r?.item_name ?? g?.description ?? '',
@@ -816,7 +870,9 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType, input:
       reverseCharge: g?.isReverseCharge ?? false,
       section: null,
       mrp: r ? env.itemMrp(r.item_id) : null,
-    });
+    };
+    lines.push(line);
+    if (g ? g.supplyType === 'goods' : r !== null && r.is_service !== 1) goodsItems.push(line);
   };
   for (const g of gst) {
     if (g.source === 'item') {
@@ -830,7 +886,7 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType, input:
       itemLine(idx >= 0 ? inv[idx] : null, g);
     } else {
       const tax = g.igst + g.cgst + g.sgst + g.cess;
-      lines.push({
+      const line: PrintLine = {
         sl: lines.length + 1,
         kind: 'ledger',
         name: g.description ?? (g.ledgerId !== null ? env.masters.ledger(g.ledgerId).name : 'Charges'),
@@ -857,7 +913,9 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType, input:
         absorbed: false,
         reverseCharge: g.isReverseCharge,
         section: null,
-      });
+      };
+      lines.push(line);
+      if (g.supplyType === 'goods') goodsLedgerLines.push(line);
     }
   }
   // Item lines with no GST line (non-GST company): their stored value is the taxable value.
@@ -899,21 +957,25 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType, input:
       });
     }
   }
-  const charges: PrintCharge[] = [];
-  const itemTaxable = sum(lines.filter((l) => l.kind === 'item').map((l) => l.taxableValue));
-  const itemLedgerPosted = sum(entries.filter((e) => e.role === 'sales' || e.role === 'purchase').filter((e) => !gstLedgers.has(e.ledger_id)).map((e) => -s * e.amount));
-  for (const e of entries) if (isCharge(e)) charges.push(printCharge(e.name, -s * e.amount, texts.entry(e)));
-  // Absorbed charges (freight included in the goods' taxable value) post to their own ledger with role
-  // 'charge'; the sales/purchase ledgers then carry less than the item lines' taxable value. That gap
-  // identifies them. Their value is taken back out of the item lines (by value, largest remainder) so
-  // the Amount column still adds up to the taxable value.
-  let absorbedLeft = itemTaxable - itemLedgerPosted;
-  if (charges.length > 0 && absorbedLeft > 0) {
-    const absorbedLines: PrintLine[] = [];
-    for (const c of charges) {
-      if (c.amount <= 0 || c.amount > absorbedLeft) continue;
-      absorbedLines.push({
-        sl: 0,
+  const chargeEntries = entries.filter(isCharge);
+  const charges = chargeEntries.map((e) => printCharge(e.name, -s * e.amount, texts.entry(e)));
+  // Absorbed charges (freight included in the goods' taxable value) post to their own ledger with role 'charge' too,
+  // and their value is already in the goods lines' taxable value. The charges printed in the totals must leave the
+  // invoice at the voucher's own value (vouchers.total_amount, TCS a hook added included): the rest were absorbed
+  // (absorbedCharges). They print as absorbed lines, their value taken back out of the goods lines (by value, largest
+  // remainder) so the Amount column still adds up to the taxable value.
+  const goods = goodsItems.length > 0 ? goodsItems : goodsLedgerLines.length > 0 ? goodsLedgerLines : lines.filter((l) => l.kind === 'item');
+  const target = sum(charges.map((c) => c.amount)) - (row.total_amount - invoiceTotals(lines, [], row.round_off).grandTotal);
+  const absorbed = goods.length > 0 ? absorbedCharges(charges.map((c, i) => ({ amount: c.amount, goods: chargeEntries[i].assessable === 'goods' })), target) : new Set<number>();
+  if (absorbed.size > 0) {
+    const shares = allocate(sum([...absorbed].map((i) => charges[i].amount)), goods.map((l) => Math.max(0, l.taxableValue)));
+    goods.forEach((l, i) => {
+      l.amount -= shares[i];
+    });
+    charges.forEach((c, i) => {
+      if (!absorbed.has(i)) return;
+      lines.push({
+        sl: lines.length + 1,
         kind: 'ledger',
         name: c.name,
         description: c.description ?? null,
@@ -940,20 +1002,9 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType, input:
         reverseCharge: false,
         section: null,
       });
-      absorbedLeft -= c.amount;
-      c.amount = 0;
-    }
-    const absorbedTotal = sum(absorbedLines.map((l) => l.amount));
-    const goods = lines.filter((l) => l.kind === 'item');
-    if (absorbedTotal > 0 && goods.length > 0) {
-      const shares = allocate(absorbedTotal, goods.map((l) => Math.max(0, l.taxableValue)));
-      goods.forEach((l, i) => {
-        l.amount -= shares[i];
-      });
-      for (const l of absorbedLines) lines.push({ ...l, sl: lines.length + 1 });
-    }
+    });
   }
-  const realCharges = charges.filter((c) => c.amount !== 0);
+  const realCharges = charges.filter((c, i) => !absorbed.has(i) && c.amount !== 0);
 
   const pos = txt(row.place_of_supply);
   const companyState = env.profile.stateCode ?? '';

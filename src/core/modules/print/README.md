@@ -35,6 +35,9 @@ snapshot and place of supply **pinned** to what was saved, to get per-line gross
 absorbed charges and per-line tax. The result must equal the books:
 
 - header `taxable_amount` and `tax_amount`, and every `gst_lines` row (taxable, IGST, CGST, SGST, cess, rate);
+- the invoice value before round-off (`total_amount − round_off`): what a voucher hook would now compute
+  differently — TCS on a threshold other vouchers moved since, a TCS rate changed, TCS turned off — prints
+  from the books, with the TCS charged (the warning names the invoice value);
 - if only the round-off differs (F12 round-off changed since), the voucher's own round-off is used.
 
 When it does not tie (masters changed after saving), or the voucher has no entry detail (imported),
@@ -45,7 +48,18 @@ input (the books are zeroed) and marked.
 Line amounts: `amount` is the line's own value after discount; a charge absorbed into the goods'
 taxable value (freight with *include in assessable value*) is listed as its own line with
 `absorbed: true`, `taxableValue: 0` and its amount, so **Σ amount = Σ taxableValue = totals.taxable**.
-In `fromBooks` the absorbed amount is taken back out of the goods lines by value (largest remainder).
+
+In `fromBooks` an absorbed charge is an entry like any other charge (role `charge`, not a GST line's ledger).
+Which charges were absorbed follows from the voucher's own value: the charges printed in the totals must
+take the invoice to `total_amount` (TCS a hook added included) from the lines' taxable value, the tax payable
+with it and the round-off, so the rest of them were absorbed (`absorbedCharges`) — the ones whose ledger is
+included in the goods' value (`include_in_assessable = 'goods'`, the engine's *apportion* rule, either sign)
+when they add up to it; else (that setting changed since saving) the first set of positive charges that does,
+those ledgers first and then posting order; else none (the printed total then differs, and says so). Their
+value is taken back out of the lines the engine spread it over — the goods item lines; with none, the goods
+ledger lines of an accounting invoice; never a service line — by value (largest remainder). So a packing
+charge, TCS typed as a line or any other positive charge outside GST stays a charge, with its description,
+and the printed total is the voucher's.
 
 ### Totals (asserted in tests for every kind)
 
@@ -55,8 +69,11 @@ totals.taxable + totals.tax + totals.charges + totals.roundOff = totals.grandTot
 
 `tax` counts only tax payable with the invoice; reverse-charge tax (and IGST on imported goods) is
 in `reverseChargeTax` and printed as a note. `charges` are non-GST lines outside the computation
-(TCS, a non-GST discount — negative). `taxByRate` / `taxByHsn` are built from the lines and tie to
-`taxable` and `tax + reverseChargeTax`.
+(TCS typed as a line, a non-GST discount — negative), then the charges a voucher hook posts: TCS the tds
+hook collects on a sale or reverses on a credit note (`source.kind === 'hook'`, role `charge`, not a GST
+line's ledger — the books' own rule), signed like the typed ones, from the engine as from the books. A
+foreign-currency invoice's block (`forex.charges`, forex/print.ts) has one amount per charge, TCS included.
+`taxByRate` / `taxByHsn` are built from the lines and tie to `taxable` and `tax + reverseChargeTax`.
 
 ### Line descriptions (2.2)
 
@@ -80,9 +97,9 @@ narration of the one entry it is built from, and a GST ledger line its ledger's 
 (or entries) — the TCS entry a hook posts, the items' own sales ledger also typed as a line, a line the
 books print differently — none of that ledger's lines gets a text. Lines of no amount print nothing.
 
-- Automatic lines (party, the items' ledgers, tax, round off) carry no text. A hook's entry (TCS) printed
-  as a charge gets no typed text; from the books alone it would print the entry's own narration (imported
-  vouchers carry none).
+- Automatic lines (party, the items' ledgers, tax, round off) carry no text. A hook's entry (TCS) prints
+  as a charge with no typed text, from the engine and from the books; from the books alone it would print
+  the entry's own narration (imported vouchers carry none).
 - Inventory layout: `description · Godown: X`. Without `meta.input` the input is rebuilt from
   `inventory_entries` (`storedInput`, which drops descriptions): each line takes its own from its row
   (same position, same item), and the main location — which a rebuilt line always names — is not printed,
@@ -93,7 +110,12 @@ books print differently — none of that ledger's lines gets a text. Lines of no
 - `print.sample`: the first sample line has a description, so Invoice Printing shows where it prints.
 
 Tests: `data.test.ts` "(2.2) line descriptions" — each kind printed from the engine, from the books with
-`meta.input` and from the books alone gives the same texts and total.
+`meta.input` and from the books alone gives the same texts and total; "charges outside the GST computation,
+absorbed charges and TCS" — a packing charge, TCS typed as a line, packing before absorbed freight, a service
+line, an accounting invoice, a credit note, composition / no-ITC / reverse-charge purchases with absorbed
+freight print the same lines, charges and totals all three ways at the voucher's value; TCS the hook posts
+(sale, credit note, foreign currency) from the engine as from the books, and from the books when it would
+now be computed differently.
 
 ## Titles (titles.ts)
 

@@ -8,11 +8,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { PrintLine, PrintVoucherData } from '../../../shared/types/print.ts';
 import type { VoucherInput } from '../../../shared/types/vouchers.ts';
+import { saveCurrency, saveExchangeRate } from '../accounts/currencies.ts';
 import { saveConfig } from '../company/service.ts';
+import { saveLedgerDetails } from '../tds/masters.ts';
 import { save as saveTds, setupTds } from '../tds/testkit.ts';
 import { cancelVoucher } from '../vouchers/service.ts';
 import { save, setupKit as baseKit, type Kit } from '../vouchers/testkit.ts';
-import { buildBatch, buildPrintDataFor, instrumentText, invoiceTotals, rupeesText, upiUri } from './data.ts';
+import { absorbedCharges, buildBatch, buildPrintDataFor, instrumentText, invoiceTotals, rupeesText, upiUri } from './data.ts';
 
 const DATE = '2026-04-15';
 
@@ -921,6 +923,364 @@ describe('(2.2) line descriptions: the text typed on each line prints under it, 
     // 1% of ₹1,18,000 (₹1,00,000 + 18% GST) = ₹1,180.00, with the hook's own narration left in the books.
     assert.deepEqual(books.charges, [{ name: 'TCS Payable', amount: 118000 }]);
     k.t.close();
+  });
+});
+
+describe('charges outside the GST computation, absorbed charges and TCS: from the books as from the engine, at the voucher value', () => {
+  type Printed = {
+    lines: Array<[string, string | null, boolean, number, number]>;
+    charges: Array<[string, string | null, number]>;
+    totals: number[];
+  };
+  /** Each line (name, description, absorbed, amount, taxable value — by name: the books list absorbed charges last), each charge, the totals. */
+  const printed = (d: PrintVoucherData): Printed => ({
+    lines: d.lines
+      .map((l): Printed['lines'][number] => [l.name, l.description, l.absorbed, l.amount, l.taxableValue])
+      .sort((a, b) => a[0].localeCompare(b[0]) || String(a[1]).localeCompare(String(b[1]))),
+    charges: d.charges.map((c): Printed['charges'][number] => [c.name, c.description ?? null, c.amount]),
+    totals: [d.totals.taxable, d.totals.tax, d.totals.reverseChargeTax, d.totals.charges, d.totals.roundOff, d.totals.grandTotal],
+  });
+  const fromBooks = (d: PrintVoucherData): boolean => d.warnings.some((w) => /printed from the books/.test(w));
+  const differs = (d: PrintVoucherData): boolean => d.warnings.some((w) => /differs from the voucher value/.test(w));
+  const totalOf = (k: Pick<Kit, 't'>, id: number): number => k.t.db.value<number>('SELECT total_amount FROM vouchers WHERE id = :id', { id }) as number;
+  /** A GST rate changed in place since the voucher was saved: the engine no longer ties to the books. */
+  const rateChanged = (k: Pick<Kit, 't'>, entity: 'stock_item' | 'ledger', id: number, rate: number) => (): void => {
+    k.t.db.run('UPDATE gst_rate_history SET rate = :rate WHERE entity_type = :entity AND entity_id = :id', { rate, entity, id });
+    k.t.db.run(`UPDATE ${entity === 'ledger' ? 'ledgers' : 'stock_items'} SET gst_rate = :rate WHERE id = :id`, { rate, id });
+  };
+  const scrapSale = (k: ReturnType<typeof setupTds>, date = '2026-06-02'): number =>
+    saveTds(k, { voucherTypeId: k.vt.sales, date, mode: 'accounting_invoice', partyLedgerId: k.L.buyer, ledgers: [{ ledgerId: k.L.scrapSales, amount: 100_000_00, narration: 'HMS scrap, 2 tonnes' }] }).id;
+
+  /**
+   * Printed from the engine; from the books with the voucher as entered (`forceBooks` changes a master so the engine
+   * no longer ties); from the books alone (no meta.input). The same lines, charges and totals every time, at the
+   * voucher's own value.
+   */
+  function printedEveryWay(k: Pick<Kit, 't'>, id: number, forceBooks: () => void): Printed {
+    const total = totalOf(k, id);
+    const engine = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(engine), false, 'printed from the engine');
+    const want = printed(engine);
+    forceBooks();
+    const books = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(books), true, 'printed from the books');
+    assert.deepEqual(printed(books), want, 'from the books, with the voucher as entered');
+    k.t.db.run('UPDATE vouchers SET meta = NULL WHERE id = :id', { id });
+    const bare = buildPrintDataFor(k.t.ctx, id);
+    assert.deepEqual(printed(bare), want, 'from the books alone');
+    for (const d of [engine, books, bare]) {
+      assert.equal(d.totals.grandTotal, total, 'the printed total is the voucher value');
+      assert.equal(differs(d), false);
+      assertTies(d);
+    }
+    return want;
+  }
+
+  it('a positive charge outside the GST computation stays a charge with its description — not freight absorbed into the items', () => {
+    const k = setupKit();
+    const packing = k.t.addLedger({ name: 'Packing Charges', group: 'INDIRECT_INCOMES' });
+    const id = sale(k, {
+      items: [{ itemId: k.I.rice, qty: 10, rate: 50, description: 'Sona Masoori' }],
+      ledgers: [{ ledgerId: packing, amount: 3000, narration: 'Gift box packing' }],
+    });
+    // 500.00 + 25.00 GST + 30.00 packing = 555.00. Before, the books printed the packing as absorbed freight (taken
+    // out of the rice line, under the items) and the total as 525.00.
+    assert.deepEqual(printedEveryWay(k, id, rateChanged(k, 'stock_item', k.I.rice, 12)), {
+      lines: [['Rice Bag', 'Sona Masoori', false, 50000, 50000]],
+      charges: [['Packing Charges', 'Gift box packing', 3000]],
+      totals: [50000, 2500, 0, 3000, 0, 55500],
+    });
+    k.t.close();
+  });
+
+  it('TCS typed as a line on an item invoice is a charge with its description', () => {
+    const k = setupKit();
+    const tcs = k.t.addLedger({ name: 'TCS Payable', group: 'DUTIES_TAXES' });
+    const id = sale(k, { items: [{ itemId: k.I.rice, qty: 10, rate: 50 }], ledgers: [{ ledgerId: tcs, amount: 550, narration: 'TCS u/s 206C(1)' }] });
+    // 500.00 + 25.00 GST + 5.50 TCS = 530.50 → 531.00.
+    assert.deepEqual(printedEveryWay(k, id, rateChanged(k, 'stock_item', k.I.rice, 12)), {
+      lines: [['Rice Bag', null, false, 50000, 50000]],
+      charges: [['TCS Payable', 'TCS u/s 206C(1)', 550]],
+      totals: [50000, 2500, 0, 550, 50, 53100],
+    });
+    k.t.close();
+  });
+
+  it('freight included in the goods value is still absorbed; a packing charge typed before it is not (those ledgers first)', () => {
+    const k = setupKit();
+    const packing = k.t.addLedger({ name: 'Packing Charges', group: 'INDIRECT_INCOMES' });
+    const id = sale(k, {
+      items: [{ itemId: k.I.rice, qty: 10, rate: 50 }],
+      ledgers: [
+        { ledgerId: packing, amount: 3000, narration: 'Gift box packing' },
+        { ledgerId: k.L.freight, amount: 5000, narration: 'Door delivery' },
+        { ledgerId: k.L.freight, amount: 2000, narration: 'Loading' },
+      ],
+    });
+    // Rice 500.00 + freight 70.00 = 570.00 @5% = 28.50; + 30.00 packing = 628.50 → 629.00.
+    assert.deepEqual(printedEveryWay(k, id, rateChanged(k, 'stock_item', k.I.rice, 12)), {
+      lines: [
+        ['Freight Outward', 'Door delivery', true, 5000, 0],
+        ['Freight Outward', 'Loading', true, 2000, 0],
+        ['Rice Bag', null, false, 50000, 57000],
+      ],
+      charges: [['Packing Charges', 'Gift box packing', 3000]],
+      totals: [57000, 2850, 0, 3000, 50, 62900],
+    });
+    k.t.close();
+  });
+
+  it('absorbed freight comes out of the goods lines only, as the engine spreads it — not out of a service line', () => {
+    const k = setupKit();
+    const install = k.t.addStockItem({ name: 'Installation', isService: true, gstRate: 18, hsnSac: '998729' });
+    const id = sale(k, {
+      items: [
+        { itemId: k.I.rice, qty: 10, rate: 50 },
+        { itemId: install, qty: 1, rate: 200 },
+      ],
+      ledgers: [{ ledgerId: k.L.freight, amount: 10000 }],
+    });
+    // The freight goes to the rice alone: 600.00 @5% = 30.00; installation 200.00 @18% = 36.00; 866.00.
+    assert.deepEqual(printedEveryWay(k, id, rateChanged(k, 'stock_item', k.I.rice, 12)), {
+      lines: [
+        ['Freight Outward', null, true, 10000, 0],
+        ['Installation', null, false, 20000, 20000],
+        ['Rice Bag', null, false, 50000, 60000],
+      ],
+      charges: [],
+      totals: [80000, 6600, 0, 0, 0, 86600],
+    });
+    k.t.close();
+  });
+
+  it('accounting invoice: freight included in the goods value comes out of the goods ledger line, as from the engine', () => {
+    const k = setupKit();
+    const goods = k.t.addLedger({ name: 'Sale of Goods', group: 'SALES_ACCOUNTS', gstRate: 18, hsnSac: '8509', supplyType: 'goods' });
+    const id = save(k, {
+      voucherTypeId: k.vt.sales,
+      date: DATE,
+      mode: 'accounting_invoice',
+      partyLedgerId: k.L.acme,
+      ledgers: [
+        { ledgerId: goods, amount: 100000, narration: 'Mixer grinders, 8 nos' },
+        { ledgerId: k.L.freight, amount: 10000, narration: 'Door delivery' },
+      ],
+    }).id;
+    // 1,000.00 + 100.00 freight = 1,100.00 @18% = 198.00 → 1,298.00. Before, the books printed the freight again as a
+    // charge on top of the goods line that holds it: 1,398.00.
+    assert.deepEqual(printedEveryWay(k, id, rateChanged(k, 'ledger', goods, 12)), {
+      lines: [
+        ['Freight Outward', 'Door delivery', true, 10000, 0],
+        ['Sale of Goods', 'Mixer grinders, 8 nos', false, 100000, 110000],
+      ],
+      charges: [],
+      totals: [110000, 19800, 0, 0, 0, 129800],
+    });
+    k.t.close();
+  });
+
+  it('credit note: packing refunded with the goods stays a charge of the note', () => {
+    const k = setupKit();
+    const packing = k.t.addLedger({ name: 'Packing Charges', group: 'INDIRECT_INCOMES' });
+    const id = save(k, {
+      voucherTypeId: k.vt.credit_note,
+      date: DATE,
+      mode: 'item_invoice',
+      partyLedgerId: k.L.acme,
+      originalInvoiceNo: 'S-1',
+      originalInvoiceDate: DATE,
+      items: [{ itemId: k.I.rice, qty: 2, rate: 50 }],
+      ledgers: [{ ledgerId: packing, amount: 1000, narration: 'Packing of the returned bags' }],
+    }).id;
+    // 100.00 + 5.00 GST + 10.00 packing = 115.00
+    assert.deepEqual(printedEveryWay(k, id, rateChanged(k, 'stock_item', k.I.rice, 12)), {
+      lines: [['Rice Bag', null, false, 10000, 10000]],
+      charges: [['Packing Charges', 'Packing of the returned bags', 1000]],
+      totals: [10000, 500, 0, 1000, 0, 11500],
+    });
+    k.t.close();
+  });
+
+  /** A purchase of 20 rice bags at 80.00 with freight inward included in the goods value, and the ledger lines given. */
+  function purchaseWithFreight(k: Kit, more: VoucherInput['ledgers'] = [], extra: Partial<VoucherInput> = {}): number {
+    const freight = k.t.addLedger({ name: 'Freight Inward', group: 'DIRECT_EXPENSES', includeInAssessable: 'goods', columns: { appropriate_by: 'value' } });
+    return save(k, {
+      voucherTypeId: k.vt.purchase,
+      date: DATE,
+      mode: 'item_invoice',
+      partyLedgerId: k.L.supplier,
+      referenceNo: 'SUP-9',
+      items: [{ itemId: k.I.rice, qty: 20, rate: 80 }],
+      ledgers: [...(more ?? []), { ledgerId: freight, amount: 10000, narration: 'Lorry hire' }],
+      ...extra,
+    }).id;
+  }
+
+  it('composition dealer: a purchase with absorbed freight prints as before — the freight absorbed, the tax charged by the supplier in the total', () => {
+    const k = setupKit({ registrationType: 'composition' });
+    const id = purchaseWithFreight(k);
+    // 1,600.00 + 100.00 freight = 1,700.00 @5% = 85.00 → 1,785.00 (no input credit: the purchase ledger carries the tax).
+    assert.deepEqual(printedEveryWay(k, id, rateChanged(k, 'stock_item', k.I.rice, 12)), {
+      lines: [
+        ['Freight Inward', 'Lorry hire', true, 10000, 0],
+        ['Rice Bag', null, false, 160000, 170000],
+      ],
+      charges: [],
+      totals: [170000, 8500, 0, 0, 0, 178500],
+    });
+    k.t.close();
+  });
+
+  it('purchase on a ledger without input tax credit: the freight still absorbed, a packing expense still a charge', () => {
+    const k = setupKit();
+    k.t.db.run("UPDATE ledgers SET itc_eligibility = 'ineligible' WHERE id = :id", { id: k.L.purchase });
+    const packing = k.t.addLedger({ name: 'Packing Expenses', group: 'INDIRECT_EXPENSES' });
+    const id = purchaseWithFreight(k, [{ ledgerId: packing, amount: 4000, narration: 'Crates' }]);
+    // 1,785.00 as above + 40.00 crates = 1,825.00.
+    assert.deepEqual(printedEveryWay(k, id, rateChanged(k, 'stock_item', k.I.rice, 12)), {
+      lines: [
+        ['Freight Inward', 'Lorry hire', true, 10000, 0],
+        ['Rice Bag', null, false, 160000, 170000],
+      ],
+      charges: [['Packing Expenses', 'Crates', 4000]],
+      totals: [170000, 8500, 0, 4000, 0, 182500],
+    });
+    k.t.close();
+  });
+
+  it('reverse-charge purchase: the freight absorbed, a packing expense a charge, the tax apart from the total', () => {
+    const k = setupKit();
+    const packing = k.t.addLedger({ name: 'Packing Expenses', group: 'INDIRECT_EXPENSES' });
+    const id = purchaseWithFreight(k, [{ ledgerId: packing, amount: 4000, narration: 'Crates' }], { reverseCharge: true });
+    assert.deepEqual(printedEveryWay(k, id, rateChanged(k, 'stock_item', k.I.rice, 12)), {
+      lines: [
+        ['Freight Inward', 'Lorry hire', true, 10000, 0],
+        ['Rice Bag', null, false, 160000, 170000],
+      ],
+      charges: [['Packing Expenses', 'Crates', 4000]],
+      totals: [170000, 0, 8500, 4000, 0, 174000],
+    });
+    k.t.close();
+  });
+
+  it('TCS the tds hook posts prints as a charge from the engine too, so the invoice totals its books', () => {
+    const k = setupTds();
+    const id = scrapSale(k);
+    // ₹1,00,000 + 18% GST = ₹1,18,000; TCS 1% of that = ₹1,180 (the hook's own entry, no line typed for it): ₹1,19,180.
+    // Before, the engine printed no TCS and a total of ₹1,18,000, and warned that it differs from the books.
+    const engine = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(engine), false);
+    assert.deepEqual(engine.charges, [{ name: 'TCS Payable', amount: 1_180_00 }]);
+    assert.equal(engine.totals.grandTotal, 1_19_180_00);
+    assert.equal(engine.totals.grandTotal, totalOf(k, id));
+    assert.equal(differs(engine), false);
+    assertTies(engine);
+    // From the books (the scrap ledger's GST rate changed since): the same row and total.
+    rateChanged(k, 'ledger', k.L.scrapSales, 12)();
+    const books = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(books), true);
+    assert.deepEqual(printed(books), printed(engine));
+    assert.equal(differs(books), false);
+    // From the books alone: the same amounts; the entry's own narration is all there is to print under it.
+    k.t.db.run('UPDATE vouchers SET meta = NULL WHERE id = :id', { id });
+    const bare = buildPrintDataFor(k.t.ctx, id);
+    assert.deepEqual(bare.charges.map((c) => [c.name, c.amount]), [['TCS Payable', 1_180_00]]);
+    assert.match(bare.charges[0].description ?? '', /^TCS u\/s 206C/);
+    assert.equal(bare.totals.grandTotal, totalOf(k, id));
+    k.t.close();
+  });
+
+  it('TCS reversed on a credit note prints as a charge of the note, from the engine and from the books', () => {
+    const k = setupTds();
+    const sold = scrapSale(k, '2026-06-05');
+    const saleNo = k.t.db.value<string>('SELECT number FROM vouchers WHERE id = :id', { id: sold }) as string;
+    const id = saveTds(k, {
+      voucherTypeId: k.vt.credit_note,
+      date: '2026-06-10',
+      mode: 'accounting_invoice',
+      partyLedgerId: k.L.buyer,
+      originalInvoiceNo: saleNo,
+      originalInvoiceDate: '2026-06-05',
+      ledgers: [{ ledgerId: k.L.scrapSales, amount: 10_000_00 }],
+    }).id;
+    // ₹10,000 + 18% GST = ₹11,800, and a tenth of the sale's ₹1,180 TCS (₹118) reversed: the buyer is credited ₹11,918.
+    const engine = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(engine), false);
+    assert.deepEqual(engine.charges, [{ name: 'TCS Payable', amount: 118_00 }]);
+    assert.equal(engine.totals.grandTotal, 11_918_00);
+    assert.equal(engine.totals.grandTotal, totalOf(k, id));
+    assert.equal(differs(engine), false);
+    rateChanged(k, 'ledger', k.L.scrapSales, 12)();
+    const books = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(books), true);
+    assert.deepEqual(printed(books), printed(engine));
+    assert.equal(differs(books), false);
+    k.t.close();
+  });
+
+  it('TCS the hook would now compute differently (its rate changed since): printed from the books, with the TCS charged', () => {
+    const k = setupTds();
+    const id = scrapSale(k);
+    k.t.db.run('UPDATE tds_nature_rates SET rate_company = 2 WHERE nature_id = :n', { n: k.N.scrap });
+    // The engine would collect 2% (₹2,360); the invoice was issued with ₹1,180 — the books win.
+    const d = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(d), true);
+    assert.ok(d.warnings.some((w) => w.includes('invoice value 1,20,360.00 vs 1,19,180.00 in the books')), d.warnings.join('\n'));
+    assert.deepEqual(d.charges, [{ name: 'TCS Payable', amount: 1_180_00 }]);
+    assert.equal(d.totals.grandTotal, totalOf(k, id));
+    assert.equal(differs(d), false);
+    k.t.close();
+  });
+
+  it('an invoice in a foreign currency with TCS: the TCS row from the engine as from the books, and a row for it in the currency', () => {
+    const k = setupTds({ features: { multiCurrency: true, billWise: true } });
+    const usd = saveCurrency(k.t.ctx, { symbol: '$', formalName: 'US Dollar', isoCode: 'USD', decimalPlaces: 2 }).id;
+    saveExchangeRate(k.t.ctx, { currencyId: usd, date: '2026-04-01', standard: 83, selling: 83.5, buying: 82.5 });
+    const buyer = k.t.addLedger({ name: 'Scrap Importers LLC', group: 'SUNDRY_DEBTORS', registrationType: 'overseas', billWise: true, columns: { currency_id: usd, country: 'United States', state_code: null } });
+    saveLedgerDetails(k.t.ctx, { ledgerId: buyer, applicable: true, deducteeType: 'company' });
+    const id = saveTds(k, {
+      voucherTypeId: k.vt.sales,
+      date: '2026-06-02',
+      mode: 'accounting_invoice',
+      partyLedgerId: buyer,
+      placeOfSupply: '96',
+      exportDetails: { withPayment: true },
+      forex: { currencyId: usd, rate: 84 },
+      ledgers: [{ ledgerId: k.L.scrapSales, amount: 0, forexAmount: 1000 }],
+    }).id;
+    // $1,000 at ₹84 = ₹84,000 + IGST 18% ₹15,120 = ₹99,120; TCS 5% (no PAN) ₹4,956 = $59: ₹1,04,076, $1,239.
+    const engine = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(engine), false);
+    assert.deepEqual(engine.charges, [{ name: 'TCS Payable', amount: 4_956_00 }]);
+    assert.equal(engine.totals.grandTotal, totalOf(k, id));
+    assert.equal(differs(engine), false);
+    const fx = (d: PrintVoucherData) => d.forex && { lines: d.forex.lines.map((l) => l.amount), charges: d.forex.charges, tax: d.forex.tax, total: d.forex.total };
+    // One currency row per charge (the template pairs them: renderer forex/lib/print.ts), and the column adds up.
+    assert.deepEqual(fx(engine), { lines: [1000], charges: [59], tax: 180, total: 1239 });
+    rateChanged(k, 'ledger', k.L.scrapSales, 12)();
+    const books = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(books), true);
+    assert.deepEqual(printed(books), printed(engine));
+    assert.deepEqual(fx(books), fx(engine));
+    k.t.close();
+  });
+
+  it('absorbedCharges: the ledgers included in the goods value when they make the gap, else the first set of positive charges that does', () => {
+    const c = (amount: number, goods = false): { amount: number; goods: boolean } => ({ amount, goods });
+    const pick = (charges: Array<{ amount: number; goods: boolean }>, target: number): number[] => [...absorbedCharges(charges, target)].sort((a, b) => a - b);
+    // As saved: the freight lines (included in the goods value) make the 70.00 — not the packing before them.
+    assert.deepEqual(pick([c(3000), c(5000, true), c(2000, true)], 7000), [1, 2]);
+    // A deduction included in the goods value (negative) is absorbed as well.
+    assert.deepEqual(pick([c(-2000, true), c(3000)], -2000), [0]);
+    // Nothing absorbed: packing and TCS stay charges.
+    assert.deepEqual(pick([c(3000), c(118000)], 0), []);
+    // The setting changed since saving (no ledger marked): the first set that makes the gap — not the packing first in line.
+    assert.deepEqual(pick([c(3000), c(5000)], 5000), [1]);
+    // Marked ledgers are tried first, then the posting order.
+    assert.deepEqual(pick([c(5000), c(5000, true), c(1000, true)], 5000), [1]);
+    // No set makes the gap: nothing is absorbed (the printed total then differs from the books and says so).
+    assert.deepEqual(pick([c(3000), c(5000)], 4000), []);
+    assert.deepEqual(pick([c(3000)], -100), []);
   });
 });
 
