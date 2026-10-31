@@ -4,7 +4,8 @@
  * (trackingRefs) call these, so closed balances leave every pending list.
  *
  * A closure is per order + item (`order_closures`); it closes that item's pending balance from the
- * order's LAST lines backwards (the earliest lines are the ones deliveries fulfil first).
+ * order's LAST lines backwards, after the deliveries were applied (2.2, vouchers/tracking.ts: first to the
+ * line whose description the delivering line carries, the rest from the earliest lines on).
  */
 import type { Db } from '../../db/db.ts';
 
