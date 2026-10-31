@@ -397,8 +397,9 @@ save the voucher type (**Ctrl+A**). Abbreviation, alias, *Active*, the behaviour
 and the printing settings are behind **More details**, which opens by itself when one of them holds
 something you chose — not for what Pevqori fills in itself (a type's short abbreviation, *Prevent
 duplicate numbers* on a built-in type, the default sales or purchase ledger). One of the switches,
-*Description on every line*, opens a description field under every item and ledger line of the vouchers
-of this type as you enter them (without it, **Ctrl+E** adds one to any line — section 4.2).
+*Description on every line* (formerly *Narration for each entry*; its hint says so), opens a description
+field under every item and ledger line of the vouchers of this type as you enter them (without it,
+**Ctrl+E** adds one to any line — section 4.2).
 
 In the numbering editor:
 
@@ -514,13 +515,16 @@ exception): hold **Ctrl** for a moment to see them on the buttons, or press **F1
   leaves, asking first.
 - **Ctrl+E** adds a **description** under the line the cursor is on — under an item (*Serial no. 4471, one
   year warranty*) or under a ledger of the particulars (*Rent for October*) — and puts the cursor in it;
-  pointing at a line also shows a small *Description* button beside it that does the same. The field is one
-  line that grows to four as you type; Enter moves on (line breaks you paste are kept). It is saved with this
-  voucher only — the stock item's own description in its master is not changed, and GST returns, the
-  e-invoice and the e-way bill keep the item's name — and it shows on the voucher view and prints under the
-  item or ledger name. A description you leave empty closes again. Lines filled with **Alt+T** bring the
-  descriptions of the note or order along, and a duplicate (**Alt+2**) keeps them. With *Description on
-  every line* on in the voucher type (section 3.3) the field is open under every line as you enter.
+  *Line description* in **More ▾** (or on the shortcut bar) does the same for the line you were last on,
+  and pointing at a line shows a small *Description* button beside it that does the same too. The field is
+  one line that grows to four as you type; Enter moves on (line breaks you paste are kept). It is saved
+  with this voucher only — the stock item's own description in its master is not changed, and GST returns,
+  the e-invoice and the e-way bill keep the item's name — and it shows on the voucher view and prints under
+  the item or ledger name. A description you leave empty closes again — after your click, if you clicked
+  something below it (*Remove line 2*, *Charges & discounts*), so the click is not lost. Lines filled with
+  **Alt+T** bring the descriptions of the note or order along, and a duplicate (**Alt+2**) keeps them. With
+  *Description on every line* on in the voucher type (section 3.3) the field is open under every line as
+  you enter. The Manufacturing Journal, Material In and Material Out work the same way (section 5.3).
 - **F2** inside voucher entry changes the voucher date. Back-dated vouchers need the *create / alter
   vouchers dated before today* permission when security is on.
 - **Alt+I** switches a sales / purchase / note between **item invoice** (stock items with quantity and
@@ -540,7 +544,9 @@ exception): hold **Ctrl** for a moment to see them on the buttons, or press **F1
   the state code and the party's GSTIN. Click it (or Tab to it and press Enter) to choose another
   state; a party without a state, or an overseas party, shows the list straight away.
 - **Alt+T** fills an invoice from open delivery / receipt notes or orders of the party, so the goods are
-  not moved twice and the order shows what is still pending.
+  not moved twice and the order shows what is still pending. Each pending line shows its own description
+  after the item's name (*Mixer — SN-222: 1.000 Nos pending of 1.000 Nos*), so you can pick the right
+  pieces. Keep the description on the invoice line: it tells Pevqori which line you billed (section 4.4).
 - **Alt+B** opens the **bill-wise** details of the line (or of the invoice party): on a receipt or
   payment the oldest pending bills are settled first and the rest stays *On Account*; **Alt+F** in the
   dialog re-runs that allocation. An invoice creates a new bill named after its number (purchase: the
@@ -637,14 +643,18 @@ which is the invoice amount — reverse-charge tax, or IGST paid at customs on a
 the total, not in it); the amount in words and the narration. A voucher without item lines (a receipt, a
 payment, a journal) shows its Dr / Cr entries: under each ledger, that line's description (for example
 *Rent for October, shop 4*, or the *TDS u/s 194C …* line Pevqori writes itself), then its bills, cost
-centres and bank details. **Alt+F1** (*More › Detailed*) adds the Dr / Cr entries of an invoice (with the
-description under each charge line), the GST table by rate, HSN/SAC, the party's address and state, place
-of supply, dispatch and e-invoice details and who created and changed the voucher; Pevqori remembers the
-choice on this computer (per Windows user). Its keys: **Alt+A** alter, **Alt+P** print, **Alt+W** share
-(section 12.4), **Alt+F1** detailed, **Ctrl+R** change the number, **Alt+2** duplicate, **Alt+X** cancel,
-**Alt+D** delete, **Alt+H** edit history, plus the panels other features add (Alt+F attachments, Alt+K
-print cheque, Alt+T POS return, Alt+U TDS / TCS, Alt+Y currency, Alt+V / Alt+O convert a quotation, Alt+S
-quotation status, Alt+R make recurring, Alt+L pre-close an order).
+centres and bank details. An order, a quotation or a proforma posts nothing to the accounts; its
+Particulars show as you entered them: each ledger, the description typed under it and its amount (a
+discount with −). A quotation for services shows them at once; the freight or discount of an order with
+items shows under *Charges & discounts* in Detailed (**Alt+F1**). A cancelled document shows none.
+**Alt+F1** (*More › Detailed*) adds the Dr / Cr entries of an invoice (with the description under each
+charge line), the GST table by rate, HSN/SAC, the party's address and state, place of supply, dispatch and
+e-invoice details and who created and changed the voucher; Pevqori remembers the choice on this computer
+(per Windows user). Its keys: **Alt+A** alter, **Alt+P** print, **Alt+W** share (section 12.4), **Alt+F1**
+detailed, **Ctrl+R** change the number, **Alt+2** duplicate, **Alt+X** cancel, **Alt+D** delete, **Alt+H**
+edit history, plus the panels other features add (Alt+F attachments, Alt+K print cheque, Alt+T POS
+return, Alt+U TDS / TCS, Alt+Y currency, Alt+V / Alt+O convert a quotation, Alt+S quotation status, Alt+R
+make recurring, Alt+L pre-close an order).
 
 - **Cancel** (Alt+X, with a reason) keeps the voucher and its number but takes it out of the books — the
   right choice for an invoice number that must stay in the series.
@@ -685,6 +695,12 @@ line, and the total by age (0–7, 8–30, 31–90, over 90 days).
 - **Alt+I** (*Invoice now* / *Enter bill*) opens the invoice already filled with the pending quantities
   and each line's own description (also on what is left of a partly billed line), and linked to the note —
   stock is not moved twice.
+- **Billing some lines, or in another sequence.** Keep each invoice line's description as *Invoice now* or
+  **Alt+T** brought it: Pevqori bills the note line with that description. Invoice only *SN-222* of a
+  challan for *SN-111* and *SN-222*, and this list, *Invoice now* and Alt+T show *SN-111* as still to bill,
+  with its description (Alt+T on an order works the same way, and so do *Pending Sales / Purchase Orders*
+  and *Reorder Status*: the line still to come is shown with its own rate and value). Lines billed without
+  a description, or with a changed one, are taken from the first lines still open.
 - Why it matters: for a taxable sale of goods the invoice is due before or at the time the goods leave
   (CGST Act s.31). A delivery challan is meant for job work, goods on approval and similar movements
   (CGST Rule 55). The dashboard warns about delivery notes unbilled for more than 7 days (7 days is
@@ -952,6 +968,17 @@ Sub-assemblies are not exploded automatically: make them first with their own Ma
 
 **Ctrl+L** makes the journal optional (a memo that moves no stock) and **Ctrl+T** post-dated, as on other
 vouchers; altering an optional journal keeps it optional until you press Ctrl+L again.
+
+**Ctrl+E** adds a description under the line the cursor is on — the finished goods, a component, a
+by-product or scrap line, or a material line of Material In / Out (*Heat no. 42*, *Packed for order 77*) —
+and puts the cursor in it; *Line description* in **More ▾** does the same for the line you were last on.
+Pointing at a line shows a small *Description* button that does the same; for the finished goods it is
+*Description* beside *Item*. As in voucher entry (section 4.2) the description is saved with this journal
+only, shows on the voucher view and prints under the item's name; Enter moves on from it, and one left
+empty closes again. Typing a description does not stop the components from refilling, and **Alt+B**
+(or another BOM, or a new quantity) keeps the description of each line whose item the BOM still has.
+Altering or duplicating the journal keeps them. The voucher type's *Description on every line* is not used
+on this screen.
 
 The journal moves stock only. Additional costs raise the value of the finished goods but **are not
 posted to the expense ledgers** (the usual convention) — record the actual expense with a Payment or Journal
@@ -1308,12 +1335,12 @@ You can also reach these from a ledger master (Other settings › Open TDS / TCS
 **5. Enter vouchers as usual.** On a purchase bill, journal or payment the right-hand column shows the
 TDS worked out — section, base, rate and why (e.g. "the year's total ₹1,20,000 crossed ₹1,00,000: earlier
 credits taken in now"). The supplier is credited with the bill less TDS, and *TDS Payable – 194C* is
-credited. On a sale with TCS the tax is added to the invoice. Press **Alt+U** to change an amount (you
-must give a reason — it is recorded and listed under Exceptions) or, for an **advance payment**, to choose
-the nature to deduct under. When the bill for that advance comes, the part already taxed as the advance
-is set off — TDS is deducted only on the rest. If you type the *TDS Payable* line yourself, the app takes
-your amount instead of adding its own. *TDS / TCS › **TDS / TCS Computation*** shows what was deducted or
-collected per party and section.
+credited. On a sale with TCS the tax is added to the invoice and prints as its own row in the invoice's
+totals. Press **Alt+U** to change an amount (you must give a reason — it is recorded and listed under
+Exceptions) or, for an **advance payment**, to choose the nature to deduct under. When the bill for that
+advance comes, the part already taxed as the advance is set off — TDS is deducted only on the rest. If you
+type the *TDS Payable* line yourself, the app takes your amount instead of adding its own. *TDS / TCS ›
+**TDS / TCS Computation*** shows what was deducted or collected per party and section.
 
 A **debit note** to a supplier against a bill with TDS (bill-wise *Against* the bill, or its invoice
 number in *Original invoice*) reverses the TDS in proportion — a note for 10% of the bill reverses 10% of
@@ -1769,6 +1796,13 @@ a discount or other charge printed in the totals prints under the charge. It alw
 has one — there is no switch for it — and it belongs to that voucher only, never to the item's master. The
 Invoice Printing sample (**Alt+P** there) shows one on its first line.
 
+**Charges and TCS.** Freight or packing included in the goods' taxable value (its ledger's *Include in
+assessable value*) prints as a line among the items, marked as included in the taxable value. Any other
+charge or discount — packing outside GST, TCS typed as a line — prints in the totals, with its
+description. The TCS Pevqori collects on a sale (section 7) prints there as its own row too — also on a
+credit note that reverses it, and in the currency block of an invoice in a foreign currency — so the
+printed total is always the invoice's own.
+
 *Utilities › **Print Vouchers*** prints many vouchers at once: tick them (Alt+A all; the period beside the
 title changes with a click or **Alt+F2**), choose template, paper and copies, then **Ctrl+A** to preview
 and print, **Alt+P** to print all or **Alt+E** to save them as one PDF (the printer is under **More ▾**
@@ -2100,10 +2134,15 @@ fingerprint outside the company file, so a rewritten or cut-short log is detecte
 [SECURITY.md](SECURITY.md) for exactly what is and is not detected.
 
 Changing only the description under a line of a voucher (section 4.2) is a change too: the history says
-*Line descriptions changed* and shows each line's old and new text, as *Line descriptions › Items › 1* or
-*Line descriptions › Ledgers › 2*. Item lines and ledger lines are numbered separately, from 1, in the
-order the voucher holds them (in a payment, receipt or contra entered with the cash or bank account at
-the top, that account is ledger line 1). A save that changes nothing still says *Saved without changes*.
+*Line descriptions changed* and shows each line's old and new text under the line's place and its item or
+ledger, as *Line descriptions › Items › 1 · Mixer Grinder* or *Line descriptions › Ledgers › 2 · Office
+Rent*. Item lines and ledger lines are counted separately, from 1, in the order the voucher holds them
+(in a payment, receipt or contra entered with the cash or bank account at the top, that account is ledger
+line 1; a stock journal counts its source lines before its destination lines). Renaming the item or
+ledger later does not show as a change; choosing another item or ledger on a line with a description
+shows its text removed under the old name and added under the new one. A save that changes nothing still
+says *Saved without changes*. A voucher type's history names its switch *Description on every line*
+(formerly *Narration for each entry*).
 
 ## 15. Keyboard reference
 
@@ -2222,7 +2261,7 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 | **Alt+Y** | Currency and rate, or a line's foreign amount (section 11) |
 | **Ctrl+B** | Put the Dr / Cr difference on the last line |
 | **Ctrl+D** / **Alt+N**, **Ctrl+N** | Remove / insert a line |
-| **Ctrl+E** | A description under the line the cursor is on (item or ledger) — this voucher only, printed under the name; also the *Description* button beside the line |
+| **Ctrl+E** | A description under the line the cursor is on (item or ledger) — this voucher only, printed under the name; also the *Description* button beside the line, and *Line description* in More ▾ for the line you were last on. The same on the Manufacturing Journal, Material In and Material Out (section 5.3) |
 | **Alt+C** | Create the ledger or item typed in a picker (a customer or supplier in a small dialog) |
 | **Ctrl+L** / **Ctrl+T** | Optional / post-dated |
 | **F12** | Voucher type settings |

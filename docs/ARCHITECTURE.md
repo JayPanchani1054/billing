@@ -238,9 +238,22 @@ Use `:name` placeholders with an object. Always parameterise — **never interpo
   `vouchers.preview` (`inventory[].description`, `entries[].narration`) and `vouchers.trackingRefs`
   (`lines[].description`; null when none); a voucher without `meta.input` rebuilds its item lines with them
   (`storedInput`). They travel with a duplicate, conversions and "Invoice now" (Documents module), Alt+T,
-  recurring postings, a POS bill altered on the counter, the Excel / CSV export and import (`Line Narration`,
+  recurring postings, a POS bill altered on the counter, a Manufacturing Journal / Material In / Out
+  (`stockJournal.lines[].description` → its item lines; typed on `mfg.journal.entry`, and `mfg.journal.get`
+  rebuilds them for a journal saved without its block), the Excel / CSV export and import (`Line Narration`,
   `Description`, last columns) and the XML data export / import (item lines only); the edit log records
   them (§8). Details: `src/core/modules/vouchers/README.md` §4.
+- **What is still pending on a note or order** — one pure rule, `vouchers/tracking.ts`, shared by
+  `vouchers.trackingRefs` (Alt+T), the documents module's Bills Pending / `notePendingLines` ("Invoice
+  now") and `stock/orders.ts › orderPositions` (Pending Sales / Purchase Orders, Reorder Status, the
+  pre-close check; per party + order number + item, documents dated on or before the as-of date). What the regular billing / fulfilling lines took is matched per party + reference + item (the
+  consumed-quantity queries group by `inventory_entries.description` too; constant SQL text) and applied to
+  the document's lines: (1) a line with a description first takes what was billed under the identical text
+  (exact, case-sensitive — as Alt+T and "Invoice now" copy it), up to its quantity; (2) the rest — billed
+  without a description, under an edited text, or beyond the line's quantity — goes in line order (date,
+  voucher, line). Billing without descriptions is therefore exactly the earlier FIFO rule; pending is
+  `rest − take`, never negative; order pre-closures then come off the order's last lines
+  (`documents/closures.ts`).
 
 ## 6. GST rules (implemented in `src/shared/gst/`)
 
@@ -374,12 +387,26 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   `app/lib/userGuide.test.ts` fails on an undocumented one.
   A screen that other modules extend (voucher view + `voucherPanels`, voucher entry + its TDS / forex
   panels, ledger / item forms + attachments Alt+F) is one key space: no key twice (checked from source).
-  **Ctrl+E** (2.2) is voucher entry's *Line description* (§5): one action (More ▾; the row tool
-  *Description* does the same) with no hotkey-map entry, listed in F1 as a `CONVENTION_SHORTCUTS` row
-  (Forms, not global). No other screen binds it, and the TDS / forex entry panels and the dialogs over
-  entry do not take it (`vouchers/lib/lineDescription.test.ts`). The field is a one-line textarea: Enter /
-  Shift+Enter (and Ctrl+Enter, the multi-line box convention) move on and ↑ / ↓ move its caret; it is a stop
-  of the Enter chain only while it shows (`vouchers/lib/lineDescription.ts › descriptionShown`).
+  **Ctrl+E** (2.2) is *Line description* (§5) on voucher entry and on `mfg.journal.entry` (Manufacturing
+  Journal / Material In / Out, which voucher entry hands over): one action on each (More ▾; the row tool
+  *Description* — for the mfg finished goods a *Description* link beside *Item* — does the same) with no
+  hotkey-map entry, listed in F1 as one `CONVENTION_SHORTCUTS` row (Forms, not global). No other screen
+  binds it, and the TDS / forex entry panels and the dialogs over entry do not take it
+  (`vouchers/lib/lineDescription.test.ts`, `mfg/lib/journalDescription.test.ts`).
+  Chosen in More ▾ or on the shortcut bar (the menu or the button has the focus) it describes the line the
+  cursor was last on: `lastLineRef`, set from the focus events of the voucher column — a cell id
+  (`parseCellId`) or a row tool's `tr[data-row][data-section]` (`vouchers/lib/errorPaths.ts ›
+  lineOfElement`; on the mfg screen the row's `data-row-key`) — and cleared in the header or the narration
+  and when the next voucher starts. The field is a one-line textarea: Enter / Shift+Enter (and Ctrl+Enter,
+  the multi-line box convention) move on and ↑ / ↓ move its caret; it is a stop of the Enter chain only
+  while it shows (`vouchers/lib/lineDescription.ts › descriptionShown`). The mfg screen imports that rule
+  and its helpers, never copies them; as useEnterAdvance keeps a plain Enter in a textarea as a new line,
+  its field has its own onKeyDown for Enter / Shift+Enter. Left empty, the field closes when the cursor
+  leaves it — at once for keys and programmatic moves; when a press moved the cursor (the new focus, or with
+  none the page, is `:active`) only once that press is over, so the click lands on what was pressed
+  (`vouchers/lib/lineDescription.ts › afterPointerRelease`: one-shot capture listeners on `document` for
+  the first of pointerup / pointercancel / click, then a timeout of 0), and not if the cursor is back by
+  then; a dialog or another window taking the cursor keeps it.
 - Permissions in the UI: an action the role forbids is hidden; a view-only form keeps Save disabled with
   the reason (the permission's Users & Roles label) or leaves it out, and shows a "view only" notice; Export / Print stay visible, disabled with the permission they
   need. The core refuses regardless. F11 off ⇒ no menu item, Go To entry, voucher-panel key or Gateway
@@ -417,6 +444,12 @@ Design goals: **fast for experts, obvious for beginners.** Keyboard-complete, mo
   item must render it too) and `checkItem` (checkable view options, `menuitemcheckbox`) —
   menu-only items have `key: ''` (= `NO_KEY`), so they register nothing. The Export dialog is three
   one-line rows with plain X / C / P letters; the explanations are tooltips.
+- **Windowed tables**: `ui/DataTable` windows its body above 200 rows (`virtualize: 'auto'`) with one row
+  height — `rowHeight`, else the measured height of a rendered body row, never a window spacer (once
+  scrolled, the top spacer is the first `<tr>`: measured, it blanked a scrolled table after a resize) nor
+  the empty-state row, else `--row-h`. A table whose rows differ in height (a line under a name) or that is
+  sized to its rows (the page scrolls, not the table) sets `virtualize={false}`, as the voucher view's
+  tables do (`ui/dataTable.test.ts`).
 - Hidden stacked screens do not refetch on invalidation; they refetch when shown again.
 - Secured companies lock after the idle timeout: the workspace stays mounted, hidden behind a lock
   screen, and resumes (unsaved work included) when the same user logs in again.
@@ -599,11 +632,21 @@ source of truth.
   head is check-pointed outside the company file (HMAC-signed, userData + backup manifests) so a rewritten or
   truncated log is detected — see docs/SECURITY.md §4.1 for what is and is not detected. Imports audit every record.
   2.2: a voucher's image (`vouchers/service.ts › AuditSnapshot`) may carry `lineDescriptions: { items?:
-  { '<n>': text }, ledgers?: { '<n>': text } }` — the non-empty line texts (§5) keyed by their 1-based place
-  in `input.items` / `input.ledgers` (read from `meta.input`, the normalised input for the after image, or
-  the stored rows in line order for a voucher without `meta.input`). It is left out when no line has text,
-  so earlier rows, their hashes and the `entries` / `items` tuples are unchanged; `security/auditlog.ts ›
-  summarizeEntry` names such a change once on a voucher alter ("Line descriptions changed").
+  { '<n> · <item name>': text }, ledgers?: { '<n> · <ledger name>': text } }` — the non-empty line texts
+  (§5), n the line's 1-based place in `input.items` / `input.ledgers` (read from `meta.input`, the
+  normalised input for the after image, or the stored rows in line order for a voucher without
+  `meta.input`), and the name is the line's stock item / ledger as the masters name it when the image is
+  taken (constant SQL, one query only when a line has text). So a row names its line whatever order the entry grid shows it in (a single-entry
+  payment's Account is ledger line 1; a stock journal's source lines come before its destination lines).
+  Both images of an alter are taken in the same save, so a renamed master never reads as a change; a line
+  whose master no longer exists is keyed `'<n>'` alone. The key is left out when no line has text, so
+  earlier rows, their hashes and the `entries` / `items` tuples are unchanged; `security/auditlog.ts ›
+  summarizeEntry` names such a change once on a voucher alter ("Line descriptions changed"). A field the
+  screens renamed keeps its stored key and is summarised with the screen's words — `FIELD_LABELS` there, per
+  record type: `voucher_type.narrationPerEntry` reads "Changed 1 field: Description on every line". The
+  renderer's `security/lib/diffFormat.ts › KEY_LABELS` labels the diff the same way and shows
+  line-description keys exactly as stored ("Line descriptions › Ledgers › 2 · Office Rent"); the export's
+  Changes column keeps the stored paths.
 - Backups: AES-256-GCM with scrypt-derived key when a password is given; integrity-checked on restore.
 - Logs never contain passwords, full GSTIN/PAN lists or voucher payloads.
 - **Network (2.0 updates):** the app session still cancels every non-app request. The only code that may reach
@@ -749,7 +792,11 @@ Weight and speed are measured on a finished build (`npm run build` → `out/`), 
   its voucher panel, which the ledger and item forms import). **Adding a lazy screen**: give it its own file (or
   one only screens use), declare it with `lazyScreen` in the module's `index.ts`, and add its id to
   `PREFETCH_SCREENS` if it is an Essentials target. `src/renderer/app/lazyScreen.test.ts` enforces all of this,
-  including that no lazily loaded file is reachable from `main.tsx` through static imports.
+  including that no lazily loaded file is reachable from `main.tsx` through static imports. A lazy screen's
+  own logic belongs in a file only it imports: e.g. (2.2) the voucher view's document model is
+  `vouchers/lib/voucherView.ts`, imported by `VoucherViewScreen` alone and so loaded with it, while
+  `vouchers/lib/daybook.ts` is eager (the Day Book and the Go To provider import it): view-only code added
+  there would count in the initial JS.
 - Core paths are budgeted separately by the SQL they run (§9, `sqlPlans.ts`, `perf-hooks.test.ts`).
 
 ## 10. Definition of done for any module
@@ -807,7 +854,8 @@ migrations **190–193** (block 190–199). Details: `src/core/modules/documents
   and reversing journals therefore store their cost-centre split (`affects_books = 0`).
 - **Line texts (2.2)** (§5 › Line descriptions): `documents.draft` copies each line's own text — an item
   line's `description`, a ledger line's `narration` — into a conversion, and "Invoice now" gives each line
-  its note line's `inventory_entries.description` (also the rest of a partly billed line). Recurring
+  its note line's `inventory_entries.description` (also the rest of a partly billed line; which lines are
+  still pending follows §5 › What is still pending on a note or order, `vouchers/tracking.ts`). Recurring
   placeholders (`{period}` / `{month}` / `{date}` / `{fy}`) are filled in the narration and in every line
   text (`items[].description`, `ledgers[].narration`, the `stockJournal.lines[].description` a
   Manufacturing Journal / Material In / Out builds its item lines from); each filled text is clamped to the
@@ -1052,6 +1100,22 @@ and `src/renderer/modules/cheques`; Electron main `src/main/printPage.ts` (paper
   charge label; there is no layout part — they print with the locked `col.description` / `entries`. The HSN
   summary, `gst_lines.description`, the e-invoice and GSTR-1 keep master names. Details: README of
   `src/core/modules/print` ("Line descriptions (2.2)").
+- **Charges on a printed invoice (2.2)**: from the books (`print/data.ts › fromBooks`) a charge is an entry
+  with role `charge` that is not on a GST line's ledger. Which of them were absorbed into the goods' value
+  follows from the voucher's own value: target = Σ charges − (`total_amount` − (taxable + tax payable +
+  round-off of the lines)). `absorbedCharges` picks the ledgers with `include_in_assessable = 'goods'` when
+  they add up to the target (either sign — the engine's apportion rule); else (that setting changed since
+  saving) the first set of positive charges that does, those ledgers first and then posting order (a
+  bounded search); else none, and the print warns that its total differs from the voucher value. Their
+  value comes out of the lines the engine spread it over — the goods item lines; with none, the goods
+  ledger lines of an accounting invoice; never a service line — by value (largest remainder), so the
+  printed grand total is `vouchers.total_amount` and every other charge (packing, TCS typed as a line)
+  prints in the totals with its text. `fromEngine` prints the charges a voucher hook posts
+  (`source.kind === 'hook'`, role `charge`, not a GST line's ledger — the books' own rule: TCS collected on
+  a sale, or reversed on a credit note) after the typed ones, signed like them, with no text; the forex
+  block (`forex.charges`) keeps one amount per charge. The engine ⇄ books tie-out (`bookDifference`) also compares the invoice value before
+  round-off, so an invoice whose TCS the hook would now compute differently (rate or threshold changed, TCS
+  turned off) prints from the books, with the TCS charged.
 - **Sharing** (Alt+W: voucher view, print preview, Statement of Account — on Receivables / Payables
   Alt+W switches side instead): core
   `print.share.context` (recipient from party ledger e-mail / mobile, texts from `config.share`

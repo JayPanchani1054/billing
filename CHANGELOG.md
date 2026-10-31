@@ -15,13 +15,22 @@ and settings are kept.
   site*), up to 1,000 characters. The stock item's own description in its master is not changed, and the
   next voucher of the same item starts without it.
 - **Ctrl+E**, or the small *Description* button beside a line, opens the field under that line and puts the
-  cursor in it. It is one line that grows to four as you type, and Enter moves on: item → description →
+  cursor in it; *Line description* in *More ▾* (or on the shortcut bar) opens it under the line you were
+  last on. It is one line that grows to four as you type, and Enter moves on: item → description →
   quantity; an invoice's ledger line → description → amount; a payment, receipt, contra or journal line →
-  amount → description. A description left empty closes again.
-- **Description on every line** — the voucher type's switch that was called *Narration for each entry* —
-  opens the field under every line you fill: items, *Charges & discounts*, accounting-invoice lines and the
-  particulars of payments, receipts, contras and journals. The separate *Line narration* column the switch
-  used to add is gone; the same text is now the description under the ledger, after the amount.
+  amount → description. A description left empty closes again — after your click when you clicked
+  something below it (*Remove line 2*, *Charges & discounts*), so the click lands where you aimed. In a
+  stock journal the buttons beside the lines take less room, leaving more for the item names.
+- **Manufacturing Journal, Material In and Material Out** take them too: under the finished goods and under
+  every component, by-product or scrap line and material line — **Ctrl+E**, the *Description* button
+  beside a line, or *Description* beside the finished goods' *Item*. Typing one does not stop the
+  components from refilling, and **Alt+B**, another BOM or a new quantity keep the description of each line
+  whose item the BOM still has.
+- **Description on every line** — the voucher type's switch that was called *Narration for each entry*, as
+  its hint reminds you — opens the field under every line you fill: items, *Charges & discounts*,
+  accounting-invoice lines and the particulars of payments, receipts, contras and journals. The separate
+  *Line narration* column the switch used to add is gone; the same text is now the description under the
+  ledger, after the amount.
 - **Shown and printed under the name**, line breaks kept. GST returns, the e-invoice and the e-way bill keep
   the item's name.
 - **Ctrl+H** now says why a payment, receipt or contra stays in the Dr / Cr layout: single entry needs
@@ -30,17 +39,30 @@ and settings are kept.
 ### Where descriptions go
 - **Voucher view** — under an item's name, in grey, the description typed for that line (never the item
   master's). Payments, receipts and journals show each line's description on its own line, above its
-  bills, cost centres and bank details; **Alt+F1** shows the same for an invoice's entries.
+  bills, cost centres and bank details; **Alt+F1** shows the same for an invoice's entries. A document that
+  posts no accounting entries — an order, a quotation, a proforma, a challan with charges — now shows its
+  Particulars as entered: each ledger, its description and its amount (a discount with −). A quotation for
+  services shows them at once (it showed no lines before); an order's freight or discount shows under
+  *Charges & discounts* with **Alt+F1**.
 - **Printing** — every template prints it under the item or ledger name: Modern, Classic, challans and
   other stock documents, vouchers and the Compact (thermal) receipt, which now also prints the text of each
   entry of a payment, receipt or journal. On a charge printed in the totals (a discount outside GST, TCS
   typed as a line, any charge of a company not under GST) it prints under the charge. It always prints —
   there is no switch for it; the Invoice Printing sample shows one.
 - **Carried along** by *Duplicate* (**Alt+2**), a quotation or proforma converted into an order or invoice,
-  lines filled from notes or orders (**Alt+T**), *Invoice now* on Sales / Purchase Bills Pending (also for
-  what is left of a partly billed line) and a POS bill altered on the counter. Recurring vouchers fill
-  `{period}`, `{date}` and `{fy}` in line descriptions too (a Manufacturing Journal's lines included); a
-  filled text longer than voucher entry allows is cut there.
+  lines filled from notes or orders (**Alt+T**, whose list now shows each pending line's description:
+  *Mixer — SN-222: 1.000 Nos pending of 1.000 Nos*), *Invoice now* on Sales / Purchase Bills Pending (also
+  for what is left of a partly billed line), a POS bill altered on the counter, and an altered or
+  duplicated Manufacturing Journal, Material In or Material Out (an imported one too). Recurring vouchers
+  fill `{period}`, `{date}` and `{fy}` in line descriptions too (a Manufacturing Journal's lines included);
+  a filled text longer than voucher entry allows is cut there.
+- **They tell the lines apart when you bill.** A line filled with Alt+T or *Invoice now* that keeps its
+  description bills (or fulfils) that very line of the challan or order, in whatever sequence you bill
+  them: invoice only SN-222 of a challan for SN-111 and SN-222, and Alt+T, *Invoice now* and Sales Bills
+  Pending then offer SN-111, with its description. Pending Sales / Purchase Orders and Reorder Status
+  follow the same rule, so an order of Red 5 and Blue 5 delivered as Blue 5 and Red 3 shows Red 2 still to
+  come, at Red's rate. Lines billed without a description, or with a changed one, still bill the first
+  lines open.
 - **Excel / CSV** — in an export of vouchers, Ledger Entries ends with a new *Line Narration* column (each
   entry's own text, on every row of that entry) and *Narration* holds only the voucher's narration, on its
   first row (before, the first line's own text was lost and the others' sat under *Narration*); Inventory
@@ -50,15 +72,30 @@ and settings are kept.
 - **XML data export and import** carry item lines' descriptions; the text under a ledger line is not
   exported.
 - **Edit log** — changing only the descriptions is now a change: the history (**Alt+H**) says *Line
-  descriptions changed* and shows each line's old and new text, instead of *Saved without changes*.
+  descriptions changed* instead of *Saved without changes* and shows each line's old and new text under the
+  line's place and its item or ledger, e.g. *Line descriptions › Ledgers › 2 · Office Rent*. A voucher
+  type's history names the switch *Description on every line*.
 
 ### Fixed
-- An invoice printed from the books (the preview says so, for example after a master was changed) with a
-  free line of an item before a priced line of the same item printed the priced line twice, with the free
-  line's quantity, and warned that the total differs. It now prints each line once, with its own quantity.
+- An invoice printed from the books (the preview says so, for example after a master was changed) printed a
+  packing charge, TCS typed as a line or any other charge outside GST among the items, as if it were
+  freight in the goods' value, and its total came out short. Such a charge now prints in the totals with
+  its description, and the printed total is the voucher's; freight in the goods' value prints once, also
+  on an accounting invoice (it printed a second time as a charge). A free line of an item before a priced
+  line of the same item no longer prints the priced line twice, with the free line's quantity.
+- A sale with TCS printed without its TCS row, at a total short by the TCS (₹1,18,000 for a ₹1,19,180
+  invoice), and warned that the total differs from the books. It now prints the TCS and the invoice's
+  total — also on a credit note that reverses TCS and in the currency block of an invoice in a foreign
+  currency. An invoice whose TCS would now come out differently (its rate or threshold changed since, or
+  TCS was turned off) prints with the TCS it was issued with.
 - A challan or other stock voucher saved without its entry details (some older imports) printed no line
   descriptions and *Godown: Main Location* on every line. It now prints the descriptions and leaves the
   main location out.
+- A long report or list (more than 200 rows) that was scrolled down could go blank after the window was
+  resized (maximised, restored or dragged). It now keeps showing the rows where it was scrolled.
+- Boxes that grow with their text — a line's description, the narration, an address, notes — fit their
+  text again when their column gets narrower or wider, for example when the Checks or TDS panel appears
+  beside the voucher, instead of cutting off its last lines.
 
 ## [2.1.2]
 

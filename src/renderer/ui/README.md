@@ -158,7 +158,7 @@ Wrap controls in `Field`; kit controls read the Field context (id, `aria-describ
 | `Field` | `label`, `hint?`, `error?` (replaces hint), `required?` (*), `optional?`, `layout?: 'stack'\|'inline'` ("Label : value"), `labelWidth?`, `hideLabel?`, `labelAction?`, `htmlFor?`. 2.1: the hint shows only while the field has focus (never unmounted, `aria-describedby` intact); errors, feedback carrying an icon (`OkHint`, "✓ Valid GSTIN · …") and hints passed with `hintApplies` (a condition true right now: "Books are locked up to …", "Future date — Ctrl+T") always show; inline layout puts the hint/error in a trailing column, so nothing jumps |
 | `FieldGroup` | `legend?`, `description?`, `columns?: 1–4` |
 | `TextInput` | all input attrs + `size?`, `invalid?`, `leadingIcon?`, `prefix?`, `suffix?`, `trailing?` (buttons; skipped by Enter-advance), `align?`, `mono?`, `uppercase?` (GSTIN/PAN), `selectOnFocus?`, `onValueChange?`, `quiet?` (2.1: no border/fill until hover or focus; with `readOnly` it reads as plain text) |
-| `TextArea` | `autoGrow?`, `maxRows?`, `showCount?`, `onValueChange?` (Ctrl+Enter advances in forms) |
+| `TextArea` | `autoGrow?` (the height follows the text, from `rows` up to `maxRows` lines, then it scrolls: one sizing function, run after every render and again when the field's width changes — a ResizeObserver on the textarea that reacts to a new width only, never to the fit's own height, and fits in the next frame so there is no observer loop; no extra fit at mount), `maxRows?`, `showCount?`, `onValueChange?` (Ctrl+Enter advances in forms) |
 | `PasswordInput` | show/hide button (Alt+F8), Caps-Lock hint |
 | `Checkbox` | `checked`, `onChange(checked)`, `label?`, `description?`, `indeterminate?` |
 | `Switch` | `checked`, `onChange(checked)`, `label?`, `showState?` ("Yes/No" text, default on), Y/N keys |
@@ -369,9 +369,14 @@ every column), `hiddenColumns?: string[]` (the user's More › Columns… choice
 Behaviour: one Tab stop (`role=grid`/`treegrid`, `aria-activedescendant`); focusing highlights the
 first row; ↑/↓/PgUp/PgDn/Home/End move; Enter activates; letters jump to the next row starting
 with them; sortable headers are buttons (the sort glyph shows on the sorted column and on hover/focus).
-Header and footer are sticky; windowed rendering keeps 10k+ rows smooth (fixed row height = `--row-h`,
-measured). 2.1 look: no outer border, radius or fill; the table is as tall as its rows and never taller
-than its parent (`max-height: 100%`, the body scrolls); header 13/600 secondary over a
+Header and footer are sticky; windowed rendering (`virtualize`, auto above 200 rows) keeps 10k+ rows
+smooth with one fixed row height: `rowHeight`, else the measured height of a rendered body (or skeleton)
+row — never a window spacer, whose height is that of every row above the window (measured once a table was
+scrolled, it blanked the table after a resize), nor the empty-state row — else `--row-h`. A table whose
+rows differ in height (a second line under a name), or that is as tall as its rows (the page scrolls, not
+the table), passes `virtualize={false}`, as the voucher view's tables do (`ui/dataTable.test.ts`).
+2.1 look: no outer border, radius or fill; the table is as tall as its rows and never taller than its
+parent (`max-height: 100%`, the body scrolls); header 13/600 secondary over a
 `--border-default` rule; row separators `--border-subtle`; the total row has a top rule and 600, no
 fill; the active row keeps its `--row-selected` fill always and gets the 2 px inset bar only while the
 grid has focus (no whole-table focus frame; a focused table with no cursor row — empty or loading —
