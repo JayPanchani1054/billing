@@ -53,6 +53,14 @@ module's hook (`vouchers/hooks.ts`) calls `hook.ts`:
 3. **write / clear** — the derived rows, in the same transaction; cancel / delete / optional / alter keep
    them in step (tests in `journal.test.ts`).
 
+**Line descriptions (2.2).** `stockJournal.lines[].description` (≤ 1,000 characters, trimmed by the route) is
+the line's own text on this voucher: `compose` copies it to the derived item line(s) — both stock lines of a
+transfer — so it lands in `inventory_entries.description` (never the stock item master's description) and
+shows on the voucher view and the print. `mfg.journal.get` / `mfg.journal.duplicate` return it with the
+block; for a journal saved **without** its block (an import, the plain stock journal grid) the block rebuilt
+from the item lines copies each line's description, so altering or duplicating it on the mfg screen keeps the
+texts (`descriptions.test.ts`).
+
 Altering a classed journal **without** its `stockJournal` block (the plain Stock Journal screen, used when
 the mfg screen cannot be opened — e.g. the feature was turned off) is refused with a field error on
 `stockJournal` that names the screen to use (and, when off, the F11 feature to turn on): saving it as a
@@ -162,7 +170,8 @@ our own godown, ordinary vouchers touching a principal's godown, job worker attr
 purchase, s.143 date kept across a job-worker-to-job-worker move and 5B, 5A job worker's challan no. and
 unique row keys, optional / reference read back, Production Register with several journals), `gaps.test.ts`
 (final wave: a principal's goods out of our quantities and batches; a classed journal altered without its
-details is refused).
+details is refused), `descriptions.test.ts` (2.2: line descriptions returned by get / duplicate, also for a
+journal saved without its block, and kept by an alteration through the rebuilt block).
 
 ## Known gaps
 

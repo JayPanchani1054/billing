@@ -55,6 +55,15 @@ grid is used (the core accepts plain lines for a classed type too).
   apply the type's default and silently make an optional journal regular.
 - Job work header: "Job worker's / Principal's challan no." → `referenceNo` (ITC-04 table 5A document
   number); not copied by Alt+2.
+- 2.2 line descriptions: a line's own description on the voucher (`stockJournal.lines[].description` →
+  `inventory_entries.description`, never the stock item master's; shown by the voucher view and the print)
+  is kept in `JournalRow.description` — read back on alteration and Alt+2 (`fromDetail`) and sent again
+  trimmed at its ends, line breaks inside kept, only when it has text (`toBlock`) — so altering or
+  duplicating a journal no longer drops the texts it got elsewhere (an import, the plain stock journal grid,
+  the API). This screen does not show or edit them yet: voucher entry's Ctrl+E "Line
+  description" is pinned to voucher entry alone (vouchers `lib/lineDescription.test.ts`). Tests:
+  `lib/forms.test.ts` (the form) and `lib/coreContract.test.ts` (alteration, duplicate and an imported journal
+  through the screen's model against the real engine).
 - ITC-04: Ctrl+4 toggles between the previous and the current financial year; table rows are keyed by
   the core's unique `key` (two identical challan lines stay two rows).
 
@@ -80,4 +89,5 @@ when the period runs past it, unless a later (post-dated) voucher exists. Graph 
 `lib/journalForm.ts` (form ⇄ VoucherInput, BOM application, sections, trailing rows, type choice, error
 mapping), `lib/bomForm.ts`, `lib/orderForm.ts`, `lib/model.ts` (status texts, alert text, export
 layouts of every report incl. ITC-04 tables), `lib/charts.ts` (graphs and stats). Tests:
-`lib/forms.test.ts`, `lib/screens.test.ts`, `lib/charts.test.ts`, `lib/keys21.test.ts` (every screen file still registers each key it had in 2.0).
+`lib/forms.test.ts`, `lib/screens.test.ts`, `lib/charts.test.ts`, `lib/keys21.test.ts` (every screen file still registers each key it had in 2.0),
+`lib/coreContract.test.ts` (2.2: the journal form against the real engine; test-only core imports).

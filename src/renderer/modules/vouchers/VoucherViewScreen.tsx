@@ -14,7 +14,10 @@
  * under its name — an item line's description (never the stock item's master description) and a Dr / Cr
  * line's narration, which no longer joins the details line (bills, cost centres, instrument, bank date)
  * under it. A row with a line under its name keeps every cell on the name's line (lib/daybook.ts
- * `lineDescription`, `viewEntryRows`).
+ * `lineDescription`, `viewEntryRows`). The Items and Accounting entries tables are never windowed
+ * (`virtualize={false}`): they are as tall as their rows (the page scrolls, not the table), so windowing
+ * saves nothing, and its one-row-height arithmetic cannot place rows of different heights — a described
+ * first line left the last lines of a 250-line voucher unrendered.
  *
  * Keys: Alt+A alter · Alt+P print · Alt+F1 detailed · Alt+2 duplicate · Alt+X cancel · Alt+D delete ·
  * Alt+H history · Ctrl+R change the number (2.0: vouchers.renumber + vouchers.alter → 'vouchers.renumber';
@@ -330,6 +333,8 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
                 getRowClassName={(r) => (lineDescription(r.description) ? MULTILINE_ROW : undefined)}
                 hiddenColumns={hiddenItemColumns(v.inventory, detailed)}
                 density="compact"
+                // A described line is taller than the others, and the table is as tall as its rows: no windowing.
+                virtualize={false}
                 autoFocus={sections.focus === 'items'}
               />
             </section>
@@ -358,6 +363,7 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
                 getRowKey={(r) => r.key}
                 getRowClassName={(r) => (r.description || r.detail ? MULTILINE_ROW : undefined)}
                 density="compact"
+                virtualize={false}
                 autoFocus={sections.focus === 'entries'}
               />
             </Section>

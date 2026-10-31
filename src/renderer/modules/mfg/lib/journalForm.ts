@@ -35,6 +35,12 @@ export interface JournalRow {
   /** Job work challan rate (₹/unit); null = estimated cost. */
   rate: number | null;
   extendedTo: string | null;
+  /**
+   * 2.2: the line's own description on this voucher ('' = none) — `StockJournalLineInput.description` →
+   * `inventory_entries.description`, never the stock item master's. Read back on alteration and duplicate,
+   * sent trimmed (line breaks inside kept) when it has text.
+   */
+  description: string;
 }
 
 export interface CostRow {
@@ -108,6 +114,7 @@ export function blankRow(role: StockJournalRole, over: Partial<JournalRow> = {})
     goodsType: 'inputs',
     rate: null,
     extendedTo: null,
+    description: '',
     ...over,
   };
 }
@@ -193,6 +200,8 @@ export function toBlock(form: JournalForm): { block: StockJournalExtInput; lineK
     const l: StockJournalLineInput = { role: r.role, itemId: r.itemId as number, qty: r.qty as number };
     if (r.godownId !== null) l.godownId = r.godownId;
     if (r.batchName.trim()) l.batchName = r.batchName.trim();
+    const description = r.description.trim();
+    if (description) l.description = description;
     if (r.role === 'by_product' || r.role === 'scrap') {
       l.valueBasis = r.valueBasis;
       if (r.valueBasis === 'rate') l.valueRate = r.valueRate ?? 0;
@@ -273,6 +282,7 @@ export function fromDetail(d: MfgJournalDetail): JournalForm {
         goodsType: l.goodsType ?? 'inputs',
         rate: l.rate ?? null,
         extendedTo: l.extendedTo ?? null,
+        description: l.description ?? '',
       });
     }),
     costs: (d.block.additionalCosts ?? []).map((c) =>

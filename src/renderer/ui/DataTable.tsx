@@ -154,6 +154,8 @@ export interface DataTableProps<T> {
 
 const NUMERIC_KINDS: ReadonlySet<ColumnKind> = new Set<ColumnKind>(['amount', 'drcr', 'qty', 'number']);
 const VIRTUAL_THRESHOLD = 200;
+/** The row measure() takes the row height from: the first body (or skeleton) row, never a spacer or the empty state. */
+const ROW_HEIGHT_SELECTOR = 'tbody tr.bx-tr:not(.bx-tr--spacer):not(.bx-tr--empty)';
 const collator = new Intl.Collator('en-IN', { numeric: true, sensitivity: 'base' });
 
 function rawValue<T>(col: Column<T>, row: T): unknown {
@@ -303,7 +305,9 @@ const BodyRow = memo(BodyRowImpl) as unknown as typeof BodyRowImpl;
 /**
  * Report/list grid. One Tab stop; ↑/↓/PgUp/PgDn/Home/End move the highlighted row, Enter or
  * double-click activates (drill-down), →/← or +/− expand/collapse tree rows, letters jump to a row.
- * Sticky header and totals footer; windowed rendering for large row counts (fixed row height).
+ * Sticky header and totals footer; windowed rendering for large row counts (fixed row height: the first
+ * body row's, measured). A table whose rows differ in height (a second line under a name), or that is as
+ * tall as its rows (the page scrolls, not the table), passes `virtualize={false}`.
  */
 export function DataTable<T>(props: DataTableProps<T>) {
   const {
@@ -499,7 +503,10 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const measure = useCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
-    const firstRow = scroller.querySelector<HTMLElement>('tbody tr.bx-tr');
+    // The row height is a body row's: never a window spacer (once scrolled, the top one is the first <tr>, its
+    // height that of every row above the window — taking it made a resize while scrolled, or a table that grows
+    // with its rows, compute a window far from the rows on screen) and never the empty-state row.
+    const firstRow = scroller.querySelector<HTMLElement>(ROW_HEIGHT_SELECTOR);
     const varH = readPxVar(scroller, '--row-h');
     const measured = firstRow ? firstRow.getBoundingClientRect().height : Number.NaN;
     const row = rowHeightProp ?? (measured > 0 ? measured : varH > 0 ? varH : 32);

@@ -74,7 +74,10 @@ export function journalContext(ctx: CompanyCtx, input: { voucherTypeId: number; 
   };
 }
 
-/** The block as entered; vouchers saved without one (imported) are read back from their lines. */
+/**
+ * The block as entered; vouchers saved without one (imported) are read back from their lines — with each
+ * line's own description (2.2), so altering or duplicating such a journal keeps it.
+ */
 export function getJournal(ctx: CompanyCtx, id: number): MfgJournalDetail {
   const { db } = ctx;
   const row = loadVoucherRow(db, id);
@@ -88,7 +91,15 @@ export function getJournal(ctx: CompanyCtx, id: number): MfgJournalDetail {
       lines: (input.items ?? []).map((it) => {
         const role = it.isConsumption ? 'component' : product ? 'by_product' : 'product';
         if (role === 'product') product = true;
-        return { role, itemId: it.itemId, qty: it.qty, godownId: it.godownId, batchName: it.batchName, ...(role === 'by_product' ? { valueBasis: 'rate' as const, valueRate: it.rate } : {}) };
+        return {
+          role,
+          itemId: it.itemId,
+          qty: it.qty,
+          godownId: it.godownId,
+          batchName: it.batchName,
+          ...(it.description ? { description: it.description } : {}),
+          ...(role === 'by_product' ? { valueBasis: 'rate' as const, valueRate: it.rate } : {}),
+        };
       }),
     };
   }

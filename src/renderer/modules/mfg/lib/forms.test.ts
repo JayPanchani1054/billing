@@ -142,6 +142,51 @@ describe('journal form', () => {
     const fresh = toVoucherInput({ ...emptyForm('manufacturing', 5, '2026-05-10'), referenceNo: 'x' }).input;
     assert.deepEqual([fresh.isOptional, fresh.referenceNo], [undefined, undefined], 'a new journal takes the type default; no reference on a Manufacturing Journal');
   });
+
+  test("2.2: a line's own description comes back on alteration and duplicate and is sent again, trimmed (never a blank one)", () => {
+    assert.equal(blankRow('component').description, '', 'a new line has none');
+    const d: MfgJournalDetail = {
+      id: 12,
+      voucherTypeId: 5,
+      class: 'manufacturing',
+      date: '2026-06-10',
+      number: '8',
+      partyLedgerId: null,
+      narration: null,
+      isOptional: false,
+      updatedAt: 'u',
+      bomName: null,
+      orderNumber: null,
+      items: [
+        { id: 3, name: 'Chair', unit: 'Nos', decimals: 0 },
+        { id: 1, name: 'Steel', unit: 'Kg', decimals: 3 },
+        { id: 4, name: 'Scrap', unit: 'Kg', decimals: 3 },
+      ],
+      ledgers: [],
+      block: {
+        lines: [
+          { role: 'product', itemId: 3, qty: 1, description: 'Batch for Jun 2026\nOrder 55' },
+          { role: 'component', itemId: 1, qty: 5, description: 'Steel lot 7' },
+          { role: 'scrap', itemId: 4, qty: 0.5, valueBasis: 'nil' },
+        ],
+      },
+    };
+    const f = fromDetail(d);
+    assert.deepEqual(f.rows.map((r) => r.description), ['Batch for Jun 2026\nOrder 55', 'Steel lot 7', '']);
+
+    // Alteration (Alt+A): every described line is sent with its text; a line without one has no key.
+    const altered = toVoucherInput(f, { id: 12, updatedAt: 'u', number: '8' }).input.stockJournal?.lines ?? [];
+    assert.deepEqual(altered.map((l) => l.description ?? null), ['Batch for Jun 2026\nOrder 55', 'Steel lot 7', null]);
+    assert.equal('description' in altered[2], false);
+
+    // Duplicate (Alt+2): the screen's copy of mfg.journal.duplicate's block (new date, no number).
+    const copy = { ...fromDetail({ ...d, id: null, number: null, updatedAt: null }), date: '2026-06-12', number: '' };
+    assert.deepEqual(toVoucherInput(copy).input.stockJournal?.lines.map((l) => l.description ?? null), ['Batch for Jun 2026\nOrder 55', 'Steel lot 7', null]);
+
+    // Trimmed at its ends (the line breaks inside kept); blank text is no description.
+    const typed = { ...f, rows: f.rows.map((r, i) => ({ ...r, description: ['  Lot 9\n  shift B  ', ' \n ', ''][i] })) };
+    assert.deepEqual(toVoucherInput(typed).input.stockJournal?.lines.map((l) => l.description ?? null), ['Lot 9\n  shift B', null, null]);
+  });
 });
 
 describe('BOM form', () => {
