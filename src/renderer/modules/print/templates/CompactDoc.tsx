@@ -5,6 +5,9 @@
  * its Rule 46 particulars even on a roll: buyer address / GSTIN / state code, place of supply, HSN and
  * rate per line, the reverse-charge statement, the invoice adjusted by a note, and the signatory.
  * (2.0) Honours the print layout applied to the document (SUPPORTED_PARTS below).
+ * (2.2) The description typed on a line prints under its name (before HSN · GST and qty × rate), an entry's
+ * narration under the ledger, a charge's description under the charge — small, its newlines kept, long words
+ * broken so a serial number or a link never widens the roll.
  */
 import { isPartShown, printText } from '../../../../shared/printLayout.ts';
 import { addressLines, compactLineInfo, dateText, itemColumns, money, mrpText, pctText, qtyText, rateText, rupees, showMrp, totalRows, voucherSides } from '../lib/layout.ts';
@@ -151,6 +154,7 @@ export function CompactDoc({ doc, copyLabel, qrs, pageSize, template }: DocProps
                 <td>
                   {e.ledgerName}
                   {e.instrument ? <span className="bp-sub">{e.instrument}</span> : null}
+                  {e.narration ? <span className="bp-sub bp-pre">{e.narration}</span> : null}
                 </td>
                 <td className="bp-num">
                   {money(Math.abs(e.amount))} {e.amount >= 0 ? 'Dr' : 'Cr'}
@@ -172,6 +176,7 @@ export function CompactDoc({ doc, copyLabel, qrs, pageSize, template }: DocProps
                 <tr key={l.sl} className="bp-c-item">
                   <td data-part="col.description">
                     {l.name}
+                    {l.description ? <span className="bp-sub bp-pre">{l.description}</span> : null}
                     {info ? <span className="bp-sub">{info}</span> : null}
                     {l.qty !== null && cols.qty ? (
                       <span className="bp-sub" data-part="col.qty">
@@ -201,7 +206,10 @@ export function CompactDoc({ doc, copyLabel, qrs, pageSize, template }: DocProps
           <tbody>
             {totalRows(doc).map((r, i) => (
               <tr key={i} className={r.kind === 'total' ? 'bp-c-total' : undefined} data-part={r.part}>
-                <td>{r.kind === 'total' ? total : r.label}</td>
+                <td>
+                  {r.kind === 'total' ? total : r.label}
+                  {r.description ? <span className="bp-sub bp-pre">{r.description}</span> : null}
+                </td>
                 <td className="bp-num">{r.kind === 'total' ? rupees(r.amount) : money(r.amount)}</td>
               </tr>
             ))}

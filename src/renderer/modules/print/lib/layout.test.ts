@@ -4,6 +4,7 @@ import { sampleDoc, line } from './fixtures.ts';
 import { applyPrintLayout, resolvePrintLayout, type PrintPartId, type PrintTextId } from '../../../../shared/printLayout.ts';
 import {
   addressLines,
+  chargeText,
   classicTaxRows,
   compactLineInfo,
   copyLabel,
@@ -188,6 +189,32 @@ describe('columns and totals', () => {
     assert.equal(ut[2].label, 'UTGST');
     const plain = totalRows(sampleDoc({ gst: { ...doc.gst, showTax: false }, totals: { ...doc.totals, cgst: 0, sgst: 0, tax: 0, roundOff: 0, grandTotal: 77000 } }));
     assert.deepEqual(plain.map((r) => r.label), ['Total']);
+  });
+
+  it('(2.2) a charge row carries the description typed on its line (printed under the label); none, no key', () => {
+    const doc = sampleDoc({
+      charges: [
+        { name: 'Discount Allowed', amount: -2500, description: ' Festive offer\nTill Diwali ' },
+        { name: 'TCS', amount: 100 },
+        { name: 'Packing', amount: 500, description: '   ' },
+        { name: 'Freight', amount: 200, description: null },
+      ],
+      totals: { ...sampleDoc().totals, charges: -1700, grandTotal: 82700 },
+    });
+    const charges = totalRows(doc).filter((r) => r.kind === 'charge');
+    assert.deepEqual(charges, [
+      { label: 'Discount Allowed', amount: -2500, kind: 'charge', part: 'totals.charges', description: 'Festive offer\nTill Diwali' },
+      { label: 'TCS', amount: 100, kind: 'charge', part: 'totals.charges' },
+      { label: 'Packing', amount: 500, kind: 'charge', part: 'totals.charges' },
+      { label: 'Freight', amount: 200, kind: 'charge', part: 'totals.charges' },
+    ]);
+    assert.equal(totalRows(doc).filter((r) => r.kind !== 'charge').some((r) => 'description' in r), false, 'only charge rows carry one');
+    assert.deepEqual([chargeText(doc.charges[0]), chargeText(doc.charges[1]), chargeText(doc.charges[2])], ['Festive offer\nTill Diwali', '', '']);
+    // A print layout passes the charges through untouched; hiding the charge rows hides their descriptions with them.
+    assert.deepEqual(totalRows(laidOut(doc)), totalRows(doc));
+    assert.equal(totalRows(laidOut(doc, ['totals.charges'])).some((r) => r.kind === 'charge'), false);
+    // The receipt's second line of an item is unchanged by a description (it prints on a line of its own).
+    assert.equal(compactLineInfo(line({ description: 'Sona Masoori, 25 kg' }), true), 'HSN 1006 · GST 5%');
   });
 
   it('classic tax rows show the half rate only when one rate applies', () => {

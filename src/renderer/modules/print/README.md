@@ -96,3 +96,26 @@ code (`app/lib/chartImports.test.ts`: invoices never carry graphs).
 Tests: `lib/calm.test.ts` (the words, the notes row, the merged warnings), `lib/calm21.test.ts` (screen
 structure and keys from source, the command bar through the real rule),
 `lib/editorA11y.test.ts` (focus and the Always-printed line); e2e `print-layout.spec.ts` (More › Printer).
+
+## Line descriptions (2.2)
+
+What was typed under a line on the voucher prints under the line on paper: `PrintLine.description` (items and
+invoice ledger lines), `PrintEntry.narration` (accounting vouchers), `PrintCharge.description` (charges, set only
+when there is a text). Where core takes them from — the engine or the books, `meta.input` or the stored rows — is
+in the README of `src/core/modules/print` ("Line descriptions (2.2)"). Every template prints them the same way: a
+small sub-line `<span className="bp-sub bp-pre">` right under the name — newlines kept (`.bp-pre`), long words
+broken (`.bp-sub.bp-pre { overflow-wrap: anywhere }` in `lib/styles.ts`), so a serial number or a link never
+widens an A5 or 80 / 58 mm column.
+
+- Modern (`parts.tsx` ItemsTable), Classic and the stock documents (InventoryDoc): under the item / ledger name.
+- Compact receipt (80 / 58 mm rolls and the Compact template): under the name, before "HSN · GST" and
+  qty × rate (`compactLineInfo` is unchanged); its voucher branch prints each entry's narration under the ledger.
+- VoucherDoc: under each entry, after the instrument, bills and cost centres.
+- Charges: `totalRows()` carries a charge row's `description` (only when there is one; `chargeText`) → the
+  Modern TotalsTable and the receipt's totals print it under the label; Classic's charge rows print
+  `chargeText(c)` under the bold label in normal weight (`bp-normal`).
+
+They always print: no layout part (the description column and the ledger entries are locked parts). The text is
+React text content only, never an attribute, so `assertPrintableMarkup` only ever sees it as words. Tests:
+`lib/descriptions.test.ts` (each template, from source; the serialised text; the style), `lib/layout.test.ts`
+(charge rows).

@@ -58,6 +58,43 @@ in `reverseChargeTax` and printed as a note. `charges` are non-GST lines outside
 (TCS, a non-GST discount — negative). `taxByRate` / `taxByHsn` are built from the lines and tie to
 `taxable` and `tax + reverseChargeTax`.
 
+### Line descriptions (2.2)
+
+The description typed under a line on the voucher — that voucher's own, never the stock item master's
+description — prints under the line's name (renderer README). Trimmed; newlines inside are kept.
+
+| Printed on | From the engine (`fromEngine`) | From the books (`fromBooks`) |
+|---|---|---|
+| an item line — `PrintLine.description` | the item line's `description` | `inventory_entries.description` of the stock line the GST line was posted from: the next line of the same item, passing over a line of no value (a free line has no GST line) when the GST line has one |
+| a ledger line in the GST computation (a GST ledger line, an absorbed charge) — `PrintLine.description` | the ledger line's `narration` | below |
+| a line outside the computation (non-GST discount, TCS typed as a line, any charge of a company not under GST) — `PrintCharge.description`, **set only when there is a text** (a plain charge keeps `{ name, amount }`) | the ledger line's `narration` | below |
+| a line of an accounting invoice without GST lines | the ledger line's `narration` | below |
+
+From the books (`ledgerLineTexts`): with the voucher as entered (`meta.input` — masters changed, or the
+engine could not rebuild it), each ledger's lines with an amount hand out their texts **in input order**,
+one to each line printed for that ledger **in posting order** (the engine posts a ledger's lines, and
+writes their `gst_lines`, in input order; every line printed for one ledger is either a GST line or an
+entry). Without it (an imported voucher), a charge, an absorbed charge or an accounting line prints the
+narration of the one entry it is built from, and a GST ledger line its ledger's entry's narration.
+**No text rather than another line's:** when a ledger has more or fewer printed lines than typed lines
+(or entries) — the TCS entry a hook posts, the items' own sales ledger also typed as a line, a line the
+books print differently — none of that ledger's lines gets a text. Lines of no amount print nothing.
+
+- Automatic lines (party, the items' ledgers, tax, round off) carry no text. A hook's entry (TCS) printed
+  as a charge gets no typed text; from the books alone it would print the entry's own narration (imported
+  vouchers carry none).
+- Inventory layout: `description · Godown: X`. Without `meta.input` the input is rebuilt from
+  `inventory_entries` (`storedInput`, which drops descriptions): each line takes its own from its row
+  (same position, same item), and the main location — which a rebuilt line always names — is not printed,
+  as on the voucher as entered.
+- Voucher layout: `entries[].narration` — the stored entries' (a hook's included: "TDS u/s 194C …"); a
+  cancelled voucher's from its input.
+- The HSN summary keeps the master names, as `gst_lines.description`, the e-invoice and GST returns do.
+- `print.sample`: the first sample line has a description, so Invoice Printing shows where it prints.
+
+Tests: `data.test.ts` "(2.2) line descriptions" — each kind printed from the engine, from the books with
+`meta.input` and from the books alone gives the same texts and total.
+
 ## Titles (titles.ts)
 
 | Document | Title / endorsement |
@@ -156,7 +193,8 @@ padding). `custom` (50–400 mm each side) is used by cheque leaves (202 × 92 m
 are validated in main; anything else is refused.
 
 The Compact template is built for rolls: no wide tables — item, `qty × rate`, amount; a tax summary
-by rate; totals; MRP and "You saved" when shown.
+by rate; totals; MRP and "You saved" when shown. (2.2) It prints the line descriptions too: under each
+item / ledger line, under each entry of an accounting voucher and under each charge.
 
 ## MRP (print group)
 

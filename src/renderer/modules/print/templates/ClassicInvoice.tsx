@@ -4,10 +4,12 @@
  * chargeable in words, HSN/SAC tax table, declaration and "for <company>" signature box.
  * (2.0) Honours the print layout applied to the document (SUPPORTED_PARTS below; the boxed table keeps
  * its Amount column, which carries the tax rows and the total).
+ * (2.2) A line's description prints under its name, a charge's under the charge (in normal weight: the row is bold).
  */
 import { isPartShown, printText } from '../../../../shared/printLayout.ts';
 import {
   addressLines,
+  chargeText,
   classicTaxRows,
   headerRefsWithParts,
   itemColumns,
@@ -305,10 +307,13 @@ export function ClassicInvoice({ doc, copyLabel, qrs, pageSize, template }: DocP
               <td className="bp-num bp-strong">{money(r.amount)}</td>
             </tr>
           ))}
-          {charges.map((c) => (
-            <tr key={c.name} className="bp-taxrow" data-part="totals.charges">
+          {charges.map((c, i) => (
+            <tr key={`${i}-${c.name}`} className="bp-taxrow" data-part="totals.charges">
               {sno ? <td /> : null}
-              <td className="bp-num bp-strong">{c.name}</td>
+              <td className="bp-num bp-strong">
+                {c.name}
+                {chargeText(c) ? <span className="bp-sub bp-pre bp-normal">{chargeText(c)}</span> : null}
+              </td>
               {gap > 0 ? <td colSpan={gap} /> : null}
               <td className="bp-num bp-strong">{money(c.amount)}</td>
             </tr>

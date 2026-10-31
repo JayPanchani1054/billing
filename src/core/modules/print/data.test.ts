@@ -9,6 +9,7 @@ import { describe, it } from 'node:test';
 import type { PrintLine, PrintVoucherData } from '../../../shared/types/print.ts';
 import type { VoucherInput } from '../../../shared/types/vouchers.ts';
 import { saveConfig } from '../company/service.ts';
+import { save as saveTds, setupTds } from '../tds/testkit.ts';
 import { cancelVoucher } from '../vouchers/service.ts';
 import { save, setupKit as baseKit, type Kit } from '../vouchers/testkit.ts';
 import { buildBatch, buildPrintDataFor, instrumentText, invoiceTotals, rupeesText, upiUri } from './data.ts';
@@ -643,6 +644,282 @@ describe('print options, navigation and batch', () => {
   it('unknown voucher → NOT_FOUND', () => {
     const k = setupKit();
     assert.throws(() => buildPrintDataFor(k.t.ctx, 424242), (e: unknown) => (e as { code?: string }).code === 'NOT_FOUND');
+    k.t.close();
+  });
+});
+
+describe('(2.2) line descriptions: the text typed on each line prints under it, from the engine and from the books alike', () => {
+  type Texts = { lines: Array<[string, string | null]>; charges: Array<[string, string | null]>; entries: Array<[string, string | null]> };
+  /** What each printed line, charge and entry says; lines by name (the books list absorbed charges after the GST lines). */
+  const textsOf = (d: PrintVoucherData): Texts => ({
+    lines: d.lines.map((l): [string, string | null] => [l.name, l.description]).sort((a, b) => a[0].localeCompare(b[0])),
+    charges: d.charges.map((c): [string, string | null] => [c.name, c.description ?? null]),
+    entries: d.entries.map((e): [string, string | null] => [e.ledgerName, e.narration]),
+  });
+  const fromBooks = (d: PrintVoucherData): boolean => d.warnings.some((w) => /printed from the books/.test(w));
+  const setRate = (k: Kit, entity: 'stock_item' | 'ledger', id: number, rate: number): void => {
+    k.t.db.run('UPDATE gst_rate_history SET rate = :rate WHERE entity_type = :entity AND entity_id = :id', { rate, entity, id });
+    k.t.db.run(`UPDATE ${entity === 'ledger' ? 'ledgers' : 'stock_items'} SET gst_rate = :rate WHERE id = :id`, { rate, id });
+  };
+
+  /**
+   * The voucher printed from the engine; then from the books with the voucher as entered (`forceBooks` changes a
+   * master so the engine no longer ties to the books, or cannot rebuild the voucher); then from the books alone
+   * (no meta.input, as an imported voucher). The same texts and the same total every time.
+   */
+  function sameEveryWay(k: Kit, id: number, forceBooks: (() => void) | null): Texts {
+    const engine = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(engine), false, 'printed from the engine');
+    const want = textsOf(engine);
+    const prints = [engine];
+    if (forceBooks) {
+      forceBooks();
+      const books = buildPrintDataFor(k.t.ctx, id);
+      assert.equal(fromBooks(books), true, 'printed from the books');
+      assert.deepEqual(textsOf(books), want, 'from the books, with the voucher as entered');
+      prints.push(books);
+    }
+    k.t.db.run('UPDATE vouchers SET meta = NULL WHERE id = :id', { id });
+    const bare = buildPrintDataFor(k.t.ctx, id);
+    assert.deepEqual(textsOf(bare), want, 'from the books alone');
+    prints.push(bare);
+    for (const d of prints) {
+      assert.equal(d.totals.grandTotal, engine.totals.grandTotal);
+      assert.equal(d.warnings.some((w) => /differs from the voucher value/.test(w)), false, 'the printed total is the voucher value');
+      if (d.layout === 'invoice') assertTies(d);
+    }
+    return want;
+  }
+
+  it('item invoice: item descriptions, a GST ledger line, absorbed freight and a non-GST discount', () => {
+    const k = setupKit();
+    const id = sale(k, {
+      items: [
+        { itemId: k.I.rice, qty: 10, rate: 50, description: '  Sona Masoori\nLot 7 · 25 kg bags ' },
+        { itemId: k.I.mixer, qty: 2, rate: 150, discountPct: 10, description: 'Serial MX-2231' },
+      ],
+      ledgers: [
+        { ledgerId: k.L.freight, amount: 10000, narration: 'Door delivery, Hadapsar' },
+        { ledgerId: k.L.consult, amount: 50000, narration: 'Installation and demo' },
+        { ledgerId: k.L.discount, amount: -2500, narration: 'Festive offer' },
+      ],
+    });
+    const engine = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(engine.lines.find((l) => l.name === 'Freight Outward')?.absorbed, true);
+    // The HSN summary keeps the master names (as e-invoice / GSTR-1 do): only the lines carry the typed text.
+    assert.deepEqual(engine.taxByHsn.map((r) => r.description), ['Rice Bag', 'Mixer Grinder', 'Consultancy Income']);
+    const texts = sameEveryWay(k, id, () => setRate(k, 'stock_item', k.I.mixer, 28));
+    assert.deepEqual(texts, {
+      lines: [
+        ['Consultancy Income', 'Installation and demo'],
+        ['Freight Outward', 'Door delivery, Hadapsar'],
+        ['Mixer Grinder', 'Serial MX-2231'],
+        ['Rice Bag', 'Sona Masoori\nLot 7 · 25 kg bags'],
+      ],
+      charges: [['Discount Allowed', 'Festive offer']],
+      entries: [],
+    });
+    k.t.close();
+  });
+
+  it('a charge row carries its line description only when the line has one', () => {
+    const k = setupKit();
+    const d = buildPrintDataFor(
+      k.t.ctx,
+      sale(k, {
+        items: [{ itemId: k.I.rice, qty: 10, rate: 50 }],
+        ledgers: [
+          { ledgerId: k.L.discount, amount: -2500, narration: 'Festive offer' },
+          { ledgerId: k.L.discount, amount: -500, narration: '   ' },
+        ],
+      }),
+    );
+    assert.deepEqual(d.charges, [
+      { name: 'Discount Allowed', amount: -2500, description: 'Festive offer' },
+      { name: 'Discount Allowed', amount: -500 },
+    ]);
+    k.t.close();
+  });
+
+  it('GST accounting invoice: the income line and a deduction after tax', () => {
+    const k = setupKit();
+    const id = save(k, {
+      voucherTypeId: k.vt.sales,
+      date: DATE,
+      mode: 'accounting_invoice',
+      partyLedgerId: k.L.acme,
+      ledgers: [
+        { ledgerId: k.L.consult, amount: 100000, narration: 'Audit of FY 2025-26 accounts' },
+        { ledgerId: k.L.discount, amount: -5000, narration: 'Early payment' },
+      ],
+    }).id;
+    const texts = sameEveryWay(k, id, () => setRate(k, 'ledger', k.L.consult, 12));
+    assert.deepEqual(texts, { lines: [['Consultancy Income', 'Audit of FY 2025-26 accounts']], charges: [['Discount Allowed', 'Early payment']], entries: [] });
+    k.t.close();
+  });
+
+  it('accounting invoice of a company not under GST (the books: its sales ledger entries)', () => {
+    const k = setupKit({ gst: false });
+    const id = save(k, {
+      voucherTypeId: k.vt.sales,
+      date: DATE,
+      mode: 'accounting_invoice',
+      partyLedgerId: k.L.acme,
+      ledgers: [
+        { ledgerId: k.L.sales, amount: 12345, narration: 'Consulting, March' },
+        { ledgerId: k.L.discount, amount: -345, narration: 'Loyalty' },
+      ],
+    }).id;
+    // The engine cannot rebuild the voucher once its sales ledger is a tax ledger: printed from the books.
+    const texts = sameEveryWay(k, id, () => k.t.db.run("UPDATE ledgers SET tax_type = 'GST', gst_duty_head = 'IGST' WHERE id = :id", { id: k.L.sales }));
+    assert.deepEqual(texts, { lines: [['Sales', 'Consulting, March']], charges: [['Discount Allowed', 'Loyalty']], entries: [] });
+    k.t.close();
+  });
+
+  it('payment voucher: each entry its own narration', () => {
+    const k = setupKit();
+    const id = save(k, {
+      voucherTypeId: k.vt.payment,
+      date: DATE,
+      mode: 'ledger',
+      ledgers: [
+        { ledgerId: k.L.rent, amount: 100000, narration: 'Rent for April, shop 4' },
+        { ledgerId: k.L.bank, amount: -100000, narration: 'From the current account', instrument: { type: 'neft', number: 'UTR1' } },
+      ],
+    }).id;
+    assert.deepEqual(sameEveryWay(k, id, null).entries, [
+      ['Office Rent', 'Rent for April, shop 4'],
+      ['HDFC Bank', 'From the current account'],
+    ]);
+    k.t.close();
+  });
+
+  it('delivery challan (inventory layout): descriptions with and without a godown', () => {
+    const k = setupKit({ features: { trackingNumbers: true, multipleGodowns: true } });
+    const ts = k.t.clock.now().toISOString();
+    const shop = Number(k.t.db.run(`INSERT INTO godowns (guid, name, created_at, updated_at) VALUES ('g-shop', 'Shop Floor', :ts, :ts)`, { ts }).lastInsertRowid);
+    const id = save(k, {
+      voucherTypeId: k.vt.delivery_note,
+      date: DATE,
+      mode: 'inventory',
+      partyLedgerId: k.L.acme,
+      items: [
+        { itemId: k.I.rice, qty: 5, rate: 50, description: 'Packed in 5 kg bags' },
+        { itemId: k.I.mixer, qty: 1, rate: 150, description: 'Serial MX-77', godownId: shop },
+        { itemId: k.I.rice, qty: 1, rate: 50, godownId: shop },
+      ],
+    }).id;
+    assert.deepEqual(sameEveryWay(k, id, null).lines, [
+      ['Mixer Grinder', 'Serial MX-77 · Godown: Shop Floor'],
+      ['Rice Bag', 'Packed in 5 kg bags'],
+      ['Rice Bag', 'Godown: Shop Floor'],
+    ]);
+    k.t.close();
+  });
+
+  it('a ledger typed on several lines hands out its texts in order (lines of no amount print nothing)', () => {
+    const k = setupKit();
+    const id = sale(k, {
+      items: [{ itemId: k.I.rice, qty: 10, rate: 50 }],
+      ledgers: [
+        { ledgerId: k.L.discount, amount: -1000, narration: 'Festive offer' },
+        { ledgerId: k.L.discount, amount: 0, narration: 'Nothing to print' },
+        { ledgerId: k.L.consult, amount: 20000, narration: 'Installation' },
+        { ledgerId: k.L.discount, amount: -500, narration: 'Loyalty card' },
+        { ledgerId: k.L.consult, amount: 30000, narration: 'Training' },
+      ],
+    });
+    const texts = sameEveryWay(k, id, () => setRate(k, 'stock_item', k.I.rice, 12));
+    assert.deepEqual(texts.charges, [
+      ['Discount Allowed', 'Festive offer'],
+      ['Discount Allowed', 'Loyalty card'],
+    ]);
+    assert.deepEqual(texts.lines, [
+      ['Consultancy Income', 'Installation'],
+      ['Consultancy Income', 'Training'],
+      ['Rice Bag', null],
+    ]);
+    k.t.close();
+  });
+
+  it('a free line of an item before its priced line: from the books each line keeps its own quantity, value and description', () => {
+    const k = setupKit();
+    const id = sale(k, {
+      items: [
+        { itemId: k.I.rice, qty: 1, rate: 0, description: 'Free sample' },
+        { itemId: k.I.rice, qty: 10, rate: 50, description: 'Regular pack' },
+      ],
+    });
+    const rows = (d: PrintVoucherData) => d.lines.map((l) => [l.description, l.qty, l.amount]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    const engine = buildPrintDataFor(k.t.ctx, id);
+    setRate(k, 'stock_item', k.I.rice, 12);
+    const books = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(books), true);
+    // Before: the priced GST line took the free line's quantity and description, and the priced line printed again.
+    assert.deepEqual(rows(books), rows(engine));
+    assert.deepEqual(rows(books), [
+      ['Free sample', 1, 0],
+      ['Regular pack', 10, 50000],
+    ]);
+    assert.equal(books.totals.grandTotal, engine.totals.grandTotal);
+    assert.equal(books.warnings.some((w) => /differs from the voucher value/.test(w)), false);
+    assertTies(books);
+    k.t.close();
+  });
+
+  it('no text rather than another line’s: a ledger whose lines do not pair one to one with what the books print', () => {
+    const k = setupKit();
+    // The discount ledger typed twice: a deduction after tax, then a taxed line (GST given on the line). The books
+    // print the taxed one (a GST line) and not the deduction: the GST line must not take "Festive offer".
+    const id = sale(k, {
+      items: [{ itemId: k.I.rice, qty: 10, rate: 50 }],
+      ledgers: [
+        { ledgerId: k.L.discount, amount: -2500, narration: 'Festive offer' },
+        { ledgerId: k.L.discount, amount: 10000, narration: 'Gift wrapping', gst: { rate: 18, hsnSac: '998599', supplyKind: 'services' } },
+      ],
+    });
+    const engine = buildPrintDataFor(k.t.ctx, id);
+    assert.deepEqual(textsOf(engine).lines, [['Discount Allowed', 'Gift wrapping'], ['Rice Bag', null]]);
+    assert.deepEqual(textsOf(engine).charges, [['Discount Allowed', 'Festive offer']]);
+    setRate(k, 'stock_item', k.I.rice, 12);
+    const books = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(books), true);
+    assert.deepEqual(textsOf(books).lines, [['Discount Allowed', null], ['Rice Bag', null]]);
+    // From the books alone: two entries on the ledger for one GST line — which is its own cannot be told either.
+    k.t.db.run('UPDATE vouchers SET meta = NULL WHERE id = :id', { id });
+    assert.deepEqual(textsOf(buildPrintDataFor(k.t.ctx, id)).lines, [['Discount Allowed', null], ['Rice Bag', null]]);
+    k.t.close();
+  });
+
+  it('the items’ own sales ledger typed as a line: its text from the voucher as entered, none from the books alone', () => {
+    const k = setupKit();
+    const id = sale(k, { items: [{ itemId: k.I.rice, qty: 10, rate: 50 }], ledgers: [{ ledgerId: k.L.sales, amount: 10000, narration: 'Handling', gst: { rate: 5, hsnSac: '9967' } }] });
+    setRate(k, 'stock_item', k.I.rice, 12);
+    const books = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(books), true);
+    assert.deepEqual(textsOf(books).lines, [['Rice Bag', null], ['Sales', 'Handling']]);
+    // Without the voucher as entered the line's entry cannot be told from the items' entry on the same ledger.
+    k.t.db.run('UPDATE vouchers SET meta = NULL WHERE id = :id', { id });
+    assert.deepEqual(textsOf(buildPrintDataFor(k.t.ctx, id)).lines, [['Rice Bag', null], ['Sales', null]]);
+    k.t.close();
+  });
+
+  it('TCS a hook posts on the invoice is no typed line: printed from the books it has no description', () => {
+    const k = setupTds();
+    const id = saveTds(k, {
+      voucherTypeId: k.vt.sales,
+      date: '2026-06-02',
+      mode: 'accounting_invoice',
+      partyLedgerId: k.L.buyer,
+      ledgers: [{ ledgerId: k.L.scrapSales, amount: 100_000_00, narration: 'HMS scrap, 2 tonnes' }],
+    }).id;
+    k.t.db.run("UPDATE gst_rate_history SET rate = 12 WHERE entity_type = 'ledger' AND entity_id = :id", { id: k.L.scrapSales });
+    k.t.db.run('UPDATE ledgers SET gst_rate = 12 WHERE id = :id', { id: k.L.scrapSales });
+    const books = buildPrintDataFor(k.t.ctx, id);
+    assert.equal(fromBooks(books), true);
+    assert.deepEqual(textsOf(books).lines, [['Sale of Scrap', 'HMS scrap, 2 tonnes']]);
+    // 1% of ₹1,18,000 (₹1,00,000 + 18% GST) = ₹1,180.00, with the hook's own narration left in the books.
+    assert.deepEqual(books.charges, [{ name: 'TCS Payable', amount: 118000 }]);
     k.t.close();
   });
 });

@@ -32,6 +32,9 @@ export const DOCUMENT_CSS = `
 .bp-sub { display: block; font-size: .86em; color: ${mix(62)}; }
 .bp-cap { font-size: .78em; text-transform: uppercase; letter-spacing: .06em; color: ${mix(62)}; margin-bottom: 1.5pt; }
 .bp-pre { white-space: pre-line; }
+/* (2.2) A line's description (an entry's narration, a charge's) under its name: a long word — a serial number,
+   a link — breaks anywhere instead of widening a narrow column (A5, the 80 / 58 mm roll). */
+.bp-sub.bp-pre { overflow-wrap: anywhere; }
 .bp-gap { height: 6pt; }
 
 /* Status stamp (CANCELLED / OPTIONAL / SAMPLE) */

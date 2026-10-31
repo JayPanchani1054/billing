@@ -7,7 +7,7 @@ import { formatIndianNumber, formatMoney, formatPercent, formatRate } from '../.
 import type { Paise } from '../../../../shared/money.ts';
 import type { NativePageSize } from '../../../../shared/bridge.ts';
 import type { InvoicePaperSize, InvoiceTemplate, ReceiptRollWidth } from '../../../../shared/settings.ts';
-import type { PrintAddress, PrintCopy, PrintLine, PrintPageSize, PrintVoucherData } from '../../../../shared/types/print.ts';
+import type { PrintAddress, PrintCharge, PrintCopy, PrintLine, PrintPageSize, PrintVoucherData } from '../../../../shared/types/print.ts';
 import { PRINT_COPIES, PRINT_PAGE_SIZES } from '../../../../shared/types/print.ts';
 import { isPartShown, type PrintPartId } from '../../../../shared/printLayout.ts';
 
@@ -318,6 +318,13 @@ export interface TotalRow {
   kind: 'subtotal' | 'tax' | 'charge' | 'roundoff' | 'total';
   /** (2.0) Print part of the row: totals.taxable / taxHeads / charges / roundOff / grand. */
   part: PrintPartId;
+  /** (2.2) A charge row: the description typed on its line, printed under the label; absent when it has none. */
+  description?: string;
+}
+
+/** (2.2) The description typed on a charge's line ('' when none), printed under the charge's label. */
+export function chargeText(c: Pick<PrintCharge, 'description'>): string {
+  return typeof c.description === 'string' ? c.description.trim() : '';
 }
 
 /**
@@ -335,7 +342,10 @@ export function totalRows(doc: PrintVoucherData): TotalRow[] {
     if (t.igst !== 0) rows.push({ label: 'IGST', amount: t.igst, kind: 'tax', part: 'totals.taxHeads' });
     if (t.cess !== 0) rows.push({ label: 'Cess', amount: t.cess, kind: 'tax', part: 'totals.taxHeads' });
   }
-  for (const c of doc.charges) rows.push({ label: c.name, amount: c.amount, kind: 'charge', part: 'totals.charges' });
+  for (const c of doc.charges) {
+    const description = chargeText(c);
+    rows.push({ label: c.name, amount: c.amount, kind: 'charge', part: 'totals.charges', ...(description ? { description } : {}) });
+  }
   if (t.roundOff !== 0) rows.push({ label: 'Round Off', amount: t.roundOff, kind: 'roundoff', part: 'totals.roundOff' });
   rows.push({ label: 'Total', amount: t.grandTotal, kind: 'total', part: 'totals.grand' });
   return rows.filter((r) => isPartShown(doc, r.part));

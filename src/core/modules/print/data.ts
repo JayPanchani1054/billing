@@ -112,6 +112,11 @@ const txt = (s: string | null | undefined): string | null => {
 
 const sum = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0);
 
+/** A charge row; (2.2) `description` — the text typed on its line — only when there is one. */
+function printCharge(name: string, amount: Paise, description: string | null): PrintCharge {
+  return description ? { name, amount, description } : { name, amount };
+}
+
 const INWARD_NATURES: ReadonlySet<GstNature> = new Set<GstNature>([
   'inward_b2b',
   'inward_rcm',
@@ -624,10 +629,12 @@ function fromEngine(env: PrintEnv, row: VoucherRow, vt: VoucherTypeInfo, input: 
       });
     }
   });
+  // Lines outside the GST computation (a non-GST discount, TCS typed as a line, every charge of a company
+  // not under GST) print as charges, with the description typed on the line.
   const charges: PrintCharge[] = [];
   ledgers.forEach((ll, i) => {
     if (used.has(i) || ll.amount === 0) return;
-    charges.push({ name: masters.ledger(ll.ledgerId).name, amount: ll.amount });
+    charges.push(printCharge(masters.ledger(ll.ledgerId).name, ll.amount, txt(ll.narration)));
   });
   return {
     plan,
@@ -683,7 +690,71 @@ interface StoredInv {
   description: string | null;
 }
 
-function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): InvoiceBuild {
+interface StoredEntry {
+  ledger_id: number;
+  name: string;
+  amount: number;
+  role: string;
+  narration: string | null;
+}
+
+/** Entry roles an invoice's ledger line can be stored with (the posting engine: sales / purchase / charge; the data import and hooks: other). */
+const LINE_ROLES: ReadonlySet<string> = new Set(['sales', 'purchase', 'charge', 'other']);
+
+/**
+ * (2.2) The description typed on each ledger line, for the ledger lines printed from the books: GST ledger lines
+ * (gst_lines source 'ledger'), the lines of an accounting invoice without GST lines, charges and absorbed charges.
+ * A text goes on the line it was typed on, or on none.
+ *
+ * - With the voucher as entered (meta.input), each ledger's lines with an amount hand out their texts in input
+ *   order, one to each line printed for that ledger in posting order: the engine posts a ledger's lines and
+ *   writes their gst_lines in input order, and every line printed for one ledger comes from one of the two.
+ * - Without it, a charge or an accounting line prints the narration of the entry it is built from, and a GST
+ *   ledger line the narration of its ledger's entry.
+ *
+ * When a ledger has more or fewer printed lines than lines typed (or entries) — a hook's own entry on it (TCS), a
+ * line dropped or merged — none of its lines gets a text: no text rather than another line's.
+ */
+function ledgerLineTexts(
+  input: VoucherInput | null,
+  gst: readonly GstLineView[],
+  entries: readonly StoredEntry[],
+  printed: (e: StoredEntry) => boolean,
+): { gstLine(ledgerId: number | null): string | null; entry(e: StoredEntry): string | null } {
+  const printedFor = new Map<number, number>();
+  const bump = (id: number): void => {
+    printedFor.set(id, (printedFor.get(id) ?? 0) + 1);
+  };
+  for (const g of gst) if (g.source === 'ledger' && g.ledgerId !== null) bump(g.ledgerId);
+  for (const e of entries) if (printed(e)) bump(e.ledger_id);
+  const texts = new Map<number, Array<string | null>>();
+  const add = (id: number, text: string | null): void => {
+    const list = texts.get(id);
+    if (list) list.push(text);
+    else texts.set(id, [text]);
+  };
+  if (input) {
+    for (const ll of input.ledgers ?? []) if (ll.amount !== 0) add(ll.ledgerId, txt(ll.narration));
+  } else {
+    for (const e of entries) if (LINE_ROLES.has(e.role)) add(e.ledger_id, txt(e.narration));
+  }
+  const handed = new Map<number, number>();
+  const next = (id: number | null): string | null => {
+    if (id === null) return null;
+    const list = texts.get(id) ?? [];
+    if (list.length !== (printedFor.get(id) ?? 0)) return null;
+    const i = handed.get(id) ?? 0;
+    handed.set(id, i + 1);
+    return list[i] ?? null;
+  };
+  return { gstLine: next, entry: (e) => (input ? next(e.ledger_id) : txt(e.narration)) };
+}
+
+/**
+ * Invoice lines from the stored rows. `input` is the voucher as entered (meta.input), null when the voucher has
+ * none (imported): it only decides which description goes on which ledger line (ledgerLineTexts).
+ */
+function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType, input: VoucherInput | null): InvoiceBuild {
   const { db } = env;
   const inv = db.all<StoredInv>(
     `SELECT ie.line_no, ie.item_id, si.name AS item_name, u.symbol AS unit, u.decimal_places AS unit_decimals, ie.qty, ie.billed_qty,
@@ -693,6 +764,18 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
     { id: row.id },
   );
   const gst = gstLinesView(db, row.id);
+  const entries = db.all<StoredEntry>(
+    `SELECT le.ledger_id, l.name, le.amount, le.role, le.narration FROM ledger_entries le JOIN ledgers l ON l.id = le.ledger_id
+      WHERE le.voucher_id = :id ORDER BY le.line_no`,
+    { id: row.id },
+  );
+  const gstLedgers = new Set(gst.filter((g) => g.ledgerId !== null).map((g) => g.ledgerId as number));
+  // Accounting invoice without GST lines (company not under GST): the sales / purchase ledgers are the lines.
+  const accountingLines = gst.length === 0 && inv.length === 0;
+  const isAccountingLine = (e: StoredEntry): boolean => accountingLines && (e.role === 'sales' || e.role === 'purchase');
+  // Charges: ledger entries of this voucher that are neither the party, tax, round-off, nor a GST line.
+  const isCharge = (e: StoredEntry): boolean => e.role === 'charge' && !gstLedgers.has(e.ledger_id);
+  const texts = ledgerLineTexts(input, gst, entries, (e) => isAccountingLine(e) || isCharge(e));
   const importGoods = row.gst_nature === 'import_goods';
   // IGST on imported goods — and on goods from an SEZ unit (an import on a bill of entry) — is paid at customs, not to the supplier.
   const atCustoms = (g: GstLineView | null): boolean => importGoods || (row.gst_nature === 'inward_sez' && g?.supplyType === 'goods');
@@ -737,7 +820,12 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
   };
   for (const g of gst) {
     if (g.source === 'item') {
-      const idx = inv.findIndex((r, i) => !usedInv.has(i) && r.item_id === g.itemId);
+      // The stock line this GST line was posted from: the next line of the item, passing over lines of no value
+      // (a free line of the item has no GST line) when this one has a value — the quantity, rate and description
+      // printed are that line's own.
+      const unused = (r: StoredInv, i: number): boolean => !usedInv.has(i) && r.item_id === g.itemId;
+      let idx = inv.findIndex((r, i) => unused(r, i) && (g.taxableValue === 0 || r.amount !== 0));
+      if (idx < 0) idx = inv.findIndex(unused);
       if (idx >= 0) usedInv.add(idx);
       itemLine(idx >= 0 ? inv[idx] : null, g);
     } else {
@@ -746,7 +834,7 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
         sl: lines.length + 1,
         kind: 'ledger',
         name: g.description ?? (g.ledgerId !== null ? env.masters.ledger(g.ledgerId).name : 'Charges'),
-        description: null,
+        description: texts.gstLine(g.ledgerId),
         hsnSac: txt(g.hsnSac),
         batch: null,
         qty: null,
@@ -777,23 +865,15 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
     if (!usedInv.has(i)) itemLine(r, null);
   });
 
-  // Charges: ledger entries of this voucher that are neither the party, tax, round-off, nor a GST line.
   const s = base === 'sales' || base === 'debit_note' ? 1 : -1;
-  const gstLedgers = new Set(gst.filter((g) => g.ledgerId !== null).map((g) => g.ledgerId as number));
-  const entries = db.all<{ ledger_id: number; name: string; amount: number; role: string }>(
-    `SELECT le.ledger_id, l.name, le.amount, le.role FROM ledger_entries le JOIN ledgers l ON l.id = le.ledger_id
-      WHERE le.voucher_id = :id ORDER BY le.line_no`,
-    { id: row.id },
-  );
-  // Accounting invoice without GST lines (company not under GST): the sales / purchase ledgers are the lines.
-  if (gst.length === 0 && inv.length === 0) {
+  if (accountingLines) {
     for (const e of entries) {
-      if (e.role !== 'sales' && e.role !== 'purchase') continue;
+      if (!isAccountingLine(e)) continue;
       lines.push({
         sl: lines.length + 1,
         kind: 'ledger',
         name: e.name,
-        description: null,
+        description: texts.entry(e),
         hsnSac: null,
         batch: null,
         qty: null,
@@ -822,10 +902,7 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
   const charges: PrintCharge[] = [];
   const itemTaxable = sum(lines.filter((l) => l.kind === 'item').map((l) => l.taxableValue));
   const itemLedgerPosted = sum(entries.filter((e) => e.role === 'sales' || e.role === 'purchase').filter((e) => !gstLedgers.has(e.ledger_id)).map((e) => -s * e.amount));
-  for (const e of entries) {
-    if (e.role !== 'charge' || gstLedgers.has(e.ledger_id)) continue;
-    charges.push({ name: e.name, amount: -s * e.amount });
-  }
+  for (const e of entries) if (isCharge(e)) charges.push(printCharge(e.name, -s * e.amount, texts.entry(e)));
   // Absorbed charges (freight included in the goods' taxable value) post to their own ledger with role
   // 'charge'; the sales/purchase ledgers then carry less than the item lines' taxable value. That gap
   // identifies them. Their value is taken back out of the item lines (by value, largest remainder) so
@@ -839,7 +916,7 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
         sl: 0,
         kind: 'ledger',
         name: c.name,
-        description: null,
+        description: c.description ?? null,
         hsnSac: null,
         batch: null,
         qty: null,
@@ -896,19 +973,30 @@ function fromBooks(env: PrintEnv, row: VoucherRow, base: VoucherBaseType): Invoi
 
 // ───────────────────────────── Inventory layout ─────────────────────────────
 
-function inventoryLines(env: PrintEnv, base: VoucherBaseType, input: VoucherInput): PrintLine[] {
+/** inventory_entries of a voucher in line order: the description typed on each line (2.2). */
+type StoredLineTexts = ReadonlyArray<{ item_id: number; description: string | null }>;
+
+/**
+ * The stock lines as entered. `stored`: a voucher without the voucher as entered (meta.input — imported) has its
+ * input rebuilt from inventory_entries in line order, without the descriptions; each line takes its own from
+ * those rows (the same line: same position, same item). A rebuilt input also names every line's godown: the main
+ * location, where a line goes when the voucher names none, is then not printed — as on the voucher as entered.
+ */
+function inventoryLines(env: PrintEnv, base: VoucherBaseType, input: VoucherInput, stored: StoredLineTexts | null): PrintLine[] {
   const masters = env.masters;
   return (input.items ?? []).map((it, i) => {
     const item = masters.item(it.itemId);
     const valueQty = it.billedQty ?? it.qty;
     const amount = it.amount ?? lineAmount(valueQty, it.rate ?? 0, it.discountPct ?? 0);
     const gross = lineAmount(valueQty, it.rate ?? 0);
-    const godown = env.features.multipleGodowns && it.godownId ? masters.godown(it.godownId).name : null;
+    const godownId = it.godownId && !(stored && it.godownId === masters.mainGodownId()) ? it.godownId : null;
+    const godown = env.features.multipleGodowns && godownId ? masters.godown(godownId).name : null;
+    const own = txt(it.description) ?? (stored && stored[i]?.item_id === it.itemId ? txt(stored[i].description) : null);
     return {
       sl: i + 1,
       kind: 'item',
       name: item.name,
-      description: [txt(it.description), godown ? `Godown: ${godown}` : null].filter(Boolean).join(' · ') || null,
+      description: [own, godown ? `Godown: ${godown}` : null].filter(Boolean).join(' · ') || null,
       hsnSac: txt(item.hsn_sac),
       batch: txt(it.batchName),
       qty: valueQty,
@@ -1025,14 +1113,14 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
             `Masters changed after this voucher was saved (${diff}), so it is printed from the books. ` +
               'Open the voucher and save it again to print it with the current GST details.',
           );
-          build = fromBooks(env, row, base);
+          build = fromBooks(env, row, base, input);
         } else if (build.header && row.round_off !== build.roundOff && build.header.total - build.roundOff + row.round_off === row.total_amount) {
           // Round-off settings changed since saving: keep the voucher's own round-off.
           build = { ...build, roundOff: row.round_off };
         }
       }
     } else {
-      build = fromBooks(env, row, base);
+      build = fromBooks(env, row, base, meta.input ? input : null);
     }
     lines = build.lines;
     charges = build.charges;
@@ -1044,7 +1132,9 @@ export function buildPrintData(env: PrintEnv, id: number, overrides?: InvoicePri
       );
     }
   } else if (layout === 'inventory') {
-    lines = inventoryLines(env, base, input);
+    // Without the voucher as entered, the input is rebuilt from the stock rows (storedInput): their descriptions too.
+    const stored = meta.input ? null : db.all<StoredLineTexts[number]>('SELECT item_id, description FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no', { id });
+    lines = inventoryLines(env, base, input, stored);
     const valueLines = base === 'stock_journal' ? lines.filter((l) => l.section !== 'consumption') : lines;
     const total = sum(valueLines.map((l) => l.amount));
     totals = {

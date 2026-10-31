@@ -78,6 +78,23 @@ describe('print routes (through the dispatcher)', () => {
     k.t.close();
   });
 
+  it('(2.2) print.sample shows where a line description prints; the HSN summary keeps the item names', async () => {
+    const k = setupKit();
+    const d = await k.t.callOk<PrintVoucherData>(printRoutes, 'print.sample', {});
+    assert.deepEqual(
+      d.lines.map((l) => [l.name, l.description]),
+      [
+        ['Steel Water Bottle 1 L', 'Assorted colours · leak-proof lid'],
+        ['Basmati Rice 5 kg Bag', null],
+      ],
+    );
+    assert.deepEqual(d.taxByHsn.map((r) => [r.hsnSac, r.description]), [
+      ['1006', 'Basmati Rice 5 kg Bag'],
+      ['7323', 'Steel Water Bottle 1 L'],
+    ]);
+    k.t.close();
+  });
+
   it('print.bankLedgers lists bank accounts with their details', async () => {
     const k = setupKit();
     const banks = await k.t.callOk<PrintBankOption[]>(printRoutes, 'print.bankLedgers', {});

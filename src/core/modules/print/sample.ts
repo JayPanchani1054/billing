@@ -24,10 +24,13 @@ import {
 } from './data.ts';
 import { copyLabels, documentTitle, partyLabels } from './titles.ts';
 
-/** `mrp` in paise per unit (incl. GST): ₹599 and ₹699, above the selling price incl. GST (₹531 and ₹623.44). */
-const SAMPLE_ITEMS: ReadonlyArray<{ name: string; hsn: string; qty: number; unit: string; rate: number; disc: number; gst: number; mrp: number }> = [
-  { name: 'Steel Water Bottle 1 L', hsn: '7323', qty: 10, unit: 'Nos', rate: 450, disc: 0, gst: 18, mrp: 599_00 },
-  { name: 'Basmati Rice 5 kg Bag', hsn: '1006', qty: 4, unit: 'Bag', rate: 625, disc: 5, gst: 5, mrp: 699_00 },
+/**
+ * `mrp` in paise per unit (incl. GST): ₹599 and ₹699, above the selling price incl. GST (₹531 and ₹623.44).
+ * (2.2) `description`: a line's own description, as typed on a voucher, so the preview shows where it prints.
+ */
+const SAMPLE_ITEMS: ReadonlyArray<{ name: string; description: string | null; hsn: string; qty: number; unit: string; rate: number; disc: number; gst: number; mrp: number }> = [
+  { name: 'Steel Water Bottle 1 L', description: 'Assorted colours · leak-proof lid', hsn: '7323', qty: 10, unit: 'Nos', rate: 450, disc: 0, gst: 18, mrp: 599_00 },
+  { name: 'Basmati Rice 5 kg Bag', description: null, hsn: '1006', qty: 4, unit: 'Bag', rate: 625, disc: 5, gst: 5, mrp: 699_00 },
 ];
 
 export function sampleGstin(stateCode: string): string {
@@ -70,7 +73,7 @@ export function buildSampleData(env: PrintEnv, overrides?: InvoicePrintOverrides
     sl: i + 1,
     kind: 'item',
     name: SAMPLE_ITEMS[i].name,
-    description: null,
+    description: SAMPLE_ITEMS[i].description,
     hsnSac: cl.hsnSac || null,
     batch: null,
     qty: SAMPLE_ITEMS[i].qty,

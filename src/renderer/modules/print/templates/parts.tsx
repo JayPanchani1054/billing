@@ -2,6 +2,9 @@
  * Building blocks shared by the document templates. Pure presentational components: props are the
  * print DTO (shared/types/print.ts) plus the pre-rendered QR images; no hooks, no API calls.
  * Every value is rendered as text (React escapes it); images are data: URLs only.
+ * (2.2) The description typed on a voucher line prints under the line's name (items and ledger lines) or under a
+ * charge's label, as a small sub-line (`bp-sub bp-pre`: its newlines kept, long words broken — styles.ts). It is
+ * always text content, never an attribute value.
  *
  * (2.0) Print layouts: each printable block carries `data-part="<catalogue id>"` (click-to-select in the
  * preview editor; harmless in print) and honours the layout applied to the document (`doc.applied`,
@@ -366,7 +369,10 @@ export function TotalsTable({ doc }: { doc: PrintVoucherData }) {
       <tbody>
         {totalRows(doc).map((r, i) => (
           <tr key={i} className={r.kind === 'total' ? 'bp-total' : undefined} data-part={r.part}>
-            <td>{r.kind === 'total' ? printText(doc, 'label.total', r.label) : r.label}</td>
+            <td>
+              {r.kind === 'total' ? printText(doc, 'label.total', r.label) : r.label}
+              {r.description ? <span className="bp-sub bp-pre">{r.description}</span> : null}
+            </td>
             <td className="bp-num">{r.kind === 'total' ? rupees(r.amount) : money(r.amount)}</td>
           </tr>
         ))}
