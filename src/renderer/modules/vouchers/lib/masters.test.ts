@@ -5,7 +5,7 @@ import type { InvoiceContext } from '../../../../shared/gst/index.ts';
 import type { LedgerDetail } from '../../../../shared/types/accounts.ts';
 import type { ItemPickerRow } from '../../../../shared/types/inventory.ts';
 import type { TrackingDoc } from '../../../../shared/types/vouchers.ts';
-import { createdLedgerProblem, createGroupCode, defaultItemRate, ledgerAllowed, priceSide, rowsFromTrackingDoc, taxBreakup, toClientLedgerTax } from './masters.ts';
+import { createdLedgerProblem, createGroupCode, defaultItemRate, ledgerAllowed, priceSide, rowsFromTrackingDoc, taxBreakup, toClientLedgerTax, TRACKING_DESCRIPTION_CHARS, trackingLineText } from './masters.ts';
 import { voucherGotoItems, voucherMenuEntries } from './menu.ts';
 
 const item = (over: Partial<ItemPickerRow> = {}): ItemPickerRow => ({
@@ -171,6 +171,21 @@ describe('item defaults', () => {
         [3, '', 'SO/3'],
       ],
     );
+  });
+
+  it('2.2: the Alt+T list names a pending line with its own description — pieces of one item told apart, kept short', () => {
+    const line = { itemId: 4, itemName: 'Mixer', unit: 'Nos', godownId: null, batchName: null, qty: 1, pendingQty: 1, rate: 2500, discountPct: 0, ledgerId: null };
+    assert.equal(trackingLineText({ ...line, description: 'SN-222' }), 'Mixer — SN-222: 1.000 Nos pending of 1.000 Nos');
+    assert.equal(trackingLineText({ ...line, itemName: 'Rice', unit: 'KGS', qty: 10, pendingQty: 4 }), 'Rice: 4.000 KGS pending of 10.000 KGS', 'none: as before 2.2');
+    assert.equal(trackingLineText({ ...line, description: null }), 'Mixer: 1.000 Nos pending of 1.000 Nos');
+    assert.equal(trackingLineText({ ...line, description: ' \n\t ' }), 'Mixer: 1.000 Nos pending of 1.000 Nos', 'a blank one is none');
+    assert.equal(trackingLineText({ ...line, description: 'SN-222\n  SN-223' }), 'Mixer — SN-222 SN-223: 1.000 Nos pending of 1.000 Nos', 'on one line');
+    // A long one is cut on a character (never half a surrogate pair) and ends in "…".
+    const long = trackingLineText({ ...line, description: `Assorted colours, leak-proof lid, 🥤 ${'x'.repeat(60)}` });
+    const desc = long.slice('Mixer — '.length, long.indexOf(': 1.000 Nos'));
+    assert.equal(Array.from(desc).length, TRACKING_DESCRIPTION_CHARS);
+    assert.ok(desc.endsWith('…') && desc.startsWith('Assorted colours, leak-proof lid, 🥤'), desc);
+    assert.equal(trackingLineText({ ...line, description: 'y'.repeat(TRACKING_DESCRIPTION_CHARS) }), `Mixer — ${'y'.repeat(TRACKING_DESCRIPTION_CHARS)}: 1.000 Nos pending of 1.000 Nos`, 'up to the limit: whole');
   });
 });
 

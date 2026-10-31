@@ -39,7 +39,7 @@
  * Which lines are opened is this screen's state (`descOpen` + a ref for the key handlers), not the form's.
  */
 import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import type { FocusEvent as ReactFocusEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { PREDEFINED_VOUCHER_TYPES } from '../../../../shared/constants.ts';
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { formatDate } from '../../../../shared/dates.ts';
@@ -81,8 +81,8 @@ import type { MenuEntry } from '../../../ui/index.ts';
 import { allocationTotal } from '../lib/bills.ts';
 import { ACCOUNT_ROW, buildVoucherInput, formFromInput } from '../lib/buildInput.ts';
 import type { BuiltInput } from '../lib/buildInput.ts';
-import { cellId, confirmationRequest, headerId, mapFieldErrors, parseCellId, targetOf, warningsByRow, warningsOfDetails } from '../lib/errorPaths.ts';
-import type { KeyMaps } from '../lib/errorPaths.ts';
+import { cellId, confirmationRequest, headerId, lineOfElement, mapFieldErrors, parseCellId, targetOf, warningsByRow, warningsOfDetails } from '../lib/errorPaths.ts';
+import type { KeyMaps, Section } from '../lib/errorPaths.ts';
 import { amountDecimals, formReducer, isBlankItem, isBlankLedger, itemLineValue, itemsOf, newForm, SINGLE_ENTRY_REFUSAL, singleEntryBlock, withFirstLedger } from '../lib/formState.ts';
 import type { ItemRow, LedgerRow, VoucherForm } from '../lib/formState.ts';
 import { chargesCollapsible, entrySections, initialFocusId, neighbourSection, nextCell, opensBeforeFocus, rowAfterDelete, verticalCell } from '../lib/gridNav.ts';
@@ -485,6 +485,12 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     descOpenRef.current = next;
     setDescOpenState(next);
   }, []);
+  /**
+   * 2.2: the line the cursor was last on — Ctrl+E chosen in More ▾ or on the shortcut bar describes it (the menu or
+   * the button has the focus then). Set when the focus enters a cell or a row tool of a line, cleared in the header
+   * or the narration and when the next voucher starts (its row keys start again).
+   */
+  const lastLineRef = useRef<{ section: Section; rowKey: string } | null>(null);
   /** 2.1 (D18): a save was attempted on this voucher — "Invoice has no lines" may show from then on. */
   const [saveAttempted, setSaveAttempted] = useState(false);
   const headerRef = useRef<HTMLDivElement | null>(null);
@@ -772,6 +778,13 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   };
 
   const activeCell = () => parseCellId(typeof document === 'undefined' ? null : document.activeElement?.id);
+  /** 2.2: the focus moved inside the voucher (onFocus bubbles): remember its line for Ctrl+E (lastLineRef). */
+  const onMainFocus = (e: ReactFocusEvent<HTMLDivElement>) => {
+    const t: Element = e.target;
+    const line = lineOfElement(t);
+    if (line) lastLineRef.current = line;
+    else if (t.id === headerId('narration') || headerRef.current?.contains(t)) lastLineRef.current = null;
+  };
 
   const deleteRow = useCallback((section: 'items' | 'ledgers', rowKey: string) => {
     const f = formRef.current;
@@ -1019,8 +1032,9 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       setPosOpen(false);
       setChargesOpen(false);
       setSaveAttempted(false);
-      // 2.2: the next voucher's row keys start again (i1, l2 …): none of its lines is opened.
+      // 2.2: the next voucher's row keys start again (i1, l2 …): none of its lines is opened, nor the last one.
       setDescOpen(NO_OPENED);
+      lastLineRef.current = null;
       dispatch({ type: 'next', date: f.date, isOptional: ctx.voucherType.optionalByDefault, partyLedgerId: startParty });
       if (printNow) {
         nav.push('print.voucher', printNow);
@@ -1175,18 +1189,25 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
 
   /**
    * 2.2, Ctrl+E: the description of the line the cursor is on — opened and the cursor put in it, or only the
-   * cursor when it already shows. Elsewhere (header, narration, an empty line) a note says where to go.
+   * cursor when it already shows. From More ▾ or the shortcut bar (the focus is on the menu or the button) it is
+   * the line the cursor was last on. Elsewhere (header, narration, an empty line) a note says where to go.
    */
   const describeLine = () => {
-    const c = activeCell();
+    const c = activeCell() ?? lastLineRef.current;
     const f = formRef.current;
     if (c) {
       const item = c.section === 'items' ? f.items.find((r) => r.key === c.rowKey) : undefined;
       const ledger = c.section === 'ledgers' ? f.ledgers.find((r) => r.key === c.rowKey) : undefined;
       const line = item ? { filled: !isBlankItem(item), text: item.description } : ledger ? { filled: !isBlankLedger(ledger), text: ledger.narration } : null;
       if (line && line.filled) {
-        if (descriptionShown({ everyLine, opened: descOpenRef.current }, c.rowKey, line)) focusId(cellId(c.section, c.rowKey, DESC_COLUMN));
-        else openDescription(c.section, c.rowKey);
+        if (descriptionShown({ everyLine, opened: descOpenRef.current }, c.rowKey, line)) {
+          // On screen: the cursor goes in now — an empty one just left for the shortcut bar closes when the press is
+          // over unless the cursor is back (grids.tsx › LineDescription) — and again next frame, after More ▾ gave the
+          // focus back to its button.
+          const id = cellId(c.section, c.rowKey, DESC_COLUMN);
+          document.getElementById(id)?.focus();
+          focusId(id);
+        } else openDescription(c.section, c.rowKey);
         return;
       }
     }
@@ -1746,7 +1767,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       >
         <Hotkeys map={hotkeys} />
         <div className="bx-vch" data-density="compact">
-          <div className="bx-vch__main">
+          <div className="bx-vch__main" onFocus={onMainFocus}>
             {banner ? <ErrorBanner title={banner.title} messages={banner.messages} onDismiss={() => setBanner(null)} /> : null}
             {savedBar && barShown ? renderSavedBar(savedBar) : null}
             {header}

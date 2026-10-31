@@ -89,3 +89,30 @@ export function openedAfterLeaving(opened: ReadonlySet<string>, rowKey: string, 
   next.delete(rowKey);
   return next;
 }
+
+/** What afterPointerRelease listens on: the document on screen (an EventTarget in tests). */
+export interface PressEvents {
+  addEventListener(type: string, listener: () => void, options: { capture: boolean; once: boolean }): void;
+  removeEventListener(type: string, listener: () => void, options: { capture: boolean }): void;
+}
+
+/**
+ * The events that end a press: the pointer goes up or is cancelled — or the click of a tap, whose pointer went
+ * up before the cursor moved (a tap moves it at its compatibility mousedown, just before that click).
+ */
+export const PRESS_END_EVENTS = ['pointerup', 'pointercancel', 'click'] as const;
+
+/**
+ * Runs `then` once the press under way is over, after the click it makes. An empty description left for a
+ * button below it (Remove line 2, Charges & discounts) closes this way: closed at mousedown, it would pull the
+ * button up from under the pointer and the click would land elsewhere. One-shot listeners in the capture phase
+ * (nothing on the page can stop them) for the first of PRESS_END_EVENTS, then `later` — a timeout of 0, as the
+ * click follows the release in the same task.
+ */
+export function afterPointerRelease(target: PressEvents, then: () => void, later: (run: () => void) => void = (run) => void setTimeout(run, 0)): void {
+  const ended = () => {
+    for (const type of PRESS_END_EVENTS) target.removeEventListener(type, ended, { capture: true });
+    later(then);
+  };
+  for (const type of PRESS_END_EVENTS) target.addEventListener(type, ended, { capture: true, once: true });
+}

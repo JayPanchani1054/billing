@@ -8,7 +8,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { formatDate } from '../../../../shared/dates.ts';
-import { formatMoney, formatQty } from '../../../../shared/format.ts';
+import { formatMoney } from '../../../../shared/format.ts';
 import { stateOptions } from '../../../../shared/gst/index.ts';
 import { REGISTRATION_TYPES } from '../../../../shared/gst/index.ts';
 import type { Paise } from '../../../../shared/money.ts';
@@ -52,6 +52,7 @@ import {
   useEnterAdvance,
 } from '../../../ui/index.ts';
 import { TRACKING_KIND_LABEL } from '../lib/kinds.ts';
+import { trackingLineText } from '../lib/masters.ts';
 
 // ───────────────────────────── Cost centres ─────────────────────────────
 
@@ -572,7 +573,7 @@ export function TrackingDialog({ partyLedgerId, kinds, excludeVoucherId, usedRef
                   disabled={used}
                   onChange={() => toggle(d)}
                   label={`${d.voucherTypeName} ${d.number ?? d.ref} · ${formatDate(d.date)}`}
-                  description={used ? 'Already on this voucher' : d.lines.map((l) => `${l.itemName}: ${formatQty(l.pendingQty, 3, l.unit)} pending of ${formatQty(l.qty, 3, l.unit)}`).join(' · ')}
+                  description={used ? 'Already on this voucher' : d.lines.map(trackingLineText).join(' · ')}
                 />
               </li>
             );

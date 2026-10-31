@@ -146,6 +146,10 @@
   width: 136px;
   text-align: right;
 }
+/* The stock journal's two item grids share the width; an item line has at most Description + Remove (2 × 24 + 2 + 8). */
+.bx-vch-sj .bx-vch-table__act {
+  width: 64px;
+}
 .bx-vch-col--item,
 .bx-vch-col--lledger {
   width: auto;

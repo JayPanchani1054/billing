@@ -29,7 +29,7 @@ import type { CompanyFeatures } from '../../../../shared/settings.ts';
 import { AmountInput, Icon, IconButton, NumberInput, PercentInput, TextArea, TextInput, Tooltip } from '../../../ui/index.ts';
 import { cellId } from '../lib/errorPaths.ts';
 import { isBlankItem, isBlankLedger, itemLineValue } from '../lib/formState.ts';
-import { DESC_COLUMN, DESC_MAX_LENGTH, descriptionShown } from '../lib/lineDescription.ts';
+import { afterPointerRelease, DESC_COLUMN, DESC_MAX_LENGTH, descriptionShown } from '../lib/lineDescription.ts';
 import type { FormAction, ItemRow, LedgerRow } from '../lib/formState.ts';
 import type { LedgerSlot } from '../lib/masters.ts';
 import type { LineFigures } from '../lib/totals.ts';
@@ -192,7 +192,8 @@ const errId = (cell: string): string => `${cell}-err`;
 /**
  * 2.2: the line's own description under its item / ledger name — a quiet one-line field that grows to four
  * lines. It is a cell of the Enter chain (its id is a cell id) with its own error text: error texts are
- * drawn per column, and the description is not one.
+ * drawn per column, and the description is not one. Left empty it closes again (the screen's
+ * onDescriptionBlur): at once for a key or a programmatic move, after the press when a click moved the cursor.
  */
 function LineDescription({ section, rowKey, index, value, error, onChange }: { section: 'items' | 'ledgers'; rowKey: string; index: number; value: string; error: string | undefined; onChange: (text: string) => void }) {
   const env = useGridEnv();
@@ -219,6 +220,19 @@ function LineDescription({ section, rowKey, index, value, error, onChange }: { s
           const to = e.relatedTarget;
           if (to instanceof Element && to.closest('[role="dialog"], [role="alertdialog"]')) return;
           if (!document.hasFocus()) return;
+          // A press below — on a button (Remove line 2, Charges & discounts) or a label — moves the cursor at mousedown.
+          // Closed now, the field would pull what was pressed up from under the pointer and the click would land
+          // elsewhere, so it closes once the press is over, after the click (lib/lineDescription.ts ›
+          // afterPointerRelease) — unless the cursor is back by then (Ctrl+E from the shortcut bar). The pressed
+          // control is :active (with nothing focused, as for a label, the page is). Keys (Enter, Tab) and
+          // programmatic moves close it at once.
+          if ((to instanceof Element ? to : document.documentElement).matches(':active')) {
+            const field = e.currentTarget;
+            afterPointerRelease(document, () => {
+              if (document.activeElement !== field) env.onDescriptionBlur(rowKey, field.value);
+            });
+            return;
+          }
           env.onDescriptionBlur(rowKey, e.currentTarget.value);
         }}
       />
@@ -391,7 +405,7 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
   };
   const firstError = errors ? Object.values(errors)[0] : undefined;
   return (
-    <tr className={blank ? 'bx-vch-row is-blank' : 'bx-vch-row'} data-row={k}>
+    <tr className={blank ? 'bx-vch-row is-blank' : 'bx-vch-row'} data-row={k} data-section="items">
       <td className="bx-vch-table__no">
         {warning || firstError ? (
           <Tooltip content={firstError ?? warning}>
@@ -626,7 +640,7 @@ const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind
   };
   const firstError = errors ? Object.values(errors)[0] : undefined;
   return (
-    <tr className={blank ? 'bx-vch-row is-blank' : 'bx-vch-row'} data-row={k}>
+    <tr className={blank ? 'bx-vch-row is-blank' : 'bx-vch-row'} data-row={k} data-section="ledgers">
       <td className="bx-vch-table__no">
         {warning || firstError ? (
           <Tooltip content={firstError ?? warning}>

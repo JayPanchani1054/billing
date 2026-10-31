@@ -204,6 +204,26 @@ export function parseCellId(id: string | null | undefined): { section: Section; 
   return m ? { section: m[1] as Section, rowKey: m[2], column: m[3] } : null;
 }
 
+/** What lineOfElement reads of an element: the one that got the focus on screen (a plain object in tests). */
+export interface ElementOnLine {
+  id: string;
+  closest(selector: string): { getAttribute(name: string): string | null } | null;
+}
+
+/**
+ * 2.2: the grid line an element that got the focus belongs to — a cell (by its id, see cellId) or another
+ * control of the row, such as a row tool (by its `<tr data-row data-section>`). Null elsewhere: the header,
+ * the narration, a total row.
+ */
+export function lineOfElement(el: ElementOnLine): { section: Section; rowKey: string } | null {
+  const cell = parseCellId(el.id);
+  if (cell) return { section: cell.section, rowKey: cell.rowKey };
+  const row = el.closest('tr[data-row]');
+  const rowKey = row?.getAttribute('data-row') ?? '';
+  const section = row?.getAttribute('data-section');
+  return rowKey !== '' && (section === 'items' || section === 'ledgers') ? { section, rowKey } : null;
+}
+
 /**
  * The voucher save warnings protocol, translated for the shell's withConfirmation (which lists
  * strings): only `confirm`-level messages are asked about; `info` ones stay inline on the screen.

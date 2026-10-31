@@ -46,18 +46,27 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
   `.bx-vch-cell-item`, with its own error text. It shows on a filled line when the line has text, when the user
   opened it — **Ctrl+E** on the line, or the row tool *Description* (shown only while the field is hidden) — or on
   every filled line when the voucher type says *Description on every line* (`narrationPerEntry`, 2.1's "Narration
-  for each entry"; the 2.1 *Line narration* column of ledger vouchers is gone). Moving into it keeps it open while
-  edited; leaving it empty closes it again — unless the cursor only went into a dialog opened from it (Alt+B,
-  Ctrl+I, a confirmation) or out of the window, which give it back there. The opened lines are the screen's state (`descOpen` + a ref for the key
+  for each entry", which its hint still names; the 2.1 *Line narration* column of ledger vouchers is gone). Moving
+  into it keeps it open while edited; leaving it empty closes it again — unless the cursor only went into a dialog
+  opened from it (Alt+B, Ctrl+I, a confirmation) or out of the window, which give it back there. A key (Enter, Tab)
+  closes it at once; a click below it (*Remove line 2*, *Charges & discounts*, a label) moves the cursor at
+  mousedown, so the field closes once that press is over — after the click, which still lands on what was pressed
+  (`lib/lineDescription.ts › afterPointerRelease`: the first of pointerup / pointercancel / a tap's click, then a
+  timeout of 0) — and stays when the cursor is back by then. The opened lines are the screen's state (`descOpen` + a ref for the key
   handlers; never in `VoucherForm`, so no "Not saved" and nothing sent; dropped with the next voucher, whose row
   keys start again); the grids pass each memoised row one `descShown` boolean. The same rule (`descriptionShown`)
   makes it a stop of the Enter chain or not: item → description → godown / batch / quantity …; an invoice's ledger
   line → description → amount; a ledger-mode line (payment, receipt, contra, journal …) → amount → description,
   so the forex and bill-wise stops still continue from the amount. Enter / Shift+Enter (and Ctrl+Enter) move on —
-  a new line cannot be typed, pasted ones are kept (trimmed at the ends when sent); ↑ / ↓ move its caret. Lines
-  filled with Alt+T bring the note's / order's descriptions along (`TrackingDocLine.description`). The single-entry
+  a new line cannot be typed, pasted ones are kept (trimmed at the ends when sent); ↑ / ↓ move its caret; the
+  height follows the text and the column's width (`ui/TextArea` refits when the width changes, e.g. when the side
+  column appears). Lines filled with Alt+T bring the note's / order's descriptions along (`TrackingDocLine.description`),
+  and the Alt+T list names each pending line with its description (*Mixer — SN-222: 1.000 Nos pending of 1.000
+  Nos*, one line, at most 40 characters of it; `lib/masters.ts › trackingLineText`). The single-entry
   layout's Account field has no description: a cash / bank line with one keeps the voucher in Dr/Cr, and Ctrl+H
-  says so (`formState.ts › singleEntryBlock`).
+  says so (`formState.ts › singleEntryBlock`). The row tools column is 136 px (five small tools: bills, cost
+  centres, bank, description, remove); in the stock journal's two side-by-side item grids it is 64 px (an item line
+  has at most Description and Remove), which leaves the item name its room.
 - **Totals strip** (invoice modes, rupees): at the bottom of the window (sticky once the form scrolls) — Taxable · CGST · SGST / UTGST (or IGST) · Cess ·
   Other charges · Round off · **Total ₹** (`lib/strip.ts › totalsStrip`; the items add up to the Total, which is
   `invoice.grandTotal`; reverse-charge tax is one muted item outside it). The Total's tooltip: *Intra-state ·
@@ -94,13 +103,13 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 | Ctrl+H | Single entry ↔ Dr/Cr layout (payment, receipt, contra) |
 | Ctrl+I | More details (also the header link *More details  Ctrl+I ›*; in More ▾): buyer snapshot, consignee, dispatch & e-way bill, order, export, effective date; on sales-side documents its first tab, *Reference*, holds Reference no. / date and (GST documents) Reverse charge |
 | Ctrl+R | Change number (2.0, needs `vouchers.renumber`; hidden for numbering "None"): `ChangeNumberDialog` — the number is checked live (`vouchers.numberCheck`, 300 ms debounce: GST format, unique in the FY for outward GST documents, else in the numbering period), an optional reason (edit log) and *Continue the series from here* (only for a number in the series' format at or above the next number). Stored in `VoucherForm.numberOverride` and sent as `VoucherInput.numberOverride` with the normal save (never inferred from a typed number); the No. field shows it followed by the muted word "changed". The dialog's fields are single-line, so Enter goes number → reason → (continue the series) → *Use this number* |
-| Alt+T | Fill lines from open delivery / receipt notes or orders (`vouchers.trackingRefs`) |
+| Alt+T | Fill lines from open delivery / receipt notes or orders (`vouchers.trackingRefs`); each pending line is listed with its own description when it has one (*Mixer — SN-222: 1.000 Nos pending of 1.000 Nos*) |
 | Alt+B | Bill-wise details (the focused ledger line, else the invoice party) |
 | Alt+J | GST details (gst module `GstDetailsDialog`, GST companies only): receipt — advance against a future supply; payment — refund of an advance / GST challan; sales or debit note to a customer — advances adjusted; purchase — bill of entry; journal — stat adjustment. Kept on alteration (`VoucherForm.gstDetails`, `buildInput.ts`), filtered to what the base type carries (`gstDetailsForBase`); the title row's context says *GST: …* |
 | Alt+O / Alt+K | Cost centres / bank instrument of the focused line (Alt+K on the Account in single entry) |
 | Ctrl+B | Balance it (puts the Dr/Cr difference on the last line) |
 | Ctrl+D / Alt+N, Ctrl+N | Delete line / insert line above |
-| Ctrl+E | Line description (2.2): opens the description under the item / ledger the cursor is on and puts the cursor in it (just the cursor when it shows); elsewhere a note "Move to a line first". The action *Line description* is in More ▾; the row tool *Description* does the same |
+| Ctrl+E | Line description (2.2): opens the description under the item / ledger the cursor is on and puts the cursor in it (just the cursor when it shows); elsewhere a note "Move to a line first". The action *Line description* is in More ▾ (and on the shortcut bar): chosen there — the menu or the button has the focus — it describes the line the cursor was last on (`lastLineRef`: set when the focus enters a cell or a row tool of a line — `lib/errorPaths.ts › lineOfElement`, the row's `data-row` / `data-section` —, cleared in the header or the narration and for the next voucher). The row tool *Description* does the same for its line |
 | Alt+C | In a picker: create the ledger / item with the typed name and select it. In the party field (customer / supplier — `createGroupCode` Sundry Debtors / Creditors) the quick dialog `accounts/QuickPartyDialog.tsx` opens (2.0): name, GSTIN (fills state, PAN, registration type — `accounts/lib/gstin.ts`), state, mobile, e-mail, billing address; saved with `accounts.ledger.save` (bill-wise per F11) and selected like a form result; "Full form…" opens `accounts.ledger.form` as before. Other places: A ledger opens under the group that fits the place (`lib/masters.ts › createGroupCode`: party of a sales-side document → Sundry Debtors, purchase-side → Sundry Creditors, item line → Sales / Purchase Accounts, single-entry Account and contra lines → Bank Accounts); if the user moves it to a group the place refuses, it is explained instead of selected |
 | Ctrl+L / Ctrl+T | Optional / post-dated |
 | F12 | Voucher type settings and the F12 options that affect it |
@@ -127,7 +136,7 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 
 ## Pure logic (tested: `node --test "src/renderer/modules/vouchers/**/*.test.ts"`)
 
-`lib/lineDescription.ts` (2.2) when a line's description shows, its place in the Enter chain, the opened set · `lib/strip.ts` (2.1) totals strip items, Total tooltip and notes, the party line, the Accept? message · `lib/changeNumber.ts` Change Number dialog view-model (messages, continue-series rule, availability) · `lib/disclosure.ts` header disclosure and the place-of-supply text · `lib/savedBar.ts` Saved bar and Record payment · `lib/quickParty.ts` quick customer / supplier draft and save input · `lib/keySpace.test.ts` Ctrl+R / Alt+W key space · `lib/formState.ts` reducer · `lib/buildInput.ts` form ⇄ VoucherInput · `lib/errorPaths.ts` server paths ⇄ cells, warnings protocol · `lib/bills.ts` FIFO allocation · `lib/totals.ts` client totals (parity with `computeInvoice`) · `lib/gridNav.ts` keyboard model and section order (2.1: Charges & discounts opens in the Enter chain) · `lib/validate.ts` pre-save checks · `lib/masters.ts` picker slots, ledger GST profile, item defaults, tracking rows, tax breakup · `lib/menu.ts` menu and Go To items · `lib/coreContract.test.ts` the form model against the real posting engine (totals parity, alteration round trip, error/warning placement) · `lib/daybook.ts` Day Book rows and export, and the voucher view's document model (2.2: `lineDescription`, `entryDetailLine`, `viewEntryRows`) · `lib/kinds.ts` per-base-type layout · `lib/printing.ts` Alt+P / print-after-save targets.
+`lib/lineDescription.ts` (2.2) when a line's description shows, its place in the Enter chain, the opened set, the close that waits for a press to end (`afterPointerRelease`) · `lib/strip.ts` (2.1) totals strip items, Total tooltip and notes, the party line, the Accept? message · `lib/changeNumber.ts` Change Number dialog view-model (messages, continue-series rule, availability) · `lib/disclosure.ts` header disclosure and the place-of-supply text · `lib/savedBar.ts` Saved bar and Record payment · `lib/quickParty.ts` quick customer / supplier draft and save input · `lib/keySpace.test.ts` Ctrl+R / Alt+W key space · `lib/formState.ts` reducer · `lib/buildInput.ts` form ⇄ VoucherInput · `lib/errorPaths.ts` server paths ⇄ cells, warnings protocol, the line of a focused element (`lineOfElement`) · `lib/bills.ts` FIFO allocation · `lib/totals.ts` client totals (parity with `computeInvoice`) · `lib/gridNav.ts` keyboard model and section order (2.1: Charges & discounts opens in the Enter chain) · `lib/validate.ts` pre-save checks · `lib/masters.ts` picker slots, ledger GST profile, item defaults, tracking rows and the Alt+T line text (`trackingLineText`), tax breakup · `lib/menu.ts` menu and Go To items · `lib/coreContract.test.ts` the form model against the real posting engine (totals parity, alteration round trip, error/warning placement) · `lib/daybook.ts` Day Book rows and export, and the voucher view's document model (2.2: `lineDescription`, `entryDetailLine`, `viewEntryRows`) · `lib/kinds.ts` per-base-type layout · `lib/printing.ts` Alt+P / print-after-save targets.
 
 ## Known gaps
 
@@ -136,3 +145,4 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 - Checks shown from the last `vouchers.preview` stay until the voucher looks complete again (they are not cleared while a line is half-typed).
 - Multi-currency (forex module, F11 › Multiple currencies): Alt+Y edits the invoice currency and rate, or a ledger line's foreign amount and rate (see src/core/modules/forex/README.md). TDS/TCS: the side column shows the tds module's panel (`modules/tds/EntryPanel.tsx`) for purchase / journal / payment (TDS) and sales (TCS) when F11 turns them on and it has a figure; Alt+U changes an amount (with a reason) or picks the nature for an advance.
 - The totals strip is not drawn for an invoice in a foreign currency (the forex panel shows its totals in both currencies).
+- Only *Line description* (Ctrl+E) remembers the line the cursor was last on. *Bill-wise* (Alt+B) and *Foreign amount* (Alt+Y) chosen in More ▾ — where the menu has the focus — still look at the focused cell only, so from the menu they act on the invoice party / the first foreign-currency line, or say there is nothing here; their keys, pressed on the line, act on that line.

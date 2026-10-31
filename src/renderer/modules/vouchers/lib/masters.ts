@@ -1,16 +1,17 @@
 /**
  * Masters as the voucher screen needs them (pure; tested in masters.test.ts):
  * which ledgers a picker offers in each place, the GST profile of a ledger for live totals, item
- * defaults (rate from the price level / item master), lines filled from a tracking document, and the
- * tax breakup rows of the totals panel.
+ * defaults (rate from the price level / item master), lines filled from a tracking document (and how
+ * the Alt+T list names its pending lines), and the tax breakup rows of the totals panel.
  */
 import type { GroupCode, VoucherBaseType } from '../../../../shared/constants.ts';
 import { isUtgstState } from '../../../../shared/gst/index.ts';
 import type { InvoiceComputation } from '../../../../shared/gst/index.ts';
+import { formatQty } from '../../../../shared/format.ts';
 import type { Paise } from '../../../../shared/money.ts';
 import type { LedgerClassName, LedgerDetail } from '../../../../shared/types/accounts.ts';
 import type { ItemPickerRow } from '../../../../shared/types/inventory.ts';
-import type { TrackingDoc, TrackingKind } from '../../../../shared/types/vouchers.ts';
+import type { TrackingDoc, TrackingDocLine, TrackingKind } from '../../../../shared/types/vouchers.ts';
 import type { ItemRow } from './formState.ts';
 import type { ClientItemInfo, ClientLedgerTax } from './totals.ts';
 
@@ -169,6 +170,21 @@ export function rowsFromTrackingDoc(doc: TrackingDoc, kind: TrackingKind): Array
     });
   }
   return out;
+}
+
+/** Most characters of a line's description the Alt+T list shows (on one line; longer ones end in "…"). */
+export const TRACKING_DESCRIPTION_CHARS = 40;
+
+/**
+ * Alt+T ("From notes/orders"): a line of a note / order as its document's summary lists it — "Mixer — SN-222: 1.000
+ * Nos pending of 1.000 Nos". 2.2: the line's own description follows the item's name, so pieces of one item
+ * (serial numbers, sizes, colours) can be told apart; on one line and cut short. Plain text (rendered as such).
+ */
+export function trackingLineText(l: TrackingDocLine): string {
+  const flat = (l.description ?? '').replace(/\s+/g, ' ').trim();
+  const chars = Array.from(flat);
+  const desc = chars.length <= TRACKING_DESCRIPTION_CHARS ? flat : `${chars.slice(0, TRACKING_DESCRIPTION_CHARS - 1).join('').trimEnd()}…`;
+  return `${l.itemName}${desc ? ` — ${desc}` : ''}: ${formatQty(l.pendingQty, 3, l.unit)} pending of ${formatQty(l.qty, 3, l.unit)}`;
 }
 
 // ───────────────────────────── Tax breakup ─────────────────────────────

@@ -1,8 +1,10 @@
 /**
  * 2.2 line descriptions: the one rule (when the field shows / is an Enter stop), the Enter chain per mode, the
- * opened set, and — read from source, like entryCalm.test.ts, because the entry screen and its grids are TSX —
- * the wiring the pure rule cannot prove: the field under the item / ledger name, the one Ctrl+E action, the row
- * tool, the reset for the next voucher and the old "Line narration" column gone.
+ * opened set, the close that waits for a press to end, and — read from source, like entryCalm.test.ts, because
+ * the entry screen and its grids are TSX — the wiring the pure rule cannot prove: the field under the item /
+ * ledger name, the one Ctrl+E action (also from More ▾: the line the cursor was last on), the row tool, the reset
+ * for the next voucher, the old "Line narration" column gone, the stock journal's narrow tools column, the Alt+T
+ * list naming a line by its description and the voucher type flag's former name.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +15,7 @@ import { cellId, parseCellId } from './errorPaths.ts';
 import { blankItem, formReducer, newForm } from './formState.ts';
 import { nextCell, verticalCell } from './gridNav.ts';
 import type { GridModel } from './gridNav.ts';
-import { DESC_COLUMN, DESC_MAX_LENGTH, descriptionShown, navColumnsWithDescription, NO_OPENED, openedAfterLeaving, openedWith, skipHiddenDescription } from './lineDescription.ts';
+import { afterPointerRelease, DESC_COLUMN, DESC_MAX_LENGTH, descriptionShown, navColumnsWithDescription, NO_OPENED, openedAfterLeaving, openedWith, PRESS_END_EVENTS, skipHiddenDescription } from './lineDescription.ts';
 import type { DescribedLine, DescriptionRule } from './lineDescription.ts';
 
 const rule = (o: Partial<DescriptionRule> = {}): DescriptionRule => ({ everyLine: false, opened: NO_OPENED, ...o });
@@ -136,6 +138,46 @@ describe('the Enter chain with descriptions', () => {
   });
 });
 
+describe('an empty description left for a pressed control closes once the press is over (afterPointerRelease)', () => {
+  it('it waits for the pointer to go up, then one more turn (the click of that release comes first); once', () => {
+    const doc = new EventTarget();
+    const ran: string[] = [];
+    const later: Array<() => void> = [];
+    afterPointerRelease(doc, () => ran.push('closed'), (run) => later.push(run));
+    for (const type of ['pointerdown', 'mousedown', 'pointermove', 'focusin']) doc.dispatchEvent(new Event(type));
+    assert.equal(later.length, 0, 'still pressed: the field stays, so what was pressed stays under the pointer');
+    doc.dispatchEvent(new Event('pointerup'));
+    assert.deepEqual(ran, [], 'not during the release');
+    assert.equal(later.length, 1);
+    later[0]();
+    assert.deepEqual(ran, ['closed']);
+    for (const type of PRESS_END_EVENTS) doc.dispatchEvent(new Event(type));
+    assert.equal(later.length, 1, 'every listener is gone (one-shot, removed with the capture flag they were added with)');
+  });
+
+  it('a cancelled pointer ends the press too, and so does the click of a tap (its pointer went up before the cursor moved)', () => {
+    assert.deepEqual([...PRESS_END_EVENTS], ['pointerup', 'pointercancel', 'click']);
+    for (const type of PRESS_END_EVENTS) {
+      const doc = new EventTarget();
+      let closed = 0;
+      afterPointerRelease(doc, () => closed++, (run) => run());
+      doc.dispatchEvent(new Event(type));
+      for (const again of PRESS_END_EVENTS) doc.dispatchEvent(new Event(again));
+      assert.equal(closed, 1, type);
+    }
+  });
+
+  it('by default it runs on a timeout of 0 after the release', async () => {
+    const doc = new EventTarget();
+    let closed = 0;
+    afterPointerRelease(doc, () => closed++);
+    doc.dispatchEvent(new Event('pointerup'));
+    assert.equal(closed, 0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(closed, 1);
+  });
+});
+
 // ─────────────── Wiring, read from source ───────────────
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -218,8 +260,39 @@ describe('voucher entry wiring (2.2)', () => {
     assert.equal(screen.match(/descOpen=\{descOpen\}\s+everyLine=\{everyLine\}/g)?.length, 4, 'the item grid (or both stock-journal grids) and the ledger grid');
   });
 
-  it('the next voucher after a save starts with no line opened (its row keys start again)', () => {
-    assert.match(screen, /setDescOpen\(NO_OPENED\);\s*dispatch\(\{ type: 'next',/);
+  it('the next voucher after a save starts with no line opened and no last line (its row keys start again)', () => {
+    assert.match(screen, /setDescOpen\(NO_OPENED\);\s*lastLineRef\.current = null;\s*dispatch\(\{ type: 'next',/);
+  });
+
+  it('Ctrl+E from More ▾ or the shortcut bar (the focus is on the menu / button) describes the line the cursor was last on', () => {
+    // Focus events of the whole voucher column bubble to one handler: a cell or a row tool sets the line …
+    assert.match(screen, /<div className="bx-vch__main" onFocus=\{onMainFocus\}>/);
+    assert.match(screen, /const lastLineRef = useRef<\{ section: Section; rowKey: string \} \| null>\(null\);/);
+    const onFocus = screen.slice(screen.indexOf('const onMainFocus = ('), screen.indexOf('const deleteRow = useCallback('));
+    assert.match(onFocus, /const line = lineOfElement\(t\);\s*if \(line\) lastLineRef\.current = line;/);
+    // … the header and the narration clear it (Ctrl+E there says "Move to a line first").
+    assert.match(onFocus, /else if \(t\.id === headerId\('narration'\) \|\| headerRef\.current\?\.contains\(t\)\) lastLineRef\.current = null;/);
+    // Row tools have no cell id: their row names the line (lib/errorPaths.ts › lineOfElement).
+    assert.equal(grids.match(/<tr className=\{blank \? 'bx-vch-row is-blank' : 'bx-vch-row'\} data-row=\{k\} data-section="items">/g)?.length, 1);
+    assert.equal(grids.match(/<tr className=\{blank \? 'bx-vch-row is-blank' : 'bx-vch-row'\} data-row=\{k\} data-section="ledgers">/g)?.length, 1);
+    const describeLine = screen.slice(screen.indexOf('const describeLine = () => {'), screen.indexOf('// ── Hotkeys not shown in the rail ──'));
+    assert.match(describeLine, /const c = activeCell\(\) \?\? lastLineRef\.current;/);
+    // Already on screen: the cursor goes in at once (the deferred close of an empty one then sees it back), and
+    // again next frame (More ▾ gives the focus back to its button after the item ran).
+    assert.match(describeLine, /const id = cellId\(c\.section, c\.rowKey, DESC_COLUMN\);\s*document\.getElementById\(id\)\?\.focus\(\);\s*focusId\(id\);/);
+  });
+
+  it('an empty description left for a pressed control (a button or label below it) closes after the press — the click lands; keys close it at once', () => {
+    const field = grids.slice(grids.indexOf('function LineDescription('), grids.indexOf('function DescriptionTool('));
+    const blur = field.slice(field.indexOf('onBlur={(e) => {'));
+    const pressed = blur.indexOf("if ((to instanceof Element ? to : document.documentElement).matches(':active')) {");
+    assert.ok(pressed > 0, 'a press under way: the control that took the cursor (or, with none, the page) is :active');
+    assert.ok(pressed > blur.indexOf(`closest('[role="dialog"], [role="alertdialog"]')`) && pressed > blur.indexOf('if (!document.hasFocus()) return;'), 'after the dialog and window rules');
+    assert.match(
+      blur.slice(pressed),
+      /^[^\n]*\n\s*const field = e\.currentTarget;\s*afterPointerRelease\(document, \(\) => \{\s*if \(document\.activeElement !== field\) env\.onDescriptionBlur\(rowKey, field\.value\);\s*\}\);\s*return;\s*\}\s*env\.onDescriptionBlur\(rowKey, e\.currentTarget\.value\);/,
+      'deferred, and skipped when the cursor is back; otherwise (Enter, Tab, focusId) at once',
+    );
   });
 
   it('the Enter chain uses the same rule; ↑ / ↓ are left to the caret inside a description', () => {
@@ -265,6 +338,28 @@ describe('voucher entry wiring (2.2)', () => {
     assert.doesNotMatch(screen, /'narr'/);
     assert.doesNotMatch(css, /bx-vch-col--lnarr/);
     assert.match(grids, /export type LedgerColumn = 'ledger' \| 'gst' \| 'hsn' \| 'amount';/);
+  });
+
+  it("the stock journal's side-by-side item grids keep a narrow tools column: an item line has at most Description and Remove", () => {
+    assert.match(css, /\.bx-vch-sj \.bx-vch-table__act \{\s*width: 64px;\s*\}/, '2 × 24 + 2 + 8 = 58 px fit');
+    assert.match(css, /\.bx-vch-table__act \{\s*width: 136px;/, 'elsewhere five tools still fit');
+    const itemRow = grids.slice(grids.indexOf('const ItemRowView = memo('), grids.indexOf('// ───────────────────────────── Ledger grid'));
+    const at = itemRow.indexOf('<span className="bx-vch-rowtools">');
+    const tools = itemRow.slice(at, itemRow.indexOf('</span>', at));
+    assert.equal(tools.match(/<DescriptionTool |<IconButton /g)?.length, 2, 'the tools of an item line: Description and Remove');
+    assert.match(screen, /<div key="sj" className="bx-vch-sj">\s*<ItemGrid/, 'the stock journal draws item grids only');
+  });
+
+  it('Alt+T names each pending line with its description, so pieces of one item can be told apart (React text)', () => {
+    const dialogs = read('entry/dialogs.tsx');
+    const tracking = dialogs.slice(dialogs.indexOf('export function TrackingDialog('), dialogs.indexOf('// ───────────────────────────── Cancel with reason'));
+    assert.match(tracking, /description=\{used \? 'Already on this voucher' : d\.lines\.map\(trackingLineText\)\.join\(' · '\)\}/);
+    assert.doesNotMatch(dialogs, /dangerouslySetInnerHTML/);
+  });
+
+  it('the voucher type flag "Description on every line" gives its former name in its hint, for long-time users', () => {
+    const types = fs.readFileSync(path.resolve(modulesDir, 'accounts/VoucherTypeScreens.tsx'), 'utf8');
+    assert.match(types, /\{ key: 'narrationPerEntry', label: 'Description on every line', hint: 'A description under every item and ledger line as you enter \(Ctrl\+E adds one to any line\)\. Formerly "Narration for each entry"\.' \},/);
   });
 
   it('the field looks like the quiet inputs: no border or fill until hover / focus, one line high, no resize grip', () => {
