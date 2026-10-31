@@ -106,10 +106,22 @@ hold every unit at one cost, so the closing value is split by quantity. Default 
 
 **Orders.** Order lines carry the order number in `order_ref`; fulfilment = delivery notes (sales)
 / receipt notes (purchase) and invoices that do **not** bill a note, with the same `order_ref`, same
-party, same item — matched to the order's lines in date order (the vouchers module's
-`trackingRefs` rule), counting only documents dated on or before `asOf`. Optional and cancelled
-documents never count. Due date = the order's effective ("due on") date when entered; overdue days
-are counted to `asOf`. Pending value = `lineAmount(pending, rate, discount%)`.
+party, same item, counting only documents dated on or before `asOf`. Optional and cancelled
+documents never count. It is applied to the order's lines by the rule of Alt+T (the vouchers
+module's `trackingRefs`, both through `vouchers/tracking.ts`): a fulfilling line that carries an
+order line's own description (`inventory_entries.description` — the identical text, as Alt+T copies
+it) goes to that line first, up to its quantity; whatever no line's text claims (no text, an edited
+one, or more than the line holds) goes to the lines in line order (date, voucher, line). So Red 5 @
+₹200 and Blue 5 @ ₹250 fulfilled Blue 5, then Red 3, leave Red 2 pending worth ₹400 — the line Alt+T
+offers (line order alone read Blue 2, ₹500). Totals per order + item are the same either way (only
+which of its lines is pending changes), and without such texts the result is plain line order, as
+before 2.2. Balances pre-closed on or before
+`asOf` (documents module, `order_closures`) then come off the order's last lines first (`closedQty`).
+`orderPositions` returns every order line with its own text (`description`), fulfilled, closed and
+pending quantity; Pending Orders, Reorder Status (`pendingQtyByItem`) and the documents module's
+pre-close read it. Due date = the order's effective ("due on") date when entered; overdue days are
+counted to `asOf`. Pending value = `lineAmount(pending, rate, discount%)`, at the pending line's own
+rate and discount.
 
 **Reorder Status.** Items with a reorder level (> 0): net available = closing + pending purchase
 orders − pending sales orders; shortfall = max(0, level − net); listed when the stock on hand or
@@ -147,6 +159,15 @@ negative stock, a godown transfer and an optional voucher. Key figures: April A 
 FIFO closing 16 / ₹2,023.30; Kitchenware 28 / ₹3,932.62; A's April GP ₹996.02 (26.77 %); pending
 purchase order 30 worth ₹3,600, 36 days overdue; reorder: 18 + 30 − 6 = 42 < 50 → order 25.
 
+`orders.test.ts` also posts orders whose lines of one item are told apart by their descriptions: the
+Red / Blue sales order above (through `stock.pendingOrders`, against `vouchers.trackingRefs`, and as
+of a date between its two fulfilments), a purchase order received out of line order, and a pre-close
+after an out-of-order fulfilment (6 closed of Red 2 + Green 5: Green's 5, then 1 of Red). On seeded
+random books posted through the vouchers service (both kinds, fractional quantities, optional and
+cancelled documents, notes billed by invoices, other parties, unknown order numbers, pre-closures) it
+checks `orderPositions` against the pre-2.2 line-order code when no fulfilling line carries an order
+line's text, and line by line against `vouchers.trackingRefs` when they do.
+
 Run: `node --test "src/core/modules/stock/**/*.test.ts"`.
 
 ## Performance
@@ -159,11 +180,22 @@ since 2021): profitability 0.6–0.8 s (was 2.2–3.2 s), item vouchers 3–5 ms
 ≈ 0.6 s (was 1.1–1.7 s); a repeated Stock Summary / valuation with unchanged books comes from the
 inventory memo (≈ 20 ms).
 
+Pending Orders / Reorder Status read three statements per kind — the order lines, what fulfils them
+(one statement grouped by party, order number, item and text) and the closures — through the
+vouchers' (base type, date) index; `orders.test.ts` checks the count and the plans. Measured once on
+the books above plus 4,000 orders of 3 lines fulfilled out of line order by 12,000 lines carrying the
+lines' texts: `orderPositions` ≈ 110 ms per kind (the pre-2.2 line-order code ≈ 120 ms, same plans),
+`stock.pendingOrders` ≈ 160 ms, `stock.reorder` ≈ 0.3 s.
+
 ## Known gaps
 
 - Batch Summary is not split by godown; batch values are not shown.
 - Orders have no per-line due date (the voucher's effective date is used); order numbers that
   repeat across years for the same party share fulfilment (same limitation as `vouchers.trackingRefs`).
+- A fulfilling line is matched to an order line by the identical text only (case and spacing count):
+  a description edited after Alt+T is applied in line order. Pending Orders rows do not carry the
+  order line's description (`PendingOrderLine` has no field for it), so two pending lines of one item
+  are told apart on screen only by their quantities and rates.
 - Movement Analysis values notes at their own rate, not at the invoice that later bills them.
 - Ageing treats LIFO items like the others (FIFO ages, value split by quantity).
 - Godowns holding our goods with a job worker ("our stock with third party") are valued like own stock;

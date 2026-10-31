@@ -6,9 +6,11 @@
  *   sales order    ← delivery notes, and sales invoices that do not bill a delivery note
  *   purchase order ← receipt notes, and purchase invoices that do not bill a receipt note
  * (an invoice billing a note that already fulfilled the order is not counted twice). Fulfilment is
- * matched per party + order number + item and applied to the order's lines in date order — the same
- * rule as `vouchers.trackingRefs` — but only documents dated on or before `asOf` count, so the
- * report can be run for any past date. Optional and cancelled documents never count.
+ * matched per party + order number + item, counting only documents dated on or before `asOf` (so the
+ * report can be run for any past date), and applied to the order's lines by the rule of Alt+T
+ * (`vouchers.trackingRefs`, vouchers/tracking.ts): first to the line whose own description the
+ * fulfilling line carries — the identical text, as Alt+T copies it — then the rest in line order (date,
+ * voucher, line). Optional and cancelled documents never count.
  */
 import { diffDays } from '../../../shared/dates.ts';
 import { lineAmount } from '../../../shared/money.ts';
@@ -16,6 +18,7 @@ import type { OrderKind, PendingOrderLine, PendingOrdersInput, PendingOrdersResu
 import type { Db } from '../../db/db.ts';
 import { applyClosures, closedQtyByOrderItem } from '../documents/closures.ts';
 import { stockByItem } from '../inventory/index.ts';
+import { addBilled, applyBilled, billedQty } from '../vouchers/tracking.ts';
 import { EPS, loadItems, loadTree, roundQty } from './common.ts';
 
 const ORDER_BASE: Record<OrderKind, string> = { sales: 'sales_order', purchase: 'purchase_order' };
@@ -35,40 +38,47 @@ interface OrderLineDb {
   qty: number;
   rate: number;
   discount_pct: number;
+  /** The order line's own text (inventory_entries.description; null when none). */
+  description: string | null;
 }
 
 /**
  * Order lines with their pending quantity as of `asOf` (fully fulfilled lines included, pending 0).
- * Balances pre-closed on or before `asOf` (documents module, order_closures) are taken off the
- * pending quantity (`closed`), last lines of the order first.
+ * What fulfils each party + order number + item goes first to the line whose own description the
+ * fulfilling line carries, the rest in line order (vouchers/tracking.ts — as Alt+T offers the lines, so
+ * an order fulfilled out of line order leaves the right line pending, at that line's rate); without
+ * such texts it is plain line order, as before 2.2. Balances pre-closed on or before `asOf` (documents
+ * module, order_closures) are then taken off the pending quantity (`closed`), last lines of the order
+ * first.
  */
 export function orderPositions(db: Db, kind: OrderKind, asOf: string): Array<OrderLineDb & { fulfilled: number; closed: number; pending: number }> {
   const lines = db.all<OrderLineDb>(
     `SELECT ie.voucher_id, ie.line_no, v.number, v.date, v.effective_date AS due, v.party_ledger_id,
-            COALESCE(l.name, v.party_name) AS party_name, ie.order_ref AS ref, ie.item_id, ABS(ie.qty) AS qty, ie.rate, ie.discount_pct
+            COALESCE(l.name, v.party_name) AS party_name, ie.order_ref AS ref, ie.item_id, ABS(ie.qty) AS qty, ie.rate, ie.discount_pct,
+            ie.description
        FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id LEFT JOIN ledgers l ON l.id = v.party_ledger_id
       WHERE v.base_type = :base AND v.is_cancelled = 0 AND v.is_optional = 0 AND v.date <= :asOf AND ie.order_ref IS NOT NULL
       ORDER BY v.date, v.id, ie.line_no`,
     { base: ORDER_BASE[kind], asOf },
   );
-  const consumed = new Map<string, number>();
-  for (const c of db.all<{ party: number | null; ref: string; item_id: number; qty: number }>(
-    `SELECT v.party_ledger_id AS party, ie.order_ref AS ref, ie.item_id, SUM(ABS(ie.qty)) AS qty
+  // Grouped by the fulfilling lines' own text too: a group's quantity is added to its key's total (and to
+  // that text's part of it), so the rows of one key are summed, not overwritten.
+  const consumed = billedQty();
+  for (const c of db.all<{ party: number | null; ref: string; item_id: number; description: string | null; qty: number }>(
+    `SELECT v.party_ledger_id AS party, ie.order_ref AS ref, ie.item_id, ie.description, SUM(ABS(ie.qty)) AS qty
        FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
       WHERE v.is_cancelled = 0 AND v.is_optional = 0 AND v.date <= :asOf AND ie.order_ref IS NOT NULL
         AND (v.base_type = :note OR (v.base_type = :invoice AND ie.tracking_ref IS NULL))
-      GROUP BY v.party_ledger_id, ie.order_ref, ie.item_id`,
+      GROUP BY v.party_ledger_id, ie.order_ref, ie.item_id, ie.description`,
     { asOf, note: NOTE_BASE[kind], invoice: INVOICE_BASE[kind] },
   )) {
-    consumed.set(`${c.party ?? 0}|${c.ref}|${c.item_id}`, Number(c.qty));
+    addBilled(consumed, `${c.party ?? 0}|${c.ref}|${c.item_id}`, c.description, Number(c.qty));
   }
-  const out = lines.map((l) => {
-    const key = `${l.party_ledger_id ?? 0}|${l.ref}|${l.item_id}`;
-    const left = consumed.get(key) ?? 0;
-    const take = Math.min(left, Number(l.qty));
-    consumed.set(key, left - take);
-    return { ...l, qty: Number(l.qty), fulfilled: roundQty(take), closed: 0, pending: roundQty(Number(l.qty) - take) };
-  });
+  const applied = applyBilled(
+    lines.map((l) => ({ key: `${l.party_ledger_id ?? 0}|${l.ref}|${l.item_id}`, qty: Number(l.qty), description: l.description })),
+    consumed,
+  );
+  const out = lines.map((l, i) => ({ ...l, qty: Number(l.qty), fulfilled: roundQty(applied[i].billed), closed: 0, pending: roundQty(applied[i].pending) }));
   applyClosures(
     out,
     closedQtyByOrderItem(db, asOf),
