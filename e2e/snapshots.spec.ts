@@ -269,7 +269,13 @@ async function viewDescribedSale(): Promise<void> {
   });
   await viaGoto('Day Book');
   await settle();
-  await topScreen(page).getByRole('grid', { name: 'Day Book', exact: true }).getByRole('row', { name: /Lakshmi Furnishers/ }).first().click();
+  // The sale went in through the API, which bypasses the screens' cache invalidation, so a Day Book opened
+  // earlier in this run still lists its old rows. Searching asks the server again.
+  const dayBook = topScreen(page);
+  await dayBook.getByRole('textbox', { name: 'Search vouchers', exact: true }).fill('Lakshmi');
+  const sale = dayBook.getByRole('grid', { name: 'Day Book', exact: true }).getByRole('row', { name: /Lakshmi Furnishers/ }).first();
+  await expect(sale).toBeVisible({ timeout: 8_000 });
+  await sale.click();
   await page.keyboard.press('Alt+Enter');
   const view = page.locator('[data-screen="vouchers.view"]');
   // The view's own heading, then its item lines (the description is drawn with them).
