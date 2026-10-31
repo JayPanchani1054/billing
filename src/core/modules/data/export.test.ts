@@ -216,6 +216,68 @@ describe('data.export.vouchers', () => {
     assert.equal(stock.rows[1][7], 'Out');
   });
 
+  it("line texts: the voucher's narration on its first row, each entry's own text as Line Narration, each stock line's Description — and they import back", async () => {
+    const j = save(k, {
+      voucherTypeId: k.vt.journal,
+      date: '2026-04-12',
+      mode: 'ledger',
+      narration: 'Rent for April',
+      ledgers: [
+        { ledgerId: k.L.rent, amount: 500_00, narration: 'Office at MG Road' },
+        { ledgerId: k.L.capital, amount: -500_00, narration: 'Paid by the owner\nfrom his own account' },
+      ],
+    });
+    // No voucher narration: a line's own text never stands in for it.
+    const plain = save(k, { voucherTypeId: k.vt.journal, date: '2026-04-13', mode: 'ledger', ledgers: [{ ledgerId: k.L.rent, amount: 100_00 }, { ledgerId: k.L.capital, amount: -100_00, narration: 'Petty adjustment' }] });
+    const red = 'Red, 750 W\nSerials MX-01, MX-02';
+    save(k, { voucherTypeId: k.vt.sales, date: '2026-04-10', mode: 'item_invoice', partyLedgerId: k.L.acme, items: [{ itemId: k.I.mixer, qty: 2, rate: 150, description: red }, { itemId: k.I.rice, qty: 1, rate: 50 }] });
+
+    const journals = await exportVouchers(k.t.ctx, { from: '2026-04-01', to: '2026-04-30', format: 'xlsx', baseTypes: ['journal'] });
+    const entries = readXlsx(journals.bytes).sheets[1];
+    const head = entries.rows[0];
+    // New columns go last: the earlier ones keep their places.
+    assert.deepEqual([head[4], head[5], head[7], head[head.length - 1]], ['Ledger', 'Debit', 'Narration', 'Line Narration']);
+    const lines = (id: number): Rows => entries.rows.filter((r) => r[0] === `V${id}`).map((r) => [r[4], r[7] ?? null, r[head.length - 1] ?? null]);
+    assert.deepEqual(lines(j.id), [
+      ['Office Rent', 'Rent for April', 'Office at MG Road'],
+      ['Owner Capital', null, 'Paid by the owner\nfrom his own account'],
+    ]);
+    assert.deepEqual(lines(plain.id), [
+      ['Office Rent', null, null],
+      ['Owner Capital', null, 'Petty adjustment'],
+    ]);
+    const sales = await exportVouchers(k.t.ctx, { from: '2026-04-01', to: '2026-04-30', format: 'xlsx', baseTypes: ['sales'] });
+    const stock = readXlsx(sales.bytes).sheets[2];
+    assert.deepEqual([stock.rows[0][5], stock.rows[0][7], stock.rows[0][stock.rows[0].length - 1]], ['Item', 'Direction', 'Description']);
+    assert.deepEqual(stock.rows.slice(1).map((r) => [r[5], r[16] ?? null]), [['Mixer Grinder', red], ['Rice Bag', null]]);
+    // CSV: the same columns.
+    const csvZip = readZip((await exportVouchers(k.t.ctx, { from: '2026-04-01', to: '2026-04-30', format: 'csv', baseTypes: ['journal'] })).bytes);
+    assert.match(csvZip.readText('Ledger-Entries.csv').split('\r\n')[0], /,Narration,.*,Line Narration$/);
+
+    // Round trip into an empty company with the same masters: the Ledger Entries sheet as journal vouchers,
+    // the Inventory Entries sheet as sales invoices.
+    const other = setupKit();
+    try {
+      const opts = { skipInvalid: false, updateExisting: false, acknowledgeWarnings: true };
+      const vj = await commitImport(other.t.ctx, { kind: 'vouchers_ledger', fileName: journals.fileName, bytes: journals.bytes, options: { ...opts, sheet: 'Ledger Entries' } });
+      assert.equal(vj.created, 2, JSON.stringify(vj.rows));
+      const texts = (t: TestCompany): Array<Record<string, unknown>> =>
+        t.db.all(
+          `SELECT v.date, v.narration AS voucher, l.name, e.narration AS line FROM ledger_entries e JOIN vouchers v ON v.id = e.voucher_id JOIN ledgers l ON l.id = e.ledger_id
+            WHERE v.base_type = 'journal' ORDER BY v.date, e.line_no`,
+        );
+      assert.deepEqual(texts(other.t), texts(k.t));
+      assert.equal(texts(other.t).length, 4);
+      const vs = await commitImport(other.t.ctx, { kind: 'sales_invoices', fileName: sales.fileName, bytes: sales.bytes, options: { ...opts, sheet: 'Inventory Entries' } });
+      assert.equal(vs.created, 1, JSON.stringify(vs.rows));
+      const described = (t: TestCompany): Array<Record<string, unknown>> =>
+        t.db.all(`SELECT i.name, ie.qty, ie.amount, ie.description FROM inventory_entries ie JOIN stock_items i ON i.id = ie.item_id JOIN vouchers v ON v.id = ie.voucher_id WHERE v.base_type = 'sales' ORDER BY ie.line_no`);
+      assert.deepEqual(described(other.t), described(k.t));
+    } finally {
+      other.t.close();
+    }
+  });
+
   it('csv is a zip of three files; cancelled vouchers are left out by default', async () => {
     save(k, { voucherTypeId: k.vt.journal, date: '2026-04-12', mode: 'ledger', ledgers: [{ ledgerId: k.L.rent, amount: 500_00 }, { ledgerId: k.L.capital, amount: -500_00 }] });
     const out = await exportVouchers(k.t.ctx, { from: '2026-04-01', to: '2026-04-30', format: 'csv', baseTypes: ['journal'] });

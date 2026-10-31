@@ -1,6 +1,7 @@
 /**
  * Recurring vouchers: template from a saved voucher, due list, review-then-post (idempotent per
- * occurrence), skip / undo, pause, amount override, narration placeholders, permissions.
+ * occurrence), skip / undo, pause, amount override, placeholders (narration and line texts, kept within
+ * the route limits), permissions.
  *
  * Rent: Journal Dr Office Rent ₹25,000 / Cr Sharma Estates ₹25,000 on the 5th of every month from
  * 5-Apr-2026 (the source voucher). Template starts 5-May-2026.
@@ -8,12 +9,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { VoucherInput } from '../../../shared/types/vouchers.ts';
+import { parse } from '../../lib/validate.ts';
+import { mfgKit, post } from '../mfg/testkit.ts';
+import { VoucherInputSchema } from '../vouchers/routes.ts';
 import { deleteVoucher } from '../vouchers/service.ts';
 import { save, setupKit, throwsApp, throwsField, type Kit } from '../vouchers/testkit.ts';
 import './hook.ts';
 import { voucherLinks } from './quotations.ts';
 import {
   applyAmountOverride,
+  clampText,
   deleteTemplate,
   dueOccurrences,
   getTemplate,
@@ -213,6 +218,98 @@ describe('recurring vouchers', () => {
     const actions = k.t.db.all<{ action: string }>(`SELECT action FROM audit_log WHERE entity_type = 'recurring_template' ORDER BY id`).map((r) => r.action);
     assert.deepEqual(actions, ['create', 'delete']);
     k.t.close();
+  });
+
+  it('fills the placeholders in each line\'s own text too: item descriptions and ledger-line narrations', () => {
+    const k = setupKit({ today: '2026-04-05' });
+    const inv = save(k, {
+      voucherTypeId: k.vt.sales,
+      date: '2026-04-05',
+      mode: 'item_invoice',
+      partyLedgerId: k.L.acme,
+      narration: 'AMC {month}',
+      items: [{ itemId: k.I.mixer, qty: 1, rate: 500, description: 'Maintenance for {period}\nFinancial year {fy}' }, { itemId: k.I.rice, qty: 1, rate: 50 }],
+      ledgers: [{ ledgerId: k.L.freight, amount: 50_00, narration: 'Visit on {date}' }],
+    });
+    const tpl = saveTemplate(k.t.ctx, { name: 'AMC', sourceVoucherId: inv.id, frequency: 'monthly', dayOfMonth: 5, startDate: '2026-05-05' });
+    const occ = occurrenceInput(k.t.ctx, tpl.id, '2026-05');
+    assert.equal(occ.narration, 'AMC May 2026');
+    assert.deepEqual(occ.items?.map((it) => it.description), ['Maintenance for May 2026\nFinancial year 2026-27', undefined]);
+    assert.equal(occ.ledgers?.[0].narration, 'Visit on 05-May-2026');
+    // The template itself keeps the placeholders for the next month.
+    assert.equal(getTemplate(k.t.ctx, tpl.id).input.items?.[0].description, 'Maintenance for {period}\nFinancial year {fy}');
+    k.t.clock.setToday('2026-05-10');
+    const res = postOccurrences(k.t.ctx, { items: [{ templateId: tpl.id, periodKey: '2026-05' }], acknowledgeWarnings: true });
+    const id = res.results[0].ok ? res.results[0].voucherId : 0;
+    assert.ok(id, JSON.stringify(res.results));
+    assert.deepEqual(
+      k.t.db.all<{ description: string | null }>('SELECT description FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no', { id }).map((r) => r.description),
+      ['Maintenance for May 2026\nFinancial year 2026-27', null],
+    );
+    assert.equal(k.t.db.value('SELECT narration FROM ledger_entries WHERE voucher_id = :id AND ledger_id = :l', { id, l: k.L.freight }), 'Visit on 05-May-2026');
+    k.t.close();
+  });
+
+  it('an expanded text never exceeds what voucher entry allows (narration 4,000, a line\'s text 1,000 characters)', () => {
+    // '{date}' (6 characters) becomes '05-May-2026' (11): 666 × {date} = 3,996 characters, 7,326 once filled.
+    const k = setupKit({ today: '2026-04-05' });
+    const inv = save(k, {
+      voucherTypeId: k.vt.sales,
+      date: '2026-04-05',
+      mode: 'item_invoice',
+      partyLedgerId: k.L.acme,
+      narration: '{date}'.repeat(666),
+      items: [{ itemId: k.I.mixer, qty: 1, rate: 500, description: '{fy}'.repeat(250) }],
+      // '{period}' and 'May 2026' are both 8 characters: exactly at the limit, nothing is cut.
+      ledgers: [{ ledgerId: k.L.freight, amount: 50_00, narration: '{period}'.repeat(125) }],
+    });
+    const tpl = saveTemplate(k.t.ctx, { name: 'Long texts', sourceVoucherId: inv.id, frequency: 'monthly', dayOfMonth: 5, startDate: '2026-05-05' });
+    const occ = occurrenceInput(k.t.ctx, tpl.id, '2026-05');
+    assert.equal(occ.narration?.length, 4000);
+    assert.ok(occ.narration?.startsWith('05-May-202605-May-2026'));
+    assert.equal(occ.items?.[0].description, '2026-27'.repeat(143).slice(0, 1000));
+    assert.equal(occ.ledgers?.[0].narration, 'May 2026'.repeat(125));
+    // What the vouchers.save route accepts from a user (the same schema).
+    assert.doesNotThrow(() => parse(VoucherInputSchema, occ));
+    k.t.clock.setToday('2026-05-10');
+    const res = postOccurrences(k.t.ctx, { items: [{ templateId: tpl.id, periodKey: '2026-05' }], acknowledgeWarnings: true });
+    const id = res.results[0].ok ? res.results[0].voucherId : 0;
+    assert.ok(id, JSON.stringify(res.results));
+    assert.equal(k.t.db.value<number>('SELECT length(narration) FROM vouchers WHERE id = :id', { id }), 4000);
+    assert.equal(k.t.db.value<number>('SELECT length(description) FROM inventory_entries WHERE voucher_id = :id', { id }), 1000);
+    k.t.close();
+  });
+
+  it('a recurring Manufacturing Journal fills the placeholders of its production lines (the block its item lines come from)', () => {
+    const m = mfgKit();
+    // Chair 1 made from 5 kg of steel (no BOM); the product line's own text names the month.
+    const src = post(m, {
+      voucherTypeId: m.VT.manufacturing,
+      date: '2026-06-10',
+      mode: 'inventory',
+      stockJournal: {
+        lines: [
+          { role: 'product', itemId: m.I.chair, qty: 1, description: 'Batch for {period}' },
+          { role: 'component', itemId: m.I.steel, qty: 5 },
+        ],
+      },
+    });
+    const tpl = saveTemplate(m.t.ctx, { name: 'Monthly chair', sourceVoucherId: src.id, frequency: 'monthly', dayOfMonth: 10, startDate: '2026-07-10' });
+    assert.deepEqual(occurrenceInput(m.t.ctx, tpl.id, '2026-07').stockJournal?.lines.map((l) => l.description ?? null), ['Batch for Jul 2026', null]);
+    m.t.clock.setToday('2026-07-15');
+    const res = postOccurrences(m.t.ctx, { items: [{ templateId: tpl.id, periodKey: '2026-07' }], acknowledgeWarnings: true });
+    const id = res.results[0].ok ? res.results[0].voucherId : 0;
+    assert.ok(id, JSON.stringify(res.results));
+    assert.equal(m.t.db.value('SELECT description FROM inventory_entries WHERE voucher_id = :id AND item_id = :i', { id, i: m.I.chair }), 'Batch for Jul 2026');
+    m.t.close();
+  });
+
+  it('clampText trims and never cuts a surrogate pair in half', () => {
+    assert.equal(clampText('  short  ', 10), 'short');
+    assert.equal(clampText('abcdef', 4), 'abcd');
+    assert.equal(clampText('ab\u{1F600}cd', 3), 'ab', 'the emoji is two code units; half of it is dropped');
+    assert.equal(clampText('ab\u{1F600}cd', 4), 'ab\u{1F600}');
+    assert.equal(clampText('abc   def', 5), 'abc', 'no trailing spaces after the cut');
   });
 
   it('a recurring sales invoice with an item and every-14-days schedule', () => {

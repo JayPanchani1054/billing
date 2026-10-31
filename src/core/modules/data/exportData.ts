@@ -2,8 +2,9 @@
  * Masters and voucher exports. Master sheets use exactly the columns of the import templates
  * (importSpecs.ts), so an exported workbook can be imported back (e.g. into another company).
  * Voucher exports are flat: Vouchers (one row per voucher), Ledger Entries (one row per ledger entry /
- * bill allocation — the layout of the 'vouchers_ledger' import) and Inventory Entries (one row per stock
- * line, headers as in the sales/purchase invoice templates). CSV output of several sheets is a .zip.
+ * bill allocation — the layout of the 'vouchers_ledger' import, each entry's own text as Line Narration)
+ * and Inventory Entries (one row per stock line, headers as in the sales/purchase invoice templates, the
+ * line's own Description last). CSV output of several sheets is a .zip.
  * Voucher exports are streamed month by month into a temporary ZIP file (constant memory, one read
  * snapshot, yields to the event loop) — see "Vouchers (streamed)" below.
  */
@@ -502,6 +503,7 @@ interface InventoryExportRow {
   ledger: string | null;
   gst_rate: number | null;
   hsn_sac: string | null;
+  description: string | null;
 }
 
 const VOUCHER_COLUMNS: SheetCol[] = [
@@ -543,6 +545,9 @@ const INVENTORY_COLUMNS: SheetCol[] = [
   { header: 'Ledger', type: 'text' },
   { header: 'GST Rate', type: 'percent' },
   { header: 'HSN/SAC', type: 'text' },
+  // 2.2: the line's own description (typed on this voucher; never the item master's). Last, so the
+  // columns before it keep their positions.
+  { header: 'Description', type: 'text' },
 ];
 
 /** Rows written between event-loop yields (snapshot connection only). */
@@ -765,7 +770,8 @@ export async function exportVouchers(ctx: CompanyCtx, input: ExportVouchersInput
     sink.end();
 
     // Ledger entries: one row per bill allocation (or per entry without bills) — the layout of the
-    // vouchers_ledger import, so the file can be imported back.
+    // vouchers_ledger import, so the file can be imported back. Narration is the voucher's (its first
+    // row only); Line Narration is each entry's own text, on every row of that entry.
     const spec = KIND_SPECS.vouchers_ledger;
     sink.begin('Ledger Entries', spec.columns.map((c) => ({ header: c.header, type: c.type })));
     const refLabel: Record<string, string> = { new: BILL_TYPE_CHOICES[0], against: BILL_TYPE_CHOICES[1], advance: BILL_TYPE_CHOICES[2], on_account: BILL_TYPE_CHOICES[3] };
@@ -782,7 +788,7 @@ export async function exportVouchers(ctx: CompanyCtx, input: ExportVouchersInput
           ORDER BY v.date, v.id, le.line_no, le.id, ba.id`,
         { ...params, ...m },
       )) {
-        // The voucher narration / reference go on its first line only (as the import expects).
+        // The voucher narration / reference go on its first row only (as the import expects).
         const first = e.voucher_id !== lastVoucher;
         lastVoucher = e.voucher_id;
         const amount = e.bill_amount ?? e.amount;
@@ -794,12 +800,13 @@ export async function exportVouchers(ctx: CompanyCtx, input: ExportVouchersInput
           ledger: e.ledger,
           debit: amount > 0 ? amount : null,
           credit: amount < 0 ? -amount : null,
-          narration: first ? e.narration : e.entry_narration,
+          narration: first ? e.narration : null,
           billType: e.ref_type ? (refLabel[e.ref_type] ?? null) : null,
           billName: e.bill_name,
           instrumentNo: e.instrument_no,
           instrumentDate: e.instrument_date,
           referenceNo: first ? e.reference_no : null,
+          lineNarration: e.entry_narration,
         };
         sink.row(spec.columns.map((c) => record[c.key] ?? null));
         await tick();
@@ -813,7 +820,7 @@ export async function exportVouchers(ctx: CompanyCtx, input: ExportVouchersInput
     for (const m of slices) {
       for (const r of db.iterate<InventoryExportRow>(
         `SELECT v.id AS voucher_id, v.date, vt.name AS type_name, v.number, v.party_name, i.name AS item, ie.qty, ie.billed_qty, ie.rate,
-                ie.discount_pct, ie.amount, g.name AS godown, ie.batch_name, l.name AS ledger, ie.gst_rate, ie.hsn_sac
+                ie.discount_pct, ie.amount, g.name AS godown, ie.batch_name, l.name AS ledger, ie.gst_rate, ie.hsn_sac, ie.description
            FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
            JOIN stock_items i ON i.id = ie.item_id LEFT JOIN godowns g ON g.id = ie.godown_id LEFT JOIN ledgers l ON l.id = ie.ledger_id
           WHERE ${filter}
@@ -837,6 +844,7 @@ export async function exportVouchers(ctx: CompanyCtx, input: ExportVouchersInput
           r.ledger,
           r.gst_rate,
           r.hsn_sac,
+          r.description,
         ]);
         await tick();
       }

@@ -52,6 +52,7 @@ interface NoteLineDb {
   godown_id: number | null;
   batch_name: string | null;
   ledger_id: number | null;
+  description: string | null;
 }
 
 export interface PendingNoteLine {
@@ -74,12 +75,14 @@ export interface PendingNoteLine {
   godownId: number | null;
   batchName: string | null;
   ledgerId: number | null;
+  /** The note line's own description (inventory_entries.description), carried into the invoice drafted from it. */
+  description: string | null;
 }
 
 const LINES_SQL = (filter: string): string => `
   SELECT ie.voucher_id, ie.line_no, v.number, v.date, v.base_type, vt.name AS type_name, v.party_ledger_id,
          COALESCE(l.name, v.party_name) AS party_name, ie.item_id, si.name AS item_name, u.symbol AS unit,
-         ABS(ie.qty) AS qty, ie.rate, ie.discount_pct, ie.godown_id, ie.batch_name, ie.ledger_id
+         ABS(ie.qty) AS qty, ie.rate, ie.discount_pct, ie.godown_id, ie.batch_name, ie.ledger_id, ie.description
     FROM inventory_entries ie
     JOIN vouchers v ON v.id = ie.voucher_id
     JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -137,6 +140,7 @@ function positions(lines: readonly NoteLineDb[], billed: Map<string, number>): P
       godownId: l.godown_id,
       batchName: l.batch_name,
       ledgerId: l.ledger_id,
+      description: l.description,
     });
   }
   return out;

@@ -605,6 +605,93 @@ describe('data.xmlImport.commit: debit notes', () => {
   });
 });
 
+describe('data.xmlImport.commit: line descriptions', () => {
+  it("reads an item line's BASICUSERDESCRIPTION list: each value cleaned, joined line by line, once per source line", async () => {
+    // Mixer 2 × 100 = 200 (one from each godown) @18% + Rice 1 × 100 @5% = 300; CGST 18 + 2.50, SGST the same
+    // → Acme Dr 341.00. The rice description is longer than a line's description may be here.
+    const long = `${'Lot 7, '.repeat(200)}end`;
+    const alloc = (godown: string): string => `
+       <BATCHALLOCATIONS.LIST>
+        <GODOWNNAME>${godown}</GODOWNNAME>
+        <BATCHNAME>Primary Batch</BATCHNAME>
+        <AMOUNT>100.00</AMOUNT>
+        <ACTUALQTY> 1 Nos</ACTUALQTY>
+        <BILLEDQTY> 1 Nos</BILLEDQTY>
+       </BATCHALLOCATIONS.LIST>`;
+    const line = (o: { description: string; name: string; qty: number; amount: string; ledger: string; allocations: string }): string => `
+      <ALLINVENTORYENTRIES.LIST>
+       <BASICUSERDESCRIPTION.LIST TYPE="String">${o.description}
+       </BASICUSERDESCRIPTION.LIST>
+       <STOCKITEMNAME>${o.name}</STOCKITEMNAME>
+       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+       <RATE>100.00/Nos</RATE>
+       <AMOUNT>${o.amount}</AMOUNT>
+       <ACTUALQTY> ${o.qty} Nos</ACTUALQTY>
+       <BILLEDQTY> ${o.qty} Nos</BILLEDQTY>${o.allocations}
+       <ACCOUNTINGALLOCATIONS.LIST>
+        <LEDGERNAME>${o.ledger}</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${o.amount}</AMOUNT>
+       </ACCOUNTINGALLOCATIONS.LIST>
+      </ALLINVENTORYENTRIES.LIST>`;
+    const led = (name: string, amount: string): string => `
+      <LEDGERENTRIES.LIST>
+       <LEDGERNAME>${name}</LEDGERNAME>
+       <ISDEEMEDPOSITIVE>${amount.startsWith('-') ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
+       <AMOUNT>${amount}</AMOUNT>
+      </LEDGERENTRIES.LIST>`;
+    const bytes = withVouchers(`
+    ${MESSAGE_OPEN}
+     <VOUCHER REMOTEID="g-desc-1" VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
+      <DATE>20260412</DATE>
+      <GUID>g-desc-1</GUID>
+      <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+      <VOUCHERNUMBER>D-1</VOUCHERNUMBER>
+      <PARTYLEDGERNAME>Acme Traders</PARTYLEDGERNAME>
+      <ISINVOICE>Yes</ISINVOICE>${line({
+        description: `
+        <BASICUSERDESCRIPTION>  Serial   MX-101  </BASICUSERDESCRIPTION>
+        <BASICUSERDESCRIPTION></BASICUSERDESCRIPTION>
+        <BASICUSERDESCRIPTION>Serial MX-102 &amp; spare jar</BASICUSERDESCRIPTION>`,
+        name: 'Mixer Grinder 750W',
+        qty: 2,
+        amount: '200.00',
+        ledger: 'Sales GST 18%',
+        allocations: alloc('Main Location') + alloc('Bhiwandi Warehouse'),
+      })}${line({ description: `\n        <BASICUSERDESCRIPTION>${long}</BASICUSERDESCRIPTION>`, name: 'Rice Bag 25kg', qty: 1, amount: '100.00', ledger: 'Sales', allocations: alloc('Main Location') })}${led('Acme Traders', '-341.00')}${led('CGST', '20.50')}${led('SGST', '20.50')}
+     </VOUCHER>
+    ${MESSAGE_CLOSE}`);
+    const parsed = parseXmlFile(bytes).vouchers[0];
+    assert.equal(parsed.inventory[0].description, 'Serial MX-101\nSerial MX-102 & spare jar', 'each element cleaned on its own; the empty one dropped');
+    const r = await runImport({}, bytes);
+    assert.equal(r.vouchers.created, 1, JSON.stringify(r.issues.filter((i) => i.object?.startsWith('VOUCHER'))));
+    const id = t.db.value<number>(`SELECT id FROM vouchers WHERE number = 'D-1'`) as number;
+    // The mixer line becomes two rows (one per godown): its description goes on the first only.
+    const rows = t.db.all<{ item: string; godown: string; description: string | null }>(
+      `SELECT i.name AS item, g.name AS godown, ie.description FROM inventory_entries ie JOIN stock_items i ON i.id = ie.item_id JOIN godowns g ON g.id = ie.godown_id
+        WHERE ie.voucher_id = :id ORDER BY ie.line_no`,
+      { id },
+    );
+    const kept = long.slice(0, 1000).trimEnd();
+    assert.deepEqual(rows, [
+      { item: 'Mixer Grinder 750W', godown: 'Main Location', description: 'Serial MX-101\nSerial MX-102 & spare jar' },
+      { item: 'Mixer Grinder 750W', godown: 'Bhiwandi Warehouse', description: null },
+      { item: 'Rice Bag 25kg', godown: 'Main Location', description: kept },
+    ]);
+    // The stored input (what alteration opens) says the same, so the text is printed once.
+    const items = (JSON.parse(t.db.value<string>('SELECT meta FROM vouchers WHERE id = :id', { id }) ?? '{}') as { input: { items: Array<{ description?: string }> } }).input.items;
+    assert.deepEqual(items.map((it) => it.description ?? null), ['Serial MX-101\nSerial MX-102 & spare jar', null, kept]);
+    assert.ok(kept.length <= 1000 && kept.endsWith('Lot 7,'));
+    // A description longer than voucher entry allows is cut to its 1,000 characters, and the log says so.
+    const info = r.issues.filter((i) => i.code === 'description_shortened');
+    assert.equal(info.length, 1);
+    assert.equal(info[0].severity, 'info');
+    assert.match(info[0].message, /"Rice Bag 25kg" had 1,403 characters; the first 1,000 were kept/);
+    // gst_lines keep the masters' names (null as before), never the line's text.
+    assert.equal(t.db.value('SELECT COUNT(*) FROM gst_lines WHERE voucher_id = :id AND description IS NOT NULL', { id }), 0);
+  });
+});
+
 describe('data.xmlImport: tricky XML', () => {
   it('BOM + entities + a parent defined later + a missing parent: imports what it can and reports the rest', async () => {
     const xml = `<ENVELOPE><BODY><IMPORTDATA><REQUESTDATA>

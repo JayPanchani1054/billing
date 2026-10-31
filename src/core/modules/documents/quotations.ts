@@ -249,7 +249,10 @@ function targetType(db: Db, target: VoucherBaseType, voucherTypeId: number | und
  *  - quotation → sales order / sales invoice, proforma → sales invoice (`convertedFromId` set, so saving
  *    links it back and the source shows "converted"; refused when already converted, cancelled or rejected);
  *  - delivery note / receipt note / rejection → the invoice / note that bills it, with the note's
- *    unbilled quantities and `trackingRef` = the note number (the note already moved the stock).
+ *    unbilled quantities, each line's own description and `trackingRef` = the note number (the note
+ *    already moved the stock).
+ * A conversion copies the source's lines whole, so their descriptions (items) and narrations (ledger
+ * lines) come along with them.
  */
 export function draftVoucher(ctx: CompanyCtx, input: DraftInput & { sourceId: number; targetBaseType: VoucherBaseType }): VoucherInput {
   const { db } = ctx;
@@ -299,6 +302,8 @@ export function draftVoucher(ctx: CompanyCtx, input: DraftInput & { sourceId: nu
       if (p.godownId !== null) it.godownId = p.godownId;
       if (p.batchName) it.batchName = p.batchName;
       if (p.ledgerId !== null) it.ledgerId = p.ledgerId;
+      // The note line's own description (typed on the note, not the item master's) is billed with it.
+      if (p.description) it.description = p.description;
       return it;
     });
     // Additional ledgers of the note (freight …) are billed with the invoice only if the user adds them.

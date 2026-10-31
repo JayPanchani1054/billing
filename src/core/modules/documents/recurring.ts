@@ -144,13 +144,32 @@ export function templateValue(input: VoucherInput): Paise {
   return items + (input.ledgers ?? []).reduce((a, l) => a + l.amount, 0);
 }
 
-function fillNarration(text: string | undefined, occ: Occurrence, date: string, fyStartMonth: number): string | undefined {
+/** The vouchers.save route limits (vouchers/routes.ts): voucher narration, and a line's narration / description. */
+const NARRATION_MAX = 4000;
+const LINE_TEXT_MAX = 1000;
+
+/** {period} / {month} → 'May 2026' (the date for every-N-days), {date} → the posting date, {fy} → '2026-27'. */
+function fillPlaceholders(text: string | undefined, occ: Occurrence, date: string, fyStartMonth: number): string | undefined {
   if (!text) return text;
   return text
     .replace(/\{period\}/gi, periodLabel(occ))
     .replace(/\{month\}/gi, periodLabel(occ))
     .replace(/\{date\}/gi, formatDate(date))
     .replace(/\{fy\}/gi, financialYear(date, fyStartMonth).label);
+}
+
+/**
+ * A text cut to at most `max` characters, trimmed, never ending in half a surrogate pair. A placeholder
+ * can expand past the route limit (`{date}` is 6 characters, '05-May-2026' 11), and a posting must never
+ * hold text the user could not have typed in voucher entry.
+ */
+export function clampText(text: string, max: number): string {
+  const s = text.trim();
+  if (s.length <= max) return s;
+  let cut = s.slice(0, max);
+  const last = cut.charCodeAt(cut.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+  return cut.trimEnd();
 }
 
 // ───────────────────────────── Validation ─────────────────────────────
@@ -476,9 +495,19 @@ export function occurrenceInput(ctx: CompanyCtx, templateId: number, periodKey: 
   const date = opts.date ?? occ.date;
   let input: VoucherInput = { ...t.input, voucherTypeId: t.voucherTypeId, date, recurring: { templateId, periodKey } };
   if (opts.amount !== undefined) input = applyAmountOverride(input, opts.amount);
+  // Placeholders work in the narration and in every line's own text (an item's description, a ledger
+  // line's narration); each result is kept within the limit voucher entry allows for it.
   const fy = fyStart(ctx.db);
-  input.narration = fillNarration(input.narration, occ, date, fy);
-  if (input.ledgers) input.ledgers = input.ledgers.map((l) => (l.narration ? { ...l, narration: fillNarration(l.narration, occ, date, fy) } : l));
+  const fill = (text: string | undefined, max: number): string | undefined => {
+    const filled = fillPlaceholders(text, occ, date, fy);
+    return filled ? clampText(filled, max) : filled;
+  };
+  input.narration = fill(input.narration, NARRATION_MAX);
+  if (input.ledgers) input.ledgers = input.ledgers.map((l) => (l.narration ? { ...l, narration: fill(l.narration, LINE_TEXT_MAX) } : l));
+  if (input.items) input.items = input.items.map((it) => (it.description ? { ...it, description: fill(it.description, LINE_TEXT_MAX) } : it));
+  // A Manufacturing Journal / Material In / Out derives its item lines from this block (mfg hook).
+  const sj = input.stockJournal;
+  if (sj) input.stockJournal = { ...sj, lines: sj.lines.map((l) => (l.description ? { ...l, description: fill(l.description, LINE_TEXT_MAX) } : l)) };
   return input;
 }
 

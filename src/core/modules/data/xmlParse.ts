@@ -367,6 +367,8 @@ export interface TInventoryLine {
   /** Sales/purchase ledger (first accounting allocation, or the enclosing ledger entry). */
   ledger: string | null;
   allocations: TInvAlloc[];
+  /** The line's own description: its BASICUSERDESCRIPTION values (each cleaned) joined with '\n'; null when none. */
+  description: string | null;
 }
 
 export interface TVoucher {
@@ -773,6 +775,9 @@ function parseInventory(n: TNode, direction: 'in' | 'out' | null, enclosingLedge
     ledger ??= e.ledger;
   }
   const qty = Math.abs(actual?.qty ?? billed?.qty ?? 0);
+  // One BASICUSERDESCRIPTION per text line: each value is cleaned on its own (clean() would fold the line
+  // breaks of the joined text into spaces), blank ones dropped.
+  const description = listValues(n, 'BASICUSERDESCRIPTION.LIST', 'BASICUSERDESCRIPTION').join('\n');
   return {
     item,
     qty,
@@ -786,6 +791,7 @@ function parseInventory(n: TNode, direction: 'in' | 'out' | null, enclosingLedge
     isDeemedPositive: yesNo(val(n, 'ISDEEMEDPOSITIVE')),
     ledger,
     allocations,
+    description: orNull(description),
   };
 }
 

@@ -7,9 +7,12 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { IMPORT_KINDS } from '../../../shared/types/data.ts';
 import { AppError } from '../../lib/errors.ts';
+import { parse } from '../../lib/validate.ts';
 import { readXlsx, writeXlsx } from '../../lib/xlsx.ts';
 import { createTestCompany, makeGstin, type TestCompany } from '../../testing/fixtures.ts';
+import { VoucherInputSchema } from '../vouchers/routes.ts';
 import { setupKit, type Kit } from '../vouchers/testkit.ts';
+import { clampLineText, LINE_TEXT_MAX } from './common.ts';
 import { commitImport, importTemplate, previewImport } from './importer.ts';
 import { KIND_SPECS } from './importSpecs.ts';
 import { dataRoutes } from './routes.ts';
@@ -346,5 +349,107 @@ describe('data.import: invoices and vouchers through the vouchers service', () =
     assert.equal(r.created, 2);
     assert.equal(k.t.db.value(`SELECT SUM(amount) FROM ledger_entries WHERE ledger_id = :l`, { l: k.L.rent }), 12_500_00);
     assert.equal(k.t.db.value('SELECT SUM(amount) FROM ledger_entries'), 0);
+  });
+
+  const lineTexts = (voucherId: number): Array<[string, string | null]> =>
+    k.t.db
+      .all<{ name: string; narration: string | null }>('SELECT l.name, e.narration FROM ledger_entries e JOIN ledgers l ON l.id = e.ledger_id WHERE e.voucher_id = :id ORDER BY e.line_no', { id: voucherId })
+      .map((r) => [r.name, r.narration]);
+
+  it('an older file (no Line Narration column) imports as before: the first Narration is the voucher\'s, lines get no text', async () => {
+    // The layout earlier builds exported: the voucher narration on its first row, a line's own text in Narration below.
+    const bytes = csv(
+      [
+        'Voucher Key,Date,Voucher Type,Ledger,Debit,Credit,Narration',
+        'J1,10-04-2026,Journal,Office Rent,12000,,Rent for April',
+        'J1,10-04-2026,Journal,Owner Capital,,12000,Paid by the owner',
+      ].join('\r\n'),
+    );
+    const r = await commitImport(k.t.ctx, { kind: 'vouchers_ledger', fileName: 'v.csv', bytes, options: { skipInvalid: false, updateExisting: false, acknowledgeWarnings: true } });
+    assert.equal(r.created, 1, JSON.stringify(r.rows));
+    const id = k.t.db.value<number>(`SELECT id FROM vouchers WHERE base_type = 'journal'`) as number;
+    assert.equal(k.t.db.value('SELECT narration FROM vouchers WHERE id = :id', { id }), 'Rent for April');
+    assert.deepEqual(lineTexts(id), [
+      ['Office Rent', null],
+      ['Owner Capital', null],
+    ]);
+  });
+
+  it('Line Narration gives each line of a Dr/Cr voucher its own text; Narration stays the voucher\'s', async () => {
+    const bytes = csv(
+      [
+        'Voucher Key,Date,Voucher Type,Ledger,Debit,Credit,Narration,Line Narration',
+        'J2,10-04-2026,Journal,Office Rent,500,,Rent for May,Office at MG Road',
+        'J2,10-04-2026,Journal,Owner Capital,,500,,"Paid by the owner',
+        'from his own account"',
+        'J3,11-04-2026,Journal,Office Rent,100,,,',
+        'J3,11-04-2026,Journal,Owner Capital,,100,,Petty adjustment',
+      ].join('\r\n'),
+    );
+    const r = await commitImport(k.t.ctx, { kind: 'vouchers_ledger', fileName: 'v.csv', bytes, options: { skipInvalid: false, updateExisting: false, acknowledgeWarnings: true } });
+    assert.equal(r.created, 2, JSON.stringify(r.rows));
+    const [j2, j3] = k.t.db.all<{ id: number; narration: string | null }>(`SELECT id, narration FROM vouchers WHERE base_type = 'journal' ORDER BY date`);
+    assert.equal(j2.narration, 'Rent for May');
+    assert.deepEqual(lineTexts(j2.id), [
+      ['Office Rent', 'Office at MG Road'],
+      ['Owner Capital', 'Paid by the owner\r\nfrom his own account'],
+    ]);
+    assert.equal(j3.narration, null, "a line's text never becomes the voucher's narration");
+    assert.deepEqual(lineTexts(j3.id), [
+      ['Office Rent', null],
+      ['Owner Capital', 'Petty adjustment'],
+    ]);
+  });
+
+  it("invoices: Description is an item row's own text, Line Narration a ledger row's (either column serves a row when the other is empty)", async () => {
+    const long = 'x'.repeat(1001);
+    const bytes = csv(
+      [
+        'Invoice No,Date,Party,Item,Ledger,Qty,Rate,Amount,Narration,Description,Line Narration',
+        'INV-301,10-04-2026,Acme Traders,Mixer Grinder,,2,150,,Imported,"Red, 750 W',
+        'Serials MX-01, MX-02",',
+        'INV-301,10-04-2026,Acme Traders,,Freight Outward,,,100,,,Courier to Pune',
+        'INV-301,10-04-2026,Acme Traders,Rice Bag,,4,50,,,,Kept from the other column',
+        'INV-302,11-04-2026,Acme Traders,Mixer Grinder,,1,150,,,Its own text,Another text',
+        `INV-303,12-04-2026,Acme Traders,Mixer Grinder,,1,150,,,${long},`,
+      ].join('\r\n'),
+    );
+    const p = await previewImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { acknowledgeWarnings: true } });
+    assert.deepEqual(
+      p.rows.map((x) => x.status),
+      ['warning', 'warning', 'error'],
+    );
+    // (The quoted two-line cell is one CSV record: INV-302 is row 5, INV-303 row 6.)
+    assert.match(p.rows[1].messages.join(' '), /Row 5: Line Narration was not imported — the text of an item row is its Description/);
+    assert.match(p.rows[2].messages.join(' '), /Row 6: Description has 1,001 characters; a line's text can have at most 1,000/);
+    const r = await commitImport(k.t.ctx, { kind: 'sales_invoices', fileName: 's.csv', bytes, options: { skipInvalid: true, updateExisting: false, acknowledgeWarnings: true } });
+    assert.deepEqual({ created: r.created, failed: r.failed }, { created: 2, failed: 1 });
+    const [inv1, inv2] = k.t.db.all<{ id: number; narration: string | null }>(`SELECT id, narration FROM vouchers WHERE base_type = 'sales' ORDER BY date`);
+    assert.equal(inv1.narration, 'Imported');
+    assert.deepEqual(
+      k.t.db.all<{ description: string | null }>('SELECT description FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no', { id: inv1.id }).map((x) => x.description),
+      ['Red, 750 W\r\nSerials MX-01, MX-02', 'Kept from the other column'],
+    );
+    assert.equal(k.t.db.value('SELECT narration FROM ledger_entries WHERE voucher_id = :id AND ledger_id = :l', { id: inv1.id, l: k.L.freight }), 'Courier to Pune');
+    assert.equal(k.t.db.value('SELECT description FROM inventory_entries WHERE voucher_id = :id', { id: inv2.id }), 'Its own text');
+  });
+});
+
+describe('a line\'s text: the limit imports keep to', () => {
+  it('LINE_TEXT_MAX is what vouchers.save accepts for an item description and a ledger line narration', () => {
+    const base = { voucherTypeId: 1, date: '2026-04-10', mode: 'item_invoice' as const };
+    const x = (n: number): string => 'x'.repeat(n);
+    assert.doesNotThrow(() =>
+      parse(VoucherInputSchema, { ...base, items: [{ itemId: 1, qty: 1, rate: 1, description: x(LINE_TEXT_MAX) }], ledgers: [{ ledgerId: 1, amount: 1, narration: x(LINE_TEXT_MAX) }] }),
+    );
+    assert.throws(() => parse(VoucherInputSchema, { ...base, items: [{ itemId: 1, qty: 1, rate: 1, description: x(LINE_TEXT_MAX + 1) }] }), AppError);
+    assert.throws(() => parse(VoucherInputSchema, { ...base, ledgers: [{ ledgerId: 1, amount: 1, narration: x(LINE_TEXT_MAX + 1) }] }), AppError);
+  });
+
+  it('clampLineText keeps the first LINE_TEXT_MAX characters, never half a surrogate pair', () => {
+    assert.equal(clampLineText('short'), 'short');
+    assert.equal(clampLineText('x'.repeat(LINE_TEXT_MAX + 1)).length, LINE_TEXT_MAX);
+    // A smiley (two code units) straddling the limit is dropped whole; the trailing space before it too.
+    assert.equal(clampLineText(`${'a'.repeat(LINE_TEXT_MAX - 2)} \u{1F600}b`), 'a'.repeat(LINE_TEXT_MAX - 2));
   });
 });

@@ -71,7 +71,7 @@ import { ensureStatLedger, statLedgerId } from '../gst/statLedgers.ts';
 import { loadVoucherType, parseVoucherSeq, periodKey, periodRange, type VoucherTypeInfo } from '../vouchers/numbering.ts';
 import { loadVoucherRow, snapshotFromDb } from '../vouchers/service.ts';
 import { dbTaxLookup, resolveItemTaxProfile, resolveLedgerTaxProfile, type TaxLookup } from '../vouchers/taxprofile.ts';
-import { hasPermission, plural, requirePermission, yieldToEventLoop } from './common.ts';
+import { clampLineText, hasPermission, LINE_TEXT_MAX, plural, requirePermission, yieldToEventLoop } from './common.ts';
 import { LEGACY_IMPORT_META_KEY, LEGACY_IMPORT_SOURCE } from './xmlFormat.ts';
 import {
   parseXmlFile,
@@ -1299,6 +1299,8 @@ interface InvRow {
   affectsStock: boolean;
   hsn: string | null;
   gstRate: number | null;
+  /** The source line's own description — on its first row only when batch allocations split it into several. */
+  description: string | null;
 }
 
 interface GstRow {
@@ -1622,6 +1624,16 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
       for (const line of v.inventory) {
         const item = env.items.get(key(line.item));
         if (!item) throw new SkipVoucher('unknown_item', `Stock item "${line.item}" does not exist.`);
+        // The line's own description, kept within what voucher entry accepts so the voucher stays alterable.
+        const description = line.description !== null ? clampLineText(line.description) : null;
+        if (line.description !== null && description !== line.description) {
+          run.add({
+            severity: 'info',
+            code: 'description_shortened',
+            message: `The description of "${item.name}" had ${line.description.length.toLocaleString('en-IN')} characters; the first ${LINE_TEXT_MAX.toLocaleString('en-IN')} were kept (the most a line's description can have here).`,
+            object: `VOUCHER ${voucherLabel(v)}`,
+          });
+        }
         const ledgerId = line.ledger ? (env.ledgers.get(key(line.ledger))?.id ?? null) : null;
         const outward = base === 'stock_journal' ? (line.direction ? line.direction === 'out' : line.isDeemedPositive === false) : STOCK_OUT.has(base);
         const sign = outward ? -1 : 1;
@@ -1635,7 +1647,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
                 return parts.map((a, i) => ({ alloc: a, qty: a.qty ?? 0, billed: a.billedQty, amount: given[i] ?? fallback[i] }));
               })()
             : [{ alloc: null, qty: line.qty, billed: line.billedQty, amount: line.amount }];
-        for (const s of shares) {
+        for (const [part, s] of shares.entries()) {
           const godownId = s.alloc?.godown ? (env.godowns.get(key(s.alloc.godown)) ?? env.mainGodown) : env.mainGodown;
           const trackingRef = s.alloc?.trackingNo ?? null;
           const rate = rateUsable ? (line.rate as number) : s.qty !== 0 ? Math.round((s.amount / 100 / s.qty) * 1e6) / 1e6 : 0;
@@ -1657,6 +1669,9 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
             affectsStock: stockMoves,
             hsn: null,
             gstRate: null,
+            // Once per source line: a line split over godowns / batches becomes several rows (and several
+            // lines in the stored input), and the text belongs to the line, not to each part of it.
+            description: part === 0 ? description : null,
           });
         }
       }
@@ -1922,8 +1937,8 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
   inv.forEach((r, i) => {
     db.run(
       `INSERT INTO inventory_entries (voucher_id, line_no, item_id, godown_id, batch_name, qty, billed_qty, rate, discount_pct, amount, ledger_id,
-              hsn_sac, gst_rate, tracking_ref, order_ref, is_consumption, date, affects_stock, is_post_dated)
-       VALUES (:id, :line, :item, :godown, :batch, :qty, :billed, :rate, :disc, :amount, :ledger, :hsn, :gstRate, :track, :order, :cons, :date, :stock, :pdc)`,
+              description, hsn_sac, gst_rate, tracking_ref, order_ref, is_consumption, date, affects_stock, is_post_dated)
+       VALUES (:id, :line, :item, :godown, :batch, :qty, :billed, :rate, :disc, :amount, :ledger, :description, :hsn, :gstRate, :track, :order, :cons, :date, :stock, :pdc)`,
       {
         id,
         line: i + 1,
@@ -1936,6 +1951,7 @@ function writeVoucher(env: VoucherEnv, v: TVoucher): 'created' | 'updated' | 'sk
         disc: r.discountPct,
         amount: r.amount,
         ledger: r.ledgerId,
+        description: r.description,
         hsn: r.hsn,
         gstRate: r.gstRate,
         track: r.trackingRef,
@@ -2067,6 +2083,7 @@ function buildInput(
       ...(r.discountPct ? { discountPct: r.discountPct } : {}),
       amount: r.ownAmount,
       ...(r.ledgerId !== null ? { ledgerId: r.ledgerId } : {}),
+      ...(r.description ? { description: r.description } : {}),
       ...(r.trackingRef ? { trackingRef: r.trackingRef } : {}),
       ...(r.orderRef ? { orderRef: r.orderRef } : {}),
       ...(r.isConsumption ? { isConsumption: true } : {}),

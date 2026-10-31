@@ -44,6 +44,9 @@ afterEach(() => {
   target = null;
 });
 
+/** The own description of the rice line of sale 1: two text lines, markup characters included. */
+const RICE_DESCRIPTION = 'Basmati, 25 kg bags\nLot 7/2026 <export> & "premium"';
+
 /** A month of business in the source company (all hand-checkable; see the comments). */
 function populate(): Record<string, number> {
   const { t, vt, L, I } = k;
@@ -71,14 +74,14 @@ function populate(): Record<string, number> {
   writeExtraAliases(t.db, 'stock_item', I.rice, ['RB-25', 'Basmati 25kg']);
 
   // 1. Sales, intra-state (Acme, 27): Rice 10 × 60 = 600 @5% → CGST 15 + SGST 15; Mixer 2 × 400 = 800 @18% → CGST 72 + SGST 72.
-  //    Total 1,400 + 174 = 1,574. Bill-wise New Ref S-1.
+  //    Total 1,400 + 174 = 1,574. Bill-wise New Ref S-1. The rice line has a two-line description of its own.
   const s1 = save(k, {
     voucherTypeId: vt.sales,
     date: '2026-04-05',
     mode: 'item_invoice',
     partyLedgerId: L.acme,
     items: [
-      { itemId: I.rice, qty: 10, rate: 60 },
+      { itemId: I.rice, qty: 10, rate: 60, description: RICE_DESCRIPTION },
       { itemId: I.mixer, qty: 2, rate: 400 },
     ],
     partyBillAllocations: [{ refType: 'new', billName: 'S-1', amount: 1_574_00, creditDays: 30 }],
@@ -121,14 +124,14 @@ function populate(): Record<string, number> {
   save(k, { voucherTypeId: vt.contra, date: '2026-04-17', mode: 'ledger', ledgers: [{ ledgerId: L.cash, amount: 3_000_00 }, { ledgerId: L.bank, amount: -3_000_00 }] });
   // 7. Journal: rent 1,200 payable to the owner's capital.
   save(k, { voucherTypeId: vt.journal, date: '2026-04-20', mode: 'ledger', ledgers: [{ ledgerId: L.rent, amount: 1_200_00 }, { ledgerId: L.capital, amount: -1_200_00 }] });
-  // 8. Stock journal: move 15 Rice from Pune to Main Location at cost.
+  // 8. Stock journal: move 15 Rice from Pune to Main Location at cost (the inward line described).
   save(k, {
     voucherTypeId: vt.stock_journal,
     date: '2026-04-22',
     mode: 'inventory',
     items: [
       { itemId: I.rice, qty: 15, rate: 45, godownId: pune, isConsumption: true },
-      { itemId: I.rice, qty: 15, rate: 45 },
+      { itemId: I.rice, qty: 15, rate: 45, description: 'For the Diwali display' },
     ],
   });
   // 9. Credit note: Acme returns 1 Mixer @ 400 (+18% = 472), against S-1.
@@ -294,6 +297,37 @@ describe('XML data export: round trip through our own importer', () => {
     assert.equal(tg.db.value(`SELECT COUNT(*) FROM cost_allocations`), 2);
     assert.equal(tg.db.value(`SELECT COUNT(*) FROM godowns WHERE name = 'Pune Warehouse'`), 1);
     assert.equal(tg.db.value(`SELECT narration FROM vouchers WHERE date = '2026-04-05'`), 'First sale <with> "quotes" & ampersand');
+    // Item lines' own descriptions: one BASICUSERDESCRIPTION per text line (escaped), first in the line's list.
+    const vouchersXml = new TextDecoder('utf-16le').decode(readZip(file.bytes).read('2-Vouchers.xml').subarray(2));
+    assert.match(
+      vouchersXml,
+      /<ALLINVENTORYENTRIES\.LIST>\r\n\s*<BASICUSERDESCRIPTION\.LIST TYPE="String">\r\n\s*<BASICUSERDESCRIPTION>Basmati, 25 kg bags<\/BASICUSERDESCRIPTION>\r\n\s*<BASICUSERDESCRIPTION>Lot 7\/2026 &lt;export&gt; &amp; "premium"<\/BASICUSERDESCRIPTION>\r\n\s*<\/BASICUSERDESCRIPTION\.LIST>\r\n\s*<STOCKITEMNAME>Rice Bag<\/STOCKITEMNAME>/,
+    );
+    assert.match(vouchersXml, /<INVENTORYENTRIESIN\.LIST>\r\n\s*<BASICUSERDESCRIPTION\.LIST TYPE="String">\r\n\s*<BASICUSERDESCRIPTION>For the Diwali display<\/BASICUSERDESCRIPTION>/);
+    assert.equal((vouchersXml.match(/<BASICUSERDESCRIPTION\.LIST/g) ?? []).length, 2, 'lines without a description carry no list');
+    // ... and come back line for line, on the voucher's stock lines and in its stored input (so altering the
+    // imported invoice keeps them).
+    const described = (t: TestCompany): Array<Record<string, unknown>> =>
+      t.db.all(
+        `SELECT v.date, t.name AS type, i.name AS item, ie.qty, ie.description FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
+           JOIN voucher_types t ON t.id = v.voucher_type_id JOIN stock_items i ON i.id = ie.item_id WHERE ie.description IS NOT NULL ORDER BY v.date, ie.line_no`,
+      );
+    assert.deepEqual(described(tg), described(k.t));
+    assert.deepEqual(
+      described(tg).map((r) => r.description),
+      [RICE_DESCRIPTION, 'For the Diwali display'],
+    );
+    const storedItems = (date: string): NonNullable<VoucherInput['items']> =>
+      (JSON.parse(tg.db.value<string>('SELECT meta FROM vouchers WHERE date = :date', { date }) ?? '{}') as { input: VoucherInput }).input.items ?? [];
+    assert.deepEqual(storedItems('2026-04-05').map((it) => it.description ?? null), [RICE_DESCRIPTION, null]);
+    // (The importer lists a stock journal's inward lines before its outward ones.)
+    assert.deepEqual(
+      storedItems('2026-04-22').map((it) => [it.isConsumption === true, it.description ?? null]).sort(),
+      [
+        [false, 'For the Diwali display'],
+        [true, null],
+      ],
+    );
   });
 });
 

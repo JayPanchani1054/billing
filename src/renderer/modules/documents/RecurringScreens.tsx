@@ -397,7 +397,7 @@ export function RecurringFormScreen({ params }: ScreenProps<RecurringFormParams>
               label="Voucher to copy"
               required
               error={save.fieldErrors.sourceVoucherId}
-              hint="A saved voucher of any type (memorandum included): its lines, party and narration are posted each time. Write {period} in the narration to get “May 2026” in each posting."
+              hint="A saved voucher of any type (memorandum included): its lines, party and narration are posted each time. Write {period} in the narration or in a line’s description to get “May 2026” in each posting."
             >
               <Picker<VoucherListRow>
                 loadItems={pickVoucher}

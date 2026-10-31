@@ -147,6 +147,12 @@ Manifest: `format 'pevqori-backup'`, `formatVersion 1`, `appVersion`, `schemaVer
   an exported workbook imports back (tested round trip). CSV with several kinds → `.zip`.
 - `data.export.vouchers {from, to, baseTypes?, includeOptional?=true, includeCancelled?=false, format}` —
   sheets Vouchers / Ledger Entries (layout of the `vouchers_ledger` import) / Inventory Entries.
+  **Line texts (2.2)**: on Ledger Entries `Narration` is the voucher's narration, on its first row only,
+  and `Line Narration` (last column) each entry's own narration on every row of that entry (its bill rows
+  too); Inventory Entries ends with `Description`, the stock line's own description (typed on the voucher —
+  never the item master's). New columns only ever go last, so the earlier positions stay (pinned by
+  `export.test.ts`). Before 2.2 the first entry's own narration was lost (its row carried the voucher's)
+  and the other entries' texts sat under `Narration`.
   **Streamed** (asynchronous, `transactional: false`): rows are read one at a time (`Db.iterate`), month
   by month, from ONE read snapshot (a separate read-only connection with an open read transaction, so
   changes committed meanwhile are not mixed in) and written straight into a temporary ZIP in the company
@@ -193,6 +199,15 @@ example rows, plus an Instructions sheet (column, required, type, help, allowed 
   `vouchers.create` (the masters services leave permission checks to their routes, so the importer asks).
 - The template's example rows left in a file are refused as errors ("This is example row 1 from the
   template…") when every mapped column holds the example value and at least three are filled.
+- **Line texts (2.2)**: `vouchers_ledger` reads `Line Narration` into each line's narration;
+  `sales_invoices` / `purchase_invoices` read `Description` on item rows (the line's own description) and
+  `Line Narration` on ledger rows (freight, discount …) — the new columns sit last in their templates, with
+  example values. A row whose own column is empty takes the other one (a sheet with one text column for every
+  row); when both hold different texts the row's own wins and the other is reported. The voucher's narration
+  stays the first filled `Narration`. A file without these columns imports exactly as before (an older
+  export's `Narration` below the first row is not taken as a line's text). A line text longer than voucher
+  entry accepts (1,000 characters, `common.ts › LINE_TEXT_MAX`) is an error naming the row. The Inventory
+  Entries sheet of a sales export imports back as `sales_invoices`, its `Description` included (tested).
 - Masters go through the accounts / inventory services; invoices through `saveVoucher` (GST, round-off and
   stock computed exactly as in manual entry). Typed numbers are kept only when the voucher type allows
   typed numbers (warning otherwise).
@@ -242,6 +257,15 @@ Nothing is written.
   loop between chunks (`data.xmlImport.progress`). ONE `import` audit entry + an `import_batches` row
   (`kind 'xml_data'`).
 
+- Item line descriptions (2.2): `BASICUSERDESCRIPTION.LIST › BASICUSERDESCRIPTION` of an inventory line (in
+  any of the inventory lists) — each value cleaned on its own (`clean()` would fold the line breaks of the
+  joined text), blank ones dropped, joined with `\n` — go to `inventory_entries.description` and
+  `meta.input.items[].description`, **once per source line**: a line that batch allocations split into
+  several rows carries it on its first row only (so it prints once, before and after an alteration). A text
+  longer than 1,000 characters (voucher entry's limit) keeps its first 1,000 and an info issue
+  `description_shortened` says so. Ledger entries' own narrations are not read (the export does not write
+  them either); `gst_lines.description` is unchanged (master names — e-invoice, e-way bill and GSTR-1 HSN
+  descriptions never carry a line's text).
 - Aliases (dataplus): every name of a ledger / stock item's `NAME.LIST` after the first is an alias —
   the first goes to the `alias` column, the rest to `ledger_aliases` / `stock_item_aliases`; one already
   used by another master of the kind is left out with a warning.
@@ -329,7 +353,9 @@ vouchers, skipped: [{reason, count}] }`. For the CA / auditor who works in anoth
   (`BILLTYPE` New Ref / Agst Ref / Advance / On Account, credit period), cost centres
   (`CATEGORYALLOCATIONS.LIST › COSTCENTREALLOCATIONS.LIST`), bank instruments (`BANKALLOCATIONS.LIST`),
   inventory lines (`ALLINVENTORYENTRIES.LIST`, stock journals as `INVENTORYENTRIESIN/OUT.LIST`) with
-  godown / batch allocations and the sales / purchase ledger as `ACCOUNTINGALLOCATIONS.LIST`, party
+  their own description (2.2: `BASICUSERDESCRIPTION.LIST TYPE="String"` first in the line's list, one
+  `BASICUSERDESCRIPTION` per text line, each trimmed, blank lines left out — the position follows exports we
+  have seen), godown / batch allocations and the sales / purchase ledger as `ACCOUNTINGALLOCATIONS.LIST`, party
   GSTIN, registration type, place of supply (state name), optional / cancelled / post-dated flags, the
   voucher GUID as `REMOTEID` and `GUID`. A note carries its original invoice in `REFERENCE` (see above).
   An item line's `AMOUNT` / `ACCOUNTINGALLOCATIONS` is its share of its sales / purchase ledger's posting:
@@ -359,13 +385,16 @@ vouchers, skipped: [{reason, count}] }`. For the CA / auditor who works in anoth
   empty company: trial balance (every group and ledger: opening, Dr, Cr, closing), stock summary (closing
   qty and value per item), `gst_lines` totals per base type and rate, GSTR-3B and GSTR-1 of the month,
   pending bills, every voucher's postings, stock lines, flags, party / GSTIN / place of supply and original
-  invoice, aliases, cost allocations and markup characters in a narration all come out identical. Further
+  invoice, aliases, cost allocations, markup characters in a narration and the item lines' own descriptions
+  (a two-line one with markup characters on a sales line, one on a stock journal's inward line: the file's
+  elements, the stock lines and the stored input) all come out identical. Further
   round trips (dataplus review): a second-year period exported for a receiving company beginning that year
   (Trial Balance incl. openings, stock per godown and batch, pending bills); an invoice with freight in the
   assessable value, cost centres on a carried ledger, a sales order / delivery note / tracked invoice,
   rejection in, memorandum, advance receipt (every row of every voucher, gst_lines and the Trial Balance);
   a reverse-charge purchase and an export under LUT (gst_lines, natures, GSTR-3B).
-- **Not written / known gaps.** Foreign-currency amounts (forex module) are exported in rupees only;
+- **Not written / known gaps.** Ledger lines' own narrations (2.2: the description typed under a
+  Particulars line; item lines' descriptions are written); foreign-currency amounts (forex module) are exported in rupees only;
   e-invoice IRN / e-way bill details; export shipping bill number / date / port code (no XML tag we could
   verify — re-enter them; the GST exceptions report lists such exports); per-line GST overrides (the receiving program takes the rate from the masters);
   SEZ / deemed export / UIN parties are exported as `Regular` and overseas as `Unregistered` (set the
@@ -395,6 +424,12 @@ Backups (dataplus) carry the attached files inside the database snapshot (`attac
 writes the files back into the restored company's attachments folder.
 
 ## Tests
+
+2.2 line texts: `export.test.ts` (Ledger Entries' Narration / Line Narration and Inventory Entries'
+Description, export → import round trip of both sheets), `import.test.ts` (an older file without the
+columns, Line Narration on journals, invoice rows' Description / Line Narration with the fallback, the
+conflict message and the 1,000-character limit), `xmlImport.test.ts` (BASICUSERDESCRIPTION cleaned per
+element, once per source line split over two godowns, a long text shortened) and the XML round trip.
 
 `xmlExport.test.ts` (dataplus): value formats, the round trips above, the file shape (UTF-16LE BOM,
 envelope, escaping, our parser reads it), vouchers-only ZIP and period, permission + audit through the

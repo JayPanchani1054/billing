@@ -94,8 +94,11 @@ The reports routes `reports.trialBalance`, `reports.profitLoss`, `reports.balanc
   cancelled) → *converted* (a live, not cancelled, target exists) → the user's decision *accepted* /
   *rejected* → *expired* (open and past valid-until) → *open*. Only accepted / rejected are stored.
 - **Conversion** (one key: Alt+V invoice, Alt+O sales order): quotation → sales order or sales invoice;
-  proforma → sales invoice. `documents.draft` copies party, lines, terms and order details, sets
-  "Other references" to the source number and `convertedFromId`; the entry screen opens pre-filled.
+  proforma → sales invoice. `documents.draft` copies party, lines (with each line's own text: an item
+  line's description, a ledger line's narration — typed on the quotation, never the masters'), terms and
+  order details, sets "Other references" to the source number and `convertedFromId`; the entry screen
+  opens pre-filled. A quotation posts no ledger entries, so those texts live in its stored input until
+  the converted voucher posts them.
   Saving links target → source in the same transaction (hook) and audits "converted" on the source.
   Refused: already converted (one live conversion — cancel or delete the target to convert again),
   cancelled, rejected, a target dated before the source, an accounting-invoice quotation into a sales
@@ -133,8 +136,14 @@ The reports routes `reports.trialBalance`, `reports.profitLoss`, `reports.balanc
   item invoice / stock voucher with one item line — `amount` replaces it (both sides of the pair; the
   ledger line before tax; the item line's value, qty and rate kept) for the template or for one
   occurrence. Anything with several amounts or cost-centre splits: use *Edit & post*.
-- **Narration placeholders**: `{period}` / `{month}` → "May 2026" (or the date for every-N-days),
-  `{date}` → the posting date, `{fy}` → "2026-27".
+- **Placeholders** in the narration and in every line's own text (an item line's description, a ledger
+  line's narration, the lines of a Manufacturing Journal / Material In / Out's `stockJournal` block, which
+  its item lines are made from): `{period}` / `{month}` → "May 2026" (or the date for every-N-days), `{date}` → the
+  posting date, `{fy}` → "2026-27". The template keeps the placeholders; each occurrence (post, and the
+  Edit & post draft) gets them filled. A filled text is kept within what voucher entry accepts — the
+  narration 4,000 characters, a line's text 1,000 (`{date}` is 6 characters, "05-May-2026" 11) — and cut
+  there (trimmed, never half a surrogate pair; `clampText`), so a posting never holds text a user could
+  not have typed.
 - **Due list**: active templates, occurrences up to `asOf` not posted or skipped, oldest first, at most 60
   per template (then `truncated`). The schedule is walked in windows (`undoneOccurrences`), so years of
   dealt-with daily occurrences never hide the next ones (the next-due date likewise). Nothing posts by itself (no background process): the Gateway shows a
@@ -152,8 +161,9 @@ counting invoices dated on or before `asOf`. Optional and cancelled documents ne
 `totals.olderThan7Days` counts delivery / receipt notes (challans) with a line unbilled for more than 7
 days — not rejections, which await a credit / debit note rather than an invoice. Value =
 pending qty × the note's rate less discount (a stock-only challan has value 0). `ageDays` = asOf − note
-date. "Invoice now" = `documents.draft {sourceId: note, targetBaseType}` with the pending quantities and
-`trackingRef` = the note number (no second stock movement). Legal context shown to the user: for a
+date. "Invoice now" = `documents.draft {sourceId: note, targetBaseType}` with the pending quantities, each
+note line's own description (`inventory_entries.description` — also on what is left of a partly billed
+line; a line without one gets none) and `trackingRef` = the note number (no second stock movement). Legal context shown to the user: for a
 taxable supply of goods the invoice is due before or at removal (CGST Act s.31(1)); a delivery challan
 covers job work, goods on approval, transport other than for supply and quantity-unknown removals
 (CGST Rule 55).
@@ -208,7 +218,9 @@ today, and respect the period lock. Optional and cancelled orders cannot be pre-
 ## Tests
 
 `quotations.test.ts`, `recurring.test.ts`, `schedule.test.ts`, `billsPending.test.ts`, `budgets.test.ts`
-(scenarios included), `review.test.ts` (regressions from the review: schedule changes, long catch-up,
+(scenarios included; 2.2: line texts through a conversion, "Invoice now" of a partly billed note, and
+placeholders in line texts — a Manufacturing Journal's lines too — kept within the route limits, checked
+against the vouchers.save schema), `review.test.ts` (regressions from the review: schedule changes, long catch-up,
 paused alter, pre-close duplicates, challan count, duplicate validity, budget totals / basis) against a
 real in-memory company, and `e2e.test.ts` through `runtime.dispatch`
 (quotation → invoice, recurring post twice → once, bills pending → invoice, pre-close / reopen, reversing

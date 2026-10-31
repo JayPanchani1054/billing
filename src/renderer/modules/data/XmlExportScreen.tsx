@@ -18,7 +18,7 @@ import { openingsNote, xmlExportProblem, xmlExportSummary, xmlImportSteps } from
 
 /** What the XML interchange cannot carry (2.1: the "Vouchers" tooltip and the result, not a banner before it). */
 const XML_NOT_EXPORTED =
-  'Quotations, proforma invoices and physical stock vouchers are not exported (they are not part of the XML interchange). Amounts in foreign currency are exported in rupees.';
+  'Quotations, proforma invoices and physical stock vouchers are not exported (they are not part of the XML interchange). Amounts in foreign currency are exported in rupees. Item lines keep their own descriptions; the text under a ledger line is not exported.';
 
 export function XmlExportScreen() {
   const nav = useNav();

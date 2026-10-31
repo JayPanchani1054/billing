@@ -18,9 +18,10 @@
  *
  * Vouchers (the period; optional / cancelled / post-dated flagged as the format does): accounting entries
  * (ALLLEDGERENTRIES.LIST, or LEDGERENTRIES.LIST beside inventory lines), bill-wise allocations,
- * cost-centre allocations, bank instrument details, inventory lines with godown / batch allocations
- * and the sales / purchase ledger as ACCOUNTINGALLOCATIONS, stock journal IN / OUT lists, and the GST
- * facts of the invoice (party GSTIN, registration type, place of supply, the duty-ledger postings).
+ * cost-centre allocations, bank instrument details, inventory lines with godown / batch allocations,
+ * their own description (BASICUSERDESCRIPTION.LIST, one element per text line) and the sales / purchase
+ * ledger as ACCOUNTINGALLOCATIONS, stock journal IN / OUT lists, and the GST facts of the invoice (party
+ * GSTIN, registration type, place of supply, the duty-ledger postings).
  * Amounts are written AS RECORDED — the receiving program gets the same tax, round-off and totals.
  *
  * Conventions: XML amounts are negative for Debit (ours are Dr +), dates 'yyyymmdd', quantities
@@ -28,7 +29,8 @@
  * value is XML-escaped; nothing typed by a user is written as markup.
  *
  * Not written (documented in the module README): quotations / proforma invoices (no such voucher
- * type in the format), physical stock vouchers, e-invoice / e-way bill details, per-line GST override tags
+ * type in the format), physical stock vouchers, the narrations of ledger lines (only the voucher's
+ * NARRATION and the item lines' descriptions), e-invoice / e-way bill details, per-line GST override tags
  * (the receiving program takes the rate details from the exported masters), SEZ / deemed export / UIN party
  * types (exported as Regular — set "Party type" in the receiving program), price lists, BOMs, budgets, scenarios.
  */
@@ -131,6 +133,18 @@ export function xmlQtyText(qty: number, unit: string): string {
   const q = Math.abs(qty);
   const s = Number.isInteger(q) ? String(q) : String(Math.round(q * 10_000) / 10_000);
   return ` ${s} ${unit}`;
+}
+
+/**
+ * A line's own description as the format's BASICUSERDESCRIPTION values: one per text line, each trimmed,
+ * blank lines left out (the format has no empty description line). The importer joins them with '\n'.
+ */
+export function descriptionLines(text: string | null | undefined): string[] {
+  if (!text) return [];
+  return text
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
 }
 
 /** Opening quantity: signed (a negative opening stays negative), else as xmlQtyText. */
@@ -747,6 +761,8 @@ interface IeRow {
   tracking_ref: string | null;
   order_ref: string | null;
   is_consumption: number;
+  /** The line's own description (typed on the voucher; never the item master's). */
+  description: string | null;
 }
 
 interface BillRow {
@@ -891,7 +907,7 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
     const inventoryOf = groupBy(
       db.all<IeRow & { voucher_id: number }>(
         `SELECT ie.voucher_id, ie.id, ie.line_no, i.name AS item, u.symbol AS unit, g.name AS godown, g.is_predefined AS godown_predefined, ie.batch_name, ie.qty, ie.billed_qty,
-                ie.rate, ie.discount_pct, ie.amount, ie.ledger_id, l.name AS ledger, ie.tracking_ref, ie.order_ref, ie.is_consumption
+                ie.rate, ie.discount_pct, ie.amount, ie.ledger_id, l.name AS ledger, ie.tracking_ref, ie.order_ref, ie.is_consumption, ie.description
            FROM inventory_entries ie JOIN stock_items i ON i.id = ie.item_id JOIN units u ON u.id = i.unit_id
            LEFT JOIN godowns g ON g.id = ie.godown_id LEFT JOIN ledgers l ON l.id = ie.ledger_id
           WHERE ie.voucher_id IN (SELECT value FROM json_each(:ids)) ORDER BY ie.voucher_id, ie.line_no, ie.id`,
@@ -995,6 +1011,8 @@ async function writeVouchers(db: Db, from: string, to: string, today: string, em
           const rowValues = value === amount ? rows.map((r) => r.amount) : allocate(value, rows.map((r) => r.amount));
           const tag = stockJournal ? (inward ? 'INVENTORYENTRIESIN.LIST' : 'INVENTORYENTRIESOUT.LIST') : 'ALLINVENTORYENTRIES.LIST';
           o.open(tag);
+          // The line's own description first, one element per text line (the format's user description).
+          o.list('BASICUSERDESCRIPTION.LIST', 'BASICUSERDESCRIPTION', descriptionLines(rows.find((r) => r.description)?.description));
           o.el('STOCKITEMNAME', first.item);
           o.yesNo('ISDEEMEDPOSITIVE', inward);
           if (first.rate) o.el('RATE', xmlRateText(first.rate, first.unit));

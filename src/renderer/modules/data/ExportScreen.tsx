@@ -133,7 +133,10 @@ export function ExportScreen() {
         <TipCheckbox label="Optional vouchers" tip="Entries marked optional (not in the books)" checked={includeOptional} onChange={setIncludeOptional} />
         <TipCheckbox label="Cancelled vouchers" tip="Kept for the number series, with no amounts" checked={includeCancelled} onChange={setIncludeCancelled} />
       </FieldGroup>
-      <Field label="Format" hint={vFormat === 'csv' ? 'Three CSV files (vouchers, ledger entries, stock lines) in one .zip file.' : 'One workbook with three sheets: Vouchers, Ledger Entries, Inventory Entries.'}>
+      <Field
+        label="Format"
+        hint={`${vFormat === 'csv' ? 'Three CSV files (vouchers, ledger entries, stock lines) in one .zip file.' : 'One workbook with three sheets: Vouchers, Ledger Entries, Inventory Entries.'} A line’s own text is under Line Narration (ledger entries) or Description (stock lines).`}
+      >
         <SegmentedControl aria-label="Vouchers file format" options={FORMAT_OPTIONS} value={vFormat} onChange={setVFormat} />
       </Field>
       {vouchersProblem ? <p className="bx-muted" role="status">{vouchersProblem}</p> : null}

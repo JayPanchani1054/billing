@@ -25,6 +25,7 @@ import { mainGodownId } from '../inventory/index.ts';
 import { loadVoucherType, periodRange } from '../vouchers/numbering.ts';
 import { saveVoucher } from '../vouchers/service.ts';
 import type { ImportKind } from '../../../shared/types/data.ts';
+import { LINE_TEXT_MAX } from './common.ts';
 
 export type Typed = string | number | boolean | null;
 
@@ -78,6 +79,34 @@ const first = <T>(rows: ParsedRow[], get: (r: ParsedRow) => T | undefined): T | 
   }
   return undefined;
 };
+
+/** Headings of the columns holding a line's own text (importSpecs.ts). */
+const LINE_TEXT_HEADER = { description: 'Description', lineNarration: 'Line Narration' } as const;
+type LineTextKey = keyof typeof LINE_TEXT_HEADER;
+
+/** A line's own text from its column; longer than voucher entry accepts for a line is an error. */
+function lineText(r: ParsedRow, key: LineTextKey): string | undefined {
+  const s = str(r, key);
+  if (s !== undefined && s.length > LINE_TEXT_MAX) {
+    fail(`Row ${r.rowNumber}: ${LINE_TEXT_HEADER[key]} has ${s.length.toLocaleString('en-IN')} characters; a line's text can have at most ${LINE_TEXT_MAX.toLocaleString('en-IN')}. Shorten it.`);
+  }
+  return s;
+}
+
+/**
+ * The text of an invoice row's line: an item row's Description, a ledger row's Line Narration — or the
+ * other column when only that one is filled (a sheet with one text column for every row). When both
+ * hold different texts the row's own column wins and the other is reported.
+ */
+function invoiceLineText(r: ParsedRow, own: LineTextKey, messages: string[]): string | undefined {
+  const other: LineTextKey = own === 'description' ? 'lineNarration' : 'description';
+  const mine = lineText(r, own);
+  const theirs = lineText(r, other);
+  if (mine !== undefined && theirs !== undefined && mine !== theirs) {
+    messages.push(`Row ${r.rowNumber}: ${LINE_TEXT_HEADER[other]} was not imported — the text of ${own === 'description' ? 'an item' : 'a ledger'} row is its ${LINE_TEXT_HEADER[own]}.`);
+  }
+  return mine ?? theirs;
+}
 
 /** Id of a named master (name or alias, case-insensitive). Table names are constants, never user input. */
 export function findByName(db: Db, table: 'groups' | 'ledgers' | 'stock_items' | 'stock_groups' | 'stock_categories' | 'godowns' | 'cost_centres', name: string): number | null {
@@ -617,11 +646,15 @@ function invoiceApplier(side: 'sales' | 'purchase'): Applier {
         const gd = godownId(db, str(r, 'godown'));
         if (gd !== undefined) line.godownId = gd;
         if (rate !== undefined) line.gstRateOverride = normaliseGstRate(rate);
+        const text = invoiceLineText(r, 'description', messages);
+        if (text !== undefined) line.description = text;
         items.push(line);
       } else if (ledgerName !== undefined) {
         if (amount === undefined) fail(`Row ${r.rowNumber}: Amount is required for ledger line ${ledgerName}.`);
         const line: LedgerLineInput = { ledgerId: ledgerId(db, ledgerName), amount: amount as number };
         if (rate !== undefined) line.gst = { rate: normaliseGstRate(rate) };
+        const text = invoiceLineText(r, 'lineNarration', messages);
+        if (text !== undefined) line.narration = text;
         ledgers.push(line);
       } else {
         fail(`Row ${r.rowNumber}: give an Item (with Qty and Rate) or a Ledger (with Amount).`);
@@ -666,6 +699,9 @@ const applyLedgerVoucher: Applier = (ctx, rec, opts) => {
     }
     const chq = str(r, 'instrumentNo');
     if (chq !== undefined) line.instrument = { type: 'cheque', number: chq, date: str(r, 'instrumentDate') };
+    // The line's own text (Line Narration); the Narration column is the voucher's (first filled row).
+    const text = lineText(r, 'lineNarration');
+    if (text !== undefined) line.narration = text;
     return line;
   });
   return saveImportedVoucher(ctx, input, opts, messages);

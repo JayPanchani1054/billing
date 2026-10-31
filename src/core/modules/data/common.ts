@@ -22,6 +22,21 @@ export function requirePermission(ctx: Pick<CompanyCtx, 'session'>, perm: Permis
   if (!hasPermission(ctx, perm)) throw forbidden(`You do not have permission to ${PERMISSION_TEXT[perm] ?? perm}. Ask the owner to grant "${perm}".`);
 }
 
+/**
+ * Longest text of one voucher line — an item line's description, a ledger line's narration — that voucher
+ * entry accepts (the vouchers.save route limit), so an imported voucher can always be altered and saved.
+ */
+export const LINE_TEXT_MAX = 1000;
+
+/** A line's text cut to LINE_TEXT_MAX characters (never half a surrogate pair), trimmed at the end. */
+export function clampLineText(text: string): string {
+  if (text.length <= LINE_TEXT_MAX) return text;
+  let cut = text.slice(0, LINE_TEXT_MAX);
+  const last = cut.charCodeAt(cut.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+  return cut.trimEnd();
+}
+
 /** Windows-safe file name part: no reserved characters, no trailing dots/spaces, bounded length. */
 export function safeFileNamePart(name: string, fallback = 'Company', max = 80): string {
   const cleaned = name

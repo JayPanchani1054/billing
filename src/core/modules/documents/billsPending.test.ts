@@ -64,6 +64,51 @@ describe('sales / purchase bills pending', () => {
     k.t.close();
   });
 
+  it('"Invoice now" bills each line with its own description, also the rest of a partly billed line', () => {
+    // Delivery Note 1: Mixer 10 (described), Rice 20, Rice 5 (described), Mixer 2. Sales 1 bills Mixer 4 and
+    // Rice 22: in line order the first mixer line keeps 6, the first rice line is billed in full and the
+    // second keeps 3; the last mixer line (no description) keeps its 2.
+    const k = setupKit({ today: '2026-04-15', features: { orderProcessing: true, trackingNumbers: true } });
+    const red = 'Red, 750 W\nSerials MX-01 to MX-10';
+    const dn = save(k, {
+      voucherTypeId: k.vt.delivery_note,
+      date: '2026-04-05',
+      mode: 'item_invoice',
+      partyLedgerId: k.L.acme,
+      items: [
+        { itemId: k.I.mixer, qty: 10, rate: 150, description: red },
+        { itemId: k.I.rice, qty: 20, rate: 50 },
+        { itemId: k.I.rice, qty: 5, rate: 50, description: 'Sample bags' },
+        { itemId: k.I.mixer, qty: 2, rate: 150 },
+      ],
+    });
+    save(k, {
+      voucherTypeId: k.vt.sales,
+      date: '2026-04-10',
+      mode: 'item_invoice',
+      partyLedgerId: k.L.acme,
+      items: [
+        { itemId: k.I.mixer, qty: 4, rate: 150, trackingRef: '1' },
+        { itemId: k.I.rice, qty: 22, rate: 50, trackingRef: '1' },
+      ],
+    });
+    const d = draftVoucher(k.t.ctx, { sourceId: dn.id, targetBaseType: 'sales' });
+    assert.deepEqual(d.items?.map((i) => [i.itemId, i.qty, i.description ?? null]), [
+      [k.I.mixer, 6, red],
+      [k.I.rice, 3, 'Sample bags'],
+      [k.I.mixer, 2, null],
+    ]);
+    assert.equal(d.items && 'description' in d.items[2], false, 'a line without a description gets none');
+    // The invoice keeps them on its own lines (not the item master's description).
+    const inv = save(k, d);
+    assert.deepEqual(
+      k.t.db.all<{ description: string | null }>('SELECT description FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no', { id: inv.id }).map((r) => r.description),
+      [red, 'Sample bags', null],
+    );
+    assert.equal(billsPending(k.t.db, { kind: 'sales', asOf: '2026-04-15' }).rows.length, 0);
+    k.t.close();
+  });
+
   it('purchase side: receipt notes and rejections out', () => {
     const k = setupKit({ today: '2026-04-15', features: { trackingNumbers: true, rejectionNotes: true } });
     save(k, { voucherTypeId: k.vt.receipt_note, date: '2026-04-02', mode: 'item_invoice', partyLedgerId: k.L.supplier, items: [{ itemId: k.I.rice, qty: 30, rate: 40 }] });

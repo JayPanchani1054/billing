@@ -54,6 +54,16 @@ const GST_COLUMNS = (ex: [ColumnSpec['examples'], ColumnSpec['examples'], Column
   c('taxability', 'Taxability', 'choice', 'Taxable (default), Exempt, Nil Rated or Non-GST.', ex[2], { choices: TAXABILITY_CHOICES }),
 ];
 
+/** Item rows of an invoice: the line's own description (this voucher only, never the item master's). */
+const ITEM_DESCRIPTION = (examples: ColumnSpec['examples']): ColumnSpec =>
+  c('description', 'Description', 'text', "Item rows: this line's own description, printed under the item on this invoice only (not the item's master description). Up to 1,000 characters.", examples, {
+    aliases: ['item description', 'line description'],
+  });
+
+/** A ledger line's own text (printed under the ledger name); the Narration column stays the voucher's. */
+const LINE_NARRATION = (help: string, examples: ColumnSpec['examples']): ColumnSpec =>
+  c('lineNarration', 'Line Narration', 'text', `${help} Up to 1,000 characters.`, examples, { aliases: ['ledger narration', 'entry narration', 'line remarks'] });
+
 export const KIND_SPECS: Record<ImportKind, KindSpec> = {
   groups: {
     kind: 'groups',
@@ -309,11 +319,14 @@ export const KIND_SPECS: Record<ImportKind, KindSpec> = {
       c('godown', 'Godown', 'text', 'Godown (default Main Location).', [null, null], { aliases: ['location'] }),
       c('placeOfSupply', 'Place of Supply', 'text', 'State name or code (default: the party’s state).', [null, null], { aliases: ['pos', 'supply state'] }),
       c('narration', 'Narration', 'text', 'Narration (first row of the invoice).', ['Imported invoice', null], { aliases: ['remarks', 'notes'] }),
+      ITEM_DESCRIPTION(['Stainless steel jars, 2-year warranty', null]),
+      LINE_NARRATION('Ledger rows (freight, discount …): this line\'s own text, printed under the ledger name.', [null, 'Courier to Pune']),
     ],
     instructions: [
       'Rows with the same Invoice No form one invoice. Item rows need Item, Qty and Rate; other rows need Ledger and Amount.',
       'GST, round-off and party totals are computed as when you enter the invoice yourself.',
       'The Invoice No is kept when the voucher type numbering allows typed numbers (Manual or Automatic with override); otherwise the next automatic number is used.',
+      'Narration is the invoice\'s own text. Description (item rows) and Line Narration (ledger rows) belong to that row\'s line and print under its name.',
     ],
   },
 
@@ -349,8 +362,13 @@ export const KIND_SPECS: Record<ImportKind, KindSpec> = {
       c('godown', 'Godown', 'text', 'Godown (default Main Location).', [null, null], { aliases: ['location'] }),
       c('placeOfSupply', 'Place of Supply', 'text', 'State name or code (default: the supplier’s state).', [null, null], { aliases: ['pos', 'supply state'] }),
       c('narration', 'Narration', 'text', 'Narration (first row of the bill).', [null, null], { aliases: ['remarks', 'notes'] }),
+      ITEM_DESCRIPTION(['Batch R-104, 25 kg bags', null]),
+      LINE_NARRATION('Ledger rows (freight, packing …): this line\'s own text, printed under the ledger name.', [null, 'Transport from Bhiwandi']),
     ],
-    instructions: ['Rows with the same Supplier and Supplier Invoice No form one purchase voucher.'],
+    instructions: [
+      'Rows with the same Supplier and Supplier Invoice No form one purchase voucher.',
+      'Narration is the bill\'s own text. Description (item rows) and Line Narration (ledger rows) belong to that row\'s line and print under its name.',
+    ],
   },
 
   vouchers_ledger: {
@@ -378,8 +396,13 @@ export const KIND_SPECS: Record<ImportKind, KindSpec> = {
       c('instrumentNo', 'Cheque/Ref No', 'text', 'Cheque or transfer reference (bank lines).', [null, null], { aliases: ['cheque no', 'instrument no', 'utr', 'chq no'] }),
       c('instrumentDate', 'Cheque Date', 'date', 'Cheque / instrument date.', [null, null], { aliases: ['instrument date', 'chq date'] }),
       c('referenceNo', 'Reference No', 'text', 'Voucher reference (first line).', [null, null], { aliases: ['reference', 'ref'] }),
+      LINE_NARRATION("This line's own text, printed under the ledger name (Narration is the voucher's).", ['Office at MG Road, April', 'Set off against INV-0911']),
     ],
-    instructions: ['Every voucher must balance: total Debit = total Credit.', 'Payment vouchers need a Cash/Bank credit; receipts a Cash/Bank debit.'],
+    instructions: [
+      'Every voucher must balance: total Debit = total Credit.',
+      'Payment vouchers need a Cash/Bank credit; receipts a Cash/Bank debit.',
+      "Narration is the voucher's own text (first line). Line Narration belongs to that row's line and prints under its ledger.",
+    ],
   },
 };
 

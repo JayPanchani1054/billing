@@ -136,6 +136,22 @@ describe('quotation / proforma documents', () => {
     k.t.close();
   });
 
+  it('a conversion keeps each line\'s own text: item descriptions and ledger-line narrations reach the invoice', () => {
+    const k = kit();
+    const jar = 'Stainless steel jar\n2-year warranty';
+    const q = save(k, quote(k, { items: [{ itemId: k.I.mixer, qty: 5, rate: 200, description: jar }], ledgers: [{ ledgerId: k.L.freight, amount: 100_00, narration: 'Door delivery, Pune' }] }));
+    for (const target of ['sales_order', 'sales'] as const) {
+      const d = draftVoucher(k.t.ctx, { sourceId: q.id, targetBaseType: target });
+      assert.equal(d.items?.[0].description, jar, target);
+      assert.equal(d.ledgers?.[0].narration, 'Door delivery, Pune', target);
+    }
+    // The quotation posts no entries, so its texts live in its stored input; the invoice posts them.
+    const inv = save(k, draftVoucher(k.t.ctx, { sourceId: q.id, targetBaseType: 'sales' }));
+    assert.equal(k.t.db.value('SELECT description FROM inventory_entries WHERE voucher_id = :id', { id: inv.id }), jar);
+    assert.equal(k.t.db.value('SELECT narration FROM ledger_entries WHERE voucher_id = :id AND ledger_id = :l', { id: inv.id, l: k.L.freight }), 'Door delivery, Pune');
+    k.t.close();
+  });
+
   it('a proforma converts only into a sales invoice; rejected / cancelled documents cannot convert', () => {
     const k = kit();
     const p = save(k, quote(k, { voucherTypeId: k.vt.proforma }));
