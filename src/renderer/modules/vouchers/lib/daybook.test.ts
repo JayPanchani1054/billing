@@ -11,19 +11,22 @@ import {
   dayBookExportRows,
   dayBookExportTotals,
   dayBookTotals,
-  entryDetailLine,
-  hiddenItemColumns,
   isWholePeriod,
   keyAfterRemoval,
-  lineDescription,
   openTarget,
-  partyLine,
-  referenceLine,
   SEARCH_MAX,
   searchText,
   toDayBookRow,
   toggleChip,
   typesLabel,
+  voucherCount,
+} from './daybook.ts';
+import {
+  entryDetailLine,
+  hiddenItemColumns,
+  lineDescription,
+  partyLine,
+  referenceLine,
   NAME_PENDING,
   viewEntryRows,
   viewLineLedgerIds,
@@ -31,8 +34,7 @@ import {
   viewSections,
   viewStateWords,
   viewTotals,
-  voucherCount,
-} from './daybook.ts';
+} from './voucherView.ts';
 import { dayBookSide, defaultTypeFor, partyRequired, singleEntryAccountSide, trackingKinds } from './kinds.ts';
 
 const row = (over: Partial<VoucherListRow>): VoucherListRow => ({

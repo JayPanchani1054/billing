@@ -1,6 +1,6 @@
 /**
  * Contract test (2.2): the voucher view's Particulars of a voucher that posts no ledger entries
- * (lib/daybook.ts › viewSections().lines, viewLineRows, viewLineLedgerIds) driven by the REAL engine's
+ * (lib/voucherView.ts › viewSections().lines, viewLineRows, viewLineLedgerIds) driven by the REAL engine's
  * vouchers.get on an in-memory company (src/core/modules/vouchers testkit: a Maharashtra GST trader).
  *
  *  - a sales order entered as an invoice keeps its charges only as entered: the view shows them with their
@@ -18,7 +18,7 @@ import { getLedger } from '../../../../core/modules/accounts/ledgers.ts';
 import { getVoucher } from '../../../../core/modules/vouchers/queries.ts';
 import { cancelVoucher } from '../../../../core/modules/vouchers/service.ts';
 import { save, setupKit } from '../../../../core/modules/vouchers/testkit.ts';
-import { viewEntryRows, viewLineLedgerIds, viewLineRows, viewSections } from './daybook.ts';
+import { viewEntryRows, viewLineLedgerIds, viewLineRows, viewSections } from './voucherView.ts';
 
 const k = setupKit({ features: { orderProcessing: true } });
 after(() => k.t.close());

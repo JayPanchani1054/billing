@@ -13,7 +13,7 @@
  * 2.2: a line's own description, typed on this voucher, shows as typed (line breaks kept) on a muted line
  * under its name — an item line's description (never the stock item's master description) and a Dr / Cr
  * line's narration, which no longer joins the details line (bills, cost centres, instrument, bank date)
- * under it. A row with a line under its name keeps every cell on the name's line (lib/daybook.ts
+ * under it. A row with a line under its name keeps every cell on the name's line (lib/voucherView.ts
  * `lineDescription`, `viewEntryRows`). The Items and Accounting entries tables are never windowed
  * (`virtualize={false}`): they are as tall as their rows (the page scrolls, not the table), so windowing
  * saves nothing, and its one-row-height arithmetic cannot place rows of different heights — a described
@@ -25,7 +25,7 @@
  * under it like an entry's, and its amount as entered (+ adds to the document's value, − deducts), in the
  * entries' place and by the same rule — by default without item lines (an accounting quotation's lines),
  * behind Detailed beside them (an order's "Charges & discounts", like an invoice's entries) — never on a
- * cancelled voucher, never a line without an amount (lib/daybook.ts `viewLineRows`, `viewSections().lines`).
+ * cancelled voucher, never a line without an amount (lib/voucherView.ts `viewLineRows`, `viewSections().lines`).
  *
  * Keys: Alt+A alter · Alt+P print · Alt+F1 detailed · Alt+2 duplicate · Alt+X cancel · Alt+D delete ·
  * Alt+H history · Ctrl+R change the number (2.0: vouchers.renumber + vouchers.alter → 'vouchers.renumber';
@@ -43,8 +43,19 @@ import { setUiPrefs, useUiPrefs } from '../../app/preferences.ts';
 import { amountInWords } from '../../../shared/words.ts';
 import { Banner, DataTable, EmptyState, Inline, KeyValueList, Panel, Stack, useToast } from '../../ui/index.ts';
 import type { Column, KeyValueItem } from '../../ui/index.ts';
-import { hiddenItemColumns, lineDescription, partyLine, referenceLine, viewEntryRows, viewLineLedgerIds, viewLineRows, viewSections, viewStateWords, viewTotals } from './lib/daybook.ts';
-import type { ViewEntryRow, ViewLineRow } from './lib/daybook.ts';
+import {
+  hiddenItemColumns,
+  lineDescription,
+  partyLine,
+  referenceLine,
+  viewEntryRows,
+  viewLineLedgerIds,
+  viewLineRows,
+  viewSections,
+  viewStateWords,
+  viewTotals,
+} from './lib/voucherView.ts';
+import type { ViewEntryRow, ViewLineRow } from './lib/voucherView.ts';
 import { INSTRUMENT_LABEL, ReasonDialog } from './entry/dialogs.tsx';
 import { VOUCHER_INVALIDATES } from './entry/VoucherEntryScreen.tsx';
 import { ChangeNumberDialog } from './ChangeNumberDialog.tsx';
