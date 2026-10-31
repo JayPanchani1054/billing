@@ -17,7 +17,7 @@ import { decodeText } from '../../lib/text.ts';
 import { readXlsx } from '../../lib/xlsx.ts';
 import { readZip } from '../../lib/zip.ts';
 import { createTestCompany, type TestCompany } from '../../testing/fixtures.ts';
-import { entityTypeLabel, entityTypesMatching, localDayStartIso } from './auditlog.ts';
+import { entityTypeLabel, entityTypesMatching, localDayStartIso, summarizeEntry } from './auditlog.ts';
 import { securityRoutes as R } from './routes.ts';
 
 const HOUR = 3_600_000;
@@ -124,6 +124,59 @@ describe('edit log: list', () => {
     assert.deepEqual(f.users.map((u) => `${u.username}:${u.count}`), ['ravi:4', 'sita:3']);
     assert.equal(f.actions.find((a) => a.value === 'create')?.count, 3);
     assert.ok(f.firstTs && f.lastTs && f.firstTs < f.lastTs);
+    t.close();
+  });
+});
+
+describe('edit log: voucher line descriptions (2.2)', () => {
+  // A voucher's image (vouchers/service.ts › AuditSnapshot) keeps the texts typed under its lines in
+  // `lineDescriptions`, keyed by line: { items?: { '1': text }, ledgers?: { '2': text } }.
+  const base = { number: '1', amount: 118000, entries: [[10, 118000], [20, -118000]] };
+  const blue = { ...base, lineDescriptions: { items: { '1': 'Blue' } } };
+
+  it('names changed line descriptions once, after any other changed field', () => {
+    assert.equal(summarizeEntry('alter', 'voucher', blue, { ...base, lineDescriptions: { items: { '1': 'Red' } } }), 'Line descriptions changed');
+    assert.equal(summarizeEntry('alter', 'voucher', base, blue), 'Line descriptions changed', 'the first text on a voucher');
+    assert.equal(summarizeEntry('alter', 'voucher', blue, base), 'Line descriptions changed', 'the last text removed');
+    assert.equal(
+      summarizeEntry('alter', 'voucher', blue, { ...base, lineDescriptions: { items: { '1': 'Blue', '2': 'Red' }, ledgers: { '1': 'Freight to site' } } }),
+      'Line descriptions changed',
+      'several lines are one mention',
+    );
+    assert.equal(summarizeEntry('alter', 'voucher', blue, { ...base, amount: 236000, lineDescriptions: { items: { '1': 'Red' } } }), 'Changed 1 field: amount; line descriptions changed');
+    assert.equal(summarizeEntry('alter', 'voucher', blue, { ...blue }), 'Saved without changes');
+    assert.equal(summarizeEntry('create', 'voucher', null, blue), 'Created voucher');
+  });
+
+  it('entries without them — every entry recorded before 2.2 — read exactly as before', () => {
+    const after = { ...base, amount: 236000, narration: 'Corrected' };
+    assert.equal(summarizeEntry('alter', 'voucher', base, after), 'Changed 2 fields: amount, narration');
+    assert.equal(summarizeEntry('alter', 'voucher', base, after), summarizeEntry('alter', 'ledger', base, after), 'the text any record gets');
+    // The key means line descriptions on vouchers only.
+    assert.equal(
+      summarizeEntry('alter', 'ledger', { lineDescriptions: { items: { '1': 'a' } } }, { lineDescriptions: { items: { '1': 'b' } } }),
+      'Changed 1 field: lineDescriptions.items["1"]',
+    );
+  });
+
+  it('lists and shows such entries with their field changes; the hash chain stays intact', async () => {
+    const t = createTestCompany({ security: true, today: '2026-04-15' });
+    const ravi = t.sessionAs({ role: 'Accountant', username: 'ravi', userId: 2 });
+    const add = (e: AuditEntry) => appendAudit(t.db, e, ravi, t.clock.now());
+    const voucher = { entityType: 'voucher', entityId: 1, entityGuid: 'v-1', entityLabel: 'Sales 1 dated 15-Apr-2026' } as const;
+    add({ ...voucher, action: 'create', after: base }); // #1, recorded the way builds before 2.2 did
+    add({ ...voucher, action: 'alter', before: base, after: { ...base, amount: 236000 } }); // #2
+    add({ ...voucher, action: 'alter', before: { ...base, amount: 236000 }, after: { ...blue, amount: 236000 } }); // #3
+    const r = await list(t);
+    assert.deepEqual(r.rows.map((x) => [x.id, x.summary]), [
+      [3, 'Line descriptions changed'],
+      [2, 'Changed 1 field: amount'],
+      [1, 'Created voucher'],
+    ]);
+    const h = await t.callOk<AuditEntityHistory>(R, 'security.audit.entityHistory', { entityType: 'voucher', entityId: 1 });
+    assert.deepEqual(h.versions[2].changes, [{ path: 'lineDescriptions.items["1"]', kind: 'added', before: null, after: 'Blue' }]);
+    const v = await t.callOk<AuditVerifyReport>(R, 'security.audit.verify');
+    assert.deepEqual([v.ok, v.count], [true, 3]);
     t.close();
   });
 });

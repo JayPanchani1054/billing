@@ -81,6 +81,7 @@ interface InventoryRow {
   is_consumption: number;
   hsn_sac: string | null;
   gst_rate: number | null;
+  description: string | null;
 }
 
 interface GstRow {
@@ -110,7 +111,7 @@ export function inventoryView(db: Db, voucherId: number): PreviewInventoryLine[]
     .all<InventoryRow>(
       `SELECT ie.line_no, ie.item_id, si.name AS item_name, u.symbol AS unit, ie.godown_id, g.name AS godown_name, ie.batch_name,
               ie.qty, ie.billed_qty, ie.rate, ie.discount_pct, ie.amount, ie.ledger_id, ie.affects_stock, ie.tracking_ref,
-              ie.order_ref, ie.is_consumption, ie.hsn_sac, ie.gst_rate
+              ie.order_ref, ie.is_consumption, ie.hsn_sac, ie.gst_rate, ie.description
          FROM inventory_entries ie
          JOIN stock_items si ON si.id = ie.item_id
          JOIN units u ON u.id = si.unit_id
@@ -139,6 +140,7 @@ export function inventoryView(db: Db, voucherId: number): PreviewInventoryLine[]
       isConsumption: r.is_consumption === 1,
       hsnSac: r.hsn_sac,
       gstRate: r.gst_rate,
+      description: r.description,
     }));
 }
 
@@ -531,11 +533,13 @@ interface SourceLine {
   rate: number;
   discount_pct: number;
   ledger_id: number | null;
+  description: string | null;
 }
 
 const SOURCE_SQL = (refColumn: 'tracking_ref' | 'order_ref'): string =>
   `SELECT v.id AS voucher_id, vt.name AS voucher_type_name, v.number, v.date, ie.${refColumn} AS ref, ie.item_id,
-          si.name AS item_name, u.symbol AS unit, ie.godown_id, ie.batch_name, ABS(ie.qty) AS qty, ie.rate, ie.discount_pct, ie.ledger_id
+          si.name AS item_name, u.symbol AS unit, ie.godown_id, ie.batch_name, ABS(ie.qty) AS qty, ie.rate, ie.discount_pct, ie.ledger_id,
+          ie.description
      FROM inventory_entries ie
      JOIN vouchers v ON v.id = ie.voucher_id
      JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -611,6 +615,7 @@ export function trackingRefs(db: Db, partyLedgerId: number, kind: TrackingKind, 
       rate: l.rate,
       discountPct: l.discount_pct,
       ledgerId: l.ledger_id,
+      description: l.description,
     });
   }
   if (spec.column === 'order_ref') {

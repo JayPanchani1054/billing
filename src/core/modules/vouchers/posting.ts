@@ -1786,6 +1786,7 @@ export function previewInventory(plan: PostingPlan): PreviewInventoryLine[] {
       isConsumption: l.isConsumption,
       hsnSac: l.hsnSac,
       gstRate: l.gstRate,
+      description: l.description,
     };
   });
 }

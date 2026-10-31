@@ -231,8 +231,8 @@ export function storedInput(db: Db, row: VoucherRow): VoucherInput {
       ledgers: lines.map((l) => ({ ledgerId: l.ledger_id, amount: l.amount, narration: l.narration ?? undefined })),
     };
   }
-  const items = db.all<{ item_id: number; godown_id: number | null; batch_name: string | null; qty: number; rate: number; amount: number; is_consumption: number }>(
-    'SELECT item_id, godown_id, batch_name, qty, rate, amount, is_consumption FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no',
+  const items = db.all<{ item_id: number; godown_id: number | null; batch_name: string | null; qty: number; rate: number; amount: number; description: string | null; is_consumption: number }>(
+    'SELECT item_id, godown_id, batch_name, qty, rate, amount, description, is_consumption FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no',
     { id: row.id },
   );
   return {
@@ -248,6 +248,7 @@ export function storedInput(db: Db, row: VoucherRow): VoucherInput {
       qty: Math.abs(i.qty),
       rate: i.rate,
       amount: i.amount,
+      description: i.description ?? undefined,
       isConsumption: i.is_consumption === 1 || undefined,
     })),
   };
@@ -284,6 +285,17 @@ export function enforceWarnings(warnings: readonly VoucherWarning[], acknowledge
 
 // ───────────────────────────── Audit snapshots ─────────────────────────────
 
+/**
+ * 2.2: the voucher's own line texts — item lines' `description`, ledger ("Particulars") lines'
+ * `narration` — keyed by the line's place in input.items / input.ledgers ('1' = the first line; a
+ * voucher saved without its input: in its inventory / ledger entries, the order its rebuilt input has).
+ * Non-empty texts only; a side without any is left out.
+ */
+interface AuditLineDescriptions {
+  items?: Record<string, string>;
+  ledgers?: Record<string, string>;
+}
+
 interface AuditSnapshot {
   type: string;
   number: string | null;
@@ -304,13 +316,50 @@ interface AuditSnapshot {
   entries: Array<[number, number]>;
   /** [itemId, qty, amount] */
   items: Array<[number, number, number]>;
+  /**
+   * 2.2: the line descriptions (edit history "Line descriptions changed"). Absent when no line has one,
+   * so such a voucher's image is exactly the earlier one.
+   */
+  lineDescriptions?: AuditLineDescriptions;
   /** 2.0: an alter that changed the number (edit history "Number changed A → B — reason"). */
   numberChange?: { from: string | null; to: string | null; reason: string | null };
   /** 2.0: a voucher created with an authorised user's own number instead of the series' next one. */
   numberOverride?: { to: string | null; next: string | null; reason: string | null };
 }
 
+/** Non-empty texts keyed by their line's place ('1' = the first line); undefined when there are none. */
+function lineTexts(texts: ReadonlyArray<string | null | undefined>): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  texts.forEach((text, i) => {
+    const t = txt(text);
+    if (t !== undefined) out[String(i + 1)] = t;
+  });
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function lineDescriptions(items: ReadonlyArray<string | null | undefined>, ledgers: ReadonlyArray<string | null | undefined>): AuditLineDescriptions | undefined {
+  const i = lineTexts(items);
+  const l = lineTexts(ledgers);
+  if (!i && !l) return undefined;
+  return { ...(i ? { items: i } : {}), ...(l ? { ledgers: l } : {}) };
+}
+
+/** The line descriptions of a voucher as entered (zero-amount lines and order / note ledgers too). */
+const inputLineDescriptions = (input: VoucherInput): AuditLineDescriptions | undefined =>
+  lineDescriptions((input.items ?? []).map((it) => it.description), (input.ledgers ?? []).map((l) => l.narration));
+
 export function snapshotFromDb(db: Db, row: VoucherRow, typeName: string): AuditSnapshot {
+  const entries = db.all<{ ledger_id: number; amount: number; narration: string | null }>(
+    'SELECT ledger_id, amount, narration FROM ledger_entries WHERE voucher_id = :id ORDER BY line_no',
+    { id: row.id },
+  );
+  const items = db.all<{ item_id: number; qty: number; amount: number; description: string | null }>(
+    'SELECT item_id, qty, amount, description FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no',
+    { id: row.id },
+  );
+  // Line texts as entered (what snapshotFromPlan reads), else — a voucher saved without its input — the lines' own.
+  const input = parseMeta(row.meta).input;
+  const texts = input ? inputLineDescriptions(input) : lineDescriptions(items.map((i) => i.description), entries.map((e) => e.narration));
   return {
     type: typeName,
     number: row.number,
@@ -326,16 +375,14 @@ export function snapshotFromDb(db: Db, row: VoucherRow, typeName: string): Audit
     optional: row.is_optional === 1,
     postDated: row.is_post_dated === 1,
     cancelled: row.is_cancelled === 1,
-    entries: db
-      .all<{ ledger_id: number; amount: number }>('SELECT ledger_id, amount FROM ledger_entries WHERE voucher_id = :id ORDER BY line_no', { id: row.id })
-      .map((e) => [e.ledger_id, e.amount]),
-    items: db
-      .all<{ item_id: number; qty: number; amount: number }>('SELECT item_id, qty, amount FROM inventory_entries WHERE voucher_id = :id ORDER BY line_no', { id: row.id })
-      .map((i) => [i.item_id, i.qty, i.amount]),
+    entries: entries.map((e) => [e.ledger_id, e.amount]),
+    items: items.map((i) => [i.item_id, i.qty, i.amount]),
+    ...(texts ? { lineDescriptions: texts } : {}),
   };
 }
 
 function snapshotFromPlan(plan: PostingPlan, input: VoucherInput): AuditSnapshot {
+  const texts = inputLineDescriptions(plan.normalizedInput);
   return {
     type: plan.voucherType.name,
     number: plan.number,
@@ -353,6 +400,7 @@ function snapshotFromPlan(plan: PostingPlan, input: VoucherInput): AuditSnapshot
     cancelled: false,
     entries: plan.entries.map((e) => [e.ledgerId, e.amount]),
     items: plan.inventory.map((l) => [l.itemId, l.qty, l.amount]),
+    ...(texts ? { lineDescriptions: texts } : {}),
   };
 }
 

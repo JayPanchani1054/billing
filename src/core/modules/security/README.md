@@ -77,6 +77,15 @@ unlock → `security`; role create/alter/delete → `create`/`alter`/`delete` (`
 service's own `settings` entry for features; wrong confirmation passwords → `login_failed` with
 `context`; edit-log export → `export` (`'audit_log'`).
 
+Summaries (`auditlog.ts › summarizeEntry`: the list's "What changed", each history version, the export's
+Summary column): create / delete / cancel name the action; an alter (and a settings / security change
+with both images) counts the changed fields — "Changed 2 fields: gstin, openingBalance", "Saved without
+changes". 2.2: on a voucher, changed line descriptions (the image's `lineDescriptions` key, vouchers
+README §4) are named once, after any other changed field — "Line descriptions changed", "Changed 1 field:
+narration; line descriptions changed"; the field changes keep one row per line
+(`lineDescriptions.items["1"]`). Entries without that key (every entry recorded before 2.2) read exactly
+as before.
+
 ## Permission catalogue
 
 | Group | Permission | Label |

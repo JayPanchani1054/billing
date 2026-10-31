@@ -137,6 +137,25 @@ function changedFieldsText(changes: AuditFieldChange[], truncated: boolean, noun
   return `Changed ${count}: ${shown}${tops.length > 3 ? ', …' : ''}`;
 }
 
+/**
+ * 2.2: a voucher's edit-log image keeps its line descriptions under this key (vouchers/service.ts ›
+ * AuditSnapshot): `{ items?: { '1': text, … }, ledgers?: { … } }`, keyed by line.
+ */
+const LINE_DESCRIPTIONS_KEY = 'lineDescriptions';
+const isLineDescriptionPath = (path: string): boolean =>
+  path === LINE_DESCRIPTIONS_KEY || path.startsWith(`${LINE_DESCRIPTIONS_KEY}.`) || path.startsWith(`${LINE_DESCRIPTIONS_KEY}[`);
+
+/**
+ * An altered voucher: changed line descriptions are named once, however many lines changed ("Line
+ * descriptions changed", after the other fields when there are any). An entry without them — every
+ * entry recorded before 2.2 — reads exactly as any other alteration.
+ */
+function voucherChangesText(changes: AuditFieldChange[], truncated: boolean): string {
+  const others = changes.filter((c) => !isLineDescriptionPath(c.path));
+  if (others.length === changes.length) return changedFieldsText(changes, truncated, 'field');
+  return others.length === 0 ? 'Line descriptions changed' : `${changedFieldsText(others, truncated, 'field')}; line descriptions changed`;
+}
+
 const LOGOUT_REASONS: Readonly<Record<string, string>> = {
   idle: 'Logged out (idle timeout)',
   switch: 'Logged out (another user logged in)',
@@ -172,7 +191,7 @@ export function summarizeEntry(action: string, entityType: string | null, before
     }
     case 'alter': {
       const d = diffJson(before, after, 200);
-      return changedFieldsText(d.changes, d.truncated, 'field');
+      return entityType === 'voucher' ? voucherChangesText(d.changes, d.truncated) : changedFieldsText(d.changes, d.truncated, 'field');
     }
     case 'settings':
     case 'security': {
