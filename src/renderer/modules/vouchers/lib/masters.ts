@@ -146,7 +146,10 @@ export function defaultItemRate(r: ItemPickerRow, side: 'sales' | 'purchase'): {
   return { rate: paise / 100, discountPct: null };
 }
 
-/** Item lines to add from an open delivery/receipt note or order (only what is still pending). */
+/**
+ * Item lines to add from an open delivery/receipt note or order (only what is still pending). 2.2: a source
+ * line's own description comes along onto the invoice line it is billed on (TrackingDocLine.description).
+ */
 export function rowsFromTrackingDoc(doc: TrackingDoc, kind: TrackingKind): Array<Partial<Omit<ItemRow, 'key'>>> {
   const isOrder = kind === 'sales_order' || kind === 'purchase_order';
   const out: Array<Partial<Omit<ItemRow, 'key'>>> = [];
@@ -160,6 +163,7 @@ export function rowsFromTrackingDoc(doc: TrackingDoc, kind: TrackingKind): Array
       rate: l.rate,
       discountPct: l.discountPct ? l.discountPct : null,
       ledgerId: l.ledgerId,
+      description: l.description ?? '',
       trackingRef: isOrder ? '' : doc.ref,
       orderRef: isOrder ? doc.ref : '',
     });

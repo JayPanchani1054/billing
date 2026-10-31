@@ -394,7 +394,9 @@ change the numbering in the same editor as Invoice Numbering (section 3.4); the 
 save the voucher type (**Ctrl+A**). Abbreviation, alias, *Active*, the behaviour switches, the defaults
 and the printing settings are behind **More details**, which opens by itself when one of them holds
 something you chose — not for what Pevqori fills in itself (a type's short abbreviation, *Prevent
-duplicate numbers* on a built-in type, the default sales or purchase ledger).
+duplicate numbers* on a built-in type, the default sales or purchase ledger). One of the switches,
+*Description on every line*, opens a description field under every item and ledger line of the vouchers
+of this type as you enter them (without it, **Ctrl+E** adds one to any line — section 4.2).
 
 In the numbering editor:
 
@@ -508,13 +510,23 @@ exception): hold **Ctrl** for a moment to see them on the buttons, or press **F1
   it) and stays open once a charge is entered. Enter in the narration asks *Accept?* — the question reads
   the amount back in figures and in words. **Ctrl+A** saves at any time. **Esc** (or the **‹** button)
   leaves, asking first.
+- **Ctrl+E** adds a **description** under the line the cursor is on — under an item (*Serial no. 4471, one
+  year warranty*) or under a ledger of the particulars (*Rent for October*) — and puts the cursor in it;
+  pointing at a line also shows a small *Description* button beside it that does the same. The field is one
+  line that grows to four as you type; Enter moves on (line breaks you paste are kept). It is saved with this
+  voucher only — the stock item's own description in its master is not changed, and GST returns, the
+  e-invoice and the e-way bill keep the item's name — and it shows on the voucher view and prints under the
+  item or ledger name. A description you leave empty closes again. Lines filled with **Alt+T** bring the
+  descriptions of the note or order along. With *Description on every line* on in the voucher type
+  (section 3.3) the field is open under every line as you enter.
 - **F2** inside voucher entry changes the voucher date. Back-dated vouchers need the *create / alter
   vouchers dated before today* permission when security is on.
 - **Alt+I** switches a sales / purchase / note between **item invoice** (stock items with quantity and
   rate) and **accounting invoice** (ledgers only, for services or for a credit note that only reduces the
   price); the *Item invoice ▾* menu in the title row offers the same choice (and *As voucher (Dr/Cr)* where
   the voucher type allows it). **Ctrl+H** switches a payment, receipt or contra between **single entry** (one cash / bank
-  account at the top) and the **Dr / Cr** layout.
+  account at the top) and the **Dr / Cr** layout; a voucher whose cash or bank line has a description, bill-wise
+  details or cost centres stays in Dr / Cr, because the account at the top has no place for them.
 - **Ctrl+I** (or the *More details ›* link at the right of the header) opens *More details*: buyer and consignee, dispatch and e-way bill details, order
   references, export details (shipping bill, port, LUT or with IGST) and the effective date. On a sales
   invoice (and the other documents you issue: credit notes, sales orders, delivery notes, quotations)
@@ -2157,8 +2169,8 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 
 | Key | Action |
 |---|---|
-| **Enter** / **Shift+Enter** | Next / previous field or cell; Enter on an empty row moves to the next part (an empty item row opens *Charges & discounts*); Enter in the narration asks *Accept?* (with the amount in words) |
-| **↑** / **↓** | Same column, previous / next row |
+| **Enter** / **Shift+Enter** | Next / previous field or cell (a line's description too, when it shows); Enter on an empty row moves to the next part (an empty item row opens *Charges & discounts*); Enter in the narration asks *Accept?* (with the amount in words) |
+| **↑** / **↓** | Same column, previous / next row (inside a line's description: its lines) |
 | **Ctrl+A** | Save (*Save changes* when altering); **Ctrl+S** does the same |
 | **F2** | Voucher date |
 | **F4–F9**, **Ctrl+F8**, **F10** … | Change the voucher type (new vouchers; the date is kept) |
@@ -2174,6 +2186,7 @@ XML data import on *Import from Excel* and clears the filters on the *Edit Log*.
 | **Alt+Y** | Currency and rate, or a line's foreign amount (section 11) |
 | **Ctrl+B** | Put the Dr / Cr difference on the last line |
 | **Ctrl+D** / **Alt+N**, **Ctrl+N** | Remove / insert a line |
+| **Ctrl+E** | A description under the line the cursor is on (item or ledger) — this voucher only, printed under the name; also the *Description* button beside the line |
 | **Alt+C** | Create the ledger or item typed in a picker (a customer or supplier in a small dialog) |
 | **Ctrl+L** / **Ctrl+T** | Optional / post-dated |
 | **F12** | Voucher type settings |

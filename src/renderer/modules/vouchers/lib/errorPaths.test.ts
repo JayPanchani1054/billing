@@ -26,6 +26,20 @@ describe('server paths → cells', () => {
     assert.equal(targetOf('exportDetails.withPayment', maps), null);
   });
 
+  it('2.2: an error on a line description lands on the description under the item / ledger name', () => {
+    assert.deepEqual(targetOf('items[1].description', maps), { id: cellId('items', 'i7', 'desc'), section: 'items', rowKey: 'i7', column: 'desc' });
+    assert.deepEqual(targetOf('ledgers[1].narration', maps), { id: cellId('ledgers', 'l2', 'desc'), section: 'ledgers', rowKey: 'l2', column: 'desc' });
+    // The single-entry Account (a header field) has no description: its paths stay on the Account.
+    assert.equal(targetOf('ledgers[0].narration', maps)?.id, headerId('account'));
+    // The voucher's own narration is still the Narration box.
+    assert.equal(targetOf('narration', maps)?.id, headerId('narration'));
+    const m = mapFieldErrors({ 'ledgers[1].narration': 'At most 1000 characters' }, maps);
+    assert.equal(m.cells[cellId('ledgers', 'l2', 'desc')], 'At most 1000 characters');
+    assert.equal(m.first?.column, 'desc');
+    // The screen reads the cell back from the field's id (Enter, Ctrl+E, the row's error map).
+    assert.deepEqual(parseCellId(cellId('items', 'i7', 'desc')), { section: 'items', rowKey: 'i7', column: 'desc' });
+  });
+
   it('mapFieldErrors: first placed target and unplaced messages', () => {
     const m = mapFieldErrors({ 'items[1].qty': 'Quantity must be whole', 'items[1].rate': 'Rate?', items: 'Enter at least one item', 'items[0].itemId': 'Inactive' }, maps);
     assert.equal(m.cells[cellId('items', 'i7', 'qty')], 'Quantity must be whole');

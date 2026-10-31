@@ -531,17 +531,41 @@ function setLayout(f: VoucherForm, layout: LedgerLayout): VoucherForm {
   });
 }
 
-/** Can these double-entry lines be shown in the single-entry layout? Exactly one line on the account side. */
-export function splitForSingle(rows: readonly LedgerRow[], side: Side): { account: LedgerRow | null; particulars: LedgerRow[] } | null {
-  const onAccountSide = rows.filter((r) => (r.amount ?? 0) !== 0 && (side === 'dr' ? (r.amount ?? 0) > 0 : (r.amount ?? 0) < 0));
-  if (rows.length === 0) return { account: null, particulars: [] };
-  if (onAccountSide.length !== 1) return null;
+/** Why double-entry lines stay in the Dr/Cr layout (Ctrl+H refused): see singleEntryBlock. */
+export type SingleEntryBlock = 'account-lines' | 'bills' | 'cost-centres' | 'description';
+
+/** The note Ctrl+H shows when the voucher stays in the Dr/Cr layout, per reason. */
+export const SINGLE_ENTRY_REFUSAL: Readonly<Record<SingleEntryBlock, string>> = {
+  'account-lines': 'Single entry needs exactly one cash or bank line on the account side.',
+  bills: 'The cash or bank line has bill-wise details, which single entry has no place for.',
+  'cost-centres': 'The cash or bank line has cost centres, which single entry has no place for.',
+  description: 'The cash or bank line has a description, which single entry has no place for.',
+};
+
+const accountSideLines = (rows: readonly LedgerRow[], side: Side): LedgerRow[] => rows.filter((r) => (r.amount ?? 0) !== 0 && (side === 'dr' ? (r.amount ?? 0) > 0 : (r.amount ?? 0) < 0));
+
+/**
+ * Why these double-entry lines cannot be shown in the single-entry layout (null when they can): it needs
+ * exactly one line on the account side, and that line becomes the Account field — which has no bill-wise,
+ * cost-centre or description cell, so such a voucher stays in Dr/Cr and nothing is lost on alteration.
+ */
+export function singleEntryBlock(rows: readonly LedgerRow[], side: Side): SingleEntryBlock | null {
+  if (rows.length === 0) return null;
+  const onAccountSide = accountSideLines(rows, side);
+  if (onAccountSide.length !== 1) return 'account-lines';
   const account = onAccountSide[0];
-  // The Account line has no bill-wise, cost-centre or narration cell in the single-entry layout:
-  // keep such a voucher in Dr/Cr so nothing is lost on alteration.
-  if (account.bills && account.bills.length > 0) return null;
-  if (account.costs && account.costs.length > 0) return null;
-  if (account.narration.trim() !== '') return null;
+  if (account.bills && account.bills.length > 0) return 'bills';
+  if (account.costs && account.costs.length > 0) return 'cost-centres';
+  // 2.2: the cash / bank line's own description (its narration).
+  if (account.narration.trim() !== '') return 'description';
+  return null;
+}
+
+/** Can these double-entry lines be shown in the single-entry layout? Exactly one line on the account side (singleEntryBlock). */
+export function splitForSingle(rows: readonly LedgerRow[], side: Side): { account: LedgerRow | null; particulars: LedgerRow[] } | null {
+  if (singleEntryBlock(rows, side) !== null) return null;
+  if (rows.length === 0) return { account: null, particulars: [] };
+  const account = accountSideLines(rows, side)[0];
   return { account, particulars: rows.filter((r) => r !== account) };
 }
 

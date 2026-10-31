@@ -141,8 +141,9 @@
   font-variant-numeric: tabular-nums;
   padding-top: var(--space-1-5);
 }
+/* Five small row tools fit (bank line of a ledger voucher: bills, cost centres, bank, description, remove). */
 .bx-vch-table__act {
-  width: 112px;
+  width: 136px;
   text-align: right;
 }
 .bx-vch-col--item,
@@ -172,14 +173,23 @@
 .bx-vch-col--lhsn {
   width: 110px;
 }
-.bx-vch-col--lnarr {
-  width: 220px;
-}
 .bx-vch-cell-item,
 .bx-vch-cell-amount {
   display: flex;
   flex-direction: column;
   gap: var(--space-0-5);
+}
+/* 2.2: a line's own description under its item / ledger name — quiet until hover or focus, one line high */
+.bx-textarea.bx-vch-desc {
+  min-height: var(--control-h-sm);
+  padding: var(--space-0-5) var(--control-px-sm);
+  font-size: var(--fs-12);
+  line-height: var(--lh-snug);
+  resize: none;
+}
+.bx-textarea.bx-vch-desc:not(:hover, :focus, .is-invalid) {
+  border-color: transparent;
+  background: none;
 }
 .bx-vch-cell-note {
   color: var(--text-muted);

@@ -14,7 +14,8 @@
  * Esc back (asks when changed), F2 date, F10 voucher type, F4–F9 & co. switch type (new vouchers),
  * Alt+I item ↔ accounting invoice, Ctrl+H single ↔ double entry, Ctrl+I more details, Alt+T fill
  * from notes/orders, Alt+B bill-wise, Alt+O cost centres, Alt+K bank details, Ctrl+B balance it,
- * Ctrl+D delete line, Alt+N / Ctrl+N insert line, Ctrl+L optional, Ctrl+T post-dated, F12 settings;
+ * Ctrl+D delete line, Alt+N / Ctrl+N insert line, Ctrl+E line description, Ctrl+L optional, Ctrl+T
+ * post-dated, F12 settings;
  * Alt+P print (the voucher being altered, or the one just saved here — lib/printing.ts), Alt+W share it,
  * Ctrl+R change the number (2.0, vouchers.renumber — ChangeNumberDialog.tsx);
  * alteration: Alt+D delete, Alt+X cancel, Alt+2 duplicate, Alt+H edit history.
@@ -30,6 +31,12 @@
  * Charges & discounts as a disclosure inside the Enter chain (lib/gridNav.ts › opensBeforeFocus), the
  * totals as a sticky strip (lib/strip.ts › totalsStrip), a side column only when it holds the work
  * (receipt / payment bills, checks to fix, TDS / forex), no hint lines, and "Saved" said once.
+ *
+ * 2.2 (lib/lineDescription.ts): every item and ledger line may carry a description of its own, saved with this
+ * voucher only, in a quiet field under the item / ledger name. It shows when the line has text, when the user
+ * opens it (Ctrl+E on the line, or its "Description" row tool) or on every filled line when the voucher type
+ * says "Description on every line" (narrationPerEntry); the same rule makes it a stop of the Enter chain or not.
+ * Which lines are opened is this screen's state (`descOpen` + a ref for the key handlers), not the form's.
  */
 import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
@@ -76,10 +83,11 @@ import { ACCOUNT_ROW, buildVoucherInput, formFromInput } from '../lib/buildInput
 import type { BuiltInput } from '../lib/buildInput.ts';
 import { cellId, confirmationRequest, headerId, mapFieldErrors, parseCellId, targetOf, warningsByRow, warningsOfDetails } from '../lib/errorPaths.ts';
 import type { KeyMaps } from '../lib/errorPaths.ts';
-import { amountDecimals, formReducer, isBlankItem, isBlankLedger, itemLineValue, itemsOf, newForm, withFirstLedger } from '../lib/formState.ts';
+import { amountDecimals, formReducer, isBlankItem, isBlankLedger, itemLineValue, itemsOf, newForm, SINGLE_ENTRY_REFUSAL, singleEntryBlock, withFirstLedger } from '../lib/formState.ts';
 import type { ItemRow, LedgerRow, VoucherForm } from '../lib/formState.ts';
 import { chargesCollapsible, entrySections, initialFocusId, neighbourSection, nextCell, opensBeforeFocus, rowAfterDelete, verticalCell } from '../lib/gridNav.ts';
 import type { EntrySection, GridModel } from '../lib/gridNav.ts';
+import { DESC_COLUMN, descriptionShown, navColumnsWithDescription, NO_OPENED, openedAfterLeaving, openedWith, skipHiddenDescription } from '../lib/lineDescription.ts';
 import { baseTypeLabel, defaultDirection, defaultTypeFor, isGstBase, isInvoiceMode, MODE_LABEL, partySign, postsToBooks, qtyLabel, showsParty, singleEntryAccountSide, trackingKinds } from '../lib/kinds.ts';
 import { defaultItemRate, priceSide, rowsFromTrackingDoc, taxBreakup, toClientItemInfo, toClientLedgerTax } from '../lib/masters.ts';
 import { computeInvoiceTotals, computeLedgerTotals, computeStockTotals, stabilizeLines } from '../lib/totals.ts';
@@ -468,6 +476,15 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   const [posOpen, setPosOpen] = useState(false);
   /** 2.1 (D17): Charges & discounts opened (by click or by the Enter chain) for this voucher. */
   const [chargesOpen, setChargesOpen] = useState(false);
+  /** 2.2: lines whose description the user opened on this voucher (row keys; lib/lineDescription.ts). */
+  const [descOpen, setDescOpenState] = useState<ReadonlySet<string>>(NO_OPENED);
+  /** The same set for the key handlers — updated at once, as the Enter chain may run before the re-render. */
+  const descOpenRef = useRef(descOpen);
+  const setDescOpen = useCallback((next: ReadonlySet<string>) => {
+    if (next === descOpenRef.current) return;
+    descOpenRef.current = next;
+    setDescOpenState(next);
+  }, []);
   /** 2.1 (D18): a save was attempted on this voucher — "Invoice has no lines" may show from then on. */
   const [saveAttempted, setSaveAttempted] = useState(false);
   const headerRef = useRef<HTMLDivElement | null>(null);
@@ -579,9 +596,10 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
   );
   const ledgerCols = useMemo<LedgerColumn[]>(() => {
     if (form.mode === 'accounting_invoice') return ctx.company.gstEnabled ? ['ledger', 'gst', 'hsn', 'amount'] : ['ledger', 'amount'];
-    if (form.mode === 'ledger' && ctx.voucherType.narrationPerEntry) return ['ledger', 'amount', 'narr'];
     return ['ledger', 'amount'];
-  }, [form.mode, ctx.company.gstEnabled, ctx.voucherType.narrationPerEntry]);
+  }, [form.mode, ctx.company.gstEnabled]);
+  /** 2.2: the voucher type's "Description on every line" — every filled line shows its description. */
+  const everyLine = ctx.voucherType.narrationPerEntry;
 
   const sectionRows = useCallback(
     (s: EntrySection, f: VoucherForm): Array<ItemRow | LedgerRow> => {
@@ -599,21 +617,41 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     return f.items.find((r) => r.key === rowKey)?.isConsumption ? 'items:src' : 'items:dst';
   };
   const modelOf = (s: EntrySection, f: VoucherForm, filledKey?: string): GridModel => {
+    // 2.2: a line's description is a stop only while it is on screen — the grids draw it by the same rule.
+    const desc = { everyLine, opened: descOpenRef.current };
     if (s === 'ledgers') {
-      const cols = ledgerCols.filter((c) => c !== 'gst' && c !== 'hsn');
-      return { columns: cols, rowKeys: f.ledgers.map((r) => r.key), isBlank: (k) => k !== filledKey && isBlankLedger(f.ledgers.find((r) => r.key === k) as LedgerRow) };
+      const row = (k: string) => f.ledgers.find((r) => r.key === k);
+      const filled = (k: string) => {
+        const r = row(k);
+        return k === filledKey || (r !== undefined && !isBlankLedger(r));
+      };
+      return {
+        columns: navColumnsWithDescription(ledgerCols.filter((c) => c !== 'gst' && c !== 'hsn'), 'ledgers', f.mode),
+        rowKeys: f.ledgers.map((r) => r.key),
+        isBlank: (k) => !filled(k),
+        skip: skipHiddenDescription(desc, (k) => ({ filled: filled(k), text: row(k)?.narration ?? '' })),
+      };
     }
     const rows = sectionRows(s, f) as ItemRow[];
+    const row = (k: string) => rows.find((r) => r.key === k);
+    const filled = (k: string) => {
+      const r = row(k);
+      return k === filledKey || (r !== undefined && !isBlankItem(r));
+    };
     return {
-      columns: navItemColumns(itemCols),
+      columns: navColumnsWithDescription(navItemColumns(itemCols), 'items', f.mode),
       rowKeys: rows.map((r) => r.key),
-      isBlank: (k) => k !== filledKey && isBlankItem(rows.find((r) => r.key === k) as ItemRow),
-      skip: (k, c) => {
-        if (c !== 'batch') return false;
-        const r = rows.find((x) => x.key === k);
-        const it = r?.itemId != null ? items.byId.get(r.itemId) : undefined;
-        return !it?.maintainBatches;
-      },
+      isBlank: (k) => !filled(k),
+      skip: skipHiddenDescription(
+        desc,
+        (k) => ({ filled: filled(k), text: row(k)?.description ?? '' }),
+        (k, c) => {
+          if (c !== 'batch') return false;
+          const r = row(k);
+          const it = r?.itemId != null ? items.byId.get(r.itemId) : undefined;
+          return !it?.maintainBatches;
+        },
+      ),
     };
   };
   const focusHeaderLast = () => {
@@ -714,12 +752,16 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     const t = e.target as HTMLElement;
     const cell = parseCellId(t.id);
     if (!cell) return;
-    if (e.key === 'Enter' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+    // 2.2: a line description is a textarea: Enter moves on like any cell (no typed new lines; pasted ones stay),
+    // and so does Ctrl+Enter — the multi-line box convention — instead of starting a new line.
+    const multiLine = t.tagName === 'TEXTAREA';
+    if (e.key === 'Enter' && !e.altKey && !e.metaKey && (!e.ctrlKey || multiLine)) {
       e.preventDefault();
       move(cell.section, cell.rowKey, cell.column, e.shiftKey ? 'back' : 'forward');
       return;
     }
-    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && t.getAttribute('role') !== 'combobox') {
+    // ↑ / ↓ keep the column — except inside a description, where they move the caret between its lines.
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && t.getAttribute('role') !== 'combobox' && !multiLine) {
       const f = formRef.current;
       const v = verticalCell(modelOf(sectionOfRow(f, cell.section, cell.rowKey), f), { rowKey: cell.rowKey, column: cell.column }, e.key === 'ArrowUp' ? 'up' : 'down');
       if (v && v.kind === 'cell') {
@@ -812,6 +854,19 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     else setDialog({ kind: 'instrument', rowKey });
   }, []);
 
+  // ── 2.2: line descriptions — opened per row key; the field appears in the next render, focusId waits for it ──
+  const openDescription = useCallback(
+    (section: 'items' | 'ledgers', rowKey: string) => {
+      setDescOpen(openedWith(descOpenRef.current, rowKey));
+      focusId(cellId(section, rowKey, DESC_COLUMN));
+    },
+    [setDescOpen],
+  );
+  // Moving into a description keeps it open while it is edited (emptying it must not take it away under the cursor);
+  // leaving it empty closes it again.
+  const onDescriptionFocus = useCallback((rowKey: string) => setDescOpen(openedWith(descOpenRef.current, rowKey)), [setDescOpen]);
+  const onDescriptionBlur = useCallback((rowKey: string, text: string) => setDescOpen(openedAfterLeaving(descOpenRef.current, rowKey, text)), [setDescOpen]);
+
   const excludeLedgerIds = useMemo(() => (form.partyLedgerId === null ? [] : [form.partyLedgerId]), [form.partyLedgerId]);
   const gridEnv = useMemo<GridEnv>(
     () => ({
@@ -835,11 +890,14 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       onQtyCommitted,
       openRowDialog,
       deleteRow,
+      openDescription,
+      onDescriptionFocus,
+      onDescriptionBlur,
       amountDecimals: formDecimals,
     }),
     // ledgers / items are memoised per list version (pickers/hooks.ts): this value stays the same
     // while the user types, so only the edited row re-renders.
-    [baseType, form.date, voucherId, features, direction, ledgers, ledgerDetails, items, godowns, excludeLedgerIds, onItemChosen, advanceFrom, onQtyCommitted, openRowDialog, deleteRow, formDecimals],
+    [baseType, form.date, voucherId, features, direction, ledgers, ledgerDetails, items, godowns, excludeLedgerIds, onItemChosen, advanceFrom, onQtyCommitted, openRowDialog, deleteRow, openDescription, onDescriptionFocus, onDescriptionBlur, formDecimals],
   );
   const gridEnvRef = useRef(gridEnv);
   gridEnvRef.current = gridEnv;
@@ -961,6 +1019,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       setPosOpen(false);
       setChargesOpen(false);
       setSaveAttempted(false);
+      // 2.2: the next voucher's row keys start again (i1, l2 …): none of its lines is opened.
+      setDescOpen(NO_OPENED);
       dispatch({ type: 'next', date: f.date, isOptional: ctx.voucherType.optionalByDefault, partyLedgerId: startParty });
       if (printNow) {
         nav.push('print.voucher', printNow);
@@ -1065,7 +1125,10 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     const target = form.layout === 'single' ? 'double' : 'single';
     const next = formReducer(form, { type: 'setLayout', layout: target });
     if (next === form) {
-      toast.info('Stays in Dr/Cr layout', { message: 'Single entry needs exactly one cash or bank line on the account side.' });
+      // Say why: one cash / bank line is needed, and it becomes the Account field (no bills, cost centres or description).
+      const side = singleEntryAccountSide(baseType);
+      const why = side ? singleEntryBlock(form.ledgers.filter((r) => !isBlankLedger(r)), side) : null;
+      toast.info('Stays in Dr/Cr layout', { message: SINGLE_ENTRY_REFUSAL[why ?? 'account-lines'] });
       return;
     }
     dispatch({ type: 'setLayout', layout: target });
@@ -1108,6 +1171,26 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
     toast.info(kind === 'cost' ? 'Move to a line with cost centres' : 'Move to a bank line', {
       message: kind === 'cost' ? 'Cost centres apply to ledgers set up for them (Features F11 › Cost centres).' : 'Bank details apply to bank account lines.',
     });
+  };
+
+  /**
+   * 2.2, Ctrl+E: the description of the line the cursor is on — opened and the cursor put in it, or only the
+   * cursor when it already shows. Elsewhere (header, narration, an empty line) a note says where to go.
+   */
+  const describeLine = () => {
+    const c = activeCell();
+    const f = formRef.current;
+    if (c) {
+      const item = c.section === 'items' ? f.items.find((r) => r.key === c.rowKey) : undefined;
+      const ledger = c.section === 'ledgers' ? f.ledgers.find((r) => r.key === c.rowKey) : undefined;
+      const line = item ? { filled: !isBlankItem(item), text: item.description } : ledger ? { filled: !isBlankLedger(ledger), text: ledger.narration } : null;
+      if (line && line.filled) {
+        if (descriptionShown({ everyLine, opened: descOpenRef.current }, c.rowKey, line)) focusId(cellId(c.section, c.rowKey, DESC_COLUMN));
+        else openDescription(c.section, c.rowKey);
+        return;
+      }
+    }
+    toast.info('Move to a line first', { message: 'Ctrl+E adds a description under the item or ledger the cursor is on.' });
   };
 
   // ── Hotkeys not shown in the rail ──
@@ -1155,6 +1238,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
       demoted: true,
     },
     { key: 'Alt+T', label: 'From notes/orders', icon: 'link', onClick: () => setDialog({ kind: 'tracking' }), hidden: !isOrderOrNote || !itemsOn, group: 'details' },
+    // 2.2: a description under the line the cursor is on (the row tool "Description" does the same); More ▾ lists it.
+    { key: 'Ctrl+E', label: 'Line description', icon: 'text', onClick: describeLine, group: 'details' },
     {
       key: 'Alt+B',
       label: 'Bill-wise',
@@ -1518,6 +1603,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           rowErrors={rowErrors}
           rowWarnings={rowWarnings}
           qtyLabel="Quantity"
+          descOpen={descOpen}
+          everyLine={everyLine}
           foot={<TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label="Total out" value={stockTotals.consumption} />}
         />
         <ItemGrid
@@ -1529,6 +1616,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
           rowErrors={rowErrors}
           rowWarnings={rowWarnings}
           qtyLabel="Quantity"
+          descOpen={descOpen}
+          everyLine={everyLine}
           foot={<TotalRow span={itemSpan(itemCols)} trailing={itemCols.length - itemCols.indexOf('amount')} label="Total in" value={stockTotals.production} />}
         />
       </div>,
@@ -1544,6 +1633,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         rowErrors={rowErrors}
         rowWarnings={rowWarnings}
         qtyLabel={qtyLabel(baseType)}
+        descOpen={descOpen}
+        everyLine={everyLine}
         foot={itemFooter(form.items)}
       />,
     );
@@ -1560,6 +1651,8 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         figures={invoice.lines}
         rowErrors={rowErrors}
         rowWarnings={rowWarnings}
+        descOpen={descOpen}
+        everyLine={everyLine}
         amountLabel={ledgerAmountKind === 'signed' ? 'Amount (Dr / Cr)' : 'Amount'}
         foot={ledgerFooter}
       />
@@ -1649,7 +1742,7 @@ function EntryForm({ type, types, ctx0, detail, dup, params }: EntryFormProps) {
         meta={meta}
         dirty={form.touched}
         actions={actions}
-        hint="Enter Next · Shift+Enter Back · Ctrl+A Save · Alt+C Create master · Ctrl+D Delete line · Esc Back"
+        hint="Enter Next · Shift+Enter Back · Ctrl+A Save · Alt+C Create master · Ctrl+D Delete line · Ctrl+E Description · Esc Back"
       >
         <Hotkeys map={hotkeys} />
         <div className="bx-vch" data-density="compact">

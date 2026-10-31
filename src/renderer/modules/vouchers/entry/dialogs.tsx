@@ -713,7 +713,7 @@ export function ConfigHintsDialog({ ctx, onClose }: ConfigHintsDialogProps) {
           { label: 'Numbering', value: `${NUMBERING_LABEL[t.numberingMethod]}${ctx.nextNumber ? ` · next ${ctx.nextNumber}` : ''}` },
           { label: 'Print after saving', value: c.printAfterSave || t.printAfterSave ? 'Yes' : 'No' },
           { label: 'Optional by default', value: t.optionalByDefault ? 'Yes' : 'No' },
-          { label: 'Narration for each line', value: t.narrationPerEntry ? 'Yes' : 'No' },
+          { label: 'Description on every line', value: t.narrationPerEntry ? 'Yes' : 'No' },
           { label: 'Round off invoices', value: c.roundOff.enabled ? `To ₹ ${formatMoney(c.roundOff.unit)} (${c.roundOff.method})` : 'No' },
           { label: 'Negative stock', value: guard(c.guards.negativeStock) },
           { label: 'Negative cash', value: guard(c.guards.negativeCash) },

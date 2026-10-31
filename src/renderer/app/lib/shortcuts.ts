@@ -70,6 +70,8 @@ export const CONVENTION_SHORTCUTS: readonly ShortcutDef[] = [
   { keys: 'Alt+D', label: 'Delete the master or voucher on screen', group: 'Forms', global: false, description: 'In master lists Ctrl+D also deletes (an alias kept for habit)' },
   { keys: 'Ctrl+D', label: 'Remove the line (voucher and grid rows)', group: 'Forms', global: false },
   { keys: 'Alt+N, Ctrl+N', label: 'Insert a line above', group: 'Forms', global: false },
+  // 2.2: a documentation row — the binding is voucher entry's "Line description" action (vouchers/entry/VoucherEntryScreen.tsx).
+  { keys: 'Ctrl+E', label: 'Add a description under the line (voucher entry)', group: 'Forms', global: false, description: 'Saved with this voucher only and printed under the item or ledger name; the row tool beside the line does the same' },
   { keys: 'Alt+2', label: 'Duplicate the voucher', group: 'Forms', global: false },
   { keys: 'Alt+X', label: 'Cancel the voucher (keeps its number)', group: 'Forms', global: false },
   { keys: 'Alt+H', label: 'Edit history of the voucher or master', group: 'Forms', global: false, description: 'Needs the Edit Log permission' },

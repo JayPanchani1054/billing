@@ -54,6 +54,18 @@ describe('keyboard map', () => {
     assert.match(row('alt+f1')?.description ?? '', /Ctrl\+I/);
   });
 
+  test('2.2 row: Ctrl+E (a description under the voucher line) is documented once, in Forms, never a global key', () => {
+    const rows = CONVENTION_SHORTCUTS.filter((s) => keysOf(s.keys).includes('ctrl+e'));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].keys, 'Ctrl+E', 'one key, no alternatives');
+    assert.equal(rows[0].group, 'Forms');
+    assert.equal(rows[0].global, false, 'voucher entry binds it, not the shell');
+    assert.match(rows[0].label, /description/i);
+    assert.match(rows[0].label, /voucher entry/);
+    assert.ok(!reservedGlobalKeys().some((k) => k.toLowerCase() === 'ctrl+e'));
+    assert.ok(!GLOBAL_SHORTCUTS.some((s) => keysOf(s.keys).includes('ctrl+e')));
+  });
+
   test('every key text is unique across the whole table (no row repeats another)', () => {
     const rows = [...GLOBAL_SHORTCUTS, ...CONVENTION_SHORTCUTS].map((s) => `${s.group}|${s.keys}|${s.label}`);
     assert.equal(new Set(rows).size, rows.length);

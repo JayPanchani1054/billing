@@ -143,10 +143,34 @@ describe('item defaults', () => {
       ],
     };
     assert.deepEqual(rowsFromTrackingDoc(doc, 'delivery'), [
-      { itemId: 1, godownId: 2, batchName: '', qty: 4, rate: 90, discountPct: null, ledgerId: 5, trackingRef: 'DN/7', orderRef: '' },
+      { itemId: 1, godownId: 2, batchName: '', qty: 4, rate: 90, discountPct: null, ledgerId: 5, description: '', trackingRef: 'DN/7', orderRef: '' },
     ]);
     assert.equal(rowsFromTrackingDoc(doc, 'sales_order')[0].orderRef, 'DN/7');
     assert.equal(rowsFromTrackingDoc(doc, 'sales_order')[0].trackingRef, '');
+  });
+
+  it('2.2: a note / order line brings its own description along (none: empty, never the item master\'s)', () => {
+    const line = { itemId: 1, itemName: 'Rice', unit: 'KGS', godownId: null, batchName: null, qty: 10, pendingQty: 10, rate: 90, discountPct: 0, ledgerId: null };
+    const doc: TrackingDoc = {
+      voucherId: 12,
+      voucherTypeName: 'Sales Order',
+      number: 'SO/3',
+      date: '2026-10-01',
+      ref: 'SO/3',
+      lines: [
+        { ...line, description: 'Sortex cleaned, 25 kg bags\nDeliver by Friday' },
+        { ...line, itemId: 2, itemName: 'Dal', description: null },
+        { ...line, itemId: 3, itemName: 'Salt' },
+      ],
+    };
+    assert.deepEqual(
+      rowsFromTrackingDoc(doc, 'sales_order').map((r) => [r.itemId, r.description, r.orderRef]),
+      [
+        [1, 'Sortex cleaned, 25 kg bags\nDeliver by Friday', 'SO/3'],
+        [2, '', 'SO/3'],
+        [3, '', 'SO/3'],
+      ],
+    );
   });
 });
 

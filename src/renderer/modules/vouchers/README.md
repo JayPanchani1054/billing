@@ -37,6 +37,27 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
   "Additional ledgers"): closed while empty, open by itself when a charge exists (and then open for the rest of that voucher, so removing the last charge never hides the cursor's row); Enter on an empty item row (or
   Shift+Enter from the narration) opens it and puts the cursor on its row — the 2.0 stop (`lib/gridNav.ts ›
   chargesCollapsible / opensBeforeFocus`). The *Items* value row shows only beside a charge.
+- **Line descriptions** (2.2, `lib/lineDescription.ts`): every item line and every ledger line (*Particulars*, the
+  charges of an item invoice included) may carry a description of its own, typed on this voucher only — an item
+  line's `ItemRow.description` (→ `inventory_entries.description`, never the stock item master's description), a
+  ledger line's `LedgerRow.narration` (→ `ledger_entries.narration`). The field (`ui/TextArea`, id
+  `cellId(section, rowKey, 'desc')`, *Description, line N*, one line growing to four, 1,000 characters, quiet like
+  the GST % input: no border or fill until hover / focus) sits under the item / ledger name inside
+  `.bx-vch-cell-item`, with its own error text. It shows on a filled line when the line has text, when the user
+  opened it — **Ctrl+E** on the line, or the row tool *Description* (shown only while the field is hidden) — or on
+  every filled line when the voucher type says *Description on every line* (`narrationPerEntry`, 2.1's "Narration
+  for each entry"; the 2.1 *Line narration* column of ledger vouchers is gone). Moving into it keeps it open while
+  edited; leaving it empty closes it again — unless the cursor only went into a dialog opened from it (Alt+B,
+  Ctrl+I, a confirmation) or out of the window, which give it back there. The opened lines are the screen's state (`descOpen` + a ref for the key
+  handlers; never in `VoucherForm`, so no "Not saved" and nothing sent; dropped with the next voucher, whose row
+  keys start again); the grids pass each memoised row one `descShown` boolean. The same rule (`descriptionShown`)
+  makes it a stop of the Enter chain or not: item → description → godown / batch / quantity …; an invoice's ledger
+  line → description → amount; a ledger-mode line (payment, receipt, contra, journal …) → amount → description,
+  so the forex and bill-wise stops still continue from the amount. Enter / Shift+Enter (and Ctrl+Enter) move on —
+  a new line cannot be typed, pasted ones are kept (trimmed at the ends when sent); ↑ / ↓ move its caret. Lines
+  filled with Alt+T bring the note's / order's descriptions along (`TrackingDocLine.description`). The single-entry
+  layout's Account field has no description: a cash / bank line with one keeps the voucher in Dr/Cr, and Ctrl+H
+  says so (`formState.ts › singleEntryBlock`).
 - **Totals strip** (invoice modes, rupees): at the bottom of the window (sticky once the form scrolls) — Taxable · CGST · SGST / UTGST (or IGST) · Cess ·
   Other charges · Round off · **Total ₹** (`lib/strip.ts › totalsStrip`; the items add up to the Total, which is
   `invoice.grandTotal`; reverse-charge tax is one muted item outside it). The Total's tooltip: *Intra-state ·
@@ -54,14 +75,17 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
   View did). While it shows there is no "… saved" toast (`lib/savedBar.ts › barToast`: only the save's notes get a
   toast). A converted document / recurring occurrence returns to its list with the 2.0 toast.
 - No teaching text: no side key-hint line, no narration hint, no picker placeholder, no picker key footer. The
-  screen's hint line ("Enter Next · Shift+Enter Back · Ctrl+A Save · …") is the first line of F1 › This screen.
+  screen's hint line ("Enter Next · Shift+Enter Back · Ctrl+A Save · … · Ctrl+E Description · Esc Back") is the
+  first line of F1 › This screen. The *Description* placeholder of an empty line description is not teaching
+  text: that field only shows empty because the user opened it (or the voucher type asks for one on every line),
+  and with no label above it the placeholder is its visible name — gone as soon as something is typed.
 
 ## Voucher entry keys
 
 | Key | Action |
 |---|---|
-| Enter / Shift+Enter | Next / previous field or cell; Enter on an empty grid row moves to the next section (items → Charges & discounts, which opens → narration); Enter in the narration asks "Accept?" (with the amount in words) |
-| ↑ / ↓ | Same column, previous / next row (not inside an open picker) |
+| Enter / Shift+Enter | Next / previous field or cell (a line's description is a stop only while it shows); Enter on an empty grid row moves to the next section (items → Charges & discounts, which opens → narration); Enter in the narration asks "Accept?" (with the amount in words) |
+| ↑ / ↓ | Same column, previous / next row (not inside an open picker, nor in a line description — there they move the caret) |
 | Ctrl+A (Ctrl+S) | Save — the button reads "Save" ("Save changes" when altering) |
 | Esc | Back (asks when something was entered) |
 | F2 | Voucher date |
@@ -76,6 +100,7 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 | Alt+O / Alt+K | Cost centres / bank instrument of the focused line (Alt+K on the Account in single entry) |
 | Ctrl+B | Balance it (puts the Dr/Cr difference on the last line) |
 | Ctrl+D / Alt+N, Ctrl+N | Delete line / insert line above |
+| Ctrl+E | Line description (2.2): opens the description under the item / ledger the cursor is on and puts the cursor in it (just the cursor when it shows); elsewhere a note "Move to a line first". The action *Line description* is in More ▾; the row tool *Description* does the same |
 | Alt+C | In a picker: create the ledger / item with the typed name and select it. In the party field (customer / supplier — `createGroupCode` Sundry Debtors / Creditors) the quick dialog `accounts/QuickPartyDialog.tsx` opens (2.0): name, GSTIN (fills state, PAN, registration type — `accounts/lib/gstin.ts`), state, mobile, e-mail, billing address; saved with `accounts.ledger.save` (bill-wise per F11) and selected like a form result; "Full form…" opens `accounts.ledger.form` as before. Other places: A ledger opens under the group that fits the place (`lib/masters.ts › createGroupCode`: party of a sales-side document → Sundry Debtors, purchase-side → Sundry Creditors, item line → Sales / Purchase Accounts, single-entry Account and contra lines → Bank Accounts); if the user moves it to a group the place refuses, it is explained instead of selected |
 | Ctrl+L / Ctrl+T | Optional / post-dated |
 | F12 | Voucher type settings and the F12 options that affect it |
@@ -94,7 +119,7 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 - **After creating**: the Saved bar (a converted document / recurring occurrence, which returns to its list: the toast with the number, the amount and "Alt+P to print", View action); the screen resets for the next voucher of the same type keeping the date and Alt+P prints the saved voucher. When the voucher prints after saving — the voucher type's own switch, or Invoice Printing (print settings) for sales, credit / debit notes and delivery notes (`vouchers.entryContext › config.printAfterSave`) — `print.voucher { id, autoPrint: true }` opens and sends it to the printer as soon as the preview is ready. **After altering**: toast and back.
 - **Client checks before saving** (`lib/validate.ts`): party, number, supplier invoice no., Account, quantities, amounts, Dr = Cr in the Dr/Cr layout (with the difference and the Ctrl+B hint on the last line), and bill-wise details that no longer add up to their line / to the invoice total. Enter in the narration runs them before asking "Accept?".
 - **Bill-wise dialog**: a receipt / payment line whose party has pending bills on the other side opens allocated against the oldest bills first (rest On Account); an invoice party or a ledger with nothing to settle opens with a New Ref named after the voucher (purchase: supplier invoice no.) and the credit period. Alt+F re-runs FIFO, Alt+N adds, Ctrl+D removes the focused line.
-- **Alteration round trip**: everything `vouchers.get().input` carries comes back on save — including fields without a column (`altQty`, a ledger line's GST override taxability / cess / supply kind, an item-invoice charge's GST override). A payment / receipt / contra opens in the single-entry layout only when the cash/bank line has nothing the Account field cannot show (bills, cost centres, narration). `lib/coreContract.test.ts` proves it against the real engine.
+- **Alteration round trip**: everything `vouchers.get().input` carries comes back on save — including fields without a column (`altQty`, a ledger line's GST override taxability / cess / supply kind, an item-invoice charge's GST override) and the lines' descriptions. A payment / receipt / contra opens in the single-entry layout only when the cash/bank line has nothing the Account field cannot show (bills, cost centres, a description); Ctrl+H on such a voucher stays in Dr/Cr and names the reason (`formState.ts › SINGLE_ENTRY_REFUSAL`). `lib/coreContract.test.ts` proves it against the real engine.
 - **Pickers** (`pickers/`): one cached `accounts.ledger.picker { asOf }` / `inventory.item.picker { asOf, priceLevelId? }` list per screen, narrowed per place (`lib/masters.ts › ledgerAllowed`: parties, sales/purchase ledgers, invoice lines without cash/bank or parties, contra cash/bank only, journal without cash/bank, no credit note to a supplier). Empty grid rows do not open the list on focus, so Enter on them leaves the grid.
 - **Item defaults**: rate from the price level slab (sales side) or the item's selling / purchase price; godown from the voucher type's default godown. With a price level, committing the quantity re-reads the slab for that quantity (`inventory.item.priceFor`) — only while the rate is still the one the screen filled in.
 - **After a save** the next voucher keeps the date, the layout, the single-entry Account and the voucher type's default party (e.g. Cash for "Cash Sales").
@@ -102,7 +127,7 @@ Menu (section `transactions`): Day Book, every voucher type from `PREDEFINED_VOU
 
 ## Pure logic (tested: `node --test "src/renderer/modules/vouchers/**/*.test.ts"`)
 
-`lib/strip.ts` (2.1) totals strip items, Total tooltip and notes, the party line, the Accept? message · `lib/changeNumber.ts` Change Number dialog view-model (messages, continue-series rule, availability) · `lib/disclosure.ts` header disclosure and the place-of-supply text · `lib/savedBar.ts` Saved bar and Record payment · `lib/quickParty.ts` quick customer / supplier draft and save input · `lib/keySpace.test.ts` Ctrl+R / Alt+W key space · `lib/formState.ts` reducer · `lib/buildInput.ts` form ⇄ VoucherInput · `lib/errorPaths.ts` server paths ⇄ cells, warnings protocol · `lib/bills.ts` FIFO allocation · `lib/totals.ts` client totals (parity with `computeInvoice`) · `lib/gridNav.ts` keyboard model and section order (2.1: Charges & discounts opens in the Enter chain) · `lib/validate.ts` pre-save checks · `lib/masters.ts` picker slots, ledger GST profile, item defaults, tracking rows, tax breakup · `lib/menu.ts` menu and Go To items · `lib/coreContract.test.ts` the form model against the real posting engine (totals parity, alteration round trip, error/warning placement) · `lib/daybook.ts` Day Book rows and export · `lib/kinds.ts` per-base-type layout · `lib/printing.ts` Alt+P / print-after-save targets.
+`lib/lineDescription.ts` (2.2) when a line's description shows, its place in the Enter chain, the opened set · `lib/strip.ts` (2.1) totals strip items, Total tooltip and notes, the party line, the Accept? message · `lib/changeNumber.ts` Change Number dialog view-model (messages, continue-series rule, availability) · `lib/disclosure.ts` header disclosure and the place-of-supply text · `lib/savedBar.ts` Saved bar and Record payment · `lib/quickParty.ts` quick customer / supplier draft and save input · `lib/keySpace.test.ts` Ctrl+R / Alt+W key space · `lib/formState.ts` reducer · `lib/buildInput.ts` form ⇄ VoucherInput · `lib/errorPaths.ts` server paths ⇄ cells, warnings protocol · `lib/bills.ts` FIFO allocation · `lib/totals.ts` client totals (parity with `computeInvoice`) · `lib/gridNav.ts` keyboard model and section order (2.1: Charges & discounts opens in the Enter chain) · `lib/validate.ts` pre-save checks · `lib/masters.ts` picker slots, ledger GST profile, item defaults, tracking rows, tax breakup · `lib/menu.ts` menu and Go To items · `lib/coreContract.test.ts` the form model against the real posting engine (totals parity, alteration round trip, error/warning placement) · `lib/daybook.ts` Day Book rows and export · `lib/kinds.ts` per-base-type layout · `lib/printing.ts` Alt+P / print-after-save targets.
 
 ## Known gaps
 

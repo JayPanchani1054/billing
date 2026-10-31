@@ -9,6 +9,11 @@
  * (outside the Enter chain), row tools (bills, cost centres, bank, remove) shown on row hover / focus — a
  * pressed tool stays visible — and a delivery note / order reference as muted text ("· note DN-1").
  *
+ * 2.2: a line's own description (this voucher only; lib/lineDescription.ts) sits under the item / ledger
+ * name — a quiet one-line field, out of sight until the line has text, the user opens it (Ctrl+E or the
+ * "Description" row tool) or the voucher type wants one on every line. The screen keeps the opened lines;
+ * each row only gets its own `descShown`.
+ *
  * Keyboard (handled by the screen through the cell ids, see lib/gridNav.ts and lib/errorPaths.ts):
  * Enter / Shift+Enter move cell by cell; Enter on an empty row leaves the grid; ↑/↓ keep the column;
  * Ctrl+D deletes the row; Alt+N (or Ctrl+N) inserts a row above.
@@ -21,9 +26,10 @@ import type { Paise } from '../../../../shared/money.ts';
 import type { LedgerDetail, LedgerPickerRow } from '../../../../shared/types/accounts.ts';
 import type { GodownDto, ItemPickerRow } from '../../../../shared/types/inventory.ts';
 import type { CompanyFeatures } from '../../../../shared/settings.ts';
-import { AmountInput, Icon, IconButton, NumberInput, PercentInput, TextInput, Tooltip } from '../../../ui/index.ts';
+import { AmountInput, Icon, IconButton, NumberInput, PercentInput, TextArea, TextInput, Tooltip } from '../../../ui/index.ts';
 import { cellId } from '../lib/errorPaths.ts';
-import { itemLineValue } from '../lib/formState.ts';
+import { isBlankItem, isBlankLedger, itemLineValue } from '../lib/formState.ts';
+import { DESC_COLUMN, DESC_MAX_LENGTH, descriptionShown } from '../lib/lineDescription.ts';
 import type { FormAction, ItemRow, LedgerRow } from '../lib/formState.ts';
 import type { LedgerSlot } from '../lib/masters.ts';
 import type { LineFigures } from '../lib/totals.ts';
@@ -58,6 +64,12 @@ export interface GridEnv {
   onQtyCommitted: (rowKey: string, qty: number | null) => void;
   openRowDialog: (kind: RowDialogKind, rowKey: string) => void;
   deleteRow: (section: 'items' | 'ledgers', rowKey: string) => void;
+  /** 2.2: show the description field of a filled line and put the cursor in it (the row tool; Ctrl+E). */
+  openDescription: (section: 'items' | 'ledgers', rowKey: string) => void;
+  /** 2.2: the cursor entered a description — it stays on screen while it is edited, even emptied. */
+  onDescriptionFocus: (rowKey: string) => void;
+  /** 2.2: the cursor left a description; left empty, it closes again. */
+  onDescriptionBlur: (rowKey: string, text: string) => void;
   /**
    * (forex) Decimal places of the amount fields — an invoice in a foreign currency holds its amounts in
    * 10^-d units of that currency (VoucherForm.forexDecimals); default 2 (paise).
@@ -116,11 +128,14 @@ export interface ItemGridProps {
   rowErrors: ReadonlyMap<string, Readonly<Record<string, string>>>;
   rowWarnings: ReadonlyMap<string, string>;
   qtyLabel: string;
+  /** 2.2: rows whose description the user opened on this voucher, and the voucher type's "Description on every line". */
+  descOpen: ReadonlySet<string>;
+  everyLine: boolean;
   /** Rows of the table foot (totals). */
   foot?: ReactNode;
 }
 
-export function ItemGrid({ title, caption, columns, rows, figures, rowErrors, rowWarnings, qtyLabel, foot }: ItemGridProps) {
+export function ItemGrid({ title, caption, columns, rows, figures, rowErrors, rowWarnings, qtyLabel, descOpen, everyLine, foot }: ItemGridProps) {
   return (
     <div className="bx-vch-grid">
       {title ? <h2 className="bx-vch-grid__title">{title}</h2> : null}
@@ -142,7 +157,16 @@ export function ItemGrid({ title, caption, columns, rows, figures, rowErrors, ro
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <ItemRowView key={r.key} row={r} index={i} columns={columns} figures={figures.get(r.key)} errors={rowErrors.get(r.key)} warning={rowWarnings.get(r.key)} />
+            <ItemRowView
+              key={r.key}
+              row={r}
+              index={i}
+              columns={columns}
+              figures={figures.get(r.key)}
+              errors={rowErrors.get(r.key)}
+              warning={rowWarnings.get(r.key)}
+              descShown={descriptionShown({ everyLine, opened: descOpen }, r.key, { filled: !isBlankItem(r), text: r.description })}
+            />
           ))}
         </tbody>
         {foot ? <tfoot>{foot}</tfoot> : null}
@@ -158,12 +182,62 @@ interface ItemRowViewProps {
   figures: LineFigures | undefined;
   errors: Readonly<Record<string, string>> | undefined;
   warning: string | undefined;
+  /** 2.2: the line's description field is on screen (lib/lineDescription.ts › descriptionShown). */
+  descShown: boolean;
 }
 
 /** id of the visible error text under a cell (referenced by the input's aria-describedby). */
 const errId = (cell: string): string => `${cell}-err`;
 
-const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, errors, warning }: ItemRowViewProps) {
+/**
+ * 2.2: the line's own description under its item / ledger name — a quiet one-line field that grows to four
+ * lines. It is a cell of the Enter chain (its id is a cell id) with its own error text: error texts are
+ * drawn per column, and the description is not one.
+ */
+function LineDescription({ section, rowKey, index, value, error, onChange }: { section: 'items' | 'ledgers'; rowKey: string; index: number; value: string; error: string | undefined; onChange: (text: string) => void }) {
+  const env = useGridEnv();
+  const id = cellId(section, rowKey, DESC_COLUMN);
+  return (
+    <>
+      <TextArea
+        id={id}
+        className="bx-vch-desc"
+        aria-label={`Description, line ${index + 1}`}
+        aria-describedby={error ? errId(id) : undefined}
+        rows={1}
+        autoGrow
+        maxRows={4}
+        maxLength={DESC_MAX_LENGTH}
+        placeholder="Description"
+        value={value}
+        invalid={!!error}
+        onValueChange={onChange}
+        onFocus={() => env.onDescriptionFocus(rowKey)}
+        onBlur={(e) => {
+          // A dialog opened from here (Alt+B, Ctrl+I, a confirmation …) gives the cursor back to this field, and
+          // so does the window when the user returns: keep it for them. Anything else closes an empty one.
+          const to = e.relatedTarget;
+          if (to instanceof Element && to.closest('[role="dialog"], [role="alertdialog"]')) return;
+          if (!document.hasFocus()) return;
+          env.onDescriptionBlur(rowKey, e.currentTarget.value);
+        }}
+      />
+      {error ? (
+        <span id={errId(id)} className="bx-vch-cell-error">
+          {error}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/** 2.2: the row tool that opens a hidden description (Ctrl+E does the same for the line the cursor is on). */
+function DescriptionTool({ section, rowKey, index }: { section: 'items' | 'ledgers'; rowKey: string; index: number }) {
+  const env = useGridEnv();
+  return <IconButton icon="text" size="sm" variant="ghost" tabIndex={-1} aria-label={`Description, line ${index + 1}`} tooltip="Description (Ctrl+E)" onClick={() => env.openDescription(section, rowKey)} />;
+}
+
+const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, errors, warning, descShown }: ItemRowViewProps) {
   const env = useGridEnv();
   const k = row.key;
   const id = (c: string) => cellId('items', k, c);
@@ -199,6 +273,13 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
               onRefetch={env.refetchItems}
             />
             {row.trackingRef || row.orderRef ? <span className="bx-vch-unit">{row.trackingRef ? `· note ${row.trackingRef}` : `· order ${row.orderRef}`}</span> : null}
+            {/* The name's own error comes before the description under it. */}
+            {err('item') ? (
+              <span id={errId(id('item'))} className="bx-vch-cell-error">
+                {err('item')}
+              </span>
+            ) : null}
+            {descShown ? <LineDescription section="items" rowKey={k} index={index} value={row.description} error={err(DESC_COLUMN)} onChange={(s) => patch({ description: s })} /> : null}
           </div>
         );
       case 'godown':
@@ -327,7 +408,7 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
       {columns.map((c) => (
         <td key={c} className={`bx-vch-col--${c}`}>
           {cell(c)}
-          {err(c) ? (
+          {err(c) && c !== 'item' ? (
             <span id={errId(id(c))} className="bx-vch-cell-error">
               {err(c)}
             </span>
@@ -337,6 +418,7 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
       <td className="bx-vch-table__act">
         {blank ? null : (
           <span className="bx-vch-rowtools">
+            {descShown ? null : <DescriptionTool section="items" rowKey={k} index={index} />}
             <IconButton icon="trash" size="sm" variant="ghost" tabIndex={-1} aria-label={`Remove line ${index + 1}`} tooltip="Remove line (Ctrl+D)" onClick={() => env.deleteRow('items', k)} />
           </span>
         )}
@@ -347,7 +429,7 @@ const ItemRowView = memo(function ItemRowView({ row, index, columns, figures, er
 
 // ───────────────────────────── Ledger grid ─────────────────────────────
 
-export type LedgerColumn = 'ledger' | 'gst' | 'hsn' | 'amount' | 'narr';
+export type LedgerColumn = 'ledger' | 'gst' | 'hsn' | 'amount';
 
 export interface LedgerGridProps {
   title?: ReactNode;
@@ -360,13 +442,15 @@ export interface LedgerGridProps {
   figures: ReadonlyMap<string, LineFigures>;
   rowErrors: ReadonlyMap<string, Readonly<Record<string, string>>>;
   rowWarnings: ReadonlyMap<string, string>;
-  /** Bill-wise / cost centre / bank detail state for the row buttons. */
+  /** 2.2: rows whose description the user opened on this voucher, and the voucher type's "Description on every line". */
+  descOpen: ReadonlySet<string>;
+  everyLine: boolean;
   /** Rows of the table foot (totals). */
   foot?: ReactNode;
   amountLabel: string;
 }
 
-export function LedgerGrid({ title, caption, slot, amountKind, columns, rows, figures, rowErrors, rowWarnings, foot, amountLabel }: LedgerGridProps) {
+export function LedgerGrid({ title, caption, slot, amountKind, columns, rows, figures, rowErrors, rowWarnings, descOpen, everyLine, foot, amountLabel }: LedgerGridProps) {
   return (
     <div className="bx-vch-grid">
       {title ? <h2 className="bx-vch-grid__title">{title}</h2> : null}
@@ -378,7 +462,7 @@ export function LedgerGrid({ title, caption, slot, amountKind, columns, rows, fi
             </th>
             {columns.map((c) => (
               <th key={c} scope="col" className={c === 'amount' || c === 'gst' ? `bx-vch-col--l${c} is-num` : `bx-vch-col--l${c}`}>
-                {c === 'ledger' ? 'Particulars' : c === 'gst' ? 'GST %' : c === 'hsn' ? 'HSN/SAC' : c === 'narr' ? 'Line narration' : amountLabel}
+                {c === 'ledger' ? 'Particulars' : c === 'gst' ? 'GST %' : c === 'hsn' ? 'HSN/SAC' : amountLabel}
               </th>
             ))}
             <th scope="col" className="bx-vch-table__act">
@@ -398,6 +482,7 @@ export function LedgerGrid({ title, caption, slot, amountKind, columns, rows, fi
               figures={figures.get(r.key)}
               errors={rowErrors.get(r.key)}
               warning={rowWarnings.get(r.key)}
+              descShown={descriptionShown({ everyLine, opened: descOpen }, r.key, { filled: !isBlankLedger(r), text: r.narration })}
             />
           ))}
         </tbody>
@@ -416,6 +501,8 @@ interface LedgerRowViewProps {
   figures: LineFigures | undefined;
   errors: Readonly<Record<string, string>> | undefined;
   warning: string | undefined;
+  /** 2.2: the line's description field is on screen (lib/lineDescription.ts › descriptionShown). */
+  descShown: boolean;
 }
 
 /** Bill-wise / cost centre / bank applicability of a ledger line. */
@@ -430,7 +517,7 @@ export function rowDetailNeeds(env: Pick<GridEnv, 'features' | 'ledgerById' | 'l
   };
 }
 
-const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind, columns, figures, errors, warning }: LedgerRowViewProps) {
+const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind, columns, figures, errors, warning, descShown }: LedgerRowViewProps) {
   const env = useGridEnv();
   const k = row.key;
   const id = (c: string) => cellId('ledgers', k, c);
@@ -449,28 +536,37 @@ const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind
     switch (c) {
       case 'ledger':
         return (
-          <LedgerCombo
-            id={id('ledger')}
-            aria-label={`Ledger, line ${index + 1}`}
-            aria-describedby={described('ledger')}
-            rows={env.ledgers}
-            slot={slot}
-            baseType={env.baseType}
-            direction={env.direction}
-            excludeIds={slot === 'invoiceLine' ? env.excludeLedgerIds : undefined}
-            value={row.ledgerId}
-            invalid={!!err('ledger')}
-            openOnFocus={!blank}
-            size="sm"
-            onChange={(ledgerId) => {
-              if (ledgerId !== row.ledgerId) patch({ ledgerId, bills: null, costs: null, instrument: null, gstExtra: null });
-            }}
-            onCommit={(ledgerId) => {
-              if (ledgerId !== row.ledgerId) patch({ ledgerId, bills: null, costs: null, instrument: null, gstExtra: null });
-              if (ledgerId !== null) env.advanceFrom('ledgers', k, 'ledger');
-            }}
-            onRefetch={env.refetchLedgers}
-          />
+          <div className="bx-vch-cell-item">
+            <LedgerCombo
+              id={id('ledger')}
+              aria-label={`Ledger, line ${index + 1}`}
+              aria-describedby={described('ledger')}
+              rows={env.ledgers}
+              slot={slot}
+              baseType={env.baseType}
+              direction={env.direction}
+              excludeIds={slot === 'invoiceLine' ? env.excludeLedgerIds : undefined}
+              value={row.ledgerId}
+              invalid={!!err('ledger')}
+              openOnFocus={!blank}
+              size="sm"
+              onChange={(ledgerId) => {
+                if (ledgerId !== row.ledgerId) patch({ ledgerId, bills: null, costs: null, instrument: null, gstExtra: null });
+              }}
+              onCommit={(ledgerId) => {
+                if (ledgerId !== row.ledgerId) patch({ ledgerId, bills: null, costs: null, instrument: null, gstExtra: null });
+                if (ledgerId !== null) env.advanceFrom('ledgers', k, 'ledger');
+              }}
+              onRefetch={env.refetchLedgers}
+            />
+            {/* The name's own error comes before the description under it. */}
+            {err('ledger') ? (
+              <span id={errId(id('ledger'))} className="bx-vch-cell-error">
+                {err('ledger')}
+              </span>
+            ) : null}
+            {descShown ? <LineDescription section="ledgers" rowKey={k} index={index} value={row.narration} error={err(DESC_COLUMN)} onChange={(s) => patch({ narration: s })} /> : null}
+          </div>
         );
       case 'gst':
         return blank ? null : (
@@ -524,8 +620,6 @@ const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind
             {figureNote() ? <span className="bx-vch-cell-note">{figureNote()}</span> : null}
           </div>
         );
-      case 'narr':
-        return blank ? null : <TextInput id={id('narr')} aria-label={`Narration, line ${index + 1}`} size="sm" maxLength={500} value={row.narration} onValueChange={(s) => patch({ narration: s })} />;
       default:
         return null;
     }
@@ -549,7 +643,7 @@ const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind
       {columns.map((c) => (
         <td key={c} className={`bx-vch-col--l${c}`}>
           {cell(c)}
-          {err(c) ? (
+          {err(c) && c !== 'ledger' ? (
             <span id={errId(id(c))} className="bx-vch-cell-error">
               {err(c)}
             </span>
@@ -595,6 +689,7 @@ const LedgerRowView = memo(function LedgerRowView({ row, index, slot, amountKind
                 onClick={() => env.openRowDialog('instrument', k)}
               />
             ) : null}
+            {descShown ? null : <DescriptionTool section="ledgers" rowKey={k} index={index} />}
             <IconButton icon="trash" size="sm" variant="ghost" tabIndex={-1} aria-label={`Remove line ${index + 1}`} tooltip="Remove line (Ctrl+D)" onClick={() => env.deleteRow('ledgers', k)} />
           </span>
         )}

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { balanceLast, blankLedger, formReducer, isBlankItem, isBlankLedger, itemLineValue, ledgerDifference, newForm, splitForSingle, withFirstLedger } from './formState.ts';
+import { balanceLast, blankLedger, formReducer, isBlankItem, isBlankLedger, itemLineValue, ledgerDifference, newForm, SINGLE_ENTRY_REFUSAL, singleEntryBlock, splitForSingle, withFirstLedger } from './formState.ts';
 import type { LedgerRow, VoucherForm } from './formState.ts';
 
 const sales = (): VoucherForm => newForm({ voucherTypeId: 5, baseType: 'sales', mode: 'item_invoice', date: '2026-10-05' });
@@ -159,6 +159,32 @@ describe('form reducer — review fixes', () => {
     assert.equal(splitForSingle(rows({ narration: 'NEFT 8812' }), 'cr'), null);
     assert.equal(splitForSingle(rows({ costs: [{ costCentreId: 1, amount: 5000 }] }), 'cr'), null);
     assert.equal(splitForSingle(rows({ bills: [{ refType: 'on_account', amount: 5000 }] }), 'cr'), null);
+  });
+
+  it('2.2: Ctrl+H says why a voucher stays in Dr/Cr — e.g. the cash / bank line has a description', () => {
+    const rows = (account: Partial<LedgerRow>, other: Partial<LedgerRow> = {}): LedgerRow[] => [
+      { ...blankLedger('l1'), ledgerId: 8, amount: 5000, ...other },
+      { ...blankLedger('l2'), ledgerId: 4, amount: -5000, ...account },
+    ];
+    assert.equal(singleEntryBlock(rows({}), 'cr'), null);
+    assert.equal(singleEntryBlock([], 'cr'), null);
+    assert.equal(singleEntryBlock(rows({ narration: 'NEFT 8812' }), 'cr'), 'description');
+    assert.equal(singleEntryBlock(rows({ narration: '  ' }), 'cr'), null, 'spaces are no description');
+    assert.equal(singleEntryBlock(rows({ costs: [{ costCentreId: 1, amount: 5000 }] }), 'cr'), 'cost-centres');
+    assert.equal(singleEntryBlock(rows({ bills: [{ refType: 'on_account', amount: 5000 }] }), 'cr'), 'bills');
+    assert.equal(singleEntryBlock([...rows({}), { ...blankLedger('l3'), ledgerId: 5, amount: -100 }], 'cr'), 'account-lines');
+    // A particulars line keeps its description in single entry: only the Account field has no place for one.
+    assert.equal(singleEntryBlock(rows({}, { narration: 'Rent for October' }), 'cr'), null);
+    assert.equal(splitForSingle(rows({}, { narration: 'Rent for October' }), 'cr')?.particulars[0].narration, 'Rent for October');
+    // The reducer refuses (the form comes back unchanged) and the note names that reason.
+    let f = newForm({ voucherTypeId: 2, baseType: 'payment', mode: 'ledger', date: '2026-10-05', layout: 'double' });
+    f = formReducer(f, { type: 'ledger', key: f.ledgers[0].key, patch: { ledgerId: 8, amount: 5000 } });
+    f = formReducer(f, { type: 'ledger', key: f.ledgers[1].key, patch: { ledgerId: 4, amount: -5000, narration: 'NEFT 8812' } });
+    assert.equal(formReducer(f, { type: 'setLayout', layout: 'single' }), f);
+    const why = singleEntryBlock(f.ledgers.filter((r) => !isBlankLedger(r)), 'cr');
+    assert.equal(why, 'description');
+    assert.equal(SINGLE_ENTRY_REFUSAL[why ?? 'account-lines'], 'The cash or bank line has a description, which single entry has no place for.');
+    assert.match(SINGLE_ENTRY_REFUSAL['account-lines'], /exactly one cash or bank line/);
   });
 
   it('new rows carry the alteration-only fields empty', () => {

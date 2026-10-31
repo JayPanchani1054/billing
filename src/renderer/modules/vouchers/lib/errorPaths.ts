@@ -6,6 +6,7 @@
  */
 import type { VoucherWarning } from '../../../../shared/types/vouchers.ts';
 import { ACCOUNT_ROW } from './buildInput.ts';
+import { DESC_COLUMN } from './lineDescription.ts';
 
 export type Section = 'items' | 'ledgers';
 
@@ -62,7 +63,11 @@ const HEADER_FIELDS: Readonly<Record<string, string>> = {
   applicableUpto: 'applicableUpto',
 };
 
-/** Grid column a line field is shown in. */
+/**
+ * Grid column a line field is shown in. 2.2: a line's description (item `description`, ledger `narration`)
+ * is its own field under the item / ledger name — a non-empty one is always on screen (lib/lineDescription.ts),
+ * so an error about it lands there.
+ */
 const ITEM_FIELDS: Readonly<Record<string, string>> = {
   itemId: 'item',
   godownId: 'godown',
@@ -79,7 +84,7 @@ const ITEM_FIELDS: Readonly<Record<string, string>> = {
   gstRateOverride: 'gst',
   trackingRef: 'item',
   orderRef: 'item',
-  description: 'item',
+  description: DESC_COLUMN,
 };
 
 const LEDGER_FIELDS: Readonly<Record<string, string>> = {
@@ -88,7 +93,7 @@ const LEDGER_FIELDS: Readonly<Record<string, string>> = {
   billAllocations: 'amount',
   costAllocations: 'amount',
   instrument: 'ledger',
-  narration: 'ledger',
+  narration: DESC_COLUMN,
   gst: 'gst',
 };
 

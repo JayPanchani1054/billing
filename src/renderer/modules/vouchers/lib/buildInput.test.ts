@@ -82,6 +82,39 @@ describe('buildVoucherInput', () => {
   });
 });
 
+describe('2.2 line descriptions (per voucher, under each item / ledger line)', () => {
+  it('sent trimmed with their pasted line breaks; blank ones are not sent — items, invoice ledgers and ledger-mode lines', () => {
+    let f = newForm({ voucherTypeId: 5, baseType: 'sales', mode: 'item_invoice', date: '2026-10-05', partyLedgerId: 31 });
+    f = formReducer(f, { type: 'item', key: f.items[0].key, patch: { itemId: 1, qty: 1, rate: 100, description: '  Serial 4471\nWarranty 1 year  ' } });
+    f = formReducer(f, { type: 'item', key: f.items[1].key, patch: { itemId: 2, qty: 1, rate: 50, description: ' \n ' } });
+    f = formReducer(f, { type: 'ledger', key: f.ledgers[0].key, patch: { ledgerId: 20, amount: 5000, narration: ' Door delivery ' } });
+    const { input } = buildVoucherInput(f);
+    assert.deepEqual(
+      input.items?.map((l) => l.description),
+      ['Serial 4471\nWarranty 1 year', undefined],
+    );
+    assert.deepEqual(input.ledgers, [{ ledgerId: 20, amount: 5000, narration: 'Door delivery' }]);
+
+    let p = newForm({ voucherTypeId: 2, baseType: 'payment', mode: 'ledger', date: '2026-10-05', accountLedgerId: 4 });
+    p = formReducer(p, { type: 'ledger', key: p.ledgers[0].key, patch: { ledgerId: 8, amount: 50000, narration: 'October rent\nShop 12' } });
+    assert.deepEqual(buildVoucherInput(p).input.ledgers?.[1], { ledgerId: 8, amount: 50000, narration: 'October rent\nShop 12' });
+  });
+
+  it('come back on alteration on the same lines', () => {
+    const saved: VoucherInput = {
+      id: 7,
+      voucherTypeId: 5,
+      date: '2026-10-05',
+      mode: 'accounting_invoice',
+      partyLedgerId: 31,
+      ledgers: [{ ledgerId: 50, amount: 100000, narration: 'AMC for October\nVisit on the 12th' }],
+    };
+    const f = formFromInput(saved, { baseType: 'sales', alter: true });
+    assert.equal(f.ledgers[0].narration, 'AMC for October\nVisit on the 12th');
+    assert.deepEqual(buildVoucherInput(f).input.ledgers, saved.ledgers);
+  });
+});
+
 describe('formFromInput', () => {
   const saved: VoucherInput = {
     id: 42,

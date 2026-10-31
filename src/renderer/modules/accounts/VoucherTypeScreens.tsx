@@ -262,7 +262,7 @@ const FLAGS: ReadonlyArray<{ key: 'preventDuplicates' | 'useEffectiveDate' | 'al
   { key: 'useEffectiveDate', label: 'Use effective dates', hint: 'Enter a separate date from which the voucher takes effect.' },
   { key: 'allowZeroValue', label: 'Allow zero-value vouchers', hint: 'e.g. free samples or replacements.' },
   { key: 'optionalByDefault', label: 'Make vouchers optional by default', hint: 'Optional vouchers do not affect the books until made regular.' },
-  { key: 'narrationPerEntry', label: 'Narration for each entry', hint: 'A separate note on every line, not just the voucher.' },
+  { key: 'narrationPerEntry', label: 'Description on every line', hint: 'A description under every item and ledger line as you enter (Ctrl+E adds one to any line).' },
   { key: 'printAfterSave', label: 'Print after saving', hint: 'Open the print preview each time a voucher is saved.' },
 ];
 
