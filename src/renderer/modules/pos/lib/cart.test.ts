@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { PosItem } from '../../../../shared/types/pos.ts';
-import { addScanned, billLines, buildBillInput, deliveryFromDraft, lineMrp, lineValue, linesFromDraft, parseScan, priceFor, removeLine, setPrice, setQty, stepQty, toDraft, totalQty } from './cart.ts';
+import type { ItemLineInput } from '../../../../shared/types/vouchers.ts';
+import { addScanned, billLines, buildBillInput, deliveryFromDraft, lineMrp, lineValue, linesFromBill, linesFromDraft, parseScan, priceFor, removeLine, setPrice, setQty, stepQty, toDraft, totalQty } from './cart.ts';
 
 const item = (over: Partial<PosItem> = {}): PosItem => ({
   itemId: 1,
@@ -123,6 +124,55 @@ describe('cart lines', () => {
     const back = linesFromDraft({ lines: [...d.lines, { itemId: 99, qty: 1, rate: 1 }] }, new Map([[1, item()]]));
     assert.deepEqual(back.missing, [99]);
     assert.deepEqual([back.lines[0].qty, back.lines[0].rate, back.lines[0].priceEdited], [2, 40, true]);
+  });
+});
+
+describe("altering a bill at the counter keeps each line's description (2.2)", () => {
+  const found = new Map([
+    [1, item()],
+    [3, item({ itemId: 3, name: 'Rice', maintainBatches: true, sellingRate: 50 })],
+  ]);
+
+  it('a description typed in voucher entry comes back on the counter and is saved again with the bill', () => {
+    const saved: ItemLineInput[] = [
+      { itemId: 1, qty: 2, rate: 45, description: '  Gift wrapped,\nred ribbon  ' },
+      { itemId: 3, qty: 1, rate: 50, discountPct: 5, batchName: 'B-7' },
+      { itemId: 99, qty: 1, rate: 1, description: 'An item deleted since' },
+    ];
+    const back = linesFromBill(saved, found);
+    assert.deepEqual(back.missing, [99]);
+    assert.deepEqual(back.lines.map((l) => l.description), ['Gift wrapped,\nred ribbon', undefined]);
+    // Quantity and price changes keep it; the bill sends it again as the line's ItemLineInput.description.
+    const lines = setPrice(setQty(back.lines, 0, 3), 0, 44, 0);
+    assert.deepEqual(billLines(lines, 4), [
+      { itemId: 1, qty: 3, rate: 44, godownId: 4, description: 'Gift wrapped,\nred ribbon' },
+      { itemId: 3, qty: 1, rate: 50, discountPct: 5, godownId: 4, batchName: 'B-7' },
+    ]);
+    const input = buildBillInput({ voucherTypeId: 9, date: '2026-10-09', partyLedgerId: 1, placeOfSupply: null, priceLevelId: null, godownId: null, id: 41, expectedUpdatedAt: '2026-10-09T10:00:00.000Z' }, lines, { tenders: [] });
+    assert.deepEqual(input.items?.map((l) => l.description), ['Gift wrapped,\nred ribbon', undefined]);
+  });
+
+  it('the billed quantity and the rate come back as before; a blank description is none', () => {
+    const back = linesFromBill([{ itemId: 1, qty: 5, billedQty: 4, rate: 40, description: '   ' }], found);
+    assert.deepEqual([back.lines[0].qty, back.lines[0].rate, back.lines[0].priceEdited, 'description' in back.lines[0]], [4, 40, true, false]);
+    assert.equal('description' in billLines(back.lines, null)[0], false);
+  });
+
+  it('a held draft never carries a description (the held-bill schema has none), so a recalled line has none', () => {
+    const back = linesFromBill([{ itemId: 1, qty: 2, rate: 45, description: 'Gift wrapped' }], found);
+    const d = toDraft(9, back.lines, null, null);
+    assert.deepEqual(d, { voucherTypeId: 9, lines: [{ itemId: 1, qty: 2, rate: 45 }] });
+    assert.equal(linesFromDraft(d, found).lines[0].description, undefined);
+  });
+
+  it('scanning the item of a described line starts a new line (the text describes the goods it was typed for)', () => {
+    const back = linesFromBill([{ itemId: 1, qty: 1, rate: 45, description: 'Serial no. 4471' }], found);
+    const r = addScanned(back.lines, item(), 1);
+    assert.equal(r.index, 1);
+    assert.deepEqual(r.lines.map((l) => [l.qty, l.description]), [
+      [1, 'Serial no. 4471'],
+      [1, undefined],
+    ]);
   });
 });
 

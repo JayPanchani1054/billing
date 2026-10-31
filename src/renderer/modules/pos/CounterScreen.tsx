@@ -38,7 +38,7 @@ import {
 import { Badge, Banner, Button, DataTable, Inline, Spinner, Stack, Switch, TextInput, useDebouncedValue, useToast } from '../../ui/index.ts';
 import type { Column } from '../../ui/index.ts';
 import { CandidatesDialog, CustomerDialog, FindItemDialog, HeldBillsDialog, LineDialog, PosOff, TenderDialog, type CounterCustomer } from './components.tsx';
-import { addScanned, buildBillInput, deliveryFromDraft, lineMrp, lineValue, linesFromDraft, parseScan, removeLine, setBatch, setPrice, setQty, stepQty, toDraft, totalQty, type CartLine, type ParsedScan } from './lib/cart.ts';
+import { addScanned, buildBillInput, deliveryFromDraft, lineMrp, lineValue, linesFromBill, linesFromDraft, parseScan, removeLine, setBatch, setPrice, setQty, stepQty, toDraft, totalQty, type CartLine, type ParsedScan } from './lib/cart.ts';
 import { counterName, setCounterName } from './lib/counter.ts';
 import { billBlockers, initialTenders, summarizeTenders, tendersFromSaved, toPosBill, type TenderState } from './lib/tender.ts';
 import { useReceiptPrinter } from './ReceiptPrinter.tsx';
@@ -112,7 +112,7 @@ function Counter({ ctx, params }: { ctx: PosContext; params: CounterParams }) {
   const godownId = ctx.godown?.id ?? null;
   const placeOfSupply = deliverToCustomer && customer?.stateCode ? customer.stateCode : ctx.companyStateCode;
 
-  // Alteration: the saved bill comes back on the counter with its prices and customer.
+  // Alteration: the saved bill comes back on the counter with its prices, line descriptions and customer.
   const detail = altering ? detailQ.data : undefined;
   useEffect(() => {
     if (!detail || loadedFrom === detail.id) return;
@@ -121,8 +121,7 @@ function Counter({ ctx, params }: { ctx: PosContext; params: CounterParams }) {
     const items = detail.input.items ?? [];
     void Promise.all([...new Set(items.map((i) => i.itemId))].map((itemId) => api('pos.item.get', { itemId, date: detail.date, ...(priceLevelId ? { priceLevelId } : {}) }).catch(() => null))).then((found) => {
       const map = new Map<number, PosItem>(found.filter((x): x is PosItem => x !== null).map((x) => [x.itemId, x]));
-      const back = linesFromDraft({ lines: items.map((i) => ({ itemId: i.itemId, qty: i.billedQty ?? i.qty, rate: i.rate, discountPct: i.discountPct, batchName: i.batchName })) }, map);
-      setLines(back.lines);
+      setLines(linesFromBill(items, map).lines);
     });
     if (detail.partyLedgerId !== null && detail.partyLedgerId !== walkInId) {
       setCustomer({ ledgerId: detail.partyLedgerId, name: detail.party.name ?? detail.partyLedgerName ?? '', mobile: null, stateCode: detail.party.stateCode, gstin: detail.party.gstin });
@@ -360,8 +359,11 @@ function Counter({ ctx, params }: { ctx: PosContext; params: CounterParams }) {
             {l.name}
             {l.batchName ? <span className="bx-muted"> · Batch {l.batchName}</span> : l.maintainBatches ? <Badge size="sm" tone="warning">batch?</Badge> : null}
             {l.priceEdited ? <span className="bx-muted"> · price set</span> : null}
+            {l.description ? <span className="bx-muted"> · {l.description}</span> : null}
           </span>
         ),
+        // An altered bill's line description (2.2) shows on one line here; the tooltip has all of it.
+        title: (l) => (l.description ? `${l.name}\n${l.description}` : l.name),
       },
       { key: 'qty', header: 'Qty', width: 110, align: 'right', value: (l) => l.qty, render: (l) => <span className="bx-num">{formatQty(l.qty, l.unitDecimals, l.unit)}</span> },
       { key: 'rate', header: 'Rate', width: 100, align: 'right', value: (l) => l.rate, render: (l) => <span className="bx-num">{formatRate(l.rate)}</span> },

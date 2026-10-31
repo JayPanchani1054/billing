@@ -4,10 +4,11 @@
  */
 import type { VoucherBaseType } from '../../../../shared/constants.ts';
 import { formatDate } from '../../../../shared/dates.ts';
-import { formatPercent } from '../../../../shared/format.ts';
+import { formatMoney, formatPercent } from '../../../../shared/format.ts';
 import { isUtgstState } from '../../../../shared/gst/states.ts';
 import type { Paise } from '../../../../shared/money.ts';
-import type { GstLineView, PreviewInventoryLine, VoucherDetail, VoucherListRow } from '../../../../shared/types/vouchers.ts';
+import type { GstLineView, InstrumentType, PreviewInventoryLine, VoucherDetail, VoucherDetailEntry, VoucherListRow } from '../../../../shared/types/vouchers.ts';
+import { REF_TYPE_LABEL } from './bills.ts';
 import { dayBookSide } from './kinds.ts';
 
 export interface DayBookRow {
@@ -280,4 +281,62 @@ export function viewTotals(v: {
   if (atCustoms) rows.push({ key: 'customs', label: 'Tax paid at customs', amount: headsTotal, muted: true });
   rows.push({ key: 'total', label: 'Total ₹', amount: v.totals.amount, grand: true });
   return rows;
+}
+
+// ───────────────────────────── Voucher view 2.2: line descriptions ─────────────────────────────
+
+/**
+ * A line's own description as typed on this voucher — an item line's `description`
+ * (inventory_entries.description, never the stock item master's) or a Dr / Cr line's `narration` (the
+ * narrations the TDS / TCS, GST advance, forex and POS hooks write on their own lines included) — for the
+ * muted line under the line's name. Trimmed; line breaks typed inside it are kept (as \n: the view renders
+ * it as React text with `white-space: pre-line`); null when there is none.
+ */
+export function lineDescription(text: string | null | undefined): string | null {
+  const t = (text ?? '').replace(/\r\n?/g, '\n').trim();
+  return t === '' ? null : t;
+}
+
+/** One Dr / Cr line of the view: Particulars (the ledger, then its two muted lines) · Debit · Credit. */
+export interface ViewEntryRow {
+  key: string;
+  name: string;
+  /** The line's description (its narration), on a muted line of its own under the name; null when none. */
+  description: string | null;
+  /** Bills, cost centres, the bank instrument and the bank date in one muted line; '' when none. */
+  detail: string;
+  debit: Paise;
+  credit: Paise;
+}
+
+/**
+ * The details line under a ledger name: its bills, cost centres, bank instrument and the date it cleared
+ * in the bank, joined by ' · '. The line's narration is not part of it (2.2: it is the line's description,
+ * shown on a line of its own). `instrumentLabel` names the instrument types (voucher entry's INSTRUMENT_LABEL).
+ */
+export function entryDetailLine(
+  e: Pick<VoucherDetailEntry, 'billAllocations' | 'costAllocations' | 'instrument' | 'bankDate'>,
+  instrumentLabel: Readonly<Record<InstrumentType, string>>,
+): string {
+  const parts: string[] = [];
+  for (const b of e.billAllocations) parts.push(`${REF_TYPE_LABEL[b.refType]}${b.billName ? ` ${b.billName}` : ''} ₹ ${formatMoney(Math.abs(b.amount))}${b.dueDate ? ` (due ${formatDate(b.dueDate, 'D-MMM-YY')})` : ''}`);
+  for (const c of e.costAllocations) parts.push(`${c.costCentreName ?? 'Cost centre'} ₹ ${formatMoney(Math.abs(c.amount))}`);
+  if (e.instrument) {
+    const i = e.instrument;
+    parts.push([instrumentLabel[i.type], i.number, i.date ? formatDate(i.date, 'D-MMM-YY') : '', i.bankName, i.favouring ? `favouring ${i.favouring}` : ''].filter(Boolean).join(' '));
+  }
+  if (e.bankDate) parts.push(`Cleared in bank on ${formatDate(e.bankDate, 'D-MMM-YY')}`);
+  return parts.join(' · ');
+}
+
+/** The view's Dr / Cr lines (signed amounts split into Debit | Credit). */
+export function viewEntryRows(entries: readonly VoucherDetailEntry[], instrumentLabel: Readonly<Record<InstrumentType, string>>): ViewEntryRow[] {
+  return entries.map((e) => ({
+    key: String(e.id),
+    name: e.ledgerName,
+    description: lineDescription(e.narration),
+    detail: entryDetailLine(e, instrumentLabel),
+    debit: e.amount > 0 ? e.amount : 0,
+    credit: e.amount < 0 ? -e.amount : 0,
+  }));
 }

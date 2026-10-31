@@ -4,10 +4,11 @@
  *
  * Scanner input: a USB / Bluetooth barcode scanner "types" the code and presses Enter. `3*8901…`
  * (or `3 x 8901…`) scans three at once. Scanning an item already on the bill adds to that line,
- * unless the line's rate or discount was changed by hand or it is batch-wise (then a new line).
+ * unless the line's rate or discount was changed by hand, it is batch-wise or it has a description of
+ * its own (then a new line).
  */
 import { lineAmount, roundTo, type Paise } from '../../../../shared/money.ts';
-import type { PosDraft, PosItem, PosPriceSlab, VoucherPosInput } from '../../../../shared/types/pos.ts';
+import type { PosDraft, PosDraftLine, PosItem, PosPriceSlab, VoucherPosInput } from '../../../../shared/types/pos.ts';
 import type { ItemLineInput, VoucherInput } from '../../../../shared/types/vouchers.ts';
 
 export interface CartLine {
@@ -30,6 +31,12 @@ export interface CartLine {
   rateInclusiveOfTax: boolean;
   maintainBatches: boolean;
   batchName?: string;
+  /**
+   * (2.2) The line's own description, typed in voucher entry (e.g. on a bill duplicated there): it comes
+   * back when the bill is altered at the counter (`linesFromBill`) and is saved again with it
+   * (ItemLineInput.description). Never part of a held bill (`toDraft`: a draft line has none).
+   */
+  description?: string;
   /** On hand when scanned (null for services). */
   stock: number | null;
 }
@@ -98,14 +105,15 @@ function repriced(l: CartLine): CartLine {
 
 /**
  * Add a scanned item: the same item scanned again adds to its last line (re-priced by the new
- * quantity) unless that line has a hand-set price or a batch; otherwise a new line at the end.
- * Returns the new lines and the index of the line that changed.
+ * quantity) unless that line has a hand-set price, a batch or a description (it describes the goods
+ * it was typed for); otherwise a new line at the end. Returns the new lines and the index of the line
+ * that changed.
  */
 export function addScanned(lines: readonly CartLine[], item: PosItem, qty: number): { lines: CartLine[]; index: number } {
   for (let i = lines.length - 1; i >= 0; i--) {
     const l = lines[i];
     if (l.itemId !== item.itemId) continue;
-    if (l.priceEdited || l.maintainBatches) break;
+    if (l.priceEdited || l.maintainBatches || l.description) break;
     const next = [...lines];
     next[i] = repriced({ ...l, qty: roundQty(l.qty + qty, l.unitDecimals) });
     return { lines: next, index: i };
@@ -176,6 +184,7 @@ export function billLines(lines: readonly CartLine[], godownId: number | null): 
       ...(l.discountPct ? { discountPct: l.discountPct } : {}),
       ...(godownId !== null ? { godownId } : {}),
       ...(l.batchName ? { batchName: l.batchName } : {}),
+      ...(l.description ? { description: l.description } : {}),
     }));
 }
 
@@ -210,7 +219,7 @@ export function buildBillInput(h: BillHeader, lines: readonly CartLine[], posBil
   };
 }
 
-/** A held bill's draft from the counter. */
+/** A held bill's draft from the counter: only what a draft line holds (never a line's description — `pos.held.save` has no place for it). */
 export function toDraft(voucherTypeId: number, lines: readonly CartLine[], customer: { ledgerId: number; name: string; mobile: string | null } | null, placeOfSupply: string | null): PosDraft {
   return {
     voucherTypeId,
@@ -220,28 +229,51 @@ export function toDraft(voucherTypeId: number, lines: readonly CartLine[], custo
   };
 }
 
+/** A held / saved line with its item looked up again: the rate kept is the line's, marked as set (never silently re-priced). */
+function restoredLine(d: PosDraftLine, item: PosItem): CartLine {
+  const base = lineFromItem(item, d.qty);
+  const p = priceFor(item, base.qty);
+  return {
+    ...base,
+    rate: d.rate,
+    discountPct: d.discountPct ?? 0,
+    priceEdited: d.rate !== p.rate || (d.discountPct ?? 0) !== p.discountPct,
+    ...(d.batchName ? { batchName: d.batchName } : {}),
+  };
+}
+
 /**
- * Lines back from a held draft or a saved bill, given the items looked up again (current name, MRP,
- * slabs). The rate kept is the one on the draft / bill, marked as set (never silently re-priced).
+ * Lines back from a held draft, given the items looked up again (current name, MRP, slabs). The rate
+ * kept is the one on the draft, marked as set (never silently re-priced).
  */
 export function linesFromDraft(draft: Pick<PosDraft, 'lines'>, items: ReadonlyMap<number, PosItem>): { lines: CartLine[]; missing: number[] } {
   const out: CartLine[] = [];
   const missing: number[] = [];
   for (const d of draft.lines) {
     const item = items.get(d.itemId);
+    if (item) out.push(restoredLine(d, item));
+    else missing.push(d.itemId);
+  }
+  return { lines: out, missing };
+}
+
+/**
+ * Lines back from a saved bill altered at the counter (`vouchers.get().input.items`), as from a draft
+ * (the billed quantity is the line's quantity), keeping what only a voucher line carries: its own
+ * description (typed in voucher entry), so saving the altered bill does not drop it.
+ */
+export function linesFromBill(billItems: readonly ItemLineInput[], items: ReadonlyMap<number, PosItem>): { lines: CartLine[]; missing: number[] } {
+  const out: CartLine[] = [];
+  const missing: number[] = [];
+  for (const i of billItems) {
+    const item = items.get(i.itemId);
     if (!item) {
-      missing.push(d.itemId);
+      missing.push(i.itemId);
       continue;
     }
-    const base = lineFromItem(item, d.qty);
-    const p = priceFor(item, base.qty);
-    out.push({
-      ...base,
-      rate: d.rate,
-      discountPct: d.discountPct ?? 0,
-      priceEdited: d.rate !== p.rate || (d.discountPct ?? 0) !== p.discountPct,
-      ...(d.batchName ? { batchName: d.batchName } : {}),
-    });
+    const line = restoredLine({ itemId: i.itemId, qty: i.billedQty ?? i.qty, rate: i.rate, discountPct: i.discountPct, batchName: i.batchName }, item);
+    const description = i.description?.trim();
+    out.push(description ? { ...line, description } : line);
   }
   return { lines: out, missing };
 }

@@ -51,6 +51,14 @@ must be paid in full; a customer's may leave the rest on account.
   engine re-attaches the saved tenders.
 - Recalling a held bill restores its customer and the place of supply it was held with
   (`lib/cart.ts › deliveryFromDraft`).
+- Line descriptions (2.2): a POS bill duplicated or altered in voucher entry may carry a description on
+  an item line (`ItemLineInput.description`). Altering the bill on the counter brings it back with the
+  line (`lib/cart.ts › linesFromBill`, from `vouchers.get().input.items`), shows it muted after the item
+  name (one line; the cell's tooltip has all of it) and saves it again (`billLines`); quantity / price
+  changes keep it. The counter has no field to type one, and a held bill never carries one (`toDraft`:
+  a held draft line has no description — `pos.held.save` would reject the key in strict mode). Scanning
+  the item of a described line starts a new line instead of adding to it (the text describes the goods
+  it was typed for). `lib/coreContract.test.ts` checks the round trip against the real engine.
 - Day-end summary (2.1): the view tabs on the toolbar row; on the right the StatLine *Cash in drawer ·
   Net sales · On credit · GST* (`lib/charts.ts › summaryStat`: a figure equal to a total the visible table
   shows is dropped — net sales on the cashier / counter views, whose Net total it is; bills, returns, change given, exchange credit and MRP savings are the drawer figure's tooltip);
@@ -62,7 +70,7 @@ must be paid in full; a customer's may leave the rest on account.
   (Ctrl+1…4) clears it. The bill list shows at most 1,000 rows (the footer says so when there are more).
 - Prices: price-level slab for the line's quantity (POS Settings › price level) else the item's selling
   price; a hand-set rate / discount is kept and marked "price set" (the next scan of that item adds a
-  new line instead of re-pricing it).
+  new line instead of re-pricing it, as for a batch-wise line or one with a description).
 - Receipt printing (`ReceiptPrinter.tsx`): the bill is rendered off screen with the print module's
   template and paper (Compact on the 80 / 58 mm roll set under Invoice Printing, voucher-type overrides)
   and printed with the roll printer chosen on this computer (Print Preview › Printer) — silently when
@@ -77,7 +85,8 @@ must be paid in full; a customer's may leave the rest on account.
 
 | File | What |
 |---|---|
-| `lib/cart.ts` | scan parsing, add / increment, quantity slabs, line values, MRP, bill input, held drafts |
+| `lib/cart.ts` | scan parsing, add / increment, quantity slabs, line values, MRP, bill input, held drafts, an altered bill's lines (`linesFromBill`, line descriptions kept) |
+| `lib/coreContract.test.ts` | an altered bill keeps its line descriptions through the real engine; a held draft passes the strict held-bill schema |
 | `lib/tender.ts` | tender rows, balance row, exchange row, change, problems, posBill |
 | `lib/returns.ts` | returnable quantities, credit note input |
 | `lib/summary.ts` | cash drawer count, drills, export tables |

@@ -10,6 +10,12 @@
  * invoices; Detailed also adds the GST rate-wise table, addresses, dispatch / e-invoice details and the
  * "Entered by … · last changed by …" line. The choice is remembered (`pevqori.ui` `voucherDetailed`).
  *
+ * 2.2: a line's own description, typed on this voucher, shows as typed (line breaks kept) on a muted line
+ * under its name — an item line's description (never the stock item's master description) and a Dr / Cr
+ * line's narration, which no longer joins the details line (bills, cost centres, instrument, bank date)
+ * under it. A row with a line under its name keeps every cell on the name's line (lib/daybook.ts
+ * `lineDescription`, `viewEntryRows`).
+ *
  * Keys: Alt+A alter · Alt+P print · Alt+F1 detailed · Alt+2 duplicate · Alt+X cancel · Alt+D delete ·
  * Alt+H history · Ctrl+R change the number (2.0: vouchers.renumber + vouchers.alter → 'vouchers.renumber';
  * the voucher is re-saved as entered, so its entries are unchanged) · Esc back.
@@ -19,28 +25,23 @@ import type { ReactNode } from 'react';
 import { formatDate } from '../../../shared/dates.ts';
 import { formatMoney, formatPercent, formatQty, formatRate } from '../../../shared/format.ts';
 import { stateLabel } from '../../../shared/gst/index.ts';
-import type { GstLineView, PreviewInventoryLine, VoucherDetailEntry, VoucherNumberOverride } from '../../../shared/types/vouchers.ts';
+import type { GstLineView, PreviewInventoryLine, VoucherNumberOverride } from '../../../shared/types/vouchers.ts';
 import { ApiError, formatDateTime, isApiError, Screen, useApiMutation, useApiQuery, useCan, useCompany, useConfirm, useModules, useNav, userMessage, withConfirmation } from '../../app/index.ts';
 import type { ScreenActionItem, ScreenProps } from '../../app/index.ts';
 import { setUiPrefs, useUiPrefs } from '../../app/preferences.ts';
 import { amountInWords } from '../../../shared/words.ts';
 import { Banner, DataTable, Inline, KeyValueList, Panel, Stack, useToast } from '../../ui/index.ts';
 import type { Column, KeyValueItem } from '../../ui/index.ts';
-import { REF_TYPE_LABEL } from './lib/bills.ts';
-import { hiddenItemColumns, partyLine, referenceLine, viewSections, viewStateWords, viewTotals } from './lib/daybook.ts';
+import { hiddenItemColumns, lineDescription, partyLine, referenceLine, viewEntryRows, viewSections, viewStateWords, viewTotals } from './lib/daybook.ts';
+import type { ViewEntryRow } from './lib/daybook.ts';
 import { INSTRUMENT_LABEL, ReasonDialog } from './entry/dialogs.tsx';
 import { VOUCHER_INVALIDATES } from './entry/VoucherEntryScreen.tsx';
 import { ChangeNumberDialog } from './ChangeNumberDialog.tsx';
 import { changeNumberAvailability, isGstDocType, renumberedText } from './lib/changeNumber.ts';
 import { confirmationRequest } from './lib/errorPaths.ts';
 
-interface EntryRow {
-  key: string;
-  name: string;
-  detail: string;
-  debit: number;
-  credit: number;
-}
+/** A row with a line under its name (a description, or bills / cost centres / bank details): every cell stays on the name's line. */
+const MULTILINE_ROW = 'bx-vch-view__row--multiline';
 
 interface GstRateRow {
   key: string;
@@ -50,19 +51,6 @@ interface GstRateRow {
   cgst: number;
   sgst: number;
   cess: number;
-}
-
-function entryDetail(e: VoucherDetailEntry): string {
-  const parts: string[] = [];
-  for (const b of e.billAllocations) parts.push(`${REF_TYPE_LABEL[b.refType]}${b.billName ? ` ${b.billName}` : ''} ₹ ${formatMoney(Math.abs(b.amount))}${b.dueDate ? ` (due ${formatDate(b.dueDate, 'D-MMM-YY')})` : ''}`);
-  for (const c of e.costAllocations) parts.push(`${c.costCentreName ?? 'Cost centre'} ₹ ${formatMoney(Math.abs(c.amount))}`);
-  if (e.instrument) {
-    const i = e.instrument;
-    parts.push([INSTRUMENT_LABEL[i.type], i.number, i.date ? formatDate(i.date, 'D-MMM-YY') : '', i.bankName, i.favouring ? `favouring ${i.favouring}` : ''].filter(Boolean).join(' '));
-  }
-  if (e.bankDate) parts.push(`Cleared in bank on ${formatDate(e.bankDate, 'D-MMM-YY')}`);
-  if (e.narration) parts.push(e.narration);
-  return parts.join(' · ');
 }
 
 /** GST lines grouped by rate (per head), as on the invoice's tax summary. */
@@ -111,10 +99,7 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
   const vType = v ? typesQ.data?.rows.find((t) => t.id === v.voucherType.id) : undefined;
   const nextQ = useApiQuery('vouchers.nextNumber', { voucherTypeId: v?.voucherType.id ?? 0, date: v?.date ?? '2000-01-01' }, { enabled: renumbering && !!v, staleTime: 0 });
 
-  const entries = useMemo<EntryRow[]>(
-    () => (v?.entries ?? []).map((e) => ({ key: String(e.id), name: e.ledgerName, detail: entryDetail(e), debit: e.amount > 0 ? e.amount : 0, credit: e.amount < 0 ? -e.amount : 0 })),
-    [v],
-  );
+  const entries = useMemo<ViewEntryRow[]>(() => viewEntryRows(v?.entries ?? [], INSTRUMENT_LABEL), [v]);
   const gstRows = useMemo(() => gstByRate(v?.gstLines ?? []), [v]);
 
   const physical = v?.voucherType.baseType === 'physical_stock';
@@ -125,15 +110,22 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
       {
         key: 'itemName',
         header: 'Item',
-        render: (r) => (
-          <span>
-            {r.itemName}
-            {r.batchName ? <span className="bx-muted"> · batch {r.batchName}</span> : null}
-            {r.trackingRef ? <span className="bx-muted"> · note {r.trackingRef}</span> : null}
-            {r.orderRef ? <span className="bx-muted"> · order {r.orderRef}</span> : null}
-            {r.isConsumption ? <span className="bx-muted"> · consumed</span> : null}
-          </span>
-        ),
+        render: (r) => {
+          // 2.2: the line's own description (typed on this voucher, not the item master's), as typed.
+          const description = lineDescription(r.description);
+          return (
+            <>
+              <div className="bx-vch-view__name">
+                {r.itemName}
+                {r.batchName ? <span className="bx-muted"> · batch {r.batchName}</span> : null}
+                {r.trackingRef ? <span className="bx-muted"> · note {r.trackingRef}</span> : null}
+                {r.orderRef ? <span className="bx-muted"> · order {r.orderRef}</span> : null}
+                {r.isConsumption ? <span className="bx-muted"> · consumed</span> : null}
+              </div>
+              {description ? <div className="bx-muted bx-vch-view__desc">{description}</div> : null}
+            </>
+          );
+        },
       },
       { key: 'godownName', header: 'Godown', width: 140 },
       // Physical stock stores the adjustment (counted − book): show it signed, not as a quantity.
@@ -149,14 +141,16 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
     ],
     [physical, invoiceTotals],
   );
-  const entryColumns = useMemo<Column<EntryRow>[]>(
+  const entryColumns = useMemo<Column<ViewEntryRow>[]>(
     () => [
       {
         key: 'name',
         header: 'Particulars',
+        // The ledger, then its description (2.2: its own line) and its bills / cost centres / bank details.
         render: (r) => (
           <>
-            <div>{r.name}</div>
+            <div className="bx-vch-view__name">{r.name}</div>
+            {r.description ? <div className="bx-muted bx-vch-view__desc">{r.description}</div> : null}
             {r.detail ? <div className="bx-muted bx-vch-view__detail">{r.detail}</div> : null}
           </>
         ),
@@ -333,6 +327,7 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
                 columns={itemColumns}
                 rows={v.inventory}
                 getRowKey={(r) => `${r.lineNo}-${r.itemId}-${r.isConsumption ? 'c' : 'p'}`}
+                getRowClassName={(r) => (lineDescription(r.description) ? MULTILINE_ROW : undefined)}
                 hiddenColumns={hiddenItemColumns(v.inventory, detailed)}
                 density="compact"
                 autoFocus={sections.focus === 'items'}
@@ -356,7 +351,15 @@ export function VoucherViewScreen({ params }: ScreenProps<{ id: number }>) {
           {sections.entries ? (
             // An invoice's entries (Detailed) get a section title; a voucher's own Dr / Cr lines are the document.
             <Section title={v.inventory.length > 0 ? 'Accounting entries' : null} label="Accounting entries">
-              <DataTable<EntryRow> aria-label="Accounting entries" columns={entryColumns} rows={entries} getRowKey={(r) => r.key} density="compact" autoFocus={sections.focus === 'entries'} />
+              <DataTable<ViewEntryRow>
+                aria-label="Accounting entries"
+                columns={entryColumns}
+                rows={entries}
+                getRowKey={(r) => r.key}
+                getRowClassName={(r) => (r.description || r.detail ? MULTILINE_ROW : undefined)}
+                density="compact"
+                autoFocus={sections.focus === 'entries'}
+              />
             </Section>
           ) : detailed && entries.length === 0 && !v.isCancelled ? (
             <p className="bx-muted">This voucher records stock only — it has no accounting entries.</p>

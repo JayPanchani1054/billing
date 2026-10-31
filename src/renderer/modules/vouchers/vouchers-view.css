@@ -13,6 +13,21 @@
   font-size: var(--text-caption);
   white-space: normal;
 }
+/* 2.2: a line's name ellipsizes on its own line; its description (as typed) keeps its line breaks and wraps long words. */
+.bx-vch-view__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bx-vch-view__desc {
+  font-size: var(--text-caption);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+/* A row with a line under its name keeps every cell on the name's line. */
+.bx-vch-view__row--multiline > td {
+  padding-block: var(--space-1);
+  vertical-align: top;
+}
 /* Room for the focus ring inside the title row's clipped context run. */
 .bx-vch-db__dates {
   padding: 3px 0;

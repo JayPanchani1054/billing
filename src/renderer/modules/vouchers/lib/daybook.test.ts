@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import type { GstLineView, PreviewInventoryLine, VoucherDetail, VoucherListRow } from '../../../../shared/types/vouchers.ts';
+import { fileURLToPath } from 'node:url';
+import type { GstLineView, InstrumentType, PreviewInventoryLine, VoucherDetail, VoucherDetailEntry, VoucherListRow } from '../../../../shared/types/vouchers.ts';
 import {
   baseTypesOf,
   DAYBOOK_CHIPS,
@@ -9,9 +11,11 @@ import {
   dayBookExportRows,
   dayBookExportTotals,
   dayBookTotals,
+  entryDetailLine,
   hiddenItemColumns,
   isWholePeriod,
   keyAfterRemoval,
+  lineDescription,
   openTarget,
   partyLine,
   referenceLine,
@@ -20,6 +24,7 @@ import {
   toDayBookRow,
   toggleChip,
   typesLabel,
+  viewEntryRows,
   viewSections,
   viewStateWords,
   viewTotals,
@@ -366,5 +371,82 @@ describe('voucher view: the document (SPEC-21 §1.5)', () => {
     const v = { totals: { amount: 118000, taxable: 100000, roundOff: 0 }, gstLines: [gl({ taxableValue: 100000, cgst: 9000, sgst: 9000 })], inventory: [] };
     assert.deepEqual(viewTotals({ ...v, placeOfSupply: '04' }).map((r) => r.label), ['Taxable', 'CGST 9%', 'UTGST 9%', 'Total ₹']);
     assert.deepEqual(viewTotals({ ...v, placeOfSupply: '07' }).map((r) => r.label), ['Taxable', 'CGST 9%', 'SGST 9%', 'Total ₹'], 'Delhi has a legislature: SGST');
+  });
+});
+
+// ─────────────── Voucher view 2.2: line descriptions ───────────────
+
+/** The instrument names voucher entry gives (entry/dialogs.tsx INSTRUMENT_LABEL, a .tsx file node cannot load). */
+const INSTRUMENTS: Readonly<Record<InstrumentType, string>> = { cheque: 'Cheque', dd: 'Demand draft', neft: 'NEFT', rtgs: 'RTGS', imps: 'IMPS', upi: 'UPI', card: 'Card', cash: 'Cash', other: 'Other' };
+
+const entry = (over: Partial<VoucherDetailEntry>): VoucherDetailEntry => ({
+  id: 7,
+  lineNo: 1,
+  ledgerId: 12,
+  ledgerName: 'Rent',
+  amount: 2500000,
+  role: 'other',
+  gstDutyHead: null,
+  narration: null,
+  instrument: null,
+  bankDate: null,
+  billAllocations: [],
+  costAllocations: [],
+  ...over,
+});
+
+describe("voucher view 2.2: a line's own description under its name", () => {
+  it('as typed: trimmed, its line breaks kept (CR LF and CR read as LF); nothing when blank', () => {
+    assert.equal(lineDescription('  Brass, 4 inch\r\nantique finish\rpack of 2  '), 'Brass, 4 inch\nantique finish\npack of 2');
+    for (const blank of ['', '   ', '\n \n', null, undefined]) assert.equal(lineDescription(blank), null, JSON.stringify(blank));
+  });
+
+  it('item lines: the description typed on this voucher; nothing when the line has none or the core leaves the field out', () => {
+    assert.equal(lineDescription(inv({ description: 'For site 4, Pune\nDeliver by 12-Oct' }).description), 'For site 4, Pune\nDeliver by 12-Oct');
+    assert.equal(lineDescription(inv({ description: null }).description), null);
+    assert.equal('description' in inv({}), false, 'the fixture is a line from a core that does not send the field');
+    assert.equal(lineDescription(inv({}).description), null);
+  });
+
+  it('Dr / Cr lines: the narration is the line description, on a line of its own — never inside the details line', () => {
+    const rent = entry({
+      narration: '  October rent, shop 4\nincl. maintenance ',
+      billAllocations: [{ refType: 'new', billName: 'R-10', amount: 2500000, creditDays: 10, dueDate: '2026-10-15' }],
+      costAllocations: [{ costCentreId: 1, costCentreName: 'Shop 4', amount: 2500000 }],
+    });
+    const bank = entry({
+      id: 8,
+      lineNo: 2,
+      ledgerName: 'HDFC Bank',
+      amount: -2500000,
+      role: 'cash_bank',
+      instrument: { type: 'cheque', number: '000123', date: '2026-10-05', bankName: 'HDFC', favouring: 'Kumar Estates' },
+      bankDate: '2026-10-07',
+    });
+    assert.deepEqual(viewEntryRows([rent, bank], INSTRUMENTS), [
+      { key: '7', name: 'Rent', description: 'October rent, shop 4\nincl. maintenance', detail: 'New Ref R-10 ₹ 25,000.00 (due 15-Oct-26) · Shop 4 ₹ 25,000.00', debit: 2500000, credit: 0 },
+      { key: '8', name: 'HDFC Bank', description: null, detail: 'Cheque 000123 5-Oct-26 HDFC favouring Kumar Estates · Cleared in bank on 7-Oct-26', debit: 0, credit: 2500000 },
+    ]);
+    assert.equal(entryDetailLine(rent, INSTRUMENTS).includes('October rent'), false);
+  });
+
+  it("a hook's narration (TDS) is its line's description; a line with neither shows its name alone", () => {
+    const rows = viewEntryRows([entry({ ledgerName: 'TDS on Contracts', amount: -50000, narration: 'TDS u/s 194C @ 1% on ₹ 50,000.00' }), entry({ id: 9, ledgerName: 'Round Off', amount: 0, narration: ' ' })], INSTRUMENTS);
+    assert.deepEqual([rows[0].description, rows[0].detail, rows[0].credit], ['TDS u/s 194C @ 1% on ₹ 50,000.00', '', 50000]);
+    assert.deepEqual([rows[1].description, rows[1].detail, rows[1].debit, rows[1].credit], [null, '', 0, 0]);
+  });
+
+  it('the view renders it as React text on a muted line of its own (pre-line, long words wrap), in normal and Detailed views', () => {
+    const read = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n?/g, '\n');
+    const view = read('../VoucherViewScreen.tsx');
+    assert.match(view, /const description = lineDescription\(r\.description\);/, 'the item column (every view, every voucher with item lines)');
+    assert.match(view, /\{description \? <div className="bx-muted bx-vch-view__desc">\{description\}<\/div> : null\}/);
+    assert.match(view, /\{r\.description \? <div className="bx-muted bx-vch-view__desc">\{r\.description\}<\/div> : null\}/, 'the Particulars column');
+    assert.match(view, /viewEntryRows\(v\?\.entries \?\? \[\], INSTRUMENT_LABEL\)/);
+    assert.doesNotMatch(view, /dangerouslySetInnerHTML/);
+    const css = read('../vouchers-view.css');
+    const rule = /\.bx-vch-view__desc \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    for (const decl of ['font-size: var(--text-caption);', 'white-space: pre-line;', 'overflow-wrap: anywhere;']) assert.ok(rule.includes(decl), decl);
+    assert.match(css, /\.bx-vch-view__row--multiline > td \{[^}]*vertical-align: top;/, 'the amounts stay on the name line of a taller row');
   });
 });
